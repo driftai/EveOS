@@ -2,23 +2,116 @@
   'use strict';
 
   const API = '/api/world-portal';
+  const CONTROL_BASES = [
+    'http://127.0.0.1:9082',
+    'http://127.0.0.1:8765',
+    'http://127.0.0.1:3000'
+  ];
   const view = document.getElementById('world-portal-view');
   const frame = document.getElementById('world-portal-frame');
   const status = document.getElementById('world-portal-status');
   const serverButton = document.getElementById('world-portal-server-btn');
   let snapshot = null;
   let timer = 0;
+  let recoveryPromise = null;
 
   function navigateFrame(source) {
     if (!frame || frame.getAttribute('src') === source) return;
     frame.setAttribute('src', source);
   }
 
-  async function request(path, method = 'GET') {
+  async function readJson(response) {
+    return response.json().catch(() => ({}));
+  }
+
+  async function controllerRequest(baseUrl, path, method = 'GET', timeoutMs = 2600) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method,
+        cache: 'no-store',
+        signal: controller.signal
+      });
+      const payload = await readJson(response);
+      if (!response.ok) throw new Error(payload.message || `Controller request failed (${response.status})`);
+      return payload;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async function findWorldBookController() {
+    for (const baseUrl of CONTROL_BASES) {
+      try {
+        const payload = await controllerRequest(baseUrl, '/api/world-book/status');
+        if (payload?.controllerAvailable !== false) return { baseUrl, payload };
+      } catch (_) {
+        // Try the next known local EveOS control endpoint.
+      }
+    }
+    return null;
+  }
+
+  async function portalRouteReady(timeoutMs = 10000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(`${API}/status`, { cache: 'no-store' });
+        const payload = await readJson(response);
+        if (response.ok && payload?.service === 'world-portal-controller') return payload;
+      } catch (_) {
+        // World Book is expected to disappear briefly while it restarts.
+      }
+      await new Promise(resolve => setTimeout(resolve, 180));
+    }
+    return null;
+  }
+
+  async function recoverStaleWorldBook() {
+    if (recoveryPromise) return recoveryPromise;
+    recoveryPromise = (async () => {
+      const managed = await findWorldBookController();
+      if (!managed) return false;
+
+      if (status) status.textContent = 'Refreshing World Book to load World Portal support...';
+      if (serverButton) serverButton.disabled = true;
+
+      try {
+        if (managed.payload?.running === true) {
+          await controllerRequest(managed.baseUrl, '/api/world-book/stop', 'POST', 5000);
+        }
+        await controllerRequest(managed.baseUrl, '/api/world-book/start', 'POST', 7000);
+        const ready = await portalRouteReady();
+        if (!ready) return false;
+        if (status) status.textContent = 'World Portal bridge refreshed.';
+        return true;
+      } catch (_) {
+        return false;
+      } finally {
+        if (serverButton) serverButton.disabled = false;
+      }
+    })();
+
+    try {
+      return await recoveryPromise;
+    } finally {
+      recoveryPromise = null;
+    }
+  }
+
+  async function request(path, method = 'GET', allowRecovery = true) {
     const response = await fetch(`${API}${path}`, { method, cache: 'no-store' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || `World Portal request failed (${response.status})`);
-    return payload;
+    const payload = await readJson(response);
+    if (response.ok) return payload;
+
+    if (allowRecovery && response.status === 404) {
+      const recovered = await recoverStaleWorldBook();
+      if (recovered) return request(path, method, false);
+      throw new Error('World Portal bridge is out of date. Restart World Book from Eve OS, then refresh.');
+    }
+
+    throw new Error(payload.message || `World Portal request failed (${response.status})`);
   }
 
   function selectedContext() {
