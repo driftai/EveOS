@@ -136,15 +136,23 @@ function configureControlsForProjection(controls, blend, planetScale = 1) {
   ) * scale;
 }
 
+function isWorldBookEmbedded() {
+  return new URLSearchParams(window.location.search).get("embedded") === "world-book";
+}
+
 export async function createScene(
   container, state, onProgress, initialSurface = null, initialCelestialBodies = [],
 ) {
+  const embeddedInWorldBook = isWorldBookEmbedded();
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: false,
     powerPreference: "high-performance",
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(Math.min(
+    window.devicePixelRatio || 1,
+    embeddedInWorldBook ? 1.35 : 2,
+  ));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -356,7 +364,12 @@ export async function createScene(
 
   window.addEventListener("resize", resize);
 
-  renderer.setAnimationLoop(() => {
+  const embeddedFrameInterval = 1000 / 45;
+  let lastRenderedAt = -Infinity;
+  renderer.setAnimationLoop((time) => {
+    if (embeddedInWorldBook && time - lastRenderedAt < embeddedFrameInterval) return;
+    lastRenderedAt = time;
+
     const delta = Math.min(clock.getDelta(), 0.05);
     const blend = THREE.MathUtils.clamp(state.projectionBlend ?? 0.0, 0, 1);
 
