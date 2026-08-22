@@ -49,7 +49,7 @@
   }
   await window.WorldBookAppReady;
   const controllers = [
-    "assets/js/world-portal-view.js?v=fdd278bf7f4e",
+    "assets/js/world-portal-view.js?v=3be0ff740abf",
     "assets/js/integration/core.js?v=5f1f85a4c26c",
     "assets/js/integration/operations.js?v=654635e153ab",
     "assets/js/integration/planner.js?v=e2798ff63842",
