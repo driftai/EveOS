@@ -358,7 +358,7 @@
         row.className = 'btn-action-row';
         row.dataset.audioflixPianoBackupRow = 'true';
         row.style.marginTop = '8px';
-        row.innerHTML = `<button type="button" onclick="exportPianoLibraryBackup()" class="btn-primary" style="background:#0f766e;">Export Piano Auto Player</button><label class="btn-secondary" style="cursor:pointer; margin:0;">Import Piano Auto Player<input type="file" accept=".zip,.json,application/zip,application/json" hidden onchange="importPianoLibraryBackup(this)"></label>`;
+        row.innerHTML = `<button type="button" onclick="exportPianoLibraryBackup()" class="btn-backup">Export Piano Auto Player</button><label class="btn-restore" style="cursor:pointer; margin:0;">Import Piano Auto Player<input type="file" accept=".zip,.json,application/zip,application/json" hidden onchange="importPianoLibraryBackup(this)"></label>`;
         const note = document.createElement('div');
         note.dataset.audioflixPianoBackupNote = 'true';
         note.style.cssText = 'margin-top:6px; font-size:0.78rem; opacity:0.72;';
@@ -367,12 +367,13 @@
         statusNode.parentNode?.insertBefore(note, statusNode);
     }
 
-    Object.assign(window, { exportPianoLibraryBackup, importPianoLibraryBackup });
-    const observer = new MutationObserver(installPianoBackupRow);
-    const start = () => {
+    const refreshBase = window.refreshAudioflixBackupPanel;
+    window.refreshAudioflixBackupPanel = function (...args) {
+        const result = refreshBase?.apply(this, args);
         installPianoBackupRow();
-        observer.observe(document.body, { childList: true, subtree: true });
+        return result;
     };
-    if (document.body) start();
-    else document.addEventListener('DOMContentLoaded', start, { once: true });
+    Object.assign(window, { exportPianoLibraryBackup, importPianoLibraryBackup });
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installPianoBackupRow, { once: true });
+    else installPianoBackupRow();
 })();
