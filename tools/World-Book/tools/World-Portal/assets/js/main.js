@@ -24,8 +24,14 @@ import { createOuterToolPort } from "./outer/outer-tool-port-controller.js";
 // embedded frame would load World Portal into itself: a second full instance
 // with a second WebGL globe and a duplicated control panel.
 //
-// Detect that and stop before anything heavy is built, then offer the way back.
-if (window.self !== window.top) {
+// World Book also embeds World Portal intentionally, so iframe presence alone
+// is not enough to identify recursion. World Book marks its Portal frame with
+// ?embedded=world-book; only unmarked framed loads are treated as the nested
+// outer-tool fallback.
+const embedMode = new URLSearchParams(window.location.search).get("embedded");
+const isNestedPortal = window.self !== window.top && embedMode !== "world-book";
+
+if (isNestedPortal) {
   const notice = document.createElement("div");
   notice.className = "nested-portal-notice";
   const heading = document.createElement("h1");
