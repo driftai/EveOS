@@ -58,6 +58,7 @@ def assert_static_contract() -> None:
     portal_server = (PORTAL / "server.py").read_text(encoding="utf-8")
     portal_html = (PORTAL / "index.html").read_text(encoding="utf-8")
     portal_bridge = (PORTAL / "assets" / "js" / "eveos-host-bridge.js").read_text(encoding="utf-8")
+    portal_main = (PORTAL / "assets" / "js" / "main.js").read_text(encoding="utf-8")
     world_html = (WORLD_BOOK / "app" / "index.html").read_text(encoding="utf-8")
     world_view = (WORLD_BOOK / "app" / "assets" / "js" / "world-portal-view.js").read_text(encoding="utf-8")
     responsive = (WORLD_BOOK / "app" / "assets" / "css" / "layers" / "73-header-responsive.css").read_text(encoding="utf-8")
@@ -71,6 +72,8 @@ def assert_static_contract() -> None:
     assert 'id="world-portal-btn"' in world_html and 'id="world-portal-view"' in world_html
     assert "world-portal-detach-btn" in world_html and "world-book:context" in world_view
     assert "Starting World Portal" in world_view and "location.replace" in world_view
+    assert "embedded=world-book" in world_view
+    assert 'embedMode !== "world-book"' in portal_main
     assert "grid-column: 1 / -1" in responsive and "repeat(2, minmax(0, 1fr))" in responsive
     assert 'data-world-book-view="portal"' in overlay and "data-world-portal-frame" in overlay
     assert "view=world-portal&embedded=1" in detached
