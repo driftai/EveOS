@@ -59,6 +59,8 @@ def assert_static_contract() -> None:
     portal_html = (PORTAL / "index.html").read_text(encoding="utf-8")
     portal_bridge = (PORTAL / "assets" / "js" / "eveos-host-bridge.js").read_text(encoding="utf-8")
     portal_main = (PORTAL / "assets" / "js" / "main.js").read_text(encoding="utf-8")
+    portal_scene = (PORTAL / "assets" / "js" / "scene" / "create-scene.js").read_text(encoding="utf-8")
+    earth_shader = (PORTAL / "assets" / "js" / "scene" / "shaders" / "earth-fragment.js").read_text(encoding="utf-8")
     world_html = (WORLD_BOOK / "app" / "index.html").read_text(encoding="utf-8")
     world_view = (WORLD_BOOK / "app" / "assets" / "js" / "world-portal-view.js").read_text(encoding="utf-8")
     responsive = (WORLD_BOOK / "app" / "assets" / "css" / "layers" / "73-header-responsive.css").read_text(encoding="utf-8")
@@ -74,6 +76,8 @@ def assert_static_contract() -> None:
     assert "Starting World Portal" in world_view and "location.replace" in world_view
     assert "embedded=world-book" in world_view
     assert 'embedMode !== "world-book"' in portal_main
+    assert "embeddedInWorldBook ? 1.35 : 2" in portal_scene and "1000 / 45" in portal_scene
+    assert "if (globePoleCap > 0.001)" in earth_shader and "polarRingAverage(vUv.y)" in earth_shader
     assert "grid-column: 1 / -1" in responsive and "repeat(2, minmax(0, 1fr))" in responsive
     assert 'data-world-book-view="portal"' in overlay and "data-world-portal-frame" in overlay
     assert "view=world-portal&embedded=1" in detached
