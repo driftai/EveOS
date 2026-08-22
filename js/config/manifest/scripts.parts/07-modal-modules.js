@@ -16,7 +16,7 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/modals/emoji-picker.js?v=6984d0b289de",
     "js/modules/modals/modal-settings.ratings.js?v=178b9460bbb9",
     "js/modules/modals/modal-settings.modular.ui.js?v=89212c404965",
-    "js/modules/modals/modal-settings.audioflix-backup.js?v=202735e5fc48",
+    "js/modules/modals/modal-settings.audioflix-backup.js?v=6f09f81d4cd5",
     "js/modules/modals/modal-settings.duplicates.js?v=32e96ac69523",
     "js/modules/modals/modal-settings.modular.browser.helpers.files.js?v=0697dec880f1",
     "js/modules/modals/modal-settings.modular.browser.helpers.normalize.js?v=31643869b261",
