@@ -198,7 +198,7 @@ export const EARTH_FRAGMENT_SHADER = `
       + ((1.0 - o1) + (1.0 - o2) + (1.0 - o3) + (1.0 - o4) + (1.0 - o5) + (1.0 - o6)) * ringWeight;
 
     vec3 oceanSum = c0 * o0 * centerWeight;
-    oceanSum += c1 * o1 * centerWeight;
+    oceanSum += c1 * o1 * ringWeight;
     oceanSum += c2 * o2 * ringWeight;
     oceanSum += c3 * o3 * ringWeight;
     oceanSum += c4 * o4 * ringWeight;
