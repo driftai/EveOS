@@ -119,7 +119,7 @@ function runFrontendFilterSmoke() {
 
     click('Group 2'); updateGroup('Group 2');
     saved = JSON.parse(storage.get('eveAudioflixFrontendExclusionsV1') || '{}');
-    assert(!saved.musicGroups.includes('Group 2') && filterState.activeFrontendMusicGroup === '', 'third click clears the exclusion back to neutral');
+    assert(!saved.musicGroups.includes('Group 2') && filterState.activeFrontendMusicGroup === 'Group 1', 'third click neutralizes only that exclusion and preserves another included group');
 }
 
 (async function main() {
