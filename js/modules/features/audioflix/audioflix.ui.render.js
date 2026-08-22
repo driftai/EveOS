@@ -167,3 +167,211 @@ window.EveAudioflixUiRender = window.EveAudioflixUiRender || {};
 
     ns.ready = true;
 })();
+
+// Frontend filter extension: preserve the long-standing single include fields while layering
+// persistent exclusions on top. This keeps existing Audioflix state/backups readable and makes
+// exclusion authoritative when a track/sound belongs to both an included and excluded scope.
+(function () {
+    'use strict';
+
+    const STORE_KEY = 'eveAudioflixFrontendExclusionsV1';
+    const EMPTY = { soundGroups: [], musicGroups: [], musicArtists: [], musicClassifiers: [] };
+    const unique = (values) => [...new Set((Array.isArray(values) ? values : []).map((v) => String(v || '').trim()).filter(Boolean))];
+    const load = () => {
+        try {
+            const raw = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+            return Object.fromEntries(Object.keys(EMPTY).map((key) => [key, unique(raw?.[key])]));
+        } catch (_) {
+            return { ...EMPTY };
+        }
+    };
+    const excluded = load();
+    const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(excluded)); } catch (_) {} };
+    const get = (key) => unique(excluded[key]);
+    const set = (key, values) => { excluded[key] = unique(values); save(); return excluded[key]; };
+
+    window.EveAudioflixFrontendFilters = Object.assign(window.EveAudioflixFrontendFilters || {}, {
+        ready: true,
+        get,
+        clear(key) { if (Object.prototype.hasOwnProperty.call(EMPTY, key)) set(key, []); }
+    });
+
+    const style = document.createElement('style');
+    style.id = 'audioflix-frontend-exclusion-style';
+    style.textContent = `
+        .audioflix-group-pill.is-excluded { color:#fecaca !important; border-color:rgba(248,113,113,.78) !important; background:rgba(127,29,29,.48) !important; box-shadow:inset 0 0 0 1px rgba(248,113,113,.14); }
+        .audioflix-group-pill.is-excluded:hover { color:#fee2e2 !important; border-color:rgba(248,113,113,.96) !important; background:rgba(153,27,27,.58) !important; }
+        .audioflix-group-pill.is-excluded .audioflix-group-pill-count { color:#fecaca !important; }
+    `;
+    document.head.appendChild(style);
+
+    const configs = {
+        'audioflix-active-group': { type: 'sound', dimension: 'group', include: 'activeFrontendGroup', bucket: 'soundGroups' },
+        'audioflix-active-music-group': { type: 'music', dimension: 'group', include: 'activeFrontendMusicGroup', bucket: 'musicGroups' },
+        'audioflix-active-music-artist': { type: 'music', dimension: 'artist', include: 'activeFrontendMusicArtist', bucket: 'musicArtists' },
+        'audioflix-active-music-classifier': { type: 'music', dimension: 'classifier', include: 'activeFrontendMusicClassifier', bucket: 'musicClassifiers' }
+    };
+    let pending = null;
+    document.addEventListener('click', (event) => {
+        const button = event.target?.closest?.('[data-af-action="select-frontend-group"]');
+        if (!button) return;
+        const target = String(button.dataset.afGroup || '');
+        const type = button.dataset.afType === 'music' ? 'music' : 'sound';
+        const dimension = button.dataset.afDimension || (target.startsWith('smart:artist:') ? 'artist' : target.startsWith('class:') ? 'classifier' : 'group');
+        pending = { type, dimension, target, at: Date.now() };
+    }, true);
+
+    const stateApi = window.EveAudioflixState;
+    if (stateApi?.update && !stateApi.update.__eveTriStateFilters) {
+        const originalUpdate = stateApi.update.bind(stateApi);
+        const wrappedUpdate = function (patch, reason) {
+            const nextPatch = { ...(patch || {}) };
+            const cfg = configs[reason];
+            const click = pending && Date.now() - pending.at < 1500 ? pending : null;
+            if (cfg && click && click.type === cfg.type && click.dimension === cfg.dimension) {
+                pending = null;
+                const target = click.target;
+                const current = String(stateApi.ensure?.()?.[cfg.include] || '');
+                let deny = get(cfg.bucket);
+                if (!target) {
+                    nextPatch[cfg.include] = '';
+                    deny = [];
+                } else if (current === target) {
+                    // Second click: included -> excluded.
+                    nextPatch[cfg.include] = '';
+                    deny = unique([...deny, target]);
+                } else if (deny.includes(target)) {
+                    // Third click: excluded -> neutral.
+                    nextPatch[cfg.include] = '';
+                    deny = deny.filter((value) => value !== target);
+                } else {
+                    // First click: neutral -> included.
+                    nextPatch[cfg.include] = target;
+                    deny = deny.filter((value) => value !== target);
+                }
+                set(cfg.bucket, deny);
+            }
+            return originalUpdate(nextPatch, reason);
+        };
+        wrappedUpdate.__eveTriStateFilters = true;
+        stateApi.update = wrappedUpdate;
+    }
+
+    const idsFor = (entries, keys) => {
+        const wanted = new Set(keys);
+        const ids = new Set();
+        (entries || []).forEach(([key, members]) => {
+            if (!wanted.has(String(key))) return;
+            (members || []).forEach((item) => { if (item?.id) ids.add(item.id); });
+        });
+        return ids;
+    };
+    const subtract = (items, entries, keys) => {
+        const denied = idsFor(entries, keys);
+        return denied.size ? (items || []).filter((item) => !denied.has(item.id)) : (items || []);
+    };
+    const pillClass = (key, active, bucket) => key === active ? ' is-active' : get(bucket).includes(key) ? ' is-excluded' : '';
+    const pillTitle = (key, active, bucket) => key === active ? 'Included — click again to exclude' : get(bucket).includes(key) ? 'Excluded — click again to clear' : 'Click to include';
+
+    const renderApi = window.EveAudioflixUiRender;
+    if (renderApi?.create && !renderApi.create.__eveTriStateFilters) {
+        const originalCreate = renderApi.create.bind(renderApi);
+        const wrappedCreate = function (ctx) {
+            const base = originalCreate(ctx);
+            const esc = ctx.esc;
+            const state = ctx.state;
+
+            function frontendActiveGroup(type = 'sound') {
+                const entries = base.frontendGroupEntries(type);
+                if (type === 'music') {
+                    const baseItems = base.frontendMusicItems();
+                    const chosenGroup = entries.find(([name]) => name === (state().activeFrontendMusicGroup || ''));
+                    const groupCandidates = chosenGroup ? chosenGroup[1] : baseItems;
+                    const groupItems = subtract(groupCandidates, entries, get('musicGroups'));
+                    const smart = base.frontendMusicSmartEntries(groupItems);
+                    const chosenArtist = smart.find(([key]) => key === (state().activeFrontendMusicArtist || ''));
+                    const artistCandidates = chosenArtist ? chosenArtist[1] : groupItems;
+                    const artistItems = subtract(artistCandidates, smart, get('musicArtists'));
+                    const classifiers = ctx.classifierEntries(artistItems);
+                    const chosenClassifier = classifiers.find(([key]) => key === (state().activeFrontendMusicClassifier || ''));
+                    const classifierCandidates = chosenClassifier ? chosenClassifier[1] : artistItems;
+                    const items = subtract(classifierCandidates, classifiers, get('musicClassifiers'));
+                    const labels = [chosenGroup?.[0] || 'All Groups', chosenArtist?.[2], chosenClassifier?.[2]].filter(Boolean);
+                    return {
+                        name: labels.join(' / '), items, entries, smart, classifiers,
+                        activeGroup: chosenGroup?.[0] || '',
+                        activeArtist: chosenArtist?.[0] || '',
+                        activeClassifier: chosenClassifier?.[0] || '',
+                        displayName: labels.join(' / ')
+                    };
+                }
+                const source = [...(state().soundboard || []), ...ctx.getPorted()].filter((item) => ctx.isItemExposed(item, 'sound'));
+                const active = String(state().activeFrontendGroup || '');
+                const chosen = entries.find(([name]) => name === active);
+                const candidates = chosen ? chosen[1] : source;
+                return { name: chosen?.[0] || 'All Groups', items: subtract(candidates, entries, get('soundGroups')), entries, activeGroup: chosen?.[0] || '' };
+            }
+
+            const renderFrontendActive = () => {
+                const { name, items, entries, activeGroup } = frontendActiveGroup('sound');
+                const all = `<button type="button" class="audioflix-group-pill${activeGroup ? '' : ' is-active'}" data-af-action="select-frontend-group" data-af-type="sound" data-af-group="" title="Clear group include/exclude focus">All Groups<span class="audioflix-group-pill-count">${[...(state().soundboard || []), ...ctx.getPorted()].filter((item) => ctx.isItemExposed(item, 'sound')).length}</span></button>`;
+                const pills = entries.map(([g, members]) => `<button type="button" class="audioflix-group-pill${pillClass(g, activeGroup, 'soundGroups')}" data-af-action="select-frontend-group" data-af-type="sound" data-af-group="${esc(g)}" title="${pillTitle(g, activeGroup, 'soundGroups')}">${esc(g)}<span class="audioflix-group-pill-count">${members.length}</span></button>`).join('');
+                const selector = `<div class="audioflix-group-selector"><span class="audioflix-scope-label">Group:</span>${all}${pills}</div>`;
+                return `${selector}<div class="audioflix-item-grid" data-af-active-group="${esc(name)}">${items.map((item) => base.renderItemCard(item, 'sound')).join('')}</div>${items.some((item) => item.hotkey) ? '<div class="audioflix-hotkey-hint">Custom hotkeys are active system-wide.</div>' : ''}`;
+            };
+
+            const renderFrontendMusicActive = () => {
+                const { name, items, entries, smart, classifiers, activeGroup, activeArtist, activeClassifier, displayName } = frontendActiveGroup('music');
+                const musicItems = state().music || [];
+                const allFolders = [...new Set(musicItems.map((item) => String(item.folder || item.card || '').trim()).filter(Boolean))];
+                const activeScope = state().activeMusicFolderScope || '';
+                const classifierRow = ctx.renderClassifierRow ? ctx.renderClassifierRow(activeClassifier, classifiers) : '';
+                const scopePills = `<div class="audioflix-folder-scope-selector"><span class="audioflix-scope-label">Track Focus:</span><button type="button" class="audioflix-scope-pill${activeScope === '' ? ' is-active' : ''}" data-af-action="select-folder-scope" data-af-scope="">🌐 All Folders (No Focus)</button>${allFolders.map((f) => `<button type="button" class="audioflix-scope-pill${activeScope === f ? ' is-active' : ''}" data-af-action="select-folder-scope" data-af-scope="${esc(f)}">📁 ${esc(f)}</button>`).join('')}</div>`;
+                const allGroupPill = `<button type="button" class="audioflix-group-pill${activeGroup === '' ? ' is-active' : ''}" data-af-action="select-frontend-group" data-af-dimension="group" data-af-type="music" data-af-group="" title="Clear group include/exclude focus">All Groups (No Focus)<span class="audioflix-group-pill-count">${base.frontendMusicItems().length}</span></button>`;
+                const selector = `<div class="audioflix-group-selector"><span class="audioflix-scope-label">Group:</span>${allGroupPill}${entries.map(([g, members]) => `<button type="button" class="audioflix-group-pill${pillClass(g, activeGroup, 'musicGroups')}" data-af-action="select-frontend-group" data-af-dimension="group" data-af-type="music" data-af-group="${esc(g)}" title="${pillTitle(g, activeGroup, 'musicGroups')}">${esc(g)}<span class="audioflix-group-pill-count">${members.length}</span></button>`).join('')}</div>`;
+                const smartOpen = ctx.smartArtistExpanded;
+                const smartPills = smart?.length && smartOpen ? smart.map(([key, members, label]) => `<button type="button" class="audioflix-group-pill${pillClass(key, activeArtist, 'musicArtists')}" data-af-action="select-frontend-group" data-af-dimension="artist" data-af-type="music" data-af-group="${esc(key)}" title="${pillTitle(key, activeArtist, 'musicArtists')}">${esc(label)}<span class="audioflix-group-pill-count">${members.length}</span></button>`).join('') : '';
+                const smartToggleBtn = smart?.length ? `<button type="button" class="audioflix-add-toggle${smartOpen ? ' is-active' : ''}" data-af-action="toggle-smart-artists" style="font-size:0.75rem; padding:3px 10px; border-radius:12px; cursor:pointer;" title="Toggle artist smart filters">🎤 Artists (${smart.length}) ${smartOpen ? '▲' : '▼'}</button>` : '';
+                const smartSelector = smart?.length ? `<div class="audioflix-group-selector audioflix-smart-selector" style="align-items:center; gap:8px;"><span class="audioflix-scope-label">Smart:</span>${smartToggleBtn}${smartPills}</div>` : '';
+                const amq = ctx.getActiveMusicQueue();
+                const isQueuePlaying = amq.isPlaying && amq.groupName === name;
+                const playGroupBtn = items.length ? (isQueuePlaying ? `<button type="button" class="audioflix-play-group-btn is-active" data-af-action="stop-music-group">⏹ Stop Group</button>` : `<button type="button" class="audioflix-play-group-btn" data-af-action="play-music-group">▶ Play Group</button>`) : '';
+                const shuffleBtn = items.length ? `<button type="button" class="audioflix-play-group-btn${amq.shuffle ? ' is-active' : ''}" data-af-action="shuffle-music-group" title="Make the current track #1 and shuffle the rest">🔀 Shuffle Order</button>` : '';
+                const loopBtn = items.length ? `<button type="button" class="audioflix-play-group-btn${amq.loop ? ' is-active' : ''}" data-af-action="loop-music-group" title="When the last track ends, loop back to #1">🔁 ${amq.loop ? 'Loop On' : 'Activate Loop'}</button>` : '';
+                const queueViewBtn = items.length ? `<button type="button" class="audioflix-play-group-btn" data-af-action="open-queue-view" title="Open this group's queue inside EveOS">🖥 Queue View</button>` : '';
+                return `${scopePills}${selector}${smartSelector}${classifierRow}<div class="audioflix-frontend-subhead" style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:12px; padding:0 4px;"><div style="display:flex; align-items:center; gap:10px;"><strong style="font-size:1.05rem; color:#f8fafc;">${esc(displayName)}</strong> <span style="font-size:0.8rem; color:#94a3b8; font-weight:600;">(${items.length} track${items.length === 1 ? '' : 's'})</span></div><div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">${playGroupBtn}${shuffleBtn}${loopBtn}${queueViewBtn}</div></div><div class="audioflix-item-grid" data-af-active-group="${esc(name)}">${items.map((item) => base.renderItemCard(item, 'music')).join('')}</div>`;
+            };
+
+            function renderItems(items, type) {
+                const frontend = (type === 'music' ? (state().musicViewMode || 'backend') : (state().soundboardViewMode || 'backend')) === 'frontend';
+                if (!frontend) return base.renderItems(items, type);
+                if (!items.length) return `<div class="audioflix-empty">No ${type === 'music' ? 'tracks' : 'sounds'} yet.</div>`;
+                return type === 'music' ? renderFrontendMusicActive() : renderFrontendActive();
+            }
+
+            return { ...base, frontendActiveGroup, renderFrontendActive, renderFrontendMusicActive, renderItems };
+        };
+        wrappedCreate.__eveTriStateFilters = true;
+        renderApi.create = wrappedCreate;
+    }
+
+    const classifierApi = window.EveAudioflixClassifiersUi;
+    if (classifierApi?.create && !classifierApi.create.__eveTriStateFilters) {
+        const originalClassifierCreate = classifierApi.create.bind(classifierApi);
+        const wrappedClassifierCreate = function (ctx) {
+            const base = originalClassifierCreate(ctx);
+            const esc = ctx.esc;
+            base.renderFrontendRow = function (activeKey, scopedEntries) {
+                const entries = Array.isArray(scopedEntries) ? scopedEntries : (window.EveAudioflixClassifiers?.selectableEntries?.() || []);
+                if (!entries.length) return '';
+                const open = ctx.getFrontendOpen();
+                const toggle = `<button type="button" class="audioflix-group-pill${open ? ' is-active' : ''}" data-af-action="toggle-classifier-row" title="Show classifier filters">🏷 Classifiers<span class="audioflix-group-pill-count">${entries.length}</span></button>`;
+                const pills = open ? entries.map(([key, tracks, label]) => `<button type="button" class="audioflix-group-pill${pillClass(key, activeKey, 'musicClassifiers')}" data-af-action="select-frontend-group" data-af-dimension="classifier" data-af-type="music" data-af-group="${esc(key)}" title="${pillTitle(key, activeKey, 'musicClassifiers')}">${esc(label)}<span class="audioflix-group-pill-count">${tracks.length}</span></button>`).join('') : '';
+                return `<div class="audioflix-group-selector audioflix-classifier-selector"><span class="audioflix-scope-label">Classify:</span>${toggle}${pills}</div>`;
+            };
+            return base;
+        };
+        wrappedClassifierCreate.__eveTriStateFilters = true;
+        classifierApi.create = wrappedClassifierCreate;
+    }
+})();
