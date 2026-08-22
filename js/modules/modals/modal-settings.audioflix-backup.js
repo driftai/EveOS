@@ -279,3 +279,100 @@
 
     Object.assign(window, { exportAudioflixTabBackup, importAudioflixTabBackup, refreshAudioflixBackupPanel });
 })();
+
+// Piano Auto Player owns a separate song library on its local service. Surface that library beside
+// Soundboard and Music Library without folding its binary ZIP format into EveAudioflixState.
+(function () {
+    'use strict';
+
+    const MAX_PIANO_IMPORT_BYTES = 100 * 1024 * 1024;
+
+    function pianoServiceUrl() {
+        const direct = window.EveAudioflixPiano?.serviceUrl?.();
+        if (direct) return String(direct).replace(/\/?$/, '/');
+        const port = Number(window.config?.bridges?.pianoPlayerPort) || 8771;
+        return `http://127.0.0.1:${port}/`;
+    }
+
+    function pianoStatus(message, kind = 'info') {
+        const target = document.getElementById('audioflixBackupStatus');
+        if (target) {
+            target.textContent = message;
+            target.dataset.status = kind;
+        }
+        if (kind === 'error' && typeof window.showToast === 'function') window.showToast(message, 'error');
+    }
+
+    function downloadBlob(blob, name) {
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = name;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    async function exportPianoLibraryBackup() {
+        try {
+            pianoStatus('Exporting the Piano Auto Player library…');
+            const response = await fetch(`${pianoServiceUrl()}api/library/export`, { cache: 'no-store' });
+            if (!response.ok) throw new Error(`Piano service returned HTTP ${response.status}.`);
+            const blob = await response.blob();
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            downloadBlob(blob, `eveos-piano-auto-player-${stamp}.zip`);
+            pianoStatus('Exported the Piano Auto Player song library.', 'success');
+        } catch (error) {
+            pianoStatus(`Piano Auto Player export failed: ${error?.message || 'service unavailable'}. Start the Piano Auto Player service and try again.`, 'error');
+        }
+    }
+
+    async function importPianoLibraryBackup(input) {
+        const file = input?.files?.[0];
+        if (!file) return;
+        try {
+            if (file.size > MAX_PIANO_IMPORT_BYTES) throw new Error('Piano library backup is larger than 100 MB.');
+            pianoStatus('Merging the Piano Auto Player library…');
+            const response = await fetch(`${pianoServiceUrl()}api/library/import?filename=${encodeURIComponent(file.name || 'piano-library.zip')}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: file
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || result?.error) throw new Error(result?.error || `Piano service returned HTTP ${response.status}.`);
+            const imported = Number(result?.imported ?? result?.merged ?? result?.count);
+            const suffix = Number.isFinite(imported) ? ` ${imported} song${imported === 1 ? '' : 's'} processed.` : '';
+            pianoStatus(`Merged the Piano Auto Player library.${suffix} Existing songs were preserved unless their matching IDs were updated.`, 'success');
+        } catch (error) {
+            pianoStatus(`Piano Auto Player import failed: ${error?.message || 'service unavailable'}`, 'error');
+        } finally {
+            if (input) input.value = '';
+        }
+    }
+
+    function installPianoBackupRow() {
+        const statusNode = document.getElementById('audioflixBackupStatus');
+        if (!statusNode || document.querySelector('[data-audioflix-piano-backup-row]')) return;
+        const row = document.createElement('div');
+        row.className = 'btn-action-row';
+        row.dataset.audioflixPianoBackupRow = 'true';
+        row.style.marginTop = '8px';
+        row.innerHTML = `<button type="button" onclick="exportPianoLibraryBackup()" class="btn-primary" style="background:#0f766e;">Export Piano Auto Player</button><label class="btn-secondary" style="cursor:pointer; margin:0;">Import Piano Auto Player<input type="file" accept=".zip,.json,application/zip,application/json" hidden onchange="importPianoLibraryBackup(this)"></label>`;
+        const note = document.createElement('div');
+        note.dataset.audioflixPianoBackupNote = 'true';
+        note.style.cssText = 'margin-top:6px; font-size:0.78rem; opacity:0.72;';
+        note.textContent = 'Piano Auto Player exports its live song-library ZIP. Imports merge by song ID and do not wipe the existing Piano library.';
+        statusNode.parentNode?.insertBefore(row, statusNode);
+        statusNode.parentNode?.insertBefore(note, statusNode);
+    }
+
+    Object.assign(window, { exportPianoLibraryBackup, importPianoLibraryBackup });
+    const observer = new MutationObserver(installPianoBackupRow);
+    const start = () => {
+        installPianoBackupRow();
+        observer.observe(document.body, { childList: true, subtree: true });
+    };
+    if (document.body) start();
+    else document.addEventListener('DOMContentLoaded', start, { once: true });
+})();
