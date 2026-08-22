@@ -20,6 +20,18 @@
     frame.setAttribute('src', source);
   }
 
+  function embeddedPortalUrl(source) {
+    if (!source || source === 'about:blank') return source;
+    try {
+      const target = new URL(source);
+      target.searchParams.set('embedded', 'world-book');
+      return target.toString();
+    } catch (_) {
+      const separator = source.includes('?') ? '&' : '?';
+      return `${source}${separator}embedded=world-book`;
+    }
+  }
+
   async function readJson(response) {
     return response.json().catch(() => ({}));
   }
@@ -138,7 +150,7 @@
     view?.classList.toggle('is-online', running);
     if (status) status.textContent = next?.message || (running ? 'World Portal is online.' : 'World Portal is resting.');
     if (serverButton) serverButton.textContent = running ? 'Stop Portal' : 'Start Portal';
-    navigateFrame(running ? next.url : 'about:blank');
+    navigateFrame(running ? embeddedPortalUrl(next.url) : 'about:blank');
   }
 
   async function refresh() {
