@@ -106,20 +106,16 @@ async function refreshStats() {
     sheetEventTotal = 0;
   }
 }
-
 function queueStats() {
   clearTimeout(parseTimer);
   parseTimer = setTimeout(refreshStats, 180);
 }
-
 function internalMode() { return els.internalPlay.checked; }
-
 async function internalTimeline(performance = null) {
   const payload = { ...playbackPayload(), countdown_seconds: 0 };
   if (performance || isTimedPerformance()) return api.previewPerformance({ ...payload, performance: performance || activePerformance });
   return api.preview({ ...payload, sheet: els.sheet.value });
 }
-
 async function startPlayback(options = {}) {
   try {
     if (internalMode()) { internalPreview.unlock(); await pianoControls.prepareSound(); }
@@ -137,7 +133,6 @@ async function startPlayback(options = {}) {
     els.pause.textContent = "Ⅱ Pause";
   } catch (error) { toast(error.message, "error"); }
 }
-
 async function replayRecording() {
   const performance = recorder.snapshot().events.length ? recorder.snapshot().events : activePerformance;
   if (!performance.length) return toast("Record or load a performance first", "error");
@@ -148,7 +143,6 @@ async function replayRecording() {
     else { internalPreview.reset(); await api.playPerformance({ ...playbackPayload(), performance }); }
   } catch (error) { toast(error.message, "error"); }
 }
-
 async function togglePause() {
   try {
     if (lastStatus.status === "idle" && stoppedResumeEvent > 0) {
@@ -160,7 +154,6 @@ async function togglePause() {
     els.pause.textContent = data.paused ? "▶ Resume" : "Ⅱ Pause";
   } catch (error) { toast(error.message, "error"); }
 }
-
 async function stopPlayback() {
   try {
     const data = internalMode() ? internalPreview.stop() : await api.stop();
@@ -170,12 +163,12 @@ async function stopPlayback() {
     els.pause.textContent = stoppedResumeEvent > 0 ? "▶ Resume" : "Ⅱ Pause";
   } catch (error) { toast(error.message, "error"); }
 }
-
 async function pollStatus() {
   try {
     const status = internalMode() ? internalPreview.status() : await api.status();
     const previousStatus = lastStatus.status;
     lastStatus = status;
+    window.dispatchEvent(new CustomEvent("piano:sheet-progress-status", { detail: { ...status, timing_profile: status.timing_profile || els.sheet.dataset.timingProfile || "expressive", sheet_total: sheetEventTotal } }));
     els.statusChip.dataset.state = status.status || "idle";
     els.statusText.textContent = status.message || "Ready";
     const activeTimeline = ["countdown", "playing", "paused"].includes(status.status);
