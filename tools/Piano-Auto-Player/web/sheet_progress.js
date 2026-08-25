@@ -2,7 +2,7 @@ const STYLE_ID = "sheetProgressStyles";
 const EDITOR_CLASS = "sheet-progress-editor";
 const INPUT_CLASS = "sheet-progress-input";
 const PLAYABLE = /[A-Za-z0-9!@$%^*(]/;
-const EXPRESSIVE_GRID = new Set(["grid", "vpsheet", "roblox_grid"]);
+const PROFILE_ORDER = ["expressive", "grid", "vpsheet", "roblox_grid", "letter_grid"];
 
 function installStyles() {
   if (typeof document === "undefined" || document.getElementById(STYLE_ID)) return;
@@ -22,16 +22,9 @@ function installStyles() {
       color:rgba(234,241,247,0.004); -webkit-text-fill-color:rgba(234,241,247,0.004);
       caret-color:#eaf1f7;
     }
-    .${EDITOR_CLASS} .sheet-progress-event {
-      border-radius:3px; transition:background-color .06s linear, color .06s linear, box-shadow .06s linear;
-    }
-    .${EDITOR_CLASS} .sheet-progress-event.played {
-      color:#dbe7ef; background:rgba(67,165,255,.065); box-shadow:inset 0 -1px 0 rgba(67,165,255,.14);
-    }
-    .${EDITOR_CLASS} .sheet-progress-event.current {
-      color:#f4fbff; background:rgba(67,165,255,.46);
-      box-shadow:inset 0 -1px 0 #43a5ff, 0 0 10px rgba(67,165,255,.20);
-    }
+    .${EDITOR_CLASS} .sheet-progress-event { border-radius:3px; transition:background-color .06s linear, color .06s linear, box-shadow .06s linear; }
+    .${EDITOR_CLASS} .sheet-progress-event.played { color:#dbe7ef; background:rgba(67,165,255,.065); box-shadow:inset 0 -1px 0 rgba(67,165,255,.14); }
+    .${EDITOR_CLASS} .sheet-progress-event.current { color:#f4fbff; background:rgba(67,165,255,.46); box-shadow:inset 0 -1px 0 #43a5ff, 0 0 10px rgba(67,165,255,.20); }
   `;
   document.head.append(style);
 }
@@ -43,19 +36,12 @@ function appendEvent(events, kind, start, end) {
 function appendPause(events, value, start, end) {
   if (end <= start) return;
   const previous = events.at(-1);
-  if (previous?.kind === "pause" && previous.value === value) {
-    previous.end = end;
-    return;
-  }
+  if (previous?.kind === "pause" && previous.value === value) { previous.end = end; return; }
   events.push({ index:events.length + 1, kind:"pause", value, start, end });
 }
 function consumeWhitespace(text, start) {
-  let i = start;
-  let newlines = 0;
-  while (i < text.length && " \t\r\n".includes(text[i])) {
-    if (text[i] === "\n") newlines += 1;
-    i += 1;
-  }
+  let i = start, newlines = 0;
+  while (i < text.length && " \t\r\n".includes(text[i])) { if (text[i] === "\n") newlines += 1; i += 1; }
   return { end:i, kind:newlines >= 2 ? "paragraph" : "space" };
 }
 
@@ -66,9 +52,7 @@ function parseExpressiveRanges(text) {
     const ch = text[i];
     if (" \t\r\n".includes(ch)) {
       const ws = consumeWhitespace(text, i);
-      appendPause(events, ws.kind, i, ws.end);
-      i = ws.end;
-      continue;
+      appendPause(events, ws.kind, i, ws.end); i = ws.end; continue;
     }
     if (ch === "[") {
       const end = text.indexOf("]", i + 1);
@@ -80,31 +64,23 @@ function parseExpressiveRanges(text) {
             for (let p = i + 1; p < end; p += 1) if (isPlayable(text[p])) appendEvent(events, "fast", p, p + 1);
           } else appendEvent(events, "chord", i, end + 1);
         }
-        i = end + 1;
-        continue;
+        i = end + 1; continue;
       }
     }
     if (ch === "{") {
       const end = text.indexOf("}", i + 1);
       if (end !== -1) {
         for (let p = i + 1; p < end; p += 1) if (isPlayable(text[p])) appendEvent(events, "fast", p, p + 1);
-        i = end + 1;
-        continue;
+        i = end + 1; continue;
       }
     }
     if (ch === "-") {
-      let end = i + 1;
-      while (end < text.length && text[end] === "-") end += 1;
-      appendPause(events, "-", i, end);
-      i = end;
-      continue;
+      let end = i + 1; while (end < text.length && text[end] === "-") end += 1;
+      appendPause(events, "-", i, end); i = end; continue;
     }
     if (ch === "|") {
-      let end = i + 1;
-      while (end < text.length && text[end] === "|") end += 1;
-      appendPause(events, "|", i, end);
-      i = end;
-      continue;
+      let end = i + 1; while (end < text.length && text[end] === "|") end += 1;
+      appendPause(events, "|", i, end); i = end; continue;
     }
     if (isPlayable(ch)) appendEvent(events, "note", i, i + 1);
     i += 1;
@@ -125,24 +101,19 @@ function parseGridRanges(text) {
       const end = text.indexOf("]", i + 1);
       if (end !== -1) {
         if ([...text.slice(i + 1, end)].some(isPlayable)) appendEvent(events, "chord", i, end + 1);
-        i = end + 1;
-        continue;
+        i = end + 1; continue;
       }
     }
     if (ch === "{") {
       const end = text.indexOf("}", i + 1);
       if (end !== -1) {
         for (let p = i + 1; p < end; p += 1) if (isPlayable(text[p])) appendEvent(events, "fast", p, p + 1);
-        i = end + 1;
-        continue;
+        i = end + 1; continue;
       }
     }
     if ("-_|".includes(ch)) {
-      let end = i + 1;
-      while (end < text.length && text[end] === ch) end += 1;
-      appendPause(events, ch, i, end);
-      i = end;
-      continue;
+      let end = i + 1; while (end < text.length && text[end] === ch) end += 1;
+      appendPause(events, ch, i, end); i = end; continue;
     }
     if (isPlayable(ch)) appendEvent(events, "note", i, i + 1);
     i += 1;
@@ -154,9 +125,22 @@ function parseGridRanges(text) {
 export function buildSheetEventRanges(text, profile = "expressive") {
   const value = String(text || "");
   const normalized = String(profile || "expressive").toLowerCase();
-  return normalized === "letter_grid" || EXPRESSIVE_GRID.has(normalized)
+  return normalized === "letter_grid" || ["grid", "vpsheet", "roblox_grid"].includes(normalized)
     ? parseGridRanges(value)
     : parseExpressiveRanges(value);
+}
+
+function buildRuntimeRanges(text, requestedProfile, runtimeTotal) {
+  const normalized = String(requestedProfile || "").toLowerCase();
+  const ordered = [normalized, ...PROFILE_ORDER].filter((profile, index, list) => profile && list.indexOf(profile) === index);
+  if (runtimeTotal > 0) {
+    for (const profile of ordered) {
+      const candidate = buildSheetEventRanges(text, profile);
+      if (candidate.length === runtimeTotal) return { ranges:candidate, profile };
+    }
+  }
+  const profile = normalized && PROFILE_ORDER.includes(normalized) ? normalized : "expressive";
+  return { ranges:buildSheetEventRanges(text, profile), profile };
 }
 
 function currentIndexFromStatus(status, fallback = 0) {
@@ -178,12 +162,8 @@ function createSpan(text, event, currentIndex) {
 }
 
 function renderLayer(layer, text, ranges, currentIndex, placeholder) {
-  layer.replaceChildren();
-  layer.classList.toggle("empty", !text);
-  if (!text) {
-    layer.textContent = placeholder || "";
-    return;
-  }
+  layer.replaceChildren(); layer.classList.toggle("empty", !text);
+  if (!text) { layer.textContent = placeholder || ""; return; }
   let cursor = 0;
   for (const event of ranges) {
     if (event.start > cursor) layer.append(document.createTextNode(text.slice(cursor, event.start)));
@@ -191,13 +171,6 @@ function renderLayer(layer, text, ranges, currentIndex, placeholder) {
     cursor = event.end;
   }
   if (cursor < text.length) layer.append(document.createTextNode(text.slice(cursor)));
-}
-
-function syncViewport(layer, textarea) {
-  if (!layer || !textarea) return;
-  const top = Math.max(0, layer.scrollTop);
-  textarea.scrollTop = top;
-  textarea.scrollLeft = layer.scrollLeft;
 }
 
 function followCurrentEvent(layer, textarea, currentIndex, force = false) {
@@ -224,25 +197,25 @@ function setup(textarea) {
 
   const wrapper = document.createElement("div");
   wrapper.className = EDITOR_CLASS;
-  textarea.parentNode.insertBefore(wrapper, textarea);
-  wrapper.append(textarea);
-
+  textarea.parentNode.insertBefore(wrapper, textarea); wrapper.append(textarea);
   const layer = document.createElement("div");
-  layer.className = "sheet-progress-layer";
-  layer.setAttribute("aria-hidden", "true");
+  layer.className = "sheet-progress-layer"; layer.setAttribute("aria-hidden", "true");
   wrapper.insertBefore(layer, textarea);
 
   let ranges = [];
+  let mappedProfile = "";
+  let runtimeTotal = 0;
   let currentIndex = 0;
   let lastIndex = 0;
   let forceFollow = false;
   let renderQueued = false;
-  let followQueued = false;
 
   const readText = () => String(textarea.value || "");
-  const rebuild = () => {
-    ranges = buildSheetEventRanges(readText(), textarea.dataset.timingProfile || "expressive");
-    queueRender(true);
+  const rebuild = (profile = textarea.dataset.timingProfile || "expressive", total = runtimeTotal, force = false) => {
+    const mapping = buildRuntimeRanges(readText(), profile, total);
+    ranges = mapping.ranges;
+    mappedProfile = mapping.profile;
+    queueRender(force);
   };
   const queueRender = (force = false) => {
     forceFollow = forceFollow || force;
@@ -251,7 +224,6 @@ function setup(textarea) {
     requestAnimationFrame(() => {
       renderQueued = false;
       renderLayer(layer, readText(), ranges, currentIndex, textarea.getAttribute("placeholder"));
-      syncViewport(layer, textarea);
       if (forceFollow || currentIndex !== lastIndex) {
         followCurrentEvent(layer, textarea, currentIndex, forceFollow);
         lastIndex = currentIndex;
@@ -259,56 +231,38 @@ function setup(textarea) {
       }
     });
   };
-  const queueFollow = () => {
-    if (followQueued) return;
-    followQueued = true;
-    requestAnimationFrame(() => {
-      followQueued = false;
-      if (currentIndex) followCurrentEvent(layer, textarea, currentIndex, false);
-      syncViewport(layer, textarea);
-    });
+  const applyStatus = status => {
+    const statusProfile = status?.timing_profile || textarea.dataset.timingProfile || "expressive";
+    const nextTotal = Number(status?.total_events || status?.sheet_total || 0);
+    const profileChanged = statusProfile !== mappedProfile;
+    const totalChanged = nextTotal > 0 && nextTotal !== ranges.length;
+    if (profileChanged || totalChanged) rebuild(statusProfile, nextTotal, true);
+    runtimeTotal = nextTotal || runtimeTotal;
+    currentIndex = currentIndexFromStatus(status, Number(textarea.dataset.seekFallback || 0));
+    queueRender(currentIndex !== lastIndex && currentIndex > 0);
+    if (status?.status === "complete") {
+      requestAnimationFrame(() => {
+        layer.scrollTop = Math.max(0, layer.scrollHeight - layer.clientHeight);
+        textarea.scrollTop = layer.scrollTop;
+      });
+    }
   };
 
-  textarea.addEventListener("input", () => { textarea.dataset.seekFallback = "0"; rebuild(); });
-  textarea.addEventListener("scroll", () => {
-    if (Math.abs(layer.scrollTop - textarea.scrollTop) > 1) layer.scrollTop = textarea.scrollTop;
-    if (Math.abs(layer.scrollLeft - textarea.scrollLeft) > 1) layer.scrollLeft = textarea.scrollLeft;
-  });
-  layer.addEventListener("scroll", () => {
-    if (Math.abs(textarea.scrollTop - layer.scrollTop) > 1) textarea.scrollTop = layer.scrollTop;
-    if (Math.abs(textarea.scrollLeft - layer.scrollLeft) > 1) textarea.scrollLeft = layer.scrollLeft;
-  });
-  new MutationObserver(records => {
-    if (records.some(record => record.type === "attributes" && record.attributeName === "data-timing-profile")) rebuild();
-  }).observe(textarea, { attributes:true });
+  textarea.addEventListener("input", () => { textarea.dataset.seekFallback = "0"; runtimeTotal = 0; rebuild(textarea.dataset.timingProfile || "expressive", 0, true); });
+  textarea.addEventListener("scroll", () => { if (Math.abs(layer.scrollTop - textarea.scrollTop) > 1) layer.scrollTop = textarea.scrollTop; if (Math.abs(layer.scrollLeft - textarea.scrollLeft) > 1) layer.scrollLeft = textarea.scrollLeft; });
+  layer.addEventListener("scroll", () => { if (Math.abs(textarea.scrollTop - layer.scrollTop) > 1) textarea.scrollTop = layer.scrollTop; if (Math.abs(textarea.scrollLeft - layer.scrollLeft) > 1) textarea.scrollLeft = layer.scrollLeft; });
+  new MutationObserver(records => { if (records.some(record => record.type === "attributes" && record.attributeName === "data-timing-profile")) { runtimeTotal = 0; rebuild(textarea.dataset.timingProfile || "expressive", 0, true); } }).observe(textarea, { attributes:true });
 
-  window.addEventListener("piano:sheet-progress-seek", event => {
-    const index = Number(event.detail?.index || 0);
-    if (index > 0) {
-      currentIndex = index;
-      queueRender(true);
-    }
-  });
-  window.addEventListener("piano:sheet-rebuild", rebuild);
+  window.addEventListener("piano:sheet-progress-status", event => applyStatus(event.detail || {}));
+  window.addEventListener("piano:sheet-progress-seek", event => { const index = Number(event.detail?.index || 0); if (index > 0) { currentIndex = index; queueRender(true); } });
+  window.addEventListener("piano:sheet-rebuild", () => rebuild(textarea.dataset.timingProfile || "expressive", runtimeTotal, true));
 
   const statusLoop = async () => {
     try {
       const response = await fetch("/api/status", { cache:"no-store" });
-      if (response.ok) {
-        const status = await response.json();
-        const nextIndex = currentIndexFromStatus(status, Number(textarea.dataset.seekFallback || 0));
-        const changed = nextIndex !== currentIndex || status.status === "complete";
-        currentIndex = nextIndex;
-        queueRender(changed && currentIndex > 0);
-        if (status.status === "complete") {
-          requestAnimationFrame(() => {
-            layer.scrollTop = Math.max(0, layer.scrollHeight - layer.clientHeight);
-            textarea.scrollTop = layer.scrollTop;
-          });
-        }
-      }
+      if (response.ok) applyStatus(await response.json());
     } catch (_) {}
-    window.setTimeout(statusLoop, 180);
+    window.setTimeout(statusLoop, 500);
   };
 
   rebuild();
