@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { buildSheetEventRanges } from "../web/sheet_progress.js";
+import { readFile } from "node:fs/promises";
+
+const source = await readFile(new URL("../web/sheet_progress.js", import.meta.url), "utf8");
+const esm = `${source.replace("export function buildSheetEventRanges", "function buildSheetEventRanges")}\nexport { buildSheetEventRanges };`;
+const { buildSheetEventRanges } = await import(`data:text/javascript;charset=utf-8,${encodeURIComponent(esm)}`);
 
 const kinds = (text, profile = "expressive") => buildSheetEventRanges(text, profile).map(event => event.kind);
 const spans = (text, profile = "expressive") => buildSheetEventRanges(text, profile).map(event => text.slice(event.start, event.end));
