@@ -26,6 +26,6 @@
     import('./player_queue.js')
       .then(() => import('./player_queue_advanced.js'))
       .catch(() => {});
-    import('./sheet_progress.js?v=1999211b').catch(() => {});
+    import('./sheet_progress.js?v=bc691cc2').catch(() => {});
   });
 })();
