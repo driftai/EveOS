@@ -9,18 +9,23 @@ function installStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    .${EDITOR_CLASS} { position:relative; width:100%; min-height:330px; }
+    .${EDITOR_CLASS} {
+      position:relative; width:100%; min-height:330px;
+      overflow:hidden; clip-path:inset(0 round 14px);
+      border-radius:14px;
+    }
     .${EDITOR_CLASS} .sheet-progress-layer {
       position:absolute; inset:1px; z-index:1; overflow:hidden; pointer-events:none;
       box-sizing:border-box; padding:17px; border-radius:14px; white-space:pre-wrap; overflow-wrap:break-word;
       color:#eaf1f7; line-height:1.65; font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace;
       font-size:14px; letter-spacing:normal; tab-size:4;
+      max-width:100%; max-height:100%;
     }
     .${EDITOR_CLASS} .sheet-progress-layer.empty { color:#65717e; }
     .${EDITOR_CLASS} textarea.${INPUT_CLASS} {
       position:relative; z-index:2; box-sizing:border-box; background:transparent;
       color:rgba(234,241,247,0.004); -webkit-text-fill-color:rgba(234,241,247,0.004);
-      caret-color:#eaf1f7;
+      caret-color:#eaf1f7; max-width:100%;
     }
     .${EDITOR_CLASS} .sheet-progress-event { border-radius:3px; transition:background-color .06s linear, color .06s linear, box-shadow .06s linear; }
     .${EDITOR_CLASS} .sheet-progress-event.played { color:#dbe7ef; background:rgba(67,165,255,.065); box-shadow:inset 0 -1px 0 rgba(67,165,255,.14); }
@@ -208,6 +213,7 @@ function setup(textarea) {
   let currentIndex = 0;
   let lastIndex = 0;
   let forceFollow = false;
+  let autoFollow = false;
   let renderQueued = false;
 
   const readText = () => String(textarea.value || "");
@@ -224,11 +230,11 @@ function setup(textarea) {
     requestAnimationFrame(() => {
       renderQueued = false;
       renderLayer(layer, readText(), ranges, currentIndex, textarea.getAttribute("placeholder"));
-      if (forceFollow || currentIndex !== lastIndex) {
+      if ((autoFollow || forceFollow) && (forceFollow || currentIndex !== lastIndex)) {
         followCurrentEvent(layer, textarea, currentIndex, forceFollow);
-        lastIndex = currentIndex;
-        forceFollow = false;
       }
+      lastIndex = currentIndex;
+      forceFollow = false;
     });
   };
   const applyStatus = status => {
@@ -236,10 +242,12 @@ function setup(textarea) {
     const nextTotal = Number(status?.total_events || status?.sheet_total || 0);
     const profileChanged = statusProfile !== mappedProfile;
     const totalChanged = nextTotal > 0 && nextTotal !== ranges.length;
-    if (profileChanged || totalChanged) rebuild(statusProfile, nextTotal, true);
+    if (profileChanged || totalChanged) rebuild(statusProfile, nextTotal, false);
     runtimeTotal = nextTotal || runtimeTotal;
     currentIndex = currentIndexFromStatus(status, Number(textarea.dataset.seekFallback || 0));
-    queueRender(currentIndex !== lastIndex && currentIndex > 0);
+    autoFollow = ["playing", "countdown"].includes(status?.status);
+    if (autoFollow) queueRender(currentIndex !== lastIndex && currentIndex > 0);
+    else queueRender(false);
     if (status?.status === "complete") {
       requestAnimationFrame(() => {
         layer.scrollTop = Math.max(0, layer.scrollHeight - layer.clientHeight);
