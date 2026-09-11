@@ -28,6 +28,7 @@ WatchFusion is a single media application with an optional synchronized watch-pa
   - Nuvio is decoupled and installed by the user (`.\nuvio` or custom `NUVIO_PATH`).
   - No bundled Nuvio dependencies in Git; placeholder `.gitkeep` only.
 - **Modular Design**: Strict $\le 450$ lines per source file architecture.
+- **Registry-managed networking**: EveOS owns the canonical service-port map in `../../config/eveos-ports.json`; WatchFusion consumes `WATCHFUSION_PORT` from that registry instead of owning a literal port assignment.
 
 ---
 
@@ -39,18 +40,19 @@ WatchFusion.bat
 :: Or directly:
 scripts\START-WATCHFUSION-LOCAL.bat
 ```
-Opens the complete WatchFusion UI at `http://127-0-0-1.sslip.io:9085/`. You do not start Nuvio, VoxelVision, or WatchParty separately: all three tools plus YouTube/direct media are available from this one application.
+The launcher reads `WATCHFUSION_PORT` from EveOS's canonical port registry and opens the complete WatchFusion UI on that port (currently `9087`). You do not start Nuvio, VoxelVision, or WatchParty separately: all three tools plus YouTube/direct media are available from this one application.
 
 ### 2. Start WatchFusion on LAN
 ```cmd
 scripts\START-WATCHFUSION-LAN.bat
 ```
-Listens on `0.0.0.0:9085` and generates LAN-accessible IP and `sslip.io` hostnames.
+Listens on `0.0.0.0:<WATCHFUSION_PORT>` and generates LAN-accessible IP and `sslip.io` hostnames using the registered port.
 
 ### 3. Start Cloudflare Remote Tunnel
 ```cmd
 scripts\START-WATCHFUSION-REMOTE.bat
 ```
+The remote launcher passes the same registry-managed port into the local WatchFusion origin and Cloudflare tunnel.
 
 ---
 
