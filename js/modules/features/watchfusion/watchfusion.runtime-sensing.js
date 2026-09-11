@@ -28,19 +28,18 @@
     function candidateOrigins() {
         const targetPort = port();
         if (!targetPort) return [];
-        const values = [
-            // Keep the canonical WatchFusion browser origin first. Nuvio stores its
-            // signed-in browser session under this origin, so bouncing between
-            // localhost / 127.0.0.1 / sslip on different probes makes a valid
-            // session look like it was forgotten.
-            `http://127-0-0-1.sslip.io:${targetPort}`
-        ];
-        if (/^https?:$/.test(location.protocol) && location.hostname) {
+        const values = [];
+        const pageIsLoopback = /^(127\.0\.0\.1|localhost)$/i.test(location.hostname || '');
+        if (/^https?:$/.test(location.protocol) && location.hostname && !pageIsLoopback) {
             values.push(`http://${location.hostname}:${targetPort}`);
         }
+        // Host-local EveOS uses the literal loopback origin as the canonical
+        // WatchFusion browser origin. It avoids DNS/sslip failures and keeps
+        // Nuvio browser storage stable across Local and LAN launches.
         values.push(
+            `http://127.0.0.1:${targetPort}`,
             `http://localhost:${targetPort}`,
-            `http://127.0.0.1:${targetPort}`
+            `http://127-0-0-1.sslip.io:${targetPort}`
         );
         return unique(values);
     }
@@ -84,17 +83,17 @@
             } catch {}
         }
 
-        // A controller-provided URL is authoritative. Probe it first instead of
-        // racing it against loopback aliases and then accidentally selecting the
-        // first alias from candidate order.
         if (preferredOrigin) {
             const preferred = await probeOrigin(preferredOrigin, 1100);
             if (preferred) return preferred;
         }
 
         const candidates = candidateOrigins().filter((origin) => origin !== preferredOrigin);
-        const results = await Promise.all(candidates.map((origin) => probeOrigin(origin)));
-        return results.find(Boolean) || null;
+        for (const origin of candidates) {
+            const result = await probeOrigin(origin);
+            if (result) return result;
+        }
+        return null;
     }
 
     function heartbeatState() {
