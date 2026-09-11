@@ -12,7 +12,8 @@ echo ============================================================
 echo   [1] Start VoxelVision ^& Open Browser (http://127.0.0.1:9095)
 echo   [2] Start Server (Foreground / Headless Browser)
 echo   [3] Verify Local Media ^& YouTube Support
-echo   [4] Setup / Update YouTube Support (yt-dlp + FFmpeg)
+echo   [4] Setup / Update YouTube Support
+echo       (yt-dlp + Deno + FFmpeg + ffprobe)
 echo   [5] Exit
 echo ============================================================
 set /p "CHOICE=Select an option [1-5]: "
@@ -73,19 +74,15 @@ if exist "public\vendor\three.module.js" (
 )
 
 call :CHECK_YTDLP
-if defined YTDLP_READY (
-    echo [OK] YouTube extractor: !YTDLP_PROVIDER!
-) else (
-    echo [OPTIONAL] yt-dlp is not installed. Choose menu option 4.
-)
-
+call :CHECK_DENO
 call :CHECK_FFMPEG
-if defined FFMPEG_READY (
-    echo [OK] Adaptive video/audio merge: !FFMPEG_PROVIDER!
-) else (
-    echo [OPTIONAL] FFmpeg is missing. Some YouTube videos may not import.
-    echo            Choose menu option 4 to install portable FFmpeg.
-)
+call :CHECK_FFPROBE
+
+echo.
+if defined YTDLP_READY (echo [OK] YouTube extractor: !YTDLP_PROVIDER!) else (echo [OPTIONAL] yt-dlp is missing. Choose option 4.)
+if defined DENO_READY (echo [OK] YouTube JS runtime: !DENO_PROVIDER!) else (echo [OPTIONAL] Deno is missing. Current YouTube challenges may fail; choose option 4.)
+if defined FFMPEG_READY (echo [OK] Adaptive video/audio merge: !FFMPEG_PROVIDER!) else (echo [OPTIONAL] FFmpeg is missing. Choose option 4.)
+if defined FFPROBE_READY (echo [OK] Media probe: !FFPROBE_PROVIDER!) else (echo [OPTIONAL] ffprobe is missing. Choose option 4.)
 echo ============================================================
 pause
 goto :MENU
@@ -95,81 +92,18 @@ cls
 echo ============================================================
 echo              VOXELVISION YOUTUBE SUPPORT SETUP
 echo ============================================================
-echo This setup keeps VoxelVision independent from your Python version.
-echo It downloads the official standalone yt-dlp.exe into .\tools and
-echo a portable FFmpeg build for videos that expose separate video/audio.
+echo This uses the same installer as WatchFusion Setup Health.
+echo It installs portable host-local helpers under .\tools only.
 echo.
-
-if not exist "tools" mkdir "tools"
-
-echo [1/2] Installing/updating standalone yt-dlp.exe...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' -OutFile 'tools\yt-dlp.exe'"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\SETUP-YOUTUBE.ps1" -Force
 if errorlevel 1 (
-    echo [WARNING] Standalone yt-dlp download failed. Trying existing Python installation...
-    goto :SETUP_YTDLP_FALLBACK
+    echo.
+    echo [ERROR] YouTube helper setup failed.
+    pause
+    goto :MENU
 )
-
-"tools\yt-dlp.exe" --version >nul 2>nul
-if errorlevel 1 (
-    echo [WARNING] Downloaded yt-dlp.exe did not start. Trying Python fallback...
-    del /q "tools\yt-dlp.exe" >nul 2>nul
-    goto :SETUP_YTDLP_FALLBACK
-)
-echo [OK] Standalone yt-dlp.exe is ready.
-goto :SETUP_FFMPEG
-
-:SETUP_YTDLP_FALLBACK
-where py >nul 2>nul
-if not errorlevel 1 (
-    py -m pip install --upgrade yt-dlp
-    if not errorlevel 1 goto :SETUP_FFMPEG
-)
-where python >nul 2>nul
-if not errorlevel 1 (
-    python -m pip install --upgrade yt-dlp
-    if not errorlevel 1 goto :SETUP_FFMPEG
-)
-echo [ERROR] Could not install yt-dlp.
-echo Check your internet connection and try option 4 again.
-pause
-goto :MENU
-
-:SETUP_FFMPEG
-call :CHECK_FFMPEG
-if defined FFMPEG_READY (
-    echo [2/2] FFmpeg already available: !FFMPEG_PROVIDER!
-    goto :SETUP_VERIFY
-)
-
-echo [2/2] Downloading portable FFmpeg essentials...
-echo       This is a larger one-time download and may take a moment.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $zip='tools\ffmpeg-essentials.zip'; $tmp='tools\ffmpeg-tmp'; Invoke-WebRequest -UseBasicParsing -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $zip; if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }; Expand-Archive -Path $zip -DestinationPath $tmp -Force; $ff=Get-ChildItem $tmp -Recurse -Filter 'ffmpeg.exe' | Select-Object -First 1; if (-not $ff) { throw 'ffmpeg.exe was not found in the archive' }; Copy-Item $ff.FullName 'tools\ffmpeg.exe' -Force; $fp=Get-ChildItem $tmp -Recurse -Filter 'ffprobe.exe' | Select-Object -First 1; if ($fp) { Copy-Item $fp.FullName 'tools\ffprobe.exe' -Force }; Remove-Item $zip -Force; Remove-Item $tmp -Recurse -Force"
-if errorlevel 1 (
-    echo [WARNING] Portable FFmpeg download failed.
-    echo Combined-stream YouTube videos can still work, but adaptive-only videos may fail.
-) else (
-    echo [OK] Portable FFmpeg is ready.
-)
-
-goto :SETUP_VERIFY
-
-:SETUP_VERIFY
-call :CHECK_YTDLP
-call :CHECK_FFMPEG
 echo.
-echo ============================================================
-if defined YTDLP_READY (
-    echo [OK] YouTube extractor: !YTDLP_PROVIDER!
-) else (
-    echo [ERROR] No working yt-dlp provider was found.
-)
-if defined FFMPEG_READY (
-    echo [OK] Adaptive stream merge: !FFMPEG_PROVIDER!
-) else (
-    echo [WARNING] FFmpeg is unavailable. Some videos may still fail.
-)
-echo ============================================================
-echo Setup complete. Restart VoxelVision if the server was already running.
+echo [OK] Shared YouTube helper setup completed.
 pause
 goto :MENU
 
@@ -181,34 +115,18 @@ if exist "tools\yt-dlp.exe" (
     if not errorlevel 1 (
         set "YTDLP_READY=1"
         set "YTDLP_PROVIDER=tools\yt-dlp.exe"
-        goto :eof
     )
 )
-where yt-dlp >nul 2>nul
-if not errorlevel 1 (
-    yt-dlp --version >nul 2>nul
+goto :eof
+
+:CHECK_DENO
+set "DENO_READY="
+set "DENO_PROVIDER="
+if exist "tools\deno.exe" (
+    "tools\deno.exe" --version >nul 2>nul
     if not errorlevel 1 (
-        set "YTDLP_READY=1"
-        set "YTDLP_PROVIDER=yt-dlp on PATH"
-        goto :eof
-    )
-)
-where py >nul 2>nul
-if not errorlevel 1 (
-    py -m yt_dlp --version >nul 2>nul
-    if not errorlevel 1 (
-        set "YTDLP_READY=1"
-        set "YTDLP_PROVIDER=py -m yt_dlp"
-        goto :eof
-    )
-)
-where python >nul 2>nul
-if not errorlevel 1 (
-    python -m yt_dlp --version >nul 2>nul
-    if not errorlevel 1 (
-        set "YTDLP_READY=1"
-        set "YTDLP_PROVIDER=python -m yt_dlp"
-        goto :eof
+        set "DENO_READY=1"
+        set "DENO_PROVIDER=tools\deno.exe"
     )
 )
 goto :eof
@@ -221,16 +139,18 @@ if exist "tools\ffmpeg.exe" (
     if not errorlevel 1 (
         set "FFMPEG_READY=1"
         set "FFMPEG_PROVIDER=tools\ffmpeg.exe"
-        goto :eof
     )
 )
-where ffmpeg >nul 2>nul
-if not errorlevel 1 (
-    ffmpeg -version >nul 2>nul
+goto :eof
+
+:CHECK_FFPROBE
+set "FFPROBE_READY="
+set "FFPROBE_PROVIDER="
+if exist "tools\ffprobe.exe" (
+    "tools\ffprobe.exe" -version >nul 2>nul
     if not errorlevel 1 (
-        set "FFMPEG_READY=1"
-        set "FFMPEG_PROVIDER=ffmpeg on PATH"
-        goto :eof
+        set "FFPROBE_READY=1"
+        set "FFPROBE_PROVIDER=tools\ffprobe.exe"
     )
 )
 goto :eof
