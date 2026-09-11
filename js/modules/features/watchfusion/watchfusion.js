@@ -5,11 +5,13 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     if (api.ready) return;
 
     const WATCH_URL = 'http://127-0-0-1.sslip.io:9085/';
+    const DETACHED_WINDOW_NAME = 'eveWatchFusionWindow';
     let overlay = null;
     let frame = null;
     let status = null;
     let busy = false;
     let controllerAvailable = null;
+    let detachedWindow = null;
 
     function controlBase() {
         if (window.EveOSLocalControl?.baseUrl) return window.EveOSLocalControl.baseUrl();
@@ -50,7 +52,9 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     }
 
     function prepareOpen() {
-        if (controllerAvailable === false) window.EveOSLocalControl?.requestLaunch?.();
+        // Opening WatchFusion is presentation-only. Never launch a terminal or
+        // service from the header click; explicit Start/Setup actions do that.
+        probeControl();
     }
 
     async function ensureControl() {
@@ -86,26 +90,75 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         if (status?.running) return 'Online';
         if (status?.state === 'blocked') return 'Port blocked';
         if (status?.setupRequired) return 'Setup needed';
-        if (status?.installed === false) return 'Needs hydration';
-        if (status?.state === 'error') return 'Control offline';
-        return 'Offline';
+        if (status?.installed === false) return 'Needs source';
+        if (controllerAvailable === false || status?.state === 'error') return 'Control offline';
+        return 'Ready · stopped';
+    }
+
+    function componentState(component) {
+        if (component?.ready === true) return 'Ready';
+        if (component?.ready === false) return 'Needs setup';
+        return 'On demand';
+    }
+
+    function renderComponents() {
+        const root = overlay?.querySelector('[data-wf-components]');
+        if (!root) return;
+        root.replaceChildren();
+        const components = status?.components || {};
+        const order = ['core', 'nuvio', 'voxelvision', 'voxelYoutube', 'browserModels'];
+        for (const key of order) {
+            const component = components[key];
+            if (!component) continue;
+            const card = document.createElement('article');
+            card.className = 'watchfusion-component';
+            card.dataset.ready = component.ready === true ? '1' : component.ready === false ? '0' : 'ondemand';
+            const head = document.createElement('div');
+            const label = document.createElement('strong');
+            const badge = document.createElement('span');
+            label.textContent = component.label || key;
+            badge.textContent = componentState(component);
+            head.append(label, badge);
+            const text = document.createElement('p');
+            text.textContent = component.message || '';
+            card.append(head, text);
+            root.append(card);
+        }
+    }
+
+    function embeddedUrl() {
+        const url = new URL(status?.url || WATCH_URL);
+        url.searchParams.set('eveos', '1');
+        return url.href;
+    }
+
+    function detachedFeatures() {
+        const availableWidth = Math.max(900, Number(window.screen?.availWidth) || 1440);
+        const availableHeight = Math.max(680, Number(window.screen?.availHeight) || 900);
+        const width = Math.min(1500, Math.max(900, availableWidth - 100));
+        const height = Math.min(1000, Math.max(680, availableHeight - 100));
+        const left = Math.max(0, Math.round((availableWidth - width) / 2));
+        const top = Math.max(0, Math.round((availableHeight - height) / 2));
+        return `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
     }
 
     function renderStatus() {
         if (!overlay) return;
         const badge = overlay.querySelector('[data-wf-status]');
         const message = overlay.querySelector('[data-wf-message]');
-        const start = overlay.querySelector('[data-wf-action="start"]');
         const stop = overlay.querySelector('[data-wf-action="stop"]');
-        const external = overlay.querySelector('[data-wf-action="external"]');
+        const detach = overlay.querySelector('[data-wf-action="detach"]');
         const setup = overlay.querySelector('[data-wf-setup]');
         const running = status?.running === true;
         overlay.dataset.state = running ? 'running' : (status?.state || 'stopped');
         if (badge) badge.textContent = stateLabel();
         if (message) message.textContent = status?.message || 'Checking WatchFusion…';
-        if (start) start.hidden = running || Boolean(status?.setupRequired);
+        overlay.querySelectorAll('[data-wf-action="start"]').forEach((start) => {
+            start.hidden = running || Boolean(status?.setupRequired) || status?.installed === false;
+            start.disabled = busy;
+        });
         if (stop) stop.hidden = !running;
-        if (external) external.disabled = !running;
+        if (detach) detach.disabled = !running || busy;
         if (setup) {
             setup.hidden = !(status?.setupRequired || status?.installed === false);
             setup.replaceChildren();
@@ -114,13 +167,13 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                 const detail = document.createElement('span');
                 if (status?.installed === false) {
                     strong.textContent = 'WatchFusion source is missing.';
-                    detail.textContent = 'Pull the complete EveOS main branch; tools/WatchFusion is now part of the repository.';
+                    detail.textContent = 'Pull the complete EveOS main branch; tools/WatchFusion is part of the repository.';
                     setup.append(strong, detail);
                 } else {
                     strong.textContent = 'WatchFusion core dependencies need setup.';
                     detail.textContent = status?.npmReady === false
-                        ? 'Install Node.js/npm first, then refresh this panel.'
-                        : 'Install the locked WatchFusion Node dependencies. Nuvio and VoxelVision setup will then be available inside WatchFusion.';
+                        ? 'Install Node.js/npm first, then refresh this workspace.'
+                        : 'Install the locked Node dependencies. This does not start WatchFusion.';
                     setup.append(strong, detail);
                     if (status?.setupAvailable) {
                         const button = document.createElement('button');
@@ -133,11 +186,12 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                 }
             }
         }
+        renderComponents();
         if (frame) {
             frame.hidden = !running;
             if (running && frame.dataset.loaded !== '1') {
                 frame.dataset.loaded = '1';
-                frame.src = `${status?.url || WATCH_URL}?eveos=1`;
+                frame.src = embeddedUrl();
             }
         }
     }
@@ -153,12 +207,12 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                 <header class="watchfusion-shell-head">
                     <div class="watchfusion-brand">
                         <span class="watchfusion-brand-mark">◉</span>
-                        <div><strong id="watchfusion-title">WatchFusion</strong><span>Watch, convert, and sync together inside EveOS</span></div>
+                        <div><strong id="watchfusion-title">WatchFusion</strong><span>Media, VoxelVision, Nuvio, and WatchParty inside EveOS</span></div>
                     </div>
                     <div class="watchfusion-head-actions">
                         <span class="watchfusion-status" data-wf-status>Checking…</span>
                         <button type="button" data-wf-action="refresh">Refresh</button>
-                        <button type="button" data-wf-action="external">Open separate</button>
+                        <button type="button" data-wf-action="detach" title="Detach WatchFusion into its own window">↗ Detach</button>
                         <button type="button" data-wf-action="close" class="watchfusion-close" aria-label="Close WatchFusion">×</button>
                     </div>
                 </header>
@@ -173,9 +227,15 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                 <div class="watchfusion-frame-wrap">
                     <iframe class="watchfusion-frame" title="WatchFusion" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; web-share" allowfullscreen hidden></iframe>
                     <div class="watchfusion-idle">
-                        <div class="watchfusion-idle-orb">WF</div>
-                        <strong>WatchFusion is ready to join EveOS.</strong>
-                        <span>Its media server stays isolated on port 9085 while EveOS owns lifecycle, status, theme shell, and verification.</span>
+                        <div class="watchfusion-idle-copy">
+                            <div class="watchfusion-idle-orb">WF</div>
+                            <div><strong>WatchFusion workspace</strong><span>The workspace is available without starting its Node runtime. Review setup below, then start only when you want media/runtime features.</span></div>
+                        </div>
+                        <div class="watchfusion-components" data-wf-components></div>
+                        <div class="watchfusion-idle-actions">
+                            <button type="button" data-wf-action="refresh">Refresh setup</button>
+                            <button type="button" data-wf-action="start">Start WatchFusion</button>
+                        </div>
                     </div>
                 </div>
             </div>`;
@@ -185,7 +245,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             const action = event.target.closest('[data-wf-action]')?.dataset.wfAction;
             if (!action) return;
             if (action === 'close') return close();
-            if (action === 'external') return window.open(status?.url || WATCH_URL, '_blank', 'noopener');
+            if (action === 'detach') return detach();
             if (action === 'refresh') return refresh();
             if (action === 'start') return setRunning(true);
             if (action === 'stop') return setRunning(false);
@@ -201,7 +261,10 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             controllerAvailable = true;
         } catch (error) {
             controllerAvailable = false;
-            status = { ok: false, running: false, state: 'error', message: error?.message || 'WatchFusion status unavailable.' };
+            status = {
+                ...(status || {}), ok: false, running: false, state: 'error',
+                message: error?.message || 'Local control is off. The workspace can stay open; Start will offer to enable it.'
+            };
         }
         renderStatus();
         window.dispatchEvent(new CustomEvent('eve:watchfusion-status', { detail: { ...status } }));
@@ -217,9 +280,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             status = await request('/api/watchfusion/setup', {
                 method: 'POST', body: JSON.stringify({ component: 'core' }), timeoutMs: 10 * 60 * 1000
             });
-            frame && (frame.dataset.loaded = '');
-            renderStatus();
-            if (status?.dependenciesReady) await setRunning(true);
+            if (frame) frame.dataset.loaded = '';
         } catch (error) {
             status = { ...(status || {}), running: false, state: 'error', message: error?.message || 'WatchFusion setup failed.' };
         } finally {
@@ -236,7 +297,10 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         try {
             if (!(await ensureControl())) return status;
             status = await request(`/api/watchfusion/${enabled ? 'start' : 'stop'}`, { method: 'POST', body: '{}' });
-            if (enabled && status?.running && frame) frame.dataset.loaded = '';
+            if (frame) {
+                frame.dataset.loaded = '';
+                if (!enabled || !status?.running) frame.src = 'about:blank';
+            }
         } catch (error) {
             status = { ...(status || {}), running: false, state: 'error', message: error?.message || 'WatchFusion lifecycle request failed.' };
         } finally {
@@ -246,15 +310,29 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         return status;
     }
 
+    function detach() {
+        if (!status?.running) return null;
+        if (detachedWindow && !detachedWindow.closed) {
+            detachedWindow.focus();
+            close();
+            return detachedWindow;
+        }
+        detachedWindow = window.open(status?.url || WATCH_URL, DETACHED_WINDOW_NAME, detachedFeatures());
+        if (!detachedWindow) {
+            status = { ...(status || {}), message: 'Detach window was blocked. Allow pop-ups for EveOS and try again.' };
+            renderStatus();
+            return null;
+        }
+        detachedWindow.focus();
+        close();
+        return detachedWindow;
+    }
+
     async function open() {
         const root = ensureOverlay();
         root.hidden = false;
         setExpanded(true);
-        if (!(await ensureControl())) return;
-        const current = await refresh();
-        if (!current?.running && current?.installed && !current?.setupRequired && current?.state !== 'blocked') {
-            await setRunning(true);
-        }
+        await refresh();
     }
 
     function close() {
@@ -272,10 +350,12 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         prepareOpen,
         open,
         close,
+        detach,
         refresh,
         setupCore,
         start: () => setRunning(true),
         stop: () => setRunning(false),
+        getDetachedWindow: () => detachedWindow,
         getState: () => ({ ...(status || {}), open: Boolean(overlay && !overlay.hidden), busy, controllerAvailable })
     });
     probeControl();
