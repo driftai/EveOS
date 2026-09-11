@@ -8,7 +8,7 @@ import { isNuvioBuilt, mergedNuvioConfig } from './nuvio-config.js';
 const MODEL_PROFILES = Object.freeze([
   { key: 'enhanced', name: 'Depth Anything V3 Small', id: 'en970/depth-anything-v3-small-onnx', mode: 'browser-cache' },
   { key: 'balanced', name: 'Depth Anything V2 Small', id: 'onnx-community/depth-anything-v2-small-ONNX', mode: 'browser-cache' },
-  { key: 'anime-mask', name: 'IS-Net Anime foreground mask', id: 'skytnt/anime-seg', mode: 'browser-cache', optional: true }
+  { key: 'anime-mask', name: 'IS-Net Anime foreground mask', id: 'BritishWerewolf/IS-Net-Anime', mode: 'browser-cache', optional: true }
 ]);
 
 let activeInstall = null;
@@ -40,16 +40,19 @@ function commandWorks(command, args = []) {
 function youtubeToolsStatus() {
   const tools = path.join(VOXELVISION_ROOT, 'tools');
   const localYtDlp = path.join(tools, 'yt-dlp.exe');
+  const localDeno = path.join(tools, 'deno.exe');
   const localFfmpeg = path.join(tools, 'ffmpeg.exe');
   const localFfprobe = path.join(tools, 'ffprobe.exe');
   const ytDlpReady = exists(localYtDlp) && commandWorks(localYtDlp, ['--version']);
+  const denoReady = exists(localDeno) && commandWorks(localDeno, ['--version']);
   const ffmpegReady = exists(localFfmpeg) && commandWorks(localFfmpeg, ['-version']);
   const ffprobeReady = exists(localFfprobe) && commandWorks(localFfprobe, ['-version']);
   return {
     ytDlp: { ready: ytDlpReady, provider: ytDlpReady ? 'portable' : 'missing' },
+    deno: { ready: denoReady, provider: denoReady ? 'portable' : 'missing' },
     ffmpeg: { ready: ffmpegReady, provider: ffmpegReady ? 'portable' : 'missing' },
     ffprobe: { ready: ffprobeReady, provider: ffprobeReady ? 'portable' : 'missing' },
-    ready: ytDlpReady && ffmpegReady && ffprobeReady
+    ready: ytDlpReady && denoReady && ffmpegReady && ffprobeReady
   };
 }
 
@@ -121,8 +124,8 @@ async function setupStatus(req) {
         action: canInstall ? 'voxel-youtube' : null,
         ...youtube,
         message: youtube.ready
-          ? 'Portable yt-dlp, FFmpeg, and ffprobe are ready.'
-          : 'Install portable yt-dlp, FFmpeg, and ffprobe for reliable YouTube import.'
+          ? 'Official yt-dlp, portable Deno, FFmpeg, and ffprobe are ready.'
+          : 'Install yt-dlp, portable Deno, FFmpeg, and ffprobe for current YouTube import support.'
       },
       browserModels: {
         key: 'browser-models',
@@ -169,10 +172,15 @@ function runProcess(command, args, { cwd = PROJECT_ROOT, env = process.env, time
   });
 }
 
+async function runBatch(script, env) {
+  const command = `call "${script}"`;
+  return runProcess('cmd.exe', ['/d', '/s', '/c', command], { cwd: PROJECT_ROOT, env });
+}
+
 async function installNuvio() {
   const env = { ...process.env, WATCHFUSION_NONINTERACTIVE: '1' };
-  await runProcess('cmd.exe', ['/d', '/s', '/c', 'call', path.join(PROJECT_ROOT, 'scripts', 'GET-NUVIO.bat')], { env });
-  await runProcess('cmd.exe', ['/d', '/s', '/c', 'call', path.join(PROJECT_ROOT, 'scripts', 'BUILD-NUVIO.bat')], { env });
+  await runBatch(path.join(PROJECT_ROOT, 'scripts', 'GET-NUVIO.bat'), env);
+  await runBatch(path.join(PROJECT_ROOT, 'scripts', 'BUILD-NUVIO.bat'), env);
 }
 
 async function installVoxelYoutube() {
