@@ -1,4 +1,4 @@
-"""Lifecycle control for the EveOS-integrated WatchFusion service."""
+"""Lifecycle and setup control for the EveOS-integrated WatchFusion service."""
 
 from __future__ import annotations
 
@@ -58,6 +58,12 @@ def _write_desired(enabled: bool) -> None:
 
 def _node() -> str | None:
     return shutil.which("node")
+
+
+def _npm() -> str | None:
+    if os.name == "nt":
+        return shutil.which("npm.cmd") or shutil.which("npm")
+    return shutil.which("npm")
 
 
 def _deps_ready() -> bool:
@@ -137,6 +143,7 @@ def _status(message: str = "") -> dict:
     blocked = _port_open() and not running
     installed = _entry().is_file()
     node_ready = _node() is not None
+    npm_ready = _npm() is not None
     deps_ready = _deps_ready() if installed else False
     state = "running" if running else "starting" if process_alive else "blocked" if blocked else "stopped"
     return {
@@ -145,8 +152,10 @@ def _status(message: str = "") -> dict:
         "service": "watchfusion-control",
         "installed": installed,
         "nodeReady": node_ready,
+        "npmReady": npm_ready,
         "dependenciesReady": deps_ready,
         "setupRequired": installed and (not node_ready or not deps_ready),
+        "setupAvailable": installed and npm_ready and not deps_ready,
         "state": state,
         "running": running,
         "desiredRunning": _desired(),
@@ -159,7 +168,8 @@ def _status(message: str = "") -> dict:
             if running else "Port 9085 belongs to a different service."
             if blocked else "WatchFusion has not been hydrated into tools/WatchFusion yet."
             if not installed else "Node.js is required for WatchFusion."
-            if not node_ready else "WatchFusion dependencies are not installed; run npm ci in tools/WatchFusion."
+            if not node_ready else "npm is required to install WatchFusion dependencies."
+            if not npm_ready and not deps_ready else "WatchFusion dependencies are not installed yet."
             if not deps_ready else "WatchFusion is stopped."
         ),
     }
@@ -168,6 +178,48 @@ def _status(message: str = "") -> dict:
 def get_status() -> dict:
     with _LOCK:
         return _status()
+
+
+def setup_component(component: str = "core") -> dict:
+    """Install only WatchFusion's own locked Node dependencies.
+
+    Nuvio/VoxelVision optional setup lives inside the WatchFusion UI once this core can boot.
+    """
+    with _LOCK:
+        if component != "core":
+            return {**_status(), "ok": False, "state": "error", "message": f"Unknown setup component: {component}"}
+        current = _status()
+        if current["running"]:
+            return {**current, "message": "WatchFusion is already online; core dependencies are active."}
+        if not current["installed"]:
+            return {**current, "ok": False, "state": "error"}
+        npm = _npm()
+        if not npm:
+            return {**current, "ok": False, "state": "error", "message": "npm is not available on PATH."}
+
+    try:
+        result = subprocess.run(
+            [npm, "ci", "--no-audit", "--no-fund"],
+            cwd=str(_tool_root()), capture_output=True, text=True, check=False,
+            timeout=10 * 60,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+        )
+    except subprocess.TimeoutExpired:
+        return {**_status(), "ok": False, "state": "error", "message": "WatchFusion npm ci timed out after 10 minutes."}
+    except OSError as exc:
+        return {**_status(), "ok": False, "state": "error", "message": f"Could not start npm: {exc}"}
+
+    if result.returncode != 0:
+        detail = "\n".join((result.stderr or result.stdout or "").splitlines()[-12:])
+        return {
+            **_status(), "ok": False, "state": "error",
+            "message": "WatchFusion dependency install failed." + (f"\n{detail}" if detail else ""),
+        }
+    payload = _status("WatchFusion dependencies installed from package-lock.json.")
+    payload["ok"] = payload.get("dependenciesReady") is True
+    if not payload["ok"]:
+        payload.update(state="error", message="npm ci completed, but required WatchFusion dependencies are still missing.")
+    return payload
 
 
 def start_server(*, persist: bool = True) -> dict:
