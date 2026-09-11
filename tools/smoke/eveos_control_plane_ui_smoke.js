@@ -79,7 +79,7 @@ async function fetchJson(url, options) {
             }
         };
     }
-    if (/^http:\/\/(?:localhost|192\.168\.1\.209|127-0-0-1\.sslip\.io):3000\/api\/status$/.test(url)) {
+    if (/^http:\/\/(?:localhost|127\.0\.0\.1|192\.168\.1\.209|127-0-0-1\.sslip\.io):3000\/api\/status$/.test(url)) {
         if (!directRunning) throw new Error(`${url} offline`);
         return {
             ok: true,
@@ -135,7 +135,7 @@ const documentMock = {
 
 const windowMock = {
     location: {
-        protocol: 'http:', hostname: 'localhost', port: '3000', origin: 'http://localhost:3000'
+        protocol: 'file:', hostname: '', port: '', origin: 'null'
     },
     config: { bridges: { localControlPort: 9082, geminiControlPort: 9082 } },
     GeminiServerNetwork: { fetchJson },
@@ -153,6 +153,7 @@ const context = {
     MutationObserver: class { observe() {} },
     CustomEvent: CustomEventMock,
     AbortController,
+    URL,
     fetch,
     console
 };
@@ -165,19 +166,46 @@ function setPageOrigin(origin) {
     windowMock.location.origin = parsed.origin;
 }
 
+function setFileMode() {
+    windowMock.location.protocol = 'file:';
+    windowMock.location.hostname = '';
+    windowMock.location.port = '';
+    windowMock.location.origin = 'null';
+}
+
 vm.runInNewContext(localControlSource, context, { filename: 'eveos-local-control.js' });
 vm.runInNewContext(source, context, { filename: 'eveosControlPlane.js' });
 
 (async () => {
     await windowMock.EveOSControlPlane.refreshStatus();
     if (statusNode.textContent !== 'Localhost Off' || labelNode.textContent !== 'Start') {
-        throw new Error(`stopped UI mismatch: ${statusNode.textContent}/${labelNode.textContent}`);
+        throw new Error(`file-mode stopped UI mismatch: ${statusNode.textContent}/${labelNode.textContent}`);
     }
 
     directRunning = true;
     await windowMock.EveOSControlPlane.refreshStatus();
+    let fileState = windowMock.EveOSControlPlane.getState();
     if (statusNode.textContent !== 'Online' || labelNode.textContent !== 'Stop') {
-        throw new Error(`direct localhost:3000 was not detected: ${statusNode.textContent}/${labelNode.textContent}`);
+        throw new Error(`file:// did not discover localhost:3000: ${statusNode.textContent}/${labelNode.textContent}`);
+    }
+    if (fileState.currentPagePort !== 0 || fileState.currentWebPort !== 3000) {
+        throw new Error(`file:// port memory mismatch: page=${fileState.currentPagePort} web=${fileState.currentWebPort}`);
+    }
+
+    directRunning = false;
+    await windowMock.EveOSControlPlane.stop();
+    if (statusNode.textContent !== 'Localhost Off' || labelNode.textContent !== 'Start') {
+        throw new Error(`file-mode stop mismatch: ${statusNode.textContent}/${labelNode.textContent}`);
+    }
+    await windowMock.EveOSControlPlane.start();
+    if (statusNode.textContent !== 'Online' || labelNode.textContent !== 'Stop') {
+        throw new Error(`file-mode restart mismatch: ${statusNode.textContent}/${labelNode.textContent}`);
+    }
+
+    setPageOrigin('http://localhost:3000');
+    await windowMock.EveOSControlPlane.refreshStatus();
+    if (statusNode.textContent !== 'Online' || windowMock.EveOSControlPlane.getState().currentWebPort !== 3000) {
+        throw new Error('localhost EveOS page did not preserve its active web port');
     }
 
     setPageOrigin('http://192.168.1.209:3000');
@@ -193,23 +221,21 @@ vm.runInNewContext(source, context, { filename: 'eveosControlPlane.js' });
     }
 
     setPageOrigin('http://localhost:3000');
-    directRunning = false;
-    await windowMock.EveOSControlPlane.refreshStatus();
-    await windowMock.EveOSControlPlane.start();
-    if (statusNode.textContent !== 'Online' || labelNode.textContent !== 'Stop') {
-        throw new Error(`running UI mismatch: ${statusNode.textContent}/${labelNode.textContent}`);
-    }
-    if (openNode.hidden) throw new Error('localhost open button stayed hidden while running');
-
     await windowMock.EveOSControlPlane.stop();
     if (statusNode.textContent !== 'Localhost Off' || labelNode.textContent !== 'Start') {
         throw new Error(`stopped-after-stop UI mismatch: ${statusNode.textContent}/${labelNode.textContent}`);
+    }
+
+    setFileMode();
+    if (windowMock.EveOSControlPlane.getState().currentPagePort !== 0) {
+        throw new Error('file:// unexpectedly reported an HTTP page port');
     }
 
     for (const fragment of [
         '/api/control-plane/status?port=3000',
         '/api/eveos-server/start?port=3000',
         '/api/eveos-server/stop?port=3000',
+        'http://127.0.0.1:3000/api/status',
         'http://localhost:3000/api/status',
         'http://192.168.1.209:3000/api/status',
         'http://127-0-0-1.sslip.io:3000/api/status'
@@ -234,6 +260,12 @@ vm.runInNewContext(source, context, { filename: 'eveosControlPlane.js' });
     }
     if (!source.includes('EveOSLocalControl.ensure')) {
         throw new Error('Search Monitor does not use the shared local-control cold start');
+    }
+    if (!source.includes('MAIN_WEB_BASE')) {
+        throw new Error('file:// direct fallback does not know the main launcher port');
+    }
+    if (!source.includes('currentPagePort')) {
+        throw new Error('control-plane state does not distinguish file:// from the active web port');
     }
     if (/new MutationObserver\(function \(\) \{\s*bind\(document\)/.test(source)) {
         throw new Error('control binding observer can recursively republish its own DOM mutations');
