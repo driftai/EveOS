@@ -314,13 +314,26 @@ async function searchSheets(event) {
   } catch (error) { els.searchMessage.textContent = error.message; }
 }
 
+function applyPlaybackOverrides(song) {
+  const c = song?.identifiers?.custom || {};
+  if (c.override_speed) els.globalSpeed.value = String(c.override_speed);
+  if (c.override_interval) els.interval.value = String(c.override_interval);
+  if (c.override_hold) els.hold.value = String(c.override_hold);
+  if (c.override_gate) els.gate.value = String(c.override_gate);
+  if (c.override_chord_spread) els.chordSpread.value = String(c.override_chord_spread);
+  if (c.override_black_lead) els.blackLead.value = String(c.override_black_lead);
+  updateSliderLabels();
+}
+
 async function applyImportedSong(song, result = {}) {
   internalPreview.reset();
   activeSongId = song._activeSongId || null; activeTranscriptionDiagnostics = song.transcription_diagnostics || null; activePerformance = Array.isArray(song.performance) ? song.performance : []; if (activePerformance.length) recorder.load(activePerformance); else recorder.clear(); seekTarget = 1; stoppedResumeEvent = 0; playShouldRestart = false;
   els.title.value = song.artist ? `${song.title} — ${song.artist}` : (song.title || "Untitled sheet"); els.sheet.value = song.sheet || "";
   els.sheet.dataset.source = song.source || result.provider_name || "online"; els.sheet.dataset.sourceUrl = song.source_url || result.url || ""; els.sheet.dataset.timingProfile = song.timing_profile || "expressive"; youtubePiano.showDiagnostics(activeTranscriptionDiagnostics);
-  const suggested = Number(song.recommended_interval_ms || (activePerformance.length ? 0 : 115));
+  const custom = song?.identifiers?.custom || {};
+  const suggested = Number(custom.override_interval || song.recommended_interval_ms || (activePerformance.length ? 0 : 115));
   if (suggested > 0) { const min = Number(els.interval.min || 25), max = Number(els.interval.max || 500); els.interval.value = Math.max(min, Math.min(max, Math.round(suggested / 5) * 5)); updateSliderLabels(); }
+  applyPlaybackOverrides(song);
   await refreshStats();
   const timing = suggested > 0 ? ` · source timing ~${Math.round(suggested)} ms` : "";
   const profile = song.timing_profile && song.timing_profile !== "expressive" ? ` · ${song.timing_profile} translator` : "";

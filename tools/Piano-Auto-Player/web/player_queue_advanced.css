@@ -39,6 +39,29 @@
 .planner-auto > div { display: flex; flex-wrap: wrap; gap: 4px; }
 .planner-auto > div > span { display: inline-flex; gap: 4px; max-width: 100%; padding: 3px 5px; border: 1px solid #2d4744; border-radius: 999px; color: #a9c9c4; font-size: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .planner-auto > div > span b { color: #75cfc4; font-size: 6px; letter-spacing: .08em; }
+.planner-pills { display: flex; flex-wrap: wrap; gap: 5px; }
+.planner-pill { padding: 4px 9px; border: 1px solid #283e3c; border-radius: 999px; background: #0e1616; color: var(--muted); font-size: 8px; font-weight: 700; cursor: pointer; transition: all .15s ease; }
+.planner-pill:hover { border-color: #3b605c; color: var(--text); }
+.planner-pill.active { border-color: #5bc7b9; background: rgba(91,199,185,.15); color: #8fded5; box-shadow: 0 0 6px rgba(91,199,185,.15); }
+.planner-fav-btn { padding: 0 4px; border: none; background: transparent; color: #435b59; font-size: 13px; line-height: 1; cursor: pointer; transition: color .15s ease; }
+.planner-fav-btn:hover { color: #f5d47a; }
+.planner-fav-btn.active { color: #f5c442; text-shadow: 0 0 8px rgba(245,196,66,.35); }
+.planner-qtag { padding: 2px 6px; border-radius: 999px; font-size: 7px; font-weight: 750; letter-spacing: .06em; }
+.planner-qtag.now { border: 1px solid #3eb489; background: rgba(62,180,137,.18); color: #5ce6b0; }
+.planner-qtag.next { border: 1px solid #3b82f6; background: rgba(59,130,246,.16); color: #93c5fd; }
+.planner-qtag.queued { border: 1px solid #2d5550; background: rgba(45,85,80,.2); color: #8ddad0; }
+.planner-qtag.override { border: 1px solid #eab308; background: rgba(234,179,8,.12); color: #fde047; }
+.planner-overrides { display: grid; gap: 5px; margin-top: 2px; padding-top: 7px; border-top: 1px solid #223130; }
+.planner-overrides > span { color: #8fded5; font-size: 8px; font-weight: 800; letter-spacing: .12em; }
+.planner-override-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.planner-override-grid label { display: grid; gap: 3px; }
+.planner-override-grid label span { color: var(--muted); font-size: 7px; }
+.planner-queue-section { display: grid; gap: 5px; margin-top: 2px; padding-top: 7px; border-top: 1px solid #223130; }
+.planner-queue-section > span { color: #8fded5; font-size: 8px; font-weight: 800; letter-spacing: .12em; }
+.planner-queue-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.planner-queue-row span { color: var(--muted); font-size: 8px; }
+.planner-queue-btns { display: flex; gap: 4px; }
+.planner-queue-btns button { padding: 3px 6px; font-size: 8px; }
 .planner-empty { padding: 14px; border: 1px dashed #2a4542; border-radius: 10px; color: var(--muted); font-size: 9px; text-align: center; }
 
 @media (max-width: 1100px) {

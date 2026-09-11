@@ -73,7 +73,7 @@ function buildHost() {
     </details>
     <details class="sheet-workspace-staging" open>
       <summary>
-        <span><strong>SOURCE INBOX</strong><small>Sheet Finder and AI-converted results wait here before entering the same Auto Player timeline.</small></span>
+        <span><strong>SOURCE INBOX</strong><small>From Sheet Finder and AI-converted results wait here before entering the same Auto Player timeline.</small></span>
         <b data-workspace-staging-count>0 waiting</b>
       </summary>
       <div class="sheet-workspace-inbox" data-workspace-staging></div>

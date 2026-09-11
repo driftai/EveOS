@@ -139,6 +139,7 @@ function installPlayerQueue() {
         const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "×"; remove.addEventListener("click", () => removeItem(item.queueId));
         actions.append(now, up, down, remove); row.append(meta, actions); list.append(row);
       });
+      window.dispatchEvent(new CustomEvent("piano:queue-updated", { detail: { items: [...state.items], currentId: state.currentId, active: state.active, mode: state.mode } }));
     }
 
     function makeItem(song) {
@@ -302,7 +303,16 @@ function installPlayerQueue() {
       statusObserver.observe(statusChip, { attributes: true, attributeFilter: ["data-state"] });
     }
 
-    const publicApi = Object.freeze({ addSong, addSongs, playQueue, playAllLibrary, cancel, clearQueue, shuffleRemaining, advanceAfterComplete, render });
+    const publicApi = Object.freeze({
+      addSong, addSongs, playQueue, playAllLibrary, cancel, clearQueue, shuffleRemaining, advanceAfterComplete, render,
+      getState: () => ({ items: [...state.items], currentId: state.currentId, active: state.active, mode: state.mode, transitionMs: state.transitionMs }),
+      hasSong: (songId) => state.items.some(item => String(item.songId) === String(songId)),
+      getSongPosition: (songId) => state.items.findIndex(item => String(item.songId) === String(songId)),
+      removeSong: (songId) => { const item = state.items.find(item => String(item.songId) === String(songId)); if (item) removeItem(item.queueId); },
+      moveSong: (songId, delta) => { const idx = state.items.findIndex(item => String(item.songId) === String(songId)); if (idx >= 0) move(idx, delta); },
+      playSongNow: (songId) => { const item = state.items.find(item => String(item.songId) === String(songId)); if (item) return playNow(item.queueId); else { addSong({ id: songId }); const added = state.items[state.items.length - 1]; if (added) return playNow(added.queueId); } },
+      setMode: (newMode) => { if (MODES.has(newMode)) { state.mode = newMode; persist(state); render(); } }
+    });
     window.PianoPlayerQueue = publicApi;
     window.dispatchEvent(new CustomEvent("piano:player-queue-ready", { detail: publicApi }));
     bind(); render(); syncLibraryDecoration();

@@ -19,11 +19,7 @@
         if (!indicator) return false;
         const isWide = indicator.classList.toggle('wide-mode');
         if (isWide) indicator.classList.remove('fullscreen-mode');
-        try {
-            localStorage.setItem('searchMonitorWide', isWide ? 'true' : 'false');
-        } catch (error) {
-            // Restricted storage must not block the view control.
-        }
+        try { localStorage.setItem('searchMonitorWide', isWide ? 'true' : 'false'); } catch (_) {}
         return isWide;
     }
 
@@ -32,11 +28,7 @@
         const isFullscreen = indicator.classList.toggle('fullscreen-mode');
         if (isFullscreen) {
             indicator.classList.remove('wide-mode');
-            try {
-                localStorage.setItem('searchMonitorWide', 'false');
-            } catch (error) {
-                // Restricted storage must not block the view control.
-            }
+            try { localStorage.setItem('searchMonitorWide', 'false'); } catch (_) {}
         }
         return isFullscreen;
     }
@@ -47,11 +39,8 @@
         if (!button || !indicator) return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (button.classList.contains('monitor-wide-toggle')) {
-            setWideMode(indicator);
-        } else {
-            setFullscreenMode(indicator);
-        }
+        if (button.classList.contains('monitor-wide-toggle')) setWideMode(indicator);
+        else setFullscreenMode(indicator);
     }
 
     function bindModeControls(indicator) {
@@ -65,59 +54,35 @@
 
         if (wideButton) {
             wideButton.dataset.searchMonitorModeBound = '1';
-            wideButton.onclick = function (event) {
-                event.preventDefault();
-                event.stopPropagation();
-                setWideMode(indicator);
-            };
+            wideButton.onclick = (e) => { e.preventDefault(); e.stopPropagation(); setWideMode(indicator); };
         }
-
         if (fullscreenButton) {
             fullscreenButton.dataset.searchMonitorModeBound = '1';
-            fullscreenButton.onclick = function (event) {
-                event.preventDefault();
-                event.stopPropagation();
-                setFullscreenMode(indicator);
-            };
+            fullscreenButton.onclick = (e) => { e.preventDefault(); e.stopPropagation(); setFullscreenMode(indicator); };
         }
     }
 
     function shouldIgnoreToggleEvent(event, indicator) {
         if (!event || !indicator) return false;
         const target = event.target;
-        if (!target || target === indicator) return false;
-        if (typeof target.closest !== 'function') return false;
+        if (!target || target === indicator || typeof target.closest !== 'function') return false;
         const interactive = target.closest('button, a, input, textarea, select, summary, [role="button"], [contenteditable="true"], .status-group');
         return !!interactive && indicator.contains(interactive);
     }
 
-    // The bottom stats panel (Status / Wikis / Results / Trace) collapses independently of the
-    // whole-monitor compact toggle. State lives as the `details-collapsed` class on the indicator;
-    // matching CSS (loading-indicator.details-message.css) hides `.expanded-content` and rotates
-    // the ▼ arrow when the class is present.
     function setDetailsCollapsed(indicator, collapsed) {
         if (!indicator) return;
         indicator.classList.toggle('details-collapsed', !!collapsed);
-        try {
-            localStorage.setItem('searchMonitorDetailsCollapsed', collapsed ? '1' : '0');
-        } catch (error) {
-            // Restricted storage must not block the view control.
-        }
+        try { localStorage.setItem('searchMonitorDetailsCollapsed', collapsed ? '1' : '0'); } catch (_) {}
     }
 
     function restoreDetailsCollapsed(indicator) {
         if (!indicator) return;
         let stored = null;
-        try {
-            stored = localStorage.getItem('searchMonitorDetailsCollapsed');
-        } catch (error) {
-            stored = null;
-        }
+        try { stored = localStorage.getItem('searchMonitorDetailsCollapsed'); } catch (_) {}
         indicator.classList.toggle('details-collapsed', stored === '1');
     }
 
-    // The status header row is the collapse affordance. Guarantee the ▼ arrow exists (the static
-    // markup ships with it, but rebuilt/legacy indicators may not) so the control is discoverable.
     function ensureDetailsArrow(indicator) {
         if (!indicator) return;
         const statusGroup = indicator.querySelector('.status-group');
@@ -130,6 +95,7 @@
 
     function expandFallback(indicator) {
         if (!indicator) return;
+        rememberInvokingElement();
         ensureVisible(indicator);
         indicator.classList.remove('compact');
     }
@@ -137,24 +103,22 @@
     function collapseFallback(indicator) {
         if (!indicator) return;
         indicator.classList.add('compact');
+        restoreFocus();
     }
 
     function toggleViaModule(event) {
         const indicator = getIndicator();
-        if (!indicator || !window.LoadingIndicator) {
-            return false;
-        }
-
+        if (!indicator || !window.LoadingIndicator) return false;
         const canExpand = typeof window.LoadingIndicator.expand === 'function';
         const canCollapse = typeof window.LoadingIndicator.collapse === 'function';
-        if (!canExpand || !canCollapse) {
-            return false;
-        }
+        if (!canExpand || !canCollapse) return false;
 
         if (isCompact(indicator)) {
+            rememberInvokingElement();
             window.LoadingIndicator.expand();
         } else {
             window.LoadingIndicator.collapse();
+            restoreFocus();
         }
 
         if (event) {
@@ -175,14 +139,74 @@
     // below matches — so clicking it counted as "still inside the monitor's world" and the monitor
     // stayed open on top of the panel the user had just switched to. Checked first so the
     // accessibility markup cannot re-capture the click.
-    const PEER_SURFACE_SELECTOR = '#notes-world-book-overlay, .notes-world-book-overlay';
+    const PEER_SURFACE_SELECTOR = '#notes-world-book-overlay, .notes-world-book-overlay, #watchfusion-overlay, .audioflix-container, #matrixWorkshopRoot';
+    const ownedSurfaces = new Set();
+    let lastInvokingElement = null;
 
-    function isMonitorDialogTarget(target) {
-        if (!target || typeof target.closest !== 'function') return false;
+    function rememberInvokingElement() {
+        const active = document.activeElement;
+        if (active && active !== document.body && active !== document.documentElement) {
+            lastInvokingElement = active;
+        }
+    }
+
+    function restoreFocus() {
+        if (lastInvokingElement && typeof lastInvokingElement.focus === 'function' && document.body.contains(lastInvokingElement)) {
+            try {
+                lastInvokingElement.focus();
+            } catch (_) {}
+        }
+        lastInvokingElement = null;
+    }
+
+    function registerSurface(options = {}) {
+        const element = options.element || (options instanceof HTMLElement ? options : null);
+        if (!element || typeof element !== 'object') return () => {};
+        const owner = options.owner || 'search-monitor';
+        if (owner === 'search-monitor') {
+            ownedSurfaces.add(element);
+            if (element.dataset) {
+                element.dataset.surfaceOwner = 'search-monitor';
+                element.dataset.searchMonitorOwned = 'true';
+            }
+            if (options.dismissOnOutside && element.dataset) {
+                element.dataset.dismissOnOutside = 'true';
+            }
+        }
+        return () => unregisterSurface(element);
+    }
+
+    function unregisterSurface(element) {
+        if (!element) return;
+        ownedSurfaces.delete(element);
+        if (element.dataset) {
+            delete element.dataset.surfaceOwner;
+            delete element.dataset.searchMonitorOwned;
+            delete element.dataset.dismissOnOutside;
+        }
+    }
+
+    function isMonitorSurface(target, event) {
+        if (!target) return false;
+        const indicator = getIndicator();
+        const path = typeof event?.composedPath === 'function' ? event.composedPath() : [];
+
+        for (const node of path) {
+            if (!node || node === document || node === window) continue;
+            if (node === indicator) return true;
+            if (ownedSurfaces.has(node)) return true;
+            if (node.dataset?.searchMonitorOwned === 'true' || node.dataset?.surfaceOwner === 'search-monitor') return true;
+        }
+
+        if (indicator && (indicator === target || (indicator.contains && indicator.contains(target)))) return true;
+        for (const surface of ownedSurfaces) {
+            if (surface === target || (surface.contains && surface.contains(target))) return true;
+        }
+
+        if (typeof target.closest !== 'function') return false;
         if (target.closest(PEER_SURFACE_SELECTOR)) return false;
-        // `dialog` (the element) is essential: native <dialog> panels (audio/session/self-talk/
-        // screen-capture settings) have an IMPLICIT role, so `[role="dialog"]` does NOT match them —
-        // clicking one was read as "clicked out" and closed the monitor.
+        if (target.closest('[data-search-monitor-owned="true"], [data-surface-owner="search-monitor"]')) return true;
+
         return !!target.closest(
             'dialog, #custom-modal-overlay, #chat-clear-dialog, #chat-clear-overlay, '
             + '#gemini-new-chat-confirm, #eve-inline-prompt-overlay, .modal-overlay, '
@@ -190,18 +214,59 @@
         );
     }
 
+    function closeActiveChildSurface() {
+        for (const surface of ownedSurfaces) {
+            if (!document.body.contains(surface)) {
+                ownedSurfaces.delete(surface);
+                continue;
+            }
+            if (surface.tagName === 'DIALOG') {
+                if (surface.open) {
+                    surface.close();
+                    return true;
+                }
+                continue;
+            }
+            if (surface.hidden || surface.style.display === 'none') continue;
+            const closeBtn = surface.querySelector?.('[data-dismiss], .close-btn, .modal-close, button[aria-label="Close"], button.cancel');
+            if (closeBtn) {
+                closeBtn.click();
+                return true;
+            }
+            if (surface.dataset?.dismissOnOutside === 'true' || surface.getAttribute('role') === 'dialog') {
+                surface.hidden = true;
+                return true;
+            }
+        }
+        const openDialog = document.querySelector('dialog[open]:not(#notes-world-book-overlay), #chat-clear-dialog, #custom-modal-overlay:not([hidden])');
+        if (openDialog && !openDialog.closest(PEER_SURFACE_SELECTOR)) {
+            if (typeof openDialog.close === 'function') openDialog.close();
+            else {
+                const cancelBtn = openDialog.querySelector?.('button.cancel, [data-dismiss], .close');
+                if (cancelBtn) cancelBtn.click();
+                else openDialog.remove();
+            }
+            return true;
+        }
+        return false;
+    }
+
     function handleOutsideClick(event) {
         const indicator = getIndicator();
-        if (!indicator || indicator.contains(event.target) || isMonitorDialogTarget(event.target)) {
+        if (!indicator || isMonitorSurface(event.target, event)) {
             return;
         }
 
         // Search Monitor is the top layer. Consume this click so an overlay underneath it
         // (Audioflix, Matrix, etc.) does not also close or activate on the same gesture.
         event.preventDefault();
-        event.stopImmediatePropagation();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') {
+            event.stopImmediatePropagation();
+        }
         if (window.LoadingIndicator && typeof window.LoadingIndicator.collapse === 'function') {
             window.LoadingIndicator.collapse();
+            restoreFocus();
             return;
         }
 
@@ -276,6 +341,28 @@
             handleToggle(event);
         });
 
+        if (!window.__searchMonitorEscapeBound) {
+            window.__searchMonitorEscapeBound = true;
+            document.addEventListener('keydown', function (event) {
+                if (event.key !== 'Escape') return;
+                const indicator = getIndicator();
+                if (!indicator || isCompact(indicator)) return;
+                if (closeActiveChildSurface()) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                if (window.LoadingIndicator && typeof window.LoadingIndicator.collapse === 'function') {
+                    window.LoadingIndicator.collapse();
+                } else {
+                    collapseFallback(indicator);
+                }
+                restoreFocus();
+            }, true);
+        }
+
         if (!window.__nexusShortcutBound) {
             window.__nexusShortcutBound = true;
             document.addEventListener('keydown', function (event) {
@@ -296,12 +383,10 @@
         bind,
         bindModeControls,
         handleToggle,
-        openNexusSearch: function () {
-            return traceApi.openNexusSearch({ scopeMode: 'current' });
-        },
-        openNexusAllTabs: function () {
-            return traceApi.openNexusSearch({ scopeMode: 'all' });
-        },
+        registerSurface,
+        unregisterSurface,
+        openNexusSearch: () => traceApi.openNexusSearch({ scopeMode: 'current' }),
+        openNexusAllTabs: () => traceApi.openNexusSearch({ scopeMode: 'all' }),
         _nexusSessions: [],
         recordNexusTrace: function (trace) {
             const indicator = getIndicator();
@@ -318,51 +403,35 @@
             sessions.unshift(trace);
             window.SearchMonitorBoot._nexusSessions = sessions.slice(0, 20);
         },
-        getLatestNexusTrace: function () {
-            return (window.SearchMonitorBoot._nexusSessions || [])[0] || null;
-        },
+        getLatestNexusTrace: () => (window.SearchMonitorBoot._nexusSessions || [])[0] || null,
         showNexusTrace: function (traceId) {
             const indicator = getIndicator();
             if (!indicator) return;
             traceApi.ensureTraceRow(indicator);
             traceApi.ensureTraceDetails(indicator);
             const sessions = window.SearchMonitorBoot._nexusSessions || [];
-            const targetTrace = sessions.find(function (trace) {
-                return String(trace?.id || '') === String(traceId || '');
-            }) || sessions[0];
+            const targetTrace = sessions.find(trace => String(trace?.id || '') === String(traceId || '')) || sessions[0];
             if (targetTrace) {
                 const textNode = indicator.querySelector('#nexusTrace');
-                if (textNode) {
-                    const summary = targetTrace.summary || ('total ' + Number(targetTrace.totalMs || 0) + 'ms');
-                    textNode.textContent = targetTrace.id + ' · ' + summary;
-                }
+                if (textNode) textNode.textContent = targetTrace.id + ' · ' + (targetTrace.summary || ('total ' + Number(targetTrace.totalMs || 0) + 'ms'));
                 traceApi.renderTraceDetails(indicator, targetTrace);
             }
-            if (window.LoadingIndicator && typeof window.LoadingIndicator.expand === 'function') {
-                window.LoadingIndicator.expand();
-                return;
-            }
-            expandFallback(indicator);
+            if (window.LoadingIndicator?.expand) window.LoadingIndicator.expand();
+            else expandFallback(indicator);
         },
         expand: function () {
             const indicator = getIndicator();
             if (!indicator) return;
             traceApi.ensureTraceRow(indicator);
             traceApi.ensureTraceDetails(indicator);
-            if (window.LoadingIndicator && typeof window.LoadingIndicator.expand === 'function') {
-                window.LoadingIndicator.expand();
-                return;
-            }
-            expandFallback(indicator);
+            if (window.LoadingIndicator?.expand) window.LoadingIndicator.expand();
+            else expandFallback(indicator);
         },
         collapse: function () {
             const indicator = getIndicator();
             if (!indicator) return;
-            if (window.LoadingIndicator && typeof window.LoadingIndicator.collapse === 'function') {
-                window.LoadingIndicator.collapse();
-                return;
-            }
-            collapseFallback(indicator);
+            if (window.LoadingIndicator?.collapse) window.LoadingIndicator.collapse();
+            else collapseFallback(indicator);
         }
     };
 
