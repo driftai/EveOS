@@ -106,7 +106,10 @@ function buildQueue(host) {
 function installPlayerQueue() {
   loadStyles();
   return waitForWorkspace().then(host => {
-    if (!host || host.querySelector(".sheet-workspace-queue")) return null;
+    if (!host) return null;
+    const existing = host.querySelector(".sheet-workspace-queue");
+    if (existing?.pianoQueueController) return existing.pianoQueueController;
+    if (existing) return null;
     const section = buildQueue(host);
     const list = section.querySelector("[data-queue-list]");
     const count = section.querySelector("[data-queue-count]");
@@ -186,10 +189,22 @@ function installPlayerQueue() {
     }
 
     function addSong(song, announce = true) {
-      if (!song?.id) return;
+      if (!song?.id) return false;
       state.items.push(makeItem(song));
       persist(state); render();
       if (announce) toast(`${labelFor(song)} added to Player Queue`, "complete");
+      return true;
+    }
+
+    async function addSongs(songs, { replace = false, play = false, shuffle: shouldShuffle = false } = {}) {
+      const valid = (Array.isArray(songs) ? songs : []).filter(song => song?.id);
+      if (!valid.length) return 0;
+      if (replace) { state.items = []; state.active = false; state.currentId = null; }
+      valid.forEach(song => state.items.push(makeItem(song)));
+      if (shouldShuffle) state.items = shuffle(state.items);
+      persist(state); render();
+      if ((play || shouldShuffle) && state.items.length) await playQueue();
+      return valid.length;
     }
 
     function removeItem(queueId) {
@@ -215,6 +230,10 @@ function installPlayerQueue() {
       const shuffled = shuffle(rest);
       state.items = head ? [head, ...shuffled] : shuffled;
       persist(state); render();
+    }
+
+    function clearQueue() {
+      state.items = []; state.active = false; state.currentId = null; persist(state); render();
     }
 
     function cancel(reason = "") {
@@ -251,7 +270,6 @@ function installPlayerQueue() {
     }
 
     function findLibraryLoadButton(songId) {
-      syncLibraryDecoration();
       const card = [...(library?.children || [])].find(node => node.dataset?.pianoSongId === String(songId));
       if (!card) return null;
       return [...card.querySelectorAll("button")].find(button => button.textContent.trim() === "Load") || null;
@@ -265,17 +283,20 @@ function installPlayerQueue() {
       const loadButton = findLibraryLoadButton(song.id);
       if (!loadButton) throw new Error("Could not locate the library Load shortcut. Refresh the library and try again.");
       suppressCancel = true;
-      loadButton.click();
+      try { loadButton.click(); } finally { suppressCancel = false; }
       await wait(80);
       const expected = labelFor(song);
       const deadline = Date.now() + 2000;
+      let loaded = false;
       while (Date.now() < deadline) {
-        if (normalize(titleInput?.value) === normalize(expected) || normalize(titleInput?.value).startsWith(normalize(song.title))) break;
+        loaded = normalize(titleInput?.value) === normalize(expected) || normalize(titleInput?.value).startsWith(normalize(song.title));
+        if (loaded) break;
         await wait(60);
       }
+      if (!loaded) throw new Error(`Queued song did not finish loading: ${song.title || "Untitled"}`);
+      if (!playButton) throw new Error("Player Play control is unavailable.");
       suppressCancel = true;
-      playButton?.click();
-      suppressCancel = false;
+      try { playButton.click(); } finally { suppressCancel = false; }
     }
 
     function moveToFront(queueId) {
@@ -320,8 +341,8 @@ function installPlayerQueue() {
         if (!songs.length) return toast("Local Library has no saved songs to play.", "error");
         state.items = songs.map(makeItem);
         state.mode = "ordered";
-        state.active = true;
-        state.currentId = state.items[0].queueId;
+        state.active = false;
+        state.currentId = null;
         persist(state); render();
         await playQueue();
       } catch (error) { toast(error.message, "error"); }
@@ -363,7 +384,7 @@ function installPlayerQueue() {
       play.addEventListener("click", () => void playQueue());
       playAll.addEventListener("click", () => void playAllLibrary());
       shuffleButton.addEventListener("click", () => { shuffleRemaining(); if (!state.active && state.items.length) void playQueue(); });
-      clear.addEventListener("click", () => { state.items = []; state.active = false; state.currentId = null; persist(state); render(); });
+      clear.addEventListener("click", clearQueue);
       stopButton?.addEventListener("click", () => { if (!suppressCancel) cancel("Player Queue stopped."); });
       playButton?.addEventListener("click", () => { if (!suppressCancel && state.active && state.mode !== "manual") cancel("Player Queue released to manual playback."); });
     }
@@ -387,13 +408,21 @@ function installPlayerQueue() {
     }
 
     bind(); render(); syncLibraryDecoration();
-    return { addSong, playQueue, playAllLibrary, cancel, advanceAfterComplete, render };
+    const controller = Object.freeze({ addSong, addSongs, playQueue, playAllLibrary, clearQueue, cancel, advanceAfterComplete, render });
+    section.pianoQueueController = controller;
+    return controller;
   });
 }
 
-if (document.readyState === "loading") {
-  window.addEventListener("DOMContentLoaded", () => { void installPlayerQueue(); }, { once: true });
-} else {
-  void installPlayerQueue();
+let controllerPromise = null;
+function playerQueueReady() {
+  if (!controllerPromise) controllerPromise = installPlayerQueue();
+  return controllerPromise;
 }
-export { installPlayerQueue };
+
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", () => { void playerQueueReady(); }, { once: true });
+} else {
+  void playerQueueReady();
+}
+export { installPlayerQueue, playerQueueReady };
