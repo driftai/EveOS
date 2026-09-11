@@ -23,9 +23,9 @@ check(resilience.includes('Live actions are intentionally inactive while WatchFu
     'stopped workspace does not explain inactive live actions');
 check(resilience.includes('Local control is off. You can still browse WatchFusion'),
     'raw network failures are not replaced with a user-facing degraded-state message');
-check(resilience.includes('/failed to fetch|networkerror|load failed/i'),
+check(resilience.includes('failed to fetch') && resilience.includes('networkerror') && resilience.includes('load failed'),
     'common browser network failures are not normalized');
-check(resilience.includes("data.wfAction = 'start'") || resilience.includes("dataset.wfAction = 'start'"),
+check(resilience.includes("dataset.wfAction = 'start'"),
     'stopped feature panels do not provide an explicit Start action');
 check(!/addEventListener\(['"]click['"],[\s\S]{0,180}EveWatchFusion\.start/.test(resilience),
     'browsing a stopped feature can auto-start WatchFusion');
