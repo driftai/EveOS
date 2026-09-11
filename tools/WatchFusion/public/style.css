@@ -86,49 +86,145 @@
 .chatform input { min-width: 0; }
 .chatform button { padding-inline: 12px; }
 
-/* EveOS owns the outer chrome. Embedded mode removes the second app-frame
-   geometry so WatchFusion uses the entire remaining workspace. */
+/* Embedded WatchFusion is a workspace inside EveOS, not another desktop page.
+   Use flex/grid min-size rules end-to-end so the media stage receives every
+   remaining pixel instead of subtracting the inner header twice. */
 html.eveos-embedded,
-html.eveos-embedded body { width: 100%; height: 100%; min-height: 100%; overflow: hidden; }
-html.eveos-embedded body { background: var(--bg-primary); }
+html.eveos-embedded body {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+html.eveos-embedded body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
 html.eveos-embedded .topbar {
-  min-height: 48px;
-  padding: 6px 10px;
+  flex: 0 0 38px;
+  min-height: 38px;
+  padding: 3px 8px;
   background: rgba(13, 16, 23, 0.97);
   position: relative;
 }
-html.eveos-embedded .brand { font-size: 15px; }
-html.eveos-embedded main,
-html.eveos-embedded #app { height: calc(100% - 48px); min-height: 0; }
-html.eveos-embedded #app { overflow: hidden; }
+html.eveos-embedded .brand { font-size: 13px; }
+html.eveos-embedded .header-toggle {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+}
+html.eveos-embedded main {
+  flex: 1 1 auto;
+  display: flex;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+html.eveos-embedded #app {
+  flex: 1 1 auto;
+  display: flex;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 html.eveos-embedded .grid {
-  width: 100%; height: 100%; max-width: none; margin: 0; padding: 0; gap: 0; min-height: 0;
+  flex: 1 1 auto;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  align-items: stretch;
 }
-html.eveos-embedded .maincol { height: 100%; min-height: 0; }
+html.eveos-embedded .maincol {
+  display: flex;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+}
 html.eveos-embedded .watch-shell {
-  height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto;
-  border: 0; border-radius: 0; box-shadow: none; background: var(--bg-primary); backdrop-filter: none;
+  flex: 1 1 auto;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--bg-primary);
+  backdrop-filter: none;
 }
-html.eveos-embedded .watch-shell-head { padding: 7px 9px; background: rgba(14, 18, 25, 0.98); }
-html.eveos-embedded .source-tab { border-radius: 7px; padding: 7px 12px; }
-html.eveos-embedded .player-wrap { min-height: 0; height: 100%; overflow: hidden; }
+html.eveos-embedded .watch-shell-head {
+  padding: 5px 7px;
+  gap: 6px;
+  background: rgba(14, 18, 25, 0.98);
+}
+html.eveos-embedded .source-tabs { gap: 6px; }
+html.eveos-embedded .source-tab { border-radius: 6px; padding: 5px 9px; }
+html.eveos-embedded .source-badge { display: none; }
+html.eveos-embedded .player-wrap {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 html.eveos-embedded .player-wrap .player,
 html.eveos-embedded .player.nuvio-active,
 html.eveos-embedded .player.voxelvision-active {
-  aspect-ratio: auto; width: 100%; height: 100%; min-height: 0; max-height: none;
+  aspect-ratio: auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
 }
 html.eveos-embedded .nuvio-frame,
-html.eveos-embedded .voxelvision-frame { width: 100%; height: 100%; min-height: 0; }
+html.eveos-embedded .voxelvision-frame {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
 html.eveos-embedded .nuvio-toolbar,
-html.eveos-embedded .voxelvision-toolbar { padding: 6px 9px; }
-html.eveos-embedded .find-media-panel { padding: 12px; overflow: auto; }
-html.eveos-embedded .media-status-row { min-height: 38px; padding: 6px 9px; }
+html.eveos-embedded .voxelvision-toolbar { padding: 5px 7px; }
+html.eveos-embedded .find-media-panel {
+  min-height: 0;
+  max-height: 100%;
+  padding: 10px;
+  overflow: auto;
+}
+html.eveos-embedded .media-status-row { min-height: 32px; padding: 5px 7px; }
 html.eveos-embedded .room-setup,
-html.eveos-embedded .setup-panel { width: calc(100% - 20px); max-width: none; margin: 10px; }
-html.eveos-embedded .room-setup { padding: 16px; }
-html.eveos-embedded .grid:has(#partyPanel:not([hidden])) { grid-template-columns: minmax(0, 1fr) minmax(280px, 320px); }
+html.eveos-embedded .setup-panel { width: calc(100% - 16px); max-width: none; margin: 8px; }
+html.eveos-embedded .room-setup { padding: 14px; }
+html.eveos-embedded .grid:has(#partyPanel:not([hidden])) {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+}
 html.eveos-embedded .side {
-  min-height: 0; height: 100%; padding: 12px; border-radius: 0; border-top: 0; border-right: 0; border-bottom: 0;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  padding: 10px;
+  border-radius: 0;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
 }
 
 @media (min-width: 901px) {
@@ -136,8 +232,16 @@ html.eveos-embedded .side {
 }
 @media (max-width: 900px) {
   .side { min-height: 420px; }
-  html.eveos-embedded .grid:has(#partyPanel:not([hidden])) { grid-template-columns: minmax(0, 1fr); overflow: auto; }
-  html.eveos-embedded .side { height: auto; min-height: 360px; border-left: 0; border-top: 1px solid var(--border-subtle); }
+  html.eveos-embedded .grid:has(#partyPanel:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+  html.eveos-embedded .side {
+    height: auto;
+    min-height: 360px;
+    border-left: 0;
+    border-top: 1px solid var(--border-subtle);
+  }
 }
 @media (max-width: 650px) {
   .topbar { min-height: 54px; padding: 8px 12px; }
@@ -160,5 +264,11 @@ html.eveos-embedded .side {
   .nuvio-toolbar-note, .voxelvision-toolbar-note { width: 100%; margin-left: 0; }
   .media-status-row { gap: 6px; }
   .smallrow span#syncStatus { margin-left: 0; flex-basis: 100%; }
-  html.eveos-embedded main, html.eveos-embedded #app { height: calc(100% - 54px); }
+  html.eveos-embedded .topbar {
+    flex-basis: 36px;
+    min-height: 36px;
+    padding: 3px 7px;
+  }
+  html.eveos-embedded .brand { font-size: 13px; }
+  html.eveos-embedded .watch-shell-head { align-items: stretch; }
 }
