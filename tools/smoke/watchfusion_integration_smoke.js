@@ -28,32 +28,54 @@ function sourceContract() {
     const bootstrap = read('js/modules/features/watchfusion/watchfusion.bootstrap.js');
     const ui = read('js/modules/features/watchfusion/watchfusion.js');
     const css = read('css/modules/watchfusion.css');
+    const setupRoutes = read('tools/WatchFusion/src/server/setup-routes.js');
+    const setupClient = read('tools/WatchFusion/public/client/setup-health.js');
+    const setupHtml = read('tools/WatchFusion/public/index.html');
+    const staticFiles = read('tools/WatchFusion/src/server/static-files.js');
+    const youtubeSetup = read('tools/WatchFusion/voxelvision/scripts/SETUP-YOUTUBE.ps1');
+    const youtubeImport = read('tools/WatchFusion/voxelvision/youtube-import.js');
+    const depthSession = read('tools/WatchFusion/voxelvision/public/js/depth-worker-session.js');
+    const maskAssist = read('tools/WatchFusion/voxelvision/public/js/foreground-mask-assist.js');
 
     check(helper.includes('from . import watchfusion_control'), 'WF-CONTROL-IMPORT', 'control plane does not import WatchFusion lifecycle');
     check(helper.includes('"/api/watchfusion/status"'), 'WF-CONTROL-STATUS', 'WatchFusion status route is missing');
     check(helper.includes('"/api/watchfusion/start"') && helper.includes('watchfusion_control.start_server'), 'WF-CONTROL-START', 'WatchFusion start route is missing');
     check(helper.includes('"/api/watchfusion/stop"') && helper.includes('watchfusion_control.stop_server'), 'WF-CONTROL-STOP', 'WatchFusion stop route is missing');
+    check(helper.includes('"/api/watchfusion/setup"') && helper.includes('watchfusion_control.setup_component'), 'WF-CONTROL-SETUP', 'fresh-clone core setup route is missing');
     check(helper.includes('watchfusion_control.restore_desired_state_async()'), 'WF-CONTROL-RESTORE', 'desired WatchFusion state is not restored');
     check(helper.includes('("watchFusion", watchfusion_control.stop_server)'), 'WF-STOP-ALL', 'global EveOS stop does not include WatchFusion');
 
     check(control.includes('WATCHFUSION_PORT') && control.includes('9085'), 'WF-PORT', 'WatchFusion lifecycle does not own port 9085');
     check(control.includes('payload.get("app") != "WatchFusion"'), 'WF-IDENTITY', 'health check does not verify WatchFusion identity');
     check(control.includes('if verified:') && control.includes('for pid in _pids()'), 'WF-SAFE-STOP', 'stop path is not gated by verified service identity');
-    check(control.includes('tools" / "WatchFusion"') && control.includes('server.js'), 'WF-ENTRY', 'integrated tool entry path is wrong');
+    check(control.includes('[npm, "ci", "--no-audit", "--no-fund"]'), 'WF-CORE-CI', 'fresh clone cannot repair locked WatchFusion dependencies');
+    check(control.includes('setupAvailable') && control.includes('npmReady'), 'WF-CORE-STATUS', 'outer UI cannot distinguish repairable dependency state');
     check(control.includes('eveos_console_prefs.headless_for("watchFusion")'), 'WF-CONSOLE', 'WatchFusion does not use its independent console preference');
     check(prefs.includes('"watchFusion"'), 'WF-CONSOLE-REGISTRY', 'WatchFusion is not registered in console preferences');
 
     check(manifest.includes('watchfusion/watchfusion.bootstrap.js') && manifest.includes('watchfusion/watchfusion.js'), 'WF-MANIFEST', 'WatchFusion feature scripts are not in the EveOS manifest');
     check(bootstrap.includes(".topbar-audioflix-btn") && bootstrap.includes("insertAdjacentElement('afterend'"), 'WF-HEADER', 'WatchFusion header button is not anchored beside Audioflix');
-    check(ui.includes('window.EveWatchFusion') && ui.includes('/api/watchfusion/status'), 'WF-UI', 'WatchFusion workspace is not bound to shared lifecycle status');
+    check(bootstrap.includes('prepareOpen()'), 'WF-COLD-START', 'header click no longer preserves local-control user activation');
+    check(ui.includes('/api/watchfusion/setup') && ui.includes('Install WatchFusion Core'), 'WF-CORE-UI', 'outer workspace cannot repair a fresh clone');
     check(css.includes('var(--accent)') && css.includes('var(--bg-secondary)'), 'WF-THEME', 'WatchFusion shell does not consume EveOS theme tokens');
+
+    check(setupRoutes.includes("parts[1] !== 'setup'") && setupRoutes.includes("parts[2] === 'install'"), 'WF-SETUP-API', 'WatchFusion setup API is not routed');
+    check(setupRoutes.includes('isInstallerLocal') && setupRoutes.includes('trycloudflare') && setupRoutes.includes("'cf-ray'"), 'WF-SETUP-LOCAL-ONLY', 'install actions are not protected from tunnel callers');
+    check(setupRoutes.includes("component === 'nuvio'") && setupRoutes.includes("component === 'voxel-youtube'"), 'WF-SETUP-ACTIONS', 'Nuvio/Voxel helper installers are missing');
+    check(setupRoutes.includes('BritishWerewolf/IS-Net-Anime'), 'WF-MODEL-ID', 'Setup Health does not report the actual anime mask model');
+    check(setupHtml.includes('id="setupHealthBtn"') && setupHtml.includes('id="setupHealthGrid"'), 'WF-SETUP-HTML', 'Setup Health panel is missing from WatchFusion');
+    check(staticFiles.includes("'client/setup-health.js'"), 'WF-SETUP-BUNDLE', 'Setup Health client is not bundled');
+    check(setupClient.includes("'/api/setup/status'") && setupClient.includes("'/api/setup/install'"), 'WF-SETUP-CLIENT', 'Setup Health UI is not connected to setup API');
+
+    check(youtubeSetup.includes('yt-dlp.exe') && youtubeSetup.includes('deno.exe') && youtubeSetup.includes('ffmpeg.exe') && youtubeSetup.includes('ffprobe.exe'), 'WF-YOUTUBE-TOOLS', 'fresh YouTube installer does not provision every current helper');
+    check(youtubeImport.includes('nodeMajor >= 22'), 'WF-YTDLP-EJS', 'VoxelVision still forces an unsupported old Node runtime into current yt-dlp');
+    check(depthSession.includes('voxelvision.model-ready-v1') && depthSession.includes('readyAt'), 'WF-DEPTH-MODEL-STATUS', 'depth model readiness is not persisted for Setup Health');
+    check(maskAssist.includes("current['anime-mask']") && maskAssist.includes('readyAt'), 'WF-MASK-MODEL-STATUS', 'anime mask readiness is not persisted for Setup Health');
 }
 
 function embeddedRuntime() {
     const packagePath = path.join(TOOL, 'package.json');
-    if (!fs.existsSync(packagePath)) {
-        return { state: 'SKIP', reason: 'tools/WatchFusion has not been hydrated yet' };
-    }
+    if (!fs.existsSync(packagePath)) return { state: 'SKIP', reason: 'tools/WatchFusion has not been hydrated yet' };
 
     const serverPath = path.join(TOOL, 'server.js');
     const healthPath = path.join(TOOL, 'src', 'server', 'system-routes.js');
