@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { VOXELVISION_PUBLIC } from './config.js';
 import { json, readBody } from './http-utils.js';
+import { isHostLocalRequest } from './local-request.js';
 import { parseByteRange, streamMedia } from '../../voxelvision/media-range.js';
 import {
   getYoutubeStatus,
@@ -122,6 +123,31 @@ const SYSTEM_HARDWARE = Object.freeze({
   totalMemoryGb: Math.round((os.totalmem() / (1024 ** 3)) * 10) / 10,
   gpuLabels: detectSystemGpus()
 });
+const REDACTED_HARDWARE = Object.freeze({
+  platform: null,
+  arch: null,
+  cpuModel: null,
+  logicalCores: null,
+  totalMemoryGb: null,
+  gpuLabels: [],
+  redacted: true
+});
+
+function youtubeStatusForRequest(hostLocal) {
+  const status = getYoutubeStatus();
+  if (hostLocal) return { ...status, busy: youtubeImportBusy, remoteDisabled: false };
+  return {
+    ...status,
+    available: false,
+    provider: null,
+    ffmpegAvailable: false,
+    ffmpegProvider: null,
+    ffprobeAvailable: false,
+    ffprobeProvider: null,
+    busy: false,
+    remoteDisabled: true
+  };
+}
 
 export function isContainedVoxelVisionPath(root, candidate) {
   const relative = path.relative(root, candidate);
@@ -177,6 +203,7 @@ async function serveVoxelVisionFile(req, res, pathname) {
 
 async function handleVoxelVisionApi(req, res, pathname) {
   if (!requestHasTrustedOrigin(req)) return json(res, 403, { ok: false, error: 'Same-origin access required.' });
+  const hostLocal = isHostLocalRequest(req);
 
   if (req.method === 'GET' && pathname === '/voxelvision/api/status') {
     return json(res, 200, {
@@ -184,15 +211,19 @@ async function handleVoxelVisionApi(req, res, pathname) {
       version: VERSION,
       status: 'ready',
       mounted: true,
-      hardware: SYSTEM_HARDWARE,
-      youtube: { ...getYoutubeStatus(), busy: youtubeImportBusy }
+      hostLocal,
+      hardware: hostLocal ? SYSTEM_HARDWARE : REDACTED_HARDWARE,
+      youtube: youtubeStatusForRequest(hostLocal)
     });
   }
-  if (req.method === 'GET' && pathname === '/voxelvision/api/hardware') return json(res, 200, SYSTEM_HARDWARE);
+  if (req.method === 'GET' && pathname === '/voxelvision/api/hardware') {
+    return json(res, 200, hostLocal ? SYSTEM_HARDWARE : REDACTED_HARDWARE);
+  }
   if (req.method === 'GET' && pathname === '/voxelvision/api/youtube/status') {
-    return json(res, 200, { ...getYoutubeStatus(), busy: youtubeImportBusy });
+    return json(res, 200, youtubeStatusForRequest(hostLocal));
   }
   if (req.method === 'POST' && pathname === '/voxelvision/api/youtube/import') {
+    if (!hostLocal) return json(res, 403, { ok: false, error: 'Host-local access required for YouTube import.' });
     if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
       return json(res, 415, { ok: false, error: 'Content-Type must be application/json.' });
     }
