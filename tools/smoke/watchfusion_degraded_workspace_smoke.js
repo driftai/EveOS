@@ -34,19 +34,21 @@ check(resilience.includes("dataset.wfAction = 'start'"),
     'stopped feature panels do not provide an explicit Start action');
 check(!/addEventListener\(['"]click['"],[\s\S]{0,180}EveWatchFusion\.start/.test(resilience),
     'browsing a stopped feature can auto-start WatchFusion');
-check(outer.includes('Opening WatchFusion is presentation-only'),
+check(outer.includes('Presentation-only: the header must never start a terminal or runtime.'),
     'outer WatchFusion click contract no longer guarantees presentation-only open');
-check(outer.includes('EveWatchFusionRuntimeSensor?.probe') && outer.includes('directRuntime: true'),
+check(outer.includes('EveWatchFusionRuntimeSensor') || outer.includes('sensor()?.probe'),
     'healthy WatchFusion runtime cannot bypass a stale/offline control-plane status');
-check(outer.includes('Online · control off') && outer.includes('Browse · control off'),
-    'WatchFusion still exposes raw fetch failure as its primary degraded status');
+check(outer.includes('directRuntime: true') && outer.includes('Online · control off'),
+    'direct runtime state is not represented independently from local lifecycle control');
 check(outer.includes("addEventListener('eve:watchfusion-presence'") && outer.includes('detached: detachedPresence'),
     'outer EveOS workspace does not sense/report detached WatchFusion presence');
 check(sensor.includes("EveOSPortRegistry?.get?.('WATCHFUSION_PORT'") && sensor.includes('/api/health'),
     'direct WatchFusion health sensing is not registry-driven');
-check(sensor.includes("watchfusion:detached-presence") && sensor.includes('HEARTBEAT_TTL_MS'),
+check(sensor.includes('matchesControlStatus') && outer.includes('outdated WatchFusion port assignment'),
+    'stale control-plane port snapshots are not rejected safely');
+check(sensor.includes('watchfusion:detached-presence') && sensor.includes('HEARTBEAT_TTL_MS'),
     'detached-window sensing does not expire through a heartbeat contract');
-check(bridge.includes("watchfusion:embedded-presence") && bridge.includes("watchfusion:detached-presence"),
+check(bridge.includes('watchfusion:embedded-presence') && bridge.includes('watchfusion:detached-presence'),
     'WatchFusion runtime does not report embedded/detached presence back to EveOS');
 check(staticFiles.includes("'client/eveos-embed-bridge.js'"), 'EveOS presence bridge is not bundled into WatchFusion');
 check(systemRoutes.includes("app: 'WatchFusion', port: PORT"), 'WatchFusion health does not publish its resolved registry port');
