@@ -4,9 +4,40 @@
     if (window.EveOSControlPlane) return;
 
     const STATUS_PATH = '/api/control-plane/status';
-    const WEB_STATUS_URL = 'http://127.0.0.1:8765/api/status';
-    const DEFAULT_WEB_URL = 'http://127.0.0.1:8765/EveOS.html';
+    const CANONICAL_WEB_BASE = 'http://127.0.0.1:8765';
     const POLL_MS = 5000;
+
+    function currentLoopbackWebBase() {
+        try {
+            const location = window.location;
+            const host = String(location?.hostname || '').toLowerCase();
+            if (location?.protocol !== 'http:') return '';
+            if (!['127.0.0.1', 'localhost', '::1', '[::1]'].includes(host)) return '';
+            return String(location.origin || '');
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function currentLoopbackWebPort() {
+        const base = currentLoopbackWebBase();
+        if (!base) return 0;
+        const explicit = Number(window.location?.port || 0);
+        return Number.isInteger(explicit) && explicit > 0 ? explicit : 80;
+    }
+
+    function withWebPort(url) {
+        const port = currentLoopbackWebPort();
+        if (!port) return url;
+        return `${url}${url.includes('?') ? '&' : '?'}port=${port}`;
+    }
+
+    function directWebBases() {
+        const current = currentLoopbackWebBase();
+        return [...new Set([current, CANONICAL_WEB_BASE].filter(Boolean))];
+    }
+
+    const DEFAULT_WEB_URL = `${currentLoopbackWebBase() || CANONICAL_WEB_BASE}/EveOS.html`;
     const state = {
         helperBaseUrl: '',
         controllerAvailable: false,
@@ -55,6 +86,17 @@
         state.serverState = String(payload?.state || (state.webRunning ? 'running' : 'stopped'));
         state.webUrl = String(payload?.url || DEFAULT_WEB_URL);
         state.message = String(payload?.message || '');
+    }
+
+    function applyDirectWebStatus(result) {
+        if (!result) return false;
+        const { payload, base } = result;
+        state.webRunning = true;
+        state.desiredRunning = payload?.desiredRunning === true || state.desiredRunning;
+        state.serverState = 'running';
+        state.webUrl = String(payload?.url || `${base}/EveOS.html`);
+        state.message = `EveOS localhost is online at ${state.webUrl}`;
+        return true;
     }
 
     function publish() {
@@ -106,35 +148,43 @@
     }
 
     async function checkDirectWeb() {
-        try {
-            const payload = await fetchJson(WEB_STATUS_URL, null, 900);
-            return payload?.ok === true && payload?.service === 'eveos-local-server';
-        } catch (error) {
-            return false;
+        for (const base of directWebBases()) {
+            try {
+                const payload = await fetchJson(`${base}/api/status`, null, 900);
+                if (payload?.ok === true && payload?.service === 'eveos-local-server') {
+                    return { payload, base };
+                }
+            } catch (error) {
+                // Try the next verified localhost candidate.
+            }
         }
+        return null;
     }
 
     async function refreshStatus() {
         const baseUrl = helperBaseUrl();
         try {
-            const payload = await fetchJson(`${baseUrl}${STATUS_PATH}`, null, 5000);
+            const payload = await fetchJson(withWebPort(`${baseUrl}${STATUS_PATH}`), null, 5000);
             if (payload?.service !== 'eveos-control-plane' || payload?.controllerAvailable !== true) {
                 throw new Error('A different service is using the EveOS control port.');
             }
             state.helperBaseUrl = baseUrl;
             state.controllerAvailable = true;
             applyWebStatus(payload.web || {});
+            if (!state.webRunning) applyDirectWebStatus(await checkDirectWeb());
         } catch (error) {
             state.helperBaseUrl = '';
             state.controllerAvailable = false;
-            const directRunning = await checkDirectWeb();
-            state.webRunning = directRunning;
-            state.desiredRunning = directRunning;
-            state.serverState = directRunning ? 'running' : 'unavailable';
-            state.webUrl = DEFAULT_WEB_URL;
-            state.message = directRunning
-                ? 'EveOS localhost is online. Enable local control to stop or manage it.'
-                : 'Enable the one-time EveOS local control bridge to start localhost from this page.';
+            const direct = await checkDirectWeb();
+            if (!applyDirectWebStatus(direct)) {
+                state.webRunning = false;
+                state.desiredRunning = false;
+                state.serverState = 'unavailable';
+                state.webUrl = DEFAULT_WEB_URL;
+                state.message = 'Enable the one-time EveOS local control bridge to start localhost from this page.';
+            } else {
+                state.message += '. Enable local control to stop or manage it.';
+            }
         }
         publish();
         return { ...state };
@@ -185,7 +235,7 @@
         publish();
         try {
             const payload = await fetchJson(
-                `${state.helperBaseUrl}/api/eveos-server/${enabled ? 'start' : 'stop'}`,
+                withWebPort(`${state.helperBaseUrl}/api/eveos-server/${enabled ? 'start' : 'stop'}`),
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -213,10 +263,6 @@
             if (button.dataset.eveosControlBound === '1') return;
             button.dataset.eveosControlBound = '1';
             button.addEventListener('click', async function () {
-                // The Windows handoff has to happen on this synchronous turn, while the click's
-                // user activation is still live. Everything after the first await is too late:
-                // browsers silently drop a custom-scheme launch once the gesture is spent, and
-                // ensure() only got there after a health() probe had already been awaited.
                 if (!state.controllerAvailable) window.EveOSLocalControl?.requestLaunch?.();
                 await setRunning(!state.webRunning);
             });
