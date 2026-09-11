@@ -24,6 +24,7 @@ function sourceContract() {
     const helper = read('server_modules/eveos_control_helper.py');
     const control = read('server_modules/watchfusion_control.py');
     const prefs = read('server_modules/eveos_console_prefs.py');
+    const registry = JSON.parse(read('config/eveos-ports.json'));
     const manifest = read('js/config/manifest/scripts.parts/03-feature-modules.js');
     const bootstrap = read('js/modules/features/watchfusion/watchfusion.bootstrap.js');
     const ui = read('js/modules/features/watchfusion/watchfusion.js');
@@ -45,7 +46,12 @@ function sourceContract() {
     check(helper.includes('"/api/watchfusion/setup"') && helper.includes('watchfusion_control.setup_component'), 'WF-CONTROL-SETUP', 'fresh-clone core setup route is missing');
     check(helper.includes('("watchFusion", watchfusion_control.stop_server)'), 'WF-STOP-ALL', 'global EveOS stop does not include WatchFusion');
 
-    check(control.includes('WATCHFUSION_PORT') && control.includes('9085'), 'WF-PORT', 'WatchFusion lifecycle does not own port 9085');
+    const wfPort = Number(registry?.ports?.WATCHFUSION_PORT?.port);
+    const geminiPort = Number(registry?.ports?.GEMINI_WS_PORT?.port);
+    check(Number.isInteger(wfPort) && wfPort > 0, 'WF-PORT-REGISTRY', 'WatchFusion is missing from canonical port registry');
+    check(wfPort !== geminiPort, 'WF-PORT-UNIQUE', 'WatchFusion still collides with Gemini Live');
+    check(control.includes('eveos_ports.service_port("WATCHFUSION_PORT")'), 'WF-PORT', 'WatchFusion lifecycle does not resolve its port from the registry');
+    check(!ui.includes('127-0-0-1.sslip.io:9085'), 'WF-PORT-UI', 'WatchFusion UI still hard-codes the old runtime port');
     check(control.includes('payload.get("app") != "WatchFusion"'), 'WF-IDENTITY', 'health check does not verify WatchFusion identity');
     check(control.includes('if verified:') && control.includes('for pid in _pids()'), 'WF-SAFE-STOP', 'stop path is not gated by verified service identity');
     check(control.includes('[npm, "ci", "--no-audit", "--no-fund"]'), 'WF-CORE-CI', 'fresh clone cannot repair locked WatchFusion dependencies');
