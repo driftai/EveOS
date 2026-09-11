@@ -56,6 +56,12 @@ if /I "%EVEOS_EXPOSURE_MODE%"=="lan" (
     echo [OK]    Main EveOS is localhost-only.
 )
 
+rem The main-surface selection is intentionally one-shot. Clear it before
+rem starting the local control plane so Piano / WatchFusion / World Book
+rem launchers do not inherit the main mode and silently skip their own prompt.
+set "EVEOS_EXPOSURE_MODE="
+set "_EVE_BIND_HOST="
+
 echo [INFO]  World Book follows its saved On/Off state on port %WORLD_BOOK_PORT% ^(restores locally only^).
 rem --- 2. Gemini backend + general EveOS file-mode control plane. Always loopback. ---
 echo [BOOT]  Ensuring Gemini backend ^(WS %GEMINI_WS_PORT% / status %GEMINI_STATUS_PORT%^) on localhost...
