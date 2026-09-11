@@ -41,7 +41,6 @@ export async function handleNuvioAddonProxy(req, res, targetUrl, depth = 0) {
   }, upstreamRes => {
     const statusCode = upstreamRes.statusCode || 500;
 
-    // Handle Redirects safely
     if ([301, 302, 303, 307, 308].includes(statusCode) && upstreamRes.headers.location) {
       try {
         const nextUrl = new URL(upstreamRes.headers.location, parsed.href).href;
@@ -68,9 +67,7 @@ export async function handleNuvioAddonProxy(req, res, targetUrl, depth = 0) {
         'Content-Type': upstreamRes.headers['content-type'] || 'application/json; charset=utf-8',
         'Content-Length': payload.length,
         'Cache-Control': 'no-store',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Accept'
+        'Cross-Origin-Resource-Policy': 'same-origin'
       });
       res.end(payload);
     });
