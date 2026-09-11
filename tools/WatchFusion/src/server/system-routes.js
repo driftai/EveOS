@@ -1,5 +1,6 @@
 import { LAN_MODE, PORT } from './config.js';
 import { counts } from './room-store.js';
+import { isHostLocalRequest } from './local-request.js';
 import {
   isVirtualAddress,
   lanUrls,
@@ -10,12 +11,6 @@ import {
 } from './network.js';
 import { json, now } from './http-utils.js';
 
-function isPublicTunnelRequest(req) {
-  const host = String(req.headers?.host || '').split(':')[0].toLowerCase();
-  const forwarded = String(req.headers?.['x-forwarded-host'] || '').split(',')[0].trim().split(':')[0].toLowerCase();
-  return host === 'trycloudflare.com' || host.endsWith('.trycloudflare.com') || forwarded === 'trycloudflare.com' || forwarded.endsWith('.trycloudflare.com');
-}
-
 export function handleSystemRoute(req, res, parts) {
   if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'health') {
     const { rooms, aliases } = counts();
@@ -25,8 +20,8 @@ export function handleSystemRoute(req, res, parts) {
 
   if (req.method !== 'GET' || parts[0] !== 'api' || parts[1] !== 'network-info') return false;
 
-  if (isPublicTunnelRequest(req)) {
-    json(res, 403, { error: 'network diagnostics are local-only' });
+  if (!isHostLocalRequest(req, { allowNullOrigin: true })) {
+    json(res, 403, { error: 'network diagnostics are host-local only' });
     return true;
   }
 
