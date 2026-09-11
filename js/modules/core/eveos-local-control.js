@@ -3,7 +3,6 @@
 
     if (window.EveOSLocalControl) return;
 
-    const DEFAULT_PORT = 9082;
     const HEALTH_PATH = '/api/control-plane/health';
     const STATUS_PATH = '/api/control-plane/status';
     const PROTOCOL_URL = 'eveos-control://start';
@@ -14,11 +13,15 @@
     // a window would also swallow the user's second click when the first attempt failed.
     let launchAlreadyRequested = false;
 
+    function registryPort(name, fallback = 0) {
+        return Number(window.EveOSPortRegistry?.get?.(name, fallback)) || Number(fallback) || 0;
+    }
+
     function port() {
         return Number(
             window.config?.bridges?.localControlPort
             || window.config?.bridges?.geminiControlPort
-        ) || DEFAULT_PORT;
+        ) || registryPort('GEMINI_CONTROL_PORT');
     }
 
     function baseUrl() {
@@ -66,10 +69,6 @@
         return payload;
     }
 
-    // Routed through a hidden iframe rather than clicking an anchor. When the browser declines the
-    // scheme, the attempt is a failed NAVIGATION -- from an anchor that navigation belongs to the
-    // top-level page, which can tear the app down and reload it, losing all state and bouncing the
-    // user back to the button they just pressed. Contained in an iframe, a refusal costs nothing.
     function invokeProtocol() {
         bootstrapAttemptedAt = Date.now();
         const frame = document.createElement('iframe');
@@ -85,12 +84,6 @@
         window.setTimeout(() => frame.remove(), 1000);
     }
 
-    // Hand the scheme to Windows STRAIGHT from the click handler, before anything is awaited.
-    // Browsers only pass a custom scheme to the OS while the page still holds transient user
-    // activation from an unambiguous action on the top-level page, and they deliberately give no
-    // error when they decline. ensure() used to await a health() probe first, so the launch was
-    // attempted with the gesture already spent — the request was dropped in silence and the UI just
-    // span for 45 seconds, which is exactly "the setup doesn't go all the way through".
     function requestLaunch() {
         launchAlreadyRequested = true;
         invokeProtocol();
@@ -111,10 +104,7 @@
                 onProgress?.(null);
             }
         }
-        throw new Error(
-            lastError?.message
-            || 'EveOS local control did not become ready.'
-        );
+        throw new Error(lastError?.message || 'EveOS local control did not become ready.');
     }
 
     async function ensure(options) {
@@ -128,8 +118,6 @@
         if (!ensurePromise) {
             ensurePromise = (async function () {
                 options?.onLaunching?.();
-                // Don't fire a second time when the click handler already asked: that would put a
-                // duplicate Windows permission prompt in front of the user for one button press.
                 if (launchAlreadyRequested) launchAlreadyRequested = false;
                 else invokeProtocol();
                 try {
