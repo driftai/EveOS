@@ -129,8 +129,16 @@ def run_lifecycle_performance(controller, events, song_name, options) -> None:
 
                 action = actions[cursor]
                 target = clock + ((action.at_ms - base_at_ms) / 1000.0 / speed)
-                paused_total = _wait_until(controller, target, paused_total, key_state)
-                if controller._has_seek_request() or controller._should_stop() or controller._focus_paused.is_set():
+                paused_total = _wait_until(controller, target, paused_total, key_state, options)
+                if controller._has_seek_request() or controller._should_stop():
+                    continue
+                # The asynchronous guard owns pause/resume, but it is not the
+                # final authority for generated input. Re-check the real target
+                # immediately before consuming this batch so a transient focus
+                # switch cannot leak lifecycle key-downs to another window.
+                if not controller._target_is_ready(options):
+                    key_state.release_all()
+                    paused_total += controller._wait_if_paused()
                     continue
 
                 due: list[LifecycleAction] = []
@@ -138,7 +146,11 @@ def run_lifecycle_performance(controller, events, song_name, options) -> None:
                 while cursor < len(actions) and abs(actions[cursor].at_ms - stamp) <= 0.5:
                     due.append(actions[cursor])
                     cursor += 1
-                if controller._focus_paused.is_set():
+                if not controller._target_is_ready(options):
+                    key_state.release_all()
+                    # Rewind the batch so it is retried after focus returns.
+                    cursor -= len(due)
+                    paused_total += controller._wait_if_paused()
                     continue
                 downs = [row for row in due if row.kind == "down"]
                 if downs:
@@ -166,11 +178,11 @@ def run_lifecycle_performance(controller, events, song_name, options) -> None:
         controller._reset_flags()
 
 
-def _wait_until(controller, base_target: float, paused_total: float, key_state: LifecycleKeyState) -> float:
+def _wait_until(controller, base_target: float, paused_total: float, key_state: LifecycleKeyState, options) -> float:
     while True:
         if controller._should_stop() or controller._has_seek_request():
             return paused_total
-        if controller._focus_paused.is_set():
+        if not controller._target_is_ready(options):
             key_state.release_all()
             paused_total += controller._wait_if_paused()
             continue
