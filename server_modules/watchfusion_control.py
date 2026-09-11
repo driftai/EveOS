@@ -106,23 +106,23 @@ def _component_status(deps_ready: bool) -> dict:
     return {
         "core": {
             "label": "WatchFusion runtime", "ready": deps_ready, "required": True,
-            "message": "Locked Node dependencies are ready." if deps_ready else "Install the locked WatchFusion Node dependencies.",
+            "message": "Locked Node dependencies are installed." if deps_ready else "Install the locked WatchFusion Node dependencies.",
         },
         "nuvio": {
             "label": "Nuvio", "ready": nuvio_built, "sourceReady": nuvio_source, "required": False,
-            "message": "Nuvio browser build is ready." if nuvio_built else (
+            "message": "Nuvio browser build is installed; live rendering is verified after WatchFusion starts." if nuvio_built else (
                 "Nuvio source is present but needs a browser build." if nuvio_source else "Nuvio needs installation."
             ),
         },
         "voxelvision": {
             "label": "VoxelVision", "ready": voxel_source, "required": True,
-            "message": "Bundled VoxelVision source is ready." if voxel_source else "Bundled VoxelVision source is incomplete.",
+            "message": "Bundled VoxelVision source is installed; live rendering is verified after WatchFusion starts." if voxel_source else "Bundled VoxelVision source is incomplete.",
         },
         "voxelYoutube": {
             "label": "VoxelVision YouTube helpers", "ready": youtube_ready, "required": False,
             "ytDlpReady": yt_dlp_ready, "ffmpegReady": ffmpeg_ready, "ffprobeReady": ffprobe_ready,
             "jsRuntimeReady": js_runtime_ready, "nodeMajor": node_major, "denoReady": deno_ready,
-            "message": "yt-dlp, FFmpeg, ffprobe, and a supported JS runtime are ready." if youtube_ready
+            "message": "yt-dlp, FFmpeg, ffprobe, and a supported JS runtime are installed; runtime use is verified after start." if youtube_ready
             else "One or more YouTube helper dependencies still need setup.",
         },
         "browserModels": {
@@ -213,7 +213,7 @@ def _status(message: str = "") -> dict:
     deps_ready = _deps_ready() if installed else False
     components = _component_status(deps_ready) if installed else {}
     state = "running" if running else "starting" if process_alive else "blocked" if blocked else "stopped"
-    local_url = f"http://127-0-0-1.sslip.io:{WATCHFUSION_PORT}/"
+    local_url = f"http://127.0.0.1:{WATCHFUSION_PORT}/"
     payload = {
         "ok": installed and node_ready and not blocked,
         "controllerAvailable": True,
@@ -238,7 +238,7 @@ def _status(message: str = "") -> dict:
             if not installed else "Node.js is required for WatchFusion."
             if not node_ready else "npm is required to install WatchFusion dependencies."
             if not npm_ready and not deps_ready else "WatchFusion dependencies are not installed yet."
-            if not deps_ready else "WatchFusion is ready but stopped. Start it only when you want runtime features."
+            if not deps_ready else "WatchFusion is installed and ready to start on demand."
         ),
     }
     decorated = eveos_exposure.decorate_status(payload, "watchfusion", local_url)
