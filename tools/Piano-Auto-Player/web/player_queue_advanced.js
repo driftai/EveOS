@@ -235,6 +235,12 @@ async function installPlanner() {
     if (chip) chip.dataset.state = status;
   }
 
+  async function withQueue(action) {
+    const queue = await waitForQueueApi();
+    if (!queue) return toast("Player Queue controller is unavailable. Reload the Piano workspace and try again.", "error");
+    return action(queue);
+  }
+
   function syncPrefsToControls() {
     Object.entries(state.prefs).forEach(([key, value]) => { if (els[key]) els[key].value = value; });
     section.querySelectorAll("[data-pill]").forEach(btn => btn.classList.toggle("active", btn.dataset.pill === state.prefs.pill));
@@ -345,8 +351,8 @@ async function installPlanner() {
       copy.append(title, sub, chips);
 
       const actions = document.createElement("div"); actions.className = "planner-song-actions";
-      const playBtn = document.createElement("button"); playBtn.type = "button"; playBtn.textContent = "Play"; playBtn.addEventListener("click", () => { if (queue) { if (inQueue) queue.playSongNow(song.id); else void sendToQueue([song], { replace: true, play: true }); } });
-      const qBtn = document.createElement("button"); qBtn.type = "button"; qBtn.className = inQueue ? "ghost" : ""; qBtn.textContent = inQueue ? "− Queue" : "+ Queue"; qBtn.addEventListener("click", () => { if (queue) { if (inQueue) queue.removeSong(song.id); else queue.addSongs([song], { announce: false }); } });
+      const playBtn = document.createElement("button"); playBtn.type = "button"; playBtn.textContent = "Play"; playBtn.addEventListener("click", () => void withQueue(live => live.hasSong(song.id) ? live.playSongNow(song.id) : sendToQueue([song], { replace: true, play: true })));
+      const qBtn = document.createElement("button"); qBtn.type = "button"; qBtn.className = inQueue ? "ghost" : ""; qBtn.textContent = inQueue ? "− Queue" : "+ Queue"; qBtn.addEventListener("click", () => void withQueue(live => { if (live.hasSong(song.id)) live.removeSong(song.id); else live.addSongs([song], { announce: false }); }));
       const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => openEditor(song));
       actions.append(playBtn, qBtn, edit);
       row.append(checkbox, favBtn, copy, actions); els.list.append(row);
@@ -407,10 +413,10 @@ async function installPlanner() {
     section.querySelector("[data-p-play]").addEventListener("click", () => void sendToQueue(selectedSongs(), { replace: true, play: true }));
     section.querySelector("[data-p-shuffle]").addEventListener("click", () => void sendToQueue(selectedSongs(), { replace: true, shuffle: true }));
     els.saveMeta.addEventListener("click", () => void saveEditor());
-    els.qPlay?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s && window.PianoPlayerQueue) { if (window.PianoPlayerQueue.hasSong(s.id)) window.PianoPlayerQueue.playSongNow(s.id); else void sendToQueue([s], { replace: true, play: true }); } });
-    els.qToggle?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s && window.PianoPlayerQueue) { if (window.PianoPlayerQueue.hasSong(s.id)) window.PianoPlayerQueue.removeSong(s.id); else window.PianoPlayerQueue.addSongs([s], { announce: false }); updateEditorQueueUI(); renderResults(); } });
-    els.qUp?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s && window.PianoPlayerQueue) { window.PianoPlayerQueue.moveSong(s.id, -1); updateEditorQueueUI(); renderResults(); } });
-    els.qDown?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s && window.PianoPlayerQueue) { window.PianoPlayerQueue.moveSong(s.id, 1); updateEditorQueueUI(); renderResults(); } });
+    els.qPlay?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s) void withQueue(queue => queue.hasSong(s.id) ? queue.playSongNow(s.id) : sendToQueue([s], { replace: true, play: true })); });
+    els.qToggle?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s) void withQueue(queue => { if (queue.hasSong(s.id)) queue.removeSong(s.id); else queue.addSongs([s], { announce: false }); updateEditorQueueUI(); renderResults(); }); });
+    els.qUp?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s) void withQueue(queue => { queue.moveSong(s.id, -1); updateEditorQueueUI(); renderResults(); }); });
+    els.qDown?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s) void withQueue(queue => { queue.moveSong(s.id, 1); updateEditorQueueUI(); renderResults(); }); });
     window.addEventListener("piano:queue-updated", () => { renderResults(); updateEditorQueueUI(); });
     window.addEventListener("piano:unified-refresh-requested", () => void refresh());
   }
@@ -422,4 +428,3 @@ if (document.readyState === "loading") window.addEventListener("DOMContentLoaded
 else void installPlanner();
 
 export { installPlanner };
-
