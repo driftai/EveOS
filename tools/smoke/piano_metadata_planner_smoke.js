@@ -8,6 +8,7 @@ const APP = path.join(PIANO, 'app');
 const LIBRARY = fs.readFileSync(path.join(APP, 'library.py'), 'utf8');
 const SERVER = fs.readFileSync(path.join(APP, 'server.py'), 'utf8');
 const API = fs.readFileSync(path.join(WEB, 'api.js'), 'utf8');
+const MAIN_APP = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
 const PLANNER = fs.readFileSync(path.join(WEB, 'player_queue_advanced.js'), 'utf8');
 const CSS = fs.readFileSync(path.join(WEB, 'player_queue_advanced.css'), 'utf8');
 const BRIDGE = fs.readFileSync(path.join(WEB, 'eveos-host-bridge.js'), 'utf8');
@@ -43,7 +44,8 @@ for (const token of [
   "enhancePanelDisclosure('.search-panel', 'sheet-finder', false)",
   "enhancePanelDisclosure('.notation-panel', 'compatibility', true)",
   "savedCollapsed('song-details', true)", "savedCollapsed('my-songs', false)",
-  "document.getElementById('importLibraryInput')"
+  "document.getElementById('importLibraryInput')", 'waitForQueueApi',
+  "proxyButton('stopBtn')", 'Player Queue controller is unavailable'
 ]) assert(UNIFIED.includes(token), `unified Piano workspace contract missing: ${token}`);
 
 for (const token of [
@@ -51,7 +53,9 @@ for (const token of [
   '.library-panel[hidden][data-compatibility-bridge]', '@media (max-width: 760px)',
   'grid-template-columns: auto auto minmax(0, 1fr) auto',
   '.planner-editor[data-u-collapsed="1"]', '.planner-grid.editor-collapsed',
-  '.piano-collapsible-panel[data-u-collapsed="1"]'
+  '.piano-collapsible-panel[data-u-collapsed="1"]',
+  'button:not(.planner-pill):not(.planner-fav-btn)', 'min-height: 30px',
+  '.planner-queue-btns [data-p-q-up]', '.planner-queue-btns [data-p-q-down]'
 ]) assert(UNIFIED_CSS.includes(token), `unified Piano workspace CSS contract missing: ${token}`);
 
 assert(SERVER.includes('if path == "/api/songs/identifiers"'), 'server must expose a metadata-only update route');
@@ -68,6 +72,9 @@ assert(BRIDGE.indexOf("import('./player_queue.js')") < BRIDGE.indexOf("import('.
 assert(BRIDGE.includes('piano:module-error') && !BRIDGE.includes('.catch(() => {})'), 'bridge must surface module load failures');
 assert(TRANSFER.includes('json.dumps({"format": _FORMAT_SONG, "schema": _SCHEMA, "song": song}'), 'library export must continue carrying the full song record');
 assert(UNIFIED.includes("dataset.compatibilityBridge = 'player-queue'") && UNIFIED.includes("dataset.compatibilityBridge = 'local-library'"), 'old queue/library panels must remain compatibility bridges rather than separate visible workspaces');
+assert(UNIFIED.includes('const queue = await waitForQueueApi();') && UNIFIED.includes('queue?.render?.();'), 'unified workspace must force a live queue render after controller readiness');
+assert(UNIFIED.includes("if (!proxyButton('stopBtn'))"), 'unified Stop must route through the proven main Stop control before queue-only fallback');
+assert(MAIN_APP.includes('els.play.addEventListener("click", startPlayback)') && MAIN_APP.includes('els.pause.addEventListener("click", togglePause)') && MAIN_APP.includes('els.stop.addEventListener("click", stopPlayback)'), 'core Play/Pause/Stop bindings must remain intact');
 assert(PLANNER.split(/\r?\n/).length < 450, 'advanced planner exceeds the 450-line first-party cap');
 assert(UNIFIED.split(/\r?\n/).length < 450, 'unified workspace adapter exceeds the 450-line first-party cap');
 assert(LIBRARY.split(/\r?\n/).length < 450, 'song library exceeds the 450-line first-party cap');
