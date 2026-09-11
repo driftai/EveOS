@@ -38,6 +38,12 @@ if defined CONTROL_PORT_BUSY if /I not "%CONTROL_SERVICE%"=="gemini-control-help
     exit /b 1
 )
 
+rem Selective Boot services are on-demand. Starting local control must never
+rem revive an unrelated tool merely because an old desiredRunning file survived.
+del /q "%PROJECT_ROOT%\data\runtime\piano-player-service.json" >nul 2>nul
+del /q "%PROJECT_ROOT%\data\runtime\world-book-service.json" >nul 2>nul
+del /q "%PROJECT_ROOT%\data\runtime\watchfusion-service.json" >nul 2>nul
+
 echo Starting EveOS local control plane on port %GEMINI_CONTROL_PORT%...
 start "EveOS Local Control %GEMINI_CONTROL_PORT%" /min "%EVEOS_PYTHON%" -u server/eveos-control-helper.py %GEMINI_CONTROL_PORT%
 
