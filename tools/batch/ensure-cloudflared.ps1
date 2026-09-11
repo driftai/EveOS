@@ -16,25 +16,74 @@ function Test-Cloudflared([string]$Path) {
     } catch { return $false }
 }
 
-if ($env:EVEOS_CLOUDFLARED -and (Test-Cloudflared $env:EVEOS_CLOUDFLARED)) {
-    Write-Output (Resolve-Path -LiteralPath $env:EVEOS_CLOUDFLARED).Path
-    exit 0
+function Resolve-CloudflaredPath([string]$Path) {
+    if (-not (Test-Cloudflared $Path)) { return $null }
+    return (Resolve-Path -LiteralPath $Path).Path
+}
+
+function Return-Cloudflared([string]$Path, [string]$Source) {
+    $Resolved = Resolve-CloudflaredPath $Path
+    if (-not $Resolved) { return $false }
+    Write-Verbose "Using cloudflared from $Source`: $Resolved"
+    Write-Output $Resolved
+    return $true
+}
+
+# Prefer an explicit EveOS override, then the current process PATH.
+if ($env:EVEOS_CLOUDFLARED) {
+    if (Return-Cloudflared $env:EVEOS_CLOUDFLARED 'EVEOS_CLOUDFLARED') { exit 0 }
 }
 
 $Command = Get-Command cloudflared.exe -ErrorAction SilentlyContinue
 if (-not $Command) { $Command = Get-Command cloudflared -ErrorAction SilentlyContinue }
-if ($Command -and (Test-Cloudflared $Command.Source)) {
-    Write-Output $Command.Source
-    exit 0
+if ($Command -and (Return-Cloudflared $Command.Source 'PATH')) { exit 0 }
+
+# EveOS is often launched from a terminal that predates a cloudflared install,
+# so PATH can be stale. Probe the common Windows install locations explicitly.
+$KnownCandidates = @()
+if (${env:ProgramFiles(x86)}) {
+    $KnownCandidates += (Join-Path ${env:ProgramFiles(x86)} 'cloudflared\cloudflared.exe')
+    $KnownCandidates += (Join-Path ${env:ProgramFiles(x86)} 'Cloudflare\cloudflared.exe')
+}
+if ($env:ProgramFiles) {
+    $KnownCandidates += (Join-Path $env:ProgramFiles 'cloudflared\cloudflared.exe')
+    $KnownCandidates += (Join-Path $env:ProgramFiles 'Cloudflare\cloudflared.exe')
+}
+if ($env:LOCALAPPDATA) {
+    $KnownCandidates += (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\cloudflared.exe')
+}
+if ($env:USERPROFILE) {
+    $KnownCandidates += (Join-Path $env:USERPROFILE '.cloudflared\cloudflared.exe')
+}
+foreach ($Candidate in $KnownCandidates | Select-Object -Unique) {
+    if (Return-Cloudflared $Candidate 'known Windows install location') { exit 0 }
 }
 
-if (Test-Cloudflared $Destination) {
-    Write-Output (Resolve-Path -LiteralPath $Destination).Path
-    exit 0
+# Check App Paths in case an installer registered cloudflared without updating
+# the PATH inherited by the already-running EveOS terminal.
+$RegistryKeys = @(
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\cloudflared.exe',
+    'HKLM:\Software\Microsoft\Windows\CurrentVersion\App Paths\cloudflared.exe',
+    'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\cloudflared.exe'
+)
+foreach ($RegistryKey in $RegistryKeys) {
+    try {
+        $Registered = (Get-ItemProperty -LiteralPath $RegistryKey -ErrorAction Stop).'(default)'
+        if ($Registered -and (Return-Cloudflared $Registered 'Windows App Paths')) { exit 0 }
+    } catch {}
 }
 
+if (Return-Cloudflared $Destination 'EveOS bundled tools') { exit 0 }
+
+# Nothing usable is installed. Download the matching executable from Cloudflare's
+# official GitHub release and verify the SHA256 digest published on that asset.
 $Architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-$Asset = if ($Architecture -in @('x86', 'x86_32')) { 'cloudflared-windows-386.exe' } else { 'cloudflared-windows-amd64.exe' }
+$Asset = switch ($Architecture) {
+    'x86' { 'cloudflared-windows-386.exe' }
+    'x86_32' { 'cloudflared-windows-386.exe' }
+    'arm64' { 'cloudflared-windows-arm64.exe' }
+    default { 'cloudflared-windows-amd64.exe' }
+}
 $ReleaseApi = 'https://api.github.com/repos/cloudflare/cloudflared/releases/latest'
 $Directory = Split-Path -Parent $Destination
 New-Item -ItemType Directory -Force -Path $Directory | Out-Null
@@ -43,18 +92,28 @@ Remove-Item -Force -LiteralPath $Temporary -ErrorAction SilentlyContinue
 
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $Headers = @{ 'User-Agent' = 'EveOS-cloudflared-bootstrap' }
+    $Headers = @{ 'User-Agent' = 'EveOS-cloudflared-bootstrap'; 'Accept' = 'application/vnd.github+json' }
     $Release = Invoke-RestMethod -Uri $ReleaseApi -Headers $Headers
     $ReleaseAsset = $Release.assets | Where-Object { $_.name -eq $Asset } | Select-Object -First 1
-    if (-not $ReleaseAsset.browser_download_url) {
+    if (-not $ReleaseAsset -or -not $ReleaseAsset.browser_download_url) {
         throw "Official Cloudflare release does not contain $Asset."
     }
-    $ChecksumPattern = '(?mi)^\s*' + [regex]::Escape($Asset) + ':\s*([a-f0-9]{64})\s*$'
-    $ChecksumMatch = [regex]::Match([string]$Release.body, $ChecksumPattern)
-    if (-not $ChecksumMatch.Success) {
-        throw "Official Cloudflare release did not publish a SHA256 checksum for $Asset."
+
+    $ExpectedHash = ''
+    if ([string]$ReleaseAsset.digest -match '^sha256:([a-fA-F0-9]{64})$') {
+        $ExpectedHash = $Matches[1].ToLowerInvariant()
     }
-    $ExpectedHash = $ChecksumMatch.Groups[1].Value.ToLowerInvariant()
+    if (-not $ExpectedHash) {
+        # Older GitHub release metadata did not expose asset digests. Keep a
+        # release-body fallback for those releases without trusting an unchecked binary.
+        $ChecksumPattern = '(?mi)^\s*' + [regex]::Escape($Asset) + '(?::|\s+)\s*([a-f0-9]{64})\s*$'
+        $ChecksumMatch = [regex]::Match([string]$Release.body, $ChecksumPattern)
+        if ($ChecksumMatch.Success) { $ExpectedHash = $ChecksumMatch.Groups[1].Value.ToLowerInvariant() }
+    }
+    if (-not $ExpectedHash) {
+        throw "Official Cloudflare release metadata did not provide a SHA256 digest for $Asset."
+    }
+
     Invoke-WebRequest -Uri $ReleaseAsset.browser_download_url -OutFile $Temporary -UseBasicParsing -Headers $Headers
     $ActualHash = (Get-FileHash -LiteralPath $Temporary -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($ActualHash -ne $ExpectedHash) {
@@ -66,7 +125,9 @@ try {
     Move-Item -Force -LiteralPath $Temporary -Destination $Destination
 } catch {
     Remove-Item -Force -LiteralPath $Temporary -ErrorAction SilentlyContinue
-    throw "cloudflared is required and automatic download failed: $($_.Exception.Message)"
+    throw "cloudflared is required and automatic resolution/download failed: $($_.Exception.Message)"
 }
 
-Write-Output (Resolve-Path -LiteralPath $Destination).Path
+$Installed = Resolve-CloudflaredPath $Destination
+if (-not $Installed) { throw 'cloudflared was downloaded but is not executable.' }
+Write-Output $Installed
