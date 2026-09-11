@@ -17,9 +17,25 @@ function exists(...parts) {
   return fs.existsSync(path.join(...parts));
 }
 
-function isLoopback(req) {
+function socketIsLoopback(req) {
   const raw = String(req.socket?.remoteAddress || '').toLowerCase();
   return raw === '127.0.0.1' || raw === '::1' || raw === '::ffff:127.0.0.1';
+}
+
+function requestHost(req) {
+  return String(req.headers['x-forwarded-host'] || req.headers.host || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+}
+
+function isInstallerLocal(req) {
+  if (!socketIsLoopback(req)) return false;
+  const host = requestHost(req);
+  if (!host) return false;
+  if (/\.trycloudflare\.com(?::\d+)?$/i.test(host)) return false;
+  if (req.headers['cf-ray'] || req.headers['cf-connecting-ip']) return false;
+  return /^(?:localhost|127\.0\.0\.1|127-0-0-1\.sslip\.io)(?::\d+)?$/i.test(host);
 }
 
 function commandWorks(command, args = []) {
@@ -77,63 +93,42 @@ async function setupStatus(req) {
   ].every(name => exists(VOXELVISION_ROOT, name));
   const youtube = youtubeToolsStatus();
   const runtimeDeps = ['ws', 'hls.js'].every(name => exists(PROJECT_ROOT, 'node_modules', name));
-  const canInstall = process.platform === 'win32' && isLoopback(req);
+  const localRequest = isInstallerLocal(req);
+  const canInstall = process.platform === 'win32' && localRequest;
 
   return {
     ok: true,
     service: 'watchfusion-setup',
-    localRequest: isLoopback(req),
+    localRequest,
     canInstall,
     installing: activeInstall,
     components: {
       runtime: {
-        key: 'runtime',
-        label: 'WatchFusion runtime',
-        ready: runtimeDeps,
-        required: true,
-        action: null,
+        key: 'runtime', label: 'WatchFusion runtime', ready: runtimeDeps, required: true, action: null,
         message: runtimeDeps ? 'Node runtime dependencies are ready.' : 'WatchFusion must be repaired from the EveOS outer workspace.'
       },
       nuvio: {
-        key: 'nuvio',
-        label: 'Nuvio',
-        ready: nuvioBuilt,
-        sourceReady: nuvioSource,
-        built: nuvioBuilt,
-        configured: nuvioConfigured,
-        keySource: nuvioKeySource,
-        required: false,
-        action: canInstall ? 'nuvio' : null,
+        key: 'nuvio', label: 'Nuvio', ready: nuvioBuilt, sourceReady: nuvioSource,
+        built: nuvioBuilt, configured: nuvioConfigured, keySource: nuvioKeySource,
+        required: false, action: canInstall ? 'nuvio' : null,
         message: nuvioBuilt
           ? (nuvioConfigured ? 'Nuvio browser build and public backend configuration are ready.' : 'Nuvio is built; account/QR backend configuration will use public discovery when available.')
           : nuvioSource ? 'Nuvio source is present but needs a fresh browser build.' : 'Nuvio is not installed in this WatchFusion copy.'
       },
       voxelvision: {
-        key: 'voxelvision',
-        label: 'VoxelVision',
-        ready: voxelSource,
-        required: true,
-        action: null,
+        key: 'voxelvision', label: 'VoxelVision', ready: voxelSource, required: true, action: null,
         message: voxelSource ? 'Bundled VoxelVision source is ready.' : 'Bundled VoxelVision source is incomplete.'
       },
       voxelYoutube: {
-        key: 'voxel-youtube',
-        label: 'VoxelVision YouTube helpers',
-        ready: youtube.ready,
-        required: false,
-        action: canInstall ? 'voxel-youtube' : null,
-        ...youtube,
+        key: 'voxel-youtube', label: 'VoxelVision YouTube helpers', ready: youtube.ready,
+        required: false, action: canInstall ? 'voxel-youtube' : null, ...youtube,
         message: youtube.ready
           ? 'Official yt-dlp, portable Deno, FFmpeg, and ffprobe are ready.'
           : 'Install yt-dlp, portable Deno, FFmpeg, and ffprobe for current YouTube import support.'
       },
       browserModels: {
-        key: 'browser-models',
-        label: 'VoxelVision AI models',
-        ready: null,
-        required: false,
-        browserManaged: true,
-        models: MODEL_PROFILES,
+        key: 'browser-models', label: 'VoxelVision AI models', ready: null, required: false,
+        browserManaged: true, models: MODEL_PROFILES,
         message: 'AI weights download lazily on first use and are cached by the browser profile.'
       }
     },
@@ -143,12 +138,7 @@ async function setupStatus(req) {
 
 function runProcess(command, args, { cwd = PROJECT_ROOT, env = process.env, timeoutMs = 15 * 60 * 1000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      env,
-      windowsHide: true,
-      shell: false
-    });
+    const child = spawn(command, args, { cwd, env, windowsHide: true, shell: false });
     let output = '';
     const append = chunk => {
       output += String(chunk || '');
@@ -185,9 +175,9 @@ async function installNuvio() {
 
 async function installVoxelYoutube() {
   const script = path.join(VOXELVISION_ROOT, 'scripts', 'SETUP-YOUTUBE.ps1');
-  await runProcess('powershell.exe', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script
-  ], { cwd: VOXELVISION_ROOT, timeoutMs: 20 * 60 * 1000 });
+  await runProcess('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script], {
+    cwd: VOXELVISION_ROOT, timeoutMs: 20 * 60 * 1000
+  });
 }
 
 async function performInstall(component) {
@@ -201,8 +191,8 @@ async function performInstall(component) {
 }
 
 async function handleInstall(req, res) {
-  if (!isLoopback(req)) {
-    json(res, 403, { ok: false, error: 'Install actions are available only from the host machine.' });
+  if (!isInstallerLocal(req)) {
+    json(res, 403, { ok: false, error: 'Install actions are available only from the host-local WatchFusion URL.' });
     return true;
   }
   if (process.platform !== 'win32') {
