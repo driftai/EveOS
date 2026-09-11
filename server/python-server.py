@@ -248,6 +248,12 @@ class CORSHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if path in {'/api/gemini-server/start', '/api/gemini-server/stop'}:
+            try:
+                cl = int(self.headers.get('Content-Length', 0) or 0)
+                if cl > 0:
+                    self.rfile.read(cl)
+            except Exception:
+                pass
             if not gemini_control.request_can_control(self):
                 gemini_control.send_json(
                     self,
@@ -411,41 +417,12 @@ def run_server(port=DEFAULT_PORT, open_browser=True, host=DEFAULT_HOST):
     return 0
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="EveOS local web and API server"
-    )
-    parser.add_argument(
-        "port",
-        nargs="?",
-        type=int,
-        default=DEFAULT_PORT,
-        help=f"HTTP port to bind (default: {DEFAULT_PORT})"
-    )
-    parser.add_argument(
-        "--host",
-        dest="host",
-        choices=sorted(ALLOWED_HOSTS),
-        default=DEFAULT_HOST,
-        help="Network bind. Defaults to localhost-only; use 0.0.0.0 only for explicit LAN mode."
-    )
-    parser.add_argument(
-        "--modular-root",
-        dest="modular_root",
-        default="",
-        help="Override modular state root folder for this server instance."
-    )
-    parser.add_argument(
-        "--persist-modular-root",
-        dest="persist_modular_root",
-        action="store_true",
-        help="Persist --modular-root into shared modular-store settings."
-    )
-    parser.add_argument(
-        "--no-browser",
-        dest="no_browser",
-        action="store_true",
-        help="Start server without auto-opening a browser tab."
-    )
+    parser = argparse.ArgumentParser(description="EveOS local web and API server")
+    parser.add_argument("port", nargs="?", type=int, default=DEFAULT_PORT, help=f"HTTP port to bind (default: {DEFAULT_PORT})")
+    parser.add_argument("--host", dest="host", choices=sorted(ALLOWED_HOSTS), default=DEFAULT_HOST, help="Network bind. Defaults to localhost-only; use 0.0.0.0 only for explicit LAN mode.")
+    parser.add_argument("--modular-root", dest="modular_root", default="", help="Override modular state root folder for this server instance.")
+    parser.add_argument("--persist-modular-root", dest="persist_modular_root", action="store_true", help="Persist --modular-root into shared modular-store settings.")
+    parser.add_argument("--no-browser", dest="no_browser", action="store_true", help="Start server without auto-opening a browser tab.")
 
     args, unknown = parser.parse_known_args()
     if unknown:

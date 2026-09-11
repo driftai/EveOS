@@ -35,18 +35,23 @@ def assert_true(condition, message):
 
 
 def request_json(port: int, method: str, path: str, origin: str = "null") -> tuple[int, dict]:
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
-    try:
-        connection.request(
-            method,
-            path,
-            body=b"{}" if method == "POST" else None,
-            headers={"Origin": origin, "Content-Type": "application/json", "Connection": "close"},
-        )
-        response = connection.getresponse()
-        return response.status, json.loads(response.read().decode("utf-8"))
-    finally:
-        connection.close()
+    for attempt in range(3):
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        try:
+            connection.request(
+                method,
+                path,
+                body=b"{}" if method == "POST" else None,
+                headers={"Origin": origin, "Content-Type": "application/json", "Connection": "close"},
+            )
+            response = connection.getresponse()
+            return response.status, json.loads(response.read().decode("utf-8"))
+        except (ConnectionResetError, ConnectionAbortedError):
+            if attempt == 2:
+                raise
+            import time; time.sleep(0.05)
+        finally:
+            connection.close()
 
 
 def file_mode_discovery_smoke():

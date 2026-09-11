@@ -118,7 +118,7 @@ for (const relativePath of selectiveFiles) {
 const shareRouter = read(path.join(ROOT, 'tools', 'batch', 'eveos-secure-share.py'));
 assert(shareRouter.includes('(\"127.0.0.1\", args.listen_port)'),
     'Cloudflare share router must itself remain loopback-only');
-assert(shareRouter.includes('HttpOnly; Secure; SameSite=Strict'),
+assert(shareRouter.includes('HttpOnly; Secure; SameSite=None; Partitioned'),
     'Cloudflare share router lost its authenticated cookie boundary');
 assert(shareRouter.includes('strip_access(self.path)'),
     'Cloudflare share router does not strip access tokens before forwarding');

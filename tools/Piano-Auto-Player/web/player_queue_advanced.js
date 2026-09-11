@@ -78,45 +78,27 @@ function htmlFor(host) {
   const section = document.createElement("details");
   section.className = "sheet-workspace-planner";
   section.innerHTML = `
-    <summary>
-      <span><strong>ADVANCED PLAYBACK</strong><small>Smart selection, identifiers, ratings, and queue planning.</small></span>
-      <b data-planner-count>0 matches</b>
-    </summary>
+    <summary><span><strong>ADVANCED PLAYBACK</strong><small>Smart selection, identifiers, ratings, and queue planning.</small></span><b data-planner-count>0 matches</b></summary>
     <div class="planner-body">
       <div class="planner-pills" data-p-pills>
-        <button type="button" class="planner-pill" data-pill="all">All</button>
-        <button type="button" class="planner-pill" data-pill="favorites">★ Favorites</button>
-        <button type="button" class="planner-pill" data-pill="sheets">Sheets</button>
-        <button type="button" class="planner-pill" data-pill="recordings">Recordings</button>
-        <button type="button" class="planner-pill" data-pill="queued">Queued</button>
+        <button type="button" class="planner-pill" data-pill="all">All</button><button type="button" class="planner-pill" data-pill="favorites">★ Favorites</button><button type="button" class="planner-pill" data-pill="sheets">Sheets</button><button type="button" class="planner-pill" data-pill="recordings">Recordings</button><button type="button" class="planner-pill" data-pill="queued">Queued</button>
       </div>
       <div class="planner-filterbar">
         <input data-p-search placeholder="Search title, author, tags…" aria-label="Search library metadata">
-        <select data-p-genre aria-label="Genre"><option value="">All genres</option></select>
-        <select data-p-author aria-label="Author"><option value="">All authors</option></select>
-        <select data-p-host aria-label="Source"><option value="">All sources</option></select>
-        <select data-p-kind aria-label="Song type"><option value="">All types</option></select>
+        <select data-p-genre aria-label="Genre"><option value="">All genres</option></select><select data-p-author aria-label="Author"><option value="">All authors</option></select><select data-p-host aria-label="Source"><option value="">All sources</option></select><select data-p-kind aria-label="Song type"><option value="">All types</option></select>
         <input data-p-tags placeholder="Required tag" aria-label="Required tag">
-        <input data-p-min-rating type="number" min="0" max="5" step="0.5" placeholder="Min personal rating">
-        <input data-p-min-conversion type="number" min="0" max="5" step="0.5" placeholder="Min conversion rating">
-        <input data-p-min-duration type="number" min="0" step="1" placeholder="Min minutes">
-        <input data-p-max-duration type="number" min="0" step="1" placeholder="Max minutes">
-        <input data-p-min-events type="number" min="0" step="1" placeholder="Min events">
-        <input data-p-max-events type="number" min="0" step="1" placeholder="Max events">
+        <input data-p-min-rating type="number" min="0" max="5" step="0.5" placeholder="Min personal rating"><input data-p-min-conversion type="number" min="0" max="5" step="0.5" placeholder="Min conversion rating">
+        <input data-p-min-duration type="number" min="0" step="1" placeholder="Min minutes"><input data-p-max-duration type="number" min="0" step="1" placeholder="Max minutes">
+        <input data-p-min-events type="number" min="0" step="1" placeholder="Min events"><input data-p-max-events type="number" min="0" step="1" placeholder="Max events">
         <select data-p-sort aria-label="Sort matching songs">
-          <option value="updated">Recently updated</option><option value="title">Title A–Z</option>
-          <option value="rating">Personal rating ↓</option><option value="conversion">Conversion rating ↓</option>
-          <option value="duration-short">Shortest first</option><option value="duration-long">Longest first</option>
-          <option value="events-low">Fewest events first</option><option value="events-high">Most events first</option>
+          <option value="updated">Recently updated</option><option value="title">Title A–Z</option><option value="rating">Personal rating ↓</option><option value="conversion">Conversion rating ↓</option>
+          <option value="duration-short">Shortest first</option><option value="duration-long">Longest first</option><option value="events-low">Fewest events first</option><option value="events-high">Most events first</option>
         </select>
       </div>
       <div class="planner-actions">
         <span data-p-selection>0 selected</span>
         <button type="button" data-p-select-all>Select visible</button><button type="button" class="ghost" data-p-clear-selection>Clear selection</button>
-        <button type="button" class="primary" data-p-add>Send to Queue</button>
-        <button type="button" data-p-replace>Replace Queue</button>
-        <button type="button" data-p-play>Play selected</button>
-        <button type="button" data-p-shuffle>Shuffle selected</button>
+        <button type="button" class="primary" data-p-add>Send to Queue</button><button type="button" data-p-replace>Replace Queue</button><button type="button" data-p-play>Play selected</button><button type="button" data-p-shuffle>Shuffle selected</button>
       </div>
       <div class="planner-grid">
         <div class="planner-results"><div class="planner-list" data-p-list></div></div>
@@ -130,22 +112,15 @@ function htmlFor(host) {
           <div class="planner-overrides">
             <span>PLAYBACK OVERRIDES</span>
             <div class="planner-override-grid">
-              <label><span>Speed (×)</span><input data-p-ov-speed type="number" min="0.25" max="3" step="0.05" placeholder="Default"></label>
-              <label><span>Interval (ms)</span><input data-p-ov-interval type="number" min="25" max="500" step="5" placeholder="Default"></label>
-              <label><span>Hold (ms)</span><input data-p-ov-hold type="number" min="2" max="100" step="1" placeholder="Default"></label>
-              <label><span>Gate (%)</span><input data-p-ov-gate type="number" min="20" max="80" step="1" placeholder="Default"></label>
+              <label><span>Speed (×)</span><input data-p-ov-speed type="number" min="0.25" max="3" step="0.05" placeholder="Default"></label><label><span>Interval (ms)</span><input data-p-ov-interval type="number" min="25" max="500" step="5" placeholder="Default"></label>
+              <label><span>Hold (ms)</span><input data-p-ov-hold type="number" min="2" max="100" step="1" placeholder="Default"></label><label><span>Gate (%)</span><input data-p-ov-gate type="number" min="20" max="80" step="1" placeholder="Default"></label>
             </div>
           </div>
           <div class="planner-queue-section">
             <span>QUEUE STATUS</span>
             <div class="planner-queue-row">
               <span data-p-queue-status>Not queued</span>
-              <div class="planner-queue-btns">
-                <button type="button" class="small ghost" data-p-q-play>Play</button>
-                <button type="button" class="small ghost" data-p-q-toggle>+ Queue</button>
-                <button type="button" class="small ghost" data-p-q-up title="Move up">↑</button>
-                <button type="button" class="small ghost" data-p-q-down title="Move down">↓</button>
-              </div>
+              <div class="planner-queue-btns"><button type="button" class="small ghost" data-p-q-play>Play</button><button type="button" class="small ghost" data-p-q-toggle>+ Queue</button><button type="button" class="small ghost" data-p-q-up title="Move up">↑</button><button type="button" class="small ghost" data-p-q-down title="Move down">↓</button></div>
             </div>
           </div>
           <div class="planner-auto"><span>AUTOMATIC</span><div data-p-auto-chips></div></div>
@@ -377,11 +352,7 @@ async function installPlanner() {
       favBtn.setAttribute("aria-label", `${favorite ? "Remove favorite from" : "Favorite"} ${labelFor(song)}`);
       favBtn.disabled = favoriteBusy;
       if (favoriteBusy) favBtn.setAttribute("aria-busy", "true");
-      favBtn.addEventListener("click", event => {
-        event.preventDefault();
-        event.stopPropagation();
-        void toggleFavorite(song.id);
-      });
+      favBtn.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); void toggleFavorite(song.id); });
       const copy = document.createElement("div"); copy.className = "planner-song-copy";
       const title = document.createElement("strong"); title.textContent = labelFor(song);
       const sub = document.createElement("small"); sub.textContent = `${song.identifiers?.genre?.join(", ") || "No genre"} · ${song.automatic_identifiers?.event_count || 0} events · ${durationText(song.automatic_identifiers?.duration_ms || song.duration_ms)}`;

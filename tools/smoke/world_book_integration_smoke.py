@@ -211,6 +211,7 @@ def assert_lifecycle_contract() -> None:
 
                 parser = argparse.ArgumentParser()
                 parser.add_argument("--port", type=int, required=True)
+                parser.add_argument("--host", default="127.0.0.1")
                 parser.add_argument("--no-browser", action="store_true")
                 args = parser.parse_args()
 

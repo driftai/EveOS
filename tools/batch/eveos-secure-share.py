@@ -149,6 +149,7 @@ class Router(http.server.BaseHTTPRequestHandler):
                 connection.putheader(key, value)
             connection.putheader("Host", f"{origin.hostname}:{origin.port}")
             connection.putheader("X-EveOS-Share", "1")
+            connection.putheader("Connection", "close")
 
             cookie = SimpleCookie()
             try:

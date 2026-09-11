@@ -51,12 +51,12 @@
         if (!companionsReadyPromise) {
             companionsReadyPromise = Promise.all([
                 companionReady(
-                    'js/modules/features/watchfusion/watchfusion.frame-capabilities.js',
+                    'js/modules/features/watchfusion/watchfusion.frame-capabilities.js?v=5354e7b02ed3',
                     'data-eve-watchfusion-frame-capabilities',
                     '__eveWatchFusionFrameCapabilitiesReady'
                 ),
                 companionReady(
-                    'js/modules/features/watchfusion/watchfusion.selective-start.js',
+                    'js/modules/features/watchfusion/watchfusion.selective-start.js?v=9566b0c6e27a',
                     'data-eve-watchfusion-selective-start',
                     '__eveWatchFusionSelectiveStartReady'
                 )

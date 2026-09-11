@@ -17,8 +17,8 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/features/gemini-ask-bar.insights.js?v=1b1f2ebd55b1",
     "js/modules/features/gemini-ask-bar.js?v=dacfcd8f9d6d",
     "js/modules/core/eveos-port-registry.js?v=13b6451e80d4",
-    "js/modules/features/watchfusion/watchfusion.bootstrap.js?v=0560aaa1cc89",
-    "js/modules/features/watchfusion/watchfusion.runtime-sensing.js?v=fe5821b853f3",
+    "js/modules/features/watchfusion/watchfusion.bootstrap.js?v=efe5df5ed6bd",
+    "js/modules/features/watchfusion/watchfusion.runtime-sensing.js?v=7dd1fb44c724",
     "js/modules/features/watchfusion/watchfusion.js?v=f2ee2667a7ca",
     "js/modules/features/watchfusion/watchfusion.resilience.js?v=13f7a84e15a5"
 ]);

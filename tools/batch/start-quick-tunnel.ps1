@@ -46,8 +46,9 @@ function Get-FreeLoopbackPort {
 
 function New-AccessToken {
     $Bytes = New-Object byte[] 32
-    [System.Security.Cryptography.RandomNumberGenerator]::Fill($Bytes)
-    return ([Convert]::ToHexString($Bytes)).ToLowerInvariant()
+    $Rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $Rng.GetBytes($Bytes)
+    return [System.BitConverter]::ToString($Bytes).Replace('-', '').ToLowerInvariant()
 }
 
 $Python = Resolve-Python
@@ -94,24 +95,30 @@ try {
     Write-Host ''
 
     $PublicUrl = ''
-    & $Cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$RouterPort" 2>&1 | ForEach-Object {
-        $Line = $_.ToString()
-        Write-Host $Line
-        if (-not $PublicUrl -and $Line -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com') {
-            $Base = $Matches[0].TrimEnd('/')
-            $Path = if ($PublicPath.StartsWith('/')) { $PublicPath } else { "/$PublicPath" }
-            $Separator = if ($Path.Contains('?')) { '&' } else { '?' }
-            $PublicUrl = "$Base$Path$Separator" + 'access=' + $Token
-            & $StateWriter -Service $SafeService -Mode cloudflare -PublicUrl $PublicUrl `
-                -OriginUrl $Origin -RouterPort $RouterPort
-            Write-Host ''
-            Write-Host '[READY] Temporary authenticated share:' -ForegroundColor Green
-            Write-Host "  $PublicUrl" -ForegroundColor Cyan
-            Write-Host ''
-            Write-Host 'The origin remains on 127.0.0.1. The access token is converted to an HttpOnly cookie by the local router.'
-            Write-Host 'Treat the full URL like a temporary password. Stop this terminal to stop the share.'
-            if ($OpenBrowser) { Start-Process $PublicUrl }
+    $PreviousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$RouterPort" 2>&1 | ForEach-Object {
+            $Line = $_.ToString()
+            Write-Host $Line
+            if (-not $PublicUrl -and $Line -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' -and -not ($Matches[0] -match 'api\.trycloudflare\.com')) {
+                $Base = $Matches[0].TrimEnd('/')
+                $Path = if ($PublicPath.StartsWith('/')) { $PublicPath } else { "/$PublicPath" }
+                $Separator = if ($Path.Contains('?')) { '&' } else { '?' }
+                $PublicUrl = "$Base$Path$Separator" + 'access=' + $Token
+                & $StateWriter -Service $SafeService -Mode cloudflare -PublicUrl $PublicUrl `
+                    -OriginUrl $Origin -RouterPort $RouterPort
+                Write-Host ''
+                Write-Host '[READY] Temporary authenticated share:' -ForegroundColor Green
+                Write-Host "  $PublicUrl" -ForegroundColor Cyan
+                Write-Host ''
+                Write-Host 'The origin remains on 127.0.0.1. The access token is converted to an HttpOnly cookie by the local router.'
+                Write-Host 'Treat the full URL like a temporary password. Stop this terminal to stop the share.'
+                if ($OpenBrowser) { Start-Process $PublicUrl }
+            }
         }
+    } finally {
+        $ErrorActionPreference = $PreviousErrorAction
     }
 }
 finally {

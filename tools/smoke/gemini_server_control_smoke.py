@@ -31,9 +31,11 @@ class FakeProcess:
 
 
 class FakeHandler:
-    def __init__(self, host, origin):
+    def __init__(self, host, origin, extra_headers=None):
         self.client_address = (host, 12345)
         self.headers = {"Origin": origin}
+        if extra_headers:
+            self.headers.update(extra_headers)
 
 
 def assert_port_contract():
@@ -195,6 +197,7 @@ def assert_origin_guard():
     assert gemini_control.request_can_control(FakeHandler("::1", "http://localhost:8765"))
     assert not gemini_control.request_can_control(FakeHandler("192.168.1.4", "http://localhost:8765"))
     assert not gemini_control.request_can_control(FakeHandler("127.0.0.1", "https://example.com"))
+    assert not gemini_control.request_can_control(FakeHandler("127.0.0.1", "http://localhost:8765", {"X-EveOS-Share": "1"}))
 
 
 if __name__ == "__main__":

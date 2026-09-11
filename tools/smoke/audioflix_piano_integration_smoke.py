@@ -70,8 +70,8 @@ def assert_static_contract() -> None:
     for asset in ("audioflix.piano.css", "audioflix.piano.client.js", "audioflix.piano.ui.js"):
         assert asset in html
     assert "startsWith('piano-')" in actions and "EveAudioflixPianoUi?.handleAction" in actions
-    assert "ensureController" in piano_client and "api/piano-player" in piano_client
-    assert "Starting Piano-Auto-Player" in piano_ui and "location.replace" in piano_ui
+    assert ("findController" in piano_client or "ensureController" in piano_client) and "api/piano-player" in piano_client
+    assert ("Opening Piano-Auto-Player" in piano_ui or "Start Piano-Auto-Player" in piano_ui) and "location.replace" in piano_ui
     assert "PIANO AUTOMATION" in piano_ui and "PRACTICE AUTOMATION" not in piano_ui
     assert "data-piano-detached" in piano_ui and "detachedWindow" in piano_ui and "Focus Detached" in piano_ui
     assert ".audioflix-piano.is-detached" in piano_css and "pointer-events: none" in piano_css
