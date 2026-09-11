@@ -124,37 +124,27 @@
         if (event) {
             event.preventDefault();
             event.stopPropagation();
-            if (typeof event.stopImmediatePropagation === 'function') {
-                event.stopImmediatePropagation();
-            }
+            if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
         }
         return true;
     }
 
-    // Dialogs/confirms opened FROM the monitor (clear chat, clear-all confirm, new-chat confirm,
-    // inline prompts, generic modals) are appended to <body>, OUTSIDE the indicator's DOM. A click
-    // on one of those is interaction with a monitor-spawned surface, not "clicking out" of it.
-    // Peer surfaces are top-level workspaces of their own, NOT something the monitor spawned.
-    // Notes / World Book carries role="dialog" for accessibility, which the generic dialog test
-    // below matches — so clicking it counted as "still inside the monitor's world" and the monitor
-    // stayed open on top of the panel the user had just switched to. Checked first so the
-    // accessibility markup cannot re-capture the click.
+    // Ownership is explicit: role="dialog" or <dialog> alone never means a surface belongs to the
+    // monitor. Portaled children should registerSurface(), which stamps an ownership marker that is
+    // visible through composedPath(). A short legacy list preserves known pre-registry monitor flows.
     const PEER_SURFACE_SELECTOR = '#notes-world-book-overlay, .notes-world-book-overlay, #watchfusion-overlay, .audioflix-container, #matrixWorkshopRoot';
+    const LEGACY_OWNED_SURFACE_SELECTOR = '#chat-clear-dialog, #chat-clear-overlay, #gemini-new-chat-confirm, #eve-inline-prompt-overlay';
     const ownedSurfaces = new Set();
     let lastInvokingElement = null;
 
     function rememberInvokingElement() {
         const active = document.activeElement;
-        if (active && active !== document.body && active !== document.documentElement) {
-            lastInvokingElement = active;
-        }
+        if (active && active !== document.body && active !== document.documentElement) lastInvokingElement = active;
     }
 
     function restoreFocus() {
         if (lastInvokingElement && typeof lastInvokingElement.focus === 'function' && document.body.contains(lastInvokingElement)) {
-            try {
-                lastInvokingElement.focus();
-            } catch (_) {}
+            try { lastInvokingElement.focus(); } catch (_) {}
         }
         lastInvokingElement = null;
     }
@@ -169,9 +159,7 @@
                 element.dataset.surfaceOwner = 'search-monitor';
                 element.dataset.searchMonitorOwned = 'true';
             }
-            if (options.dismissOnOutside && element.dataset) {
-                element.dataset.dismissOnOutside = 'true';
-            }
+            if (options.dismissOnOutside && element.dataset) element.dataset.dismissOnOutside = 'true';
         }
         return () => unregisterSurface(element);
     }
@@ -190,86 +178,63 @@
         if (!target) return false;
         const indicator = getIndicator();
         const path = typeof event?.composedPath === 'function' ? event.composedPath() : [];
-
         for (const node of path) {
             if (!node || node === document || node === window) continue;
-            if (node === indicator) return true;
-            if (ownedSurfaces.has(node)) return true;
+            if (node === indicator || ownedSurfaces.has(node)) return true;
             if (node.dataset?.searchMonitorOwned === 'true' || node.dataset?.surfaceOwner === 'search-monitor') return true;
         }
-
-        if (indicator && (indicator === target || (indicator.contains && indicator.contains(target)))) return true;
+        if (indicator && (indicator === target || indicator.contains?.(target))) return true;
         for (const surface of ownedSurfaces) {
-            if (surface === target || (surface.contains && surface.contains(target))) return true;
+            if (surface === target || surface.contains?.(target)) return true;
         }
-
         if (typeof target.closest !== 'function') return false;
         if (target.closest(PEER_SURFACE_SELECTOR)) return false;
         if (target.closest('[data-search-monitor-owned="true"], [data-surface-owner="search-monitor"]')) return true;
+        return !!target.closest(LEGACY_OWNED_SURFACE_SELECTOR);
+    }
 
-        return !!target.closest(
-            'dialog, #custom-modal-overlay, #chat-clear-dialog, #chat-clear-overlay, '
-            + '#gemini-new-chat-confirm, #eve-inline-prompt-overlay, .modal-overlay, '
-            + '[role="dialog"], [data-eve-dialog]'
-        );
+    function dismissSurface(surface) {
+        if (!surface || !document.body.contains(surface)) return false;
+        if (surface.tagName === 'DIALOG') {
+            if (!surface.open) return false;
+            surface.close();
+            return true;
+        }
+        if (surface.hidden || surface.style.display === 'none') return false;
+        const closeBtn = surface.querySelector?.('[data-dismiss], .close-btn, .modal-close, button[aria-label="Close"], button.cancel');
+        if (closeBtn) closeBtn.click();
+        else surface.hidden = true;
+        return true;
     }
 
     function closeActiveChildSurface() {
-        for (const surface of ownedSurfaces) {
+        for (const surface of [...ownedSurfaces]) {
             if (!document.body.contains(surface)) {
                 ownedSurfaces.delete(surface);
                 continue;
             }
-            if (surface.tagName === 'DIALOG') {
-                if (surface.open) {
-                    surface.close();
-                    return true;
-                }
-                continue;
-            }
-            if (surface.hidden || surface.style.display === 'none') continue;
-            const closeBtn = surface.querySelector?.('[data-dismiss], .close-btn, .modal-close, button[aria-label="Close"], button.cancel');
-            if (closeBtn) {
-                closeBtn.click();
-                return true;
-            }
-            if (surface.dataset?.dismissOnOutside === 'true' || surface.getAttribute('role') === 'dialog') {
-                surface.hidden = true;
-                return true;
-            }
+            if (dismissSurface(surface)) return true;
         }
-        const openDialog = document.querySelector('dialog[open]:not(#notes-world-book-overlay), #chat-clear-dialog, #custom-modal-overlay:not([hidden])');
-        if (openDialog && !openDialog.closest(PEER_SURFACE_SELECTOR)) {
-            if (typeof openDialog.close === 'function') openDialog.close();
-            else {
-                const cancelBtn = openDialog.querySelector?.('button.cancel, [data-dismiss], .close');
-                if (cancelBtn) cancelBtn.click();
-                else openDialog.remove();
-            }
-            return true;
+        for (const surface of document.querySelectorAll(LEGACY_OWNED_SURFACE_SELECTOR)) {
+            if (dismissSurface(surface)) return true;
         }
         return false;
     }
 
     function handleOutsideClick(event) {
         const indicator = getIndicator();
-        if (!indicator || isMonitorSurface(event.target, event)) {
-            return;
-        }
+        if (!indicator || isMonitorSurface(event.target, event)) return;
 
-        // Search Monitor is the top layer. Consume this click so an overlay underneath it
-        // (Audioflix, Matrix, etc.) does not also close or activate on the same gesture.
+        // Search Monitor is the top layer. Consume this click so an overlay underneath it does not
+        // also activate or close on the same gesture.
         event.preventDefault();
         event.stopPropagation();
-        if (typeof event.stopImmediatePropagation === 'function') {
-            event.stopImmediatePropagation();
-        }
+        if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
         if (window.LoadingIndicator && typeof window.LoadingIndicator.collapse === 'function') {
             window.LoadingIndicator.collapse();
             restoreFocus();
             return;
         }
-
         collapseFallback(indicator);
     }
 
@@ -282,15 +247,8 @@
     function handleToggle(event) {
         const indicator = getIndicator();
         if (!indicator) return;
-
-        // Once expanded, Search Monitor behaves like a stable panel rather than one giant toggle.
-        // Internal whitespace/text clicks stay inside it. The status header remains the dedicated
-        // stats-collapse affordance; the whole monitor closes only through the top-layer outside
-        // click gate or an explicit collapse API call.
         if (!isCompact(indicator)) {
-            const statusGroup = event.target && typeof event.target.closest === 'function'
-                ? event.target.closest('.status-group')
-                : null;
+            const statusGroup = event.target && typeof event.target.closest === 'function' ? event.target.closest('.status-group') : null;
             if (statusGroup && indicator.contains(statusGroup)) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -298,22 +256,15 @@
             }
             return;
         }
-
         if (shouldIgnoreToggleEvent(event, indicator)) return;
-
-        if (toggleViaModule(event)) {
-            return;
-        }
-
+        if (toggleViaModule(event)) return;
         expandFallback(indicator);
         if (event) event.stopPropagation();
     }
 
     function bind() {
         const indicator = getIndicator();
-        if (!indicator || indicator.dataset.searchMonitorBootBound === '1') {
-            return;
-        }
+        if (!indicator || indicator.dataset.searchMonitorBootBound === '1') return;
 
         indicator.dataset.searchMonitorBootBound = '1';
         indicator.tabIndex = indicator.tabIndex >= 0 ? indicator.tabIndex : 0;
@@ -334,8 +285,7 @@
         indicator.addEventListener('keydown', function (event) {
             if (event.key !== 'Enter' && event.key !== ' ') return;
             const tag = event.target && event.target.tagName;
-            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
-                || (event.target && event.target.isContentEditable)) return;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return;
             if (shouldIgnoreToggleEvent(event, indicator)) return;
             event.preventDefault();
             handleToggle(event);
@@ -354,11 +304,8 @@
                 }
                 event.preventDefault();
                 event.stopPropagation();
-                if (window.LoadingIndicator && typeof window.LoadingIndicator.collapse === 'function') {
-                    window.LoadingIndicator.collapse();
-                } else {
-                    collapseFallback(indicator);
-                }
+                if (window.LoadingIndicator && typeof window.LoadingIndicator.collapse === 'function') window.LoadingIndicator.collapse();
+                else collapseFallback(indicator);
                 restoreFocus();
             }, true);
         }
@@ -398,7 +345,6 @@
             if (textNode) textNode.textContent = trace.id + ' · ' + summary;
             indicator.dataset.lastNexusTraceId = String(trace.id);
             traceApi.renderTraceDetails(indicator, trace);
-
             const sessions = window.SearchMonitorBoot._nexusSessions || [];
             sessions.unshift(trace);
             window.SearchMonitorBoot._nexusSessions = sessions.slice(0, 20);
@@ -435,9 +381,6 @@
         }
     };
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', bind, { once: true });
-    } else {
-        bind();
-    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, { once: true });
+    else bind();
 })();
