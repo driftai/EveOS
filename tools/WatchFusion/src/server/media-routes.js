@@ -58,10 +58,8 @@ async function streamMediaUrl(req, res, targetUrl, referer, depth = 0) {
       const contentType = proxyRes.headers['content-type'] || '';
       const isM3u8 = contentType.includes('mpegurl') || publicUrl.toLowerCase().includes('.m3u8');
       const responseHeaders = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-        'Access-Control-Allow-Headers': '*',
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'no-cache',
+        'Cross-Origin-Resource-Policy': 'same-origin'
       };
       if (proxyRes.headers['accept-ranges']) responseHeaders['Accept-Ranges'] = proxyRes.headers['accept-ranges'];
       if (proxyRes.headers['content-range']) responseHeaders['Content-Range'] = proxyRes.headers['content-range'];
