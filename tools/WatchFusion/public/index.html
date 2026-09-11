@@ -7,17 +7,35 @@
   <title>WatchFusion</title>
   <link rel="stylesheet" href="/theme.css">
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/setup.css">
 </head>
 <body>
   <header class="topbar" id="watchfusionHeader">
     <div class="brand"><strong>WatchFusion</strong></div>
     <div class="top-actions" id="headerActions" hidden>
+      <button class="secondary" id="setupHealthBtn" type="button" aria-expanded="false" aria-controls="setupPanel">Setup Health</button>
       <button class="secondary" id="startPartyBtn" type="button">Start Watch Party</button>
       <button class="secondary" id="openRoomBtn" type="button">Join Room</button>
       <button class="room-pill" id="roomPill" type="button" title="No active room" disabled>Solo</button>
     </div>
     <button id="headerToggleBtn" class="header-toggle secondary" type="button" aria-expanded="false" aria-controls="headerActions" title="Expand WatchFusion controls"><span class="header-chevron" aria-hidden="true"></span><span class="sr-only">Expand WatchFusion controls</span></button>
   </header>
+
+  <section id="setupPanel" class="panel setup-panel" hidden>
+    <div class="setup-panel-head">
+      <div>
+        <h2>Setup Health</h2>
+        <p>Track WatchFusion, Nuvio, VoxelVision helpers, and browser-managed AI models from one place.</p>
+      </div>
+      <div class="setup-panel-actions">
+        <button id="setupInstallAllBtn" type="button" hidden>Install recommended</button>
+        <button id="setupRefreshBtn" class="secondary" type="button">Refresh</button>
+        <button id="setupCloseBtn" class="secondary" type="button">Close</button>
+      </div>
+    </div>
+    <p id="setupHealthSummary" class="setup-health-summary">Checking local setup…</p>
+    <div id="setupHealthGrid" class="setup-grid"></div>
+  </section>
 
   <main>
     <section id="lobby" class="panel lobby room-setup" hidden>
