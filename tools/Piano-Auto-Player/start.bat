@@ -18,6 +18,9 @@ if %errorlevel%==0 (
   set "PY=python"
 )
 
+rem Human Piano startup must make its own exposure choice. Never inherit the
+rem main EveOS surface mode from a parent launcher/control process.
+set "EVEOS_EXPOSURE_MODE="
 call "%BOOT_DIR%\select-exposure-mode.bat" "Piano Auto Player"
 if errorlevel 2 exit /b 0
 
