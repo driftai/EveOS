@@ -160,6 +160,44 @@ function enhanceEditorDisclosure(planner) {
   });
 }
 
+function enhanceLibraryBrowserDisclosure(planner) {
+  const body = planner.querySelector('.planner-body');
+  if (!body || body.querySelector('.piano-library-browser')) return;
+  const nodes = ['.planner-pills', '.planner-filterbar', '.planner-actions', '.planner-grid']
+    .map(selector => planner.querySelector(selector));
+  if (nodes.some(node => !node)) return;
+
+  const browser = document.createElement('section');
+  browser.className = 'piano-library-browser';
+  const head = document.createElement('header');
+  head.className = 'piano-library-browser-head';
+  head.innerHTML = `
+    <div class="piano-library-browser-copy">
+      <strong>LIBRARY BROWSER</strong>
+      <small>Filters, saved items, queue actions, and song details.</small>
+    </div>
+    <button type="button" class="ghost small" data-u-library-toggle aria-label="Toggle library browser">Collapse</button>`;
+  const content = document.createElement('div');
+  content.className = 'piano-library-browser-body';
+  nodes[0].before(browser);
+  content.append(...nodes);
+  browser.append(head, content);
+
+  const button = head.querySelector('[data-u-library-toggle]');
+  const apply = collapsed => {
+    browser.dataset.uCollapsed = collapsed ? '1' : '0';
+    button.textContent = collapsed ? 'Expand' : 'Collapse';
+    button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    saveCollapsed('library-browser', collapsed);
+  };
+  apply(savedCollapsed('library-browser', false));
+  button.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    apply(browser.dataset.uCollapsed !== '1');
+  });
+}
+
 function buildHeader(planner) {
   const body = planner.querySelector('.planner-body');
   if (!body || body.querySelector('.piano-unified-head')) return;
@@ -317,6 +355,7 @@ async function installUnifiedWorkspace() {
   if (!planner) return null;
   hideLegacyPanels();
   buildHeader(planner);
+  enhanceLibraryBrowserDisclosure(planner);
   markVisibleContract(planner);
   bindQueueStrip(planner);
 
