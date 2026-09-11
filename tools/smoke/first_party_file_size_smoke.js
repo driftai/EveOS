@@ -75,6 +75,7 @@ const measured = collectCodeFiles(REPO_ROOT)
     .map((filePath) => ({
         filePath,
         relativePath: path.relative(REPO_ROOT, filePath),
+        extension: path.extname(filePath).toLowerCase(),
         lines: countPhysicalLines(filePath)
     }))
     .sort((left, right) => right.lines - left.lines);
@@ -87,8 +88,24 @@ if (oversized.length) {
     throw new Error(`First-party code files exceed ${MAX_LINES} lines:\n${details}`);
 }
 
+const byExtension = {};
+let totalLines = 0;
+for (const entry of measured) {
+    totalLines += entry.lines;
+    const bucket = byExtension[entry.extension] || { files: 0, lines: 0 };
+    bucket.files += 1;
+    bucket.lines += entry.lines;
+    byExtension[entry.extension] = bucket;
+}
+const orderedByExtension = Object.fromEntries(
+    Object.entries(byExtension).sort((left, right) => right[1].lines - left[1].lines)
+);
+
 console.log('FIRST_PARTY_FILE_SIZE_SMOKE_OK', JSON.stringify({
     maxLines: MAX_LINES,
     measuredFiles: measured.length,
+    totalLines,
+    averageLines: measured.length ? Math.round((totalLines / measured.length) * 10) / 10 : 0,
+    byExtension: orderedByExtension,
     largest: measured[0] || null
 }));
