@@ -30,8 +30,17 @@ function Reset-Temp {
   if (Test-Path -LiteralPath $tempDir) { Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+function Get-NodeMajor {
+  try {
+    $version = (& node --version 2>$null | Select-Object -First 1)
+    if ($LASTEXITCODE -eq 0 -and $version -match '^v(\d+)') { return [int]$Matches[1] }
+  } catch {}
+  return 0
+}
+
 $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 $isArm64 = $architecture -eq 'arm64'
+$nodeMajor = Get-NodeMajor
 
 Write-Host '[1/3] Installing/updating official yt-dlp.exe...'
 $ytDlpUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
@@ -43,25 +52,30 @@ if (-not (Test-Executable -Path $ytDlp -Args @('--version'))) {
 }
 Write-Host '[OK] yt-dlp.exe is ready (official executable includes yt-dlp EJS scripts).'
 
-Write-Host '[2/3] Installing/updating portable Deno for YouTube JavaScript challenges...'
-$denoArchive = if ($isArm64) { 'deno-aarch64-pc-windows-msvc.zip' } else { 'deno-x86_64-pc-windows-msvc.zip' }
-$denoUrl = "https://github.com/denoland/deno/releases/latest/download/$denoArchive"
-if ($Force -or -not (Test-Executable -Path $deno -Args @('--version'))) {
-  try {
-    Reset-Temp
-    Invoke-WebRequest -UseBasicParsing -Uri $denoUrl -OutFile $tempZip
-    Expand-Archive -LiteralPath $tempZip -DestinationPath $tempDir -Force
-    $downloadedDeno = Get-ChildItem -LiteralPath $tempDir -Recurse -Filter 'deno.exe' | Select-Object -First 1
-    if (-not $downloadedDeno) { throw 'Deno archive did not contain deno.exe.' }
-    Copy-Item -LiteralPath $downloadedDeno.FullName -Destination $deno -Force
-  } finally {
-    Reset-Temp
+Write-Host '[2/3] Checking YouTube JavaScript challenge runtime...'
+if ($nodeMajor -ge 22) {
+  Write-Host "[OK] Node.js $nodeMajor is supported by current yt-dlp EJS; no Deno download is required."
+} else {
+  Write-Host "Node.js 22+ is not available (detected major: $nodeMajor). Installing portable Deno fallback..."
+  $denoArchive = if ($isArm64) { 'deno-aarch64-pc-windows-msvc.zip' } else { 'deno-x86_64-pc-windows-msvc.zip' }
+  $denoUrl = "https://github.com/denoland/deno/releases/latest/download/$denoArchive"
+  if ($Force -or -not (Test-Executable -Path $deno -Args @('--version'))) {
+    try {
+      Reset-Temp
+      Invoke-WebRequest -UseBasicParsing -Uri $denoUrl -OutFile $tempZip
+      Expand-Archive -LiteralPath $tempZip -DestinationPath $tempDir -Force
+      $downloadedDeno = Get-ChildItem -LiteralPath $tempDir -Recurse -Filter 'deno.exe' | Select-Object -First 1
+      if (-not $downloadedDeno) { throw 'Deno archive did not contain deno.exe.' }
+      Copy-Item -LiteralPath $downloadedDeno.FullName -Destination $deno -Force
+    } finally {
+      Reset-Temp
+    }
   }
+  if (-not (Test-Executable -Path $deno -Args @('--version'))) {
+    throw 'Node.js is below 22 and portable Deno is unavailable. YouTube EJS challenges cannot run.'
+  }
+  Write-Host '[OK] Portable Deno is ready for yt-dlp EJS challenge solving.'
 }
-if (-not (Test-Executable -Path $deno -Args @('--version'))) {
-  throw 'Portable deno.exe is unavailable after setup.'
-}
-Write-Host '[OK] Deno is ready for yt-dlp EJS challenge solving.'
 
 Write-Host '[3/3] Installing/updating portable FFmpeg + ffprobe...'
 $archiveName = if ($isArm64) {
