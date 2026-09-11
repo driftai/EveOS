@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { NUVIO_DIST } from './config.js';
 import { json } from './http-utils.js';
+import { isHostLocalRequest } from './local-request.js';
 import {
   isNuvioBuilt,
   generateNuvioEnvScript,
@@ -38,7 +39,6 @@ export function isContainedPath(root, candidate) {
 }
 
 export async function handleNuvioRoute(req, res, pathname, url) {
-  // Support both /__nuvio__/ and /__wrapper__/ (for Nuvio backwards compatibility)
   if (pathname === '/__nuvio__/entry' || pathname === '/__wrapper__/nuvio-entry') {
     if (!isNuvioBuilt(NUVIO_DIST)) {
       return json(res, 200, {
@@ -74,6 +74,7 @@ export async function handleNuvioRoute(req, res, pathname, url) {
   }
 
   if (pathname === '/__nuvio__/diagnostics' || pathname === '/__wrapper__/diagnostics') {
+    if (!isHostLocalRequest(req)) return json(res, 403, { error: 'Nuvio diagnostics are host-local only' });
     const { merged, keySource } = await mergedNuvioConfig(NUVIO_DIST);
     return json(res, 200, {
       built: isNuvioBuilt(NUVIO_DIST),
@@ -104,11 +105,7 @@ export async function handleNuvioRoute(req, res, pathname, url) {
 
   if (pathname === '/__nuvio__/addon-proxy' || pathname === '/__wrapper__/addon-proxy') {
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Accept'
-      });
+      res.writeHead(204);
       return res.end();
     }
     const target = url.searchParams.get('url');
@@ -124,7 +121,6 @@ export async function handleNuvioRoute(req, res, pathname, url) {
     return true;
   }
 
-  // Safe file serving for /nuvio/dist/*
   if (pathname.startsWith('/nuvio/dist/')) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'method not allowed' });
     let rel;
