@@ -1,6 +1,7 @@
 @echo off
 if not defined PROJECT_ROOT for %%R in ("%~dp0..\..") do set "PROJECT_ROOT=%%~fR"
 if not defined LAST_USED_PACK_FILE set "LAST_USED_PACK_FILE=%PROJECT_ROOT%\data\launcher-last-pack.txt"
+if not defined LAST_USED_PORT_FILE set "LAST_USED_PORT_FILE=%PROJECT_ROOT%\data\runtime\eveos-last-launcher-port.txt"
 if "%~1"=="" exit /b 0
 set "_START_SERVER_PATHS_LABEL=%~1"
 shift
@@ -38,6 +39,13 @@ if not exist "%PROJECT_ROOT%\data" mkdir "%PROJECT_ROOT%\data" >nul 2>nul
 > "%LAST_USED_PACK_FILE%" (
     echo %SAVE_PACK_PATH%
 )
+exit /b 0
+
+:PersistLastUsedPort
+set "SAVE_PORT=%~1"
+if "%SAVE_PORT%"=="" exit /b 0
+if not exist "%PROJECT_ROOT%\data\runtime" mkdir "%PROJECT_ROOT%\data\runtime" >nul 2>nul
+> "%LAST_USED_PORT_FILE%" echo %SAVE_PORT%
 exit /b 0
 
 :PromptDataPackPath
@@ -163,6 +171,7 @@ set "INSTANCE_DATA_%trackPort%=%trackPath%"
 set "INSTANCE_KIND_%trackPort%=%trackKind%"
 set "LAST_USED_PACK_PATH=%trackPath%"
 call :PersistLastUsedPackPath "%trackPath%"
+call :PersistLastUsedPort "%trackPort%"
 exit /b 0
 
 :ShowTrackedInstances
