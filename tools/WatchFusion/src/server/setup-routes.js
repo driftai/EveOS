@@ -29,13 +29,30 @@ function requestHost(req) {
     .toLowerCase();
 }
 
+function isLocalHostName(host) {
+  return /^(?:localhost|127\.0\.0\.1|127-0-0-1\.sslip\.io)(?::\d+)?$/i.test(String(host || ''));
+}
+
+function browserOriginIsLocal(req) {
+  const site = String(req.headers['sec-fetch-site'] || '').trim().toLowerCase();
+  if (site === 'cross-site') return false;
+  const origin = String(req.headers.origin || '').trim();
+  if (!origin || origin === 'null') return true;
+  try {
+    const parsed = new URL(origin);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && isLocalHostName(parsed.host);
+  } catch {
+    return false;
+  }
+}
+
 function isInstallerLocal(req) {
   if (!socketIsLoopback(req)) return false;
   const host = requestHost(req);
-  if (!host) return false;
+  if (!host || !isLocalHostName(host)) return false;
   if (/\.trycloudflare\.com(?::\d+)?$/i.test(host)) return false;
   if (req.headers['cf-ray'] || req.headers['cf-connecting-ip']) return false;
-  return /^(?:localhost|127\.0\.0\.1|127-0-0-1\.sslip\.io)(?::\d+)?$/i.test(host);
+  return browserOriginIsLocal(req);
 }
 
 function commandWorks(command, args = []) {
