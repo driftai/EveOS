@@ -1,34 +1,34 @@
 @echo off
 rem ============================================================
-rem  EveOS - Canonical port definitions (SINGLE SOURCE OF TRUTH)
+rem  EveOS - Canonical port adapter for Windows batch launchers
 rem ------------------------------------------------------------
-rem  Change a port HERE and every launcher picks it up:
-rem    - start-server.bat (the single root launcher: menu + canonical boot)
-rem    - tools\batch\server-menu.bat, tools\batch\start-gemini*.bat
-rem    - tools\batch\start-*-bridge.bat (the 4 bridge controllers)
-rem    - tools\batch\boot-eveos.bat (compat shim -> start-server.bat boot)
+rem  The single source of truth is now:
+rem      config\eveos-ports.json
 rem
-rem  Loaded via:  call "<project>\tools\batch\eveos-ports.bat"
-rem  IMPORTANT: no setlocal here - these vars must propagate to
-rem             the calling script.
+rem  This adapter exports every registered KEY=PORT into the
+rem  current cmd.exe environment so existing launchers stay simple.
+rem  New services must be registered in the JSON file rather than
+rem  adding another literal port to a launcher.
 rem ============================================================
 
-rem -- EveOS web surface (the page you open) --
-set "EVEOS_WEB_PORT=8765"
+if not defined PROJECT_ROOT for %%R in ("%~dp0..\..") do set "PROJECT_ROOT=%%~fR"
+set "EVEOS_PORT_REGISTRY=%PROJECT_ROOT%\config\eveos-ports.json"
 
-rem -- World Book tool (managed by the EveOS web server) --
-set "WORLD_BOOK_PORT=8766"
+if not exist "%EVEOS_PORT_REGISTRY%" (
+    echo [ERROR] EveOS port registry not found: "%EVEOS_PORT_REGISTRY%"
+    exit /b 1
+)
 
-rem -- Gemini Live backend (one process owns WS + status) --
-rem  Keep this assigned pair stable across launchers, status probes, and browser clients.
-set "GEMINI_WS_PORT=9085"
-set "GEMINI_STATUS_PORT=9086"
-set "GEMINI_CONTROL_PORT=9082"
+set "_EVEOS_PORT_LOAD_OK="
+for /f "usebackq tokens=1,* delims==" %%A in (`powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $j=Get-Content -LiteralPath '%EVEOS_PORT_REGISTRY%' -Raw ^| ConvertFrom-Json; foreach($p in $j.ports.PSObject.Properties){ $n=[string]$p.Name; $v=[int]$p.Value.port; if($v -lt 1 -or $v -gt 65535){ throw ('Invalid port for '+$n) }; [Console]::WriteLine($n+'='+$v) }" 2^>nul`) do (
+    set "%%A=%%B"
+    set "_EVEOS_PORT_LOAD_OK=1"
+)
 
-rem -- Browser / transport bridges --
-set "LIGHTPANDA_BRIDGE_PORT=3037"
-set "CAMOFOX_BRIDGE_PORT=3038"
-set "WIKIMEDIA_BRIDGE_PORT=3039"
-set "POPUP_BRIDGE_PORT=3040"
+if not defined _EVEOS_PORT_LOAD_OK (
+    echo [ERROR] Could not parse EveOS port registry: "%EVEOS_PORT_REGISTRY%"
+    exit /b 1
+)
 
+set "_EVEOS_PORT_LOAD_OK="
 exit /b 0
