@@ -27,22 +27,15 @@ function Resolve-Python {
 }
 
 function Resolve-Cloudflared {
-    if ($env:EVEOS_CLOUDFLARED -and (Test-Path -LiteralPath $env:EVEOS_CLOUDFLARED)) {
-        return $env:EVEOS_CLOUDFLARED
-    }
-    $Command = Get-Command cloudflared.exe -ErrorAction SilentlyContinue
-    if (-not $Command) { $Command = Get-Command cloudflared -ErrorAction SilentlyContinue }
-    if ($Command) { return $Command.Source }
-    $Bundled = Join-Path $Root 'tools\WatchFusion\tools\cloudflared.exe'
-    if (Test-Path -LiteralPath $Bundled) { return $Bundled }
     if (-not (Test-Path -LiteralPath $CloudflaredBootstrap)) {
-        throw 'cloudflared was not found and the EveOS bootstrap helper is missing.'
+        throw 'cloudflared was not found and the EveOS resolver is missing.'
     }
+    $Bundled = Join-Path $Root 'tools\WatchFusion\tools\cloudflared.exe'
     $Resolved = (& $CloudflaredBootstrap -Destination $Bundled | Select-Object -Last 1)
-    if (-not $Resolved -or -not (Test-Path -LiteralPath $Resolved)) {
-        throw 'cloudflared was not found and EveOS could not bootstrap it automatically.'
+    if (-not $Resolved -or -not (Test-Path -LiteralPath $Resolved -PathType Leaf)) {
+        throw 'EveOS could not resolve or bootstrap cloudflared automatically.'
     }
-    return $Resolved
+    return (Resolve-Path -LiteralPath $Resolved).Path
 }
 
 function Get-FreeLoopbackPort {
@@ -99,6 +92,7 @@ try {
     Write-Host '========================================'
     Write-Host "  Local origin: $Origin"
     Write-Host "  Auth router:  http://127.0.0.1:$RouterPort"
+    Write-Host "  cloudflared:  $Cloudflared"
     Write-Host '  Waiting for temporary trycloudflare.com URL...'
     Write-Host ''
 
