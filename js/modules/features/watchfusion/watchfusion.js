@@ -10,6 +10,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     let status = null;
     let busy = false;
     let controllerAvailable = null;
+    let controlPortCurrent = null;
     let detachedWindow = null;
     let detachedPresence = false;
     let detachedPresenceUrl = '';
@@ -17,6 +18,10 @@ window.EveWatchFusion = window.EveWatchFusion || {};
 
     function registryPort(name, fallback = 0) {
         return Number(window.EveOSPortRegistry?.get?.(name, fallback)) || Number(fallback) || 0;
+    }
+
+    function sensor() {
+        return window.EveWatchFusionRuntimeSensor;
     }
 
     function controlBase() {
@@ -62,8 +67,27 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         probeControl();
     }
 
+    async function verifyWatchFusionControl() {
+        try {
+            const snapshot = await request('/api/watchfusion/status');
+            const matches = sensor()?.matchesControlStatus?.(snapshot) !== false;
+            controlPortCurrent = matches;
+            if (!matches) {
+                status = {
+                    ...(status || {}), state: status?.running ? 'running' : 'degraded',
+                    message: 'EveOS local control is using an outdated WatchFusion port assignment. Restart local control; browsing remains available.'
+                };
+                renderStatus();
+            }
+            return matches;
+        } catch {
+            controlPortCurrent = null;
+            return false;
+        }
+    }
+
     async function ensureControl() {
-        if (controllerAvailable === true) return true;
+        if (controllerAvailable === true && controlPortCurrent === true) return true;
         try {
             await window.EveOSLocalControl?.ensure?.({
                 timeoutMs: 45000,
@@ -72,9 +96,10 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                 }
             });
             controllerAvailable = true;
-            return true;
-        } catch (error) {
+            return await verifyWatchFusionControl();
+        } catch {
             controllerAvailable = false;
+            controlPortCurrent = null;
             status = {
                 ...(status || {}), ok: false, state: status?.running ? 'running' : 'degraded',
                 message: status?.running
@@ -105,6 +130,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
 
     function stateLabel() {
         if (busy) return 'Working…';
+        if (controlPortCurrent === false) return status?.running ? 'Online · restart control' : 'Restart control';
         if (status?.running && controllerAvailable === false) return 'Online · control off';
         if (status?.running) return 'Online';
         if (status?.state === 'blocked') return 'Port blocked';
@@ -194,9 +220,12 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         if (message) message.textContent = status?.message || 'WatchFusion workspace ready.';
         overlay.querySelectorAll('[data-wf-action="start"]').forEach((start) => {
             start.hidden = running || Boolean(status?.setupRequired) || status?.installed === false;
-            start.disabled = busy;
+            start.disabled = busy || controlPortCurrent === false;
         });
-        if (stop) stop.hidden = !running;
+        if (stop) {
+            stop.hidden = !running;
+            stop.disabled = busy || controlPortCurrent === false;
+        }
         if (detach) {
             detach.disabled = !running || busy || !runtimeUrl();
             detach.textContent = detachedPresence ? '↗ Detached' : '↗ Detach';
@@ -222,7 +251,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                         button.type = 'button';
                         button.dataset.wfAction = 'setup-core';
                         button.textContent = busy ? 'Installing…' : 'Install WatchFusion Core';
-                        button.disabled = busy;
+                        button.disabled = busy || controlPortCurrent === false;
                         setup.append(button);
                     }
                 }
@@ -273,25 +302,37 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         try {
             controlled = await request('/api/watchfusion/status');
             controllerAvailable = true;
+            controlPortCurrent = sensor()?.matchesControlStatus?.(controlled) !== false;
         } catch {
             controllerAvailable = false;
+            controlPortCurrent = null;
         }
 
-        const direct = await window.EveWatchFusionRuntimeSensor?.probe?.(controlled?.url || status?.url);
+        const direct = await sensor()?.probe?.(controlPortCurrent === false ? null : (controlled?.url || status?.url));
         if (direct) {
-            const controlWasStale = controllerAvailable && controlled?.running !== true;
+            const controlWasStale = controllerAvailable && (controlPortCurrent === false || controlled?.running !== true);
             status = {
-                ...(status || {}), ...(controlled || {}), ok: true, running: true, state: 'running',
-                controllerAvailable, directRuntime: true, port: direct.port, url: direct.url,
-                message: controllerAvailable
-                    ? (controlWasStale ? 'WatchFusion runtime detected directly; lifecycle status was stale and has been reconciled.' : (controlled?.message || 'WatchFusion is online.'))
-                    : 'WatchFusion runtime detected directly. Media stays available; Start/Stop/Setup require local control.'
+                ...(status || {}), ...(controlPortCurrent === false ? {} : (controlled || {})),
+                ok: true, running: true, state: 'running', controllerAvailable,
+                controlPortCurrent, directRuntime: true, port: direct.port, url: direct.url,
+                message: controlPortCurrent === false
+                    ? 'WatchFusion is online on its registered port. Restart EveOS local control before using lifecycle/setup actions.'
+                    : controllerAvailable
+                        ? (controlWasStale ? 'WatchFusion runtime detected directly; lifecycle status was stale and has been reconciled.' : (controlled?.message || 'WatchFusion is online.'))
+                        : 'WatchFusion runtime detected directly. Media stays available; Start/Stop/Setup require local control.'
             };
-        } else if (controlled) {
-            status = { ...controlled, directRuntime: false };
+        } else if (controlled && controlPortCurrent !== false) {
+            status = { ...controlled, controlPortCurrent: true, directRuntime: false };
+        } else if (controlPortCurrent === false) {
+            status = {
+                ...(status || {}), ok: true, running: false, state: 'degraded', controllerAvailable: true,
+                controlPortCurrent: false, port: registryPort('WATCHFUSION_PORT'), directRuntime: false,
+                message: 'EveOS local control is running with an outdated WatchFusion port assignment. Restart local control; the workspace remains browsable.'
+            };
         } else {
             status = {
                 ...(status || {}), ok: true, running: false, state: 'degraded', controllerAvailable: false,
+                controlPortCurrent: null, directRuntime: false,
                 message: 'Local control is off. You can still browse WatchFusion feature areas; enable control only when you need live runtime actions.'
             };
         }
@@ -401,7 +442,11 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         ready: true, prepareOpen, open, close, detach, refresh, setupCore,
         start: () => setRunning(true), stop: () => setRunning(false),
         getDetachedWindow: () => detachedWindow,
-        getState: () => ({ ...(status || {}), open: Boolean(overlay && !overlay.hidden), busy, controllerAvailable, detached: detachedPresence, detachedUrl: detachedPresenceUrl })
+        getState: () => ({
+            ...(status || {}), open: Boolean(overlay && !overlay.hidden), busy,
+            controllerAvailable, controlPortCurrent, detached: detachedPresence,
+            detachedUrl: detachedPresenceUrl, presence: sensor()?.heartbeatState?.() || null
+        })
     });
     probeControl();
     if (window.__eveWatchFusionOpenPending) {
