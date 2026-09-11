@@ -132,21 +132,17 @@ def lifecycle_smoke(tmp: Path):
 
 def helper_http_smoke():
     port = free_port()
-    original_get = eveos_control_helper.eveos_web_control.get_status
-    original_start = eveos_control_helper.eveos_web_control.start_server
-    original_stop = eveos_control_helper.eveos_web_control.stop_server
-    original_world_get = eveos_control_helper.world_book_control.get_status
-    original_world_start = eveos_control_helper.world_book_control.start_server
-    original_world_stop = eveos_control_helper.world_book_control.stop_server
+    H = eveos_control_helper
+    original = (
+        H.eveos_web_control.get_status, H.eveos_web_control.start_server, H.eveos_web_control.stop_server,
+        H.world_book_control.get_status, H.world_book_control.start_server, H.world_book_control.stop_server,
+        H.watchfusion_control.get_status, H.watchfusion_control.start_server, H.watchfusion_control.stop_server,
+        H.piano_player_control.stop_server, H.gemini_control.stop_server,
+    )
     calls = []
     web_state = {
-        "ok": True,
-        "controllerAvailable": True,
-        "running": False,
-        "desiredRunning": False,
-        "state": "stopped",
-        "port": 8765,
-        "url": "http://127.0.0.1:8765/EveOS.html",
+        "ok": True, "controllerAvailable": True, "running": False, "desiredRunning": False,
+        "state": "stopped", "port": 8765, "url": "http://127.0.0.1:8765/EveOS.html",
         "message": "EveOS localhost is stopped.",
     }
 
@@ -161,69 +157,61 @@ def helper_http_smoke():
         target = int(port or 8765)
         calls.append(("start" if enabled else "stop", target))
         web_state.update(
-            running=enabled,
-            desiredRunning=enabled,
-            state="running" if enabled else "stopped",
-            port=target,
-            url=f"http://127.0.0.1:{target}/EveOS.html",
+            running=enabled, desiredRunning=enabled, state="running" if enabled else "stopped",
+            port=target, url=f"http://127.0.0.1:{target}/EveOS.html",
             message="EveOS localhost is online." if enabled else "EveOS localhost is stopped.",
         )
         return dict(web_state)
 
     world_state = {
-        "ok": True,
-        "controllerAvailable": True,
-        "installed": True,
-        "running": False,
-        "desiredRunning": False,
-        "state": "stopped",
-        "port": 8766,
-        "url": "http://127.0.0.1:8766/",
-        "message": "World Book is stopped.",
+        "ok": True, "controllerAvailable": True, "installed": True, "running": False,
+        "desiredRunning": False, "state": "stopped", "port": 8766,
+        "url": "http://127.0.0.1:8766/", "message": "World Book is stopped.",
+    }
+    watch_state = {
+        "ok": True, "controllerAvailable": True, "installed": True, "running": False,
+        "desiredRunning": False, "state": "stopped", "port": 9085,
+        "url": "http://127-0-0-1.sslip.io:9085/", "message": "WatchFusion is stopped.",
     }
 
     def set_world_running(enabled):
-        world_state.update(
-            running=enabled,
-            desiredRunning=enabled,
-            state="running" if enabled else "stopped",
-            message="World Book is online." if enabled else "World Book is stopped.",
-        )
+        world_state.update(running=enabled, desiredRunning=enabled,
+                           state="running" if enabled else "stopped",
+                           message="World Book is online." if enabled else "World Book is stopped.")
         return dict(world_state)
 
-    eveos_control_helper.eveos_web_control.get_status = get_status
-    eveos_control_helper.eveos_web_control.start_server = lambda *, persist=True, port=None: set_running(True, port)
-    eveos_control_helper.eveos_web_control.stop_server = lambda *, persist=True, port=None: set_running(False, port)
-    eveos_control_helper.world_book_control.get_status = lambda: dict(world_state)
-    eveos_control_helper.world_book_control.start_server = lambda: set_world_running(True)
-    eveos_control_helper.world_book_control.stop_server = lambda: set_world_running(False)
-    server = http.server.ThreadingHTTPServer(
-        ("127.0.0.1", port),
-        eveos_control_helper.EveOSControlHandler,
-    )
+    def set_watch_running(enabled):
+        watch_state.update(running=enabled, desiredRunning=enabled,
+                           state="running" if enabled else "stopped",
+                           message="WatchFusion is online." if enabled else "WatchFusion is stopped.")
+        return dict(watch_state)
+
+    H.eveos_web_control.get_status = get_status
+    H.eveos_web_control.start_server = lambda *, persist=True, port=None: set_running(True, port)
+    H.eveos_web_control.stop_server = lambda *, persist=True, port=None: set_running(False, port)
+    H.world_book_control.get_status = lambda: dict(world_state)
+    H.world_book_control.start_server = lambda: set_world_running(True)
+    H.world_book_control.stop_server = lambda: set_world_running(False)
+    H.watchfusion_control.get_status = lambda: dict(watch_state)
+    H.watchfusion_control.start_server = lambda: set_watch_running(True)
+    H.watchfusion_control.stop_server = lambda: set_watch_running(False)
+    H.piano_player_control.stop_server = lambda: {"ok": True, "running": False}
+    H.gemini_control.stop_server = lambda: {"ok": True, "running": False}
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), H.EveOSControlHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         status_code, payload = request_json(port, "GET", "/api/control-plane/health")
         assert_true(status_code == 200, "control-plane health was not reachable")
-        assert_true(payload.get("service") == "eveos-control-plane", "health identity is missing")
+        assert_true(payload.get("service") == "eveos-control-plane", "control-plane identity is missing")
         assert_true(payload.get("controllerAvailable") is True, "health controller flag is missing")
         assert_true("web" not in payload, "fast health route performed detailed status discovery")
 
         probe = subprocess.run(
-            [
-                sys.executable,
-                str(ROOT / "server" / "eveos-control-helper.py"),
-                str(port),
-                "--probe",
-                "--timeout",
-                "2",
-            ],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            timeout=4,
-            check=False,
+            [sys.executable, str(ROOT / "server" / "eveos-control-helper.py"), str(port),
+             "--probe", "--timeout", "2"], cwd=ROOT, capture_output=True, text=True,
+            timeout=4, check=False,
         )
         assert_true(probe.returncode == 0,
                     f"control-plane CLI probe failed: {probe.stderr or probe.stdout}")
@@ -233,42 +221,26 @@ def helper_http_smoke():
         assert_true(payload.get("web", {}).get("port") == 8765,
                     "file-mode status did not keep the canonical web port")
 
-        status_code, payload = request_json(
-            port,
-            "GET",
-            "/api/control-plane/status",
-            origin="http://localhost:3000",
-        )
+        status_code, payload = request_json(port, "GET", "/api/control-plane/status",
+                                            origin="http://localhost:3000")
         assert_true(status_code == 200, "origin-aware control-plane status was not reachable")
         assert_true(payload.get("web", {}).get("port") == 3000,
                     "localhost:3000 origin was incorrectly reported as port 8765")
         assert_true(("status", 3000) in calls, "requesting localhost port did not reach web status")
 
-        status_code, payload = request_json(
-            port,
-            "GET",
-            "/api/eveos-server/status?port=4321",
-            origin="null",
-        )
+        status_code, payload = request_json(port, "GET", "/api/eveos-server/status?port=4321",
+                                            origin="null")
         assert_true(status_code == 200 and payload.get("port") == 4321,
                     "explicit connector port did not override the canonical port")
 
-        status_code, payload = request_json(
-            port,
-            "POST",
-            "/api/eveos-server/start",
-            origin="http://127.0.0.1:3000",
-        )
+        status_code, payload = request_json(port, "POST", "/api/eveos-server/start",
+                                            origin="http://127.0.0.1:3000")
         assert_true(status_code == 200 and payload.get("running") is True,
                     "web start route failed for localhost:3000")
         assert_true(payload.get("port") == 3000, "web start route dropped the requesting port")
 
-        status_code, payload = request_json(
-            port,
-            "POST",
-            "/api/eveos-server/stop",
-            origin="http://127.0.0.1:3000",
-        )
+        status_code, payload = request_json(port, "POST", "/api/eveos-server/stop",
+                                            origin="http://127.0.0.1:3000")
         assert_true(status_code == 200 and payload.get("running") is False,
                     "web stop route failed for localhost:3000")
         assert_true(payload.get("port") == 3000, "web stop route targeted the wrong port")
@@ -278,16 +250,26 @@ def helper_http_smoke():
         assert_true(web_state["running"] is False, "World Book start also started EveOS localhost")
         status_code, payload = request_json(port, "POST", "/api/world-book/stop")
         assert_true(status_code == 200 and payload.get("running") is False, "World Book stop route failed")
+
+        status_code, payload = request_json(port, "GET", "/api/watchfusion/status")
+        assert_true(status_code == 200 and payload.get("port") == 9085,
+                    "WatchFusion status route failed")
+        status_code, payload = request_json(port, "POST", "/api/watchfusion/start")
+        assert_true(status_code == 200 and payload.get("running") is True,
+                    "WatchFusion start route failed")
+        status_code, payload = request_json(port, "POST", "/api/watchfusion/stop")
+        assert_true(status_code == 200 and payload.get("running") is False,
+                    "WatchFusion stop route failed")
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
-        eveos_control_helper.eveos_web_control.get_status = original_get
-        eveos_control_helper.eveos_web_control.start_server = original_start
-        eveos_control_helper.eveos_web_control.stop_server = original_stop
-        eveos_control_helper.world_book_control.get_status = original_world_get
-        eveos_control_helper.world_book_control.start_server = original_world_start
-        eveos_control_helper.world_book_control.stop_server = original_world_stop
+        (
+            H.eveos_web_control.get_status, H.eveos_web_control.start_server, H.eveos_web_control.stop_server,
+            H.world_book_control.get_status, H.world_book_control.start_server, H.world_book_control.stop_server,
+            H.watchfusion_control.get_status, H.watchfusion_control.start_server, H.watchfusion_control.stop_server,
+            H.piano_player_control.stop_server, H.gemini_control.stop_server,
+        ) = original
 
 
 def malformed_health_response_smoke():
