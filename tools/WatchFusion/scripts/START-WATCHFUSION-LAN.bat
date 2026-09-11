@@ -21,7 +21,7 @@ if errorlevel 1 (
 )
 
 set "LAN_IP="
-for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$ip = Get-NetIPConfiguration ^| Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4DefaultGateway -and $_.IPv4Address } ^| ForEach-Object { $_.IPv4Address.IPAddress } ^| Where-Object { $_ -and $_ -notlike '169.254*' } ^| Select-Object -First 1; if ($ip) { $ip.Trim() }"`) do if not defined LAN_IP set "LAN_IP=%%I"
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$c = (Get-NetIPConfiguration); foreach ($a in $c) { if ($a.NetAdapter.Status -eq 'Up' -and $a.IPv4DefaultGateway -and $a.IPv4Address) { foreach ($ip in $a.IPv4Address.IPAddress) { if ($ip -and $ip -notlike '169.254*') { $ip; exit } } } }"`) do if not defined LAN_IP set "LAN_IP=%%I"
 
 set "LAN_URL="
 if defined LAN_IP set "LAN_URL=http://!LAN_IP!:%WATCHFUSION_PORT%/"

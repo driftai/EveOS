@@ -85,10 +85,10 @@ def _node_major() -> int | None:
         return None
 
 
-def _runtime_json(path: str) -> dict | None:
+def _runtime_json(path: str, timeout: float = 0.8) -> dict | None:
     connection = None
     try:
-        connection = http.client.HTTPConnection("127.0.0.1", WATCHFUSION_PORT, timeout=0.8)
+        connection = http.client.HTTPConnection("127.0.0.1", WATCHFUSION_PORT, timeout=timeout)
         connection.request("GET", path, headers={"Connection": "close"})
         response = connection.getresponse()
         payload = json.loads(response.read(65536).decode("utf-8"))
@@ -115,7 +115,7 @@ def _live_component_probes(running: bool, nuvio_built: bool, voxel_source: bool,
         "at": now,
         "nuvio": _runtime_json("/__nuvio__/entry") if nuvio_built else None,
         "voxel": _runtime_json("/__voxelvision__/entry") if voxel_source else None,
-        "youtube": _runtime_json("/voxelvision/api/youtube/status") if youtube_ready else None,
+        "youtube": _runtime_json("/voxelvision/api/youtube/status", timeout=4.0) if youtube_ready else None,
     }
     _LIVE_PROBE_CACHE = probes
     return probes["nuvio"], probes["voxel"], probes["youtube"]
