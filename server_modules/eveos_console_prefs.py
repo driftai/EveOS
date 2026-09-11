@@ -22,7 +22,7 @@ from pathlib import Path
 
 # Services that spawn their own process and can therefore own a console. The UI lists these, so a
 # service missing here is invisible in settings even if it is running.
-KNOWN_SERVICES = ("web", "gemini", "worldBook", "piano")
+KNOWN_SERVICES = ("web", "gemini", "worldBook", "piano", "watchFusion")
 _TRUE = {"1", "true", "yes", "on"}
 
 
@@ -69,8 +69,6 @@ def set_console(service: str | None, headless: bool) -> dict:
     path = _path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = dict(prefs, updatedAt=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-    # Write-then-replace: a half-written preferences file would read as "all headed" on the next
-    # boot, quietly undoing the user's choice.
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     temporary.replace(path)
