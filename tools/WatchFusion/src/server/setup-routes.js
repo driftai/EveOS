@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { PROJECT_ROOT, NUVIO_ROOT, NUVIO_DIST, VOXELVISION_ROOT } from './config.js';
 import { json, readBody } from './http-utils.js';
+import { isHostLocalRequest } from './local-request.js';
 import { isNuvioBuilt, mergedNuvioConfig } from './nuvio-config.js';
 
 const MODEL_PROFILES = Object.freeze([
@@ -15,44 +16,6 @@ let activeInstall = null;
 
 function exists(...parts) {
   return fs.existsSync(path.join(...parts));
-}
-
-function socketIsLoopback(req) {
-  const raw = String(req.socket?.remoteAddress || '').toLowerCase();
-  return raw === '127.0.0.1' || raw === '::1' || raw === '::ffff:127.0.0.1';
-}
-
-function requestHost(req) {
-  return String(req.headers['x-forwarded-host'] || req.headers.host || '')
-    .split(',')[0]
-    .trim()
-    .toLowerCase();
-}
-
-function isLocalHostName(host) {
-  return /^(?:localhost|127\.0\.0\.1|127-0-0-1\.sslip\.io)(?::\d+)?$/i.test(String(host || ''));
-}
-
-function browserOriginIsLocal(req) {
-  const site = String(req.headers['sec-fetch-site'] || '').trim().toLowerCase();
-  if (site === 'cross-site') return false;
-  const origin = String(req.headers.origin || '').trim();
-  if (!origin || origin === 'null') return true;
-  try {
-    const parsed = new URL(origin);
-    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && isLocalHostName(parsed.host);
-  } catch {
-    return false;
-  }
-}
-
-function isInstallerLocal(req) {
-  if (!socketIsLoopback(req)) return false;
-  const host = requestHost(req);
-  if (!host || !isLocalHostName(host)) return false;
-  if (/\.trycloudflare\.com(?::\d+)?$/i.test(host)) return false;
-  if (req.headers['cf-ray'] || req.headers['cf-connecting-ip']) return false;
-  return browserOriginIsLocal(req);
 }
 
 function commandWorks(command, args = []) {
@@ -115,7 +78,7 @@ async function setupStatus(req) {
   ].every(name => exists(VOXELVISION_ROOT, name));
   const youtube = youtubeToolsStatus();
   const runtimeDeps = ['ws', 'hls.js'].every(name => exists(PROJECT_ROOT, 'node_modules', name));
-  const localRequest = isInstallerLocal(req);
+  const localRequest = isHostLocalRequest(req);
   const canInstall = process.platform === 'win32' && localRequest;
 
   return {
@@ -212,7 +175,7 @@ async function performInstall(component) {
 }
 
 async function handleInstall(req, res) {
-  if (!isInstallerLocal(req)) {
+  if (!isHostLocalRequest(req)) {
     json(res, 403, { ok: false, error: 'Install actions are available only from the host-local WatchFusion URL.' });
     return true;
   }
@@ -246,6 +209,10 @@ async function handleInstall(req, res) {
 export async function handleSetupRoute(req, res, parts) {
   if (parts[0] !== 'api' || parts[1] !== 'setup') return false;
   if (req.method === 'GET' && parts[2] === 'status') {
+    if (!isHostLocalRequest(req)) {
+      json(res, 403, { ok: false, error: 'Setup diagnostics are available only from the host-local WatchFusion URL.' });
+      return true;
+    }
     json(res, 200, await setupStatus(req));
     return true;
   }
