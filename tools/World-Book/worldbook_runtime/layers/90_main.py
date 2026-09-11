@@ -1,6 +1,7 @@
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run World Book locally.")
     parser.add_argument("--port", type=int, default=int(CONFIG.get("port") or 8766))
+    parser.add_argument("--host", choices=("127.0.0.1", "0.0.0.0"), default="127.0.0.1")
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
 
@@ -13,18 +14,22 @@ def main() -> None:
     cleanup_recovery_staging()
     mimetypes.add_type("application/javascript", ".js")
 
-    host = "127.0.0.1"
+    host = args.host
     port = args.port
     CONFIG["port"] = port
     save_config()
 
     server = ThreadingHTTPServer((host, port), WorldBookHandler)
-    url = f"http://{host}:{port}/"
+    browser_host = "127.0.0.1" if host == "0.0.0.0" else host
+    url = f"http://{browser_host}:{port}/"
 
     print()
     print("World Book")
     print(f"Running at {url}")
-    print("Only this computer can access the server.")
+    if host == "127.0.0.1":
+        print("Exposure: LOCALHOST only. Other devices cannot connect directly.")
+    else:
+        print("Exposure: LAN. Devices on this local network can connect to this port.")
     print("Press Ctrl+C to stop.")
     print()
 
