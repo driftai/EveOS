@@ -1,5 +1,22 @@
 /** A small request/response facade around the isolated depth-model worker. */
 
+const MODEL_STATUS_KEY = 'voxelvision.model-ready-v1';
+
+function modelStatusKey(modelId) {
+  if (modelId === 'en970/depth-anything-v3-small-onnx') return 'enhanced';
+  if (modelId === 'onnx-community/depth-anything-v2-small-ONNX') return 'balanced';
+  return String(modelId || 'unknown');
+}
+
+function rememberModelReady(modelId) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(MODEL_STATUS_KEY) || '{}');
+    const current = parsed && typeof parsed === 'object' ? parsed : {};
+    current[modelStatusKey(modelId)] = { modelId, readyAt: new Date().toISOString() };
+    localStorage.setItem(MODEL_STATUS_KEY, JSON.stringify(current));
+  } catch {}
+}
+
 export class DepthWorkerSession {
   static async create(options) {
     const session = new DepthWorkerSession(options);
@@ -13,6 +30,7 @@ export class DepthWorkerSession {
   }
 
   constructor({ modelId, backend, dtype, rank5, sessionOptions = null, onProgress = null }) {
+    this.modelId = modelId;
     this.worker = new Worker(new URL('./depth-model-worker.js', import.meta.url), { type: 'module' });
     this.pending = new Map();
     this.nextRequestId = 1;
@@ -39,6 +57,7 @@ export class DepthWorkerSession {
       return;
     }
     if (message.type === 'ready') {
+      rememberModelReady(this.modelId);
       this.readyResolve?.(this);
       this.readyResolve = null;
       this.readyReject = null;
@@ -75,9 +94,6 @@ export class DepthWorkerSession {
     const bytes = rgba instanceof Uint8ClampedArray
       ? rgba
       : new Uint8ClampedArray(rgba.buffer, rgba.byteOffset, rgba.byteLength);
-    // getImageData() gives this call sole ownership of a complete buffer, so it
-    // can move to the worker without duplicating a multi-megabyte frame. Copy
-    // only unusual subarray views whose surrounding buffer is not ours.
     const transferable = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
       ? bytes
       : bytes.slice();
