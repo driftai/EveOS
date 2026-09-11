@@ -33,13 +33,12 @@
         if (/^https?:$/.test(location.protocol) && location.hostname && !pageIsLoopback) {
             values.push(`http://${location.hostname}:${targetPort}`);
         }
-        // Host-local EveOS uses the literal loopback origin as the canonical
-        // WatchFusion browser origin. It avoids DNS/sslip failures and keeps
-        // Nuvio browser storage stable across Local and LAN launches.
+        // Literal loopback is the canonical host-side WatchFusion origin. Do not
+        // route through sslip.io: DNS/filtering failures there broke VoxelVision
+        // and also fragmented Nuvio's browser storage across different origins.
         values.push(
             `http://127.0.0.1:${targetPort}`,
-            `http://localhost:${targetPort}`,
-            `http://127-0-0-1.sslip.io:${targetPort}`
+            `http://localhost:${targetPort}`
         );
         return unique(values);
     }
