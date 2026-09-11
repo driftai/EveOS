@@ -28,14 +28,19 @@
     function candidateOrigins() {
         const targetPort = port();
         if (!targetPort) return [];
-        const values = [];
+        const values = [
+            // Keep the canonical WatchFusion browser origin first. Nuvio stores its
+            // signed-in browser session under this origin, so bouncing between
+            // localhost / 127.0.0.1 / sslip on different probes makes a valid
+            // session look like it was forgotten.
+            `http://127-0-0-1.sslip.io:${targetPort}`
+        ];
         if (/^https?:$/.test(location.protocol) && location.hostname) {
             values.push(`http://${location.hostname}:${targetPort}`);
         }
         values.push(
             `http://localhost:${targetPort}`,
-            `http://127.0.0.1:${targetPort}`,
-            `http://127-0-0-1.sslip.io:${targetPort}`
+            `http://127.0.0.1:${targetPort}`
         );
         return unique(values);
     }
@@ -69,14 +74,25 @@
     }
 
     async function probe(preferredUrl) {
-        const origins = [...candidateOrigins()];
+        let preferredOrigin = '';
         if (preferredUrl) {
             try {
                 const parsed = new URL(preferredUrl);
-                if (Number(parsed.port) === port()) origins.push(parsed.origin);
+                if (Number(parsed.port) === port() && isCandidateOrigin(parsed.origin)) {
+                    preferredOrigin = parsed.origin;
+                }
             } catch {}
         }
-        const candidates = unique(origins);
+
+        // A controller-provided URL is authoritative. Probe it first instead of
+        // racing it against loopback aliases and then accidentally selecting the
+        // first alias from candidate order.
+        if (preferredOrigin) {
+            const preferred = await probeOrigin(preferredOrigin, 1100);
+            if (preferred) return preferred;
+        }
+
+        const candidates = candidateOrigins().filter((origin) => origin !== preferredOrigin);
         const results = await Promise.all(candidates.map((origin) => probeOrigin(origin)));
         return results.find(Boolean) || null;
     }
