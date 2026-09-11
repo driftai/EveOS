@@ -1,4 +1,18 @@
 /** Sparse, bounded auxiliary inference. Masks are tied to captured image evidence. */
+const MODEL_STATUS_KEY = 'voxelvision.model-ready-v1';
+
+function rememberAnimeMaskReady() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(MODEL_STATUS_KEY) || '{}');
+    const current = parsed && typeof parsed === 'object' ? parsed : {};
+    current['anime-mask'] = {
+      modelId: 'BritishWerewolf/IS-Net-Anime',
+      readyAt: new Date().toISOString()
+    };
+    localStorage.setItem(MODEL_STATUS_KEY, JSON.stringify(current));
+  } catch {}
+}
+
 export class ForegroundMaskAssist {
   constructor(onStatus = () => {}) {
     this.onStatus = onStatus;
@@ -80,6 +94,7 @@ export class ForegroundMaskAssist {
         if (data.type === 'ready') {
           clearTimeout(this.timer);
           this.ready = true;
+          rememberAnimeMaskReady();
           this.finishLoading?.(true);
           this.finishLoading = null;
           this.loading = null;
@@ -124,8 +139,6 @@ export class ForegroundMaskAssist {
     if (prior && prior.width === width && prior.height === height
       && mediaTime >= prior.mediaTime && mediaTime - prior.mediaTime < this.interval) {
       const mask = new Uint8Array(width * height);
-      // No blind mask carry: moving/relit neighborhoods lose assistance until
-      // their next inference. This also rejects a new scene's stale silhouette.
       for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         const i = y * width + x;
         let stable = true;
@@ -147,8 +160,6 @@ export class ForegroundMaskAssist {
         if (mask[i] < 96) lost++;
       }
       if (!foreground || lost / foreground < 0.03) return mask;
-      // Significant local motion needs a fresh mask, not alternating corrected
-      // and uncorrected geometry. This optional quality path pays that cost.
     }
     return new Promise(resolve => {
       const id = ++this.id;
@@ -156,8 +167,6 @@ export class ForegroundMaskAssist {
       this.timer = setTimeout(() => this.fail(), 5000);
       const worker = this.worker;
       if (video && typeof createImageBitmap === 'function') {
-        // Preserve source detail for a 1024-class specialist. Upscaling the
-        // low-resolution voxel color grid erased the very hair edges it needs.
         createImageBitmap(video).then(bitmap => {
           if (this.worker !== worker || this.pending?.id !== id) { bitmap.close(); return; }
           worker.postMessage({ type: 'mask', id, bitmap, width, height }, [bitmap]);
