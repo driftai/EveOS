@@ -13,7 +13,7 @@ echo   [1] Start VoxelVision ^& Open Browser (http://127.0.0.1:9095)
 echo   [2] Start Server (Foreground / Headless Browser)
 echo   [3] Verify Local Media ^& YouTube Support
 echo   [4] Setup / Update YouTube Support
-echo       (yt-dlp + Deno + FFmpeg + ffprobe)
+echo       (yt-dlp + JS runtime + FFmpeg + ffprobe)
 echo   [5] Exit
 echo ============================================================
 set /p "CHOICE=Select an option [1-5]: "
@@ -74,13 +74,13 @@ if exist "public\vendor\three.module.js" (
 )
 
 call :CHECK_YTDLP
-call :CHECK_DENO
+call :CHECK_JS_RUNTIME
 call :CHECK_FFMPEG
 call :CHECK_FFPROBE
 
 echo.
 if defined YTDLP_READY (echo [OK] YouTube extractor: !YTDLP_PROVIDER!) else (echo [OPTIONAL] yt-dlp is missing. Choose option 4.)
-if defined DENO_READY (echo [OK] YouTube JS runtime: !DENO_PROVIDER!) else (echo [OPTIONAL] Deno is missing. Current YouTube challenges may fail; choose option 4.)
+if defined JS_RUNTIME_READY (echo [OK] YouTube JS runtime: !JS_RUNTIME_PROVIDER!) else (echo [OPTIONAL] No supported YouTube JS runtime. Choose option 4.)
 if defined FFMPEG_READY (echo [OK] Adaptive video/audio merge: !FFMPEG_PROVIDER!) else (echo [OPTIONAL] FFmpeg is missing. Choose option 4.)
 if defined FFPROBE_READY (echo [OK] Media probe: !FFPROBE_PROVIDER!) else (echo [OPTIONAL] ffprobe is missing. Choose option 4.)
 echo ============================================================
@@ -94,6 +94,7 @@ echo              VOXELVISION YOUTUBE SUPPORT SETUP
 echo ============================================================
 echo This uses the same installer as WatchFusion Setup Health.
 echo It installs portable host-local helpers under .\tools only.
+echo Node 22+ is reused when available; otherwise portable Deno is used.
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\SETUP-YOUTUBE.ps1" -Force
 if errorlevel 1 (
@@ -119,14 +120,27 @@ if exist "tools\yt-dlp.exe" (
 )
 goto :eof
 
-:CHECK_DENO
-set "DENO_READY="
-set "DENO_PROVIDER="
+:CHECK_JS_RUNTIME
+set "JS_RUNTIME_READY="
+set "JS_RUNTIME_PROVIDER="
+set "NODE_MAJOR="
+where node >nul 2>nul
+if not errorlevel 1 (
+    for /f "tokens=1 delims=." %%V in ('node -p "process.versions.node" 2^>nul') do set "NODE_MAJOR=%%V"
+)
+if defined NODE_MAJOR (
+    set /a NODE_MAJOR_NUM=!NODE_MAJOR! 2>nul
+    if !NODE_MAJOR_NUM! GEQ 22 (
+        set "JS_RUNTIME_READY=1"
+        set "JS_RUNTIME_PROVIDER=Node !NODE_MAJOR_NUM!+"
+        goto :eof
+    )
+)
 if exist "tools\deno.exe" (
     "tools\deno.exe" --version >nul 2>nul
     if not errorlevel 1 (
-        set "DENO_READY=1"
-        set "DENO_PROVIDER=tools\deno.exe"
+        set "JS_RUNTIME_READY=1"
+        set "JS_RUNTIME_PROVIDER=tools\deno.exe"
     )
 )
 goto :eof
