@@ -127,9 +127,10 @@ class SongLibrary:
     def _merge_identifiers(cls, existing: Any, incoming: Any) -> dict[str, Any]:
         base = existing if isinstance(existing, dict) else {}
         patch = incoming if isinstance(incoming, dict) else {}
-        custom = dict(base.get("custom") or {})
-        if isinstance(patch.get("custom"), dict):
-            for key, value in patch["custom"].items():
+        custom_source = patch.get("custom") if "custom" in patch else base.get("custom", {})
+        custom: dict[str, str] = {}
+        if isinstance(custom_source, dict):
+            for key, value in custom_source.items():
                 clean_key = str(key).strip()[:80]
                 if clean_key:
                     custom[clean_key] = str(value).strip()[:240]
