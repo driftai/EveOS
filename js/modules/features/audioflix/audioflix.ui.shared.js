@@ -44,20 +44,20 @@ window.EveAudioflixUiShared = window.EveAudioflixUiShared || {};
     });
 
     const base = 'js/modules/features/audioflix/';
-    const load = (name, version, callback) => {
+    const load = (name, callback) => {
         const script = document.createElement('script');
-        script.src = `${base}${name}?v=${version}`;
+        script.src = `${base}${name}`;
         script.async = false;
         if (callback) script.onload = callback;
         document.head.appendChild(script);
     };
     if (!window.EveAudioflixLibraryNext) {
-        load('audioflix.library.next.js', '8c99fb36d75e', () => {
+        load('audioflix.library.next.js?v=4349dc649460', () => {
             window.EveAudioflixLibraryNext?.boot?.();
-            load('audioflix.library.next.ui.js', 'edb9439fc48e', () => window.EveAudioflixLibraryNextUi?.boot?.());
+            load('audioflix.library.next.ui.js?v=c7e58e7f8529', () => window.EveAudioflixLibraryNextUi?.boot?.());
         });
     } else {
         window.EveAudioflixLibraryNext.boot?.();
-        load('audioflix.library.next.ui.js', 'edb9439fc48e', () => window.EveAudioflixLibraryNextUi?.boot?.());
+        load('audioflix.library.next.ui.js?v=c7e58e7f8529', () => window.EveAudioflixLibraryNextUi?.boot?.());
     }
 })();

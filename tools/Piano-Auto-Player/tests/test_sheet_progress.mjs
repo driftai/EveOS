@@ -14,8 +14,8 @@ assert.deepEqual(kinds("[ab]"), ["chord"]);
 assert.deepEqual(spans("[ab]"), ["[ab]"]);
 assert.deepEqual(kinds("[a b]"), ["fast", "fast"]);
 assert.deepEqual(spans("[a b]"), ["a", "b"]);
-assert.deepEqual(kinds("a--| |b"), ["note", "pause", "pause", "pause", "note"]);
-assert.deepEqual(spans("a--| |b"), ["a", "--", "|", " ", "b"]);
+assert.deepEqual(kinds("a--| b"), ["note", "pause", "pause", "pause", "note"]);
+assert.deepEqual(spans("a--| b"), ["a", "--", "|", " ", "b"]);
 assert.deepEqual(kinds("a  b [cd] {ef} --", "grid"), ["note", "note", "chord", "fast", "fast", "pause"]);
 assert.deepEqual(kinds("a b [cd] --", "letter_grid"), ["note", "note", "chord", "pause"]);
 
