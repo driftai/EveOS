@@ -24,6 +24,25 @@ function waitFor(selector, timeout = 7000) {
   });
 }
 
+function waitForQueueApi(timeout = 4000) {
+  const started = Date.now();
+  return new Promise(resolve => {
+    const tick = () => {
+      const queue = window.PianoPlayerQueue;
+      if (queue?.getState || Date.now() - started >= timeout) return resolve(queue?.getState ? queue : null);
+      setTimeout(tick, 50);
+    };
+    tick();
+  });
+}
+
+function setStatus(message, state = 'idle') {
+  const text = document.getElementById('statusText');
+  const chip = document.getElementById('statusChip');
+  if (text) text.textContent = message;
+  if (chip) chip.dataset.state = state;
+}
+
 function disclosureState() {
   try { return JSON.parse(localStorage.getItem(DISCLOSURE_KEY) || '{}') || {}; }
   catch (_) { return {}; }
@@ -100,7 +119,6 @@ function enhancePanelDisclosure(selector, key, defaultCollapsed) {
 }
 
 function enhanceTopLevelDisclosures() {
-  // Primary playback and discovery stay open; secondary recording/reference surfaces start compact.
   enhancePanelDisclosure('.controls-panel', 'playback-controls', false);
   enhancePanelDisclosure('.recorder-panel', 'custom-performance', true);
   enhancePanelDisclosure('.search-panel', 'sheet-finder', false);
@@ -134,7 +152,6 @@ function enhanceEditorDisclosure(planner) {
     saveCollapsed('song-details', collapsed);
   };
 
-  // This inspector is secondary to browsing/queueing, so first use starts compact.
   apply(savedCollapsed('song-details', true));
   button.addEventListener('click', event => {
     event.preventDefault();
@@ -199,7 +216,6 @@ function buildHeader(planner) {
   body.prepend(now);
   body.prepend(head);
 
-  // Keep the proven transfer controller, but invoke import directly from the trusted user gesture.
   head.querySelector('[data-u-import]')?.addEventListener('click', () => {
     const input = document.getElementById('importLibraryInput');
     if (input) input.click();
@@ -257,17 +273,28 @@ function bindQueueStrip(planner) {
     planner.dataset.queueActive = state.active ? '1' : '0';
   };
 
-  mode.addEventListener('change', () => window.PianoPlayerQueue?.setMode?.(mode.value));
+  const withQueue = async action => {
+    const queue = await waitForQueueApi();
+    if (!queue) {
+      setStatus('Player Queue controller is unavailable. Reload the Piano workspace and try again.', 'error');
+      return null;
+    }
+    return action(queue);
+  };
+
+  mode.addEventListener('change', () => void withQueue(queue => queue.setMode?.(mode.value)));
   transition?.addEventListener('change', () => {
     const legacy = document.querySelector('[data-queue-transition]');
-    if (!legacy) return;
+    if (!legacy) return setStatus('Queue transition control is unavailable. Reload the Piano workspace and try again.', 'error');
     legacy.value = transition.value;
     legacy.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  play?.addEventListener('click', () => void window.PianoPlayerQueue?.playQueue?.());
-  shuffle?.addEventListener('click', () => window.PianoPlayerQueue?.shuffleRemaining?.());
-  clear?.addEventListener('click', () => window.PianoPlayerQueue?.clearQueue?.());
-  stop?.addEventListener('click', () => window.PianoPlayerQueue?.cancel?.('Player Queue stopped.'));
+  play?.addEventListener('click', () => void withQueue(queue => queue.playQueue?.()));
+  shuffle?.addEventListener('click', () => void withQueue(queue => queue.shuffleRemaining?.()));
+  clear?.addEventListener('click', () => void withQueue(queue => queue.clearQueue?.()));
+  stop?.addEventListener('click', () => {
+    if (!proxyButton('stopBtn')) void withQueue(queue => queue.cancel?.('Player Queue stopped.'));
+  });
   window.addEventListener('piano:queue-updated', render);
   window.addEventListener('piano:player-queue-ready', render);
   render();
@@ -293,9 +320,9 @@ async function installUnifiedWorkspace() {
   markVisibleContract(planner);
   bindQueueStrip(planner);
 
-  // Old library/queue DOM remains only as a compatibility bridge for proven controllers and
-  // persistence. Mutation can recreate those panels, so keep them non-user-facing without creating
-  // a second store or transport.
+  const queue = await waitForQueueApi();
+  queue?.render?.();
+
   const observer = new MutationObserver(() => hideLegacyPanels());
   observer.observe(document.body, { childList: true, subtree: true });
   return planner;
