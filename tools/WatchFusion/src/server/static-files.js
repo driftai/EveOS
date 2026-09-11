@@ -49,6 +49,7 @@ export function sendFile(req, res) {
       'client/nuvio-player-input-fix.js',
       'client/nuvio-adapter.js',
       'client/voxelvision-adapter.js',
+      'client/setup-health.js',
       'client/bootstrap.js',
       'client/watchfusion-host-input-fix.js',
       'playback-sync.js'
@@ -76,6 +77,7 @@ export function sendFile(req, res) {
       'Content-Length': stat.size,
       'Cache-Control': 'no-store'
     });
+    if (req.method === 'HEAD') return res.end();
     fs.createReadStream(file).pipe(res);
   });
 }
