@@ -235,8 +235,8 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             })
             return
 
-        web_port = _request_web_port(self)
         if path in {"/api/status", "/status", "/api/control-plane/status"}:
+            web_port = _request_web_port(self)
             web = eveos_web_control.get_status(port=web_port)
             self._send({
                 "ok": True,
@@ -250,7 +250,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             })
             return
         if path == "/api/eveos-server/status":
-            self._send(eveos_web_control.get_status(port=web_port))
+            self._send(eveos_web_control.get_status(port=_request_web_port(self)))
             return
         if path == "/api/gemini-server/status":
             self._send(gemini_control.get_status())
@@ -265,7 +265,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             self._send(watchfusion_control.get_status())
             return
         if path == "/api/control-plane/consoles":
-            self._send(_console_overview(web_port))
+            self._send(_console_overview(_request_web_port(self)))
             return
         if path == "/api/gemini-credentials/status":
             if not gemini_control.request_can_control(self):
@@ -277,7 +277,6 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        web_port = _request_web_port(self)
         controlled_paths = {
             "/api/eveos-server/start", "/api/eveos-server/stop",
             "/api/gemini-server/start", "/api/gemini-server/stop",
@@ -298,9 +297,9 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
 
         action = None
         if path == "/api/eveos-server/start":
-            action = lambda: eveos_web_control.start_server(port=web_port)
+            action = lambda: eveos_web_control.start_server(port=_request_web_port(self))
         elif path == "/api/eveos-server/stop":
-            action = lambda: _stop_everything(web_port)
+            action = lambda: _stop_everything(_request_web_port(self))
         elif path == "/api/gemini-server/start":
             action = gemini_control.start_server
         elif path == "/api/gemini-server/stop":
