@@ -20,7 +20,9 @@ const shellSource = fs.readFileSync(
 );
 
 let webRunning = false;
+let directRunning = false;
 const events = [];
+const seenUrls = [];
 const statusNode = { textContent: '' };
 const labelNode = { textContent: '' };
 const iconNode = { textContent: '' };
@@ -57,7 +59,8 @@ const controlNode = {
 };
 
 async function fetchJson(url, options) {
-    if (url.endsWith('/api/control-plane/health')) {
+    seenUrls.push(url);
+    if (url.includes('/api/control-plane/health')) {
         return {
             ok: true,
             service: 'eveos-control-plane',
@@ -67,7 +70,8 @@ async function fetchJson(url, options) {
             port: 9082
         };
     }
-    if (url.endsWith('/api/control-plane/status')) {
+    if (url.includes('/api/control-plane/status')) {
+        const targetPort = url.includes('port=3000') ? 3000 : 8765;
         return {
             ok: true,
             service: 'eveos-control-plane',
@@ -77,30 +81,47 @@ async function fetchJson(url, options) {
                 running: webRunning,
                 desiredRunning: webRunning,
                 state: webRunning ? 'running' : 'stopped',
-                url: 'http://127.0.0.1:8765/EveOS.html',
+                port: targetPort,
+                url: `http://127.0.0.1:${targetPort}/EveOS.html`,
                 message: webRunning ? 'EveOS localhost is online.' : 'EveOS localhost is stopped.'
             }
         };
     }
-    if (url.endsWith('/api/eveos-server/start') && options?.method === 'POST') {
+    if (url === 'http://localhost:3000/api/status') {
+        if (!directRunning) throw new Error('localhost:3000 offline');
+        return {
+            ok: true,
+            service: 'eveos-local-server',
+            port: 3000,
+            url: 'http://127.0.0.1:3000/EveOS.html'
+        };
+    }
+    if (url === 'http://127.0.0.1:8765/api/status') {
+        throw new Error('canonical localhost offline');
+    }
+    if (url.includes('/api/eveos-server/start') && options?.method === 'POST') {
+        if (!url.includes('port=3000')) throw new Error(`start lost active port: ${url}`);
         webRunning = true;
         return {
             ok: true,
             running: true,
             desiredRunning: true,
             state: 'running',
-            url: 'http://127.0.0.1:8765/EveOS.html',
+            port: 3000,
+            url: 'http://127.0.0.1:3000/EveOS.html',
             message: 'EveOS localhost started.'
         };
     }
-    if (url.endsWith('/api/eveos-server/stop') && options?.method === 'POST') {
+    if (url.includes('/api/eveos-server/stop') && options?.method === 'POST') {
+        if (!url.includes('port=3000')) throw new Error(`stop lost active port: ${url}`);
         webRunning = false;
         return {
             ok: true,
             running: false,
             desiredRunning: false,
             state: 'stopped',
-            url: 'http://127.0.0.1:8765/EveOS.html',
+            port: 3000,
+            url: 'http://127.0.0.1:3000/EveOS.html',
             message: 'EveOS localhost stopped.'
         };
     }
@@ -135,6 +156,12 @@ const documentMock = {
 };
 
 const windowMock = {
+    location: {
+        protocol: 'http:',
+        hostname: 'localhost',
+        port: '3000',
+        origin: 'http://localhost:3000'
+    },
     config: { bridges: { localControlPort: 9082, geminiControlPort: 9082 } },
     GeminiServerNetwork: { fetchJson },
     setTimeout,
@@ -164,11 +191,39 @@ vm.runInNewContext(source, context, { filename: 'eveosControlPlane.js' });
         throw new Error(`stopped UI mismatch: ${statusNode.textContent}/${labelNode.textContent}`);
     }
 
+    directRunning = true;
+    await windowMock.EveOSControlPlane.refreshStatus();
+    if (statusNode.textContent !== 'Online' || labelNode.textContent !== 'Stop') {
+        throw new Error(`direct localhost:3000 was not detected: ${statusNode.textContent}/${labelNode.textContent}`);
+    }
+    if (windowMock.EveOSControlPlane.getState().webUrl !== 'http://127.0.0.1:3000/EveOS.html') {
+        throw new Error('direct localhost status kept the canonical 8765 URL');
+    }
+
+    directRunning = false;
+    await windowMock.EveOSControlPlane.refreshStatus();
     await windowMock.EveOSControlPlane.start();
     if (statusNode.textContent !== 'Online' || labelNode.textContent !== 'Stop') {
         throw new Error(`running UI mismatch: ${statusNode.textContent}/${labelNode.textContent}`);
     }
     if (openNode.hidden) throw new Error('localhost open button stayed hidden while running');
+
+    await windowMock.EveOSControlPlane.stop();
+    if (statusNode.textContent !== 'Localhost Off' || labelNode.textContent !== 'Start') {
+        throw new Error(`stopped-after-stop UI mismatch: ${statusNode.textContent}/${labelNode.textContent}`);
+    }
+
+    for (const fragment of [
+        '/api/control-plane/status?port=3000',
+        '/api/eveos-server/start?port=3000',
+        '/api/eveos-server/stop?port=3000',
+        'http://localhost:3000/api/status'
+    ]) {
+        if (!seenUrls.some((url) => url.includes(fragment))) {
+            throw new Error(`missing active-port request: ${fragment}`);
+        }
+    }
+
     if (!events.some((event) => event.type === 'eve:eveos-control-plane-status')) {
         throw new Error('control-plane status event was not published');
     }
