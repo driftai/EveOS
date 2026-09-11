@@ -3,12 +3,14 @@
     [string]$Root,
 
     [Parameter(Mandatory=$true)]
-    [string]$Cloudflared
+    [string]$Cloudflared,
+
+    [Parameter(Mandatory=$true)]
+    [ValidateRange(1, 65535)]
+    [int]$Port
 )
 
 $ErrorActionPreference = 'Stop'
-
-$Port = 9085
 $StateDir = Join-Path $Root '.runtime'
 
 # Fresh state for every Remote [3] session.
@@ -23,12 +25,12 @@ $CloudflareLog = Join-Path $StateDir 'cloudflared.log'
 
 function Test-WatchFusion {
     try {
-        $r = Invoke-WebRequest `
-            -Uri "http://127.0.0.1:$Port/" `
-            -UseBasicParsing `
+        $r = Invoke-RestMethod `
+            -Uri "http://127.0.0.1:$Port/api/health" `
+            -Method Get `
             -TimeoutSec 2
 
-        return ($r.StatusCode -ge 200 -and $r.StatusCode -lt 500)
+        return ($r.ok -eq $true -and $r.app -eq 'WatchFusion')
     }
     catch {
         return $false
@@ -91,7 +93,7 @@ if (Test-WatchFusion) {
 else {
     Write-Host "Starting WatchFusion origin on localhost:$Port..."
 
-    $ServerCommand = "cd /d `"$Root`" && node server.js"
+    $ServerCommand = "cd /d `"$Root`" && set PORT=$Port&& node server.js"
 
     $Server = Start-Process `
         -FilePath "cmd.exe" `
