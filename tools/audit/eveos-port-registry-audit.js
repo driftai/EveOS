@@ -57,6 +57,14 @@ check(batchAdapter.includes('config\\eveos-ports.json'), 'batch launchers are no
 check(!/set\s+"GEMINI_WS_PORT=\d+"/i.test(batchAdapter), 'batch adapter reintroduced a hard-coded Gemini port');
 check(!/set\s+"WATCHFUSION_PORT=\d+"/i.test(batchAdapter), 'batch adapter reintroduced a hard-coded WatchFusion port');
 
+const geminiMenu = read('tools/batch/server-menu.bat');
+check(!/if not defined GEMINI_WS_PORT set "GEMINI_WS_PORT=\d+"/i.test(geminiMenu),
+    'Gemini launcher reintroduced a literal WebSocket-port fallback');
+check(!/if not defined GEMINI_STATUS_PORT set "GEMINI_STATUS_PORT=\d+"/i.test(geminiMenu),
+    'Gemini launcher reintroduced a literal status-port fallback');
+check(geminiMenu.includes('eveos-ports.bat') && geminiMenu.includes('if errorlevel 1 exit /b 1'),
+    'Gemini launcher does not fail closed when the port registry cannot load');
+
 const pythonBootstrap = read('server_modules/__init__.py');
 check(pythonBootstrap.includes('bootstrap_environment()'), 'Python server modules do not bootstrap the canonical registry');
 
