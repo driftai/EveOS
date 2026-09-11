@@ -12,20 +12,11 @@ import sys
 import time
 from pathlib import Path
 
-from . import gemini_credentials
+from . import eveos_ports, gemini_credentials
 
 
-# Read from the environment so tools/batch/eveos-ports.bat remains the single source of truth.
-# Defaults preserve the established pair for direct module use and test isolation.
-def _port_from_env(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name) or default)
-    except (TypeError, ValueError):
-        return default
-
-
-WEBSOCKET_PORT = _port_from_env("GEMINI_WS_PORT", 9085)
-STATUS_PORT = _port_from_env("GEMINI_STATUS_PORT", 9086)
+WEBSOCKET_PORT = eveos_ports.service_port("GEMINI_WS_PORT")
+STATUS_PORT = eveos_ports.service_port("GEMINI_STATUS_PORT")
 SERVICE_NAME = "eveos-gemini-live"
 _PROCESS = None
 

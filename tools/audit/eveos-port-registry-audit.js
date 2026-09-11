@@ -83,6 +83,32 @@ check(runtimeSensor.includes("EveOSPortRegistry?.get?.('WATCHFUSION_PORT'"),
 const pythonBootstrap = read('server_modules/__init__.py');
 check(pythonBootstrap.includes('bootstrap_environment()'), 'Python server modules do not bootstrap the canonical registry');
 
+const managedPythonPortConsumers = [
+    ['server_modules/eveos_web_control.py', 'EVEOS_WEB_PORT'],
+    ['server_modules/eveos_control_helper.py', 'GEMINI_CONTROL_PORT'],
+    ['server_modules/gemini_control.py', 'GEMINI_WS_PORT'],
+    ['server_modules/gemini_control.py', 'GEMINI_STATUS_PORT'],
+    ['server_modules/world_book_control.py', 'WORLD_BOOK_PORT'],
+    ['server_modules/piano_player_control.py', 'PIANO_PLAYER_PORT'],
+    ['server_modules/watchfusion_control.py', 'WATCHFUSION_PORT']
+];
+for (const [relative, key] of managedPythonPortConsumers) {
+    const text = read(relative);
+    const registered = Number(ports[key]?.port);
+    check(text.includes(`eveos_ports.service_port("${key}")`) || text.includes(`eveos_ports.service_port('${key}')`),
+        `${relative} does not resolve ${key} through eveos_ports.service_port()`);
+    check(!new RegExp(`\\b${registered}\\b`).test(text),
+        `${relative} still embeds registered port ${registered} instead of the registry key ${key}`);
+    check(!new RegExp(`os\\.environ\\.get\\(["']${key}["']\\)[^\\n]*\\bor\\s*\\d+`).test(text),
+        `${relative} reintroduced an environment-or-literal fallback for ${key}`);
+    check(!new RegExp(`_port_from_env\\(["']${key}["']\\s*,\\s*\\d+`).test(text),
+        `${relative} reintroduced a helper literal fallback for ${key}`);
+}
+
+const controlHelper = read('server_modules/eveos_control_helper.py');
+check(!/DEFAULT_PORT\s*=\s*\d+/.test(controlHelper),
+    'EveOS control-plane entrypoint reintroduced a literal default port');
+
 const watchControl = read('server_modules/watchfusion_control.py');
 check(watchControl.includes('eveos_ports.service_port("WATCHFUSION_PORT")'), 'WatchFusion lifecycle bypasses the registry');
 

@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
 from . import eveos_console_prefs
+from . import eveos_ports
 from . import eveos_web_control
 from . import gemini_control
 from . import gemini_credentials
@@ -23,7 +24,7 @@ from . import world_book_control
 from .eveos_http_cors import eveos_cors_origin
 
 
-DEFAULT_PORT = 9082
+DEFAULT_PORT = eveos_ports.service_port("GEMINI_CONTROL_PORT")
 MAIN_LAUNCHER_PORT = 3000
 _SERVER = None
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}

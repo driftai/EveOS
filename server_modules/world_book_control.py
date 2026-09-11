@@ -14,10 +14,10 @@ import threading
 import time
 from pathlib import Path
 
-from . import gemini_control
+from . import eveos_ports, gemini_control
 
 
-WORLD_BOOK_PORT = int(os.environ.get("WORLD_BOOK_PORT") or 8766)
+WORLD_BOOK_PORT = eveos_ports.service_port("WORLD_BOOK_PORT")
 _PROCESS = None
 _LOCK = threading.RLock()
 

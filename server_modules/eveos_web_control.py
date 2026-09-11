@@ -13,8 +13,10 @@ import threading
 import time
 from pathlib import Path
 
+from . import eveos_ports
 
-EVEOS_WEB_PORT = int(os.environ.get("EVEOS_WEB_PORT") or 8765)
+
+EVEOS_WEB_PORT = eveos_ports.service_port("EVEOS_WEB_PORT")
 _PROCESS = None
 _PROCESS_PORT = None
 _LOCK = threading.RLock()

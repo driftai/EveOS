@@ -13,10 +13,10 @@ import threading
 import time
 from pathlib import Path
 
-from . import eveos_console_prefs
+from . import eveos_console_prefs, eveos_ports
 
 
-PIANO_PORT = int(os.environ.get("PIANO_PLAYER_PORT") or 8771)
+PIANO_PORT = eveos_ports.service_port("PIANO_PLAYER_PORT")
 _PROCESS = None
 _LOCK = threading.RLock()
 
