@@ -6,10 +6,11 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $tools = Join-Path $root 'tools'
 $ytDlp = Join-Path $tools 'yt-dlp.exe'
+$deno = Join-Path $tools 'deno.exe'
 $ffmpeg = Join-Path $tools 'ffmpeg.exe'
 $ffprobe = Join-Path $tools 'ffprobe.exe'
-$tempZip = Join-Path $tools 'ffmpeg-download.zip'
-$tempDir = Join-Path $tools 'ffmpeg-download'
+$tempZip = Join-Path $tools 'helper-download.zip'
+$tempDir = Join-Path $tools 'helper-download'
 
 New-Item -ItemType Directory -Force -Path $tools | Out-Null
 
@@ -24,7 +25,15 @@ function Test-Executable {
   }
 }
 
-Write-Host '[1/2] Installing/updating portable yt-dlp...'
+function Reset-Temp {
+  if (Test-Path -LiteralPath $tempZip) { Remove-Item -LiteralPath $tempZip -Force -ErrorAction SilentlyContinue }
+  if (Test-Path -LiteralPath $tempDir) { Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+$architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+$isArm64 = $architecture -eq 'arm64'
+
+Write-Host '[1/3] Installing/updating official yt-dlp.exe...'
 $ytDlpUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
 if ($Force -or -not (Test-Executable -Path $ytDlp -Args @('--version'))) {
   Invoke-WebRequest -UseBasicParsing -Uri $ytDlpUrl -OutFile $ytDlp
@@ -32,11 +41,30 @@ if ($Force -or -not (Test-Executable -Path $ytDlp -Args @('--version'))) {
 if (-not (Test-Executable -Path $ytDlp -Args @('--version'))) {
   throw 'yt-dlp.exe was downloaded but did not start successfully.'
 }
-Write-Host '[OK] yt-dlp.exe is ready.'
+Write-Host '[OK] yt-dlp.exe is ready (official executable includes yt-dlp EJS scripts).'
 
-Write-Host '[2/2] Installing/updating portable FFmpeg + ffprobe...'
-$architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-$archiveName = if ($architecture -eq 'arm64') {
+Write-Host '[2/3] Installing/updating portable Deno for YouTube JavaScript challenges...'
+$denoArchive = if ($isArm64) { 'deno-aarch64-pc-windows-msvc.zip' } else { 'deno-x86_64-pc-windows-msvc.zip' }
+$denoUrl = "https://github.com/denoland/deno/releases/latest/download/$denoArchive"
+if ($Force -or -not (Test-Executable -Path $deno -Args @('--version'))) {
+  try {
+    Reset-Temp
+    Invoke-WebRequest -UseBasicParsing -Uri $denoUrl -OutFile $tempZip
+    Expand-Archive -LiteralPath $tempZip -DestinationPath $tempDir -Force
+    $downloadedDeno = Get-ChildItem -LiteralPath $tempDir -Recurse -Filter 'deno.exe' | Select-Object -First 1
+    if (-not $downloadedDeno) { throw 'Deno archive did not contain deno.exe.' }
+    Copy-Item -LiteralPath $downloadedDeno.FullName -Destination $deno -Force
+  } finally {
+    Reset-Temp
+  }
+}
+if (-not (Test-Executable -Path $deno -Args @('--version'))) {
+  throw 'Portable deno.exe is unavailable after setup.'
+}
+Write-Host '[OK] Deno is ready for yt-dlp EJS challenge solving.'
+
+Write-Host '[3/3] Installing/updating portable FFmpeg + ffprobe...'
+$archiveName = if ($isArm64) {
   'ffmpeg-master-latest-winarm64-gpl.zip'
 } else {
   'ffmpeg-master-latest-win64-gpl.zip'
@@ -46,8 +74,7 @@ $needFfmpeg = $Force -or -not (Test-Executable -Path $ffmpeg -Args @('-version')
 
 if ($needFfmpeg) {
   try {
-    if (Test-Path -LiteralPath $tempZip) { Remove-Item -LiteralPath $tempZip -Force }
-    if (Test-Path -LiteralPath $tempDir) { Remove-Item -LiteralPath $tempDir -Recurse -Force }
+    Reset-Temp
     Invoke-WebRequest -UseBasicParsing -Uri $ffmpegUrl -OutFile $tempZip
     Expand-Archive -LiteralPath $tempZip -DestinationPath $tempDir -Force
     $downloadedFfmpeg = Get-ChildItem -LiteralPath $tempDir -Recurse -Filter 'ffmpeg.exe' | Select-Object -First 1
@@ -58,8 +85,7 @@ if ($needFfmpeg) {
     Copy-Item -LiteralPath $downloadedFfmpeg.FullName -Destination $ffmpeg -Force
     Copy-Item -LiteralPath $downloadedFfprobe.FullName -Destination $ffprobe -Force
   } finally {
-    if (Test-Path -LiteralPath $tempZip) { Remove-Item -LiteralPath $tempZip -Force -ErrorAction SilentlyContinue }
-    if (Test-Path -LiteralPath $tempDir) { Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
+    Reset-Temp
   }
 }
 
