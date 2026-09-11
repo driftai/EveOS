@@ -48,7 +48,7 @@ const routeContracts = [
     ['start-server.paths.bat', [':ResolveMainDataPackPath', ':NormalizePortInput', ':TrackInstance']],
     ['start-server.browser.bat', [':RefreshBrowserFallbackStatus', ':EnsureLightpandaMonitor']],
     ['start-server.browse.bat', [':LaunchBatch', ':BrowseProjectBatchFiles']],
-    ['start-server.instance.bat', [':LaunchEveInstance', ':LaunchEvePortOnly']],
+    ['start-server.instance.bat', [':LaunchEveInstance', ':LaunchEvePortOnly', ':StartAndVerifyEveServer', ':WaitForEveServer']],
     ['start-server.stack.bat', [':BootStandardStack', ':EnsureBridge', ':PortInUse']]
 ];
 for (const [name, labels] of routeContracts) {
@@ -64,6 +64,29 @@ assert(rootSource.includes('call "%START_SERVER_STACK_BAT%" :BootStandardStack %
     'Root launcher does not delegate full-stack startup');
 assert(rootSource.split(/\r?\n/).length <= 450,
     'Root launcher exceeds the 450-line facade contract');
+
+const instanceSource = helperSources.get('start-server.instance.bat');
+assert(!/set\s+"LP_FLAG=/i.test(instanceSource),
+    'Instance launcher must not construct Lightpanda command fragments in LP_FLAG');
+assert(!/if\s+defined\s+LP_FLAG/i.test(instanceSource),
+    'Instance launcher must not execute an incomplete IF DEFINED LP_FLAG command');
+assert(instanceSource.includes('set "EVEOS_LIGHTPANDA_DISABLED=1"'),
+    'Instance launcher does not express disabled Lightpanda through inherited environment state');
+assert(instanceSource.includes("/api/status"),
+    'Instance launcher does not probe EveOS readiness through /api/status');
+assert(instanceSource.includes("eveos-local-server"),
+    'Instance launcher readiness probe does not verify EveOS service identity');
+assert(instanceSource.includes('call :StartAndVerifyEveServer "%INSTANCE_PORT%"'),
+    'Instance launcher bypasses verified server startup');
+assert(instanceSource.includes('if errorlevel 1 exit /b 1'),
+    'Instance launcher does not stop after verified startup failure');
+assert(instanceSource.includes('eveos-server-%_EVE_START_PORT%.log'),
+    'Instance launcher does not preserve a startup log for failed minimized servers');
+
+const firstVerifiedStart = instanceSource.indexOf('call :StartAndVerifyEveServer "%INSTANCE_PORT%"');
+const firstTrack = instanceSource.indexOf('call "%START_SERVER_PATHS_BAT%" :TrackInstance');
+assert(firstVerifiedStart >= 0 && firstTrack > firstVerifiedStart,
+    'Instance launcher tracks the server before verified readiness');
 
 const portsSource = read(path.join(ROOT, 'tools', 'batch', 'eveos-ports.bat'));
 for (const key of [
