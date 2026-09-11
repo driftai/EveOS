@@ -1,4 +1,7 @@
 @echo off
+if not defined PROJECT_ROOT for %%R in ("%~dp0..\..") do set "PROJECT_ROOT=%%~fR"
+if not defined LIGHTPANDA_MONITOR_TITLE set "LIGHTPANDA_MONITOR_TITLE=EveOS Lightpanda Monitor"
+if not defined LIGHTPANDA_ACTIVITY_LOG set "LIGHTPANDA_ACTIVITY_LOG=%PROJECT_ROOT%\bin\lightpanda_activity.log"
 if "%~1"=="" exit /b 0
 set "_START_SERVER_BROWSER_LABEL=%~1"
 shift

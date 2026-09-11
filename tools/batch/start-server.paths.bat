@@ -1,4 +1,6 @@
 @echo off
+if not defined PROJECT_ROOT for %%R in ("%~dp0..\..") do set "PROJECT_ROOT=%%~fR"
+if not defined LAST_USED_PACK_FILE set "LAST_USED_PACK_FILE=%PROJECT_ROOT%\data\launcher-last-pack.txt"
 if "%~1"=="" exit /b 0
 set "_START_SERVER_PATHS_LABEL=%~1"
 shift

@@ -33,11 +33,7 @@ def launcher_python() -> str:
         return sys.executable
 
     comspec = os.environ.get("ComSpec") or os.environ.get("COMSPEC") or "cmd.exe"
-    command = (
-        r"call tools\batch\eveos-python.bat >nul"
-        r" & if errorlevel 1 exit /b 9"
-        r" & echo(!EVEOS_PYTHON!"
-    )
+    command = r"call tools\batch\eveos-python.bat >nul && echo(!EVEOS_PYTHON!"
     resolved = subprocess.run(
         [comspec, "/d", "/v:on", "/c", command],
         cwd=ROOT,

@@ -1,4 +1,9 @@
 @echo off
+if not defined PROJECT_ROOT (
+    for %%R in ("%~dp0..\..") do set "PROJECT_ROOT=%%~fR"
+)
+if not defined START_SERVER_BROWSER_BAT set "START_SERVER_BROWSER_BAT=%PROJECT_ROOT%\tools\batch\start-server.browser.bat"
+if not defined START_SERVER_PATHS_BAT set "START_SERVER_PATHS_BAT=%PROJECT_ROOT%\tools\batch\start-server.paths.bat"
 if "%~1"=="" exit /b 0
 set "_START_SERVER_INSTANCE_LABEL=%~1"
 shift
@@ -94,19 +99,21 @@ exit /b 0
 :StartAndVerifyEveServer
 set "_EVE_START_PORT=%~1"
 set "_EVE_START_TITLE=%~2"
+if not defined EVEOS_PYTHON call "%PROJECT_ROOT%\tools\batch\eveos-python.bat"
 if not exist "%PROJECT_ROOT%\bin" mkdir "%PROJECT_ROOT%\bin" >nul 2>nul
 set "_EVE_START_LOG=%PROJECT_ROOT%\bin\eveos-server-%_EVE_START_PORT%.log"
 
 > "%_EVE_START_LOG%" echo [launcher] Python: %EVEOS_PYTHON%
 >> "%_EVE_START_LOG%" echo [launcher] Port: %_EVE_START_PORT%
+>> "%_EVE_START_LOG%" echo [launcher] Title: %_EVE_START_TITLE%
 
-start "%_EVE_START_TITLE%" /min "%EVEOS_PYTHON%" -u server/python-server.py %_EVE_START_PORT% >> "%_EVE_START_LOG%" 2>&1
+start "%_EVE_START_TITLE%" cmd /k "cd /d "%PROJECT_ROOT%" && "%EVEOS_PYTHON%" -u server/python-server.py %_EVE_START_PORT%"
 call :WaitForEveServer "%_EVE_START_PORT%"
 if errorlevel 1 (
     echo.
     echo [ERROR] EveOS did not become ready on port %_EVE_START_PORT%.
     echo [ERROR] Python: %EVEOS_PYTHON%
-    echo [ERROR] Startup log: %_EVE_START_LOG%
+    echo [ERROR] Check the "%_EVE_START_TITLE%" console window for errors.
     if exist "%_EVE_START_LOG%" (
         echo.
         echo ---------- EveOS startup log ----------
@@ -129,7 +136,7 @@ for /L %%R in (1,1,12) do (
         set "_EVE_READY=1"
         goto :WaitForEveServerDone
     )
-    timeout /t 1 /nobreak >nul
+    timeout /t 1 /nobreak >nul 2>nul || ping -n 2 127.0.0.1 >nul
 )
 :WaitForEveServerDone
 if defined _EVE_READY exit /b 0
