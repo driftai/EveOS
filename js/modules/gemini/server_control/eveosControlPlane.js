@@ -7,37 +7,36 @@
     const CANONICAL_WEB_BASE = 'http://127.0.0.1:8765';
     const POLL_MS = 5000;
 
-    function currentLoopbackWebBase() {
+    function currentWebBase() {
         try {
             const location = window.location;
-            const host = String(location?.hostname || '').toLowerCase();
-            if (location?.protocol !== 'http:') return '';
-            if (!['127.0.0.1', 'localhost', '::1', '[::1]'].includes(host)) return '';
+            if (!['http:', 'https:'].includes(String(location?.protocol || ''))) return '';
             return String(location.origin || '');
         } catch (error) {
             return '';
         }
     }
 
-    function currentLoopbackWebPort() {
-        const base = currentLoopbackWebBase();
+    function currentWebPort() {
+        const base = currentWebBase();
         if (!base) return 0;
         const explicit = Number(window.location?.port || 0);
-        return Number.isInteger(explicit) && explicit > 0 ? explicit : 80;
+        if (Number.isInteger(explicit) && explicit > 0) return explicit;
+        return window.location?.protocol === 'https:' ? 443 : 80;
     }
 
     function withWebPort(url) {
-        const port = currentLoopbackWebPort();
+        const port = currentWebPort();
         if (!port) return url;
         return `${url}${url.includes('?') ? '&' : '?'}port=${port}`;
     }
 
     function directWebBases() {
-        const current = currentLoopbackWebBase();
+        const current = currentWebBase();
         return [...new Set([current, CANONICAL_WEB_BASE].filter(Boolean))];
     }
 
-    const DEFAULT_WEB_URL = `${currentLoopbackWebBase() || CANONICAL_WEB_BASE}/EveOS.html`;
+    const DEFAULT_WEB_URL = `${currentWebBase() || CANONICAL_WEB_BASE}/EveOS.html`;
     const state = {
         helperBaseUrl: '',
         controllerAvailable: false,
@@ -150,12 +149,12 @@
     async function checkDirectWeb() {
         for (const base of directWebBases()) {
             try {
-                const payload = await fetchJson(`${base}/api/status`, null, 900);
+                const payload = await fetchJson(`${base}/api/status`, null, 1200);
                 if (payload?.ok === true && payload?.service === 'eveos-local-server') {
                     return { payload, base };
                 }
             } catch (error) {
-                // Try the next verified localhost candidate.
+                // Try the next verified EveOS web candidate.
             }
         }
         return null;
@@ -301,6 +300,7 @@
     window.EveOSControlPlane = Object.freeze({
         getState: () => ({
             ...state,
+            currentWebPort: currentWebPort(),
             bootstrapAttemptedAt: window.EveOSLocalControl?.getBootstrapAttemptedAt?.() || 0
         }),
         ensureController,
