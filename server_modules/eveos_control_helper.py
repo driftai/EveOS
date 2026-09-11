@@ -281,9 +281,9 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
         controlled_paths = {
             "/api/eveos-server/start", "/api/eveos-server/stop",
             "/api/gemini-server/start", "/api/gemini-server/stop",
-            "/api/world-book/start", "/api/world-book/stop",
-            "/api/piano-player/start", "/api/piano-player/stop", "/api/piano-player/setup",
-            "/api/watchfusion/start", "/api/watchfusion/stop", "/api/watchfusion/setup",
+            "/api/world-book/start", "/api/world-book/stop", "/api/world-book/launch",
+            "/api/piano-player/start", "/api/piano-player/stop", "/api/piano-player/launch", "/api/piano-player/setup",
+            "/api/watchfusion/start", "/api/watchfusion/stop", "/api/watchfusion/launch", "/api/watchfusion/setup",
             "/api/gemini-credentials", "/api/control-plane/consoles",
         }
         if path in controlled_paths and not gemini_control.request_can_control(self):
@@ -309,16 +309,22 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             action = world_book_control.start_server
         elif path == "/api/world-book/stop":
             action = world_book_control.stop_server
+        elif path == "/api/world-book/launch":
+            action = world_book_control.open_launcher
         elif path == "/api/piano-player/start":
             action = piano_player_control.start_server
         elif path == "/api/piano-player/stop":
             action = piano_player_control.stop_server
+        elif path == "/api/piano-player/launch":
+            action = piano_player_control.open_launcher
         elif path == "/api/piano-player/setup":
             action = piano_player_control.open_setup
         elif path == "/api/watchfusion/start":
             action = watchfusion_control.start_server
         elif path == "/api/watchfusion/stop":
             action = watchfusion_control.stop_server
+        elif path == "/api/watchfusion/launch":
+            action = watchfusion_control.open_launcher
 
         if action is not None:
             payload = action()
