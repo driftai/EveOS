@@ -159,7 +159,8 @@
     position: absolute;
     inset: 0;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    /* Four direct children exist in degraded mode: copy, offline browser, components, actions. */
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
     gap: 16px;
     padding: clamp(18px, 3vw, 34px);
     color: var(--text-main);
