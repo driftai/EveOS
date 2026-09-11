@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $StateWriter = Join-Path $PSScriptRoot 'set-exposure-state.ps1'
 $RouterScript = Join-Path $PSScriptRoot 'eveos-secure-share.py'
+$CloudflaredBootstrap = Join-Path $PSScriptRoot 'ensure-cloudflared.ps1'
 $RuntimeDir = Join-Path $Root 'data\runtime\selective-boot'
 New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
 
@@ -34,7 +35,14 @@ function Resolve-Cloudflared {
     if ($Command) { return $Command.Source }
     $Bundled = Join-Path $Root 'tools\WatchFusion\tools\cloudflared.exe'
     if (Test-Path -LiteralPath $Bundled) { return $Bundled }
-    throw 'cloudflared was not found. Install it or place cloudflared.exe under tools\WatchFusion\tools\.'
+    if (-not (Test-Path -LiteralPath $CloudflaredBootstrap)) {
+        throw 'cloudflared was not found and the EveOS bootstrap helper is missing.'
+    }
+    $Resolved = (& $CloudflaredBootstrap -Destination $Bundled | Select-Object -Last 1)
+    if (-not $Resolved -or -not (Test-Path -LiteralPath $Resolved)) {
+        throw 'cloudflared was not found and EveOS could not bootstrap it automatically.'
+    }
+    return $Resolved
 }
 
 function Get-FreeLoopbackPort {
@@ -95,30 +103,24 @@ try {
     Write-Host ''
 
     $PublicUrl = ''
-    $PreviousErrorAction = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        & $Cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$RouterPort" 2>&1 | ForEach-Object {
-            $Line = $_.ToString()
-            Write-Host $Line
-            if (-not $PublicUrl -and $Line -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' -and -not ($Matches[0] -match 'api\.trycloudflare\.com')) {
-                $Base = $Matches[0].TrimEnd('/')
-                $Path = if ($PublicPath.StartsWith('/')) { $PublicPath } else { "/$PublicPath" }
-                $Separator = if ($Path.Contains('?')) { '&' } else { '?' }
-                $PublicUrl = "$Base$Path$Separator" + 'access=' + $Token
-                & $StateWriter -Service $SafeService -Mode cloudflare -PublicUrl $PublicUrl `
-                    -OriginUrl $Origin -RouterPort $RouterPort
-                Write-Host ''
-                Write-Host '[READY] Temporary authenticated share:' -ForegroundColor Green
-                Write-Host "  $PublicUrl" -ForegroundColor Cyan
-                Write-Host ''
-                Write-Host 'The origin remains on 127.0.0.1. The access token is converted to an HttpOnly cookie by the local router.'
-                Write-Host 'Treat the full URL like a temporary password. Stop this terminal to stop the share.'
-                if ($OpenBrowser) { Start-Process $PublicUrl }
-            }
+    & $Cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$RouterPort" 2>&1 | ForEach-Object {
+        $Line = $_.ToString()
+        Write-Host $Line
+        if (-not $PublicUrl -and $Line -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com') {
+            $Base = $Matches[0].TrimEnd('/')
+            $Path = if ($PublicPath.StartsWith('/')) { $PublicPath } else { "/$PublicPath" }
+            $Separator = if ($Path.Contains('?')) { '&' } else { '?' }
+            $PublicUrl = "$Base$Path$Separator" + 'access=' + $Token
+            & $StateWriter -Service $SafeService -Mode cloudflare -PublicUrl $PublicUrl `
+                -OriginUrl $Origin -RouterPort $RouterPort
+            Write-Host ''
+            Write-Host '[READY] Temporary authenticated share:' -ForegroundColor Green
+            Write-Host "  $PublicUrl" -ForegroundColor Cyan
+            Write-Host ''
+            Write-Host 'The origin remains on 127.0.0.1. The access token is converted to an HttpOnly cookie by the local router.'
+            Write-Host 'Treat the full URL like a temporary password. Stop this terminal to stop the share.'
+            if ($OpenBrowser) { Start-Process $PublicUrl }
         }
-    } finally {
-        $ErrorActionPreference = $PreviousErrorAction
     }
 }
 finally {
