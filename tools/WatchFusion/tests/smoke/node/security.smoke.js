@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { publicState, createRoom, joinMember, appendChat } from '../../../src/server/room-store.js';
 import { handleSystemRoute } from '../../../src/server/system-routes.js';
+import { handleSetupRoute } from '../../../src/server/setup-routes.js';
 import { isContainedPath } from '../../../src/server/static-files.js';
 import { assertPublicHttpUrl } from '../../../src/server/public-url.js';
 import path from 'node:path';
@@ -35,6 +36,26 @@ export async function runSecuritySmokes() {
     assert.equal(handled2, true);
     assert.equal(res2.statusCode, 403);
     assert.match(res2.body, /local-only/);
+  });
+
+  await check('SEC-SETUP-INSTALL-TUNNEL-DENY', async () => {
+    for (const headers of [
+      { host: 'example.trycloudflare.com' },
+      { host: '127.0.0.1:9085', 'x-forwarded-host': 'example.trycloudflare.com' },
+      { host: '127.0.0.1:9085', 'cf-ray': 'test-ray', 'cf-connecting-ip': '203.0.113.8' }
+    ]) {
+      const res = mockResponse();
+      const req = {
+        method: 'POST',
+        url: '/api/setup/install',
+        headers,
+        socket: { remoteAddress: '127.0.0.1' }
+      };
+      const handled = await handleSetupRoute(req, res, ['api', 'setup', 'install']);
+      assert.equal(handled, true);
+      assert.equal(res.statusCode, 403, `installer must reject tunneled host ${JSON.stringify(headers)}`);
+      assert.match(res.body, /host-local/);
+    }
   });
 
   await check('SEC-NETWORK-INFO-LOCAL-ALLOW', () => {
