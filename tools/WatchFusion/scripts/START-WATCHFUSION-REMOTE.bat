@@ -29,50 +29,57 @@ echo [INFO] Locating a usable cloudflared installation...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%CLOUDFLARED_BOOTSTRAP%" -Destination "%CLOUDFLARED_BUNDLED%" > "%CLOUDFLARED_RESULT%" 2>&1
 set "CLOUDFLARED_RC=%ERRORLEVEL%"
 
-if not "%CLOUDFLARED_RC%"=="0" (
-    echo.
-    echo ERROR: WatchFusion could not resolve or install cloudflared.
-    echo Resolver details:
-    type "%CLOUDFLARED_RESULT%"
-    del /q "%CLOUDFLARED_RESULT%" >nul 2>nul
-    echo.
-    echo Official source: https://developers.cloudflare.com/tunnel/downloads/
-    echo.
-    pause
-    exit /b %CLOUDFLARED_RC%
-)
+if not "%CLOUDFLARED_RC%"=="0" goto :RESOLVE_FAILED
 
 for /f "usebackq delims=" %%I in ("%CLOUDFLARED_RESULT%") do set "CLOUDFLARED=%%I"
 del /q "%CLOUDFLARED_RESULT%" >nul 2>nul
 
-if not defined CLOUDFLARED (
-    echo.
-    echo ERROR: cloudflared resolver returned no executable path.
-    pause
-    exit /b 1
-)
-if not exist "%CLOUDFLARED%" (
-    echo.
-    echo ERROR: Resolved cloudflared path does not exist:
-    echo   %CLOUDFLARED%
-    pause
-    exit /b 1
-)
+if not defined CLOUDFLARED goto :NO_CLOUDFLARED
+if not exist "%CLOUDFLARED%" goto :CLOUDFLARED_NOT_EXIST
 
 "%CLOUDFLARED%" --version >nul 2>nul
-if errorlevel 1 (
-    echo.
-    echo ERROR: Resolved cloudflared failed its version self-check:
-    echo   %CLOUDFLARED%
-    pause
-    exit /b 1
-)
+if errorlevel 1 goto :CLOUDFLARED_BAD_VERSION
 
 echo [READY] cloudflared:
-echo   %CLOUDFLARED%
+echo   "%CLOUDFLARED%"
 echo WatchFusion port:
 echo   %WATCHFUSION_PORT%
 echo.
+goto :RUN_TUNNEL
+
+:RESOLVE_FAILED
+echo.
+echo ERROR: WatchFusion could not resolve or install cloudflared.
+echo Resolver details:
+type "%CLOUDFLARED_RESULT%"
+del /q "%CLOUDFLARED_RESULT%" >nul 2>nul
+echo.
+echo Official source: https://developers.cloudflare.com/tunnel/downloads/
+echo.
+pause
+exit /b %CLOUDFLARED_RC%
+
+:NO_CLOUDFLARED
+echo.
+echo ERROR: cloudflared resolver returned no executable path.
+pause
+exit /b 1
+
+:CLOUDFLARED_NOT_EXIST
+echo.
+echo ERROR: Resolved cloudflared path does not exist:
+echo   "%CLOUDFLARED%"
+pause
+exit /b 1
+
+:CLOUDFLARED_BAD_VERSION
+echo.
+echo ERROR: Resolved cloudflared failed its version self-check:
+echo   "%CLOUDFLARED%"
+pause
+exit /b 1
+
+:RUN_TUNNEL
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass ^
     -File "%ROOT%\scripts\REMOTE-TUNNEL.ps1" ^
