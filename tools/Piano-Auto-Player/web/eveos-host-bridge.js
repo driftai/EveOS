@@ -15,6 +15,14 @@
     window.dispatchEvent(new CustomEvent('piano:eveos-context', { detail: context }));
   }
 
+  function reportModuleError(label, error) {
+    console.error(`[Piano] ${label} failed to load`, error);
+    const text = document.getElementById('statusText');
+    const chip = document.getElementById('statusChip');
+    if (text) text.textContent = `${label} failed to load: ${error?.message || error}`;
+    if (chip) chip.dataset.state = 'error';
+  }
+
   try { context = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (_) {}
   window.addEventListener('message', accept);
   window.PianoEveOS = Object.freeze({ getContext: () => context ? { ...context } : null });
@@ -25,7 +33,8 @@
   window.addEventListener('load', () => {
     import('./player_queue.js')
       .then(() => import('./player_queue_advanced.js'))
-      .catch(() => {});
-    import('./sheet_progress.js?v=bc691cc2').catch(() => {});
+      .catch(error => reportModuleError('Player Queue', error));
+    import('./sheet_progress.js?v=bc691cc2')
+      .catch(error => reportModuleError('Sheet Progress', error));
   });
 })();
