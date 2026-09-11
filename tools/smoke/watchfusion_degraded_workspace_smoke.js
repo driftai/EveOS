@@ -11,13 +11,18 @@ const check = (condition, message) => { if (!condition) failures.push(message); 
 
 const manifest = read('js/config/manifest/scripts.parts/03-feature-modules.js');
 const resilience = read('js/modules/features/watchfusion/watchfusion.resilience.js');
+const sensor = read('js/modules/features/watchfusion/watchfusion.runtime-sensing.js');
 const outer = read('js/modules/features/watchfusion/watchfusion.js');
+const bridge = read('tools/WatchFusion/public/client/eveos-embed-bridge.js');
+const staticFiles = read('tools/WatchFusion/src/server/static-files.js');
+const systemRoutes = read('tools/WatchFusion/src/server/system-routes.js');
 const css = read('css/modules/watchfusion-resilience.css');
 const registry = JSON.parse(read('config/eveos-ports.json'));
 
+check(manifest.includes('watchfusion/watchfusion.runtime-sensing.js'), 'runtime sensing layer is not loaded before WatchFusion');
 check(manifest.includes('watchfusion/watchfusion.resilience.js'), 'resilience layer is not loaded after WatchFusion');
-check(resilience.includes("overview") && resilience.includes("nuvio") && resilience.includes("voxelvision")
-    && resilience.includes("findMedia") && resilience.includes("watchParty"),
+check(resilience.includes('overview') && resilience.includes('nuvio') && resilience.includes('voxelvision')
+    && resilience.includes('findMedia') && resilience.includes('watchParty'),
 'control-offline workspace is missing feature navigation');
 check(resilience.includes('Live actions are intentionally inactive while WatchFusion is stopped.'),
     'stopped workspace does not explain inactive live actions');
@@ -31,14 +36,29 @@ check(!/addEventListener\(['"]click['"],[\s\S]{0,180}EveWatchFusion\.start/.test
     'browsing a stopped feature can auto-start WatchFusion');
 check(outer.includes('Opening WatchFusion is presentation-only'),
     'outer WatchFusion click contract no longer guarantees presentation-only open');
+check(outer.includes('EveWatchFusionRuntimeSensor?.probe') && outer.includes('directRuntime: true'),
+    'healthy WatchFusion runtime cannot bypass a stale/offline control-plane status');
+check(outer.includes('Online · control off') && outer.includes('Browse · control off'),
+    'WatchFusion still exposes raw fetch failure as its primary degraded status');
+check(outer.includes("addEventListener('eve:watchfusion-presence'") && outer.includes('detached: detachedPresence'),
+    'outer EveOS workspace does not sense/report detached WatchFusion presence');
+check(sensor.includes("EveOSPortRegistry?.get?.('WATCHFUSION_PORT'") && sensor.includes('/api/health'),
+    'direct WatchFusion health sensing is not registry-driven');
+check(sensor.includes("watchfusion:detached-presence") && sensor.includes('HEARTBEAT_TTL_MS'),
+    'detached-window sensing does not expire through a heartbeat contract');
+check(bridge.includes("watchfusion:embedded-presence") && bridge.includes("watchfusion:detached-presence"),
+    'WatchFusion runtime does not report embedded/detached presence back to EveOS');
+check(staticFiles.includes("'client/eveos-embed-bridge.js'"), 'EveOS presence bridge is not bundled into WatchFusion');
+check(systemRoutes.includes("app: 'WatchFusion', port: PORT"), 'WatchFusion health does not publish its resolved registry port');
 check(css.includes('.watchfusion-offline-tabs') && css.includes('.watchfusion-offline-panel'),
     'degraded workspace navigation has no scoped EveOS styling');
+check(css.includes('.topbar-watchfusion-btn[data-detached="1"]'),
+    'detached-window presence has no visible EveOS header state');
 
 const ports = registry.ports || {};
+check(Number(ports.WATCHFUSION_PORT?.port) > 0, 'WatchFusion has no canonical registered port');
 check(Number(ports.WATCHFUSION_PORT?.port) !== Number(ports.GEMINI_WS_PORT?.port),
     'WatchFusion and Gemini still collide in the canonical registry');
-check(Number(ports.WATCHFUSION_PORT?.port) === 9087,
-    'expected WatchFusion default assignment is not 9087');
 
 if (failures.length) {
     console.error(`WATCHFUSION_DEGRADED_WORKSPACE_FAIL ${failures.length}`);
