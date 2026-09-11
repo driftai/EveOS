@@ -1,6 +1,7 @@
 const STYLE_ID = 'pianoUnifiedWorkspaceStyles';
 const LEGACY_QUEUE = '.sheet-workspace-queue';
 const LEGACY_LIBRARY = '.library-panel';
+const DISCLOSURE_KEY = 'piano_ui_disclosure_v1';
 
 function loadStyles() {
   if (document.getElementById(STYLE_ID)) return;
@@ -21,6 +22,24 @@ function waitFor(selector, timeout = 7000) {
     };
     tick();
   });
+}
+
+function disclosureState() {
+  try { return JSON.parse(localStorage.getItem(DISCLOSURE_KEY) || '{}') || {}; }
+  catch (_) { return {}; }
+}
+
+function savedCollapsed(key, fallback) {
+  const state = disclosureState();
+  return Object.prototype.hasOwnProperty.call(state, key) ? !!state[key] : !!fallback;
+}
+
+function saveCollapsed(key, collapsed) {
+  try {
+    const state = disclosureState();
+    state[key] = !!collapsed;
+    localStorage.setItem(DISCLOSURE_KEY, JSON.stringify(state));
+  } catch (_) {}
 }
 
 function queuePosition(state) {
@@ -49,7 +68,79 @@ function hideLegacyPanels() {
 
 function proxyButton(id) {
   const target = document.getElementById(id);
-  if (target) target.click();
+  if (!target) return false;
+  target.click();
+  return true;
+}
+
+function setPanelCollapsed(panel, key, collapsed, button) {
+  panel.dataset.uCollapsed = collapsed ? '1' : '0';
+  button.textContent = collapsed ? 'Expand' : 'Collapse';
+  button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  saveCollapsed(key, collapsed);
+}
+
+function enhancePanelDisclosure(selector, key, defaultCollapsed) {
+  const panel = document.querySelector(selector);
+  const head = panel?.querySelector(':scope > .panel-head');
+  if (!panel || !head || head.querySelector('[data-u-panel-toggle]')) return;
+  panel.classList.add('piano-collapsible-panel');
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'ghost small piano-panel-toggle';
+  button.dataset.uPanelToggle = key;
+  button.setAttribute('aria-label', `Toggle ${key.replaceAll('-', ' ')}`);
+  head.append(button);
+  setPanelCollapsed(panel, key, savedCollapsed(key, defaultCollapsed), button);
+  button.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    setPanelCollapsed(panel, key, panel.dataset.uCollapsed !== '1', button);
+  });
+}
+
+function enhanceTopLevelDisclosures() {
+  // Primary playback and discovery stay open; secondary recording/reference surfaces start compact.
+  enhancePanelDisclosure('.controls-panel', 'playback-controls', false);
+  enhancePanelDisclosure('.recorder-panel', 'custom-performance', true);
+  enhancePanelDisclosure('.search-panel', 'sheet-finder', false);
+  enhancePanelDisclosure('.notation-panel', 'compatibility', true);
+}
+
+function setWorkspaceCollapsed(planner, collapsed, button) {
+  planner.dataset.uCollapsed = collapsed ? '1' : '0';
+  button.textContent = collapsed ? 'Expand' : 'Collapse';
+  button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  saveCollapsed('my-songs', collapsed);
+}
+
+function enhanceEditorDisclosure(planner) {
+  const editor = planner.querySelector('.planner-editor');
+  const head = editor?.querySelector('.planner-editor-head');
+  if (!editor || !head || head.querySelector('[data-u-editor-toggle]')) return;
+  const grid = editor.closest('.planner-grid');
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'ghost small piano-editor-toggle';
+  button.dataset.uEditorToggle = 'true';
+  button.setAttribute('aria-label', 'Toggle song or recording details');
+  head.append(button);
+
+  const apply = collapsed => {
+    editor.dataset.uCollapsed = collapsed ? '1' : '0';
+    grid?.classList.toggle('editor-collapsed', collapsed);
+    button.textContent = collapsed ? 'Expand' : 'Collapse';
+    button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    saveCollapsed('song-details', collapsed);
+  };
+
+  // This inspector is secondary to browsing/queueing, so first use starts compact.
+  apply(savedCollapsed('song-details', true));
+  button.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    apply(editor.dataset.uCollapsed !== '1');
+  });
 }
 
 function buildHeader(planner) {
@@ -73,6 +164,7 @@ function buildHeader(planner) {
       <button type="button" data-u-import>Import</button>
       <button type="button" data-u-export>Export all</button>
       <button type="button" data-u-refresh>Refresh</button>
+      <button type="button" class="ghost" data-u-workspace-toggle aria-label="Toggle My Songs workspace">Collapse</button>
     </div>`;
 
   const now = document.createElement('section');
@@ -107,12 +199,27 @@ function buildHeader(planner) {
   body.prepend(now);
   body.prepend(head);
 
-  head.querySelector('[data-u-import]')?.addEventListener('click', () => proxyButton('importLibraryBtn'));
+  // Keep the proven transfer controller, but invoke import directly from the trusted user gesture.
+  head.querySelector('[data-u-import]')?.addEventListener('click', () => {
+    const input = document.getElementById('importLibraryInput');
+    if (input) input.click();
+    else proxyButton('importLibraryBtn');
+  });
   head.querySelector('[data-u-export]')?.addEventListener('click', () => proxyButton('exportLibraryBtn'));
   head.querySelector('[data-u-refresh]')?.addEventListener('click', () => {
     proxyButton('refreshLibraryBtn');
     window.dispatchEvent(new CustomEvent('piano:unified-refresh-requested'));
   });
+
+  const workspaceToggle = head.querySelector('[data-u-workspace-toggle]');
+  if (workspaceToggle) {
+    setWorkspaceCollapsed(planner, savedCollapsed('my-songs', false), workspaceToggle);
+    workspaceToggle.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      setWorkspaceCollapsed(planner, planner.dataset.uCollapsed !== '1', workspaceToggle);
+    });
+  }
 
   const editorHead = planner.querySelector('.planner-editor-head > span');
   if (editorHead) editorHead.textContent = 'SONG / RECORDING DETAILS';
@@ -120,6 +227,7 @@ function buildHeader(planner) {
   if (overrides) overrides.textContent = 'THIS SONG OVERRIDE · blank = global default';
   const queueHeading = planner.querySelector('.planner-queue-section > span');
   if (queueHeading) queueHeading.textContent = 'QUEUE / ORDER';
+  enhanceEditorDisclosure(planner);
 }
 
 function bindQueueStrip(planner) {
@@ -177,6 +285,7 @@ function markVisibleContract(planner) {
 
 async function installUnifiedWorkspace() {
   loadStyles();
+  enhanceTopLevelDisclosures();
   const planner = await waitFor('.sheet-workspace-planner');
   if (!planner) return null;
   hideLegacyPanels();
