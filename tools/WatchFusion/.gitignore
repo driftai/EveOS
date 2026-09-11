@@ -1,0 +1,32 @@
+# Node dependencies & caches
+node_modules/
+
+# Runtime logs & data
+*.log
+.runtime/
+test-results/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+
+# User-installed Nuvio runtime: never commit this tree, keep only .gitkeep placeholder
+nuvio/*
+!nuvio/.gitkeep
+
+# Local user configuration & secrets
+nuvio-wrapper.properties
+nuvio-wrapper.local.properties
+NUVIO_PATH.txt
+local.properties
+.env
+.env.*
+!.env.example
+
+# Downloaded binaries
+tools/cloudflared.exe
+
+# OS & IDE artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

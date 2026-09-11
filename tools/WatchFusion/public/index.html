@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>WatchFusion</title>
+  <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar" id="watchfusionHeader">
+    <div class="brand"><strong>WatchFusion</strong></div>
+    <div class="top-actions" id="headerActions" hidden>
+      <button class="secondary" id="startPartyBtn" type="button">Start Watch Party</button>
+      <button class="secondary" id="openRoomBtn" type="button">Join Room</button>
+      <button class="room-pill" id="roomPill" type="button" title="No active room" disabled>Solo</button>
+    </div>
+    <button id="headerToggleBtn" class="header-toggle secondary" type="button" aria-expanded="false" aria-controls="headerActions" title="Expand WatchFusion controls"><span class="header-chevron" aria-hidden="true"></span><span class="sr-only">Expand WatchFusion controls</span></button>
+  </header>
+
+  <main>
+    <section id="lobby" class="panel lobby room-setup" hidden>
+      <div class="room-setup-head">
+        <div>
+          <h2>Watch Party</h2>
+          <p class="muted">Create a room around what you are currently watching, or join an existing room.</p>
+        </div>
+        <button id="closeLobbyBtn" class="secondary" type="button">Close</button>
+      </div>
+      <label>Your name<input id="nameInput" maxlength="32" placeholder="Guest"></label>
+      <div class="row">
+        <button id="createBtn">Create room from current media</button>
+        <input id="roomInput" maxlength="32" placeholder="ROOM NUMBER / ID">
+        <button id="joinBtn" class="secondary">Join</button>
+      </div>
+      <p class="hint">WatchFusion starts in the same media workspace whether you watch solo or together. Creating a room promotes the current source into synchronized WatchParty playback.</p>
+    </section>
+
+    <section id="app">
+      <div class="grid">
+        <div class="maincol">
+          <section class="watch-shell panel">
+            <div class="watch-shell-head">
+              <div class="source-tabs" role="tablist" aria-label="Media source">
+                <button id="shortcutNuvioBtn" class="source-tab active" type="button">Nuvio</button>
+                <button id="shortcutVoxelVisionBtn" class="source-tab" type="button">VoxelVision</button>
+                <button id="resolveTabBtn" class="source-tab" type="button">Find Media</button>
+              </div>
+              <span id="sourceModeLabel" class="source-badge">Ready</span>
+            </div>
+
+            <div id="mediaStage" class="player-wrap media-stage-empty">
+              <div class="player" id="playerHost">
+                <div id="player"></div>
+                <iframe id="nuvioFrame" class="nuvio-frame" title="Nuvio" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; web-share" allowfullscreen hidden></iframe>
+                <iframe id="voxelVisionFrame" class="voxelvision-frame" title="VoxelVision" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen hidden></iframe>
+              </div>
+              <div id="voxelVisionToolbar" class="voxelvision-toolbar" hidden>
+                <span class="voxelvision-label">VoxelVision source</span>
+                <button id="voxelVisionReloadBtn" class="secondary" type="button">Reload</button>
+                <button id="voxelVisionFullBtn" class="secondary" type="button">Fullscreen</button>
+                <button id="voxelVisionCloseBtn" class="secondary" type="button">Close VoxelVision</button>
+                <span class="voxelvision-toolbar-note">3D conversion and depth caches stay inside VoxelVision.</span>
+              </div>
+              <div id="nuvioToolbar" class="nuvio-toolbar" hidden>
+                <span class="nuvio-label">Nuvio source</span>
+                <button id="nuvioBackBtn" class="secondary" type="button">Back</button>
+                <button id="nuvioHomeBtn" class="secondary" type="button">Home</button>
+                <button id="nuvioReloadBtn" class="secondary" type="button">Reload</button>
+                <button id="nuvioFullBtn" class="secondary" type="button">Fullscreen</button>
+                <button id="nuvioCloseBtn" class="secondary" type="button">Close Nuvio</button>
+                <span class="nuvio-toolbar-note">WatchFusion controls stay outside the linked Nuvio source.</span>
+              </div>
+            </div>
+
+            <div id="findMediaPanel" class="find-media-panel" hidden>
+              <div class="find-media-title">
+                <div>
+                  <strong>Find Media</strong>
+                  <span>Paste a YouTube link, direct video/HLS URL, or supported watch page.</span>
+                </div>
+                <button id="closeFindMediaBtn" class="secondary" type="button">Close</button>
+              </div>
+              <div class="source-row find-media-row">
+                <input id="sourceInput" placeholder="YouTube URL, direct .mp4/.webm/.m3u8, or watch-page URL">
+                <button id="loadBtn">Find / Load</button>
+              </div>
+              <div class="find-media-hint">WatchFusion chooses the appropriate provider automatically. Nuvio and VoxelVision stay on their own tabs.</div>
+              <div id="mediaSourceResults" class="media-results" hidden>
+                <div class="media-result-row">
+                  <select id="mediaSourceSelect" aria-label="Resolved media source"></select>
+                  <button id="loadMediaBtn">Use Source</button>
+                </div>
+              </div>
+              <input id="mediaSourceInput" type="hidden" aria-hidden="true">
+            </div>
+
+            <div class="smallrow media-status-row">
+              <span id="mediaMeta"></span>
+              <span id="syncStatus">Solo mode</span>
+              <button id="syncBtn" class="secondary" hidden>Sync me</button>
+              <button id="copyBtn" class="secondary" hidden>Copy room link</button>
+              <button id="copyLanBtn" class="secondary" hidden>Copy LAN link</button>
+              <button id="deleteRoomBtn" class="danger" hidden>Delete room</button>
+            </div>
+          </section>
+        </div>
+
+        <aside class="side panel" id="partyPanel" hidden>
+          <div class="sidehead"><h2>Watch Party</h2><span id="hostBadge"></span></div>
+          <div id="partyDetails">
+            <div id="members" class="members"></div>
+            <p class="hint host-handoff-hint">The room host controls shared playback. Joiners receive the authoritative source and room state.</p>
+            <hr>
+            <h2>Chat</h2>
+            <div id="chat" class="chat"></div>
+            <form id="chatForm" class="chatform"><input id="chatInput" maxlength="500" placeholder="Message…"><button>Send</button></form>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -35,7 +35,9 @@ const EXCLUDED_DIRECTORIES = new Set([
 ]);
 const EXCLUDED_PATH_PREFIXES = [
     // World Portal bundles the independently maintained GPL Orogen application.
-    'tools/World-Book/tools/World-Portal/outer/orogen/'
+    'tools/World-Book/tools/World-Portal/outer/orogen/',
+    // WatchFusion bundles the independently maintained VoxelVision engine.
+    'tools/WatchFusion/voxelvision/'
 ];
 
 function countPhysicalLines(filePath) {

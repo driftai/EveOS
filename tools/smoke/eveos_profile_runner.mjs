@@ -93,6 +93,7 @@ function runScript(name, verbose) {
   const result = spawnSync(npm, ['run', '--silent', name], {
     cwd: ROOT,
     encoding: 'utf8',
+    shell: process.platform === 'win32',
     windowsHide: true,
     maxBuffer: MAX_CAPTURE_CHARS
   });

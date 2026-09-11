@@ -1,0 +1,16 @@
+node_modules/
+.runtime/
+.playwright-cli/
+output/
+test-results/
+*.log
+*.tmp
+
+.env
+.env.*
+!.env.example
+
+public/media/imported/*
+!public/media/imported/.gitignore
+tools/*
+!tools/.gitignore

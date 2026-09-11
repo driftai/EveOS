@@ -73,6 +73,7 @@ function embeddedRuntime() {
     const result = spawnSync(npm, ['run', '--silent', script], {
         cwd: TOOL,
         encoding: 'utf8',
+        shell: process.platform === 'win32',
         windowsHide: true,
         maxBuffer: 3 * 1024 * 1024
     });

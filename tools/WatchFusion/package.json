@@ -1,0 +1,27 @@
+{
+  "name": "watchfusion",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "start:lan": "set HOST=0.0.0.0&& node server.js",
+    "test": "node scripts/CHECK-ARCHITECTURE.mjs --quiet && node tests/smoke/run.js --full --quiet",
+    "test:smoke": "node scripts/CHECK-ARCHITECTURE.mjs --quiet && node tests/smoke/run.js --fast --quiet --reuse-pass",
+    "test:deep": "node scripts/CHECK-ARCHITECTURE.mjs --quiet && node tests/smoke/run.js --deep --quiet",
+    "test:browser": "node scripts/CHECK-ARCHITECTURE.mjs --quiet && node tests/smoke/run.js --browser --quiet",
+    "test:integration": "node scripts/CHECK-ARCHITECTURE.mjs --quiet && node tests/smoke/run.js --integration --quiet",
+    "test:security": "node scripts/CHECK-ARCHITECTURE.mjs --quiet && node tests/smoke/run.js --security --quiet",
+    "test:smoke:verbose": "node scripts/CHECK-ARCHITECTURE.mjs && node tests/smoke/run.js --fast --verbose",
+    "test:architecture": "node scripts/CHECK-ARCHITECTURE.mjs",
+    "test:all": "npm run --silent test"
+  },
+  "dependencies": {
+    "hls.js": "1.7.0",
+    "playwright": "^1.62.1",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}

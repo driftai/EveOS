@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoxelVision | Standalone 3D Voxel Media Engine</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./css/style.css" />
+
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+  <video id="videoPlayer" playsinline webkit-playsinline crossorigin="anonymous"></video>
+  <div id="statusMsg" class="status-toast hidden">Loading depth engine...</div>
+
+  <div class="ui-shell">
+    <header class="top-bar">
+      <div class="brand">
+        <span class="brand-title">VOXELVISION</span>
+        <span class="brand-badge">Local-First</span>
+      </div>
+
+      <div class="clip-badge">
+        <span class="live-dot">●</span>
+        <span id="clipTitle">VoxelVision Procedural Demo</span>
+        <span id="mediaQualityBadge" class="depth-mode-badge" data-mode="cached">640×360 Source</span>
+        <span id="depthModeBadge" class="depth-mode-badge" data-mode="cached">Cached AI Depth</span>
+      </div>
+
+      <div class="quick-actions">
+        <button id="youtubeBtn" class="btn source-btn" title="Paste a YouTube URL and transform it with live AI depth">▶ YouTube</button>
+        <button id="snapshotBtn" class="btn" title="Capture High-Res PNG Screenshot">📸 Snapshot</button>
+        <button id="recordBtn" class="btn" title="Record 3D Canvas with Audio">⏺ Record</button>
+        <label class="btn" title="Load a local video and generate matching live AI depth">
+          📁 Import
+          <input type="file" id="fileInput" accept="video/*" />
+        </label>
+        <button id="toggleSettingsBtn" class="btn" title="Toggle Settings Drawer">⚙ Settings</button>
+      </div>
+    </header>
+
+    <section id="sourcePanel" class="source-panel hidden" aria-label="Video source panel">
+      <div class="source-panel-head">
+        <div>
+          <div class="source-kicker">ONLINE SOURCE</div>
+          <h2>YouTube → Live Voxel Depth</h2>
+        </div>
+        <button id="sourcePanelClose" class="icon-btn" aria-label="Close source panel">×</button>
+      </div>
+      <p class="source-copy">
+        Paste a public YouTube video. VoxelVision downloads the selected source quality without re-encoding it, then analyzes geometry on-device into a replayable, recalibratable depth cache.
+      </p>
+      <div class="source-input-row">
+        <input id="youtubeUrlInput" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://www.youtube.com/watch?v=…" />
+        <select id="youtubeQualitySelect" title="YouTube source quality">
+          <option value="720">720p · Faster</option>
+          <option value="1080" selected>1080p · Recommended</option>
+          <option value="1440">1440p · High</option>
+          <option value="2160">2160p / 4K · Very High</option>
+          <option value="max">Source Max · Largest</option>
+        </select>
+        <button id="youtubeImportBtn" class="btn primary-btn">Transform Video</button>
+      </div>
+      <div id="youtubeCapability" class="capability-line" data-state="working">Checking YouTube bridge…</div>
+      <section class="cache-library-section" aria-label="Cached analysis library">
+        <div class="cache-library-head">
+          <div>
+            <div class="source-kicker">BROWSER-LOCAL LIBRARY</div>
+            <h3>Cached Voxel Conversions</h3>
+          </div>
+          <div class="cache-library-tools">
+            <button id="refreshDepthCacheBtn" type="button" class="text-btn">Refresh</button>
+            <button id="clearDepthCacheBtn" type="button" class="text-btn danger-text">Clear All</button>
+          </div>
+        </div>
+        <div id="depthCacheLibraryStatus" class="capability-line" data-state="working">Reading cached analyses...</div>
+        <div id="depthCacheLibrary" class="cache-library"></div>
+      </section>
+      <div class="source-foot">
+        <span>Higher source tiers increase download size. FFmpeg merges adaptive video/audio without re-encoding the video.</span>
+        <button id="restoreDemoBtn" class="text-btn">Restore procedural demo</button>
+      </div>
+    </section>
+
+    <aside class="settings-drawer" id="settingsDrawer">
+      <div class="settings-group">
+        <label class="settings-label">
+          <span>Voxel Height Scale</span>
+          <span class="val" id="heightVal">16.0</span>
+        </label>
+        <input type="range" id="heightSlider" min="1" max="35" step="0.5" value="16" />
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label">
+          <span>Voxel Spacing / Gap</span>
+          <span class="val" id="gapVal">8%</span>
+        </label>
+        <input type="range" id="gapSlider" min="0" max="0.45" step="0.01" value="0.08" />
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label"><span>Live Quality Tuning</span></label>
+        <select id="qualityTuningMode">
+          <option value="manual" selected>Manual Lock · exact FPS + detail</option>
+          <option value="detail-priority">Auto · favor detail</option>
+          <option value="motion-priority">Auto · favor motion (4+ FPS goal)</option>
+        </select>
+        <div class="capability-line" data-state="ready">Manual is the default. Auto modes may change only the active conversion tier; your selected targets remain visible.</div>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label"><span>Depth Playback</span></label>
+        <select id="depthPlaybackMode">
+          <option value="hybrid" selected>Hybrid · cache + analyze ahead</option>
+          <option value="live">Live only · no startup buffer</option>
+        </select>
+        <div id="depthCacheCapability" class="capability-line" data-state="ready">Hybrid cache starts when a live video is imported.</div>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label"><span>Depth Conversion Path</span></label>
+        <select id="depthFusionMode">
+          <option value="fused" selected>AI + decoded video</option>
+          <option value="model">AI model only</option>
+          <option value="luma">Local luminance depth</option>
+        </select>
+        <div id="depthConversionCapability" class="capability-line" data-state="ready">AI estimates depth while decoded video improves boundaries, motion alignment and interpolation.</div>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label"><span>Estimated Conversion Quality</span></label>
+        <div id="conversionScoreValue" class="capability-line" data-state="working">Waiting for analyzed frames...</div>
+        <div class="capability-line">Scores the presented diagnostic depth against decoded color for stability, edge agreement, relief, borders and precision.</div>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label">
+          <span>Grid Detail</span>
+          <span class="val" id="gridResLabel">128 × 96</span>
+        </label>
+        <select id="gridSelect">
+          <option value="512" data-live-only="true" disabled>512 Detail (Extreme · Live)</option>
+          <option value="384" data-live-only="true" disabled>384 Detail (Studio · Live)</option>
+          <option value="256" data-live-only="true" disabled>256 Detail (Cinema · Live)</option>
+          <option value="192" data-live-only="true" disabled>192 Detail (Sharp · Live)</option>
+          <option value="128" selected>128 Detail (Balanced / Cached Max)</option>
+          <option value="96">96 Detail (High Performance)</option>
+          <option value="64">64 Detail (Performance)</option>
+          <option value="48">48 Detail (Low Power)</option>
+        </select>
+        <div id="machineCapability" class="capability-line" data-state="working">Detecting local CPU / RAM / GPU capability…</div>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label"><span>Depth Model Quality</span></label>
+        <select id="depthModelSelect">
+          <option value="enhanced" selected>Enhanced · DA3 Small (precision)</option>
+          <option value="balanced">Balanced · DA2 Small (faster)</option>
+        </select>
+        <div id="depthModelCapability" class="capability-line" data-state="working">Enhanced prioritizes geometric placement and may run at 1 FPS; DA2 is the faster automatic compatibility path.</div>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label" for="foregroundAssist"><span>Foreground Mask Assistance</span></label>
+        <select id="foregroundAssist">
+          <option value="off" selected>Off · fastest analysis</option>
+          <option value="anime">Anime foreground · experimental quality assist</option>
+        </select>
+        <div id="foregroundAssistStatus" class="capability-line">Optional ~176 MB model download. Uses sparse masks in AI + decoded video mode; adds analysis time.</div>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label"><span>Live AI Depth Rate</span></label>
+        <select id="liveDepthRate">
+          <option value="1">1 FPS (minimum / fallback)</option>
+          <option value="2">2 FPS (cool / efficient)</option>
+          <option value="3" selected>3 FPS (balanced)</option>
+          <option value="4" disabled>4 FPS (smooth)</option>
+          <option value="6" disabled>6 FPS (high)</option>
+          <option value="8" disabled>8 FPS (very high)</option>
+          <option value="10" disabled>10 FPS (extreme)</option>
+          <option value="12" disabled>12 FPS (maximum live target)</option>
+        </select>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label" for="cacheSampleRate">Cached depth samples</label>
+        <select id="cacheSampleRate">
+          <option value="live" selected>Match live depth rate</option>
+          <option value="24">24 maps/sec</option>
+          <option value="30">30 maps/sec</option>
+          <option value="60">60 maps/sec</option>
+        </select>
+        <div class="capability-line">Denser analysis improves temporal sampling but takes more time and storage. Limited to source FPS when known.</div>
+      </div>
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="invertDepthCheck" />
+        <span>Invert live AI depth</span>
+      </label>
+
+      <div class="settings-group">
+        <label class="settings-label"><span>Depth Diagnostics</span></label>
+        <select id="depthDebugSelect">
+          <option value="off" selected>Off</option>
+          <option value="cached">Cached Playback Depth</option>
+          <option value="raw">Raw Model Depth</option>
+          <option value="normalized">Normalized Depth</option>
+          <option value="stabilized">Stabilized Depth</option>
+          <option value="final">Final Render Depth</option>
+        </select>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label"><span>Shading / Color Palette</span></label>
+        <select id="colorModeSelect">
+          <option value="video" selected>Original Video Colors</option>
+          <option value="sketch">Rotoscope Charcoal</option>
+          <option value="cyberpunk">Cyberpunk (Cyan & Magenta)</option>
+          <option value="phosphor">P1 Retro Phosphor CRT Green</option>
+        </select>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label"><span>Luminance & Contrast</span></label>
+        <div class="dual-range">
+          <input type="range" id="brightnessSlider" min="0.5" max="2.0" step="0.05" value="1.0" title="Brightness" />
+          <input type="range" id="contrastSlider" min="0.5" max="2.0" step="0.05" value="1.0" title="Contrast" />
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label"><span>Camera Presets</span></label>
+        <div class="camera-presets-grid">
+          <button class="btn preset-btn" data-preset="isometric">Isometric 3D</button>
+          <button class="btn preset-btn" data-preset="tv">Front TV</button>
+          <button class="btn preset-btn" data-preset="side">Side Profile</button>
+          <button class="btn preset-btn" data-preset="top">Top View</button>
+        </div>
+      </div>
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="autoOrbitCheck" />
+        <span>Smooth Cinematic Auto-Orbit</span>
+      </label>
+    </aside>
+
+    <section id="depthDiagnosticPanel" class="depth-diagnostic-panel" hidden aria-live="polite">
+      <div class="depth-diagnostic-head">
+        <span id="depthDiagnosticTitle">Final Render Depth</span>
+        <span id="depthDiagnosticGrid">—</span>
+      </div>
+      <canvas id="depthDiagnosticCanvas"></canvas>
+      <div id="depthDiagnosticMetrics" class="depth-diagnostic-metrics">Waiting for a live depth frame…</div>
+    </section>
+
+    <footer class="bottom-bar">
+      <div class="seek-row">
+        <input type="range" id="seekBar" class="seek-bar" min="0" max="100" step="0.1" value="0" />
+        <span class="time-readout" id="timeDisplay">0:00 / 4:03</span>
+      </div>
+      <div class="controls-row">
+        <div class="transport-group">
+          <button id="playPauseBtn" class="btn play-btn" title="Play (Space)">▶</button>
+        </div>
+        <div class="view-mode-group">
+          <button id="graphModeBtn" class="btn active" title="Topographic 3D Relief Graph">3D Graph</button>
+          <button id="tvModeBtn" class="btn" title="Retro CRT Television Chassis">Retro TV</button>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <script type="module" src="./js/app.js"></script>
+  <script type="module" src="./js/hardware-autotune.js"></script>
+  <script type="module" src="./js/point-zoom.js"></script>
+</body>
+</html>

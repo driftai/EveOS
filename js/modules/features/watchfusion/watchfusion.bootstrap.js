@@ -7,7 +7,7 @@
         if (document.querySelector('link[data-eve-watchfusion-style]')) return;
         const link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = 'css/modules/watchfusion.css';
+        link.href = 'css/modules/watchfusion.css?v=3dd069eeb9aa';
         link.dataset.eveWatchfusionStyle = '1';
         document.head.appendChild(link);
     }
@@ -25,6 +25,7 @@
         button.title = 'WatchFusion';
         button.innerHTML = '&#9654; WatchFusion';
         button.addEventListener('click', () => {
+            if (window.EveWatchFusion?.prepareOpen) window.EveWatchFusion.prepareOpen();
             if (window.EveWatchFusion?.open) window.EveWatchFusion.open();
             else window.__eveWatchFusionOpenPending = true;
         });

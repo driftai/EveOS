@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { stabilizeDepthMotionAware } from '../public/js/depth-processing.js';
+import { cacheSampleRate } from '../public/js/cache-sampling.js';
+const size = 32;
+const previous = new Float32Array(size * size).fill(0.3);
+const current = new Float32Array(size * size).fill(0.8);
+const guide = new Uint8Array(size * size).fill(110);
+const stable = stabilizeDepthMotionAware(current, previous, size, size, guide, guide).frame;
+assert.ok(Math.abs(stable[100] - previous[100]) < 0.02, 'unchanged image must suppress prediction drift');
+const changed = new Uint8Array(size * size).fill(220);
+const moving = stabilizeDepthMotionAware(current, previous, size, size, changed, guide).frame;
+assert.ok(moving[100] > 0.75, 'changed content must release old depth promptly');
+assert.equal(cacheSampleRate('live', 12, 24), 12);
+assert.equal(cacheSampleRate('60', 12, 24), 24);
+assert.equal(cacheSampleRate('30', 4), 30);
+console.log('Temporal stability and cache sampling smoke passed.');

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "generator": "scripts/generate-public-demo.mjs",
+  "source": "voxelvision-demo.mp4",
+  "sourceStart": 0,
+  "video": {
+    "width": 640,
+    "height": 360,
+    "fps": 24,
+    "duration": 12
+  },
+  "crop": null,
+  "grid": {
+    "cols": 128,
+    "rows": 72
+  },
+  "keyframeRate": 4,
+  "frameCount": 48,
+  "analysedDuration": 12,
+  "normalization": {
+    "lo": 0,
+    "hi": 1,
+    "note": "Procedural normalized relief encoded directly as 0-255; larger = nearer"
+  },
+  "sceneChanges": [],
+  "data": "voxelvision-demo.depth.bin.gz"
+}

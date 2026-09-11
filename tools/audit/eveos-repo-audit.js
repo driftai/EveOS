@@ -19,7 +19,8 @@ const SKIP_PREFIXES = [
     path.join('tools', 'camofox-runtime', 'node_modules')
 ];
 const LINE_LIMIT_EXEMPT_PREFIXES = [
-    'tools/World-Book/tools/World-Portal/outer/orogen/'
+    'tools/World-Book/tools/World-Portal/outer/orogen/',
+    'tools/WatchFusion/voxelvision/'
 ];
 const RUNTIME_SOURCE_PREFIXES = ['js/', 'css/', 'server/', 'server_modules/'];
 const MOJIBAKE_MARKERS = [
