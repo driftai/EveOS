@@ -2,16 +2,19 @@
  * search_monitor_peer_panel_smoke.js
  *
  * Clicking from the Search Monitor onto the Notes / World Book panel must close the monitor.
+ * Clicking inside the expanded Search Monitor itself must keep it open unless the click hits the
+ * dedicated status/detail-collapse affordance.
  *
- * The monitor already collapses on an outside click, but it deliberately ignores clicks on dialogs
- * it spawned itself (clear-chat, settings, confirms) so those do not close it out from under the
- * user. That exemption matched `[role="dialog"]` — and the Notes / World Book overlay carries
- * role="dialog" for accessibility. So switching to that panel counted as "still inside the monitor's
- * world" and the monitor stayed open on top of the panel the user had just moved to.
+ * The monitor deliberately ignores clicks on dialogs it spawned itself (clear-chat, settings,
+ * confirms) so those do not close it out from under the user. That exemption matched
+ * `[role="dialog"]` — and the Notes / World Book overlay carries role="dialog" for accessibility.
+ * So switching to that panel counted as "still inside the monitor's world" and the monitor stayed
+ * open on top of the panel the user had just moved to.
  *
- * Both directions are pinned, because the fix is only correct if it stays narrow:
+ * These directions are pinned because the fix is only correct if it stays narrow:
  *   - the peer panel DOES close the monitor;
- *   - a genuine monitor-spawned dialog still does NOT.
+ *   - a genuine monitor-spawned dialog still does NOT;
+ *   - internal controls and blank monitor chrome do NOT collapse the expanded monitor.
  *
  * Drives the real module against a minimal fixture (no EveOS boot, no servers), so a failure points
  * at the click-routing rule rather than at page startup.
@@ -34,6 +37,7 @@ async function main() {
     fs.writeFileSync(fixture, `<!doctype html><meta charset="utf-8"><body>
         <div id="loadingIndicator" class="visible">
             <div class="status-group">Status</div>
+            <p class="monitor-copy">Search Monitor content</p>
             <button class="monitor-action">Run</button>
         </div>
         <div id="notes-world-book-overlay" role="dialog" aria-modal="true">
@@ -80,26 +84,35 @@ async function main() {
             document.body.click();
             out.closedByPlainOutsideClick = !isOpen();
 
-            // Using a control INSIDE the monitor must not collapse it. (Clicking the monitor's own
-            // background is its toggle, so that one is expected to close it — not a bug.)
+            // Controls, text, and blank chrome inside an expanded monitor all keep it open.
             expand();
             indicator.querySelector('.monitor-action').click();
             out.survivedOwnControl = isOpen();
+
+            expand();
+            indicator.querySelector('.monitor-copy').click();
+            out.survivedOwnText = isOpen();
+
+            expand();
+            indicator.click();
+            out.survivedOwnBackground = isOpen();
             return out;
         });
 
         assert(result.ready, 'the boot module initialised against the fixture');
         assert(result.closedByPeerPanel,
-            'clicking the Notes / World Book panel closes the Search Monitor — the reported bug');
+            'clicking the Notes / World Book panel closes the Search Monitor — the reported peer-panel bug');
         assert(result.closedByPeerPanelChrome,
             'clicking the panel chrome (not just its fields) also closes the monitor');
         assert(result.survivedSpawnedDialog,
             'a monitor-spawned dialog still does NOT close the monitor, so the fix stayed narrow');
         assert(result.closedByPlainOutsideClick, 'an ordinary outside click still closes the monitor');
         assert(result.survivedOwnControl, 'using a control inside the monitor does not collapse it');
+        assert(result.survivedOwnText, 'clicking non-interactive content inside the monitor does not collapse it');
+        assert(result.survivedOwnBackground, 'clicking blank monitor chrome does not collapse the expanded monitor');
 
-        console.log('search monitor peer panel OK — Notes/World Book closes the monitor,'
-            + ' monitor-spawned dialogs still do not');
+        console.log('search monitor peer panel OK — outside peers close it, internal clicks remain stable,'
+            + ' and monitor-spawned dialogs stay exempt');
         console.log('SEARCH_MONITOR_PEER_PANEL_SMOKE_OK');
     } finally {
         await browser.close();
