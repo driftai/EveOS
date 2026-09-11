@@ -15,6 +15,17 @@
     window.dispatchEvent(new CustomEvent('piano:eveos-context', { detail: context }));
   }
 
+  function reportModuleFailure(name, error) {
+    const detail = error?.message || String(error || 'Unknown module error');
+    const message = `Failed to load Piano ${name}: ${detail}`;
+    console.error(`[PianoAutoPlayer] ${message}`, error);
+    const text = document.getElementById('statusText');
+    const chip = document.getElementById('statusChip');
+    if (text) text.textContent = message;
+    if (chip) chip.dataset.state = 'error';
+    window.dispatchEvent(new CustomEvent('piano:module-error', { detail: { name, message } }));
+  }
+
   try { context = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (_) {}
   window.addEventListener('message', accept);
   window.PianoEveOS = Object.freeze({ getContext: () => context ? { ...context } : null });
@@ -25,7 +36,8 @@
   window.addEventListener('load', () => {
     import('./player_queue.js')
       .then(() => import('./player_queue_advanced.js'))
-      .catch(() => {});
-    import('./sheet_progress.js?v=bc691cc2').catch(() => {});
+      .catch(error => reportModuleFailure('Player Queue', error));
+    import('./sheet_progress.js?v=bc691cc2')
+      .catch(error => reportModuleFailure('Sheet Progress', error));
   });
 })();
