@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions DisableDelayedExpansion
 set "ROOT=%~dp0.."
 for %%R in ("%ROOT%") do set "ROOT=%%~fR"
 set "EVEOS_ROOT=%~dp0..\..\.."
@@ -12,31 +12,63 @@ if not defined WATCHFUSION_PORT (
 )
 
 title WatchFusion - Remote
-set "CLOUDFLARED=%ROOT%\tools\cloudflared.exe"
+set "CLOUDFLARED_BUNDLED=%ROOT%\tools\cloudflared.exe"
 set "CLOUDFLARED_BOOTSTRAP=%EVEOS_ROOT%\tools\batch\ensure-cloudflared.ps1"
+set "CLOUDFLARED_RESULT=%TEMP%\eveos-cloudflared-%RANDOM%-%RANDOM%.txt"
+set "CLOUDFLARED="
 
-if not exist "%CLOUDFLARED%" (
-    echo.
-    echo [INFO] cloudflared.exe is not installed in WatchFusion yet.
-    echo [INFO] EveOS will download the official Cloudflare Windows release now.
-    echo.
-    set "CLOUDFLARED_FOUND="
-    for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%CLOUDFLARED_BOOTSTRAP%" -Destination "%CLOUDFLARED%"`) do set "CLOUDFLARED_FOUND=%%I"
-    if defined CLOUDFLARED_FOUND set "CLOUDFLARED=%CLOUDFLARED_FOUND%"
-)
-
-if not exist "%CLOUDFLARED%" (
-    echo.
-    echo ERROR: WatchFusion could not obtain cloudflared.exe.
-    echo Check Internet access and retry option 3.
-    echo Official source: https://developers.cloudflare.com/tunnel/downloads/
-    echo.
+if not exist "%CLOUDFLARED_BOOTSTRAP%" (
+    echo ERROR: EveOS cloudflared resolver is missing:
+    echo   %CLOUDFLARED_BOOTSTRAP%
     pause
     exit /b 1
 )
 
 echo.
-echo Using Cloudflared:
+echo [INFO] Locating a usable cloudflared installation...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%CLOUDFLARED_BOOTSTRAP%" -Destination "%CLOUDFLARED_BUNDLED%" > "%CLOUDFLARED_RESULT%" 2>&1
+set "CLOUDFLARED_RC=%ERRORLEVEL%"
+
+if not "%CLOUDFLARED_RC%"=="0" (
+    echo.
+    echo ERROR: WatchFusion could not resolve or install cloudflared.
+    echo Resolver details:
+    type "%CLOUDFLARED_RESULT%"
+    del /q "%CLOUDFLARED_RESULT%" >nul 2>nul
+    echo.
+    echo Official source: https://developers.cloudflare.com/tunnel/downloads/
+    echo.
+    pause
+    exit /b %CLOUDFLARED_RC%
+)
+
+for /f "usebackq delims=" %%I in ("%CLOUDFLARED_RESULT%") do set "CLOUDFLARED=%%I"
+del /q "%CLOUDFLARED_RESULT%" >nul 2>nul
+
+if not defined CLOUDFLARED (
+    echo.
+    echo ERROR: cloudflared resolver returned no executable path.
+    pause
+    exit /b 1
+)
+if not exist "%CLOUDFLARED%" (
+    echo.
+    echo ERROR: Resolved cloudflared path does not exist:
+    echo   %CLOUDFLARED%
+    pause
+    exit /b 1
+)
+
+"%CLOUDFLARED%" --version >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo ERROR: Resolved cloudflared failed its version self-check:
+    echo   %CLOUDFLARED%
+    pause
+    exit /b 1
+)
+
+echo [READY] cloudflared:
 echo   %CLOUDFLARED%
 echo WatchFusion port:
 echo   %WATCHFUSION_PORT%
