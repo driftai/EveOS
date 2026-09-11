@@ -17,7 +17,7 @@ function check(condition, id, detail) {
 }
 
 function read(relative) {
-    return fs.readFileSync(path.join(ROOT, relative), 'utf8');
+    return fs.readFileSync(path.join(ROOT, relative), 'utf8').replace(/\r\n/g, '\n');
 }
 
 function sourceContract() {

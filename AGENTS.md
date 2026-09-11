@@ -34,3 +34,10 @@ EveOS inherits WatchFusion's output-efficient verification discipline.
 - VoxelVision remains a WatchFusion capability and should not prevent the base WatchFusion service from being managed safely.
 - The authoritative upstream snapshot for the initial merge is documented in `docs/WATCHFUSION-INTEGRATION.md`.
 - Machine-local dependencies, sessions, downloaded media, caches, generated test results, and `node_modules` must not be committed.
+
+## Browser Qualification & Verification
+
+- Playwright is the primary authoritative automated baseline for browser qualification, UI geometry, and pointer verification.
+- Camoufox is available as a secondary environment for real-world anti-bot, media, and provider behavior without committing it as a required runtime dependency.
+- Test real pointer interactions (`mouse.move`, `mouse.down`, `mouse.up`, `mouse.click`) and DOM geometry rects (`getBoundingClientRect()`) rather than merely asserting DOM presence.
+

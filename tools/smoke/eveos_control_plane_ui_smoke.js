@@ -226,6 +226,20 @@ vm.runInNewContext(source, context, { filename: 'eveosControlPlane.js' });
         throw new Error(`stopped-after-stop UI mismatch: ${statusNode.textContent}/${labelNode.textContent}`);
     }
 
+    directRunning = true;
+    for (const origin of [
+        'http://localhost:3000',
+        'http://192.168.1.209:3000',
+        'http://127-0-0-1.sslip.io:3000'
+    ]) {
+        setPageOrigin(origin);
+        await windowMock.EveOSControlPlane.refreshStatus();
+        if (statusNode.textContent !== 'Online' || labelNode.textContent !== 'Stop') {
+            throw new Error(`direct ${origin} was not detected: ${statusNode.textContent}/${labelNode.textContent}`);
+        }
+    }
+    directRunning = false;
+
     setFileMode();
     if (windowMock.EveOSControlPlane.getState().currentPagePort !== 0) {
         throw new Error('file:// unexpectedly reported an HTTP page port');

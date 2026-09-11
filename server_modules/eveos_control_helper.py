@@ -356,6 +356,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            self.wfile.flush()
         except (ConnectionError, OSError):
             pass
 

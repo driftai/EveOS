@@ -41,7 +41,7 @@ def request_json(port: int, method: str, path: str, origin: str = "null") -> tup
             method,
             path,
             body=b"{}" if method == "POST" else None,
-            headers={"Origin": origin, "Content-Type": "application/json"},
+            headers={"Origin": origin, "Content-Type": "application/json", "Connection": "close"},
         )
         response = connection.getresponse()
         return response.status, json.loads(response.read().decode("utf-8"))
