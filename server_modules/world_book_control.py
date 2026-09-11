@@ -1,4 +1,4 @@
-"""Persisted, loopback-only lifecycle control for the bundled World Book tool."""
+"""Persisted, loopback-safe lifecycle control for the bundled World Book tool."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import eveos_ports, gemini_control
+from . import eveos_exposure, eveos_ports, gemini_control
 
 
 WORLD_BOOK_PORT = eveos_ports.service_port("WORLD_BOOK_PORT")
@@ -103,39 +103,29 @@ def _health_payload() -> dict | None:
     return None
 
 
+def _powershell() -> str | None:
+    return shutil.which("powershell.exe") or shutil.which("powershell")
+
+
 def _launch_command(entry: Path) -> list[str]:
     launcher = _launcher_path()
     canonical_entry = _tool_root() / "server.py"
-    if os.name == "nt" and launcher.is_file() and entry.resolve() == canonical_entry.resolve():
-        powershell = shutil.which("powershell.exe") or shutil.which("powershell")
-        if powershell:
-            return [
-                powershell,
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(launcher),
-                "-Port",
-                str(WORLD_BOOK_PORT),
-                "-NoBrowser",
-            ]
+    powershell = _powershell()
+    if os.name == "nt" and powershell and launcher.is_file() and entry.resolve() == canonical_entry.resolve():
+        return [
+            powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(launcher),
+            "-Port", str(WORLD_BOOK_PORT), "-ExposureMode", "local", "-NoBrowser",
+        ]
     return [
-        sys.executable,
-        str(entry),
-        "--port",
-        str(WORLD_BOOK_PORT),
-        "--no-browser",
+        sys.executable, str(entry), "--host", "127.0.0.1",
+        "--port", str(WORLD_BOOK_PORT), "--no-browser",
     ]
 
 
 def _listener_pids() -> list[int]:
     if os.name == "nt":
         result = subprocess.run(
-            ["netstat", "-ano", "-p", "tcp"],
-            capture_output=True,
-            text=True,
-            check=False,
+            ["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True, check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         marker = f":{WORLD_BOOK_PORT}"
@@ -150,9 +140,7 @@ def _listener_pids() -> list[int]:
 
     result = subprocess.run(
         ["lsof", "-nP", f"-iTCP:{WORLD_BOOK_PORT}", "-sTCP:LISTEN", "-t"],
-        capture_output=True,
-        text=True,
-        check=False,
+        capture_output=True, text=True, check=False,
     )
     return sorted({int(value) for value in result.stdout.split() if value.isdigit()})
 
@@ -163,11 +151,8 @@ def _terminate_pid(pid: int) -> bool:
     try:
         if os.name == "nt":
             result = subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                capture_output=True,
-                text=True,
-                check=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                ["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True,
+                text=True, check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             return result.returncode == 0
         os.kill(pid, signal.SIGTERM)
@@ -177,14 +162,14 @@ def _terminate_pid(pid: int) -> bool:
 
 
 def _status(message: str = "") -> dict:
-    global _PROCESS
     health = _health_payload()
     process_alive = bool(_PROCESS and _PROCESS.poll() is None)
     running = health is not None
     port_busy = _port_open() and not running
     installed = _entry_point().is_file()
     state = "running" if running else ("starting" if process_alive else ("blocked" if port_busy else "stopped"))
-    return {
+    local_url = f"http://127.0.0.1:{WORLD_BOOK_PORT}/"
+    payload = {
         "ok": not port_busy and installed,
         "controllerAvailable": True,
         "installed": installed,
@@ -192,18 +177,38 @@ def _status(message: str = "") -> dict:
         "running": running,
         "desiredRunning": _read_desired_state(),
         "port": WORLD_BOOK_PORT,
-        "url": f"http://127.0.0.1:{WORLD_BOOK_PORT}/",
         "appVersion": health.get("appVersion", "") if health else "",
         "pids": _listener_pids() if running else [],
-        "message": message
-        or (
-            "World Book is online."
-            if running
-            else "World Book port is occupied by another service."
-            if port_busy
+        "message": message or (
+            "World Book is online." if running
+            else "World Book port is occupied by another service." if port_busy
             else "World Book is stopped."
         ),
     }
+    return eveos_exposure.decorate_status(payload, "world-book", local_url)
+
+
+def open_launcher() -> dict:
+    with _LOCK:
+        current = _status()
+        launcher = _launcher_path()
+        powershell = _powershell()
+        if current["running"]:
+            return {**current, "message": "World Book is already online. Stop it before changing exposure mode."}
+        if os.name != "nt" or not powershell:
+            return {**current, "ok": False, "message": "The interactive World Book exposure launcher currently requires Windows PowerShell."}
+        if not launcher.is_file():
+            return {**current, "ok": False, "message": f"World Book launcher missing: {launcher}"}
+        try:
+            subprocess.Popen(
+                [powershell, "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(launcher),
+                 "-Port", str(WORLD_BOOK_PORT)],
+                cwd=str(_tool_root()), creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            )
+        except OSError as exc:
+            return {**current, "ok": False, "message": f"Could not open World Book selective boot: {exc}"}
+        return {**current, "ok": True, "state": "selecting", "launchPrompt": True,
+                "message": "World Book selective boot opened. Choose Localhost, LAN, or Cloudflare Router in the terminal."}
 
 
 def get_status() -> dict:
@@ -212,7 +217,9 @@ def get_status() -> dict:
 
 
 def start_server(*, persist: bool = True) -> dict:
+    """Programmatic lifecycle is local-only; interactive exposure uses open_launcher()."""
     global _PROCESS
+    eveos_exposure.clear_state("world-book")
     with _LOCK:
         if persist:
             _write_desired_state(True)
@@ -227,31 +234,18 @@ def start_server(*, persist: bool = True) -> dict:
 
         entry = _entry_point()
         if not entry.is_file():
-            return {
-                **current,
-                "ok": False,
-                "state": "error",
-                "message": f"World Book entry point was not found: {entry}",
-            }
+            return {**current, "ok": False, "state": "error", "message": f"World Book entry point was not found: {entry}"}
 
         flags = 0
         if os.name == "nt":
-            flags = (
-                getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            )
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         environment = os.environ.copy()
         environment["PYTHONUNBUFFERED"] = "1"
         environment["PYTHONUTF8"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
         _PROCESS = subprocess.Popen(
-            _launch_command(entry),
-            cwd=str(entry.parent),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=environment,
-            creationflags=flags,
+            _launch_command(entry), cwd=str(entry.parent), stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=environment, creationflags=flags,
         )
 
     deadline = time.monotonic() + 3.0
@@ -263,7 +257,7 @@ def start_server(*, persist: bool = True) -> dict:
         time.sleep(0.1)
 
     with _LOCK:
-        payload = _status("World Book started." if _health_payload() else "World Book is starting.")
+        payload = _status("World Book started locally." if _health_payload() else "World Book is starting locally.")
         if _PROCESS and _PROCESS.poll() is not None and not payload["running"]:
             payload.update(ok=False, state="error", message="World Book exited before becoming ready.")
         return payload
@@ -294,6 +288,7 @@ def stop_server(*, persist: bool = True) -> dict:
                     pass
         _PROCESS = None
 
+    eveos_exposure.clear_state("world-book")
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline and _health_payload() is not None:
         time.sleep(0.1)
@@ -313,11 +308,7 @@ def restore_desired_state() -> None:
 
 
 def restore_desired_state_async() -> None:
-    threading.Thread(
-        target=restore_desired_state,
-        name="eveos-world-book-restore",
-        daemon=True,
-    ).start()
+    threading.Thread(target=restore_desired_state, name="eveos-world-book-restore", daemon=True).start()
 
 
 def handle_get_request(handler, path: str) -> bool:
@@ -328,22 +319,20 @@ def handle_get_request(handler, path: str) -> bool:
 
 
 def handle_post_request(handler, path: str) -> bool:
-    if path not in {"/api/world-book/start", "/api/world-book/stop"}:
+    if path not in {"/api/world-book/start", "/api/world-book/stop", "/api/world-book/launch"}:
         return False
     if not gemini_control.request_can_control(handler):
         gemini_control.send_json(
             handler,
-            {
-                "ok": False,
-                "controllerAvailable": True,
-                "state": "forbidden",
-                "running": False,
-                "message": "World Book control is limited to local EveOS pages.",
-            },
+            {"ok": False, "controllerAvailable": True, "state": "forbidden", "running": False,
+             "message": "World Book control is limited to local EveOS pages."},
             403,
         )
         return True
-    action = start_server if path.endswith("/start") else stop_server
-    payload = action()
+    if path.endswith("/launch"):
+        payload = open_launcher()
+    else:
+        action = start_server if path.endswith("/start") else stop_server
+        payload = action()
     gemini_control.send_json(handler, payload, 200 if payload.get("ok") else 500)
     return True
