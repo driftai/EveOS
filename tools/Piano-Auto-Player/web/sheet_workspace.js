@@ -50,25 +50,30 @@ function buildHost() {
   host.className = "sheet-workspace";
   host.dataset.sheetWorkspace = "";
   host.innerHTML = `
+    <div class="sheet-workspace-flow" aria-label="Auto Player workflow">
+      <span>AUTO PLAYER WORKFLOW</span>
+      <strong>Source Inbox <b>→</b> Player <b>→</b> Queue / Output</strong>
+      <small>Sheet Finder, AI conversion, local library, history, and queue all feed the same playback state.</small>
+    </div>
     <details class="sheet-workspace-cache">
       <summary>
         <div class="sheet-workspace-copy">
-          <span>PLAYER CACHE</span>
-          <strong data-workspace-current>Nothing cached yet</strong>
-          <small>Temporary navigation for the last 10 sheets loaded into the player.</small>
+          <span>AUTO PLAYER HISTORY</span>
+          <strong data-workspace-current>Nothing loaded yet</strong>
+          <small>Temporary navigation for the last 10 items loaded into this Auto Player.</small>
         </div>
         <b class="sheet-workspace-cache-toggle" aria-hidden="true"></b>
       </summary>
       <div class="sheet-workspace-controls">
         <button type="button" data-workspace-back title="Previous loaded sheet">← Back</button>
-        <select data-workspace-history aria-label="Recent loaded sheets"><option value="">No recent sheets</option></select>
+        <select data-workspace-history aria-label="Recent Auto Player items"><option value="">No recent items</option></select>
         <span data-workspace-position>0 / 10</span>
         <button type="button" data-workspace-forward title="Next loaded sheet">Forward →</button>
       </div>
     </details>
     <details class="sheet-workspace-staging" open>
       <summary>
-        <span><strong>From Sheet Finder</strong><small>Sheet Finder and AI-converted results wait here until you choose one.</small></span>
+        <span><strong>SOURCE INBOX</strong><small>Sheet Finder and AI-converted results wait here before entering the same Auto Player timeline.</small></span>
         <b data-workspace-staging-count>0 waiting</b>
       </summary>
       <div class="sheet-workspace-inbox" data-workspace-staging></div>
@@ -104,7 +109,7 @@ export function setupSheetWorkspace({ onLoad, getCurrent, toast }) {
       localStorage.setItem(CACHE_KEY, JSON.stringify({ ...state, expiresAt: Date.now() + CACHE_TTL_MS }));
       warnedQuota = false;
     } catch (_) {
-      if (!warnedQuota) toast?.("Sheet cache is full; current items remain available in this window.", "error");
+      if (!warnedQuota) toast?.("Auto Player history is full; current items remain available in this window.", "error");
       warnedQuota = true;
     }
   }
@@ -122,7 +127,7 @@ export function setupSheetWorkspace({ onLoad, getCurrent, toast }) {
     historySelect.replaceChildren();
     if (!count) {
       const option = document.createElement("option");
-      option.value = ""; option.textContent = "No recent sheets"; historySelect.append(option);
+      option.value = ""; option.textContent = "No recent items"; historySelect.append(option);
     } else {
       state.history.forEach((entry, index) => {
         const option = document.createElement("option");
@@ -132,7 +137,7 @@ export function setupSheetWorkspace({ onLoad, getCurrent, toast }) {
       historySelect.value = String(state.cursor);
     }
     const current = state.cursor >= 0 ? state.history[state.cursor] : null;
-    currentLabel.textContent = current?.label || "Nothing cached yet";
+    currentLabel.textContent = current?.label || "Nothing loaded yet";
     position.textContent = count ? `${state.cursor + 1} / ${count}` : "0 / 10";
     back.disabled = state.cursor <= 0;
     forward.disabled = state.cursor < 0 || state.cursor >= count - 1;
@@ -148,7 +153,7 @@ export function setupSheetWorkspace({ onLoad, getCurrent, toast }) {
     const kind = entry.song?.performance?.length ? `timed performance · ${entry.song.performance.length} events` : "sheet";
     const sub = document.createElement("span"); sub.textContent = `${entry.source} · ${kind}`;
     const actions = document.createElement("div"); actions.className = "sheet-workspace-item-actions";
-    const load = document.createElement("button"); load.type = "button"; load.className = "primary"; load.textContent = "Load into Player";
+    const load = document.createElement("button"); load.type = "button"; load.className = "primary"; load.textContent = "Load into Auto Player";
     load.addEventListener("click", () => loadEntry(entry));
     const discard = document.createElement("button"); discard.type = "button"; discard.className = "ghost"; discard.textContent = "Discard";
     discard.addEventListener("click", () => { state.staging = state.staging.filter(item => item.id !== entry.id); persist(); render(); });
@@ -161,7 +166,7 @@ export function setupSheetWorkspace({ onLoad, getCurrent, toast }) {
     if (!state.staging.length) {
       const empty = document.createElement("div");
       empty.className = "sheet-workspace-empty";
-      empty.textContent = "Nothing waiting. Sheet Finder imports and completed AI conversions will appear here.";
+      empty.textContent = "Nothing waiting. Stage a Sheet Finder result or complete an AI conversion to feed the Auto Player.";
       stagingHost.append(empty);
       return;
     }
@@ -189,7 +194,7 @@ export function setupSheetWorkspace({ onLoad, getCurrent, toast }) {
       if (remember) rememberCurrent(); else { persist(); render(); }
       if (removeStage) { persist(); renderStaging(); }
     } catch (error) {
-      toast?.(error?.message || "Could not load cached sheet.", "error");
+      toast?.(error?.message || "Could not load Auto Player history item.", "error");
     }
   }
 
@@ -209,7 +214,7 @@ export function setupSheetWorkspace({ onLoad, getCurrent, toast }) {
     persist(); renderStaging();
     host.querySelector(".sheet-workspace-staging").open = true;
     window.dispatchEvent(new CustomEvent("piano:workspace-staged", { detail: { id: entry.id, label: entry.label } }));
-    toast?.(`${entry.label} added to From Sheet Finder`, "complete");
+    toast?.(`${entry.label} added to Auto Player Source Inbox`, "complete");
     return entry.id;
   }
 
