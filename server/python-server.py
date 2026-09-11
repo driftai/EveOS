@@ -51,6 +51,8 @@ logger = logging.getLogger("EveOSServer")
 
 # Default port
 DEFAULT_PORT = 3000
+DEFAULT_HOST = "127.0.0.1"
+ALLOWED_HOSTS = {"127.0.0.1", "0.0.0.0"}
 
 def configure_modular_store(modular_root=None, persist_modular_root=False):
     """
@@ -337,15 +339,24 @@ class EveOSThreadingServer(socketserver.ThreadingTCPServer):
         super().server_bind()
 
 
+def normalize_host(host):
+    value = str(host or DEFAULT_HOST).strip().lower()
+    if value in {"localhost", "loopback"}:
+        value = DEFAULT_HOST
+    if value not in ALLOWED_HOSTS:
+        raise ValueError("EveOS host must be 127.0.0.1 or 0.0.0.0")
+    return value
 
-def run_server(port=DEFAULT_PORT, open_browser=True):
-    """Run the HTTP server"""
+
+def run_server(port=DEFAULT_PORT, open_browser=True, host=DEFAULT_HOST):
+    """Run the HTTP server. Loopback is the safe default; LAN is explicit opt-in."""
+    host = normalize_host(host)
     try:
         # Create server with threading support
         handler = CORSHTTPRequestHandler
-        with EveOSThreadingServer(("", port), handler) as httpd:
+        with EveOSThreadingServer((host, port), handler) as httpd:
             local_ip = get_local_ip()
-            url = f"http://localhost:{port}/EveOS.html"
+            url = f"http://127.0.0.1:{port}/EveOS.html"
             active_store = ""
             try:
                 active_store = str(eve_state_store.get_active_store_root())
@@ -356,7 +367,10 @@ def run_server(port=DEFAULT_PORT, open_browser=True):
             print("[OK] EveOS Local Server")
             print("  ------------------------------")
             print(f"  Local:   {url}")
-            print(f"  Network: http://{local_ip}:{port}/EveOS.html")
+            if host == "0.0.0.0":
+                print(f"  Network: http://{local_ip}:{port}/EveOS.html")
+            else:
+                print("  Network: disabled (localhost-only)")
             if active_store:
                 print(f"  Data:    {active_store}")
             print("  ------------------------------")
@@ -408,6 +422,13 @@ if __name__ == "__main__":
         help=f"HTTP port to bind (default: {DEFAULT_PORT})"
     )
     parser.add_argument(
+        "--host",
+        dest="host",
+        choices=sorted(ALLOWED_HOSTS),
+        default=DEFAULT_HOST,
+        help="Network bind. Defaults to localhost-only; use 0.0.0.0 only for explicit LAN mode."
+    )
+    parser.add_argument(
         "--modular-root",
         dest="modular_root",
         default="",
@@ -439,4 +460,4 @@ if __name__ == "__main__":
         if env_modular_root:
             args.modular_root = env_modular_root
     configure_modular_store(args.modular_root, args.persist_modular_root)
-    sys.exit(run_server(args.port, open_browser=not args.no_browser))
+    sys.exit(run_server(args.port, open_browser=not args.no_browser, host=args.host))
