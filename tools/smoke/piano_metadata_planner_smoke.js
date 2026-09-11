@@ -1,5 +1,5 @@
-const fs = require('node:fs');
-const path = require('node:path');
+const fs = require('fs');
+const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PIANO = path.join(ROOT, 'tools', 'Piano-Auto-Player');
@@ -37,6 +37,7 @@ for (const token of ['sheet-workspace-planner', 'planner-filterbar', 'planner-gr
 for (const token of [
   'My Songs', 'PIANO LIBRARY / WORKSPACE', 'NOW PLAYING', 'Queue mode',
   'SONG / RECORDING DETAILS', 'THIS SONG OVERRIDE · blank = global default',
+  'LIBRARY BROWSER', 'data-u-library-toggle', "savedCollapsed('library-browser', false)",
   "const LEGACY_QUEUE = '.sheet-workspace-queue'", "const LEGACY_LIBRARY = '.library-panel'",
   "queuePanel.hidden = true", "libraryPanel.hidden = true", "data-u-mode", 'PianoPlayerQueue',
   'data-u-workspace-toggle', 'data-u-editor-toggle', 'piano-panel-toggle',
@@ -51,6 +52,8 @@ for (const token of [
 
 for (const token of [
   '.piano-unified-workspace', '.piano-now-playing', '.piano-unified-head',
+  '.piano-library-browser', '.piano-library-browser-body',
+  '.piano-library-browser[data-u-collapsed="1"] .piano-library-browser-body',
   '.library-panel[hidden][data-compatibility-bridge]', '@media (max-width: 760px)',
   'grid-template-columns: auto auto minmax(0, 1fr) auto',
   '.planner-editor[data-u-collapsed="1"]', '.planner-grid.editor-collapsed',
@@ -76,6 +79,7 @@ assert(TRANSFER.includes('json.dumps({"format": _FORMAT_SONG, "schema": _SCHEMA,
 assert(UNIFIED.includes("dataset.compatibilityBridge = 'player-queue'") && UNIFIED.includes("dataset.compatibilityBridge = 'local-library'"), 'old queue/library panels must remain compatibility bridges rather than separate visible workspaces');
 assert(UNIFIED.includes('const queue = await waitForQueueApi();') && UNIFIED.includes('queue?.render?.();'), 'unified workspace must force a live queue render after controller readiness');
 assert(UNIFIED.includes("if (!proxyButton('stopBtn'))"), 'unified Stop must route through the proven main Stop control before queue-only fallback');
+assert(UNIFIED.includes("saveCollapsed('library-browser', collapsed)"), 'library browser disclosure state must persist with the existing Piano disclosure store');
 assert(MAIN_APP.includes('els.play.addEventListener("click", startPlayback)') && MAIN_APP.includes('els.pause.addEventListener("click", togglePause)') && MAIN_APP.includes('els.stop.addEventListener("click", stopPlayback)'), 'core Play/Pause/Stop bindings must remain intact');
 assert(PLANNER.split(/\r?\n/).length < 450, 'advanced planner exceeds the 450-line first-party cap');
 assert(UNIFIED.split(/\r?\n/).length < 450, 'unified workspace adapter exceeds the 450-line first-party cap');
