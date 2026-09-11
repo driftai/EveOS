@@ -78,14 +78,19 @@ function youtubeToolsStatus() {
   const localFfprobe = path.join(tools, 'ffprobe.exe');
   const ytDlpReady = exists(localYtDlp) && commandWorks(localYtDlp, ['--version']);
   const denoReady = exists(localDeno) && commandWorks(localDeno, ['--version']);
+  const nodeMajor = Number.parseInt(String(process.versions.node || '').split('.')[0], 10) || 0;
+  const nodeEjsReady = nodeMajor >= 22;
+  const javascriptReady = nodeEjsReady || denoReady;
+  const javascriptProvider = nodeEjsReady ? `Node ${nodeMajor}` : denoReady ? 'portable Deno' : 'missing';
   const ffmpegReady = exists(localFfmpeg) && commandWorks(localFfmpeg, ['-version']);
   const ffprobeReady = exists(localFfprobe) && commandWorks(localFfprobe, ['-version']);
   return {
     ytDlp: { ready: ytDlpReady, provider: ytDlpReady ? 'portable' : 'missing' },
+    javascriptRuntime: { ready: javascriptReady, provider: javascriptProvider, nodeMajor },
     deno: { ready: denoReady, provider: denoReady ? 'portable' : 'missing' },
     ffmpeg: { ready: ffmpegReady, provider: ffmpegReady ? 'portable' : 'missing' },
     ffprobe: { ready: ffprobeReady, provider: ffprobeReady ? 'portable' : 'missing' },
-    ready: ytDlpReady && denoReady && ffmpegReady && ffprobeReady
+    ready: ytDlpReady && javascriptReady && ffmpegReady && ffprobeReady
   };
 }
 
@@ -140,8 +145,8 @@ async function setupStatus(req) {
         key: 'voxel-youtube', label: 'VoxelVision YouTube helpers', ready: youtube.ready,
         required: false, action: canInstall ? 'voxel-youtube' : null, ...youtube,
         message: youtube.ready
-          ? 'Official yt-dlp, portable Deno, FFmpeg, and ffprobe are ready.'
-          : 'Install yt-dlp, portable Deno, FFmpeg, and ffprobe for current YouTube import support.'
+          ? `yt-dlp, ${youtube.javascriptRuntime.provider}, FFmpeg, and ffprobe are ready.`
+          : 'Install/repair yt-dlp, a supported JavaScript runtime, FFmpeg, and ffprobe for current YouTube import support.'
       },
       browserModels: {
         key: 'browser-models', label: 'VoxelVision AI models', ready: null, required: false,
