@@ -1,3 +1,19 @@
+.topbar-watchfusion-btn[data-detached="1"] {
+    border-color: color-mix(in srgb, var(--accent) 58%, var(--border-color));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent), 0 0 14px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.topbar-watchfusion-btn[data-detached="1"]::after {
+    content: 'Detached';
+    margin-left: 6px;
+    padding: 2px 5px;
+    border-radius: 999px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--input-bg));
+    font-size: 9px;
+    font-weight: 800;
+}
+
 .watchfusion-offline-browser {
     width: min(980px, 100%);
     display: grid;
@@ -80,6 +96,7 @@
 }
 
 @media (max-width: 640px) {
+    .topbar-watchfusion-btn[data-detached="1"]::after { display: none; }
     .watchfusion-offline-tabs {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
