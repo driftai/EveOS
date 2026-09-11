@@ -127,12 +127,19 @@ class SongLibrary:
     def _merge_identifiers(cls, existing: Any, incoming: Any) -> dict[str, Any]:
         base = existing if isinstance(existing, dict) else {}
         patch = incoming if isinstance(incoming, dict) else {}
-        custom = dict(base.get("custom") or {})
-        if isinstance(patch.get("custom"), dict):
-            for key, value in patch["custom"].items():
-                clean_key = str(key).strip()[:80]
-                if clean_key:
-                    custom[clean_key] = str(value).strip()[:240]
+        base_custom = base.get("custom")
+        custom = dict(base_custom) if isinstance(base_custom, dict) else {}
+        if "custom" in patch:
+            # The editor sends custom identifiers as the complete desired set.
+            # Treat an explicit empty dict as a real delete-all operation instead
+            # of silently resurrecting keys from the previous record.
+            custom = {}
+            raw_custom = patch.get("custom")
+            if isinstance(raw_custom, dict):
+                for key, value in raw_custom.items():
+                    clean_key = str(key).strip()[:80]
+                    if clean_key:
+                        custom[clean_key] = str(value).strip()[:240]
         rating = patch.get("personal_rating", base.get("personal_rating"))
         try:
             rating = None if rating in (None, "") else max(0, min(5, round(float(rating), 2)))
