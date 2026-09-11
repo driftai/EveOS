@@ -23,6 +23,10 @@ import { attachRealtime } from './src/server/realtime.js';
 
 function shouldRedirectToCanonicalHost(req, url) {
   if (isApiRequest(req) || !isHtmlNavigation(req)) return null;
+  // EveOS intentionally chooses the WatchFusion hostname for embedded and detached
+  // views. Preserve it so those two contexts can share one browser origin/state
+  // instead of forcing the iframe onto the sslip canonical host.
+  if (url.searchParams.get('eveos') === '1' || url.searchParams.get('eveosDetached') === '1') return null;
   const requestHost = originForRequest(req), physicalLan = preferredLanAddress();
   const physicalHost = physicalLan ? lanUrls(physicalLan, PORT).host : null;
   const localHost = localCanonicalHostUrl(PORT);
