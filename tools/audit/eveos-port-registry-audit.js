@@ -65,6 +65,21 @@ check(!/if not defined GEMINI_STATUS_PORT set "GEMINI_STATUS_PORT=\d+"/i.test(ge
 check(geminiMenu.includes('eveos-ports.bat') && geminiMenu.includes('if errorlevel 1 exit /b 1'),
     'Gemini launcher does not fail closed when the port registry cannot load');
 
+const browserRegistry = read('js/modules/core/eveos-port-registry.js');
+for (const [name, entry] of Object.entries(ports)) {
+    check(new RegExp(`${name}\\s*:\\s*${Number(entry.port)}(?:\\D|$)`).test(browserRegistry),
+        `browser port registry drifted from config/eveos-ports.json for ${name}`);
+}
+
+const localControl = read('js/modules/core/eveos-local-control.js');
+check(localControl.includes("EveOSPortRegistry?.get?.('GEMINI_CONTROL_PORT'"),
+    'browser local-control client bypasses the canonical port registry');
+check(!/DEFAULT_PORT\s*=\s*\d+/.test(localControl), 'browser local-control client reintroduced a literal fallback port');
+
+const runtimeSensor = read('js/modules/features/watchfusion/watchfusion.runtime-sensing.js');
+check(runtimeSensor.includes("EveOSPortRegistry?.get?.('WATCHFUSION_PORT'"),
+    'WatchFusion browser runtime sensing bypasses the canonical port registry');
+
 const pythonBootstrap = read('server_modules/__init__.py');
 check(pythonBootstrap.includes('bootstrap_environment()'), 'Python server modules do not bootstrap the canonical registry');
 
