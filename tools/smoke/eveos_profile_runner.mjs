@@ -11,7 +11,8 @@ const CACHE_FILE = path.join(RESULT_DIR, 'fast-pass-cache.json');
 const MAX_FAILURE_LINES = 38;
 const MAX_FAILURE_LINE_CHARS = 700;
 const MAX_CAPTURE_CHARS = 3 * 1024 * 1024;
-const CODE_EXTENSIONS = new Set(['.js', '.mjs', '.py', '.html', '.css', '.json', '.bat', '.ps1', '.md']);
+// Docs-only edits should not invalidate a reusable fast code-smoke pass.
+const CODE_EXTENSIONS = new Set(['.js', '.mjs', '.py', '.html', '.css', '.json', '.bat', '.ps1']);
 const SKIP_PARTS = ['/node_modules/', '/data/runtime/', '/test-results/', '/.git/', '/js/vendor/', '/public/vendor/'];
 
 const PROFILES = Object.freeze({
