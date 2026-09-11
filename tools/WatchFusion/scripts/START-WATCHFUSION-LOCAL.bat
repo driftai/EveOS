@@ -21,7 +21,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo [READY] WatchFusion will start on http://127.0.0.1:%WATCHFUSION_PORT%/
+echo [INFO] EveOS will keep using its embedded WatchFusion view; no extra browser tab will open.
 start "WatchFusion Server" cmd /k "cd /d ""%~dp0\.."" && set HOST=127.0.0.1&& set PORT=%WATCHFUSION_PORT%&& node server.js"
-timeout /t 2 /nobreak >nul
-start "" "http://127-0-0-1.sslip.io:%WATCHFUSION_PORT%/"
 exit /b 0
