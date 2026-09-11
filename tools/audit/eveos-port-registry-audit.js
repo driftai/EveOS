@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const registryPath = path.join(ROOT, 'config', 'eveos-ports.json');
@@ -87,6 +88,16 @@ check(read('tools/WatchFusion/scripts/START-WATCHFUSION-LAN.bat').includes('%WAT
     'LAN WatchFusion launcher does not consume WATCHFUSION_PORT');
 check(read('tools/WatchFusion/scripts/START-WATCHFUSION-REMOTE.bat').includes('-Port %WATCHFUSION_PORT%'),
     'remote WatchFusion launcher does not pass the registry port into the tunnel');
+
+const python = process.platform === 'win32' ? 'python.exe' : 'python3';
+const runtime = spawnSync(python, ['tools/smoke/eveos_port_registry_smoke.py'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 15000
+});
+check(runtime.status === 0,
+    `runtime collision smoke failed: ${(runtime.stderr || runtime.stdout || '').trim().slice(-1500)}`);
 
 if (failures.length) {
     console.error(`EVEOS_PORT_REGISTRY_AUDIT_FAIL ${failures.length}`);
