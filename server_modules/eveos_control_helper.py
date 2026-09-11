@@ -17,6 +17,7 @@ from . import eveos_web_control
 from . import gemini_control
 from . import gemini_credentials
 from . import piano_player_control
+from . import watchfusion_control
 from . import world_book_control
 from .eveos_http_cors import eveos_cors_origin
 
@@ -43,12 +44,7 @@ def _valid_port(value) -> int | None:
 
 
 def _request_web_port(handler) -> int | None:
-    """Resolve the EveOS web port this local page is actually using.
-
-    Explicit ?port= wins for connector callers. Otherwise a localhost page's Origin
-    tells us which EveOS instance is asking. file:// sends Origin: null and therefore
-    keeps the canonical control-plane default.
-    """
+    """Resolve the EveOS web port this local page is actually using."""
     parsed_request = urlparse(handler.path)
     query = parse_qs(parsed_request.query)
     if query.get("port"):
@@ -117,6 +113,8 @@ def _console_overview(web_port=None) -> dict:
          lambda s: [s.get("port")]),
         ("piano", "Piano Auto Player", piano_player_control.get_status,
          lambda s: [s.get("port")]),
+        ("watchFusion", "WatchFusion", watchfusion_control.get_status,
+         lambda s: [s.get("port")]),
     )
     for key, label, status_fn, ports in status_specs:
         try:
@@ -144,7 +142,8 @@ def _console_overview(web_port=None) -> dict:
 def _stop_everything(web_port=None) -> dict:
     """Stop every EveOS surface, targeting the verified web instance the page is using."""
     also = {}
-    for name, stop in (("piano", piano_player_control.stop_server),
+    for name, stop in (("watchFusion", watchfusion_control.stop_server),
+                       ("piano", piano_player_control.stop_server),
                        ("worldBook", world_book_control.stop_server),
                        ("gemini", gemini_control.stop_server)):
         try:
@@ -181,31 +180,27 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         web_port = _request_web_port(self)
         if path in {"/api/health", "/api/control-plane/health"}:
-            self._send(
-                {
-                    "ok": True,
-                    "service": "eveos-control-plane",
-                    "controllerAvailable": True,
-                    "state": "running",
-                    "running": True,
-                    "port": self.server.server_port,
-                }
-            )
+            self._send({
+                "ok": True,
+                "service": "eveos-control-plane",
+                "controllerAvailable": True,
+                "state": "running",
+                "running": True,
+                "port": self.server.server_port,
+            })
             return
         if path in {"/api/status", "/status", "/api/control-plane/status"}:
             web = eveos_web_control.get_status(port=web_port)
-            self._send(
-                {
-                    "ok": True,
-                    "service": "eveos-control-plane",
-                    "controllerAvailable": True,
-                    "state": "running",
-                    "running": True,
-                    "port": self.server.server_port,
-                    "web": web,
-                    "message": "EveOS local control is ready.",
-                }
-            )
+            self._send({
+                "ok": True,
+                "service": "eveos-control-plane",
+                "controllerAvailable": True,
+                "state": "running",
+                "running": True,
+                "port": self.server.server_port,
+                "web": web,
+                "message": "EveOS local control is ready.",
+            })
             return
         if path == "/api/eveos-server/status":
             self._send(eveos_web_control.get_status(port=web_port))
@@ -219,15 +214,15 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/piano-player/status":
             self._send(piano_player_control.get_status())
             return
+        if path == "/api/watchfusion/status":
+            self._send(watchfusion_control.get_status())
+            return
         if path == "/api/control-plane/consoles":
             self._send(_console_overview(web_port))
             return
         if path == "/api/gemini-credentials/status":
             if not gemini_control.request_can_control(self):
-                self._send(
-                    {"ok": False, "configured": False, "message": "Local access required."},
-                    HTTPStatus.FORBIDDEN,
-                )
+                self._send({"ok": False, "configured": False, "message": "Local access required."}, HTTPStatus.FORBIDDEN)
                 return
             self._send(gemini_credentials.get_status())
             return
@@ -236,29 +231,22 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         web_port = _request_web_port(self)
-        if path in {
-            "/api/eveos-server/start",
-            "/api/eveos-server/stop",
-            "/api/gemini-server/start",
-            "/api/gemini-server/stop",
-            "/api/world-book/start",
-            "/api/world-book/stop",
-            "/api/piano-player/start",
-            "/api/piano-player/stop",
-            "/api/piano-player/setup",
-            "/api/gemini-credentials",
-            "/api/control-plane/consoles",
-        } and not gemini_control.request_can_control(self):
-            self._send(
-                {
-                    "ok": False,
-                    "controllerAvailable": True,
-                    "state": "forbidden",
-                    "running": False,
-                    "message": "Lifecycle control is limited to local EveOS pages.",
-                },
-                HTTPStatus.FORBIDDEN,
-            )
+        controlled_paths = {
+            "/api/eveos-server/start", "/api/eveos-server/stop",
+            "/api/gemini-server/start", "/api/gemini-server/stop",
+            "/api/world-book/start", "/api/world-book/stop",
+            "/api/piano-player/start", "/api/piano-player/stop", "/api/piano-player/setup",
+            "/api/watchfusion/start", "/api/watchfusion/stop",
+            "/api/gemini-credentials", "/api/control-plane/consoles",
+        }
+        if path in controlled_paths and not gemini_control.request_can_control(self):
+            self._send({
+                "ok": False,
+                "controllerAvailable": True,
+                "state": "forbidden",
+                "running": False,
+                "message": "Lifecycle control is limited to local EveOS pages.",
+            }, HTTPStatus.FORBIDDEN)
             return
 
         action = None
@@ -280,6 +268,10 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             action = piano_player_control.stop_server
         elif path == "/api/piano-player/setup":
             action = piano_player_control.open_setup
+        elif path == "/api/watchfusion/start":
+            action = watchfusion_control.start_server
+        elif path == "/api/watchfusion/stop":
+            action = watchfusion_control.stop_server
 
         if action is not None:
             payload = action()
@@ -337,11 +329,12 @@ def main() -> int:
     print(f"  Consoles: {'headless' if eveos_web_control.headless_mode() else 'visible'}"
           " (set EVEOS_HEADLESS=1 to hide spawned servers)")
     print(f"  Control: http://127.0.0.1:{args.port}/api/control-plane/status")
-    print("  Manages EveOS localhost, Gemini, World Book, and Piano independently.")
+    print("  Manages EveOS localhost, Gemini, World Book, Piano, and WatchFusion independently.")
     print("  Press Ctrl+C to stop the control plane")
     eveos_web_control.restore_desired_state_async()
     world_book_control.restore_desired_state_async()
     piano_player_control.restore_desired_state_async()
+    watchfusion_control.restore_desired_state_async()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
