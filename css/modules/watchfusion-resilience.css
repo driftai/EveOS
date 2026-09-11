@@ -1,0 +1,91 @@
+.watchfusion-offline-browser {
+    width: min(980px, 100%);
+    display: grid;
+    gap: 10px;
+    padding: 2px 0;
+}
+
+.watchfusion-offline-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.watchfusion-offline-tabs button {
+    min-height: 34px;
+    padding: 7px 11px;
+    border-radius: 9px;
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--input-bg) 88%, transparent);
+    border: 1px solid var(--border-color);
+}
+
+.watchfusion-offline-tabs button.active {
+    color: var(--text-main);
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
+    background: color-mix(in srgb, var(--accent) 12%, var(--input-bg));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.watchfusion-offline-panel {
+    display: grid;
+    gap: 8px;
+    min-height: 128px;
+    padding: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--card-bg) 94%, transparent);
+    text-align: left;
+}
+
+.watchfusion-offline-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.watchfusion-offline-panel-head strong {
+    color: var(--text-main);
+    font-size: 14px;
+}
+
+.watchfusion-offline-panel-head span {
+    flex: 0 0 auto;
+    padding: 4px 7px;
+    border-radius: 999px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 9%, var(--input-bg));
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-color));
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.watchfusion-offline-panel p {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.5;
+    font-size: 12px;
+}
+
+.watchfusion-offline-runtime-note {
+    color: color-mix(in srgb, var(--text-muted) 86%, var(--accent)) !important;
+}
+
+.watchfusion-offline-panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 2px;
+}
+
+@media (max-width: 640px) {
+    .watchfusion-offline-tabs {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .watchfusion-offline-tabs button {
+        width: 100%;
+    }
+}
