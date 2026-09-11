@@ -72,9 +72,9 @@ assert(!/if\s+defined\s+LP_FLAG/i.test(instanceSource),
     'Instance launcher must not execute an incomplete IF DEFINED LP_FLAG command');
 assert(instanceSource.includes('set "EVEOS_LIGHTPANDA_DISABLED=1"'),
     'Instance launcher does not express disabled Lightpanda through inherited environment state');
-assert(instanceSource.includes("/api/status"),
+assert(instanceSource.includes('/api/status'),
     'Instance launcher does not probe EveOS readiness through /api/status');
-assert(instanceSource.includes("eveos-local-server"),
+assert(instanceSource.includes('eveos-local-server'),
     'Instance launcher readiness probe does not verify EveOS service identity');
 assert(instanceSource.includes('call :StartAndVerifyEveServer "%INSTANCE_PORT%"'),
     'Instance launcher bypasses verified server startup');
@@ -108,6 +108,7 @@ const selectiveFiles = [
     'tools/batch/select-exposure-mode.bat',
     'tools/batch/eveos-secure-share.py',
     'tools/batch/start-quick-tunnel.ps1',
+    'tools/batch/ensure-cloudflared.ps1',
     'tools/batch/set-exposure-state.ps1',
     'server/eveos-server-launch.py',
     'server_modules/eveos_exposure.py'
@@ -122,6 +123,11 @@ assert(shareRouter.includes('HttpOnly; Secure; SameSite=None; Partitioned'),
     'Cloudflare share router lost its authenticated cookie boundary');
 assert(shareRouter.includes('strip_access(self.path)'),
     'Cloudflare share router does not strip access tokens before forwarding');
+const cloudflaredBootstrap = read(path.join(ROOT, 'tools', 'batch', 'ensure-cloudflared.ps1'));
+assert(cloudflaredBootstrap.includes('github.com/cloudflare/cloudflared/releases/latest/download/'),
+    'Cloudflared bootstrap no longer uses the official Cloudflare release source');
+assert(cloudflaredBootstrap.includes('--version'),
+    'Cloudflared bootstrap does not self-check the downloaded executable');
 
 const explicitServer = read(path.join(ROOT, 'server', 'eveos-server-launch.py'));
 assert(explicitServer.includes('default="127.0.0.1"'),
@@ -141,6 +147,16 @@ assert(worldBookMain.includes('--host') && worldBookMain.includes('default="127.
     'World Book runtime no longer defaults to loopback');
 assert(worldBookLauncher.includes("'cloudflare'") && worldBookLauncher.includes('start-quick-tunnel.ps1'),
     'World Book launcher lacks selective Cloudflare boot');
+
+const watchfusionLocal = read(path.join(ROOT, 'tools', 'WatchFusion', 'scripts', 'START-WATCHFUSION-LOCAL.bat'));
+const watchfusionLan = read(path.join(ROOT, 'tools', 'WatchFusion', 'scripts', 'START-WATCHFUSION-LAN.bat'));
+const watchfusionRemote = read(path.join(ROOT, 'tools', 'WatchFusion', 'scripts', 'START-WATCHFUSION-REMOTE.bat'));
+assert(!/start\s+""\s+"http/i.test(watchfusionLocal), 'WatchFusion Local must not open a duplicate browser tab');
+assert(!/start\s+""\s+"http/i.test(watchfusionLan), 'WatchFusion LAN must not open a duplicate browser tab');
+assert(watchfusionLan.includes('Get-NetIPConfiguration') && watchfusionLan.includes('IPv4DefaultGateway'),
+    'WatchFusion LAN no longer resolves a preferred active LAN interface');
+assert(watchfusionRemote.includes('ensure-cloudflared.ps1'),
+    'WatchFusion Remote does not bootstrap a missing cloudflared executable');
 
 const portsConfig = JSON.parse(read(path.join(ROOT, 'config', 'eveos-ports.json')));
 for (const key of [
@@ -223,6 +239,10 @@ assert(controlLauncherSource.includes('/api/control-plane/health'),
     'Local-control launcher does not use the fast identity probe');
 assert(controlLauncherSource.includes('--probe --timeout 30'),
     'Local-control launcher does not wait for verified readiness');
+for (const stalePreference of ['piano-player-service.json', 'world-book-service.json', 'watchfusion-service.json']) {
+    assert(controlLauncherSource.includes(stalePreference),
+        'Local-control startup no longer clears stale on-demand service restore state: ' + stalePreference);
+}
 
 console.log('LAUNCHER_CONTRACT_SMOKE_OK', JSON.stringify({
     rootLines: rootSource.split(/\r?\n/).length,
