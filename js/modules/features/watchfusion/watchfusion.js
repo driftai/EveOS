@@ -18,17 +18,21 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     }
 
     async function request(path, options = {}) {
+        const { timeoutMs: requestedTimeout, ...fetchOptions } = options;
+        const timeoutMs = Number(requestedTimeout) > 0 ? Number(requestedTimeout) : 6000;
         const controller = new AbortController();
-        const timer = window.setTimeout(() => controller.abort(), 6000);
+        const timer = window.setTimeout(() => controller.abort(), timeoutMs);
         try {
             const response = await fetch(`${controlBase()}${path}`, {
                 cache: 'no-store',
-                headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-                ...options,
+                headers: { 'Content-Type': 'application/json', ...(fetchOptions.headers || {}) },
+                ...fetchOptions,
                 signal: controller.signal
             });
             const payload = await response.json().catch(() => ({}));
-            if (!response.ok && !payload?.message) throw new Error(`WatchFusion request failed (${response.status})`);
+            if (!response.ok) {
+                throw new Error(payload?.message || payload?.error || `WatchFusion request failed (${response.status})`);
+            }
             return payload;
         } finally {
             window.clearTimeout(timer);
@@ -46,9 +50,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     }
 
     function prepareOpen() {
-        if (controllerAvailable === false) {
-            window.EveOSLocalControl?.requestLaunch?.();
-        }
+        if (controllerAvailable === false) window.EveOSLocalControl?.requestLaunch?.();
     }
 
     async function ensureControl() {
@@ -65,10 +67,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         } catch (error) {
             controllerAvailable = false;
             status = {
-                ...(status || {}),
-                ok: false,
-                running: false,
-                state: 'error',
+                ...(status || {}), ok: false, running: false, state: 'error',
                 message: error?.message || 'EveOS local control is unavailable.'
             };
             renderStatus();
@@ -104,14 +103,35 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         overlay.dataset.state = running ? 'running' : (status?.state || 'stopped');
         if (badge) badge.textContent = stateLabel();
         if (message) message.textContent = status?.message || 'Checking WatchFusion…';
-        if (start) start.hidden = running;
+        if (start) start.hidden = running || Boolean(status?.setupRequired);
         if (stop) stop.hidden = !running;
         if (external) external.disabled = !running;
         if (setup) {
             setup.hidden = !(status?.setupRequired || status?.installed === false);
-            setup.innerHTML = status?.installed === false
-                ? '<strong>WatchFusion source is not hydrated yet.</strong><span>Copy the standalone WatchFusion tree into <code>tools/WatchFusion</code>.</span>'
-                : '<strong>WatchFusion dependencies are not ready.</strong><span>Run <code>npm ci</code> inside <code>tools/WatchFusion</code>, then retry.</span>';
+            setup.replaceChildren();
+            if (!setup.hidden) {
+                const strong = document.createElement('strong');
+                const detail = document.createElement('span');
+                if (status?.installed === false) {
+                    strong.textContent = 'WatchFusion source is missing.';
+                    detail.textContent = 'Pull the complete EveOS main branch; tools/WatchFusion is now part of the repository.';
+                    setup.append(strong, detail);
+                } else {
+                    strong.textContent = 'WatchFusion core dependencies need setup.';
+                    detail.textContent = status?.npmReady === false
+                        ? 'Install Node.js/npm first, then refresh this panel.'
+                        : 'Install the locked WatchFusion Node dependencies. Nuvio and VoxelVision setup will then be available inside WatchFusion.';
+                    setup.append(strong, detail);
+                    if (status?.setupAvailable) {
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.dataset.wfAction = 'setup-core';
+                        button.textContent = busy ? 'Installing…' : 'Install WatchFusion Core';
+                        button.disabled = busy;
+                        setup.append(button);
+                    }
+                }
+            }
         }
         if (frame) {
             frame.hidden = !running;
@@ -169,6 +189,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             if (action === 'refresh') return refresh();
             if (action === 'start') return setRunning(true);
             if (action === 'stop') return setRunning(false);
+            if (action === 'setup-core') return setupCore();
         });
         return overlay;
     }
@@ -184,6 +205,27 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         }
         renderStatus();
         window.dispatchEvent(new CustomEvent('eve:watchfusion-status', { detail: { ...status } }));
+        return status;
+    }
+
+    async function setupCore() {
+        if (busy) return status;
+        busy = true;
+        renderStatus();
+        try {
+            if (!(await ensureControl())) return status;
+            status = await request('/api/watchfusion/setup', {
+                method: 'POST', body: JSON.stringify({ component: 'core' }), timeoutMs: 10 * 60 * 1000
+            });
+            frame && (frame.dataset.loaded = '');
+            renderStatus();
+            if (status?.dependenciesReady) await setRunning(true);
+        } catch (error) {
+            status = { ...(status || {}), running: false, state: 'error', message: error?.message || 'WatchFusion setup failed.' };
+        } finally {
+            busy = false;
+            renderStatus();
+        }
         return status;
     }
 
@@ -231,6 +273,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         open,
         close,
         refresh,
+        setupCore,
         start: () => setRunning(true),
         stop: () => setRunning(false),
         getState: () => ({ ...(status || {}), open: Boolean(overlay && !overlay.hidden), busy, controllerAvailable })
