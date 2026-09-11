@@ -13,7 +13,6 @@ import sys
 import tempfile
 import textwrap
 import threading
-import time
 from pathlib import Path
 
 
@@ -35,14 +34,14 @@ def assert_true(condition, message):
         raise AssertionError(message)
 
 
-def request_json(port: int, method: str, path: str) -> tuple[int, dict]:
+def request_json(port: int, method: str, path: str, origin: str = "null") -> tuple[int, dict]:
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
     try:
         connection.request(
             method,
             path,
             body=b"{}" if method == "POST" else None,
-            headers={"Origin": "null", "Content-Type": "application/json"},
+            headers={"Origin": origin, "Content-Type": "application/json"},
         )
         response = connection.getresponse()
         return response.status, json.loads(response.read().decode("utf-8"))
@@ -51,7 +50,8 @@ def request_json(port: int, method: str, path: str) -> tuple[int, dict]:
 
 
 def lifecycle_smoke(tmp: Path):
-    port = free_port()
+    canonical_port = free_port()
+    alternate_port = free_port()
     fake_server = tmp / "fake-eveos-server.py"
     fake_server.write_text(
         textwrap.dedent(
@@ -94,23 +94,37 @@ def lifecycle_smoke(tmp: Path):
     original_entry = eveos_web_control._entry_point
     original_preference = eveos_web_control._preference_path
     try:
-        eveos_web_control.EVEOS_WEB_PORT = port
+        eveos_web_control.EVEOS_WEB_PORT = canonical_port
         eveos_web_control._entry_point = lambda: fake_server
         eveos_web_control._preference_path = lambda: tmp / "eveos-web-service.json"
 
         started = eveos_web_control.start_server()
         assert_true(started["ok"] and started["running"], f"web start failed: {started}")
+        assert_true(started["port"] == canonical_port, "canonical web start used the wrong port")
         assert_true(started["desiredRunning"], "web desired state was not persisted")
-        assert_true(started["url"].endswith(f":{port}/EveOS.html"), "web URL used the wrong port")
+        assert_true(started["url"].endswith(f":{canonical_port}/EveOS.html"), "web URL used the wrong port")
 
         stopped = eveos_web_control.stop_server()
         assert_true(stopped["ok"] and not stopped["running"], f"web stop failed: {stopped}")
         assert_true(not stopped["desiredRunning"], "web stopped state was not persisted")
+
+        alternate = eveos_web_control.start_server(port=alternate_port)
+        assert_true(alternate["ok"] and alternate["running"], f"alternate web start failed: {alternate}")
+        assert_true(alternate["port"] == alternate_port, "alternate EveOS port was discarded")
+        assert_true(eveos_web_control.get_status(port=alternate_port)["running"],
+                    "targeted status did not see the alternate EveOS instance")
+        assert_true(eveos_web_control._read_desired_port() == alternate_port,
+                    "alternate desired port was not persisted")
+
+        alternate_stopped = eveos_web_control.stop_server(port=alternate_port)
+        assert_true(alternate_stopped["ok"] and not alternate_stopped["running"],
+                    f"alternate web stop failed: {alternate_stopped}")
     finally:
-        try:
-            eveos_web_control.stop_server(persist=False)
-        except Exception:
-            pass
+        for candidate in (canonical_port, alternate_port):
+            try:
+                eveos_web_control.stop_server(persist=False, port=candidate)
+            except Exception:
+                pass
         eveos_web_control.EVEOS_WEB_PORT = original_port
         eveos_web_control._entry_point = original_entry
         eveos_web_control._preference_path = original_preference
@@ -124,6 +138,7 @@ def helper_http_smoke():
     original_world_get = eveos_control_helper.world_book_control.get_status
     original_world_start = eveos_control_helper.world_book_control.start_server
     original_world_stop = eveos_control_helper.world_book_control.stop_server
+    calls = []
     web_state = {
         "ok": True,
         "controllerAvailable": True,
@@ -135,14 +150,22 @@ def helper_http_smoke():
         "message": "EveOS localhost is stopped.",
     }
 
-    def get_status():
-        return dict(web_state)
+    def get_status(port=None):
+        target = int(port or 8765)
+        calls.append(("status", target))
+        snapshot = dict(web_state)
+        snapshot.update(port=target, url=f"http://127.0.0.1:{target}/EveOS.html")
+        return snapshot
 
-    def set_running(enabled):
+    def set_running(enabled, port=None):
+        target = int(port or 8765)
+        calls.append(("start" if enabled else "stop", target))
         web_state.update(
             running=enabled,
             desiredRunning=enabled,
             state="running" if enabled else "stopped",
+            port=target,
+            url=f"http://127.0.0.1:{target}/EveOS.html",
             message="EveOS localhost is online." if enabled else "EveOS localhost is stopped.",
         )
         return dict(web_state)
@@ -169,8 +192,8 @@ def helper_http_smoke():
         return dict(world_state)
 
     eveos_control_helper.eveos_web_control.get_status = get_status
-    eveos_control_helper.eveos_web_control.start_server = lambda: set_running(True)
-    eveos_control_helper.eveos_web_control.stop_server = lambda: set_running(False)
+    eveos_control_helper.eveos_web_control.start_server = lambda *, persist=True, port=None: set_running(True, port)
+    eveos_control_helper.eveos_web_control.stop_server = lambda *, persist=True, port=None: set_running(False, port)
     eveos_control_helper.world_book_control.get_status = lambda: dict(world_state)
     eveos_control_helper.world_book_control.start_server = lambda: set_world_running(True)
     eveos_control_helper.world_book_control.stop_server = lambda: set_world_running(False)
@@ -202,20 +225,53 @@ def helper_http_smoke():
             timeout=4,
             check=False,
         )
-        assert_true(
-            probe.returncode == 0,
-            f"control-plane CLI probe failed: {probe.stderr or probe.stdout}",
-        )
+        assert_true(probe.returncode == 0,
+                    f"control-plane CLI probe failed: {probe.stderr or probe.stdout}")
 
         status_code, payload = request_json(port, "GET", "/api/control-plane/status")
         assert_true(status_code == 200, "control-plane status was not reachable")
-        assert_true(payload.get("service") == "eveos-control-plane", "control-plane identity is missing")
-        assert_true(payload.get("web", {}).get("running") is False, "initial web status was wrong")
+        assert_true(payload.get("web", {}).get("port") == 8765,
+                    "file-mode status did not keep the canonical web port")
 
-        status_code, payload = request_json(port, "POST", "/api/eveos-server/start")
-        assert_true(status_code == 200 and payload.get("running") is True, "web start route failed")
-        status_code, payload = request_json(port, "POST", "/api/eveos-server/stop")
-        assert_true(status_code == 200 and payload.get("running") is False, "web stop route failed")
+        status_code, payload = request_json(
+            port,
+            "GET",
+            "/api/control-plane/status",
+            origin="http://localhost:3000",
+        )
+        assert_true(status_code == 200, "origin-aware control-plane status was not reachable")
+        assert_true(payload.get("web", {}).get("port") == 3000,
+                    "localhost:3000 origin was incorrectly reported as port 8765")
+        assert_true(("status", 3000) in calls, "requesting localhost port did not reach web status")
+
+        status_code, payload = request_json(
+            port,
+            "GET",
+            "/api/eveos-server/status?port=4321",
+            origin="null",
+        )
+        assert_true(status_code == 200 and payload.get("port") == 4321,
+                    "explicit connector port did not override the canonical port")
+
+        status_code, payload = request_json(
+            port,
+            "POST",
+            "/api/eveos-server/start",
+            origin="http://127.0.0.1:3000",
+        )
+        assert_true(status_code == 200 and payload.get("running") is True,
+                    "web start route failed for localhost:3000")
+        assert_true(payload.get("port") == 3000, "web start route dropped the requesting port")
+
+        status_code, payload = request_json(
+            port,
+            "POST",
+            "/api/eveos-server/stop",
+            origin="http://127.0.0.1:3000",
+        )
+        assert_true(status_code == 200 and payload.get("running") is False,
+                    "web stop route failed for localhost:3000")
+        assert_true(payload.get("port") == 3000, "web stop route targeted the wrong port")
 
         status_code, payload = request_json(port, "POST", "/api/world-book/start")
         assert_true(status_code == 200 and payload.get("running") is True, "World Book start route failed")
