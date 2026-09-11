@@ -28,14 +28,24 @@
         });
     }
 
-    function ensureFrameCapabilities() {
-        if (window.__eveWatchFusionFrameCapabilitiesReady) return;
-        if (document.querySelector('script[data-eve-watchfusion-frame-capabilities]')) return;
+    function ensureCompanionScript(src, dataKey) {
+        if (document.querySelector(`script[${dataKey}]`)) return;
         const script = document.createElement('script');
-        script.src = 'js/modules/features/watchfusion/watchfusion.frame-capabilities.js';
+        script.src = src;
         script.async = false;
-        script.dataset.eveWatchfusionFrameCapabilities = '1';
+        script.setAttribute(dataKey, '1');
         document.head.appendChild(script);
+    }
+
+    function ensureRuntimeCompanions() {
+        ensureCompanionScript(
+            'js/modules/features/watchfusion/watchfusion.frame-capabilities.js',
+            'data-eve-watchfusion-frame-capabilities'
+        );
+        ensureCompanionScript(
+            'js/modules/features/watchfusion/watchfusion.selective-start.js',
+            'data-eve-watchfusion-selective-start'
+        );
     }
 
     function ensureStyleReady() {
@@ -87,7 +97,7 @@
     }
 
     function initialize() {
-        ensureFrameCapabilities();
+        ensureRuntimeCompanions();
         // The button is intentionally withheld until both WatchFusion stylesheets are ready.
         // This keeps the first visible overlay frame at its final geometry instead of briefly
         // rendering the raw, document-flow markup and snapping down after CSS arrives.
