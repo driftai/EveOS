@@ -1,9 +1,17 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0\.."
+set "EVEOS_ROOT=%~dp0..\..\.."
+for %%R in ("%EVEOS_ROOT%") do set "EVEOS_ROOT=%%~fR"
+call "%EVEOS_ROOT%\tools\batch\eveos-ports.bat"
+if errorlevel 1 exit /b 1
+if not defined WATCHFUSION_PORT (
+  echo ERROR: WATCHFUSION_PORT is missing from the EveOS port registry.
+  exit /b 1
+)
 title WatchFusion - Localhost
 set "HOST=127.0.0.1"
-set "PORT=9085"
+set "PORT=%WATCHFUSION_PORT%"
 
 where node >nul 2>nul
 if errorlevel 1 (
@@ -12,7 +20,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-start "WatchFusion Server" cmd /k "cd /d ""%~dp0\.."" && node server.js"
+start "WatchFusion Server" cmd /k "cd /d ""%~dp0\.."" && set PORT=%WATCHFUSION_PORT%&& node server.js"
 timeout /t 2 /nobreak >nul
-start "" "http://127-0-0-1.sslip.io:9085/"
+start "" "http://127-0-0-1.sslip.io:%WATCHFUSION_PORT%/"
 exit /b 0
