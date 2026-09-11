@@ -9,6 +9,7 @@ import os
 import threading
 import time
 from http import HTTPStatus
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
@@ -23,8 +24,13 @@ from .eveos_http_cors import eveos_cors_origin
 
 
 DEFAULT_PORT = 9082
+MAIN_LAUNCHER_PORT = 3000
 _SERVER = None
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
 
 
 def _shutdown_plane_after_response(delay: float = 0.4) -> bool:
@@ -42,6 +48,51 @@ def _valid_port(value) -> int | None:
     return port if 1 <= port <= 65535 else None
 
 
+def _last_launcher_port_path() -> Path:
+    return _project_root() / "data" / "runtime" / "eveos-last-launcher-port.txt"
+
+
+def _read_last_launcher_port() -> int | None:
+    try:
+        return _valid_port(_last_launcher_port_path().read_text(encoding="utf-8").strip())
+    except OSError:
+        return None
+
+
+def _file_mode_discovery_candidates() -> list[int]:
+    candidates = [
+        _read_last_launcher_port(),
+        getattr(eveos_web_control, "_PROCESS_PORT", None),
+    ]
+    try:
+        candidates.append(eveos_web_control._read_desired_port())
+    except Exception:  # noqa: BLE001
+        pass
+    candidates.extend((eveos_web_control.EVEOS_WEB_PORT, MAIN_LAUNCHER_PORT))
+
+    ordered = []
+    for candidate in candidates:
+        port = _valid_port(candidate)
+        if port is not None and port not in ordered:
+            ordered.append(port)
+    return ordered
+
+
+def _discover_file_web_port() -> int | None:
+    """Find a verified EveOS web surface when file:// cannot provide an origin port.
+
+    This deliberately probes only ports EveOS itself knows about; it never scans arbitrary
+    listeners. Every candidate must identify as eveos-local-server before it is accepted.
+    """
+    for port in _file_mode_discovery_candidates():
+        try:
+            if eveos_web_control._health_payload(port) is not None:
+                return port
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
 def _request_web_port(handler) -> int | None:
     parsed_request = urlparse(handler.path)
     query = parse_qs(parsed_request.query)
@@ -51,8 +102,8 @@ def _request_web_port(handler) -> int | None:
             return requested
 
     origin = str(handler.headers.get("Origin", "")).strip()
-    if not origin or origin == "null":
-        return None
+    if not origin or origin == "null" or origin.lower().startswith("file:"):
+        return _discover_file_web_port()
     try:
         parsed_origin = urlparse(origin)
         host = (parsed_origin.hostname or "").lower()
@@ -173,7 +224,6 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
-        web_port = _request_web_port(self)
         if path in {"/api/health", "/api/control-plane/health"}:
             self._send({
                 "ok": True,
@@ -184,6 +234,8 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
                 "port": self.server.server_port,
             })
             return
+
+        web_port = _request_web_port(self)
         if path in {"/api/status", "/status", "/api/control-plane/status"}:
             web = eveos_web_control.get_status(port=web_port)
             self._send({
