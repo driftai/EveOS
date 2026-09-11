@@ -36,7 +36,8 @@
   window.addEventListener('load', () => {
     import('./player_queue.js')
       .then(() => import('./player_queue_advanced.js'))
-      .catch(error => reportModuleFailure('Player Queue', error));
+      .then(() => import('./piano_unified_workspace.js'))
+      .catch(error => reportModuleFailure('My Songs workspace', error));
     import('./sheet_progress.js?v=bc691cc2')
       .catch(error => reportModuleFailure('Sheet Progress', error));
   });
