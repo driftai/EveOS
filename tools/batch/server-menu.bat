@@ -7,14 +7,21 @@ set "SERVER_ROOT=%PROJECT_ROOT%\server"
 set "GEMINI_MAIN_DIR=%SERVER_ROOT%\gemini-backend\interactions"
 set "GEMINI_MAIN_SCRIPT=%GEMINI_MAIN_DIR%\main.py"
 call "%PROJECT_ROOT%\tools\batch\eveos-ports.bat"
+if errorlevel 1 exit /b 1
+if not defined GEMINI_WS_PORT (
+    echo ERROR: GEMINI_WS_PORT is missing from the EveOS port registry.
+    exit /b 1
+)
+if not defined GEMINI_STATUS_PORT (
+    echo ERROR: GEMINI_STATUS_PORT is missing from the EveOS port registry.
+    exit /b 1
+)
 call "%PROJECT_ROOT%\tools\batch\eveos-python.bat"
 if errorlevel 1 (
     echo ERROR: Python not found. Install Python or create the documented .venv.
     pause
     exit /b 1
 )
-if not defined GEMINI_WS_PORT set "GEMINI_WS_PORT=9085"
-if not defined GEMINI_STATUS_PORT set "GEMINI_STATUS_PORT=9086"
 set "GEMINI_WINDOW_TITLE=EveOS Gemini Main %GEMINI_WS_PORT%-%GEMINI_STATUS_PORT%"
 
 if /I "%~1"=="stop" (
