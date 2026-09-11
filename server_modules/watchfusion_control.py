@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import eveos_console_prefs, eveos_ports
+from . import eveos_console_prefs, eveos_exposure, eveos_ports
 
 
 WATCHFUSION_PORT = eveos_ports.service_port("WATCHFUSION_PORT")
@@ -31,6 +31,10 @@ def _tool_root() -> Path:
 
 def _entry() -> Path:
     return _tool_root() / "server.js"
+
+
+def _launcher() -> Path:
+    return _tool_root() / "WatchFusion.bat"
 
 
 def _preference() -> Path:
@@ -96,9 +100,7 @@ def _component_status(deps_ready: bool) -> dict:
         "index.html", "app.bundle.js", "core-js.bundle.js", "nuvio.env.js",
     ))
     voxel_source = all(path.is_file() for path in (
-        voxel / "server.js",
-        voxel / "public" / "index.html",
-        voxel / "public" / "js" / "depth-models.js",
+        voxel / "server.js", voxel / "public" / "index.html", voxel / "public" / "js" / "depth-models.js",
     ))
     youtube_ready = yt_dlp_ready and ffmpeg_ready and ffprobe_ready and js_runtime_ready
     return {
@@ -137,9 +139,7 @@ def _health() -> dict | None:
         connection.request("GET", "/api/health", headers={"Connection": "close"})
         response = connection.getresponse()
         payload = json.loads(response.read(65536).decode("utf-8"))
-        if response.status != 200 or payload.get("ok") is not True:
-            return None
-        if payload.get("app") != "WatchFusion":
+        if response.status != 200 or payload.get("ok") is not True or payload.get("app") != "WatchFusion":
             return None
         return payload
     except (OSError, ValueError, UnicodeError, http.client.HTTPException):
@@ -150,6 +150,13 @@ def _health() -> dict | None:
                 connection.close()
             except OSError:
                 pass
+
+
+def _remote_tunnel_url() -> str:
+    try:
+        return (_tool_root() / ".runtime" / "remote-url.txt").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def _port_open() -> bool:
@@ -206,7 +213,8 @@ def _status(message: str = "") -> dict:
     deps_ready = _deps_ready() if installed else False
     components = _component_status(deps_ready) if installed else {}
     state = "running" if running else "starting" if process_alive else "blocked" if blocked else "stopped"
-    return {
+    local_url = f"http://127-0-0-1.sslip.io:{WATCHFUSION_PORT}/"
+    payload = {
         "ok": installed and node_ready and not blocked,
         "controllerAvailable": True,
         "service": "watchfusion-control",
@@ -222,24 +230,48 @@ def _status(message: str = "") -> dict:
         "desiredRunning": False,
         "onDemand": True,
         "port": WATCHFUSION_PORT,
-        "url": f"http://127-0-0-1.sslip.io:{WATCHFUSION_PORT}/",
         "rooms": int(health.get("rooms") or 0) if health else 0,
         "pids": _pids() if running else [],
         "message": message or (
-            "WatchFusion is online."
-            if running else f"Port {WATCHFUSION_PORT} belongs to a different service."
+            "WatchFusion is online." if running else f"Port {WATCHFUSION_PORT} belongs to a different service."
             if blocked else "WatchFusion has not been hydrated into tools/WatchFusion yet."
             if not installed else "Node.js is required for WatchFusion."
             if not node_ready else "npm is required to install WatchFusion dependencies."
             if not npm_ready and not deps_ready else "WatchFusion dependencies are not installed yet."
-            if not deps_ready else "WatchFusion is ready but stopped. Start it only when you want to use runtime features."
+            if not deps_ready else "WatchFusion is ready but stopped. Start it only when you want runtime features."
         ),
     }
+    decorated = eveos_exposure.decorate_status(payload, "watchfusion", local_url)
+    remote_url = _remote_tunnel_url() if running else ""
+    if remote_url and not decorated.get("publicUrl"):
+        decorated.update(exposureMode="cloudflare", publicUrl=remote_url, url=remote_url)
+    return decorated
 
 
 def get_status() -> dict:
     with _LOCK:
         return _status()
+
+
+def open_launcher() -> dict:
+    with _LOCK:
+        current = _status()
+        launcher = _launcher()
+        if current["running"]:
+            return {**current, "message": "WatchFusion is already online. Stop it before changing exposure mode."}
+        if os.name != "nt":
+            return {**current, "ok": False, "message": "The interactive WatchFusion exposure launcher currently requires Windows."}
+        if not launcher.is_file():
+            return {**current, "ok": False, "message": f"WatchFusion launcher missing: {launcher}"}
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/k", str(launcher)], cwd=str(_tool_root()),
+                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            )
+        except OSError as exc:
+            return {**current, "ok": False, "message": f"Could not open WatchFusion selective boot: {exc}"}
+        return {**current, "ok": True, "state": "selecting", "launchPrompt": True,
+                "message": "WatchFusion selective boot opened. Choose Localhost, LAN, or Cloudflare Remote in the terminal."}
 
 
 def setup_component(component: str = "core") -> dict:
@@ -258,9 +290,8 @@ def setup_component(component: str = "core") -> dict:
 
     try:
         result = subprocess.run(
-            [npm, "ci", "--no-audit", "--no-fund"],
-            cwd=str(_tool_root()), capture_output=True, text=True, check=False,
-            timeout=10 * 60,
+            [npm, "ci", "--no-audit", "--no-fund"], cwd=str(_tool_root()),
+            capture_output=True, text=True, check=False, timeout=10 * 60,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
     except subprocess.TimeoutExpired:
@@ -270,10 +301,8 @@ def setup_component(component: str = "core") -> dict:
 
     if result.returncode != 0:
         detail = "\n".join((result.stderr or result.stdout or "").splitlines()[-12:])
-        return {
-            **_status(), "ok": False, "state": "error",
-            "message": "WatchFusion dependency install failed." + (f"\n{detail}" if detail else ""),
-        }
+        return {**_status(), "ok": False, "state": "error",
+                "message": "WatchFusion dependency install failed." + (f"\n{detail}" if detail else "")}
     payload = _status("WatchFusion dependencies installed. Press Start when you want to launch the runtime.")
     payload["ok"] = payload.get("dependenciesReady") is True
     if not payload["ok"]:
@@ -282,7 +311,9 @@ def setup_component(component: str = "core") -> dict:
 
 
 def start_server(*, persist: bool = False) -> dict:
+    """Programmatic WatchFusion start is deliberately localhost-only."""
     global _PROCESS
+    eveos_exposure.clear_state("watchfusion")
     with _LOCK:
         if persist:
             _write_desired(True)
@@ -291,9 +322,7 @@ def start_server(*, persist: bool = False) -> dict:
             return {**current, "message": "WatchFusion is already online."}
         if current["state"] == "blocked":
             return {**current, "ok": False}
-        if not current["installed"]:
-            return {**current, "ok": False, "state": "error"}
-        if not current["nodeReady"] or not current["dependenciesReady"]:
+        if not current["installed"] or not current["nodeReady"] or not current["dependenciesReady"]:
             return {**current, "ok": False, "state": "error"}
 
         environment = os.environ.copy()
@@ -316,7 +345,7 @@ def start_server(*, persist: bool = False) -> dict:
             break
         time.sleep(0.15)
     with _LOCK:
-        payload = _status("WatchFusion started." if _health() else "WatchFusion is starting.")
+        payload = _status("WatchFusion started locally." if _health() else "WatchFusion is starting locally.")
         if _PROCESS and _PROCESS.poll() is not None and not payload["running"]:
             payload.update(ok=False, state="error", message="WatchFusion exited before becoming ready.")
         return payload
@@ -344,6 +373,7 @@ def stop_server(*, persist: bool = False) -> dict:
                 except OSError:
                     pass
         _PROCESS = None
+    eveos_exposure.clear_state("watchfusion")
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline and _health() is not None:
         time.sleep(0.1)
