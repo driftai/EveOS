@@ -1,23 +1,9 @@
 /**
  * search_monitor_peer_panel_smoke.js
  *
- * Clicking from the Search Monitor onto the Notes / World Book panel must close the monitor.
- * Clicking inside the expanded Search Monitor itself must keep it open unless the click hits the
- * dedicated status/detail-collapse affordance.
- *
- * The monitor deliberately ignores clicks on dialogs it spawned itself (clear-chat, settings,
- * confirms) so those do not close it out from under the user. That exemption matched
- * `[role="dialog"]` — and the Notes / World Book overlay carries role="dialog" for accessibility.
- * So switching to that panel counted as "still inside the monitor's world" and the monitor stayed
- * open on top of the panel the user had just moved to.
- *
- * These directions are pinned because the fix is only correct if it stays narrow:
- *   - the peer panel DOES close the monitor;
- *   - a genuine monitor-spawned dialog still does NOT;
- *   - internal controls and blank monitor chrome do NOT collapse the expanded monitor.
- *
- * Drives the real module against a minimal fixture (no EveOS boot, no servers), so a failure points
- * at the click-routing rule rather than at page startup.
+ * Search Monitor owns only itself and explicitly registered/known child surfaces. Unrelated
+ * workspaces and dialogs remain outside even when they use role="dialog" for accessibility.
+ * Drives the real boot module against a minimal browser fixture.
  */
 const fs = require('fs');
 const os = require('os');
@@ -40,15 +26,16 @@ async function main() {
             <p class="monitor-copy">Search Monitor content</p>
             <button class="monitor-action">Run</button>
         </div>
+        <div id="watchfusion-overlay" role="dialog"><button class="watchfusion-action">WatchFusion</button></div>
         <div id="notes-world-book-overlay" role="dialog" aria-modal="true">
             <textarea data-world-book-notes>notes</textarea>
         </div>
         <div id="spawned-settings" role="dialog"><button>Settings</button></div>
+        <div id="unrelated-dialog" role="dialog"><button>Unrelated popup</button></div>
         <div id="registered-child"><button class="child-btn">Child Action</button><button class="close-btn" data-dismiss>Close</button></div>
         <button id="outside-trigger">Outside Action</button>
         <button id="invoker-btn">Invoke Monitor</button>
         <script>
-            // bind() calls into the trace module; stub only what it touches.
             window.SearchMonitorBootTrace = {
                 ensureTraceRow() {}, ensureTraceDetails() {}, ensureNexusLauncher() {},
                 renderTraceDetails() {}, openNexusSearch() {}
@@ -70,64 +57,57 @@ async function main() {
             const isOpen = () => !indicator.classList.contains('compact');
             const out = { ready: !!window.SearchMonitorBoot };
 
-            // Switching to the Notes / World Book panel must close the monitor.
             expand();
             document.querySelector('#notes-world-book-overlay [data-world-book-notes]').click();
             out.closedByPeerPanel = !isOpen();
 
-            // The panel's own chrome counts too, not just its inner controls.
             expand();
-            document.getElementById('notes-world-book-overlay').click();
-            out.closedByPeerPanelChrome = !isOpen();
+            document.querySelector('#watchfusion-overlay .watchfusion-action').click();
+            out.closedByWatchFusion = !isOpen();
 
-            // A dialog the monitor spawned must still NOT close it.
+            // Accessibility role alone does not grant ownership.
             expand();
-            document.querySelector('#spawned-settings button').click();
+            document.querySelector('#unrelated-dialog button').click();
+            out.closedByUnrelatedDialog = !isOpen();
+
+            // A monitor-spawned portal must register ownership before it is exempted.
+            const spawned = document.getElementById('spawned-settings');
+            const unregisterSpawned = window.SearchMonitorBoot.registerSurface({ element: spawned, owner: 'search-monitor' });
+            expand();
+            spawned.querySelector('button').click();
             out.survivedSpawnedDialog = isOpen();
+            unregisterSpawned();
 
-            // A plain outside click still closes it (the original behaviour).
             expand();
             document.body.click();
             out.closedByPlainOutsideClick = !isOpen();
 
-            // Controls, text, and blank chrome inside an expanded monitor all keep it open.
             expand();
             indicator.querySelector('.monitor-action').click();
             out.survivedOwnControl = isOpen();
-
             expand();
             indicator.querySelector('.monitor-copy').click();
             out.survivedOwnText = isOpen();
-
             expand();
             indicator.click();
             out.survivedOwnBackground = isOpen();
 
-            // Generic registered surface ownership:
             const regChild = document.getElementById('registered-child');
             window.SearchMonitorBoot.registerSurface({ element: regChild, owner: 'search-monitor' });
             expand();
             regChild.querySelector('.child-btn').click();
             out.survivedRegisteredChild = isOpen();
-
-            // Closing the child surface leaves monitor open
             regChild.querySelector('.close-btn').click();
             out.survivedClosingChild = isOpen();
-
-            // Unregister child surface after test so it does not linger in active surfaces
             window.SearchMonitorBoot.unregisterSurface(regChild);
 
-            // Gesture interception: clicking an outside trigger closes monitor without firing outside handler
             let outsideTriggerFired = false;
-            document.getElementById('outside-trigger').addEventListener('click', () => {
-                outsideTriggerFired = true;
-            });
+            document.getElementById('outside-trigger').addEventListener('click', () => { outsideTriggerFired = true; });
             expand();
             document.getElementById('outside-trigger').click();
             out.closedByOutsideTrigger = !isOpen();
             out.outsideActionPrevented = !outsideTriggerFired;
 
-            // Nested Escape: first Escape closes child dialog, second closes monitor
             expand();
             const childDialog = document.createElement('dialog');
             childDialog.id = 'nested-test-dialog';
@@ -135,23 +115,19 @@ async function main() {
             childDialog.innerHTML = '<button class="cancel">Cancel</button>';
             document.body.appendChild(childDialog);
             window.SearchMonitorBoot.registerSurface({ element: childDialog, owner: 'search-monitor' });
-
-            const escEvent1 = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-            document.dispatchEvent(escEvent1);
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
             out.firstEscapeHandledChild = !childDialog.open;
             out.monitorStayedOpenOnFirstEscape = isOpen();
-
-            const escEvent2 = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-            document.dispatchEvent(escEvent2);
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
             out.secondEscapeClosedMonitor = !isOpen();
-
             return out;
         });
 
         assert(result.ready, 'the boot module initialised against the fixture');
-        assert(result.closedByPeerPanel, 'clicking peer panel closes Search Monitor');
-        assert(result.closedByPeerPanelChrome, 'clicking peer panel chrome closes Search Monitor');
-        assert(result.survivedSpawnedDialog, 'spawned dialog survives');
+        assert(result.closedByPeerPanel, 'clicking Notes / World Book closes Search Monitor');
+        assert(result.closedByWatchFusion, 'clicking WatchFusion closes Search Monitor');
+        assert(result.closedByUnrelatedDialog, 'an unrelated role=dialog surface is outside Search Monitor');
+        assert(result.survivedSpawnedDialog, 'explicitly registered monitor child survives');
         assert(result.closedByPlainOutsideClick, 'plain outside click closes Search Monitor');
         assert(result.survivedOwnControl, 'internal controls keep monitor open');
         assert(result.survivedOwnText, 'internal text keeps monitor open');
@@ -159,11 +135,10 @@ async function main() {
         assert(result.survivedRegisteredChild, 'registered child surface click keeps monitor open');
         assert(result.survivedClosingChild, 'closing child surface keeps monitor open');
         assert(result.closedByOutsideTrigger, 'outside click collapses monitor');
-        assert(result.outsideActionPrevented, 'outside dismissal gesture is intercepted and does not fire underlying control');
-        assert(result.firstEscapeHandledChild && result.monitorStayedOpenOnFirstEscape, 'first Escape dismisses child surface while monitor stays open');
+        assert(result.outsideActionPrevented, 'outside dismissal gesture does not activate underlying control');
+        assert(result.firstEscapeHandledChild && result.monitorStayedOpenOnFirstEscape, 'first Escape dismisses owned child while monitor stays open');
         assert(result.secondEscapeClosedMonitor, 'second Escape collapses Search Monitor');
-
-        console.log('search monitor generic overlay contract OK');
+        console.log('search monitor explicit overlay ownership contract OK');
         console.log('SEARCH_MONITOR_PEER_PANEL_SMOKE_OK');
     } finally {
         await browser.close();
