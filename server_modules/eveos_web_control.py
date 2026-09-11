@@ -1,4 +1,4 @@
-"""Persisted lifecycle control for the canonical EveOS localhost surface."""
+"""Persisted lifecycle control for EveOS localhost surfaces."""
 
 from __future__ import annotations
 
@@ -16,21 +16,13 @@ from pathlib import Path
 
 EVEOS_WEB_PORT = int(os.environ.get("EVEOS_WEB_PORT") or 8765)
 _PROCESS = None
+_PROCESS_PORT = None
 _LOCK = threading.RLock()
 _TRUE = {"1", "true", "yes", "on"}
 
 
 def headless_mode(service: str = "web") -> bool:
-    """Whether a spawned server should hide its console. Headed unless asked otherwise.
-
-    Everything used to spawn with CREATE_NO_WINDOW, so a server that hung, spewed, or refused to
-    die left no visible trace -- you had to already suspect it to go find the log. Showing the
-    console by default makes what is running observable at a glance.
-
-    Preferences live in their own file rather than beside desiredRunning: that one is rewritten
-    wholesale on every start/stop, so a console choice stored there would vanish the first time the
-    service was toggled.
-    """
+    """Whether a spawned server should hide its console. Headed unless asked otherwise."""
     from . import eveos_console_prefs
     return eveos_console_prefs.headless_for(service)
 
@@ -47,15 +39,32 @@ def _preference_path() -> Path:
     return _project_root() / "data" / "runtime" / "eveos-web-service.json"
 
 
-def _read_desired_state() -> bool:
+def _normalize_port(port=None) -> int:
+    try:
+        value = int(port if port is not None else EVEOS_WEB_PORT)
+    except (TypeError, ValueError):
+        return EVEOS_WEB_PORT
+    return value if 1 <= value <= 65535 else EVEOS_WEB_PORT
+
+
+def _read_preference() -> tuple[bool, int]:
     try:
         payload = json.loads(_preference_path().read_text(encoding="utf-8"))
-        return payload.get("desiredRunning") is True
+        return payload.get("desiredRunning") is True, _normalize_port(payload.get("port"))
     except (OSError, ValueError, TypeError):
-        return False
+        return False, EVEOS_WEB_PORT
 
 
-def _write_desired_state(enabled: bool) -> None:
+def _read_desired_state() -> bool:
+    return _read_preference()[0]
+
+
+def _read_desired_port() -> int:
+    return _read_preference()[1]
+
+
+def _write_desired_state(enabled: bool, port=None) -> None:
+    target_port = _normalize_port(port)
     path = _preference_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
@@ -63,7 +72,7 @@ def _write_desired_state(enabled: bool) -> None:
         json.dumps(
             {
                 "desiredRunning": bool(enabled),
-                "port": EVEOS_WEB_PORT,
+                "port": target_port,
                 "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             },
             indent=2,
@@ -73,18 +82,20 @@ def _write_desired_state(enabled: bool) -> None:
     temporary.replace(path)
 
 
-def _port_open() -> bool:
+def _port_open(port=None) -> bool:
+    target_port = _normalize_port(port)
     try:
-        with socket.create_connection(("127.0.0.1", EVEOS_WEB_PORT), timeout=0.25):
+        with socket.create_connection(("127.0.0.1", target_port), timeout=0.25):
             return True
     except OSError:
         return False
 
 
-def _health_payload() -> dict | None:
+def _health_payload(port=None) -> dict | None:
+    target_port = _normalize_port(port)
     connection = None
     try:
-        connection = http.client.HTTPConnection("127.0.0.1", EVEOS_WEB_PORT, timeout=0.8)
+        connection = http.client.HTTPConnection("127.0.0.1", target_port, timeout=0.8)
         connection.request("GET", "/api/status", headers={"Connection": "close"})
         response = connection.getresponse()
         body = response.read(65536)
@@ -93,8 +104,11 @@ def _health_payload() -> dict | None:
         payload = json.loads(body.decode("utf-8"))
         if payload.get("ok") is not True or payload.get("service") != "eveos-local-server":
             return None
+        reported_port = int(payload.get("port") or target_port)
+        if reported_port != target_port:
+            return None
         return payload
-    except (OSError, ValueError, UnicodeError, http.client.HTTPException):
+    except (OSError, ValueError, TypeError, UnicodeError, http.client.HTTPException):
         return None
     finally:
         if connection is not None:
@@ -104,7 +118,8 @@ def _health_payload() -> dict | None:
                 pass
 
 
-def _listener_pids() -> list[int]:
+def _listener_pids(port=None) -> list[int]:
+    target_port = _normalize_port(port)
     if os.name == "nt":
         result = subprocess.run(
             ["netstat", "-ano", "-p", "tcp"],
@@ -113,7 +128,7 @@ def _listener_pids() -> list[int]:
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        marker = f":{EVEOS_WEB_PORT}"
+        marker = f":{target_port}"
         pids = set()
         for line in (result.stdout or "").splitlines():
             if marker not in line or "LISTENING" not in line.upper():
@@ -124,7 +139,7 @@ def _listener_pids() -> list[int]:
         return sorted(pids)
 
     result = subprocess.run(
-        ["lsof", "-nP", f"-iTCP:{EVEOS_WEB_PORT}", "-sTCP:LISTEN", "-t"],
+        ["lsof", "-nP", f"-iTCP:{target_port}", "-sTCP:LISTEN", "-t"],
         capture_output=True,
         text=True,
         check=False,
@@ -151,49 +166,58 @@ def _terminate_pid(pid: int) -> bool:
         return False
 
 
-def _status(message: str = "") -> dict:
-    global _PROCESS
-    health = _health_payload()
-    process_alive = bool(_PROCESS and _PROCESS.poll() is None)
+def _status(message: str = "", port=None) -> dict:
+    target_port = _normalize_port(port)
+    health = _health_payload(target_port)
+    process_alive = bool(
+        _PROCESS
+        and _PROCESS.poll() is None
+        and _PROCESS_PORT == target_port
+    )
     running = health is not None
-    port_busy = _port_open() and not running
+    port_busy = _port_open(target_port) and not running
     installed = _entry_point().is_file()
-    state = "running" if running else ("starting" if process_alive else ("blocked" if port_busy else "stopped"))
+    desired_enabled, desired_port = _read_preference()
+    desired_running = desired_enabled and desired_port == target_port
+    state = "running" if running else (
+        "starting" if process_alive else ("blocked" if port_busy else "stopped")
+    )
     return {
         "ok": not port_busy and installed,
         "controllerAvailable": True,
         "installed": installed,
         "state": state,
         "running": running,
-        "desiredRunning": _read_desired_state(),
-        "port": EVEOS_WEB_PORT,
-        "url": f"http://127.0.0.1:{EVEOS_WEB_PORT}/EveOS.html",
-        "pids": _listener_pids() if running else [],
+        "desiredRunning": desired_running,
+        "port": target_port,
+        "url": f"http://127.0.0.1:{target_port}/EveOS.html",
+        "pids": _listener_pids(target_port) if running else [],
         "message": message
         or (
-            "EveOS localhost is online."
+            f"EveOS localhost is online on port {target_port}."
             if running
-            else "The EveOS web port is occupied by another service."
+            else f"The EveOS web port {target_port} is occupied by another service."
             if port_busy
-            else "EveOS localhost is stopped."
+            else f"EveOS localhost is stopped on port {target_port}."
         ),
     }
 
 
-def get_status() -> dict:
+def get_status(port=None) -> dict:
     with _LOCK:
-        return _status()
+        return _status(port=port)
 
 
-def start_server(*, persist: bool = True) -> dict:
-    global _PROCESS
+def start_server(*, persist: bool = True, port=None) -> dict:
+    global _PROCESS, _PROCESS_PORT
+    target_port = _normalize_port(port)
     with _LOCK:
         if persist:
-            _write_desired_state(True)
+            _write_desired_state(True, target_port)
 
-        current = _status()
+        current = _status(port=target_port)
         if current["running"]:
-            current["message"] = "EveOS localhost is already online."
+            current["message"] = f"EveOS localhost is already online on port {target_port}."
             return current
         if current["state"] == "blocked":
             current["ok"] = False
@@ -214,63 +238,86 @@ def start_server(*, persist: bool = True) -> dict:
         environment["PYTHONUNBUFFERED"] = "1"
         environment["PYTHONUTF8"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
-        environment["EVEOS_WEB_PORT"] = str(EVEOS_WEB_PORT)
+        environment["EVEOS_WEB_PORT"] = str(target_port)
         headless = headless_mode()
         flags = 0
         if os.name == "nt":
             flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            # Headed by DEFAULT: the point of a console is that you can see what is running and
-            # what it is doing. Headless hid every server, so a stuck or noisy one was invisible
-            # unless you went looking for a log file. EVEOS_HEADLESS=1 restores the quiet behaviour.
-            flags |= (getattr(subprocess, "CREATE_NO_WINDOW", 0) if headless
-                      else getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
-        command = [sys.executable, str(entry), str(EVEOS_WEB_PORT), "--no-browser"]
+            flags |= (
+                getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                if headless
+                else getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+            )
+        command = [sys.executable, str(entry), str(target_port), "--no-browser"]
         if headless:
-            # Only redirect when there is no console to read: a new console PLUS redirection gives
-            # you a window that shows nothing, which is worse than either choice on its own.
             with (
                 (log_root / "eveos-web.out.log").open("ab") as stdout_log,
                 (log_root / "eveos-web.err.log").open("ab") as stderr_log,
             ):
                 _PROCESS = subprocess.Popen(
-                    command, cwd=str(_project_root()), stdin=subprocess.DEVNULL,
-                    stdout=stdout_log, stderr=stderr_log, env=environment, creationflags=flags,
+                    command,
+                    cwd=str(_project_root()),
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout_log,
+                    stderr=stderr_log,
+                    env=environment,
+                    creationflags=flags,
                 )
         else:
             _PROCESS = subprocess.Popen(
-                command, cwd=str(_project_root()), stdin=subprocess.DEVNULL,
-                env=environment, creationflags=flags,
+                command,
+                cwd=str(_project_root()),
+                stdin=subprocess.DEVNULL,
+                env=environment,
+                creationflags=flags,
             )
+        _PROCESS_PORT = target_port
 
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        if _health_payload() is not None:
+        if _health_payload(target_port) is not None:
             break
-        if _PROCESS and _PROCESS.poll() is not None:
+        if _PROCESS and _PROCESS_PORT == target_port and _PROCESS.poll() is not None:
             break
         time.sleep(0.12)
 
     with _LOCK:
-        payload = _status("EveOS localhost started." if _health_payload() else "EveOS localhost is starting.")
-        if _PROCESS and _PROCESS.poll() is not None and not payload["running"]:
-            payload.update(ok=False, state="error", message="EveOS localhost exited before becoming ready.")
+        healthy = _health_payload(target_port) is not None
+        payload = _status(
+            f"EveOS localhost started on port {target_port}."
+            if healthy
+            else f"EveOS localhost is starting on port {target_port}.",
+            port=target_port,
+        )
+        if (
+            _PROCESS
+            and _PROCESS_PORT == target_port
+            and _PROCESS.poll() is not None
+            and not payload["running"]
+        ):
+            payload.update(
+                ok=False,
+                state="error",
+                message=f"EveOS localhost exited before becoming ready on port {target_port}.",
+            )
         return payload
 
 
-def stop_server(*, persist: bool = True) -> dict:
-    global _PROCESS
+def stop_server(*, persist: bool = True, port=None) -> dict:
+    global _PROCESS, _PROCESS_PORT
+    target_port = _normalize_port(port)
     with _LOCK:
         if persist:
-            _write_desired_state(False)
-        verified_server = _health_payload() is not None
+            _write_desired_state(False, target_port)
+        verified_server = _health_payload(target_port) is not None
         stopped = False
 
-        # Never terminate an unknown listener merely because it owns the configured port.
+        # Never terminate an unknown listener merely because it owns the requested port.
         if verified_server:
-            for pid in _listener_pids():
+            for pid in _listener_pids(target_port):
                 stopped = _terminate_pid(pid) or stopped
 
-        if _PROCESS and _PROCESS.poll() is None:
+        if _PROCESS_PORT == target_port and _PROCESS and _PROCESS.poll() is None:
             try:
                 _PROCESS.terminate()
                 _PROCESS.wait(timeout=2)
@@ -281,23 +328,35 @@ def stop_server(*, persist: bool = True) -> dict:
                     stopped = True
                 except OSError:
                     pass
-        _PROCESS = None
+        if _PROCESS_PORT == target_port:
+            _PROCESS = None
+            _PROCESS_PORT = None
 
     deadline = time.monotonic() + 2.5
-    while time.monotonic() < deadline and _health_payload() is not None:
+    while time.monotonic() < deadline and _health_payload(target_port) is not None:
         time.sleep(0.1)
 
     with _LOCK:
-        payload = _status("EveOS localhost stopped." if stopped else "EveOS localhost was already stopped.")
+        payload = _status(
+            f"EveOS localhost stopped on port {target_port}."
+            if stopped
+            else f"EveOS localhost was already stopped on port {target_port}.",
+            port=target_port,
+        )
         if payload["running"]:
-            payload.update(ok=False, state="error", message="EveOS localhost did not stop cleanly.")
+            payload.update(
+                ok=False,
+                state="error",
+                message=f"EveOS localhost did not stop cleanly on port {target_port}.",
+            )
         return payload
 
 
 def restore_desired_state() -> None:
-    if not _read_desired_state():
+    desired, port = _read_preference()
+    if not desired:
         return
-    payload = start_server(persist=False)
+    payload = start_server(persist=False, port=port)
     print(f"[EveOS Web] {payload.get('message', 'Restore complete.')}")
 
 
