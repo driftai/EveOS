@@ -1,6 +1,13 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
+set "EVEOS_ROOT=%~dp0..\.."
+call "%EVEOS_ROOT%\tools\batch\eveos-ports.bat"
+if errorlevel 1 exit /b 1
+if not defined WATCHFUSION_PORT (
+    echo ERROR: WATCHFUSION_PORT is missing from the EveOS port registry.
+    exit /b 1
+)
 title WatchFusion Control Center
 
 :MENU
@@ -8,8 +15,8 @@ cls
 echo ============================================================
 echo                      WATCHFUSION CONTROL CENTER
 echo ============================================================
-echo   [1] Start Localhost (127.0.0.1:9085)
-echo   [2] Start LAN Mode (0.0.0.0:9085)
+echo   [1] Start Localhost (127.0.0.1:%WATCHFUSION_PORT%)
+echo   [2] Start LAN Mode (0.0.0.0:%WATCHFUSION_PORT%)
 echo   [3] Start Cloudflare Remote Tunnel
 echo   [4] Install/Repair Nuvio Media Integration
 echo   [5] Build Nuvio Media Integration
