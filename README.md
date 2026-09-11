@@ -10,6 +10,8 @@ EveOS started as a way to organize links and grew into a connected desktop-style
 
 It is Windows-oriented, browser-first, and intentionally modular. Many core workflows still work directly from `EveOS.html`; localhost and companion services unlock filesystem access, native audio, AI backends, World Book, Piano Automation, WatchFusion, and other machine-level features.
 
+> **Project scale:** **441,297 physical lines of first-party code and test automation** across **2,860 source and test files** under the repository's first-party scanner.
+
 ![EveOS dashboard with a synthetic demo datapack](docs/screenshots/eveos-dashboard.png)
 
 *The public screenshots use synthetic demo content. Personal datapacks, private World Book data, saved Piano libraries, credentials, and machine-local state are not included in the repository.*
@@ -332,6 +334,21 @@ data/                              Templates and runtime-oriented data roots
 ```
 
 For a deeper implementation tour, see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+
+## Project Size
+
+The project-size figures use the same first-party scanner as `npm run smoke:file-size`: physical lines in JavaScript, ES modules, CSS, HTML, Python, PowerShell, and batch files, while excluding dependencies, virtual environments, build/test output, generated runtime data, vendor trees, the external Nuvio install, bundled VoxelVision, and the independently maintained Orogen tree.
+
+- **441,297 physical lines** across **2,860 first-party source and test files**
+- **332,147 JavaScript lines** (`.js`)
+- **51,962 Python lines** (`.py`)
+- **48,397 CSS lines** (`.css`)
+- **2,938 batch lines** (`.bat`)
+- **2,774 HTML lines** (`.html`)
+- **2,310 ES module lines** (`.mjs`)
+- **769 PowerShell lines** (`.ps1`)
+
+`smoke:file-size` still enforces the per-file **≤450 physical-line** architecture rule, and now also reports the current aggregate total, average file size, and per-extension breakdown so future README refreshes do not require an ad-hoc counting script. These are repository snapshots rather than a permanent badge; they change as EveOS evolves.
 
 ## Verification And Development Safety
 
