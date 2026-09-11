@@ -15,6 +15,12 @@
         return Number(window.EveOSPortRegistry?.get?.('WATCHFUSION_PORT')) || 0;
     }
 
+    function matchesControlStatus(payload) {
+        const expected = port();
+        const actual = Number(payload?.port || 0);
+        return !actual || !expected || actual === expected;
+    }
+
     function unique(values) {
         return [...new Set(values.filter(Boolean))];
     }
@@ -24,9 +30,6 @@
         if (!targetPort) return [];
         const values = [];
         if (/^https?:$/.test(location.protocol) && location.hostname) {
-            // Reuse the EveOS page hostname first. The WatchFusion server preserves
-            // this host for ?eveos=1 / ?eveosDetached=1 so embedded and detached
-            // views can share one WatchFusion origin where possible.
             values.push(`http://${location.hostname}:${targetPort}`);
         }
         values.push(
@@ -53,10 +56,7 @@
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
-            const response = await fetch(`${origin.replace(/\/$/, '')}/api/health`, {
-                cache: 'no-store',
-                signal: controller.signal
-            });
+            const response = await fetch(`${origin.replace(/\/$/, '')}/api/health`, { cache: 'no-store', signal: controller.signal });
             const payload = await response.json().catch(() => ({}));
             if (!response.ok || payload?.ok !== true || payload?.app !== 'WatchFusion') return null;
             if (Number(payload?.port || 0) && Number(payload.port) !== port()) return null;
@@ -120,6 +120,7 @@
 
     window.EveWatchFusionRuntimeSensor = Object.freeze({
         port,
+        matchesControlStatus,
         candidateOrigins,
         probe,
         probeOrigin,
