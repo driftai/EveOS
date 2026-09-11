@@ -6,8 +6,10 @@
     const HEARTBEAT_TTL_MS = 4500;
     let detachedSeenAt = 0;
     let detachedUrl = '';
+    let detachedStorageAccess = null;
     let embeddedSeenAt = 0;
     let embeddedUrl = '';
+    let embeddedStorageAccess = null;
 
     function port() {
         return Number(window.EveOSPortRegistry?.get?.('WATCHFUSION_PORT')) || 0;
@@ -84,8 +86,10 @@
         return {
             detached: now - detachedSeenAt <= HEARTBEAT_TTL_MS,
             detachedUrl,
+            detachedStorageAccess,
             embedded: now - embeddedSeenAt <= HEARTBEAT_TTL_MS,
-            embeddedUrl
+            embeddedUrl,
+            embeddedStorageAccess
         };
     }
 
@@ -100,9 +104,11 @@
         if (data.type === 'watchfusion:detached-presence') {
             detachedSeenAt = Date.now();
             detachedUrl = String(data.url || '');
+            detachedStorageAccess = typeof data.storageAccess === 'boolean' ? data.storageAccess : null;
         } else if (data.type === 'watchfusion:embedded-presence') {
             embeddedSeenAt = Date.now();
             embeddedUrl = String(data.url || '');
+            embeddedStorageAccess = typeof data.storageAccess === 'boolean' ? data.storageAccess : null;
         } else {
             return;
         }
