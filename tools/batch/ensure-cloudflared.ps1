@@ -101,7 +101,7 @@ $Asset = if ($Architecture -in @('x86', 'x86_32')) {
 $ReleaseApi = 'https://api.github.com/repos/cloudflare/cloudflared/releases/latest'
 $Directory = Split-Path -Parent $Destination
 New-Item -ItemType Directory -Force -Path $Directory | Out-Null
-$Temporary = "$Destination.download"
+$Temporary = "$Destination.download.exe"
 Remove-Item -Force -LiteralPath $Temporary -ErrorAction SilentlyContinue
 
 try {
