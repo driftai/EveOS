@@ -74,11 +74,9 @@
                 if (Number(parsed.port) === port()) origins.push(parsed.origin);
             } catch {}
         }
-        for (const origin of unique(origins)) {
-            const result = await probeOrigin(origin);
-            if (result) return result;
-        }
-        return null;
+        const candidates = unique(origins);
+        const results = await Promise.all(candidates.map((origin) => probeOrigin(origin)));
+        return results.find(Boolean) || null;
     }
 
     function heartbeatState() {
