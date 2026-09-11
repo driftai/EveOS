@@ -50,9 +50,11 @@ function initVoxelVisionProvider() {
       target.id = 'voxelVisionFrame';
       target.className = 'voxelvision-frame';
       target.title = 'VoxelVision';
-      target.allow = 'autoplay; fullscreen; picture-in-picture';
+      target.allow = 'autoplay; fullscreen; picture-in-picture; webgpu';
       target.allowFullscreen = true;
       host.appendChild(target);
+    } else if (!/\bwebgpu\b/i.test(target.getAttribute('allow') || '')) {
+      target.setAttribute('allow', `${target.getAttribute('allow') || 'autoplay; fullscreen; picture-in-picture'}; webgpu`);
     }
 
     const entryPath = source.entryUrl || '/voxelvision/';
@@ -67,7 +69,10 @@ function initVoxelVisionProvider() {
 
     if (!alreadyLoaded) {
       target.dataset.watchFusionVoxelVisionReady = '0';
-      target.onload = () => { target.dataset.watchFusionVoxelVisionReady = '1'; };
+      target.onload = () => {
+        target.dataset.watchFusionVoxelVisionReady = '1';
+        setStatus?.('VoxelVision ready');
+      };
       target.src = entryPath;
     }
   }
