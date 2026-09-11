@@ -106,6 +106,43 @@
   color: var(--muted, #94a6b5);
 }
 
+.piano-library-browser,
+.piano-library-browser-body {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+
+.piano-library-browser-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 2px 2px;
+  border-top: 1px solid rgba(127, 221, 255, .09);
+}
+
+.piano-library-browser-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.piano-library-browser-copy strong {
+  color: var(--accent, #51d8ff);
+  font-size: 9px;
+  letter-spacing: .08em;
+}
+
+.piano-library-browser-copy small {
+  color: var(--muted, #94a6b5);
+  font-size: 9px;
+}
+
+.piano-library-browser[data-u-collapsed="1"] .piano-library-browser-body {
+  display: none !important;
+}
+
 .piano-unified-workspace[data-u-collapsed="1"] > .planner-body > :not(.piano-unified-head) {
   display: none !important;
 }
@@ -207,6 +244,7 @@
   .piano-now-controls button { flex: 1 1 auto; }
   .piano-now-controls label { flex: 1 1 100%; }
   .piano-now-controls select { flex: 1; }
+  .piano-library-browser-head { align-items: flex-start; }
 
   .piano-unified-workspace .planner-song {
     grid-template-columns: auto auto minmax(0, 1fr);
