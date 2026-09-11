@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import eveos_console_prefs, eveos_ports
+from . import eveos_console_prefs, eveos_exposure, eveos_ports
 
 
 PIANO_PORT = eveos_ports.service_port("PIANO_PLAYER_PORT")
@@ -27,6 +27,10 @@ def _root() -> Path:
 
 def _entry() -> Path:
     return _root() / "tools" / "Piano-Auto-Player" / "run.py"
+
+
+def _launcher() -> Path:
+    return _entry().parent / "start.bat"
 
 
 def _setup_entry() -> Path:
@@ -146,7 +150,8 @@ def _status(message: str = "") -> dict:
     blocked = _port_open() and not running
     installed = _entry().is_file()
     state = "running" if running else "starting" if process_alive else "blocked" if blocked else "stopped"
-    return {
+    local_url = f"http://127.0.0.1:{PIANO_PORT}/"
+    payload = {
         "ok": installed and not blocked,
         "controllerAvailable": True,
         "installed": installed,
@@ -154,7 +159,6 @@ def _status(message: str = "") -> dict:
         "running": running,
         "desiredRunning": _desired(),
         "port": PIANO_PORT,
-        "url": f"http://127.0.0.1:{PIANO_PORT}/",
         "appVersion": str(health.get("appVersion") or "") if health else "",
         **_setup_state(),
         "pids": _pids() if running else [],
@@ -164,6 +168,28 @@ def _status(message: str = "") -> dict:
             else "Piano Auto Player is stopped."
         ),
     }
+    return eveos_exposure.decorate_status(payload, "piano", local_url)
+
+
+def open_launcher() -> dict:
+    with _LOCK:
+        current = _status()
+        launcher = _launcher()
+        if current["running"]:
+            return {**current, "message": "Piano Auto Player is already online. Stop it before changing exposure mode."}
+        if os.name != "nt":
+            return {**current, "ok": False, "message": "The interactive Piano exposure launcher currently requires Windows."}
+        if not launcher.is_file():
+            return {**current, "ok": False, "message": f"Piano launcher missing: {launcher}"}
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/k", str(launcher)], cwd=str(launcher.parent),
+                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            )
+        except OSError as exc:
+            return {**current, "ok": False, "message": f"Could not open Piano selective boot: {exc}"}
+        return {**current, "ok": True, "state": "selecting", "launchPrompt": True,
+                "message": "Piano selective boot opened. Choose Localhost, LAN, or Cloudflare Router in the terminal."}
 
 
 def open_setup() -> dict:
@@ -190,7 +216,9 @@ def get_status() -> dict:
 
 
 def start_server(*, persist: bool = True) -> dict:
+    """Programmatic start is deliberately local-only; human exposure choice uses open_launcher()."""
     global _PROCESS
+    eveos_exposure.clear_state("piano")
     with _LOCK:
         if persist:
             _write_desired(True)
@@ -226,7 +254,7 @@ def start_server(*, persist: bool = True) -> dict:
             break
         time.sleep(0.12)
     with _LOCK:
-        payload = _status("Piano Auto Player started." if _health() else "Piano Auto Player is starting.")
+        payload = _status("Piano Auto Player started locally." if _health() else "Piano Auto Player is starting locally.")
         if _PROCESS and _PROCESS.poll() is not None and not payload["running"]:
             payload.update(ok=False, state="error", message="Piano Auto Player exited before becoming ready.")
         return payload
@@ -254,6 +282,7 @@ def stop_server(*, persist: bool = True) -> dict:
                 except OSError:
                     pass
         _PROCESS = None
+    eveos_exposure.clear_state("piano")
     deadline = time.monotonic() + 2.5
     while time.monotonic() < deadline and _health() is not None:
         time.sleep(0.1)
