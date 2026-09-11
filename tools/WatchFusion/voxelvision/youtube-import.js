@@ -99,9 +99,6 @@ export function buildYoutubeStrategies(qualityId, { ffmpegCommand = null } = {})
   const cap = filterForHeight(profile.maxHeight);
   const strategies = [];
 
-  // Prefer adaptive video-only + audio-only streams when FFmpeg exists. This is
-  // where YouTube normally exposes 1080p+ sources, and FFmpeg only remuxes them;
-  // VoxelVision does not re-encode the video and therefore does not add loss.
   if (ffmpegCommand) {
     const adaptiveFormat = profile.maxHeight == null
       ? 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best'
@@ -134,7 +131,6 @@ function cleanupJobFiles(jobId, keepName = null) {
       fs.rmSync(path.join(IMPORTED_DIR, name), { force: true });
     }
   } catch {
-    // Best-effort cleanup only.
   }
 }
 
@@ -225,7 +221,10 @@ function runYtDlpAttempt(ytDlp, sourceUrl, jobId, strategy) {
       ...strategy.extraArgs
     ];
 
-    if (Number.isFinite(nodeMajor) && nodeMajor >= 20) {
+    // Current yt-dlp EJS requires Node 22+. If EveOS is running an older Node,
+    // do not force it: yt-dlp will automatically use the portable Deno runtime
+    // installed beside yt-dlp.exe by Setup Health.
+    if (Number.isFinite(nodeMajor) && nodeMajor >= 22) {
       args.push('--js-runtimes', 'node');
     }
     args.push(sourceUrl);
@@ -306,7 +305,7 @@ export function getYoutubeStatus() {
 export async function runYoutubeImport(sourceUrl, qualityId = DEFAULT_YOUTUBE_QUALITY) {
   const ytDlp = findYtDlp();
   if (!ytDlp) {
-    throw new Error('YouTube support is not installed. Run VoxelVision.bat and choose Setup / Update YouTube support.');
+    throw new Error('YouTube support is not installed. Open WatchFusion Setup Health and install VoxelVision YouTube helpers.');
   }
 
   const requestedQuality = normalizeYoutubeQuality(qualityId);
@@ -335,7 +334,7 @@ export async function runYoutubeImport(sourceUrl, qualityId = DEFAULT_YOUTUBE_QU
   cleanupJobFiles(jobId);
   if (!ffmpeg && requestedQuality !== '720') {
     throw new Error(
-      `High-quality YouTube import needs FFmpeg adaptive merge support. Run VoxelVision.bat option [4], then try again. ${lastError?.message || ''}`.trim()
+      `High-quality YouTube import needs FFmpeg adaptive merge support. Open WatchFusion Setup Health and install VoxelVision YouTube helpers, then try again. ${lastError?.message || ''}`.trim()
     );
   }
   throw lastError || new Error('YouTube import failed.');
