@@ -1,5 +1,6 @@
+import { playerQueueReady } from "./player_queue.js";
+
 const PREFS_KEY = "piano_player_planner_v1";
-const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const clean = value => String(value || "").trim();
 const norm = value => clean(value).toLowerCase();
 const listValue = value => [...new Set((Array.isArray(value) ? value : String(value || "").split(",")).map(clean).filter(Boolean))];
@@ -34,7 +35,7 @@ async function saveIdentifiers(song, identifiers) {
   const response = await fetch("/api/songs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...song, identifiers })
+    body: JSON.stringify({ id: song.id, identifiers })
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || `Metadata save failed (${response.status})`);
@@ -215,7 +216,10 @@ async function installPlanner() {
       [`DENSITY`, `${auto.event_density_per_minute || 0}/min`], [`ENGINE`, auto.transcription_engine || "—"], [`QUALITY`, auto.transcription_quality || "—"],
       [`CONVERSION`, ratingText(auto.conversion_rating)]
     ];
-    els.autoChips.replaceChildren(...chips.map(([key, value]) => { const node = document.createElement("span"); node.innerHTML = `<b>${key}</b>${String(value)}`; return node; }));
+    els.autoChips.replaceChildren(...chips.map(([key, value]) => {
+      const node = document.createElement("span"), label = document.createElement("b");
+      label.textContent = key; node.append(label, document.createTextNode(String(value))); return node;
+    }));
   }
 
   function openEditor(song) {
@@ -254,37 +258,18 @@ async function installPlanner() {
     return filteredSongs(state.songs, state.prefs).filter(song => state.selected.has(song.id)).map(song => byId.get(String(song.id))).filter(Boolean);
   }
 
-  function syncLibraryRefs() {
-    const library = document.getElementById("libraryList"); if (!library) return;
-    const cards = [...library.children].filter(node => node.querySelector?.(".result-title"));
-    state.songs.forEach((song, index) => { const card = cards[index]; if (card) card.dataset.pianoSongId = String(song.id); });
-  }
-
-  function queueSection() { return document.querySelector(".sheet-workspace-queue"); }
-
   async function sendToQueue(songs, { replace = false, play = false, shuffle = false } = {}) {
-    if (busy) return; if (!songs.length) return toast("Select at least one song first.", "error");
+    if (busy) return;
+    if (!songs.length) return toast("Select at least one song first.", "error");
     busy = true;
     try {
-      syncLibraryRefs();
-      const queue = queueSection();
+      const queue = await playerQueueReady();
       if (!queue) throw new Error("Player Queue is still initializing. Try again in a moment.");
-      if (replace) queue.querySelector("[data-queue-clear]")?.click();
-      await wait(80);
-      const library = document.getElementById("libraryList");
-      let added = 0;
-      for (const song of songs) {
-        const card = [...(library?.children || [])].find(node => node.dataset?.pianoSongId === String(song.id));
-        const button = [...(card?.querySelectorAll("button") || [])].find(item => item.textContent.trim() === "Queue");
-        if (!button) continue;
-        button.click(); added += 1;
-        await wait(12);
-      }
-      if (!added) throw new Error("Queue shortcuts were not ready. Refresh the Local Library once and try again.");
-      if (shuffle) queue.querySelector("[data-queue-shuffle]")?.click();
-      else if (play) queue.querySelector("[data-queue-play]")?.click();
+      const added = await queue.addSongs(songs, { replace, play, shuffle });
+      if (!added) throw new Error("No valid songs were available for the Player Queue.");
       toast(`${added} song${added === 1 ? "" : "s"} sent to Player Queue`, "complete");
-    } finally { busy = false; }
+    } catch (error) { toast(error.message, "error"); }
+    finally { busy = false; }
   }
 
   async function saveEditor() {
