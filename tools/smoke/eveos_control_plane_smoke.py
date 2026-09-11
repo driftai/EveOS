@@ -49,6 +49,38 @@ def request_json(port: int, method: str, path: str, origin: str = "null") -> tup
         connection.close()
 
 
+def file_mode_discovery_smoke():
+    H = eveos_control_helper
+    original_last_port = H._read_last_launcher_port
+    original_health = eveos_web_control._health_payload
+    original_desired = eveos_web_control._read_desired_port
+    original_web_port = eveos_web_control.EVEOS_WEB_PORT
+    original_process_port = getattr(eveos_web_control, "_PROCESS_PORT", None)
+    try:
+        H._read_last_launcher_port = lambda: 4321
+        eveos_web_control._PROCESS_PORT = None
+        eveos_web_control._read_desired_port = lambda: 8765
+        eveos_web_control.EVEOS_WEB_PORT = 8765
+        eveos_web_control._health_payload = lambda port=None: {"ok": True} if int(port or 0) == 4321 else None
+        assert_true(H._discover_file_web_port() == 4321,
+                    "file mode did not prefer the last verified launcher port")
+
+        H._read_last_launcher_port = lambda: None
+        eveos_web_control._health_payload = lambda port=None: {"ok": True} if int(port or 0) == 3000 else None
+        assert_true(H._discover_file_web_port() == 3000,
+                    "file mode did not fall back to the main launcher port")
+
+        eveos_web_control._health_payload = lambda port=None: None
+        assert_true(H._discover_file_web_port() is None,
+                    "file mode accepted a port that did not identify as EveOS")
+    finally:
+        H._read_last_launcher_port = original_last_port
+        eveos_web_control._health_payload = original_health
+        eveos_web_control._read_desired_port = original_desired
+        eveos_web_control.EVEOS_WEB_PORT = original_web_port
+        eveos_web_control._PROCESS_PORT = original_process_port
+
+
 def lifecycle_smoke(tmp: Path):
     canonical_port = free_port()
     alternate_port = free_port()
@@ -134,12 +166,14 @@ def helper_http_smoke():
     port = free_port()
     H = eveos_control_helper
     original = (
+        H._discover_file_web_port,
         H.eveos_web_control.get_status, H.eveos_web_control.start_server, H.eveos_web_control.stop_server,
         H.world_book_control.get_status, H.world_book_control.start_server, H.world_book_control.stop_server,
         H.watchfusion_control.get_status, H.watchfusion_control.start_server, H.watchfusion_control.stop_server,
         H.piano_player_control.stop_server, H.gemini_control.stop_server,
     )
     calls = []
+    discovery = {"port": 3000}
     web_state = {
         "ok": True, "controllerAvailable": True, "running": False, "desiredRunning": False,
         "state": "stopped", "port": 8765, "url": "http://127.0.0.1:8765/EveOS.html",
@@ -186,6 +220,7 @@ def helper_http_smoke():
                            message="WatchFusion is online." if enabled else "WatchFusion is stopped.")
         return dict(watch_state)
 
+    H._discover_file_web_port = lambda: discovery["port"]
     H.eveos_web_control.get_status = get_status
     H.eveos_web_control.start_server = lambda *, persist=True, port=None: set_running(True, port)
     H.eveos_web_control.stop_server = lambda *, persist=True, port=None: set_running(False, port)
@@ -217,9 +252,17 @@ def helper_http_smoke():
                     f"control-plane CLI probe failed: {probe.stderr or probe.stdout}")
 
         status_code, payload = request_json(port, "GET", "/api/control-plane/status")
-        assert_true(status_code == 200, "control-plane status was not reachable")
-        assert_true(payload.get("web", {}).get("port") == 8765,
-                    "file-mode status did not keep the canonical web port")
+        assert_true(status_code == 200, "file-mode control-plane status was not reachable")
+        assert_true(payload.get("web", {}).get("port") == 3000,
+                    "file-mode status did not discover the verified launcher port")
+        assert_true(("status", 3000) in calls,
+                    "file-mode status did not query the discovered EveOS port")
+
+        discovery["port"] = None
+        status_code, payload = request_json(port, "GET", "/api/control-plane/status")
+        assert_true(status_code == 200 and payload.get("web", {}).get("port") == 8765,
+                    "file-mode status did not fall back to canonical port when nothing was discovered")
+        discovery["port"] = 3000
 
         status_code, payload = request_json(port, "GET", "/api/control-plane/status",
                                             origin="http://localhost:3000")
@@ -231,7 +274,7 @@ def helper_http_smoke():
         status_code, payload = request_json(port, "GET", "/api/eveos-server/status?port=4321",
                                             origin="null")
         assert_true(status_code == 200 and payload.get("port") == 4321,
-                    "explicit connector port did not override the canonical port")
+                    "explicit connector port did not override file-mode discovery")
 
         status_code, payload = request_json(port, "POST", "/api/eveos-server/start",
                                             origin="http://127.0.0.1:3000")
@@ -265,6 +308,7 @@ def helper_http_smoke():
         server.server_close()
         thread.join(timeout=2)
         (
+            H._discover_file_web_port,
             H.eveos_web_control.get_status, H.eveos_web_control.start_server, H.eveos_web_control.stop_server,
             H.world_book_control.get_status, H.world_book_control.start_server, H.world_book_control.stop_server,
             H.watchfusion_control.get_status, H.watchfusion_control.start_server, H.watchfusion_control.stop_server,
@@ -298,6 +342,7 @@ def malformed_health_response_smoke():
 
 def main():
     malformed_health_response_smoke()
+    file_mode_discovery_smoke()
     with tempfile.TemporaryDirectory(prefix="eveos-control-smoke-") as temp_dir:
         lifecycle_smoke(Path(temp_dir))
     helper_http_smoke()
