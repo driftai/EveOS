@@ -38,11 +38,12 @@ export async function runSecuritySmokes() {
     assert.match(res2.body, /local-only/);
   });
 
-  await check('SEC-SETUP-INSTALL-TUNNEL-DENY', async () => {
+  await check('SEC-SETUP-INSTALL-REMOTE-DENY', async () => {
     for (const headers of [
       { host: 'example.trycloudflare.com' },
       { host: '127.0.0.1:9085', 'x-forwarded-host': 'example.trycloudflare.com' },
-      { host: '127.0.0.1:9085', 'cf-ray': 'test-ray', 'cf-connecting-ip': '203.0.113.8' }
+      { host: '127.0.0.1:9085', 'cf-ray': 'test-ray', 'cf-connecting-ip': '203.0.113.8' },
+      { host: '127-0-0-1.sslip.io:9085', origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' }
     ]) {
       const res = mockResponse();
       const req = {
@@ -53,7 +54,7 @@ export async function runSecuritySmokes() {
       };
       const handled = await handleSetupRoute(req, res, ['api', 'setup', 'install']);
       assert.equal(handled, true);
-      assert.equal(res.statusCode, 403, `installer must reject tunneled host ${JSON.stringify(headers)}`);
+      assert.equal(res.statusCode, 403, `installer must reject non-local browser context ${JSON.stringify(headers)}`);
       assert.match(res.body, /host-local/);
     }
   });
