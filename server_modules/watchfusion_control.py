@@ -19,6 +19,8 @@ from . import eveos_console_prefs, eveos_exposure, eveos_ports
 WATCHFUSION_PORT = eveos_ports.service_port("WATCHFUSION_PORT")
 _PROCESS = None
 _LOCK = threading.RLock()
+_LIVE_PROBE_TTL = 15.0
+_LIVE_PROBE_CACHE = {"at": 0.0, "nuvio": None, "voxel": None, "youtube": None}
 
 
 def _root() -> Path:
@@ -101,6 +103,24 @@ def _runtime_json(path: str) -> dict | None:
                 pass
 
 
+def _live_component_probes(running: bool, nuvio_built: bool, voxel_source: bool, youtube_ready: bool) -> tuple:
+    global _LIVE_PROBE_CACHE
+    if not running:
+        _LIVE_PROBE_CACHE = {"at": 0.0, "nuvio": None, "voxel": None, "youtube": None}
+        return None, None, None
+    now = time.monotonic()
+    if now - float(_LIVE_PROBE_CACHE.get("at") or 0.0) < _LIVE_PROBE_TTL:
+        return _LIVE_PROBE_CACHE.get("nuvio"), _LIVE_PROBE_CACHE.get("voxel"), _LIVE_PROBE_CACHE.get("youtube")
+    probes = {
+        "at": now,
+        "nuvio": _runtime_json("/__nuvio__/entry") if nuvio_built else None,
+        "voxel": _runtime_json("/__voxelvision__/entry") if voxel_source else None,
+        "youtube": _runtime_json("/voxelvision/api/youtube/status") if youtube_ready else None,
+    }
+    _LIVE_PROBE_CACHE = probes
+    return probes["nuvio"], probes["voxel"], probes["youtube"]
+
+
 def _component_status(deps_ready: bool, running: bool) -> dict:
     tool = _tool_root()
     nuvio = tool / "nuvio"
@@ -121,9 +141,7 @@ def _component_status(deps_ready: bool, running: bool) -> dict:
         voxel / "server.js", voxel / "public" / "index.html", voxel / "public" / "js" / "depth-models.js",
     ))
     youtube_ready = yt_dlp_ready and ffmpeg_ready and ffprobe_ready and js_runtime_ready
-    nuvio_live = _runtime_json("/__nuvio__/entry") if running and nuvio_built else None
-    voxel_live = _runtime_json("/__voxelvision__/entry") if running and voxel_source else None
-    youtube_live = _runtime_json("/voxelvision/api/youtube/status") if running and youtube_ready else None
+    nuvio_live, voxel_live, youtube_live = _live_component_probes(running, nuvio_built, voxel_source, youtube_ready)
     nuvio_verified = bool(nuvio_live and nuvio_live.get("ok"))
     voxel_verified = bool(voxel_live and voxel_live.get("ok"))
     youtube_verified = bool(
