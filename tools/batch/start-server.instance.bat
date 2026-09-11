@@ -4,15 +4,21 @@ if not defined PROJECT_ROOT (
 )
 if not defined START_SERVER_BROWSER_BAT set "START_SERVER_BROWSER_BAT=%PROJECT_ROOT%\tools\batch\start-server.browser.bat"
 if not defined START_SERVER_PATHS_BAT set "START_SERVER_PATHS_BAT=%PROJECT_ROOT%\tools\batch\start-server.paths.bat"
+if not defined EVEOS_EXPOSURE_SELECTOR set "EVEOS_EXPOSURE_SELECTOR=%PROJECT_ROOT%\tools\batch\select-exposure-mode.bat"
+if not defined EVEOS_EXPOSURE_STATE set "EVEOS_EXPOSURE_STATE=%PROJECT_ROOT%\tools\batch\set-exposure-state.ps1"
+if not defined EVEOS_TUNNEL_LAUNCHER set "EVEOS_TUNNEL_LAUNCHER=%PROJECT_ROOT%\tools\batch\start-quick-tunnel.ps1"
 if "%~1"=="" exit /b 0
 set "_START_SERVER_INSTANCE_LABEL=%~1"
 shift
 goto %_START_SERVER_INSTANCE_LABEL%
+
 :LaunchEveInstance
 set "INSTANCE_PORT=%~1"
 set "INSTANCE_PACK_PATH=%~2"
 set "INSTANCE_KIND=%~3"
 set "PORT_MODE=%~4"
+call :ChooseExposure "EveOS %INSTANCE_KIND% instance"
+if errorlevel 2 exit /b 0
 
 call "%PROJECT_ROOT%\tools\batch\eveos-python.bat"
 if errorlevel 1 (
@@ -50,10 +56,8 @@ if %ERRORLEVEL% EQU 0 (
 echo [OK] Launching %INSTANCE_KIND% EveOS instance in a new window:
 echo      Port: %INSTANCE_PORT%
 echo      Data: %INSTANCE_PACK_PATH%
+echo      Exposure: %EVEOS_EXPOSURE_MODE%
 
-rem Keep Lightpanda state as a normal inherited environment value. Do not build
-rem partial command fragments here: an empty fragment used to leave an incomplete
-rem `if defined` command in option 1 and could abort before Python was launched.
 set "EVEOS_LIGHTPANDA_DISABLED="
 if "%LP_ENABLED_STATE%"=="0" (
     set "EVEOS_LIGHTPANDA_DISABLED=1"
@@ -69,6 +73,8 @@ exit /b 0
 
 :LaunchEvePortOnly
 set "INSTANCE_PORT=%~1"
+call :ChooseExposure "EveOS port %INSTANCE_PORT%"
+if errorlevel 2 exit /b 0
 
 call "%PROJECT_ROOT%\tools\batch\eveos-python.bat"
 if errorlevel 1 (
@@ -87,8 +93,9 @@ if %ERRORLEVEL% EQU 0 (
 
 echo.
 echo [OK] Launching EveOS HTTP port in a new window:
-echo      URL: http://127.0.0.1:%INSTANCE_PORT%/EveOS.html
+echo      Local URL: http://127.0.0.1:%INSTANCE_PORT%/EveOS.html
 echo      Data: current active modular data-pack
+echo      Exposure: %EVEOS_EXPOSURE_MODE%
 echo.
 
 call :StartAndVerifyEveServer "%INSTANCE_PORT%" "EveOS Port %INSTANCE_PORT%"
@@ -96,36 +103,54 @@ if errorlevel 1 exit /b 1
 call "%START_SERVER_PATHS_BAT%" :TrackInstance "%INSTANCE_PORT%" "active modular data-pack" "PortOnly"
 exit /b 0
 
+:ChooseExposure
+if defined EVEOS_EXPOSURE_MODE exit /b 0
+call "%EVEOS_EXPOSURE_SELECTOR%" "%~1"
+exit /b %ERRORLEVEL%
+
 :StartAndVerifyEveServer
 set "_EVE_START_PORT=%~1"
 set "_EVE_START_TITLE=%~2"
 if not defined EVEOS_PYTHON call "%PROJECT_ROOT%\tools\batch\eveos-python.bat"
 if not exist "%PROJECT_ROOT%\bin" mkdir "%PROJECT_ROOT%\bin" >nul 2>nul
 set "_EVE_START_LOG=%PROJECT_ROOT%\bin\eveos-server-%_EVE_START_PORT%.log"
+set "_EVE_BIND_HOST=127.0.0.1"
+if /I "%EVEOS_EXPOSURE_MODE%"=="lan" set "_EVE_BIND_HOST=0.0.0.0"
 
 > "%_EVE_START_LOG%" echo [launcher] Python: %EVEOS_PYTHON%
 >> "%_EVE_START_LOG%" echo [launcher] Port: %_EVE_START_PORT%
 >> "%_EVE_START_LOG%" echo [launcher] Title: %_EVE_START_TITLE%
+>> "%_EVE_START_LOG%" echo [launcher] Exposure: %EVEOS_EXPOSURE_MODE%
 
-start "%_EVE_START_TITLE%" cmd /k "cd /d "%PROJECT_ROOT%" && "%EVEOS_PYTHON%" -u server/python-server.py %_EVE_START_PORT%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%EVEOS_EXPOSURE_STATE%" -Service "eveos-%_EVE_START_PORT%" -Mode local -Inactive >nul 2>nul
+start "%_EVE_START_TITLE%" cmd /k "cd /d "%PROJECT_ROOT%" && "%EVEOS_PYTHON%" -u server/eveos-server-launch.py %_EVE_START_PORT% --host %_EVE_BIND_HOST%"
 call :WaitForEveServer "%_EVE_START_PORT%"
 if errorlevel 1 (
     echo.
     echo [ERROR] EveOS did not become ready on port %_EVE_START_PORT%.
     echo [ERROR] Python: %EVEOS_PYTHON%
     echo [ERROR] Check the "%_EVE_START_TITLE%" console window for errors.
-    if exist "%_EVE_START_LOG%" (
-        echo.
-        echo ---------- EveOS startup log ----------
-        type "%_EVE_START_LOG%"
-        echo ---------- end startup log ------------
-    )
+    if exist "%_EVE_START_LOG%" type "%_EVE_START_LOG%"
     echo.
     pause
     exit /b 1
 )
 
-echo [OK] EveOS is ready: http://127.0.0.1:%_EVE_START_PORT%/EveOS.html
+if /I "%EVEOS_EXPOSURE_MODE%"=="lan" (
+    set "_EVE_LAN_IP="
+    for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$ip=[System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) ^| Where-Object {$_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork -and -not [System.Net.IPAddress]::IsLoopback($_)} ^| Select-Object -First 1; if($ip){$ip.IPAddressToString}"`) do set "_EVE_LAN_IP=%%I"
+    if not defined _EVE_LAN_IP set "_EVE_LAN_IP=YOUR-PC-LAN-IP"
+    set "_EVE_PUBLIC_URL=http://!_EVE_LAN_IP!:%_EVE_START_PORT%/EveOS.html"
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%EVEOS_EXPOSURE_STATE%" -Service "eveos-%_EVE_START_PORT%" -Mode lan -PublicUrl "!_EVE_PUBLIC_URL!" -OriginUrl "http://127.0.0.1:%_EVE_START_PORT%" >nul 2>nul
+    echo [WARN] LAN mode makes this EveOS web/API surface reachable on the trusted local network.
+    echo [READY] !_EVE_PUBLIC_URL!
+) else if /I "%EVEOS_EXPOSURE_MODE%"=="cloudflare" (
+    echo [INFO] EveOS origin remains private on 127.0.0.1:%_EVE_START_PORT%.
+    echo [INFO] Opening an authenticated temporary Cloudflare router terminal...
+    start "EveOS Cloudflare Router %_EVE_START_PORT%" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -File "%EVEOS_TUNNEL_LAUNCHER%" -Service "eveos-%_EVE_START_PORT%" -OriginPort %_EVE_START_PORT% -PublicPath "/EveOS.html"
+) else (
+    echo [READY] Localhost only: http://127.0.0.1:%_EVE_START_PORT%/EveOS.html
+)
 exit /b 0
 
 :WaitForEveServer
