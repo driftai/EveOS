@@ -26,7 +26,8 @@ for (const token of [
   'Send to Queue', 'Replace Queue', 'Play selected', 'Shuffle selected',
   'Save identifiers', 'automatic_identifiers', 'personal_rating', 'conversion_rating',
   'Required tag', 'Min events', 'Max events', 'Custom identifiers', 'piano_player_planner_v1',
-  '/api/songs/identifiers', 'PianoPlayerQueue', 'addSongs', 'document.createTextNode'
+  '/api/songs/identifiers', 'PianoPlayerQueue', 'addSongs', 'document.createTextNode',
+  'async function withQueue(action)'
 ]) assert(PLANNER.includes(token), `planner contract missing: ${token}`);
 
 for (const token of ['sheet-workspace-planner', 'planner-filterbar', 'planner-grid', 'planner-editor', '@media (max-width: 760px)']) {
@@ -66,6 +67,7 @@ assert(!PLANNER.includes('JSON.stringify({ ...song, identifiers })'), 'planner m
 assert(!PLANNER.includes('node.innerHTML = `<b>${key}</b>${String(value)}`'), 'automatic metadata values must not flow through innerHTML');
 assert(!PLANNER.includes('pianoSongId'), 'planner must not couple queue operations to library-card array order');
 assert(!PLANNER.includes('textContent.trim() === "Queue"'), 'planner must not locate queue actions by visible button text');
+assert(!PLANNER.includes('playBtn.addEventListener("click", () => { if (queue)'), 'row Play must resolve the live queue controller instead of closing over startup state');
 assert(LIBRARY.includes('if "custom" in patch:'), 'explicit custom metadata updates must support deletion/replacement');
 assert(BRIDGE.includes("import('./player_queue.js')") && BRIDGE.includes("import('./player_queue_advanced.js')") && BRIDGE.includes("import('./piano_unified_workspace.js')"), 'bridge must load queue, metadata controller, then the unified visible workspace');
 assert(BRIDGE.indexOf("import('./player_queue.js')") < BRIDGE.indexOf("import('./player_queue_advanced.js')") && BRIDGE.indexOf("import('./player_queue_advanced.js')") < BRIDGE.indexOf("import('./piano_unified_workspace.js')"), 'unified Piano workspace must load only after proven queue and metadata controllers');
