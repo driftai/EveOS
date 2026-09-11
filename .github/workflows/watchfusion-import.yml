@@ -1,5 +1,6 @@
 name: One-shot WatchFusion import
 
+# Triggered once to hydrate the pinned WatchFusion tree into EveOS.
 on:
   push:
     paths:
