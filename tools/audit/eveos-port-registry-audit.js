@@ -72,7 +72,7 @@ for (const [name, entry] of Object.entries(ports)) {
 }
 
 const localControl = read('js/modules/core/eveos-local-control.js');
-check(localControl.includes("EveOSPortRegistry?.get?.('GEMINI_CONTROL_PORT'"),
+check(localControl.includes("registryPort('GEMINI_CONTROL_PORT')") && localControl.includes('EveOSPortRegistry?.get?.'),
     'browser local-control client bypasses the canonical port registry');
 check(!/DEFAULT_PORT\s*=\s*\d+/.test(localControl), 'browser local-control client reintroduced a literal fallback port');
 
