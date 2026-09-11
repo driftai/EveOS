@@ -88,17 +88,65 @@ const firstTrack = instanceSource.indexOf('call "%START_SERVER_PATHS_BAT%" :Trac
 assert(firstVerifiedStart >= 0 && firstTrack > firstVerifiedStart,
     'Instance launcher tracks the server before verified readiness');
 
+const stackSource = helperSources.get('start-server.stack.bat');
+for (const source of [instanceSource, stackSource]) {
+    assert(source.includes('server/eveos-server-launch.py'),
+        'Official EveOS launcher bypasses the explicit-host server adapter');
+    assert(source.includes('select-exposure-mode.bat'),
+        'Official EveOS launcher does not offer selective exposure');
+    assert(source.includes('start-quick-tunnel.ps1'),
+        'Official EveOS launcher lacks the authenticated Cloudflare router path');
+}
+assert(stackSource.includes('Internal control, Gemini and browser bridges remain localhost-only.'),
+    'Standard stack does not preserve the localhost-only internal-service boundary');
+assert(stackSource.includes('set "_EVE_BIND_HOST=127.0.0.1"'),
+    'Standard stack no longer defaults the EveOS origin to loopback');
+assert(instanceSource.includes('set "_EVE_BIND_HOST=127.0.0.1"'),
+    'Instance launcher no longer defaults the EveOS origin to loopback');
+
+const selectiveFiles = [
+    'tools/batch/select-exposure-mode.bat',
+    'tools/batch/eveos-secure-share.py',
+    'tools/batch/start-quick-tunnel.ps1',
+    'tools/batch/set-exposure-state.ps1',
+    'server/eveos-server-launch.py',
+    'server_modules/eveos_exposure.py'
+];
+for (const relativePath of selectiveFiles) {
+    assert(fs.existsSync(path.join(ROOT, relativePath)), 'Selective boot component missing: ' + relativePath);
+}
+const shareRouter = read(path.join(ROOT, 'tools', 'batch', 'eveos-secure-share.py'));
+assert(shareRouter.includes('(\"127.0.0.1\", args.listen_port)'),
+    'Cloudflare share router must itself remain loopback-only');
+assert(shareRouter.includes('HttpOnly; Secure; SameSite=Strict'),
+    'Cloudflare share router lost its authenticated cookie boundary');
+assert(shareRouter.includes('strip_access(self.path)'),
+    'Cloudflare share router does not strip access tokens before forwarding');
+
+const explicitServer = read(path.join(ROOT, 'server', 'eveos-server-launch.py'));
+assert(explicitServer.includes('default="127.0.0.1"'),
+    'Explicit EveOS server adapter no longer defaults to loopback');
+assert(explicitServer.includes('{"127.0.0.1", "0.0.0.0"}'),
+    'Explicit EveOS server adapter accepts an unexpected bind host');
+
+const pianoLauncher = read(path.join(ROOT, 'tools', 'Piano-Auto-Player', 'start.bat'));
+assert(pianoLauncher.includes('select-exposure-mode.bat'), 'Piano launcher lacks selective boot');
+assert(pianoLauncher.includes('run.py --host 127.0.0.1'), 'Piano local/Cloudflare origin is not pinned to loopback');
+assert(pianoLauncher.includes('run.py --host 0.0.0.0'), 'Piano LAN mode is missing its explicit bind');
+assert(pianoLauncher.includes('start-quick-tunnel.ps1'), 'Piano Cloudflare mode bypasses the authenticated router');
+
+const worldBookMain = read(path.join(ROOT, 'tools', 'World-Book', 'worldbook_runtime', 'layers', '90_main.py'));
+const worldBookLauncher = read(path.join(ROOT, 'tools', 'World-Book', 'launch.ps1'));
+assert(worldBookMain.includes('--host') && worldBookMain.includes('default="127.0.0.1"'),
+    'World Book runtime no longer defaults to loopback');
+assert(worldBookLauncher.includes("'cloudflare'") && worldBookLauncher.includes('start-quick-tunnel.ps1'),
+    'World Book launcher lacks selective Cloudflare boot');
+
 const portsConfig = JSON.parse(read(path.join(ROOT, 'config', 'eveos-ports.json')));
 for (const key of [
-    'EVEOS_WEB_PORT',
-    'WORLD_BOOK_PORT',
-    'GEMINI_WS_PORT',
-    'GEMINI_STATUS_PORT',
-    'GEMINI_CONTROL_PORT',
-    'LIGHTPANDA_BRIDGE_PORT',
-    'CAMOFOX_BRIDGE_PORT',
-    'WIKIMEDIA_BRIDGE_PORT',
-    'POPUP_BRIDGE_PORT'
+    'EVEOS_WEB_PORT', 'WORLD_BOOK_PORT', 'PIANO_PLAYER_PORT', 'WATCHFUSION_PORT',
+    'GEMINI_WS_PORT', 'GEMINI_STATUS_PORT', 'GEMINI_CONTROL_PORT',
+    'LIGHTPANDA_BRIDGE_PORT', 'CAMOFOX_BRIDGE_PORT', 'WIKIMEDIA_BRIDGE_PORT', 'POPUP_BRIDGE_PORT'
 ]) {
     assert(Number.isInteger(portsConfig.ports?.[key]?.port),
         'Canonical numeric port missing: ' + key);
@@ -107,10 +155,7 @@ for (const key of [
 if (process.platform === 'win32') {
     const probe = childProcess.spawnSync(process.env.ComSpec || 'cmd.exe', [
         '/c', 'call tools\\batch\\eveos-ports.bat && set EVEOS_WEB_PORT && set GEMINI_WS_PORT'
-    ], {
-        encoding: 'utf8',
-        cwd: ROOT
-    });
+    ], { encoding: 'utf8', cwd: ROOT });
     assert(probe.status === 0, 'eveos-ports.bat failed to export registered ports: ' + (probe.stderr || probe.stdout));
 }
 
@@ -132,8 +177,7 @@ if (process.platform === 'win32') {
     const probe = childProcess.spawnSync(process.env.ComSpec || 'cmd.exe', [
         '/d', '/v:on', '/c', command
     ], {
-        encoding: 'utf8',
-        cwd: ROOT,
+        encoding: 'utf8', cwd: ROOT,
         env: { ...process.env, EVEOS_PYTHON: 'C:\\missing\\eveos-python.exe' }
     });
     assert(probe.status === 0,
@@ -142,20 +186,14 @@ if (process.platform === 'win32') {
 
 for (const name of pythonLauncherNames) {
     const source = read(path.join(ROOT, 'tools', 'batch', name));
-    assert(source.includes('eveos-python.bat'),
-        name + ' bypasses the canonical Python resolver');
-    assert(source.includes('EVEOS_PYTHON'),
-        name + ' does not launch the resolved Python interpreter');
-    assert(/if errorlevel 1/i.test(source),
-        name + ' does not stop when Python resolution fails');
+    assert(source.includes('eveos-python.bat'), name + ' bypasses the canonical Python resolver');
+    assert(source.includes('EVEOS_PYTHON'), name + ' does not launch the resolved Python interpreter');
+    assert(/if errorlevel 1/i.test(source), name + ' does not stop when Python resolution fails');
 }
 
 for (const relativePath of [
-    'server/eveos-control-helper.py',
-    'server/python-server.py',
-    'server/bridges/popup-bridge.py',
-    'server/bridges/lightpanda-bridge.py',
-    'server/bridges/camofox-bridge.py'
+    'server/eveos-control-helper.py', 'server/python-server.py', 'server/eveos-server-launch.py',
+    'server/bridges/popup-bridge.py', 'server/bridges/lightpanda-bridge.py', 'server/bridges/camofox-bridge.py'
 ]) {
     assert(fs.existsSync(path.join(ROOT, relativePath)), 'Launcher target missing: ' + relativePath);
 }
@@ -189,5 +227,6 @@ assert(controlLauncherSource.includes('--probe --timeout 30'),
 console.log('LAUNCHER_CONTRACT_SMOKE_OK', JSON.stringify({
     rootLines: rootSource.split(/\r?\n/).length,
     helpers: helperNames.length,
-    pythonLaunchers: pythonLauncherNames.length
+    pythonLaunchers: pythonLauncherNames.length,
+    selectiveBootFiles: selectiveFiles.length
 }));
