@@ -124,39 +124,48 @@ def _component_status(deps_ready: bool, running: bool) -> dict:
     nuvio_live = _runtime_json("/__nuvio__/entry") if running and nuvio_built else None
     voxel_live = _runtime_json("/__voxelvision__/entry") if running and voxel_source else None
     youtube_live = _runtime_json("/voxelvision/api/youtube/status") if running and youtube_ready else None
+    nuvio_verified = bool(nuvio_live and nuvio_live.get("ok"))
+    voxel_verified = bool(voxel_live and voxel_live.get("ok"))
+    youtube_verified = bool(
+        youtube_live
+        and youtube_live.get("available") is True
+        and youtube_live.get("ffmpegAvailable") is True
+        and youtube_live.get("ffprobeAvailable") is True
+    )
     return {
         "core": {
-            "label": "WatchFusion runtime", "ready": deps_ready and (not running or True), "required": True,
-            "liveVerified": running,
-            "message": "WatchFusion runtime is responding live." if running else (
-                "Locked Node dependencies are installed." if deps_ready else "Install the locked WatchFusion Node dependencies."
+            "label": "WatchFusion runtime", "ready": deps_ready if running else None,
+            "installed": deps_ready, "required": True, "liveVerified": bool(running and deps_ready),
+            "message": "WatchFusion runtime is responding live." if running and deps_ready else (
+                "Locked Node dependencies are installed; runtime verification starts when WatchFusion runs."
+                if deps_ready else "Install the locked WatchFusion Node dependencies."
             ),
         },
         "nuvio": {
-            "label": "Nuvio", "ready": bool(nuvio_live and nuvio_live.get("ok")) if running else None,
+            "label": "Nuvio", "ready": nuvio_verified if running else None,
             "installed": nuvio_built, "sourceReady": nuvio_source, "required": False,
-            "liveVerified": bool(nuvio_live and nuvio_live.get("ok")) if running else None,
-            "message": "Nuvio browser endpoint verified live." if running and nuvio_live and nuvio_live.get("ok") else (
+            "liveVerified": nuvio_verified if running else None,
+            "message": "Nuvio browser endpoint verified live." if nuvio_verified else (
                 "Nuvio build is installed; live rendering will be checked after WatchFusion starts." if nuvio_built else
                 "Nuvio source is present but needs a browser build." if nuvio_source else "Nuvio needs installation."
             ),
         },
         "voxelvision": {
-            "label": "VoxelVision", "ready": bool(voxel_live and voxel_live.get("ok")) if running else None,
+            "label": "VoxelVision", "ready": voxel_verified if running else None,
             "installed": voxel_source, "required": True,
-            "liveVerified": bool(voxel_live and voxel_live.get("ok")) if running else None,
-            "message": "VoxelVision entry endpoint verified live." if running and voxel_live and voxel_live.get("ok") else (
+            "liveVerified": voxel_verified if running else None,
+            "message": "VoxelVision entry endpoint verified live." if voxel_verified else (
                 "Bundled VoxelVision source is installed; live rendering will be checked after WatchFusion starts."
                 if voxel_source else "Bundled VoxelVision source is incomplete."
             ),
         },
         "voxelYoutube": {
-            "label": "VoxelVision YouTube helpers", "ready": bool(youtube_live) if running else None,
+            "label": "VoxelVision YouTube helpers", "ready": youtube_verified if running else None,
             "installed": youtube_ready, "required": False,
-            "liveVerified": bool(youtube_live) if running else None,
+            "liveVerified": youtube_verified if running else None,
             "ytDlpReady": yt_dlp_ready, "ffmpegReady": ffmpeg_ready, "ffprobeReady": ffprobe_ready,
             "jsRuntimeReady": js_runtime_ready, "nodeMajor": node_major, "denoReady": deno_ready,
-            "message": "VoxelVision YouTube helper status endpoint verified live." if running and youtube_live else (
+            "message": "yt-dlp, FFmpeg, and ffprobe verified through the live VoxelVision status endpoint." if youtube_verified else (
                 "yt-dlp, FFmpeg, ffprobe, and a supported JS runtime are installed; live use will be checked after start."
                 if youtube_ready else "One or more YouTube helper dependencies still need setup."
             ),
