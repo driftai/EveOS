@@ -40,6 +40,14 @@ class Router(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "EveOSSecureShare/1.0"
 
+    def __init__(self, *args, **kwargs):
+        self._response_started = False
+        super().__init__(*args, **kwargs)
+
+    def send_response(self, code, message=None):
+        self._response_started = True
+        return super().send_response(code, message)
+
     def log_message(self, fmt, *args):
         print(f"[ShareRouter] {fmt % args}")
 
@@ -146,6 +154,10 @@ class Router(http.server.BaseHTTPRequestHandler):
             if cookie:
                 connection.putheader("Cookie", "; ".join(f"{key}={m.value}" for key, m in cookie.items()))
 
+            transfer_encoding = str(self.headers.get("Transfer-Encoding") or "").lower()
+            if transfer_encoding and transfer_encoding != "identity":
+                self.send_error(HTTPStatus.LENGTH_REQUIRED, "Selective share requires Content-Length for request bodies")
+                return
             content_length = int(self.headers.get("Content-Length", "0") or "0")
             connection.putheader("Content-Length", str(content_length))
             connection.endheaders()
@@ -153,7 +165,7 @@ class Router(http.server.BaseHTTPRequestHandler):
             while remaining > 0:
                 chunk = self.rfile.read(min(64 * 1024, remaining))
                 if not chunk:
-                    break
+                    raise ConnectionError("Client request body ended early")
                 connection.send(chunk)
                 remaining -= len(chunk)
 
@@ -167,6 +179,9 @@ class Router(http.server.BaseHTTPRequestHandler):
             length = response.getheader("Content-Length")
             if length is not None:
                 self.send_header("Content-Length", length)
+            else:
+                self.send_header("Connection", "close")
+                self.close_connection = True
             self.send_header("X-EveOS-Selective-Share", self.settings["service"])
             self.end_headers()
             if self.command != "HEAD":
@@ -175,20 +190,17 @@ class Router(http.server.BaseHTTPRequestHandler):
                     if not chunk:
                         break
                     self.wfile.write(chunk)
-        except (OSError, http.client.HTTPException) as exc:
-            if not self.headers_sent:
+        except (OSError, http.client.HTTPException, ConnectionError, ValueError) as exc:
+            if not self._response_started:
                 body = json.dumps({"ok": False, "error": f"Local origin unavailable: {exc}"}).encode("utf-8")
                 self.send_response(HTTPStatus.BAD_GATEWAY)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            self.close_connection = True
         finally:
             connection.close()
-
-    @property
-    def headers_sent(self) -> bool:
-        return bool(getattr(self, "_headers_buffer", None)) is False and getattr(self, "_headers_buffer", None) is not None
 
     def do_GET(self): self._forward()
     def do_HEAD(self): self._forward()
