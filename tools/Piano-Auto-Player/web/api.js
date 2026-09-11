@@ -45,5 +45,6 @@ export const api = {
   youtubeStatus: (job) => request(`/api/youtube/status?job=${encodeURIComponent(job)}`),
   songs: () => request("/api/songs"),
   saveSong: (payload) => request("/api/songs", { method: "POST", body: JSON.stringify(payload) }),
+  updateSongIdentifiers: (id, identifiers) => request("/api/songs/identifiers", { method: "POST", body: JSON.stringify({ id, identifiers }) }),
   deleteSong: (id) => request(`/api/songs/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
