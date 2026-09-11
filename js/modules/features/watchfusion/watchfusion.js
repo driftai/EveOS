@@ -11,10 +11,18 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     let busy = false;
     let controllerAvailable = null;
     let detachedWindow = null;
+    let detachedPresence = false;
+    let detachedPresenceUrl = '';
+    let runtimePollTimer = null;
+
+    function registryPort(name, fallback = 0) {
+        return Number(window.EveOSPortRegistry?.get?.(name, fallback)) || Number(fallback) || 0;
+    }
 
     function controlBase() {
         if (window.EveOSLocalControl?.baseUrl) return window.EveOSLocalControl.baseUrl();
-        const port = Number(window.config?.bridges?.localControlPort || window.config?.bridges?.geminiControlPort) || 9082;
+        const port = Number(window.config?.bridges?.localControlPort || window.config?.bridges?.geminiControlPort)
+            || registryPort('GEMINI_CONTROL_PORT');
         return `http://127.0.0.1:${port}`;
     }
 
@@ -31,9 +39,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                 signal: controller.signal
             });
             const payload = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(payload?.message || payload?.error || `WatchFusion request failed (${response.status})`);
-            }
+            if (!response.ok) throw new Error(payload?.message || payload?.error || `WatchFusion request failed (${response.status})`);
             return payload;
         } finally {
             window.clearTimeout(timer);
@@ -70,8 +76,10 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         } catch (error) {
             controllerAvailable = false;
             status = {
-                ...(status || {}), ok: false, running: false, state: 'error',
-                message: error?.message || 'EveOS local control is unavailable.'
+                ...(status || {}), ok: false, state: status?.running ? 'running' : 'degraded',
+                message: status?.running
+                    ? 'WatchFusion is online, but local lifecycle control is unavailable.'
+                    : 'Local control is off. Browse the workspace now; enable control only when you need runtime actions.'
             };
             renderStatus();
             return false;
@@ -84,13 +92,25 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         });
     }
 
+    function setDetachedIndicator(active, url = '') {
+        detachedPresence = Boolean(active);
+        if (url) detachedPresenceUrl = url;
+        document.querySelectorAll('.topbar-watchfusion-btn').forEach((button) => {
+            button.dataset.detached = detachedPresence ? '1' : '0';
+            button.title = detachedPresence ? 'WatchFusion · detached window active' : 'WatchFusion';
+        });
+        const detach = overlay?.querySelector('[data-wf-action="detach"]');
+        if (detach) detach.textContent = detachedPresence ? '↗ Detached' : '↗ Detach';
+    }
+
     function stateLabel() {
         if (busy) return 'Working…';
+        if (status?.running && controllerAvailable === false) return 'Online · control off';
         if (status?.running) return 'Online';
         if (status?.state === 'blocked') return 'Port blocked';
         if (status?.setupRequired) return 'Setup needed';
         if (status?.installed === false) return 'Needs source';
-        if (controllerAvailable === false || status?.state === 'error') return 'Control offline';
+        if (controllerAvailable === false || status?.state === 'degraded') return 'Browse · control off';
         return 'Ready · stopped';
     }
 
@@ -105,8 +125,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         if (!root) return;
         root.replaceChildren();
         const components = status?.components || {};
-        const order = ['core', 'nuvio', 'voxelvision', 'voxelYoutube', 'browserModels'];
-        for (const key of order) {
+        for (const key of ['core', 'nuvio', 'voxelvision', 'voxelYoutube', 'browserModels']) {
             const component = components[key];
             if (!component) continue;
             const card = document.createElement('article');
@@ -140,7 +159,16 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         const url = runtimeUrl();
         if (!url) return 'about:blank';
         url.searchParams.set('eveos', '1');
+        url.searchParams.delete('eveosDetached');
         return url.href;
+    }
+
+    function detachedUrl() {
+        const url = runtimeUrl();
+        if (!url) return null;
+        url.searchParams.delete('eveos');
+        url.searchParams.set('eveosDetached', '1');
+        return url;
     }
 
     function detachedFeatures() {
@@ -163,13 +191,16 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         const running = status?.running === true;
         overlay.dataset.state = running ? 'running' : (status?.state || 'stopped');
         if (badge) badge.textContent = stateLabel();
-        if (message) message.textContent = status?.message || 'Checking WatchFusion…';
+        if (message) message.textContent = status?.message || 'WatchFusion workspace ready.';
         overlay.querySelectorAll('[data-wf-action="start"]').forEach((start) => {
             start.hidden = running || Boolean(status?.setupRequired) || status?.installed === false;
             start.disabled = busy;
         });
         if (stop) stop.hidden = !running;
-        if (detach) detach.disabled = !running || busy || !runtimeUrl();
+        if (detach) {
+            detach.disabled = !running || busy || !runtimeUrl();
+            detach.textContent = detachedPresence ? '↗ Detached' : '↗ Detach';
+        }
         if (setup) {
             setup.hidden = !(status?.setupRequired || status?.installed === false);
             setup.replaceChildren();
@@ -216,40 +247,10 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         overlay.hidden = true;
         overlay.innerHTML = `
             <div class="watchfusion-shell" role="dialog" aria-modal="true" aria-labelledby="watchfusion-title">
-                <header class="watchfusion-shell-head">
-                    <div class="watchfusion-brand">
-                        <span class="watchfusion-brand-mark">◉</span>
-                        <div><strong id="watchfusion-title">WatchFusion</strong><span>Media, VoxelVision, Nuvio, and WatchParty inside EveOS</span></div>
-                    </div>
-                    <div class="watchfusion-head-actions">
-                        <span class="watchfusion-status" data-wf-status>Checking…</span>
-                        <button type="button" data-wf-action="refresh">Refresh</button>
-                        <button type="button" data-wf-action="detach" title="Detach WatchFusion into its own window">↗ Detach</button>
-                        <button type="button" data-wf-action="close" class="watchfusion-close" aria-label="Close WatchFusion">×</button>
-                    </div>
-                </header>
-                <div class="watchfusion-service-bar">
-                    <span data-wf-message>Checking WatchFusion…</span>
-                    <div>
-                        <button type="button" data-wf-action="start">Start WatchFusion</button>
-                        <button type="button" data-wf-action="stop" hidden>Stop</button>
-                    </div>
-                </div>
+                <header class="watchfusion-shell-head"><div class="watchfusion-brand"><span class="watchfusion-brand-mark">◉</span><div><strong id="watchfusion-title">WatchFusion</strong><span>Media, VoxelVision, Nuvio, and WatchParty inside EveOS</span></div></div><div class="watchfusion-head-actions"><span class="watchfusion-status" data-wf-status>Checking…</span><button type="button" data-wf-action="refresh">Refresh</button><button type="button" data-wf-action="detach" title="Detach WatchFusion into its own window">↗ Detach</button><button type="button" data-wf-action="close" class="watchfusion-close" aria-label="Close WatchFusion">×</button></div></header>
+                <div class="watchfusion-service-bar"><span data-wf-message>Checking WatchFusion…</span><div><button type="button" data-wf-action="start">Start WatchFusion</button><button type="button" data-wf-action="stop" hidden>Stop</button></div></div>
                 <div class="watchfusion-setup" data-wf-setup hidden></div>
-                <div class="watchfusion-frame-wrap">
-                    <iframe class="watchfusion-frame" title="WatchFusion" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; web-share" allowfullscreen hidden></iframe>
-                    <div class="watchfusion-idle">
-                        <div class="watchfusion-idle-copy">
-                            <div class="watchfusion-idle-orb">WF</div>
-                            <div><strong>WatchFusion workspace</strong><span>The workspace is available without starting its Node runtime. Review setup below, then start only when you want media/runtime features.</span></div>
-                        </div>
-                        <div class="watchfusion-components" data-wf-components></div>
-                        <div class="watchfusion-idle-actions">
-                            <button type="button" data-wf-action="refresh">Refresh setup</button>
-                            <button type="button" data-wf-action="start">Start WatchFusion</button>
-                        </div>
-                    </div>
-                </div>
+                <div class="watchfusion-frame-wrap"><iframe class="watchfusion-frame" title="WatchFusion" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; web-share" allowfullscreen hidden></iframe><div class="watchfusion-idle"><div class="watchfusion-idle-copy"><div class="watchfusion-idle-orb">WF</div><div><strong>WatchFusion workspace</strong><span>The workspace stays available without starting its Node runtime. Browse readiness below, then start only when live media features are needed.</span></div></div><div class="watchfusion-components" data-wf-components></div><div class="watchfusion-idle-actions"><button type="button" data-wf-action="refresh">Refresh setup</button><button type="button" data-wf-action="start">Start WatchFusion</button></div></div></div>
             </div>`;
         document.body.appendChild(overlay);
         frame = overlay.querySelector('.watchfusion-frame');
@@ -268,14 +269,30 @@ window.EveWatchFusion = window.EveWatchFusion || {};
 
     async function refresh() {
         ensureOverlay();
+        let controlled = null;
         try {
-            status = await request('/api/watchfusion/status');
+            controlled = await request('/api/watchfusion/status');
             controllerAvailable = true;
-        } catch (error) {
+        } catch {
             controllerAvailable = false;
+        }
+
+        const direct = await window.EveWatchFusionRuntimeSensor?.probe?.(controlled?.url || status?.url);
+        if (direct) {
+            const controlWasStale = controllerAvailable && controlled?.running !== true;
             status = {
-                ...(status || {}), ok: false, running: false, state: 'error',
-                message: error?.message || 'Local control is off. The workspace can stay open; Start will offer to enable it.'
+                ...(status || {}), ...(controlled || {}), ok: true, running: true, state: 'running',
+                controllerAvailable, directRuntime: true, port: direct.port, url: direct.url,
+                message: controllerAvailable
+                    ? (controlWasStale ? 'WatchFusion runtime detected directly; lifecycle status was stale and has been reconciled.' : (controlled?.message || 'WatchFusion is online.'))
+                    : 'WatchFusion runtime detected directly. Media stays available; Start/Stop/Setup require local control.'
+            };
+        } else if (controlled) {
+            status = { ...controlled, directRuntime: false };
+        } else {
+            status = {
+                ...(status || {}), ok: true, running: false, state: 'degraded', controllerAvailable: false,
+                message: 'Local control is off. You can still browse WatchFusion feature areas; enable control only when you need live runtime actions.'
             };
         }
         renderStatus();
@@ -313,8 +330,9 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                 frame.dataset.loaded = '';
                 if (!enabled || !status?.running) frame.src = 'about:blank';
             }
+            await refresh();
         } catch (error) {
-            status = { ...(status || {}), running: false, state: 'error', message: error?.message || 'WatchFusion lifecycle request failed.' };
+            status = { ...(status || {}), state: status?.running ? 'running' : 'degraded', message: error?.message || 'WatchFusion lifecycle request failed.' };
         } finally {
             busy = false;
             renderStatus();
@@ -324,12 +342,8 @@ window.EveWatchFusion = window.EveWatchFusion || {};
 
     function detach() {
         if (!status?.running) return null;
-        const targetUrl = runtimeUrl();
-        if (!targetUrl) {
-            status = { ...(status || {}), message: 'WatchFusion is online but did not publish a usable runtime URL. Refresh status and try again.' };
-            renderStatus();
-            return null;
-        }
+        const targetUrl = detachedUrl();
+        if (!targetUrl) return null;
         if (detachedWindow && !detachedWindow.closed) {
             detachedWindow.focus();
             close();
@@ -342,14 +356,29 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             return null;
         }
         detachedWindow.focus();
+        setDetachedIndicator(true, targetUrl.href);
         close();
         return detachedWindow;
+    }
+
+    function startRuntimePolling() {
+        if (runtimePollTimer) return;
+        runtimePollTimer = window.setInterval(() => {
+            if (!busy && overlay && !overlay.hidden) refresh();
+        }, 3000);
+    }
+
+    function stopRuntimePolling() {
+        if (!runtimePollTimer) return;
+        window.clearInterval(runtimePollTimer);
+        runtimePollTimer = null;
     }
 
     async function open() {
         const root = ensureOverlay();
         root.hidden = false;
         setExpanded(true);
+        startRuntimePolling();
         await refresh();
     }
 
@@ -357,24 +386,22 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         if (!overlay) return;
         overlay.hidden = true;
         setExpanded(false);
+        stopRuntimePolling();
     }
 
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && overlay && !overlay.hidden) close();
     });
+    window.addEventListener('eve:watchfusion-presence', (event) => {
+        const detail = event.detail || {};
+        setDetachedIndicator(Boolean(detail.detached), detail.detachedUrl || detachedPresenceUrl);
+    });
 
     Object.assign(api, {
-        ready: true,
-        prepareOpen,
-        open,
-        close,
-        detach,
-        refresh,
-        setupCore,
-        start: () => setRunning(true),
-        stop: () => setRunning(false),
+        ready: true, prepareOpen, open, close, detach, refresh, setupCore,
+        start: () => setRunning(true), stop: () => setRunning(false),
         getDetachedWindow: () => detachedWindow,
-        getState: () => ({ ...(status || {}), open: Boolean(overlay && !overlay.hidden), busy, controllerAvailable })
+        getState: () => ({ ...(status || {}), open: Boolean(overlay && !overlay.hidden), busy, controllerAvailable, detached: detachedPresence, detachedUrl: detachedPresenceUrl })
     });
     probeControl();
     if (window.__eveWatchFusionOpenPending) {
