@@ -32,6 +32,7 @@
         }
     });
 
+    const CONTROL_OFFLINE_TEXT = 'Local control is off. You can still browse WatchFusion and review its feature areas; live setup checks and runtime actions become available when you explicitly start local control.';
     let latestStatus = null;
     let activePanel = 'overview';
 
@@ -153,9 +154,7 @@
         const controlMissing = detail?.controllerAvailable === false
             || detail?.state === 'error'
             || /failed to fetch|networkerror|load failed/i.test(message);
-        if (controlMissing) {
-            return 'Local control is off. You can still browse WatchFusion and review its feature areas; live setup checks and runtime actions become available when you explicitly start local control.';
-        }
+        if (controlMissing) return CONTROL_OFFLINE_TEXT;
         if (detail?.state === 'blocked') {
             const port = Number(detail?.port || 0);
             return port
@@ -163,6 +162,14 @@
                 : 'The registered WatchFusion port is occupied by another process. Stop the conflicting process or change the registered assignment, then refresh.';
         }
         return message;
+    }
+
+    function normalizeVisibleMessage() {
+        const message = document.querySelector('#watchfusion-overlay [data-wf-message]');
+        if (!message) return;
+        if (/failed to fetch|networkerror|load failed|eveos local control is unavailable/i.test(message.textContent || '')) {
+            message.textContent = CONTROL_OFFLINE_TEXT;
+        }
     }
 
     function applyStatus(detail) {
@@ -175,12 +182,17 @@
         if (message && text) message.textContent = text;
         const root = overlay.querySelector('[data-wf-offline-nav]');
         if (root) renderPanel(root);
+        normalizeVisibleMessage();
     }
 
     window.addEventListener('eve:watchfusion-status', (event) => applyStatus(event.detail));
 
-    const observer = new MutationObserver(() => ensureNavigator());
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+    const observer = new MutationObserver(() => {
+        ensureNavigator();
+        normalizeVisibleMessage();
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
     ensureStyle();
     ensureNavigator();
+    normalizeVisibleMessage();
 })();
