@@ -271,13 +271,19 @@ async function installPlanner() {
     }));
   }
 
+  function currentQueueIndex(qState) {
+    if (!qState?.currentId || !Array.isArray(qState.items)) return -1;
+    return qState.items.findIndex(item => String(item.queueId) === String(qState.currentId));
+  }
+
   function updateEditorQueueUI() {
     const song = state.songs.find(item => String(item.id) === String(state.editingId));
     if (!song || !els.queueStatus) return;
     const queue = window.PianoPlayerQueue;
     const pos = queue?.getSongPosition ? queue.getSongPosition(song.id) : -1;
     const qState = queue?.getState ? queue.getState() : null;
-    const isCurrent = pos >= 0 && qState && String(qState.items[qState.currentIndex]?.songId) === String(song.id);
+    const currIdx = currentQueueIndex(qState);
+    const isCurrent = pos >= 0 && currIdx >= 0 && String(qState.items[currIdx]?.songId) === String(song.id);
     if (isCurrent) els.queueStatus.textContent = "NOW PLAYING";
     else if (pos >= 0) els.queueStatus.textContent = `Queued position #${pos + 1}`;
     else els.queueStatus.textContent = "Not queued";
@@ -313,6 +319,7 @@ async function installPlanner() {
   function renderResults() {
     const queue = window.PianoPlayerQueue;
     const qState = queue?.getState ? queue.getState() : null;
+    const currIdx = currentQueueIndex(qState);
     const visible = filteredSongs(state.songs, state.prefs);
     els.count.textContent = `${visible.length} matches`; els.selection.textContent = `${state.selected.size} selected`; els.list.replaceChildren();
     if (!visible.length) { const empty = document.createElement("div"); empty.className = "planner-empty"; empty.textContent = "No songs match the current plan."; els.list.append(empty); return; }
@@ -321,8 +328,8 @@ async function installPlanner() {
       const custom = song.identifiers?.custom || {};
       const pos = queue?.getSongPosition ? queue.getSongPosition(song.id) : -1;
       const inQueue = pos >= 0;
-      const isCurrent = inQueue && qState && String(qState.items[qState.currentIndex]?.songId) === String(song.id);
-      const isNext = inQueue && qState && String(qState.items[qState.currentIndex + 1]?.songId) === String(song.id);
+      const isCurrent = inQueue && currIdx >= 0 && String(qState.items[currIdx]?.songId) === String(song.id);
+      const isNext = inQueue && currIdx >= 0 && String(qState.items[currIdx + 1]?.songId) === String(song.id);
 
       const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = state.selected.has(song.id); checkbox.addEventListener("change", () => { checkbox.checked ? state.selected.add(song.id) : state.selected.delete(song.id); renderResults(); });
       const favBtn = document.createElement("button"); favBtn.type = "button"; favBtn.className = `planner-fav-btn ${isFavorite(song) ? "active" : ""}`; favBtn.textContent = isFavorite(song) ? "★" : "☆"; favBtn.title = isFavorite(song) ? "Unfavorite" : "Favorite"; favBtn.addEventListener("click", () => void toggleFavorite(song));
@@ -405,6 +412,7 @@ async function installPlanner() {
     els.qUp?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s && window.PianoPlayerQueue) { window.PianoPlayerQueue.moveSong(s.id, -1); updateEditorQueueUI(); renderResults(); } });
     els.qDown?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s && window.PianoPlayerQueue) { window.PianoPlayerQueue.moveSong(s.id, 1); updateEditorQueueUI(); renderResults(); } });
     window.addEventListener("piano:queue-updated", () => { renderResults(); updateEditorQueueUI(); });
+    window.addEventListener("piano:unified-refresh-requested", () => void refresh());
   }
 
   bind(); await refresh();

@@ -33,12 +33,12 @@
             styleReadyPromise = Promise.all([
                 stylesheetReady(
                     'link[data-eve-watchfusion-style]',
-                    'css/modules/watchfusion.css?v=f5aa920d43cf',
+                    'css/modules/watchfusion.css?v=5468012d9c0a',
                     'eveWatchfusionStyle'
                 ),
                 stylesheetReady(
                     'link[data-eve-watchfusion-resilience-style]',
-                    'css/modules/watchfusion-resilience.css?v=7c7e33b8a8bd',
+                    'css/modules/watchfusion-resilience.css?v=0d471f11203d',
                     'eveWatchfusionResilienceStyle'
                 )
             ]);

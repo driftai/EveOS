@@ -41,7 +41,7 @@
         if (document.querySelector('link[data-eve-watchfusion-resilience-style]')) return;
         const link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = 'css/modules/watchfusion-resilience.css?v=7c7e33b8a8bd';
+        link.href = 'css/modules/watchfusion-resilience.css?v=0d471f11203d';
         link.dataset.eveWatchfusionResilienceStyle = '1';
         document.head.appendChild(link);
     }

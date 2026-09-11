@@ -381,6 +381,7 @@ async function refreshLibrary() {
       els.library.append(resultNode(song.title, type, [actionButton("Load", "primary small", () => loadSong(song)), actionButton("Export", "ghost small", () => libraryTransfer.exportSong(song)), actionButton("Delete", "danger small", () => deleteSong(song))], song.performance?.length ? "Recording" : "Sheet"));
     }
   } catch (error) { els.library.innerHTML = `<div class="empty">${error.message}</div>`; }
+  window.dispatchEvent(new CustomEvent("piano:unified-refresh-requested"));
 }
 
 function loadSong(song) {
