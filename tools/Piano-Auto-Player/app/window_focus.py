@@ -43,41 +43,12 @@ if IS_WINDOWS:
     user32.BringWindowToTop.restype = wintypes.BOOL
     user32.AttachThreadInput.argtypes = (wintypes.DWORD, wintypes.DWORD, wintypes.BOOL)
     user32.AttachThreadInput.restype = wintypes.BOOL
-    user32.OpenWindowStationW.argtypes = (wintypes.LPCWSTR, wintypes.BOOL, wintypes.DWORD)
-    user32.OpenWindowStationW.restype = wintypes.HANDLE
-    user32.SetProcessWindowStation.argtypes = (wintypes.HANDLE,)
-    user32.SetProcessWindowStation.restype = wintypes.BOOL
-    user32.OpenDesktopW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-    user32.OpenDesktopW.restype = wintypes.HANDLE
-    user32.SetThreadDesktop.argtypes = (wintypes.HANDLE,)
-    user32.SetThreadDesktop.restype = wintypes.BOOL
     kernel32.GetCurrentThreadId.restype = wintypes.DWORD
-
-
-def ensure_interactive_desktop() -> None:
-    r"""Bind a worker thread to the interactive WinSta0\Default desktop.
-
-    Background worker threads can otherwise observe GetForegroundWindow()==0 on
-    Windows. Keeping this helper small makes focus checks reliable for playback
-    and the target-focus watcher without creating a new desktop/window.
-    """
-    if not IS_WINDOWS:
-        return
-    try:
-        station = user32.OpenWindowStationW("WinSta0", False, 0x00020000 | 0x037F)
-        if station:
-            user32.SetProcessWindowStation(station)
-            desktop = user32.OpenDesktopW("Default", 0, False, 0x01FF)
-            if desktop:
-                user32.SetThreadDesktop(desktop)
-    except OSError:
-        pass
 
 
 def foreground_window() -> int:
     if not IS_WINDOWS:
         return 0
-    ensure_interactive_desktop()
     return int(user32.GetForegroundWindow() or 0)
 
 
@@ -88,7 +59,6 @@ def is_foreground(hwnd: int) -> bool:
 def list_windows() -> list[dict[str, object]]:
     if not IS_WINDOWS:
         return []
-    ensure_interactive_desktop()
     results: list[dict[str, object]] = []
     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
@@ -175,7 +145,6 @@ def background_target_info(hwnd: int) -> dict[str, object]:
 def resolve_window(title_contains: str, hwnd: int = 0) -> tuple[int, str]:
     if not IS_WINDOWS:
         return 0, "Window targeting is only available on Windows."
-    ensure_interactive_desktop()
     if hwnd:
         title = window_title(hwnd)
         if title:
@@ -196,7 +165,6 @@ def focus_window(title_contains: str, hwnd: int = 0) -> tuple[bool, str]:
     if not target:
         return False, title
 
-    ensure_interactive_desktop()
     target_handle = wintypes.HWND(target)
     current_tid = int(kernel32.GetCurrentThreadId())
     target_tid = int(user32.GetWindowThreadProcessId(target_handle, None))
