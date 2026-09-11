@@ -133,6 +133,7 @@ if errorlevel 1 (
     if exist "%_EVE_START_LOG%" type "%_EVE_START_LOG%"
     echo.
     pause
+    set "EVEOS_EXPOSURE_MODE="
     exit /b 1
 )
 
@@ -151,6 +152,9 @@ if /I "%EVEOS_EXPOSURE_MODE%"=="lan" (
 ) else (
     echo [READY] Localhost only: http://127.0.0.1:%_EVE_START_PORT%/EveOS.html
 )
+rem Exposure selection is per launch, not a sticky process-wide preference.
+set "EVEOS_EXPOSURE_MODE="
+set "_EVE_BIND_HOST="
 exit /b 0
 
 :WaitForEveServer
