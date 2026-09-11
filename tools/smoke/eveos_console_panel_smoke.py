@@ -98,7 +98,7 @@ def check_overview():
     original = (H.eveos_web_control.get_status, H.gemini_control.get_status,
                 H.world_book_control.get_status)
     try:
-        H.eveos_web_control.get_status = lambda: {"running": True, "port": 8765}
+        H.eveos_web_control.get_status = lambda *a, **k: {"running": True, "port": 8765}
         H.gemini_control.get_status = lambda: {"running": False, "websocketPort": 9085,
                                                "statusPort": 9086}
         # A status call that blows up must not take the whole panel with it: one broken service
@@ -130,7 +130,7 @@ def check_overview():
         # The overview measured ~1.8s (a netstat sweep plus three health probes). Answering a
         # toggle with it made the switch look broken: it moved, and nothing else did for seconds.
         probed = []
-        H.eveos_web_control.get_status = lambda: probed.append("web") or {"running": True,
+        H.eveos_web_control.get_status = lambda *a, **k: probed.append("web") or {"running": True,
                                                                          "port": 8765}
         preferences = H._console_preferences()
         check(not probed, "setting a console preference probes no service; it starts nothing")

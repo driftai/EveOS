@@ -86,7 +86,7 @@ def main():
     try:
         H.world_book_control.stop_server = lambda: calls.append("worldBook") or {"ok": True}
         H.gemini_control.stop_server = lambda: calls.append("gemini") or {"ok": True}
-        H.eveos_web_control.stop_server = lambda: calls.append("web") or {"ok": True, "running": False}
+        H.eveos_web_control.stop_server = lambda *a, **k: calls.append("web") or {"ok": True, "running": False}
         H._SERVER = _FakeServer()
 
         payload = H._stop_everything()

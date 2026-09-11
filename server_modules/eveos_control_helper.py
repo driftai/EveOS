@@ -108,7 +108,8 @@ def _console_overview(web_port=None) -> dict:
     prefs = eveos_console_prefs.read_all()
     services = []
     status_specs = (
-        ("web", "EveOS localhost", lambda: eveos_web_control.get_status(port=web_port),
+        ("web", "EveOS localhost",
+         (lambda: eveos_web_control.get_status()) if web_port is None else (lambda: eveos_web_control.get_status(port=web_port)),
          lambda s: [s.get("port")]),
         ("gemini", "Gemini backend", gemini_control.get_status,
          lambda s: [s.get("websocketPort"), s.get("statusPort")]),
@@ -151,7 +152,11 @@ def _stop_everything(web_port=None) -> dict:
         except Exception as exc:  # noqa: BLE001
             also[name] = f"error: {exc}"
 
-    payload = eveos_web_control.stop_server(port=web_port)
+    payload = (
+        eveos_web_control.stop_server()
+        if web_port is None
+        else eveos_web_control.stop_server(port=web_port)
+    )
     payload["stoppedAlso"] = also
     payload["controlPlaneStopping"] = _shutdown_plane_after_response()
     return payload
