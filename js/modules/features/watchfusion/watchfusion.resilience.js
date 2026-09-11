@@ -33,6 +33,7 @@
     });
 
     const CONTROL_OFFLINE_TEXT = 'Local control is off. You can still browse WatchFusion and review its feature areas; live setup checks and runtime actions become available when you explicitly start local control.';
+    const LIVE_WITHOUT_CONTROL_TEXT = 'WatchFusion is online. Live media stays available; local lifecycle/setup control can be enabled separately when you need it.';
     let latestStatus = null;
     let activePanel = 'overview';
 
@@ -154,7 +155,9 @@
         const message = String(detail?.message || '');
         const controlMissing = detail?.controllerAvailable === false
             || detail?.state === 'error'
+            || detail?.state === 'degraded'
             || /failed to fetch|networkerror|load failed/i.test(message);
+        if (detail?.running === true && controlMissing) return LIVE_WITHOUT_CONTROL_TEXT;
         if (controlMissing) return CONTROL_OFFLINE_TEXT;
         if (detail?.state === 'blocked') {
             const port = Number(detail?.port || 0);
@@ -169,7 +172,7 @@
         const message = document.querySelector('#watchfusion-overlay [data-wf-message]');
         if (!message) return;
         if (/failed to fetch|networkerror|load failed|eveos local control is unavailable/i.test(message.textContent || '')) {
-            message.textContent = CONTROL_OFFLINE_TEXT;
+            message.textContent = latestStatus?.running ? LIVE_WITHOUT_CONTROL_TEXT : CONTROL_OFFLINE_TEXT;
         }
     }
 
