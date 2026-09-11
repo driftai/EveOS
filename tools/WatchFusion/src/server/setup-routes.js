@@ -185,8 +185,7 @@ function runProcess(command, args, { cwd = PROJECT_ROOT, env = process.env, time
 }
 
 async function runBatch(script, env) {
-  const command = `call "${script}"`;
-  return runProcess('cmd.exe', ['/d', '/s', '/c', command], { cwd: PROJECT_ROOT, env });
+  return runProcess('cmd.exe', ['/d', '/c', script], { cwd: PROJECT_ROOT, env });
 }
 
 async function installNuvio() {

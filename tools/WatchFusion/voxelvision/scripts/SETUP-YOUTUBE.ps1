@@ -15,10 +15,17 @@ $tempDir = Join-Path $tools 'helper-download'
 New-Item -ItemType Directory -Force -Path $tools | Out-Null
 
 function Test-Executable {
-  param([string]$Path, [string[]]$Args)
+  param(
+    [string]$Path,
+    [string[]]$Arguments = @()
+  )
   if (-not (Test-Path -LiteralPath $Path)) { return $false }
   try {
-    $process = Start-Process -FilePath $Path -ArgumentList $Args -NoNewWindow -PassThru -Wait
+    if ($Arguments -and $Arguments.Count -gt 0) {
+      $process = Start-Process -FilePath $Path -ArgumentList $Arguments -NoNewWindow -PassThru -Wait
+    } else {
+      $process = Start-Process -FilePath $Path -NoNewWindow -PassThru -Wait
+    }
     return $process.ExitCode -eq 0
   } catch {
     return $false
@@ -44,10 +51,10 @@ $nodeMajor = Get-NodeMajor
 
 Write-Host '[1/3] Installing/updating official yt-dlp.exe...'
 $ytDlpUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
-if ($Force -or -not (Test-Executable -Path $ytDlp -Args @('--version'))) {
+if ($Force -or -not (Test-Executable -Path $ytDlp -Arguments @('--version'))) {
   Invoke-WebRequest -UseBasicParsing -Uri $ytDlpUrl -OutFile $ytDlp
 }
-if (-not (Test-Executable -Path $ytDlp -Args @('--version'))) {
+if (-not (Test-Executable -Path $ytDlp -Arguments @('--version'))) {
   throw 'yt-dlp.exe was downloaded but did not start successfully.'
 }
 Write-Host '[OK] yt-dlp.exe is ready (official executable includes yt-dlp EJS scripts).'
@@ -59,7 +66,7 @@ if ($nodeMajor -ge 22) {
   Write-Host "Node.js 22+ is not available (detected major: $nodeMajor). Installing portable Deno fallback..."
   $denoArchive = if ($isArm64) { 'deno-aarch64-pc-windows-msvc.zip' } else { 'deno-x86_64-pc-windows-msvc.zip' }
   $denoUrl = "https://github.com/denoland/deno/releases/latest/download/$denoArchive"
-  if ($Force -or -not (Test-Executable -Path $deno -Args @('--version'))) {
+  if ($Force -or -not (Test-Executable -Path $deno -Arguments @('--version'))) {
     try {
       Reset-Temp
       Invoke-WebRequest -UseBasicParsing -Uri $denoUrl -OutFile $tempZip
@@ -71,7 +78,7 @@ if ($nodeMajor -ge 22) {
       Reset-Temp
     }
   }
-  if (-not (Test-Executable -Path $deno -Args @('--version'))) {
+  if (-not (Test-Executable -Path $deno -Arguments @('--version'))) {
     throw 'Node.js is below 22 and portable Deno is unavailable. YouTube EJS challenges cannot run.'
   }
   Write-Host '[OK] Portable Deno is ready for yt-dlp EJS challenge solving.'
@@ -84,7 +91,7 @@ $archiveName = if ($isArm64) {
   'ffmpeg-master-latest-win64-gpl.zip'
 }
 $ffmpegUrl = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/$archiveName"
-$needFfmpeg = $Force -or -not (Test-Executable -Path $ffmpeg -Args @('-version')) -or -not (Test-Executable -Path $ffprobe -Args @('-version'))
+$needFfmpeg = $Force -or -not (Test-Executable -Path $ffmpeg -Arguments @('-version')) -or -not (Test-Executable -Path $ffprobe -Arguments @('-version'))
 
 if ($needFfmpeg) {
   try {
@@ -103,10 +110,10 @@ if ($needFfmpeg) {
   }
 }
 
-if (-not (Test-Executable -Path $ffmpeg -Args @('-version'))) {
+if (-not (Test-Executable -Path $ffmpeg -Arguments @('-version'))) {
   throw 'Portable ffmpeg.exe is unavailable after setup.'
 }
-if (-not (Test-Executable -Path $ffprobe -Args @('-version'))) {
+if (-not (Test-Executable -Path $ffprobe -Arguments @('-version'))) {
   throw 'Portable ffprobe.exe is unavailable after setup.'
 }
 

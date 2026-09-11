@@ -37,7 +37,9 @@ const EXCLUDED_PATH_PREFIXES = [
     // World Portal bundles the independently maintained GPL Orogen application.
     'tools/World-Book/tools/World-Portal/outer/orogen/',
     // WatchFusion bundles the independently maintained VoxelVision engine.
-    'tools/WatchFusion/voxelvision/'
+    'tools/WatchFusion/voxelvision/',
+    // WatchFusion downloads the external Nuvio smart TV client on demand.
+    'tools/WatchFusion/nuvio/'
 ];
 
 function countPhysicalLines(filePath) {

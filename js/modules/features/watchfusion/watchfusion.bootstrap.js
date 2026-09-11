@@ -7,7 +7,7 @@
         if (document.querySelector('link[data-eve-watchfusion-style]')) return;
         const link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = 'css/modules/watchfusion.css?v=3dd069eeb9aa';
+        link.href = 'css/modules/watchfusion.css?v=8bcf5bebf6da';
         link.dataset.eveWatchfusionStyle = '1';
         document.head.appendChild(link);
     }

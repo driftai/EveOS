@@ -16,11 +16,13 @@ const SKIP_DIRS = new Set([
 const SKIP_PREFIXES = [
     path.join('data', 'modular-state'),
     path.join('data', 'modular-packs'),
-    path.join('tools', 'camofox-runtime', 'node_modules')
+    path.join('tools', 'camofox-runtime', 'node_modules'),
+    path.join('tools', 'WatchFusion', 'nuvio')
 ];
 const LINE_LIMIT_EXEMPT_PREFIXES = [
     'tools/World-Book/tools/World-Portal/outer/orogen/',
-    'tools/WatchFusion/voxelvision/'
+    'tools/WatchFusion/voxelvision/',
+    'tools/WatchFusion/nuvio/'
 ];
 const RUNTIME_SOURCE_PREFIXES = ['js/', 'css/', 'server/', 'server_modules/'];
 const MOJIBAKE_MARKERS = [

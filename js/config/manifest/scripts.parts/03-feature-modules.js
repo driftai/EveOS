@@ -16,6 +16,6 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/features/social-manager/social-manager-modal.js?v=789e6ce482c7",
     "js/modules/features/gemini-ask-bar.insights.js?v=1b1f2ebd55b1",
     "js/modules/features/gemini-ask-bar.js?v=dacfcd8f9d6d",
-    "js/modules/features/watchfusion/watchfusion.bootstrap.js?v=94facec73a21",
-    "js/modules/features/watchfusion/watchfusion.js?v=15c77e61ef53"
+    "js/modules/features/watchfusion/watchfusion.bootstrap.js?v=15e67bf74e25",
+    "js/modules/features/watchfusion/watchfusion.js?v=7c267d766a19"
 ]);
