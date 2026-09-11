@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>WatchFusion</title>
+  <script>
+    (function () {
+      try {
+        if (new URLSearchParams(location.search).get('eveos') === '1') {
+          document.documentElement.classList.add('eveos-embedded');
+        }
+      } catch (_) {}
+    })();
+  </script>
   <link rel="stylesheet" href="/theme.css">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/setup.css">
