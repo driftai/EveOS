@@ -67,6 +67,14 @@ def effective_ports() -> dict[str, int]:
     return {name: service_port(name) for name in _registry()["ports"]}
 
 
+def bootstrap_environment() -> dict[str, int]:
+    """Populate unset service-port environment variables from the canonical registry."""
+    values = registered_ports()
+    for name, port in values.items():
+        os.environ.setdefault(name, str(port))
+    return {name: service_port(name) for name in values}
+
+
 def conflicts(*, effective: bool = True) -> dict[int, list[str]]:
     values = effective_ports() if effective else registered_ports()
     owners: dict[int, list[str]] = {}
