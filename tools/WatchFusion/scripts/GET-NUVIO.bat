@@ -17,7 +17,7 @@ if "%MISSING%"=="0" (
   echo Nuvio installation is present and valid:
   echo   %TARGET%
   echo WatchFusion can use this location directly.
-  pause
+  call :PAUSE_IF_INTERACTIVE
   exit /b 0
 )
 
@@ -52,12 +52,17 @@ echo.
 echo Nuvio installation is ready at:
 echo   %TARGET%
 echo Run BUILD-NUVIO.bat next to compile the browser bundle.
-pause
+call :PAUSE_IF_INTERACTIVE
 exit /b 0
 
 :FAIL
 del /q "%ZIP%" >nul 2>nul
 rmdir /s /q "%UNPACK%" >nul 2>nul
 echo ERROR: Nuvio install/repair failed.
-pause
+call :PAUSE_IF_INTERACTIVE
 exit /b 1
+
+:PAUSE_IF_INTERACTIVE
+if /I "%WATCHFUSION_NONINTERACTIVE%"=="1" goto :eof
+pause
+goto :eof
