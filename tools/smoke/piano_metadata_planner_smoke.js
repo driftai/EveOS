@@ -11,6 +11,8 @@ const API = fs.readFileSync(path.join(WEB, 'api.js'), 'utf8');
 const PLANNER = fs.readFileSync(path.join(WEB, 'player_queue_advanced.js'), 'utf8');
 const CSS = fs.readFileSync(path.join(WEB, 'player_queue_advanced.css'), 'utf8');
 const BRIDGE = fs.readFileSync(path.join(WEB, 'eveos-host-bridge.js'), 'utf8');
+const UNIFIED = fs.readFileSync(path.join(WEB, 'piano_unified_workspace.js'), 'utf8');
+const UNIFIED_CSS = fs.readFileSync(path.join(WEB, 'piano_unified_workspace.css'), 'utf8');
 const TRANSFER = fs.readFileSync(path.join(APP, 'library_transfer.py'), 'utf8');
 
 for (const token of [
@@ -20,7 +22,7 @@ for (const token of [
 ]) assert(LIBRARY.includes(token), `library metadata contract missing: ${token}`);
 
 for (const token of [
-  'ADVANCED PLAYBACK', 'Send to Queue', 'Replace Queue', 'Play selected', 'Shuffle selected',
+  'Send to Queue', 'Replace Queue', 'Play selected', 'Shuffle selected',
   'Save identifiers', 'automatic_identifiers', 'personal_rating', 'conversion_rating',
   'Required tag', 'Min events', 'Max events', 'Custom identifiers', 'piano_player_planner_v1',
   '/api/songs/identifiers', 'PianoPlayerQueue', 'addSongs', 'document.createTextNode'
@@ -28,6 +30,17 @@ for (const token of [
 
 for (const token of ['sheet-workspace-planner', 'planner-filterbar', 'planner-grid', 'planner-editor', '@media (max-width: 760px)']) {
   assert(CSS.includes(token), `planner CSS contract missing: ${token}`);
+}
+
+for (const token of [
+  'My Songs', 'PIANO LIBRARY / WORKSPACE', 'NOW PLAYING', 'Queue mode',
+  'SONG / RECORDING DETAILS', 'THIS SONG OVERRIDE · blank = global default',
+  "const LEGACY_QUEUE = '.sheet-workspace-queue'", "const LEGACY_LIBRARY = '.library-panel'",
+  "queuePanel.hidden = true", "libraryPanel.hidden = true", "data-u-mode", 'PianoPlayerQueue'
+]) assert(UNIFIED.includes(token), `unified Piano workspace contract missing: ${token}`);
+
+for (const token of ['.piano-unified-workspace', '.piano-now-playing', '.piano-unified-head', '.library-panel[hidden][data-compatibility-bridge]', '@media (max-width: 760px)']) {
+  assert(UNIFIED_CSS.includes(token), `unified Piano workspace CSS contract missing: ${token}`);
 }
 
 assert(SERVER.includes('if path == "/api/songs/identifiers"'), 'server must expose a metadata-only update route');
@@ -39,10 +52,13 @@ assert(!PLANNER.includes('node.innerHTML = `<b>${key}</b>${String(value)}`'), 'a
 assert(!PLANNER.includes('pianoSongId'), 'planner must not couple queue operations to library-card array order');
 assert(!PLANNER.includes('textContent.trim() === "Queue"'), 'planner must not locate queue actions by visible button text');
 assert(LIBRARY.includes('if "custom" in patch:'), 'explicit custom metadata updates must support deletion/replacement');
-assert(BRIDGE.includes("import('./player_queue.js')") && BRIDGE.includes("import('./player_queue_advanced.js')"), 'bridge must load the advanced planner after Player Queue');
+assert(BRIDGE.includes("import('./player_queue.js')") && BRIDGE.includes("import('./player_queue_advanced.js')") && BRIDGE.includes("import('./piano_unified_workspace.js')"), 'bridge must load queue, metadata controller, then the unified visible workspace');
+assert(BRIDGE.indexOf("import('./player_queue.js')") < BRIDGE.indexOf("import('./player_queue_advanced.js')") && BRIDGE.indexOf("import('./player_queue_advanced.js')") < BRIDGE.indexOf("import('./piano_unified_workspace.js')"), 'unified Piano workspace must load only after proven queue and metadata controllers');
 assert(BRIDGE.includes('piano:module-error') && !BRIDGE.includes('.catch(() => {})'), 'bridge must surface module load failures');
 assert(TRANSFER.includes('json.dumps({"format": _FORMAT_SONG, "schema": _SCHEMA, "song": song}'), 'library export must continue carrying the full song record');
+assert(UNIFIED.includes("dataset.compatibilityBridge = 'player-queue'") && UNIFIED.includes("dataset.compatibilityBridge = 'local-library'"), 'old queue/library panels must remain compatibility bridges rather than separate visible workspaces');
 assert(PLANNER.split(/\r?\n/).length < 450, 'advanced planner exceeds the 450-line first-party cap');
+assert(UNIFIED.split(/\r?\n/).length < 450, 'unified workspace adapter exceeds the 450-line first-party cap');
 assert(LIBRARY.split(/\r?\n/).length < 450, 'song library exceeds the 450-line first-party cap');
 console.log('PIANO_METADATA_PLANNER_SMOKE_OK');
 
