@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { publicState, createRoom, joinMember, appendChat } from '../../../src/server/room-store.js';
 import { handleSystemRoute } from '../../../src/server/system-routes.js';
@@ -6,7 +8,7 @@ import { handleSetupRoute } from '../../../src/server/setup-routes.js';
 import { handleNuvioRoute } from '../../../src/server/nuvio-routes.js';
 import { handleVoxelVisionRoute } from '../../../src/server/voxelvision-routes.js';
 import { applyApiCors } from '../../../src/server/http-utils.js';
-import { isContainedPath } from '../../../src/server/static-files.js';
+import { isContainedPath, resolveContainedFile } from '../../../src/server/static-files.js';
 import { assertPublicHttpUrl } from '../../../src/server/public-url.js';
 
 function mockResponse() {
@@ -206,6 +208,31 @@ export async function runSecuritySmokes() {
     assert.equal(isContainedPath(root, path.resolve(root, '..', 'server.js')), false);
     assert.equal(isContainedPath(root, path.resolve(root, '..', '..', 'Windows', 'System32')), false);
     assert.equal(isContainedPath(root, path.resolve(root, 'client', '..', '..', 'package.json')), false);
+  });
+
+  await check('SEC-STATIC-REALPATH-CONTAINMENT', async () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'watchfusion-containment-'));
+    const root = path.join(temp, 'public');
+    const inside = path.join(root, 'inside.txt');
+    const outside = path.join(temp, 'outside.txt');
+    try {
+      fs.mkdirSync(root, { recursive: true });
+      fs.writeFileSync(inside, 'inside');
+      fs.writeFileSync(outside, 'outside');
+      const safe = await resolveContainedFile(root, inside);
+      assert.ok(safe?.file);
+      assert.equal(await resolveContainedFile(root, outside), null);
+
+      const link = path.join(root, 'escape.txt');
+      try {
+        fs.symlinkSync(outside, link, 'file');
+        assert.equal(await resolveContainedFile(root, link), null);
+      } catch (error) {
+        if (!['EPERM', 'EACCES', 'ENOTSUP'].includes(error?.code)) throw error;
+      }
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
   });
 
   await check('SEC-MEDIA-SSRF-BOUNDARY', async () => {
