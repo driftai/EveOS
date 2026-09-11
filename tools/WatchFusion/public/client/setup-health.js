@@ -37,7 +37,7 @@ function setupCard(label, state, message, { action = null, disabled = false } = 
     button.className = 'secondary setup-action';
     button.dataset.setupInstall = action;
     button.disabled = Boolean(disabled);
-    button.textContent = state === 'Ready' ? 'Update / Repair' : 'Install / Repair';
+    button.textContent = state === 'Ready' ? 'Repair / Rebuild' : 'Install / Repair';
     card.append(button);
   }
   return card;
