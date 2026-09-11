@@ -3,7 +3,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     'use strict';
     const api = window.EveWatchFusion;
     if (api.ready) return;
-
     const DETACHED_WINDOW_NAME = 'eveWatchFusionWindow';
     let overlay = null;
     let frame = null;
@@ -19,18 +18,13 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     function registryPort(name, fallback = 0) {
         return Number(window.EveOSPortRegistry?.get?.(name, fallback)) || Number(fallback) || 0;
     }
-
-    function sensor() {
-        return window.EveWatchFusionRuntimeSensor;
-    }
-
+    function sensor() { return window.EveWatchFusionRuntimeSensor; }
     function controlBase() {
         if (window.EveOSLocalControl?.baseUrl) return window.EveOSLocalControl.baseUrl();
         const port = Number(window.config?.bridges?.localControlPort || window.config?.bridges?.geminiControlPort)
             || registryPort('GEMINI_CONTROL_PORT');
         return `http://127.0.0.1:${port}`;
     }
-
     async function request(path, options = {}) {
         const { timeoutMs: requestedTimeout, ...fetchOptions } = options;
         const timeoutMs = Number(requestedTimeout) > 0 ? Number(requestedTimeout) : 6000;
@@ -50,23 +44,9 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             window.clearTimeout(timer);
         }
     }
-
-    async function probeControl() {
-        try {
-            await window.EveOSLocalControl?.health?.(1000);
-            controllerAvailable = true;
-        } catch {
-            controllerAvailable = false;
-        }
-        return controllerAvailable;
-    }
-
     function prepareOpen() {
-        // Opening WatchFusion is presentation-only. Never launch a terminal or
-        // service from the header click; explicit Start/Setup actions do that.
-        probeControl();
+        // Presentation-only: the header must never start a terminal or runtime.
     }
-
     async function verifyWatchFusionControl() {
         try {
             const snapshot = await request('/api/watchfusion/status');
@@ -85,7 +65,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             return false;
         }
     }
-
     async function ensureControl() {
         if (controllerAvailable === true && controlPortCurrent === true) return true;
         try {
@@ -110,13 +89,11 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             return false;
         }
     }
-
     function setExpanded(expanded) {
         document.querySelectorAll('.topbar-watchfusion-btn').forEach((button) => {
             button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
         });
     }
-
     function setDetachedIndicator(active, url = '') {
         detachedPresence = Boolean(active);
         if (url) detachedPresenceUrl = url;
@@ -127,7 +104,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         const detach = overlay?.querySelector('[data-wf-action="detach"]');
         if (detach) detach.textContent = detachedPresence ? '↗ Detached' : '↗ Detach';
     }
-
     function stateLabel() {
         if (busy) return 'Working…';
         if (controlPortCurrent === false) return status?.running ? 'Online · restart control' : 'Restart control';
@@ -139,13 +115,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         if (controllerAvailable === false || status?.state === 'degraded') return 'Browse · control off';
         return 'Ready · stopped';
     }
-
-    function componentState(component) {
-        if (component?.ready === true) return 'Ready';
-        if (component?.ready === false) return 'Needs setup';
-        return 'On demand';
-    }
-
     function renderComponents() {
         const root = overlay?.querySelector('[data-wf-components]');
         if (!root) return;
@@ -161,7 +130,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             const label = document.createElement('strong');
             const badge = document.createElement('span');
             label.textContent = component.label || key;
-            badge.textContent = componentState(component);
+            badge.textContent = component?.ready === true ? 'Ready' : component?.ready === false ? 'Needs setup' : 'On demand';
             head.append(label, badge);
             const text = document.createElement('p');
             text.textContent = component.message || '';
@@ -169,7 +138,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             root.append(card);
         }
     }
-
     function runtimeUrl() {
         const raw = String(status?.url || '').trim();
         if (!raw) return null;
@@ -180,7 +148,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             return null;
         }
     }
-
     function embeddedUrl() {
         const url = runtimeUrl();
         if (!url) return 'about:blank';
@@ -188,7 +155,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         url.searchParams.delete('eveosDetached');
         return url.href;
     }
-
     function detachedUrl() {
         const url = runtimeUrl();
         if (!url) return null;
@@ -196,7 +162,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         url.searchParams.set('eveosDetached', '1');
         return url;
     }
-
     function detachedFeatures() {
         const availableWidth = Math.max(900, Number(window.screen?.availWidth) || 1440);
         const availableHeight = Math.max(680, Number(window.screen?.availHeight) || 900);
@@ -206,7 +171,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         const top = Math.max(0, Math.round((availableHeight - height) / 2));
         return `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
     }
-
     function renderStatus() {
         if (!overlay) return;
         const badge = overlay.querySelector('[data-wf-status]');
@@ -267,7 +231,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             }
         }
     }
-
     function ensureOverlay() {
         if (overlay) return overlay;
         overlay = document.createElement('section');
@@ -295,7 +258,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         });
         return overlay;
     }
-
     async function refresh() {
         ensureOverlay();
         let controlled = null;
@@ -307,7 +269,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             controllerAvailable = false;
             controlPortCurrent = null;
         }
-
         const direct = await sensor()?.probe?.(controlPortCurrent === false ? null : (controlled?.url || status?.url));
         if (direct) {
             const controlWasStale = controllerAvailable && (controlPortCurrent === false || controlled?.running !== true);
@@ -340,7 +301,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         window.dispatchEvent(new CustomEvent('eve:watchfusion-status', { detail: { ...status } }));
         return status;
     }
-
     async function setupCore() {
         if (busy) return status;
         busy = true;
@@ -359,7 +319,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         }
         return status;
     }
-
     async function setRunning(enabled) {
         if (busy) return status;
         busy = true;
@@ -380,7 +339,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         }
         return status;
     }
-
     function detach() {
         if (!status?.running) return null;
         const targetUrl = detachedUrl();
@@ -401,20 +359,17 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         close();
         return detachedWindow;
     }
-
     function startRuntimePolling() {
         if (runtimePollTimer) return;
         runtimePollTimer = window.setInterval(() => {
             if (!busy && overlay && !overlay.hidden) refresh();
         }, 3000);
     }
-
     function stopRuntimePolling() {
         if (!runtimePollTimer) return;
         window.clearInterval(runtimePollTimer);
         runtimePollTimer = null;
     }
-
     async function open() {
         const root = ensureOverlay();
         root.hidden = false;
@@ -422,14 +377,12 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         startRuntimePolling();
         await refresh();
     }
-
     function close() {
         if (!overlay) return;
         overlay.hidden = true;
         setExpanded(false);
         stopRuntimePolling();
     }
-
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && overlay && !overlay.hidden) close();
     });
@@ -437,7 +390,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         const detail = event.detail || {};
         setDetachedIndicator(Boolean(detail.detached), detail.detachedUrl || detachedPresenceUrl);
     });
-
     Object.assign(api, {
         ready: true, prepareOpen, open, close, detach, refresh, setupCore,
         start: () => setRunning(true), stop: () => setRunning(false),
@@ -448,7 +400,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             detachedUrl: detachedPresenceUrl, presence: sensor()?.heartbeatState?.() || null
         })
     });
-    probeControl();
     if (window.__eveWatchFusionOpenPending) {
         window.__eveWatchFusionOpenPending = false;
         open();
