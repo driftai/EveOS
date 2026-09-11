@@ -36,12 +36,23 @@ for (const token of [
   'My Songs', 'PIANO LIBRARY / WORKSPACE', 'NOW PLAYING', 'Queue mode',
   'SONG / RECORDING DETAILS', 'THIS SONG OVERRIDE · blank = global default',
   "const LEGACY_QUEUE = '.sheet-workspace-queue'", "const LEGACY_LIBRARY = '.library-panel'",
-  "queuePanel.hidden = true", "libraryPanel.hidden = true", "data-u-mode", 'PianoPlayerQueue'
+  "queuePanel.hidden = true", "libraryPanel.hidden = true", "data-u-mode", 'PianoPlayerQueue',
+  'data-u-workspace-toggle', 'data-u-editor-toggle', 'piano-panel-toggle',
+  "enhancePanelDisclosure('.controls-panel', 'playback-controls', false)",
+  "enhancePanelDisclosure('.recorder-panel', 'custom-performance', true)",
+  "enhancePanelDisclosure('.search-panel', 'sheet-finder', false)",
+  "enhancePanelDisclosure('.notation-panel', 'compatibility', true)",
+  "savedCollapsed('song-details', true)", "savedCollapsed('my-songs', false)",
+  "document.getElementById('importLibraryInput')"
 ]) assert(UNIFIED.includes(token), `unified Piano workspace contract missing: ${token}`);
 
-for (const token of ['.piano-unified-workspace', '.piano-now-playing', '.piano-unified-head', '.library-panel[hidden][data-compatibility-bridge]', '@media (max-width: 760px)']) {
-  assert(UNIFIED_CSS.includes(token), `unified Piano workspace CSS contract missing: ${token}`);
-}
+for (const token of [
+  '.piano-unified-workspace', '.piano-now-playing', '.piano-unified-head',
+  '.library-panel[hidden][data-compatibility-bridge]', '@media (max-width: 760px)',
+  'grid-template-columns: auto auto minmax(0, 1fr) auto',
+  '.planner-editor[data-u-collapsed="1"]', '.planner-grid.editor-collapsed',
+  '.piano-collapsible-panel[data-u-collapsed="1"]'
+]) assert(UNIFIED_CSS.includes(token), `unified Piano workspace CSS contract missing: ${token}`);
 
 assert(SERVER.includes('if path == "/api/songs/identifiers"'), 'server must expose a metadata-only update route');
 assert(SERVER.includes('LIBRARY.update_identifiers(song_id, identifiers)'), 'metadata-only route must not use the full-song save path');
