@@ -125,12 +125,15 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             if (!component) continue;
             const card = document.createElement('article');
             card.className = 'watchfusion-component';
-            card.dataset.ready = component.ready === true ? '1' : component.ready === false ? '0' : 'ondemand';
+            card.dataset.ready = component.liveVerified === true ? '1' : component.ready === false ? '0' : 'ondemand';
             const head = document.createElement('div');
             const label = document.createElement('strong');
             const badge = document.createElement('span');
             label.textContent = component.label || key;
-            badge.textContent = component?.ready === true ? 'Ready' : component?.ready === false ? 'Needs setup' : 'On demand';
+            badge.textContent = component.liveVerified === true ? 'Live'
+                : component.ready === false ? 'Needs setup'
+                    : component.installed === true || (key === 'core' && status?.dependenciesReady === true) ? 'Installed'
+                        : component.ready === true ? 'Ready' : 'On demand';
             head.append(label, badge);
             const text = document.createElement('p');
             text.textContent = component.message || '';
@@ -138,8 +141,14 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             root.append(card);
         }
     }
+    function localEveSurface() {
+        return location.protocol === 'file:' || /^(127\.0\.0\.1|localhost)$/i.test(location.hostname || '');
+    }
     function runtimeUrl() {
-        const raw = String(status?.url || '').trim();
+        // The host machine keeps using WatchFusion's loopback origin even when the
+        // same runtime is shared over LAN/Cloudflare. This preserves Nuvio's browser
+        // session and avoids routing local embedded traffic through an external URL.
+        const raw = String(localEveSurface() ? (status?.localUrl || status?.url || '') : (status?.url || status?.publicUrl || '')).trim();
         if (!raw) return null;
         try {
             const parsed = new URL(raw);
@@ -269,7 +278,10 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             controllerAvailable = false;
             controlPortCurrent = null;
         }
-        const direct = await sensor()?.probe?.(controlPortCurrent === false ? null : (controlled?.url || status?.url));
+        const preferredRuntime = localEveSurface()
+            ? (controlled?.localUrl || controlled?.url || status?.localUrl || status?.url)
+            : (controlled?.url || controlled?.publicUrl || status?.url);
+        const direct = await sensor()?.probe?.(controlPortCurrent === false ? null : preferredRuntime);
         if (direct) {
             const controlWasStale = controllerAvailable && (controlPortCurrent === false || controlled?.running !== true);
             status = {
