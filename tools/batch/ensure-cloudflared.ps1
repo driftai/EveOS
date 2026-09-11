@@ -93,11 +93,10 @@ if (Emit-IfValid $Destination 'EveOS bundled tools') {
 # Nothing usable is installed. Download the matching executable from Cloudflare's
 # official GitHub release and verify the SHA256 digest published on that asset.
 $Architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-$Asset = switch ($Architecture) {
-    'x86' { 'cloudflared-windows-386.exe' }
-    'x86_32' { 'cloudflared-windows-386.exe' }
-    'arm64' { 'cloudflared-windows-arm64.exe' }
-    default { 'cloudflared-windows-amd64.exe' }
+$Asset = if ($Architecture -in @('x86', 'x86_32')) {
+    'cloudflared-windows-386.exe'
+} else {
+    'cloudflared-windows-amd64.exe'
 }
 $ReleaseApi = 'https://api.github.com/repos/cloudflare/cloudflared/releases/latest'
 $Directory = Split-Path -Parent $Destination
