@@ -9,6 +9,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     let frame = null;
     let status = null;
     let busy = false;
+    let controllerAvailable = null;
 
     function controlBase() {
         if (window.EveOSLocalControl?.baseUrl) return window.EveOSLocalControl.baseUrl();
@@ -34,10 +35,45 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         }
     }
 
-    function esc(value) {
-        return String(value ?? '').replace(/[&<>"']/g, (char) => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[char]));
+    async function probeControl() {
+        try {
+            await window.EveOSLocalControl?.health?.(1000);
+            controllerAvailable = true;
+        } catch {
+            controllerAvailable = false;
+        }
+        return controllerAvailable;
+    }
+
+    function prepareOpen() {
+        if (controllerAvailable === false) {
+            window.EveOSLocalControl?.requestLaunch?.();
+        }
+    }
+
+    async function ensureControl() {
+        if (controllerAvailable === true) return true;
+        try {
+            await window.EveOSLocalControl?.ensure?.({
+                timeoutMs: 45000,
+                onProgress: (snapshot) => {
+                    if (snapshot?.controllerAvailable) controllerAvailable = true;
+                }
+            });
+            controllerAvailable = true;
+            return true;
+        } catch (error) {
+            controllerAvailable = false;
+            status = {
+                ...(status || {}),
+                ok: false,
+                running: false,
+                state: 'error',
+                message: error?.message || 'EveOS local control is unavailable.'
+            };
+            renderStatus();
+            return false;
+        }
     }
 
     function setExpanded(expanded) {
@@ -52,6 +88,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         if (status?.state === 'blocked') return 'Port blocked';
         if (status?.setupRequired) return 'Setup needed';
         if (status?.installed === false) return 'Needs hydration';
+        if (status?.state === 'error') return 'Control offline';
         return 'Offline';
     }
 
@@ -140,7 +177,9 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         ensureOverlay();
         try {
             status = await request('/api/watchfusion/status');
+            controllerAvailable = true;
         } catch (error) {
+            controllerAvailable = false;
             status = { ok: false, running: false, state: 'error', message: error?.message || 'WatchFusion status unavailable.' };
         }
         renderStatus();
@@ -153,10 +192,9 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         busy = true;
         renderStatus();
         try {
+            if (!(await ensureControl())) return status;
             status = await request(`/api/watchfusion/${enabled ? 'start' : 'stop'}`, { method: 'POST', body: '{}' });
-            if (enabled && status?.running && frame) {
-                frame.dataset.loaded = '';
-            }
+            if (enabled && status?.running && frame) frame.dataset.loaded = '';
         } catch (error) {
             status = { ...(status || {}), running: false, state: 'error', message: error?.message || 'WatchFusion lifecycle request failed.' };
         } finally {
@@ -170,6 +208,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         const root = ensureOverlay();
         root.hidden = false;
         setExpanded(true);
+        if (!(await ensureControl())) return;
         const current = await refresh();
         if (!current?.running && current?.installed && !current?.setupRequired && current?.state !== 'blocked') {
             await setRunning(true);
@@ -188,13 +227,15 @@ window.EveWatchFusion = window.EveWatchFusion || {};
 
     Object.assign(api, {
         ready: true,
+        prepareOpen,
         open,
         close,
         refresh,
         start: () => setRunning(true),
         stop: () => setRunning(false),
-        getState: () => ({ ...(status || {}), open: Boolean(overlay && !overlay.hidden), busy })
+        getState: () => ({ ...(status || {}), open: Boolean(overlay && !overlay.hidden), busy, controllerAvailable })
     });
+    probeControl();
     if (window.__eveWatchFusionOpenPending) {
         window.__eveWatchFusionOpenPending = false;
         open();
