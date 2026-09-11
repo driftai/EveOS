@@ -28,7 +28,6 @@ _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 def _shutdown_plane_after_response(delay: float = 0.4) -> bool:
-    """Stop the control plane itself once the current response has flushed."""
     if _SERVER is None:
         return False
     threading.Timer(delay, _SERVER.shutdown).start()
@@ -44,7 +43,6 @@ def _valid_port(value) -> int | None:
 
 
 def _request_web_port(handler) -> int | None:
-    """Resolve the EveOS web port this local page is actually using."""
     parsed_request = urlparse(handler.path)
     query = parse_qs(parsed_request.query)
     if query.get("port"):
@@ -66,7 +64,6 @@ def _request_web_port(handler) -> int | None:
 
 
 def wait_for_control(port: int, timeout: float) -> int:
-    """Wait for this control plane, rejecting unrelated loopback services."""
     deadline = time.monotonic() + max(0.1, timeout)
     url = f"http://127.0.0.1:{port}/api/control-plane/health"
     while time.monotonic() < deadline:
@@ -100,7 +97,6 @@ def _console_preferences() -> dict:
 
 
 def _console_overview(web_port=None) -> dict:
-    """What is running, on which port, and whether it shows a console."""
     prefs = eveos_console_prefs.read_all()
     services = []
     status_specs = (
@@ -140,7 +136,6 @@ def _console_overview(web_port=None) -> dict:
 
 
 def _stop_everything(web_port=None) -> dict:
-    """Stop every EveOS surface, targeting the verified web instance the page is using."""
     also = {}
     for name, stop in (("watchFusion", watchfusion_control.stop_server),
                        ("piano", piano_player_control.stop_server),
@@ -236,7 +231,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             "/api/gemini-server/start", "/api/gemini-server/stop",
             "/api/world-book/start", "/api/world-book/stop",
             "/api/piano-player/start", "/api/piano-player/stop", "/api/piano-player/setup",
-            "/api/watchfusion/start", "/api/watchfusion/stop",
+            "/api/watchfusion/start", "/api/watchfusion/stop", "/api/watchfusion/setup",
             "/api/gemini-credentials", "/api/control-plane/consoles",
         }
         if path in controlled_paths and not gemini_control.request_can_control(self):
@@ -275,6 +270,11 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
 
         if action is not None:
             payload = action()
+            self._send(payload, HTTPStatus.OK if payload.get("ok") else HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        if path == "/api/watchfusion/setup":
+            body = gemini_credentials.read_json_body(self) or {}
+            payload = watchfusion_control.setup_component(str(body.get("component") or "core"))
             self._send(payload, HTTPStatus.OK if payload.get("ok") else HTTPStatus.INTERNAL_SERVER_ERROR)
             return
         if path == "/api/control-plane/consoles":
