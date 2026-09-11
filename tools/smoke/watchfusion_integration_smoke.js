@@ -30,6 +30,8 @@ function sourceContract() {
     const ui = read('js/modules/features/watchfusion/watchfusion.js');
     const css = read('css/modules/watchfusion.css');
     const setupRoutes = read('tools/WatchFusion/src/server/setup-routes.js');
+    const localRequest = read('tools/WatchFusion/src/server/local-request.js');
+    const httpUtils = read('tools/WatchFusion/src/server/http-utils.js');
     const setupClient = read('tools/WatchFusion/public/client/setup-health.js');
     const setupHtml = read('tools/WatchFusion/public/index.html');
     const innerCss = read('tools/WatchFusion/public/style.css');
@@ -76,7 +78,9 @@ function sourceContract() {
     check(css.includes('.watchfusion-frame {') && css.includes('position: absolute;') && css.includes('inset: 0;'), 'WF-OUTER-FRAME-FILL', 'outer WatchFusion iframe is not pinned to the full remaining stage');
 
     check(setupRoutes.includes("parts[1] !== 'setup'") && setupRoutes.includes("parts[2] === 'install'"), 'WF-SETUP-API', 'WatchFusion setup API is not routed');
-    check(setupRoutes.includes('isInstallerLocal') && setupRoutes.includes('trycloudflare') && setupRoutes.includes("'cf-ray'"), 'WF-SETUP-LOCAL-ONLY', 'install actions are not protected from tunnel callers');
+    check(setupRoutes.includes('isHostLocalRequest') && localRequest.includes("'cf-ray'") && localRequest.includes("'cf-connecting-ip'"), 'WF-SETUP-LOCAL-ONLY', 'install actions are not protected by the centralized host-local request boundary');
+    check(localRequest.includes('socketIsLoopback') && localRequest.includes('requestHostIsLocal') && localRequest.includes('browserOriginIsLocal'), 'WF-HOST-LOCAL-BOUNDARY', 'host-local checks do not combine socket, host, and browser-origin validation');
+    check(httpUtils.includes('apiCorsOriginForRequest') && !httpUtils.includes("'Access-Control-Allow-Origin', '*'"), 'WF-CORS-NO-WILDCARD', 'WatchFusion API CORS still permits wildcard browser origins');
     check(setupRoutes.includes("component === 'nuvio'") && setupRoutes.includes("component === 'voxel-youtube'"), 'WF-SETUP-ACTIONS', 'Nuvio/Voxel helper installers are missing');
     check(setupRoutes.includes('BritishWerewolf/IS-Net-Anime'), 'WF-MODEL-ID', 'Setup Health does not report the actual anime mask model');
     check(setupHtml.includes('id="setupHealthBtn"') && setupHtml.includes('id="setupHealthGrid"'), 'WF-SETUP-HTML', 'Setup Health panel is missing from WatchFusion');
@@ -88,6 +92,7 @@ function sourceContract() {
     check(innerCss.includes('grid-template-rows: minmax(0, 1fr) auto;'), 'WF-MEDIA-TOOLBAR-GRID', 'embedded media player still consumes 100% height before its toolbar is laid out');
     check(innerCss.includes('html.eveos-embedded .source-badge { display: none; }'), 'WF-EMBEDDED-TABS-WIDTH', 'redundant source badge still steals horizontal space from embedded tabs');
     check(staticFiles.includes("'client/setup-health.js'") && staticFiles.includes("'client/voxelvision-adapter.js'") && staticFiles.includes("'client/media-player.js'"), 'WF-CLIENT-BUNDLE', 'Setup Health or core media adapters are missing from the integrated bundle');
+    check(staticFiles.includes('resolveContainedFile') && staticFiles.includes('fs.promises.realpath'), 'WF-STATIC-REALPATH-CONTAINMENT', 'main WatchFusion static serving does not realpath-check filesystem containment');
     check(setupClient.includes("'/api/setup/status'") && setupClient.includes("'/api/setup/install'"), 'WF-SETUP-CLIENT', 'Setup Health UI is not connected to setup API');
 
     check(youtubeSetup.includes('yt-dlp.exe') && youtubeSetup.includes('ffmpeg.exe') && youtubeSetup.includes('ffprobe.exe'), 'WF-YOUTUBE-TOOLS', 'fresh YouTube installer does not provision current helpers');
