@@ -5,7 +5,7 @@ import time
 from enum import Enum, auto
 from typing import Callable
 
-from .window_focus import ensure_interactive_desktop, foreground_window
+from .window_focus import foreground_window
 
 
 class TargetFocusState(Enum):
@@ -66,7 +66,6 @@ class TargetFocusGuard:
         self.log("[FOCUS_GUARD] DISARMED")
 
     def _loop(self) -> None:
-        ensure_interactive_desktop()
         while not self._stop.wait(self.interval):
             target = self.target_hwnd
             if not target:
