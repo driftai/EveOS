@@ -13,10 +13,10 @@ import threading
 import time
 from pathlib import Path
 
-from . import eveos_console_prefs
+from . import eveos_console_prefs, eveos_ports
 
 
-WATCHFUSION_PORT = int(os.environ.get("WATCHFUSION_PORT") or 9085)
+WATCHFUSION_PORT = eveos_ports.service_port("WATCHFUSION_PORT")
 _PROCESS = None
 _LOCK = threading.RLock()
 
@@ -227,7 +227,7 @@ def _status(message: str = "") -> dict:
         "pids": _pids() if running else [],
         "message": message or (
             "WatchFusion is online."
-            if running else "Port 9085 belongs to a different service."
+            if running else f"Port {WATCHFUSION_PORT} belongs to a different service."
             if blocked else "WatchFusion has not been hydrated into tools/WatchFusion yet."
             if not installed else "Node.js is required for WatchFusion."
             if not node_ready else "npm is required to install WatchFusion dependencies."
