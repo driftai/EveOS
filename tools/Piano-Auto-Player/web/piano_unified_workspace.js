@@ -91,9 +91,16 @@ function buildHeader(planner) {
           <option value="shuffle">Shuffle</option>
         </select>
       </label>
+      <label>Transition
+        <select data-u-transition>
+          <option value="250">0.25 s</option><option value="500">0.50 s</option><option value="750">0.75 s</option>
+          <option value="1000">1.00 s</option><option value="1500">1.50 s</option>
+        </select>
+      </label>
       <span data-u-position>0 / 0</span>
       <button type="button" data-u-play>Play queue</button>
       <button type="button" data-u-shuffle>Shuffle</button>
+      <button type="button" data-u-clear>Clear</button>
       <button type="button" data-u-stop>Stop</button>
     </div>`;
 
@@ -120,15 +127,17 @@ function bindQueueStrip(planner) {
   const next = planner.querySelector('[data-u-next]');
   const position = planner.querySelector('[data-u-position]');
   const mode = planner.querySelector('[data-u-mode]');
+  const transition = planner.querySelector('[data-u-transition]');
   const play = planner.querySelector('[data-u-play]');
   const shuffle = planner.querySelector('[data-u-shuffle]');
+  const clear = planner.querySelector('[data-u-clear]');
   const stop = planner.querySelector('[data-u-stop]');
   if (!current || !next || !position || !mode || mode.dataset.bound === '1') return;
   mode.dataset.bound = '1';
 
   const render = () => {
     const queue = window.PianoPlayerQueue;
-    const state = queue?.getState?.() || { items: [], currentId: null, active: false, mode: 'manual' };
+    const state = queue?.getState?.() || { items: [], currentId: null, active: false, mode: 'manual', transitionMs: 750 };
     const index = queuePosition(state);
     const activeItem = index >= 0 ? state.items[index] : null;
     const nextItem = index >= 0 ? state.items[index + 1] : state.items[0];
@@ -136,12 +145,20 @@ function bindQueueStrip(planner) {
     next.textContent = nextItem && nextItem !== activeItem ? `Next: ${labelForQueueItem(nextItem)}` : (state.items.length ? 'End of queue' : 'Queue is empty');
     position.textContent = state.items.length ? `${index >= 0 ? index + 1 : 0} / ${state.items.length}` : '0 / 0';
     mode.value = ['manual', 'ordered', 'shuffle'].includes(state.mode) ? state.mode : 'manual';
+    if (transition) transition.value = String(state.transitionMs || 750);
     planner.dataset.queueActive = state.active ? '1' : '0';
   };
 
   mode.addEventListener('change', () => window.PianoPlayerQueue?.setMode?.(mode.value));
+  transition?.addEventListener('change', () => {
+    const legacy = document.querySelector('[data-queue-transition]');
+    if (!legacy) return;
+    legacy.value = transition.value;
+    legacy.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   play?.addEventListener('click', () => void window.PianoPlayerQueue?.playQueue?.());
   shuffle?.addEventListener('click', () => window.PianoPlayerQueue?.shuffleRemaining?.());
+  clear?.addEventListener('click', () => window.PianoPlayerQueue?.clearQueue?.());
   stop?.addEventListener('click', () => window.PianoPlayerQueue?.cancel?.('Player Queue stopped.'));
   window.addEventListener('piano:queue-updated', render);
   window.addEventListener('piano:player-queue-ready', render);
