@@ -12,23 +12,24 @@ if not defined WATCHFUSION_PORT (
 )
 
 title WatchFusion - Remote
-
-rem Cloudflared is a user-installed dependency.
-rem Place cloudflared.exe at: <WatchFusion>\tools\cloudflared.exe
 set "CLOUDFLARED=%ROOT%\tools\cloudflared.exe"
+set "CLOUDFLARED_BOOTSTRAP=%EVEOS_ROOT%\tools\batch\ensure-cloudflared.ps1"
 
 if not exist "%CLOUDFLARED%" (
     echo.
-    echo ERROR: cloudflared.exe was not found.
+    echo [INFO] cloudflared.exe is not installed in WatchFusion yet.
+    echo [INFO] EveOS will download the official Cloudflare Windows release now.
     echo.
-    echo WatchFusion Remote mode requires Cloudflare cloudflared.
-    echo Download it from the official Cloudflare downloads page:
-    echo https://developers.cloudflare.com/tunnel/downloads/
+    set "CLOUDFLARED_FOUND="
+    for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%CLOUDFLARED_BOOTSTRAP%" -Destination "%CLOUDFLARED%"`) do set "CLOUDFLARED_FOUND=%%I"
+    if defined CLOUDFLARED_FOUND set "CLOUDFLARED=%CLOUDFLARED_FOUND%"
+)
+
+if not exist "%CLOUDFLARED%" (
     echo.
-    echo Then place the Windows executable here:
-    echo   %CLOUDFLARED%
-    echo.
-    echo Rename it to cloudflared.exe if necessary.
+    echo ERROR: WatchFusion could not obtain cloudflared.exe.
+    echo Check Internet access and retry option 3.
+    echo Official source: https://developers.cloudflare.com/tunnel/downloads/
     echo.
     pause
     exit /b 1
