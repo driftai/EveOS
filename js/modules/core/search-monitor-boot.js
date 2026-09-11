@@ -218,8 +218,10 @@
         const indicator = getIndicator();
         if (!indicator) return;
 
-        // Clicking the status header row toggles just the stats panel — but only while the monitor
-        // is expanded. In compact mode we let the click fall through so it expands the whole monitor.
+        // Once expanded, Search Monitor behaves like a stable panel rather than one giant toggle.
+        // Internal whitespace/text clicks stay inside it. The status header remains the dedicated
+        // stats-collapse affordance; the whole monitor closes only through the top-layer outside
+        // click gate or an explicit collapse API call.
         if (!isCompact(indicator)) {
             const statusGroup = event.target && typeof event.target.closest === 'function'
                 ? event.target.closest('.status-group')
@@ -228,8 +230,8 @@
                 event.preventDefault();
                 event.stopPropagation();
                 setDetailsCollapsed(indicator, !indicator.classList.contains('details-collapsed'));
-                return;
             }
+            return;
         }
 
         if (shouldIgnoreToggleEvent(event, indicator)) return;
@@ -238,13 +240,7 @@
             return;
         }
 
-        if (isCompact(indicator)) {
-            expandFallback(indicator);
-            if (event) event.stopPropagation();
-            return;
-        }
-
-        collapseFallback(indicator);
+        expandFallback(indicator);
         if (event) event.stopPropagation();
     }
 
