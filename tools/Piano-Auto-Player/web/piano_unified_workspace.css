@@ -38,10 +38,32 @@
   gap: 7px;
 }
 
+/* One action scale for the unified workspace. Chips/favorites remain intentionally compact. */
+.piano-unified-workspace button:not(.planner-pill):not(.planner-fav-btn) {
+  box-sizing: border-box;
+  min-height: 30px;
+  padding: 6px 9px;
+  font-size: 9px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .piano-unified-tools button,
 .piano-now-controls button,
 .piano-now-controls select {
-  min-height: 34px;
+  min-height: 30px;
+}
+
+.piano-unified-workspace .planner-song-actions button,
+.piano-unified-workspace .planner-queue-btns button {
+  min-width: 48px;
+}
+
+.piano-unified-workspace .planner-queue-btns [data-p-q-up],
+.piano-unified-workspace .planner-queue-btns [data-p-q-down] {
+  width: 30px;
+  min-width: 30px;
+  padding-inline: 0;
 }
 
 .piano-now-playing {
@@ -84,7 +106,6 @@
   color: var(--muted, #94a6b5);
 }
 
-/* Keep the title/tools visible while collapsing the My Songs body. */
 .piano-unified-workspace[data-u-collapsed="1"] > .planner-body > :not(.piano-unified-head) {
   display: none !important;
 }
@@ -92,13 +113,11 @@
   padding-bottom: 0;
 }
 
-/* These remain in the DOM only for controller/storage compatibility. */
 .sheet-workspace-queue[hidden],
 .library-panel[hidden][data-compatibility-bridge] {
   display: none !important;
 }
 
-/* The row has four children: checkbox, favorite, song copy, actions. */
 .piano-unified-workspace .planner-song {
   grid-template-columns: auto auto minmax(0, 1fr) auto;
   scroll-margin: 90px;
@@ -153,7 +172,6 @@
   box-shadow: inset 3px 0 0 var(--accent, #51d8ff);
 }
 
-/* Top-level Piano areas get lightweight disclosure without changing their proven controls. */
 .piano-collapsible-panel > .panel-head {
   gap: 10px;
 }
