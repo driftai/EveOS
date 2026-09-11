@@ -21,22 +21,28 @@ function Resolve-CloudflaredPath([string]$Path) {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
-function Return-Cloudflared([string]$Path, [string]$Source) {
+function Emit-IfValid([string]$Path, [string]$Source) {
     $Resolved = Resolve-CloudflaredPath $Path
     if (-not $Resolved) { return $false }
     Write-Verbose "Using cloudflared from $Source`: $Resolved"
-    Write-Output $Resolved
+    $script:ResolvedCloudflared = $Resolved
     return $true
 }
 
+$ResolvedCloudflared = $null
+
 # Prefer an explicit EveOS override, then the current process PATH.
-if ($env:EVEOS_CLOUDFLARED) {
-    if (Return-Cloudflared $env:EVEOS_CLOUDFLARED 'EVEOS_CLOUDFLARED') { exit 0 }
+if ($env:EVEOS_CLOUDFLARED -and (Emit-IfValid $env:EVEOS_CLOUDFLARED 'EVEOS_CLOUDFLARED')) {
+    Write-Output $ResolvedCloudflared
+    exit 0
 }
 
 $Command = Get-Command cloudflared.exe -ErrorAction SilentlyContinue
 if (-not $Command) { $Command = Get-Command cloudflared -ErrorAction SilentlyContinue }
-if ($Command -and (Return-Cloudflared $Command.Source 'PATH')) { exit 0 }
+if ($Command -and (Emit-IfValid $Command.Source 'PATH')) {
+    Write-Output $ResolvedCloudflared
+    exit 0
+}
 
 # EveOS is often launched from a terminal that predates a cloudflared install,
 # so PATH can be stale. Probe the common Windows install locations explicitly.
@@ -56,7 +62,10 @@ if ($env:USERPROFILE) {
     $KnownCandidates += (Join-Path $env:USERPROFILE '.cloudflared\cloudflared.exe')
 }
 foreach ($Candidate in $KnownCandidates | Select-Object -Unique) {
-    if (Return-Cloudflared $Candidate 'known Windows install location') { exit 0 }
+    if (Emit-IfValid $Candidate 'known Windows install location') {
+        Write-Output $ResolvedCloudflared
+        exit 0
+    }
 }
 
 # Check App Paths in case an installer registered cloudflared without updating
@@ -69,11 +78,17 @@ $RegistryKeys = @(
 foreach ($RegistryKey in $RegistryKeys) {
     try {
         $Registered = (Get-ItemProperty -LiteralPath $RegistryKey -ErrorAction Stop).'(default)'
-        if ($Registered -and (Return-Cloudflared $Registered 'Windows App Paths')) { exit 0 }
+        if ($Registered -and (Emit-IfValid $Registered 'Windows App Paths')) {
+            Write-Output $ResolvedCloudflared
+            exit 0
+        }
     } catch {}
 }
 
-if (Return-Cloudflared $Destination 'EveOS bundled tools') { exit 0 }
+if (Emit-IfValid $Destination 'EveOS bundled tools') {
+    Write-Output $ResolvedCloudflared
+    exit 0
+}
 
 # Nothing usable is installed. Download the matching executable from Cloudflare's
 # official GitHub release and verify the SHA256 digest published on that asset.
