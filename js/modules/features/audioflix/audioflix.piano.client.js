@@ -9,9 +9,12 @@ window.EveAudioflixPiano = window.EveAudioflixPiano || {};
         installed: true, running: false, desiredRunning: false,
         setupAvailable: false, youtubeSetup: false, hifiSetup: false,
         phase: 'checking', busy: false, port: 8771,
-        url: 'http://127.0.0.1:8771/', appVersion: '',
+        url: 'http://127.0.0.1:8771/', localUrl: 'http://127.0.0.1:8771/',
+        publicUrl: '', exposureMode: 'local', appVersion: '',
         message: 'Checking Piano Auto Player...'
     };
+    let launchPollTimer = 0;
+    let launchPollDeadline = 0;
 
     function serviceUrl() {
         const port = Number(window.config?.bridges?.pianoPlayerPort) || 8771;
@@ -56,7 +59,10 @@ window.EveAudioflixPiano = window.EveAudioflixPiano || {};
         state.desiredRunning = payload.desiredRunning === true;
         state.phase = String(payload.state || (state.running ? 'running' : 'stopped'));
         state.port = Number(payload.port) || state.port;
-        state.url = String(payload.url || state.url);
+        state.localUrl = String(payload.localUrl || serviceUrl());
+        state.publicUrl = String(payload.publicUrl || '');
+        state.exposureMode = String(payload.exposureMode || 'local');
+        state.url = String(payload.url || state.publicUrl || state.localUrl || serviceUrl());
         state.appVersion = String(payload.appVersion || state.appVersion || '');
         state.setupAvailable = payload.setupAvailable === true;
         state.youtubeSetup = payload.youtubeSetup === true;
@@ -84,29 +90,59 @@ window.EveAudioflixPiano = window.EveAudioflixPiano || {};
         }
     }
 
+    async function sharedExposure() {
+        if (!/^https?:$/.test(location.protocol)) return null;
+        try {
+            const payload = await json(`${location.origin}/api/status`, null, 2200);
+            if (payload?.service !== 'eveos-local-server') return null;
+            const exposure = payload?.exposures?.piano;
+            if (!exposure?.active || !exposure.publicUrl) return null;
+            return exposure;
+        } catch (_) {
+            return null;
+        }
+    }
+
     async function refresh() {
-        const [managed, direct] = await Promise.all([findController(), directStatus()]);
+        const [managed, direct, exposure] = await Promise.all([findController(), directStatus(), sharedExposure()]);
         if (managed) {
             apply(managed.payload, managed.baseUrl);
             if (direct) {
                 state.running = state.directAvailable = true;
                 state.phase = 'running';
-                state.url = serviceUrl();
                 state.appVersion = String(direct.appVersion);
-                state.message = 'Piano Auto Player is online.';
+                // The host can always see localhost, even while a remote Audioflix client
+                // needs the selected public URL. Never let that local health result erase
+                // controller exposure metadata.
+                if (state.exposureMode === 'local' || !state.publicUrl) state.url = serviceUrl();
+                state.message = state.exposureMode === 'local'
+                    ? 'Piano Auto Player is online locally.'
+                    : `Piano Auto Player is online through ${state.exposureMode}.`;
             }
+        } else if (exposure) {
+            Object.assign(state, {
+                baseUrl: '', controllerAvailable: false, directAvailable: false,
+                installed: true, running: true, phase: 'shared',
+                publicUrl: String(exposure.publicUrl), exposureMode: String(exposure.mode || 'cloudflare'),
+                url: String(exposure.publicUrl), localUrl: serviceUrl(),
+                message: `Piano Auto Player is selectively shared through ${exposure.mode || 'Cloudflare'}.`
+            });
         } else if (direct) {
             Object.assign(state, {
                 baseUrl: '', controllerAvailable: false, directAvailable: true,
                 installed: true, running: true, phase: 'running', url: serviceUrl(),
+                localUrl: serviceUrl(), publicUrl: '', exposureMode: 'local',
                 appVersion: String(direct.appVersion),
-                message: 'Piano Auto Player is online through a standalone launcher.'
+                message: 'Piano Auto Player is online through a standalone localhost launcher.'
             });
         } else {
             Object.assign(state, {
                 baseUrl: '', controllerAvailable: false, directAvailable: false,
-                running: false, phase: 'unavailable', url: serviceUrl(),
-                message: 'Piano Auto Player is stopped.'
+                running: false, phase: 'unavailable', url: serviceUrl(), localUrl: serviceUrl(),
+                publicUrl: '', exposureMode: 'local',
+                message: /^https?:$/.test(location.protocol) && !/^(127\.0\.0\.1|localhost)$/i.test(location.hostname)
+                    ? 'Piano is not selectively shared. Start it from the host PC and choose LAN or Cloudflare Router.'
+                    : 'Piano Auto Player is stopped.'
             });
         }
         publish();
@@ -117,7 +153,7 @@ window.EveAudioflixPiano = window.EveAudioflixPiano || {};
         const found = await findController();
         if (found) return found;
         if (!window.EveOSLocalControl?.ensure) {
-            throw new Error('EveOS local control is unavailable. Reload EveOS and try again.');
+            throw new Error('EveOS local control is unavailable. Reload EveOS on the host PC and try again.');
         }
         state.phase = 'enabling';
         state.message = 'Starting EveOS local control for Piano...';
@@ -127,20 +163,55 @@ window.EveAudioflixPiano = window.EveAudioflixPiano || {};
         return { baseUrl, payload: await json(`${baseUrl}/api/piano-player/status`, null, 3500) };
     }
 
+    function stopLaunchPolling() {
+        if (launchPollTimer) clearTimeout(launchPollTimer);
+        launchPollTimer = 0;
+    }
+
+    async function pollLaunch() {
+        stopLaunchPolling();
+        if (Date.now() >= launchPollDeadline) {
+            state.phase = 'stopped';
+            state.message = 'No Piano runtime was detected yet. Press Start when you are ready to choose a mode.';
+            publish();
+            return;
+        }
+        const managed = await findController();
+        if (managed) {
+            apply(managed.payload, managed.baseUrl);
+            if (state.running) {
+                publish();
+                return;
+            }
+        }
+        state.phase = 'selecting';
+        state.message = 'Choose Piano exposure mode in the opened terminal.';
+        publish();
+        launchPollTimer = setTimeout(pollLaunch, 900);
+    }
+
     async function setRunning(enabled) {
         if (state.busy) return { ...state };
         state.busy = true;
-        state.phase = enabled ? 'starting' : 'stopping';
-        state.message = `${enabled ? 'Starting' : 'Stopping'} Piano Auto Player...`;
+        state.phase = enabled ? 'selecting' : 'stopping';
+        state.message = enabled ? 'Opening Piano selective boot...' : 'Stopping Piano Auto Player...';
         publish();
         try {
             const managed = await ensureController();
             const payload = await json(
-                `${managed.baseUrl}/api/piano-player/${enabled ? 'start' : 'stop'}`,
+                `${managed.baseUrl}/api/piano-player/${enabled ? 'launch' : 'stop'}`,
                 { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
                 10000
             );
             apply(payload, managed.baseUrl);
+            if (enabled && payload.launchPrompt) {
+                state.phase = 'selecting';
+                state.message = payload.message || 'Choose Localhost, LAN, or Cloudflare Router in the Piano terminal.';
+                launchPollDeadline = Date.now() + 90_000;
+                void pollLaunch();
+            } else if (!enabled) {
+                stopLaunchPolling();
+            }
             publish();
             return { ...state };
         } catch (error) {
