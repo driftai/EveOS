@@ -133,13 +133,22 @@ def run_lifecycle_performance(controller, events, song_name, options) -> None:
                 if controller._has_seek_request() or controller._should_stop() or controller._focus_paused.is_set():
                     continue
 
+                due_start = cursor
                 due: list[LifecycleAction] = []
                 stamp = action.at_ms
                 while cursor < len(actions) and abs(actions[cursor].at_ms - stamp) <= 0.5:
                     due.append(actions[cursor])
                     cursor += 1
-                if controller._focus_paused.is_set():
+
+                # Lifecycle playback emits key state directly instead of going
+                # through the normal tap helpers, so it needs the same final
+                # foreground interlock immediately before every output batch.
+                # Roll the cursor back when focus is lost so the batch is
+                # retried after the focus pause instead of silently skipped.
+                if controller._focus_paused.is_set() or not controller._target_is_ready(options):
+                    cursor = due_start
                     continue
+
                 downs = [row for row in due if row.kind == "down"]
                 if downs:
                     latest = max(downs, key=lambda row: row.event_index)
