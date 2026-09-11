@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -5,7 +6,31 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const PROJECT_ROOT = path.resolve(__dirname, '../..');
 export const PUBLIC = path.join(PROJECT_ROOT, 'public');
-export const PORT = parseInt(process.env.PORT || '9085', 10);
+
+function validPort(value, label) {
+  const port = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid ${label} port: ${value}`);
+  }
+  return port;
+}
+
+function registeredPort(envName) {
+  const eveosRoot = path.resolve(PROJECT_ROOT, '../..');
+  const registryPath = path.join(eveosRoot, 'config', 'eveos-ports.json');
+  const payload = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+  const entry = payload?.ports?.[envName];
+  if (!entry || entry.port == null) {
+    throw new Error(`Missing ${envName} in EveOS port registry: ${registryPath}`);
+  }
+  return validPort(entry.port, envName);
+}
+
+export const PORT = process.env.PORT
+  ? validPort(process.env.PORT, 'PORT')
+  : process.env.WATCHFUSION_PORT
+    ? validPort(process.env.WATCHFUSION_PORT, 'WATCHFUSION_PORT')
+    : registeredPort('WATCHFUSION_PORT');
 export const HOST = process.env.HOST || '127.0.0.1';
 export const LAN_MODE = HOST === '0.0.0.0';
 
