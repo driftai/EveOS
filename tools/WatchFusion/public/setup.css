@@ -1,0 +1,91 @@
+.setup-panel {
+  margin: 14px auto 0;
+  width: min(1500px, calc(100% - 28px));
+  padding: 14px;
+}
+
+.setup-panel[hidden] { display: none !important; }
+
+.setup-panel-head,
+.setup-panel-actions,
+.setup-card-head {
+  display: flex;
+  align-items: center;
+}
+
+.setup-panel-head {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.setup-panel-head h2 { margin: 0; font-size: 17px; }
+.setup-panel-head p { margin: 3px 0 0; color: var(--text-muted); font-size: 12px; }
+.setup-panel-actions { gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+.setup-health-summary {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: rgba(0, 212, 255, 0.05);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.setup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.setup-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-card);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015));
+}
+
+.setup-card-head { justify-content: space-between; gap: 8px; }
+.setup-card-head strong { font-size: 13px; color: var(--text-main); }
+.setup-card p { margin: 8px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+.setup-card .setup-action { margin-top: 10px; width: 100%; }
+
+.setup-state {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  background: var(--bg-input);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.setup-ready .setup-state {
+  color: #79f2b4;
+  border-color: rgba(121, 242, 180, .35);
+  background: rgba(121, 242, 180, .08);
+}
+
+.setup-needs-setup .setup-state {
+  color: #ffca6b;
+  border-color: rgba(255, 202, 107, .35);
+  background: rgba(255, 202, 107, .08);
+}
+
+.setup-on-demand .setup-state {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  background: var(--accent-subtle);
+}
+
+@media (max-width: 720px) {
+  .setup-panel { width: calc(100% - 16px); margin-top: 8px; padding: 10px; }
+  .setup-panel-head { align-items: flex-start; flex-direction: column; }
+  .setup-panel-actions { width: 100%; justify-content: flex-start; }
+  .setup-grid { grid-template-columns: 1fr; }
+}
