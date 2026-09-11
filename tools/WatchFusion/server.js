@@ -18,6 +18,7 @@ import { handleVoxelVisionRoute } from './src/server/voxelvision-routes.js';
 import { handleRoomRoute } from './src/server/room-routes.js';
 import { sendFile } from './src/server/static-files.js';
 import { handleSystemRoute } from './src/server/system-routes.js';
+import { handleSetupRoute } from './src/server/setup-routes.js';
 import { attachRealtime } from './src/server/realtime.js';
 
 function shouldRedirectToCanonicalHost(req, url) {
@@ -52,6 +53,7 @@ export function createServer() {
       }
 
       if (handleSystemRoute(req, res, parts)) return;
+      if (await handleSetupRoute(req, res, parts) !== false) return;
       if (await handleMediaRoute(req, res, parts) !== false) return;
       if (await handleMediaStateRoute(req, res, parts) !== false) return;
 
