@@ -186,6 +186,17 @@ class Handler(BaseHTTPRequestHandler):
             if not actual:
                 return self._json({"error": "No active event timeline to seek."}, HTTPStatus.BAD_REQUEST)
             return self._json({"ok": True, "event_index": actual})
+        if path == "/api/songs/identifiers":
+            song_id = str(payload.get("id") or "").strip()
+            identifiers = payload.get("identifiers")
+            if not song_id:
+                return self._json({"error": "Song id is required."}, HTTPStatus.BAD_REQUEST)
+            if not isinstance(identifiers, dict):
+                return self._json({"error": "Identifiers must be an object."}, HTTPStatus.BAD_REQUEST)
+            updated = LIBRARY.update_identifiers(song_id, identifiers)
+            if not updated:
+                return self._json({"error": "Song not found."}, HTTPStatus.NOT_FOUND)
+            return self._json({"song": updated})
         if path == "/api/songs":
             song_id = str(payload.get("id") or "")
             existing = LIBRARY.get(song_id) if song_id else None

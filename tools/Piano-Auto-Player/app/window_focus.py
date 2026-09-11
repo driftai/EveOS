@@ -46,6 +46,18 @@ if IS_WINDOWS:
     kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
 
+def ensure_interactive_desktop() -> None:
+    """Compatibility hook for callers that need the interactive user desktop.
+
+    EveOS runs inside the signed-in user's interactive session, so Windows already
+    associates its process and worker threads with the process window station and
+    default desktop. Do not open or reassign WinSta0/Default here: this function is
+    called from high-frequency focus polling, and repeatedly opening those USER
+    objects leaks handles while also mutating process/thread desktop state.
+    """
+    return
+
+
 def foreground_window() -> int:
     if not IS_WINDOWS:
         return 0
