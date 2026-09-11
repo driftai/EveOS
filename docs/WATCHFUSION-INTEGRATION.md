@@ -2,25 +2,19 @@
 
 WatchFusion is a first-class EveOS workspace with its own media/watch-party runtime.
 
-## Initial upstream snapshot
+## Integrated source
 
-The initial source merge is pinned to:
+The initial WatchFusion merge was hydrated from:
 
 - Repository: `driftai/Private-Test-Builds`
 - Path: `WatchFusion/`
-- Commit: `f2f1db5b68d5529100b3ea5ee2007af144575df6`
+- Pinned source commit: `f2f1db5b68d5529100b3ea5ee2007af144575df6`
 
-The private source repository cannot be checked out by EveOS's ordinary GitHub Actions `GITHUB_TOKEN`, so the initial runtime hydration is intentionally performed from the user's authorized/local source checkout instead of adding a cross-repository secret.
-
-Local authoritative source available to the verification agent:
-
-`C:\Users\alvin\Downloads\Private-Test-Builds\WatchFusion`
-
-Integrated destination:
+The integrated source now lives at:
 
 `<EveOS>\tools\WatchFusion`
 
-After the initial copy, the EveOS copy becomes the integrated working copy. Future refreshes from `Private-Test-Builds` should be deliberate source merges rather than runtime downloads.
+That EveOS copy is authoritative for integrated development. The old standalone checkout is not a runtime dependency and may be removed once any desired machine-local data has been backed up.
 
 ## Ownership boundary
 
@@ -32,6 +26,7 @@ EveOS owns:
 - WatchFusion service ownership and safety checks.
 - Desired-running restore state.
 - Independent headed/headless terminal preference.
+- Fresh-clone repair of WatchFusion's locked Node dependencies.
 - Shared smoke-test/output policy.
 - Final repository verification.
 
@@ -45,48 +40,99 @@ WatchFusion keeps:
 - LAN and Cloudflare-specific runtime behavior.
 - Its own focused smoke/browser/integration/security suites.
 
-Nuvio remains a user-installed/external runtime. Do not vendor a private Nuvio installation into EveOS.
+## Fresh-install and Setup Health contract
 
-## Hydration procedure
+Machine-local dependencies are deliberately not committed. A clean EveOS checkout must be able to reconstruct them without the retired standalone WatchFusion folder.
 
-From a current EveOS `main` checkout:
+### WatchFusion core
 
-1. Copy the full contents of `C:\Users\alvin\Downloads\Private-Test-Builds\WatchFusion` into `tools\WatchFusion`.
-2. Preserve the source `.gitignore` rules, especially `node_modules/`, `.runtime/`, `test-results/`, installed Nuvio content, local properties, secrets, and downloaded Cloudflare binaries.
-3. Do **not** copy the source repository's `.git` metadata into `tools\WatchFusion`.
-4. Run `npm ci` inside `tools\WatchFusion`.
-5. Keep `node_modules` local/untracked.
-6. Commit the hydrated WatchFusion source/assets required by the application, including its bundled VoxelVision source/assets that are already version-controlled upstream.
+The EveOS WatchFusion shell detects whether `tools/WatchFusion/node_modules` is ready. When the locked Node dependencies are absent, the outer workspace exposes **Install WatchFusion Core**, which runs:
 
-## UI integration pass after hydration
+`npm ci --no-audit --no-fund`
 
-The EveOS outer WatchFusion workspace already consumes EveOS theme tokens. The embedded WatchFusion document should also be adapted so the interior feels native rather than like an unrelated site inside a frame.
+against the committed `tools/WatchFusion/package-lock.json`.
 
-Preserve WatchFusion structure and behavior while mapping its palette/components toward EveOS:
+The inner WatchFusion UI becomes available only after the core runtime can start.
 
-- Base background -> EveOS dark `--bg-color` / `--bg-secondary` family.
-- Accent -> EveOS cyan `#00d4ff` family.
-- Text -> EveOS `--text-main` / `--text-muted` equivalents.
-- Borders/panels -> EveOS translucent border/card language.
-- Buttons -> compact EveOS primary/secondary treatment.
-- Keep media/player surfaces black where video fidelity requires it.
-- Preserve responsive/mobile behavior and all existing pointer/focus fixes.
+### Nuvio
 
-Because WatchFusion is served from port 9085, the parent EveOS page cannot reliably restyle the iframe document cross-origin. The interior theme therefore belongs in the integrated WatchFusion source itself.
+Nuvio remains an external/user-installed runtime under ignored `tools/WatchFusion/nuvio/`.
+
+WatchFusion **Setup Health** reports whether Nuvio source and its browser build are ready. Host-local Windows sessions can install or repair it from the UI. The installer:
+
+1. downloads current `NuvioMedia/NuvioTVSmart` main source;
+2. validates the expected application layout;
+3. applies WatchFusion's browser-pointer compatibility patch;
+4. installs Nuvio build dependencies;
+5. builds the browser distribution;
+6. verifies the compiled pointer bridge.
+
+WatchFusion resolves Nuvio's public backend configuration through the public discovery endpoint when available. `CONFIGURE-NUVIO.bat` remains a manual fallback, not a requirement for the normal fresh-install path. Never store a service-role secret in WatchFusion.
+
+### VoxelVision
+
+VoxelVision source is bundled and version-controlled under `tools/WatchFusion/voxelvision/`; it does not need a separate source installation.
+
+Optional YouTube ingestion helpers are machine-local and ignored under `voxelvision/tools/`. Setup Health installs/repairs:
+
+- official `yt-dlp.exe`;
+- a supported JavaScript challenge runtime: existing Node 22+ when available, otherwise portable Deno;
+- portable `ffmpeg.exe`;
+- portable `ffprobe.exe`.
+
+The same installer is used by the legacy/manual `VoxelVision.bat` setup menu so the UI and command-line paths do not drift apart.
+
+### VoxelVision AI models
+
+Depth and mask model weights are not repository files and should not be copied from an old WatchFusion folder.
+
+They are browser-managed assets downloaded lazily on first use and cached by the browser profile:
+
+- Depth Anything V3 Small: `en970/depth-anything-v3-small-onnx`
+- Depth Anything V2 Small: `onnx-community/depth-anything-v2-small-ONNX`
+- Optional anime foreground mask: `BritishWerewolf/IS-Net-Anime`
+
+Setup Health reports these as **On demand** until the model has successfully initialized in that browser, then records the last successful ready time. This is readiness history, not a promise that the browser will never evict its cache.
+
+### Installer security
+
+Install actions are host-machine operations and must never be exposed as remote WatchParty controls.
+
+`POST /api/setup/install` is allowed only when all of the following hold:
+
+- the socket is loopback;
+- the request Host is a recognized local WatchFusion hostname;
+- the request is not Cloudflare-forwarded;
+- browser `Origin` / `Sec-Fetch-Site` evidence is local/same-site;
+- the host OS is Windows.
+
+LAN/remote users may see setup status, but cannot execute host installers.
+
+## UI integration
+
+The EveOS outer WatchFusion workspace consumes EveOS theme tokens. The integrated WatchFusion interior has also been adapted to EveOS's dark/cyan design language while preserving player geometry, pointer/focus behavior, responsive layouts, and black media surfaces where video fidelity requires them.
+
+Because WatchFusion is served from port 9085, its interior theme belongs in the integrated WatchFusion source rather than being injected from the EveOS parent document.
 
 ## Lifecycle contract
 
 EveOS manages WatchFusion through:
 
 - `GET /api/watchfusion/status`
+- `POST /api/watchfusion/setup` — repair WatchFusion core Node dependencies
 - `POST /api/watchfusion/start`
 - `POST /api/watchfusion/stop`
 
-The WatchFusion process is considered valid only when `http://127.0.0.1:9085/api/health` returns `ok: true` and `app: "WatchFusion"`.
+The running WatchFusion process is considered valid only when `http://127.0.0.1:9085/api/health` returns `ok: true` and `app: "WatchFusion"`.
 
 A different process occupying 9085 is reported as blocked and must never be killed by EveOS.
 
-Opening the WatchFusion workspace may start WatchFusion when the source and dependencies are ready. Closing the workspace does not stop the service; Stop is explicit, and EveOS global Stop also includes WatchFusion.
+Once WatchFusion is running, its internal setup surface uses:
+
+- `GET /api/setup/status`
+- `POST /api/setup/install`
+
+Closing the workspace does not stop the service; Stop is explicit, and EveOS global Stop also includes WatchFusion.
 
 ## Verification policy
 
@@ -100,4 +146,6 @@ The fast profile may reuse a prior pass only when its content/environment finger
 
 `npm run verify` remains the final uncached gate.
 
-`npm run smoke:watchfusion` validates the EveOS integration even before hydration. Once `tools/WatchFusion/package.json` and local dependencies exist, it automatically invokes WatchFusion's own quiet fast smoke suite. `npm run smoke:watchfusion-security` similarly invokes WatchFusion's security suite when available.
+`npm run smoke:watchfusion` validates the EveOS integration and invokes WatchFusion's own quiet fast smoke suite when its local dependencies are present. `npm run smoke:watchfusion-security` similarly invokes WatchFusion's security suite.
+
+Fresh-install qualification should additionally prove that ignored machine-local dependencies can be removed from a test checkout and reconstructed entirely through the EveOS/WatchFusion setup surfaces without consulting the old standalone WatchFusion directory.
