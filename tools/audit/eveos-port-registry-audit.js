@@ -14,6 +14,10 @@ function check(condition, message) {
     if (!condition) failures.push(message);
 }
 
+function read(relative) {
+    return fs.readFileSync(path.join(ROOT, relative), 'utf8').replace(/\r\n/g, '\n');
+}
+
 check(Number(registry.schemaVersion) >= 1, 'registry schemaVersion is missing');
 check(Object.keys(ports).length >= 10, 'registry unexpectedly contains too few services');
 
@@ -47,17 +51,42 @@ const geminiWs = Number(ports.GEMINI_WS_PORT?.port);
 const watchFusion = Number(ports.WATCHFUSION_PORT?.port);
 check(geminiWs !== watchFusion, 'WatchFusion and Gemini Live must never share a port');
 
-const batchAdapter = fs.readFileSync(path.join(ROOT, 'tools', 'batch', 'eveos-ports.bat'), 'utf8');
+const batchAdapter = read('tools/batch/eveos-ports.bat');
 check(batchAdapter.includes('config\\eveos-ports.json'), 'batch launchers are not sourcing the canonical registry');
 check(!/set\s+"GEMINI_WS_PORT=\d+"/i.test(batchAdapter), 'batch adapter reintroduced a hard-coded Gemini port');
 check(!/set\s+"WATCHFUSION_PORT=\d+"/i.test(batchAdapter), 'batch adapter reintroduced a hard-coded WatchFusion port');
 
-const pythonBootstrap = fs.readFileSync(path.join(ROOT, 'server_modules', '__init__.py'), 'utf8');
+const pythonBootstrap = read('server_modules/__init__.py');
 check(pythonBootstrap.includes('bootstrap_environment()'), 'Python server modules do not bootstrap the canonical registry');
 
-const watchConfig = fs.readFileSync(path.join(ROOT, 'tools', 'WatchFusion', 'src', 'server', 'config.js'), 'utf8');
+const watchControl = read('server_modules/watchfusion_control.py');
+check(watchControl.includes('eveos_ports.service_port("WATCHFUSION_PORT")'), 'WatchFusion lifecycle bypasses the registry');
+
+const watchConfig = read('tools/WatchFusion/src/server/config.js');
 check(watchConfig.includes("registeredPort('WATCHFUSION_PORT')"), 'WatchFusion server does not resolve its default port from the registry');
 check(!/process\.env\.PORT\s*\|\|\s*['"]\d+['"]/.test(watchConfig), 'WatchFusion server reintroduced a literal default port');
+
+const launchFiles = [
+    'tools/WatchFusion/WatchFusion.bat',
+    'tools/WatchFusion/scripts/START-WATCHFUSION-LOCAL.bat',
+    'tools/WatchFusion/scripts/START-WATCHFUSION-LAN.bat',
+    'tools/WatchFusion/scripts/START-WATCHFUSION-REMOTE.bat',
+    'tools/WatchFusion/scripts/REMOTE-TUNNEL.ps1',
+    'tools/WatchFusion/scripts/ALLOW-LAN-FIREWALL.bat'
+];
+for (const relative of launchFiles) {
+    const text = read(relative);
+    check(!new RegExp(`(?:PORT|Port|localport)\\s*[=:]?\\s*${geminiWs}(?:\\D|$)`).test(text),
+        `${relative} still embeds Gemini's registered port ${geminiWs}`);
+    check(!new RegExp(`(?:PORT|Port|localport)\\s*[=:]?\\s*${watchFusion}(?:\\D|$)`).test(text),
+        `${relative} hard-codes WatchFusion port ${watchFusion} instead of the registry variable`);
+}
+check(read('tools/WatchFusion/scripts/START-WATCHFUSION-LOCAL.bat').includes('%WATCHFUSION_PORT%'),
+    'local WatchFusion launcher does not consume WATCHFUSION_PORT');
+check(read('tools/WatchFusion/scripts/START-WATCHFUSION-LAN.bat').includes('%WATCHFUSION_PORT%'),
+    'LAN WatchFusion launcher does not consume WATCHFUSION_PORT');
+check(read('tools/WatchFusion/scripts/START-WATCHFUSION-REMOTE.bat').includes('-Port %WATCHFUSION_PORT%'),
+    'remote WatchFusion launcher does not pass the registry port into the tunnel');
 
 if (failures.length) {
     console.error(`EVEOS_PORT_REGISTRY_AUDIT_FAIL ${failures.length}`);
