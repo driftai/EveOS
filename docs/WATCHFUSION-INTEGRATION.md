@@ -23,7 +23,7 @@ EveOS owns:
 - Header/workspace entry beside Audioflix.
 - EveOS-themed outer workspace chrome and Matrix-style detached-window behavior.
 - Embedded layout mode so WatchFusion uses the full EveOS workspace instead of nesting a second desktop-sized card.
-- Lifecycle/status integration through the local control plane on port 9082.
+- Lifecycle/status integration through the local control plane on registry key `GEMINI_CONTROL_PORT` (currently 9082).
 - WatchFusion service ownership and safety checks.
 - Explicit/on-demand runtime behavior: opening the workspace never starts WatchFusion.
 - Independent headed/headless terminal preference for an explicitly started runtime.
@@ -32,7 +32,7 @@ EveOS owns:
 
 WatchFusion keeps:
 
-- Node HTTP/WebSocket server on port 9085.
+- Node HTTP/WebSocket server on registry key `WATCHFUSION_PORT` (currently 9087).
 - Room/host/chat/realtime synchronization.
 - YouTube/direct/HLS/Find Media provider behavior.
 - Nuvio bridge/injection logic.
@@ -41,6 +41,14 @@ WatchFusion keeps:
 - Its own focused smoke/browser/integration/security suites.
 
 The current integrated Find Media/media resolver core is intentionally carried forward from the standalone WatchFusion implementation. EveOS-specific setup/lifecycle/security layers are additions around that media core, not replacements for it.
+
+## Canonical service-port registry
+
+`config/eveos-ports.json` is the single source of truth for EveOS-owned service ports. Batch launchers, Python lifecycle modules, and the integrated WatchFusion server resolve their assignments from that registry (with explicit environment overrides allowed for qualification).
+
+The registry is audited for duplicate assignments during `npm run verify`, and the control-plane entrypoint refuses to start when effective environment overrides collide. New tools must register a unique port there rather than hard-coding one in a launcher/client.
+
+This separation fixes the historical collision where Gemini Live WebSocket and WatchFusion both attempted to own port 9085. Gemini keeps 9085/9086; WatchFusion now uses 9087 by default.
 
 ## Lifecycle contract: workspace first, runtime on demand
 
@@ -51,7 +59,7 @@ Opening WatchFusion from the EveOS header is a presentation action only. It must
 - restore a previously running WatchFusion session;
 - run `npm ci` automatically.
 
-The stopped workspace remains useful: it can display lifecycle/setup status from EveOS local control and expose explicit setup/start actions.
+The stopped workspace remains useful: it can display lifecycle/setup status from EveOS local control and expose explicit setup/start actions. If local control itself is unavailable, the workspace still stays navigable in degraded mode and explains which live actions are inactive rather than surfacing raw browser network errors.
 
 Only an explicit **Start WatchFusion** action launches the WatchFusion runtime. Installing WatchFusion core dependencies also leaves the runtime stopped afterward.
 
@@ -64,9 +72,9 @@ EveOS manages runtime actions through:
 - `POST /api/watchfusion/start`
 - `POST /api/watchfusion/stop`
 
-The running WatchFusion process is considered valid only when `http://127.0.0.1:9085/api/health` returns `ok: true` and `app: "WatchFusion"`.
+The running WatchFusion process is considered valid only when the registered WatchFusion port answers `/api/health` with `ok: true` and `app: "WatchFusion"`.
 
-A different process occupying 9085 is reported as blocked and must never be killed by EveOS.
+A different process occupying the registered WatchFusion port is reported as blocked and must never be killed by EveOS.
 
 Closing the WatchFusion workspace does not stop an already-running service. Stop remains explicit, and EveOS global Stop still includes WatchFusion.
 
@@ -162,7 +170,7 @@ LAN/remote users may see setup status, but cannot execute host installers.
 
 The Search Monitor/Gemini Link localhost indicator must describe the EveOS web server actually serving the current page, not assume port 8765.
 
-For any HTTP/HTTPS EveOS page, the control UI forwards the current page port to the 9082 control plane and verifies `/api/status` against the current origin. This includes:
+For any HTTP/HTTPS EveOS page, the control UI forwards the current page port to the local control plane and verifies `/api/status` against the current origin. This includes:
 
 - `http://localhost:<port>`;
 - `http://127.0.0.1:<port>`;
@@ -183,6 +191,7 @@ The fast profile may reuse a prior pass only when its content/environment finger
 
 Useful focused checks for this integration include:
 
+- `npm run audit:ports`
 - `npm run smoke:watchfusion`
 - `npm run smoke:watchfusion-security`
 - `npm run smoke:control-plane`
