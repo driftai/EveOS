@@ -1,41 +1,50 @@
 # Security & Privacy Policy — WatchFusion
 
-WatchFusion is built with strict privacy, network containment, and SSRF boundaries.
+WatchFusion is designed as a local-first EveOS tool with explicit boundaries for host diagnostics, filesystem access, outbound media requests, and remote watch-party use.
 
----
+## 1. Network containment & browser-origin policy
 
-## 1. Network Containment & Host Isolation
+- **Default loopback binding:** the service defaults to `127.0.0.1`. It binds `0.0.0.0` only when LAN mode is explicitly requested.
+- **Cross-origin API access is not wildcarded:** API CORS reflects only HTTP(S) origins whose hostname matches the WatchFusion request hostname. The only `null`-origin exception is the read-only `/api/health` probe used by EveOS `file://` mode.
+- **Host diagnostics are truly host-local:** `/api/network-info` requires a loopback socket, a recognized local WatchFusion hostname, and a non-cross-site browser context. Cloudflare-forwarded and LAN-client requests are denied.
+- **Setup diagnostics and installers are host-local:** `/api/setup/status` and `/api/setup/install` are unavailable to tunnel/LAN viewers. Install actions also remain Windows-only.
+- **Nuvio diagnostics are host-local:** `/__nuvio__/diagnostics` and its compatibility alias do not expose backend/setup metadata to remote viewers.
+- **VoxelVision host details are redacted remotely:** remote/LAN viewers receive no host CPU model, RAM amount, GPU names, tool-provider paths, or YouTube-helper providers. Host-side YouTube import is denied outside a host-local request.
 
-- **Default Loopback Binding**: Defaults to `127.0.0.1`. Binds `0.0.0.0` only when `--lan` or `HOST=0.0.0.0` is explicitly supplied.
-- **Tunnel Diagnostics Redaction**: `/api/network-info` explicitly denies requests coming through Cloudflare tunnels (HTTP 403) to prevent local network enumeration.
-- **Zero Host Filesystem Exposure**: Diagnostics endpoints (`/__nuvio__/diagnostics`) return pure metadata without leaking filesystem paths.
+## 2. Filesystem containment
 
----
+- Main WatchFusion static assets are resolved under the WatchFusion `public/` root.
+- Nuvio assets under `/nuvio/dist/` are realpath-checked to remain inside the selected Nuvio `dist` root.
+- VoxelVision assets under `/voxelvision/` are realpath-checked to remain inside VoxelVision's public root.
+- Imported VoxelVision media lives under `voxelvision/public/media/imported/` and is ignored by Git.
+- WatchFusion does not expose arbitrary host filesystem paths through a generic file-serving endpoint.
 
-## 2. Room Identity & State Sanitization
+## 3. Room identity & state sanitization
 
-- **Opaque Public Identifiers**: Internal member IDs and session account IDs are never exposed in public room state. All public state representations use detached random UUIDs.
-- **Session Identity Binding**: Rejoining a room requires matching the original `accountId`. Mismatched reconnects are rejected with HTTP 409.
+- **Opaque public identifiers:** internal member IDs and session account IDs are not emitted in public room state. Public member IDs are detached random UUIDs.
+- **Session identity binding:** rejoining with an existing internal member ID requires the original account identity; mismatches are rejected.
+- Room/chat state is kept in memory by the WatchFusion process unless another explicit persistence layer is added later.
 
----
+## 4. SSRF and outbound request boundaries
 
-## 3. Server-Side Request Forgery (SSRF) Protection
+- External media and addon targets are limited to HTTP(S) URLs without embedded credentials.
+- `assertPublicHttpUrl()` rejects loopback, link-local, private RFC1918-style ranges, carrier-grade NAT ranges, multicast/reserved ranges, IPv6 loopback/link-local/ULA/multicast, and IPv4-mapped loopback/private forms covered by the validator.
+- Nuvio addon proxy targets must use HTTPS and match recognized addon API paths.
+- Redirects handled by WatchFusion media/addon proxy code are revalidated before the next hop.
+- Ambient browser credentials are not forwarded to addon targets; proxy requests construct a small explicit outbound header set.
 
-- **DNS-Aware Validation**: `assertPublicHttpUrl()` validates all external media and Stremio addon proxy destinations.
-- **Loopback & Private Subnet Blocking**: Rejects `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `100.64.0.0/10`, `198.18.0.0/15`, IPv6 `::1`, `fc00::/7`, `fe80::/10`, and IPv4-mapped IPv6 equivalents.
-- **Credential & Header Stripping**: Addon proxy requests strip ambient `Authorization` headers, cookies, `Origin`, and `Referer` headers.
-- **Redirect Traversal Protection**: Multi-hop HTTP redirects are re-validated on each step.
+### Important remote-use boundary
 
----
+Remote WatchFusion playback intentionally makes **server-side outbound requests to public media/addon hosts**. That means an upstream public server contacted by WatchFusion can see the public IP address of the machine/network running WatchFusion. Remote participants should not be able to turn those proxy paths into LAN/loopback/filesystem access, but the host is still the network egress point for supported remote media requests.
 
-## 4. Static Filesystem Containment
+Use LAN or Cloudflare sharing only with people you trust, stop the tunnel when the room is finished, and do not treat a Quick Tunnel URL as an authentication secret.
 
-- All static asset requests under `/` and `/nuvio/dist/` are validated with `isContainedPath()` to strictly prevent directory traversal attacks outside their respective roots.
+## 5. External Nuvio architecture
 
----
+- Nuvio is user-installed under `.\nuvio` or an explicit `NUVIO_PATH`; the EveOS repository tracks only `nuvio/.gitkeep`.
+- `nuvio-wrapper.properties`, `nuvio-wrapper.local.properties`, `local.properties`, `.env*`, and `NUVIO_PATH.txt` are ignored.
+- The generated browser environment exposes only the explicit `PUBLIC_ENV_KEYS` allowlist. Nuvio's Supabase **anon/publishable** key is intentionally browser-public; private service-role credentials must never be placed there.
 
-## 5. External Nuvio Architecture
+## 6. What this policy does not claim
 
-- Nuvio is treated as external user-installed data in `.\nuvio`.
-- Git tracks only the placeholder `nuvio/.gitkeep`.
-- User credentials and property overrides (`nuvio-wrapper.properties`, `local.properties`) are excluded by `.gitignore`.
+No static review can prove a networked application is vulnerability-free. In particular, dependency vulnerabilities, browser changes, DNS-rebinding edge cases, newly introduced routes, and local machine configuration still need regression testing. Run WatchFusion's security smoke profile and the EveOS verification suite after security-sensitive changes.
