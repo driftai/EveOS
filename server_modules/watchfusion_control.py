@@ -37,13 +37,6 @@ def _preference() -> Path:
     return _root() / "data" / "runtime" / "watchfusion-service.json"
 
 
-def _desired() -> bool:
-    try:
-        return json.loads(_preference().read_text(encoding="utf-8")).get("desiredRunning") is True
-    except (OSError, ValueError, TypeError):
-        return False
-
-
 def _write_desired(enabled: bool) -> None:
     path = _preference()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,6 +62,72 @@ def _npm() -> str | None:
 def _deps_ready() -> bool:
     root = _tool_root()
     return (root / "node_modules" / "ws").exists() and (root / "node_modules" / "hls.js").exists()
+
+
+def _node_major() -> int | None:
+    node = _node()
+    if not node:
+        return None
+    try:
+        result = subprocess.run(
+            [node, "--version"], capture_output=True, text=True, check=False, timeout=2,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+        )
+        text = (result.stdout or result.stderr or "").strip().lstrip("v")
+        return int(text.split(".", 1)[0]) if result.returncode == 0 and text else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def _component_status(deps_ready: bool) -> dict:
+    tool = _tool_root()
+    nuvio = tool / "nuvio"
+    voxel = tool / "voxelvision"
+    helpers = voxel / "tools"
+    node_major = _node_major()
+    deno_ready = (helpers / "deno.exe").is_file()
+    js_runtime_ready = bool((node_major or 0) >= 22 or deno_ready)
+    yt_dlp_ready = (helpers / "yt-dlp.exe").is_file()
+    ffmpeg_ready = (helpers / "ffmpeg.exe").is_file()
+    ffprobe_ready = (helpers / "ffprobe.exe").is_file()
+    nuvio_source = all((nuvio / name).is_file() for name in ("package.json", "index.html")) \
+        and (nuvio / "js" / "app.js").is_file()
+    nuvio_built = all((nuvio / "dist" / name).is_file() for name in (
+        "index.html", "app.bundle.js", "core-js.bundle.js", "nuvio.env.js",
+    ))
+    voxel_source = all(path.is_file() for path in (
+        voxel / "server.js",
+        voxel / "public" / "index.html",
+        voxel / "public" / "js" / "depth-models.js",
+    ))
+    youtube_ready = yt_dlp_ready and ffmpeg_ready and ffprobe_ready and js_runtime_ready
+    return {
+        "core": {
+            "label": "WatchFusion runtime", "ready": deps_ready, "required": True,
+            "message": "Locked Node dependencies are ready." if deps_ready else "Install the locked WatchFusion Node dependencies.",
+        },
+        "nuvio": {
+            "label": "Nuvio", "ready": nuvio_built, "sourceReady": nuvio_source, "required": False,
+            "message": "Nuvio browser build is ready." if nuvio_built else (
+                "Nuvio source is present but needs a browser build." if nuvio_source else "Nuvio needs installation."
+            ),
+        },
+        "voxelvision": {
+            "label": "VoxelVision", "ready": voxel_source, "required": True,
+            "message": "Bundled VoxelVision source is ready." if voxel_source else "Bundled VoxelVision source is incomplete.",
+        },
+        "voxelYoutube": {
+            "label": "VoxelVision YouTube helpers", "ready": youtube_ready, "required": False,
+            "ytDlpReady": yt_dlp_ready, "ffmpegReady": ffmpeg_ready, "ffprobeReady": ffprobe_ready,
+            "jsRuntimeReady": js_runtime_ready, "nodeMajor": node_major, "denoReady": deno_ready,
+            "message": "yt-dlp, FFmpeg, ffprobe, and a supported JS runtime are ready." if youtube_ready
+            else "One or more YouTube helper dependencies still need setup.",
+        },
+        "browserModels": {
+            "label": "VoxelVision AI models", "ready": None, "browserManaged": True,
+            "message": "Depth and mask models load on demand in the browser and are tracked after WatchFusion starts.",
+        },
+    }
 
 
 def _health() -> dict | None:
@@ -145,6 +204,7 @@ def _status(message: str = "") -> dict:
     node_ready = _node() is not None
     npm_ready = _npm() is not None
     deps_ready = _deps_ready() if installed else False
+    components = _component_status(deps_ready) if installed else {}
     state = "running" if running else "starting" if process_alive else "blocked" if blocked else "stopped"
     return {
         "ok": installed and node_ready and not blocked,
@@ -156,9 +216,11 @@ def _status(message: str = "") -> dict:
         "dependenciesReady": deps_ready,
         "setupRequired": installed and (not node_ready or not deps_ready),
         "setupAvailable": installed and npm_ready and not deps_ready,
+        "components": components,
         "state": state,
         "running": running,
-        "desiredRunning": _desired(),
+        "desiredRunning": False,
+        "onDemand": True,
         "port": WATCHFUSION_PORT,
         "url": f"http://127-0-0-1.sslip.io:{WATCHFUSION_PORT}/",
         "rooms": int(health.get("rooms") or 0) if health else 0,
@@ -170,7 +232,7 @@ def _status(message: str = "") -> dict:
             if not installed else "Node.js is required for WatchFusion."
             if not node_ready else "npm is required to install WatchFusion dependencies."
             if not npm_ready and not deps_ready else "WatchFusion dependencies are not installed yet."
-            if not deps_ready else "WatchFusion is stopped."
+            if not deps_ready else "WatchFusion is ready but stopped. Start it only when you want to use runtime features."
         ),
     }
 
@@ -181,10 +243,7 @@ def get_status() -> dict:
 
 
 def setup_component(component: str = "core") -> dict:
-    """Install only WatchFusion's own locked Node dependencies.
-
-    Nuvio/VoxelVision optional setup lives inside the WatchFusion UI once this core can boot.
-    """
+    """Install only WatchFusion's own locked Node dependencies without starting it."""
     with _LOCK:
         if component != "core":
             return {**_status(), "ok": False, "state": "error", "message": f"Unknown setup component: {component}"}
@@ -215,14 +274,14 @@ def setup_component(component: str = "core") -> dict:
             **_status(), "ok": False, "state": "error",
             "message": "WatchFusion dependency install failed." + (f"\n{detail}" if detail else ""),
         }
-    payload = _status("WatchFusion dependencies installed from package-lock.json.")
+    payload = _status("WatchFusion dependencies installed. Press Start when you want to launch the runtime.")
     payload["ok"] = payload.get("dependenciesReady") is True
     if not payload["ok"]:
         payload.update(state="error", message="npm ci completed, but required WatchFusion dependencies are still missing.")
     return payload
 
 
-def start_server(*, persist: bool = True) -> dict:
+def start_server(*, persist: bool = False) -> dict:
     global _PROCESS
     with _LOCK:
         if persist:
@@ -263,7 +322,7 @@ def start_server(*, persist: bool = True) -> dict:
         return payload
 
 
-def stop_server(*, persist: bool = True) -> dict:
+def stop_server(*, persist: bool = False) -> dict:
     global _PROCESS
     with _LOCK:
         if persist:
@@ -296,8 +355,5 @@ def stop_server(*, persist: bool = True) -> dict:
 
 
 def restore_desired_state_async() -> None:
-    if not _desired():
-        return
-    threading.Thread(
-        target=lambda: start_server(persist=False), name="eveos-watchfusion-restore", daemon=True,
-    ).start()
+    """WatchFusion is intentionally explicit/on-demand and is never restored at EveOS boot."""
+    return
