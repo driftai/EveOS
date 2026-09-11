@@ -83,7 +83,25 @@ def _node_major() -> int | None:
         return None
 
 
-def _component_status(deps_ready: bool) -> dict:
+def _runtime_json(path: str) -> dict | None:
+    connection = None
+    try:
+        connection = http.client.HTTPConnection("127.0.0.1", WATCHFUSION_PORT, timeout=0.8)
+        connection.request("GET", path, headers={"Connection": "close"})
+        response = connection.getresponse()
+        payload = json.loads(response.read(65536).decode("utf-8"))
+        return payload if response.status == 200 and isinstance(payload, dict) else None
+    except (OSError, ValueError, UnicodeError, http.client.HTTPException):
+        return None
+    finally:
+        if connection:
+            try:
+                connection.close()
+            except OSError:
+                pass
+
+
+def _component_status(deps_ready: bool, running: bool) -> dict:
     tool = _tool_root()
     nuvio = tool / "nuvio"
     voxel = tool / "voxelvision"
@@ -103,27 +121,45 @@ def _component_status(deps_ready: bool) -> dict:
         voxel / "server.js", voxel / "public" / "index.html", voxel / "public" / "js" / "depth-models.js",
     ))
     youtube_ready = yt_dlp_ready and ffmpeg_ready and ffprobe_ready and js_runtime_ready
+    nuvio_live = _runtime_json("/__nuvio__/entry") if running and nuvio_built else None
+    voxel_live = _runtime_json("/__voxelvision__/entry") if running and voxel_source else None
+    youtube_live = _runtime_json("/voxelvision/api/youtube/status") if running and youtube_ready else None
     return {
         "core": {
-            "label": "WatchFusion runtime", "ready": deps_ready, "required": True,
-            "message": "Locked Node dependencies are installed." if deps_ready else "Install the locked WatchFusion Node dependencies.",
+            "label": "WatchFusion runtime", "ready": deps_ready and (not running or True), "required": True,
+            "liveVerified": running,
+            "message": "WatchFusion runtime is responding live." if running else (
+                "Locked Node dependencies are installed." if deps_ready else "Install the locked WatchFusion Node dependencies."
+            ),
         },
         "nuvio": {
-            "label": "Nuvio", "ready": nuvio_built, "sourceReady": nuvio_source, "required": False,
-            "message": "Nuvio browser build is installed; live rendering is verified after WatchFusion starts." if nuvio_built else (
+            "label": "Nuvio", "ready": bool(nuvio_live and nuvio_live.get("ok")) if running else None,
+            "installed": nuvio_built, "sourceReady": nuvio_source, "required": False,
+            "liveVerified": bool(nuvio_live and nuvio_live.get("ok")) if running else None,
+            "message": "Nuvio browser endpoint verified live." if running and nuvio_live and nuvio_live.get("ok") else (
+                "Nuvio build is installed; live rendering will be checked after WatchFusion starts." if nuvio_built else
                 "Nuvio source is present but needs a browser build." if nuvio_source else "Nuvio needs installation."
             ),
         },
         "voxelvision": {
-            "label": "VoxelVision", "ready": voxel_source, "required": True,
-            "message": "Bundled VoxelVision source is installed; live rendering is verified after WatchFusion starts." if voxel_source else "Bundled VoxelVision source is incomplete.",
+            "label": "VoxelVision", "ready": bool(voxel_live and voxel_live.get("ok")) if running else None,
+            "installed": voxel_source, "required": True,
+            "liveVerified": bool(voxel_live and voxel_live.get("ok")) if running else None,
+            "message": "VoxelVision entry endpoint verified live." if running and voxel_live and voxel_live.get("ok") else (
+                "Bundled VoxelVision source is installed; live rendering will be checked after WatchFusion starts."
+                if voxel_source else "Bundled VoxelVision source is incomplete."
+            ),
         },
         "voxelYoutube": {
-            "label": "VoxelVision YouTube helpers", "ready": youtube_ready, "required": False,
+            "label": "VoxelVision YouTube helpers", "ready": bool(youtube_live) if running else None,
+            "installed": youtube_ready, "required": False,
+            "liveVerified": bool(youtube_live) if running else None,
             "ytDlpReady": yt_dlp_ready, "ffmpegReady": ffmpeg_ready, "ffprobeReady": ffprobe_ready,
             "jsRuntimeReady": js_runtime_ready, "nodeMajor": node_major, "denoReady": deno_ready,
-            "message": "yt-dlp, FFmpeg, ffprobe, and a supported JS runtime are installed; runtime use is verified after start." if youtube_ready
-            else "One or more YouTube helper dependencies still need setup.",
+            "message": "VoxelVision YouTube helper status endpoint verified live." if running and youtube_live else (
+                "yt-dlp, FFmpeg, ffprobe, and a supported JS runtime are installed; live use will be checked after start."
+                if youtube_ready else "One or more YouTube helper dependencies still need setup."
+            ),
         },
         "browserModels": {
             "label": "VoxelVision AI models", "ready": None, "browserManaged": True,
@@ -133,23 +169,10 @@ def _component_status(deps_ready: bool) -> dict:
 
 
 def _health() -> dict | None:
-    connection = None
-    try:
-        connection = http.client.HTTPConnection("127.0.0.1", WATCHFUSION_PORT, timeout=0.8)
-        connection.request("GET", "/api/health", headers={"Connection": "close"})
-        response = connection.getresponse()
-        payload = json.loads(response.read(65536).decode("utf-8"))
-        if response.status != 200 or payload.get("ok") is not True or payload.get("app") != "WatchFusion":
-            return None
-        return payload
-    except (OSError, ValueError, UnicodeError, http.client.HTTPException):
+    payload = _runtime_json("/api/health")
+    if not payload or payload.get("ok") is not True or payload.get("app") != "WatchFusion":
         return None
-    finally:
-        if connection:
-            try:
-                connection.close()
-            except OSError:
-                pass
+    return payload
 
 
 def _remote_tunnel_url() -> str:
@@ -211,7 +234,7 @@ def _status(message: str = "") -> dict:
     node_ready = _node() is not None
     npm_ready = _npm() is not None
     deps_ready = _deps_ready() if installed else False
-    components = _component_status(deps_ready) if installed else {}
+    components = _component_status(deps_ready, running) if installed else {}
     state = "running" if running else "starting" if process_alive else "blocked" if blocked else "stopped"
     local_url = f"http://127.0.0.1:{WATCHFUSION_PORT}/"
     payload = {
