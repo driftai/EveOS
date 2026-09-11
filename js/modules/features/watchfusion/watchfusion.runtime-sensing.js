@@ -22,8 +22,9 @@
         if (!targetPort) return [];
         const values = [];
         if (/^https?:$/.test(location.protocol) && location.hostname) {
-            // Reuse the EveOS page hostname first. Same-site embedding avoids needless
-            // browser storage partitioning when EveOS itself is served over HTTP.
+            // Reuse the EveOS page hostname first. The WatchFusion server preserves
+            // this host for ?eveos=1 / ?eveosDetached=1 so embedded and detached
+            // views can share one WatchFusion origin where possible.
             values.push(`http://${location.hostname}:${targetPort}`);
         }
         values.push(
@@ -56,6 +57,7 @@
             });
             const payload = await response.json().catch(() => ({}));
             if (!response.ok || payload?.ok !== true || payload?.app !== 'WatchFusion') return null;
+            if (Number(payload?.port || 0) && Number(payload.port) !== port()) return null;
             return { ok: true, port: port(), origin: origin.replace(/\/$/, ''), url: `${origin.replace(/\/$/, '')}/`, payload };
         } catch {
             return null;
@@ -65,14 +67,13 @@
     }
 
     async function probe(preferredUrl) {
-        const origins = [];
+        const origins = [...candidateOrigins()];
         if (preferredUrl) {
             try {
                 const parsed = new URL(preferredUrl);
                 if (Number(parsed.port) === port()) origins.push(parsed.origin);
             } catch {}
         }
-        origins.push(...candidateOrigins());
         for (const origin of unique(origins)) {
             const result = await probeOrigin(origin);
             if (result) return result;
@@ -90,6 +91,10 @@
         };
     }
 
+    function emitPresence() {
+        window.dispatchEvent(new CustomEvent('eve:watchfusion-presence', { detail: heartbeatState() }));
+    }
+
     function acceptHeartbeat(event) {
         const data = event?.data;
         if (!data || data.source !== 'WatchFusion' || data.version !== 1) return;
@@ -103,10 +108,11 @@
         } else {
             return;
         }
-        window.dispatchEvent(new CustomEvent('eve:watchfusion-presence', { detail: heartbeatState() }));
+        emitPresence();
     }
 
     window.addEventListener('message', acceptHeartbeat);
+    window.setInterval(emitPresence, 2000);
 
     window.EveWatchFusionRuntimeSensor = Object.freeze({
         port,
