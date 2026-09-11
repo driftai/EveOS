@@ -4,7 +4,6 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     const api = window.EveWatchFusion;
     if (api.ready) return;
 
-    const WATCH_URL = 'http://127-0-0-1.sslip.io:9085/';
     const DETACHED_WINDOW_NAME = 'eveWatchFusionWindow';
     let overlay = null;
     let frame = null;
@@ -126,8 +125,20 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         }
     }
 
+    function runtimeUrl() {
+        const raw = String(status?.url || '').trim();
+        if (!raw) return null;
+        try {
+            const parsed = new URL(raw);
+            return /^https?:$/.test(parsed.protocol) ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
     function embeddedUrl() {
-        const url = new URL(status?.url || WATCH_URL);
+        const url = runtimeUrl();
+        if (!url) return 'about:blank';
         url.searchParams.set('eveos', '1');
         return url.href;
     }
@@ -158,7 +169,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             start.disabled = busy;
         });
         if (stop) stop.hidden = !running;
-        if (detach) detach.disabled = !running || busy;
+        if (detach) detach.disabled = !running || busy || !runtimeUrl();
         if (setup) {
             setup.hidden = !(status?.setupRequired || status?.installed === false);
             setup.replaceChildren();
@@ -190,8 +201,9 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         if (frame) {
             frame.hidden = !running;
             if (running && frame.dataset.loaded !== '1') {
-                frame.dataset.loaded = '1';
-                frame.src = embeddedUrl();
+                const nextUrl = embeddedUrl();
+                frame.dataset.loaded = nextUrl === 'about:blank' ? '' : '1';
+                frame.src = nextUrl;
             }
         }
     }
@@ -312,12 +324,18 @@ window.EveWatchFusion = window.EveWatchFusion || {};
 
     function detach() {
         if (!status?.running) return null;
+        const targetUrl = runtimeUrl();
+        if (!targetUrl) {
+            status = { ...(status || {}), message: 'WatchFusion is online but did not publish a usable runtime URL. Refresh status and try again.' };
+            renderStatus();
+            return null;
+        }
         if (detachedWindow && !detachedWindow.closed) {
             detachedWindow.focus();
             close();
             return detachedWindow;
         }
-        detachedWindow = window.open(status?.url || WATCH_URL, DETACHED_WINDOW_NAME, detachedFeatures());
+        detachedWindow = window.open(targetUrl.href, DETACHED_WINDOW_NAME, detachedFeatures());
         if (!detachedWindow) {
             status = { ...(status || {}), message: 'Detach window was blocked. Allow pop-ups for EveOS and try again.' };
             renderStatus();
