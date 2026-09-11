@@ -19,7 +19,14 @@ for (const token of [
   'data-add-player-queue',
   'advanceAfterComplete',
   'sheet-workspace-queue',
+  'playerQueueReady',
+  'addSongs',
+  'pianoQueueController',
+  'Queued song did not finish loading',
 ]) assert(queue.includes(token), `queue contract missing: ${token}`);
+
+assert(queue.includes('if (!loaded) throw new Error'), 'queue must refuse playback when the requested library song never finishes loading');
+assert(queue.includes('try { playButton.click(); } finally { suppressCancel = false; }'), 'queue must restore suppression state after programmatic play');
 
 for (const token of ['sheet-workspace-queue', 'player-queue-now', 'player-queue-item', '@media (max-width: 760px)']) {
   assert(css.includes(token), `queue CSS contract missing: ${token}`);
