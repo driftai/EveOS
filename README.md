@@ -6,9 +6,9 @@
 >
 > EveOS is built around one idea: the structure you spend time creating should stay under your control. Core workspace data can live locally, be exported, be inspected, and be moved without requiring a hosted EveOS account.
 
-EveOS started as a way to organize links and grew into a connected desktop-style workspace: nested dashboards, library metadata, search, maps, media playback, generative audio, AI-assisted tools, a private World Book, a world-map editor, and a full Piano Auto Player now live in one system.
+EveOS started as a way to organize links and grew into a connected desktop-style workspace: nested dashboards, library metadata, search, maps, media playback, generative audio, AI-assisted tools, a private World Book, a world-map editor, a full Piano Auto Player, and the WatchFusion media/watch-party workspace now live in one system.
 
-It is Windows-oriented, browser-first, and intentionally modular. Many core workflows still work directly from `EveOS.html`; localhost and companion services unlock filesystem access, native audio, AI backends, World Book, Piano Automation, and other machine-level features.
+It is Windows-oriented, browser-first, and intentionally modular. Many core workflows still work directly from `EveOS.html`; localhost and companion services unlock filesystem access, native audio, AI backends, World Book, Piano Automation, WatchFusion, and other machine-level features.
 
 ![EveOS dashboard with a synthetic demo datapack](docs/screenshots/eveos-dashboard.png)
 
@@ -24,7 +24,7 @@ EveOS takes the opposite approach:
 - **Keep local copies when they matter.** Online providers are useful sources, not the only place the organization is allowed to exist.
 - **Export and restore.** Datapacks, scoped backups, World Book recovery, Audioflix transfer, and Piano library transfer make state portable.
 - **Use online services optionally.** Gemini, Spotify, YouTube, metadata providers, narration, search providers, and transcription engines enhance EveOS without becoming its sole source of truth.
-- **Let tools connect without becoming one monolith.** Audioflix, World Book, World Portal, Piano Automation, Matrix, Nexus, Gemini Link, and the dashboard keep their own boundaries and communicate through explicit integration layers.
+- **Let tools connect without becoming one monolith.** Audioflix, WatchFusion, World Book, World Portal, Piano Automation, Matrix, Nexus, Gemini Link, and the dashboard keep their own boundaries and communicate through explicit integration layers.
 
 Local-first is not the same thing as indestructible. Remote media can still disappear and a local disk can still fail. EveOS is designed to make preservation and migration possible; important data should still be backed up independently.
 
@@ -38,6 +38,7 @@ Local-first is not the same thing as indestructible. Remote media can still disa
 | **Constellation Map** | Turns the workspace into a navigable graph while retaining the relationship to the active tab/card context. |
 | **Matrix Workshop** | A visual workspace for alternate navigation, datapack-aware widgets, phone-style controls, cover atlases, and experimental interfaces. |
 | **Audioflix** | Local-first soundboard and music library, playlists, routing, Spotify playback, Instagram/Reel support, local media paths, queues, grouping, filtering, backup/restore, and tool hosting. |
+| **WatchFusion** | On-demand local media/watch-party workspace for YouTube, direct/HLS media, Nuvio, VoxelVision, rooms, chat, synchronized playback, LAN use, and optional remote tunnels. |
 | **Piano Automation** | Integrated Piano Auto Player with sheet search, MIDI/timed performances, recording, internal preview, 61/88-key layouts, window-target playback, media-to-piano transcription, bulk conversion, staging, and library transfer. |
 | **Sonic Forge / Sound Lab** | Live generative music controls, prompt steering, scenes, recording, MIDI, visualization, native capture, and routed playback. |
 | **World Book** | A private local lore workspace for real files, virtual lore, tags, statuses, links, canon/integrity tooling, imports, recovery, and Eve-controlled injections. |
@@ -84,6 +85,23 @@ Current Audioflix capabilities include:
 - dedicated Piano Automation hosting and Piano library transfer.
 
 An online URL is not treated as proof that media has been archived. If a track matters long-term, localize the media and keep your own backup.
+
+## WatchFusion
+
+WatchFusion is now housed canonically inside EveOS under `tools/WatchFusion/`; the former Private-Test-Builds staging copy has been retired. Opening its EveOS panel is presentation-only: the Node runtime remains on-demand and is started explicitly when needed.
+
+The integrated workspace combines:
+
+- solo YouTube, direct-file, and HLS playback;
+- synchronized watch-party rooms, host transfer, chat, playback state, and room links;
+- Nuvio catalog/addon integration through a user-installed external Nuvio tree;
+- bundled VoxelVision 3D/depth playback;
+- LAN sharing and optional Cloudflare Quick Tunnel remote sharing;
+- EveOS lifecycle/setup controls and the canonical WatchFusion port registry entry.
+
+The watch-party lineage comes from [`howardchung/watchparty`](https://github.com/howardchung/watchparty). WatchFusion's current Nuvio setup uses [`NuvioMedia/NuvioTVSmart`](https://github.com/NuvioMedia/NuvioTVSmart); older references may point at the historical `NuvioMedia/NuvioWeb` URL. Upstream licensing/attribution is documented in [`tools/WatchFusion/THIRD_PARTY_NOTICES.md`](tools/WatchFusion/THIRD_PARTY_NOTICES.md).
+
+WatchFusion's privacy model is intentionally narrower than “anything on the host is remotely visible”: host network/setup diagnostics are host-local, remote VoxelVision status redacts machine hardware details, file serving is constrained to explicit public roots with real-path containment checks, and external media/addon proxy destinations reject private/loopback targets. Remote proxying still uses the WatchFusion host as the network egress point, so public upstream media services can see the host network's public IP. See [`tools/WatchFusion/SECURITY.md`](tools/WatchFusion/SECURITY.md) for the full boundary and limitations.
 
 ## Piano Automation
 
@@ -163,8 +181,9 @@ EveOS can operate at several levels. You do not have to start the entire stack t
 | **World Book — `127.0.0.1:8766`** | Private World Book / Reader Library service. Managed independently through EveOS control. |
 | **Piano Auto Player — `127.0.0.1:8771`** | Piano sheet playback, recording, library, target-window automation, and media conversion service. |
 | **Local control plane — port `9082`** | Lifecycle manager used by file-mode EveOS to start/stop optional local services. |
+| **WatchFusion — `127.0.0.1:9087` by default** | On-demand local media/watch-party runtime. LAN and tunnel exposure are explicit separate launch modes. |
 
-Gemini and other optional backends keep separate lifecycle state as well. Starting EveOS localhost does not imply every AI, World Book, or Piano service must also be running.
+Gemini and other optional backends keep separate lifecycle state as well. Starting EveOS localhost does not imply every AI, World Book, Piano, or WatchFusion service must also be running.
 
 ## Getting Started
 
@@ -191,7 +210,7 @@ Open `EveOS.html` directly.
 
 In `file://` mode, browser-side features stay available without the Python server. On Windows, `tools\batch\install-eveos-control-protocol.bat` can register the per-user `eveos-control://` launcher so the file-mode page can cold-start the local control plane after the browser's external-app confirmation.
 
-Features that require filesystem access, native routing, modular disk storage, AI backends, World Book, Piano Automation, or other companion services still require the relevant local runtime.
+Features that require filesystem access, native routing, modular disk storage, AI backends, World Book, Piano Automation, WatchFusion, or other companion services still require the relevant local runtime.
 
 ### Fresh development checkout
 
@@ -250,9 +269,11 @@ EveOS deliberately separates portable user state from machine-local or secret st
 - `tools/Piano-Auto-Player/data/songs.json`;
 - retained YouTube/Piano authentication session material;
 - isolated Piano transcription environments;
-- local audio/device-routing state.
+- local audio/device-routing state;
+- user-installed WatchFusion Nuvio source/build data and local wrapper properties;
+- downloaded WatchFusion/VoxelVision helper binaries and imported VoxelVision media.
 
-Optional integrations send the data required by the feature you explicitly use and are also subject to the external provider's own terms and privacy behavior.
+Optional integrations send the data required by the feature you explicitly use and are also subject to the external provider's own terms and privacy behavior. WatchFusion remote media proxying additionally means public upstream media/addon services can observe the WatchFusion host network as the request source; it does not intentionally grant room participants arbitrary filesystem or LAN access.
 
 Before large restores, migrations, imports, or experimental changes, keep an independent copy of anything you cannot recreate.
 
@@ -278,9 +299,11 @@ At a high level:
       │          │               │                │
    EveOS      World Book     Piano Auto       Gemini/audio/
  localhost    + Portal        Player          native helpers
+                 │
+                 └──────────── WatchFusion (on demand)
 ```
 
-The repository favors domain boundaries over giant shared files. Frontend state, UI, library behavior, Audioflix, World Book integration, Gemini, and other features live in dedicated module families with explicit integration points.
+The repository favors domain boundaries over giant shared files. Frontend state, UI, library behavior, Audioflix, WatchFusion, World Book integration, Gemini, and other features live in dedicated module families with explicit integration points.
 
 A repository smoke test enforces a **450 physical-line maximum for first-party code files**. When a source file approaches the cap, responsibility is expected to move into a focused neighboring module rather than allowing the file to grow indefinitely.
 
@@ -293,9 +316,10 @@ js/config/                         Runtime manifest and load ordering
 js/modules/core/                   State, storage, theme, local control
 js/modules/ui/                     Dashboard and shared UI orchestration
 js/modules/modals/                 Modal templates and interaction logic
-js/modules/features/               Nexus, Library, Audioflix, Gemini, World Book, Matrix, etc.
+js/modules/features/               Nexus, Library, Audioflix, Gemini, World Book, Matrix, WatchFusion, etc.
 server/                            Python HTTP runtime and backend services
 server_modules/                    Backend service/control helpers
+tools/WatchFusion/                 Canonical WatchFusion + bundled VoxelVision integration
 tools/Piano-Auto-Player/           Complete integrated Piano Automation tool
 tools/World-Book/                  Complete World Book + Reader Library tool
 tools/World-Book/tools/World-Portal/ Connected World Portal tool
@@ -317,13 +341,17 @@ The broad repository preflight is:
 npm run verify
 ```
 
-`npm run verify` builds generated browser assets, synchronizes runtime asset versions, runs repository and Python audits, checks the smoke registry, and executes the major focused smoke families for runtime cache, launcher/control plane, World Book/World Portal, Gemini, Audioflix, Spotify, Instagram, Piano Automation, Sound Lab/Sonic Forge, and context routing.
+`npm run verify` builds generated browser assets, synchronizes runtime asset versions, runs repository and Python audits, checks the smoke registry, and executes the major focused smoke families for runtime cache, launcher/control plane, WatchFusion, World Book/World Portal, Gemini, Audioflix, Spotify, Instagram, Piano Automation, Sound Lab/Sonic Forge, and context routing.
 
 Useful focused checks include:
 
 ```powershell
 npm run smoke:file-size
+npm run smoke:watchfusion
+npm run smoke:watchfusion-security
 npm run smoke:audioflix-piano
+npm run smoke:piano-queue
+npm run smoke:piano-metadata
 npm run smoke:world-book
 npm run smoke:audioflix-state
 npm run smoke:audioflix-spotify
@@ -342,7 +370,7 @@ EveOS is actively evolving. The surface area is large and several features depen
 Expect some boundaries:
 
 - online media can still disappear upstream;
-- Spotify/YouTube/Instagram and metadata providers can change behavior;
+- Spotify/YouTube/Instagram, Nuvio/addon sources, WatchFusion media providers, and metadata providers can change behavior;
 - browser security restrictions differ between `file://` and localhost;
 - native audio and target-window automation are especially Windows-specific;
 - AI transcription and generation quality depends on the models and source material;
@@ -361,4 +389,4 @@ You are welcome to read it, run it, fork it, reuse ideas from it, or build somet
 
 ## License
 
-EveOS is available under the [MIT License](LICENSE).
+EveOS is available under the [MIT License](LICENSE). Third-party/upstream components remain subject to their own licenses; WatchFusion-specific notices are recorded in [`tools/WatchFusion/THIRD_PARTY_NOTICES.md`](tools/WatchFusion/THIRD_PARTY_NOTICES.md).
