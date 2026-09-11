@@ -4,6 +4,7 @@
     if (window.EveOSControlPlane) return;
 
     const STATUS_PATH = '/api/control-plane/status';
+    const MAIN_WEB_BASE = 'http://127.0.0.1:3000';
     const CANONICAL_WEB_BASE = 'http://127.0.0.1:8765';
     const POLL_MS = 5000;
 
@@ -25,17 +26,6 @@
         return window.location?.protocol === 'https:' ? 443 : 80;
     }
 
-    function withWebPort(url) {
-        const port = currentWebPort();
-        if (!port) return url;
-        return `${url}${url.includes('?') ? '&' : '?'}port=${port}`;
-    }
-
-    function directWebBases() {
-        const current = currentWebBase();
-        return [...new Set([current, CANONICAL_WEB_BASE].filter(Boolean))];
-    }
-
     const DEFAULT_WEB_URL = `${currentWebBase() || CANONICAL_WEB_BASE}/EveOS.html`;
     const state = {
         helperBaseUrl: '',
@@ -45,8 +35,39 @@
         serverState: 'checking',
         busy: false,
         message: 'Checking EveOS local control...',
-        webUrl: DEFAULT_WEB_URL
+        webUrl: DEFAULT_WEB_URL,
+        webPort: currentWebPort() || 0
     };
+
+    function statusWebBase() {
+        try {
+            const parsed = new URL(String(state.webUrl || ''));
+            return ['http:', 'https:'].includes(parsed.protocol) ? parsed.origin : '';
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function effectiveWebPort() {
+        return currentWebPort() || Number(state.webPort || 0) || 0;
+    }
+
+    function withWebPort(url) {
+        const port = effectiveWebPort();
+        if (!port) return url;
+        return `${url}${url.includes('?') ? '&' : '?'}port=${port}`;
+    }
+
+    function directWebBases() {
+        const current = currentWebBase();
+        const remembered = statusWebBase();
+        return [...new Set([
+            current,
+            remembered,
+            MAIN_WEB_BASE,
+            CANONICAL_WEB_BASE
+        ].filter(Boolean))];
+    }
 
     let pollTimer = 0;
     function helperBaseUrl() {
@@ -79,11 +100,26 @@
         }
     }
 
+    function payloadPort(payload, fallbackBase) {
+        const direct = Number(payload?.port || 0);
+        if (Number.isInteger(direct) && direct > 0) return direct;
+        try {
+            const parsed = new URL(String(payload?.url || fallbackBase || ''));
+            if (parsed.port) return Number(parsed.port);
+            if (parsed.protocol === 'https:') return 443;
+            if (parsed.protocol === 'http:') return 80;
+        } catch (error) {
+            // Keep the last known port.
+        }
+        return Number(state.webPort || 0) || 0;
+    }
+
     function applyWebStatus(payload) {
         state.webRunning = payload?.running === true;
         state.desiredRunning = payload?.desiredRunning === true;
         state.serverState = String(payload?.state || (state.webRunning ? 'running' : 'stopped'));
-        state.webUrl = String(payload?.url || DEFAULT_WEB_URL);
+        state.webUrl = String(payload?.url || state.webUrl || DEFAULT_WEB_URL);
+        state.webPort = payloadPort(payload, state.webUrl);
         state.message = String(payload?.message || '');
     }
 
@@ -94,6 +130,7 @@
         state.desiredRunning = payload?.desiredRunning === true || state.desiredRunning;
         state.serverState = 'running';
         state.webUrl = String(payload?.url || `${base}/EveOS.html`);
+        state.webPort = payloadPort(payload, base);
         state.message = `EveOS localhost is online at ${state.webUrl}`;
         return true;
     }
@@ -179,7 +216,7 @@
                 state.webRunning = false;
                 state.desiredRunning = false;
                 state.serverState = 'unavailable';
-                state.webUrl = DEFAULT_WEB_URL;
+                state.webUrl = state.webUrl || DEFAULT_WEB_URL;
                 state.message = 'Enable the one-time EveOS local control bridge to start localhost from this page.';
             } else {
                 state.message += '. Enable local control to stop or manage it.';
@@ -300,7 +337,8 @@
     window.EveOSControlPlane = Object.freeze({
         getState: () => ({
             ...state,
-            currentWebPort: currentWebPort(),
+            currentWebPort: effectiveWebPort(),
+            currentPagePort: currentWebPort(),
             bootstrapAttemptedAt: window.EveOSLocalControl?.getBootstrapAttemptedAt?.() || 0
         }),
         ensureController,
