@@ -16,6 +16,7 @@ const outer = read('js/modules/features/watchfusion/watchfusion.js');
 const bridge = read('tools/WatchFusion/public/client/eveos-embed-bridge.js');
 const staticFiles = read('tools/WatchFusion/src/server/static-files.js');
 const systemRoutes = read('tools/WatchFusion/src/server/system-routes.js');
+const shellCss = read('css/modules/watchfusion.css');
 const css = read('css/modules/watchfusion-resilience.css');
 const registry = JSON.parse(read('config/eveos-ports.json'));
 
@@ -56,6 +57,19 @@ check(css.includes('.watchfusion-offline-tabs') && css.includes('.watchfusion-of
     'degraded workspace navigation has no scoped EveOS styling');
 check(css.includes('.topbar-watchfusion-btn[data-detached="1"]'),
     'detached-window presence has no visible EveOS header state');
+
+// First-paint regression: resilience inserts .watchfusion-offline-browser between idle copy and
+// component readiness. The shell therefore has four direct grid children in degraded mode. If the
+// shell only reserves three rows, the browser lands in the 1fr track and produces the giant tabs /
+// workspace card Drift reproduced on a fresh reload before later reflow appears to "fix" it.
+check(/\.watchfusion-idle\s*\{[\s\S]*?grid-template-rows:\s*auto\s+auto\s+minmax\(0,\s*1fr\)\s+auto\s*;/.test(shellCss),
+    'degraded WatchFusion shell must reserve four explicit rows so the offline browser cannot stretch into the 1fr track');
+check(/\.watchfusion-offline-browser\s*\{[\s\S]*?align-self:\s*start\s*;/.test(css),
+    'offline WatchFusion browser must opt out of grid-row stretching on first paint');
+check(/\.watchfusion-offline-browser\s*\{[\s\S]*?grid-template-rows:\s*auto\s+auto\s*;/.test(css),
+    'offline WatchFusion browser must size tabs and panel from content instead of a flexible row');
+check(/\.watchfusion-offline-tabs button\s*\{[\s\S]*?flex:\s*0\s+0\s+auto\s*;/.test(css),
+    'offline WatchFusion tabs must not flex-stretch into tall tiles');
 
 const ports = registry.ports || {};
 check(Number(ports.WATCHFUSION_PORT?.port) > 0, 'WatchFusion has no canonical registered port');
