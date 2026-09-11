@@ -45,7 +45,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         }
     }
     function prepareOpen() {
-        // Presentation-only: the header must never start a terminal or runtime.
+        // Opening WatchFusion is presentation-only. Presentation-only: the header must never start a terminal or runtime.
     }
     async function verifyWatchFusionControl() {
         try {

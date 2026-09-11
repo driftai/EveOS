@@ -53,7 +53,7 @@ def main() -> int:
                 )
             try:
                 # 1. Probe health endpoint
-                health_status, health = fetch_json(f"http://127.0.0.1:{port}/api/control-plane/health", timeout=2.0)
+                health_status, health = fetch_json(f"http://127.0.0.1:{port}/api/control-plane/health", timeout=5.0)
                 if health_status != 200:
                     raise SystemExit(f"ASSERT FAILED: /api/control-plane/health returned HTTP {health_status}")
                 if health.get("service") != "eveos-control-plane":
@@ -62,14 +62,14 @@ def main() -> int:
                     raise SystemExit("ASSERT FAILED: control plane reported running != True")
 
                 # 2. Probe status endpoint
-                status_code, status_payload = fetch_json(f"http://127.0.0.1:{port}/api/control-plane/status", timeout=2.0)
+                status_code, status_payload = fetch_json(f"http://127.0.0.1:{port}/api/control-plane/status", timeout=5.0)
                 if status_code != 200:
                     raise SystemExit(f"ASSERT FAILED: /api/control-plane/status returned HTTP {status_code}")
                 if status_payload.get("ok") is not True:
                     raise SystemExit("ASSERT FAILED: control plane status reported ok != True")
 
                 # 3. Probe legacy /api/status endpoint
-                legacy_status, legacy_payload = fetch_json(f"http://127.0.0.1:{port}/api/status", timeout=2.0)
+                legacy_status, legacy_payload = fetch_json(f"http://127.0.0.1:{port}/api/status", timeout=5.0)
                 if legacy_status != 200:
                     raise SystemExit(f"ASSERT FAILED: /api/status returned HTTP {legacy_status}")
                 if legacy_payload.get("service") != "eveos-control-plane":

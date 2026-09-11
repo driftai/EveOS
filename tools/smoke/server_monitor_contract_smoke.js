@@ -38,14 +38,14 @@ assert(html.includes('id="toggleGeminiBtn"'), 'Current Gemini control button mis
 assert(!html.includes('startLauncherBtn') && !html.includes('startHttpBtn'),
     'Legacy command-server controls remain');
 const state = read(files[1]);
-// Read the ports from the backend rather than hard-coding them. This assertion was pinned to the
-// retired 9083/9084 and silently went stale when Gemini moved to 9085/9086 to stop colliding with
-// the audiobook tool -- the monitor was updated correctly, the test was not, and nothing noticed
-// because it is not in any npm script. Derived from source, it now fails only if they truly diverge.
+// Read the ports from the canonical port registry rather than hard-coding them.
+const portsConfig = JSON.parse(read('config/eveos-ports.json'));
+const wsPort = String(portsConfig.ports?.GEMINI_WS_PORT?.port || '');
+const statusPort = String(portsConfig.ports?.GEMINI_STATUS_PORT?.port || '');
+assert(wsPort && statusPort, 'Could not read the canonical Gemini ports from config/eveos-ports.json');
 const control = read('server_modules/gemini_control.py');
-const wsPort = (control.match(/GEMINI_WS_PORT",\s*(\d+)/) || [])[1];
-const statusPort = (control.match(/GEMINI_STATUS_PORT",\s*(\d+)/) || [])[1];
-assert(wsPort && statusPort, 'Could not read the canonical Gemini ports from gemini_control.py');
+assert(control.includes('service_port("GEMINI_WS_PORT")'), 'gemini_control.py does not resolve GEMINI_WS_PORT via service_port');
+assert(control.includes('service_port("GEMINI_STATUS_PORT")'), 'gemini_control.py does not resolve GEMINI_STATUS_PORT via service_port');
 assert(state.includes('9082'), 'Control-plane port 9082 is not represented in the monitor');
 assert(state.includes(wsPort), `Monitor does not point at the Gemini websocket port ${wsPort}`);
 assert(state.includes(statusPort), `Monitor does not point at the Gemini status port ${statusPort}`);

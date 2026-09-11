@@ -79,8 +79,9 @@ def assert_static_contract() -> None:
     launch_batch = (tool / "launch.bat").read_text(encoding="utf-8")
     assert 'launch.ps1" %*' in launch_batch
 
-    ports = (ROOT / "tools" / "batch" / "eveos-ports.bat").read_text(encoding="utf-8")
-    assert 'set "WORLD_BOOK_PORT=8766"' in ports
+    ports_cfg = json.loads((ROOT / "config" / "eveos-ports.json").read_text(encoding="utf-8"))
+    assert ports_cfg.get("ports", {}).get("WORLD_BOOK_PORT", {}).get("port") == 8766
+    assert 'service_port("WORLD_BOOK_PORT")' in control
 
     frontend_version = (tool / "app" / "assets" / "js" / "state.js").read_text(encoding="utf-8")
     backend_version = (tool / "worldbook_runtime" / "layers" / "00_foundation.py").read_text(encoding="utf-8")

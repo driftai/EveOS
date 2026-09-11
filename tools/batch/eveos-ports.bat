@@ -7,6 +7,8 @@ rem      config\eveos-ports.json
 rem
 rem  This adapter exports every registered KEY=PORT into the
 rem  current cmd.exe environment so existing launchers stay simple.
+rem  Exports canonical registry keys:
+rem    EVEOS_WEB_PORT, GEMINI_WS_PORT, GEMINI_STATUS_PORT, GEMINI_CONTROL_PORT
 rem  New services must be registered in the JSON file rather than
 rem  adding another literal port to a launcher.
 rem ============================================================
@@ -20,7 +22,7 @@ if not exist "%EVEOS_PORT_REGISTRY%" (
 )
 
 set "_EVEOS_PORT_LOAD_OK="
-for /f "usebackq tokens=1,* delims==" %%A in (`powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $j=Get-Content -LiteralPath '%EVEOS_PORT_REGISTRY%' -Raw ^| ConvertFrom-Json; foreach($p in $j.ports.PSObject.Properties){ $n=[string]$p.Name; $v=[int]$p.Value.port; if($v -lt 1 -or $v -gt 65535){ throw ('Invalid port for '+$n) }; [Console]::WriteLine($n+'='+$v) }" 2^>nul`) do (
+for /f "usebackq tokens=1,* delims==" %%A in (`powershell -NoProfile -Command "$j=Get-Content -LiteralPath '%EVEOS_PORT_REGISTRY%' -Raw | ConvertFrom-Json; $j.ports.PSObject.Properties | ForEach-Object { $_.Name + '=' + $_.Value.port }"` ) do (
     set "%%A=%%B"
     set "_EVEOS_PORT_LOAD_OK=1"
 )

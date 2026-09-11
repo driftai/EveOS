@@ -88,7 +88,7 @@ const firstTrack = instanceSource.indexOf('call "%START_SERVER_PATHS_BAT%" :Trac
 assert(firstVerifiedStart >= 0 && firstTrack > firstVerifiedStart,
     'Instance launcher tracks the server before verified readiness');
 
-const portsSource = read(path.join(ROOT, 'tools', 'batch', 'eveos-ports.bat'));
+const portsConfig = JSON.parse(read(path.join(ROOT, 'config', 'eveos-ports.json')));
 for (const key of [
     'EVEOS_WEB_PORT',
     'WORLD_BOOK_PORT',
@@ -100,8 +100,18 @@ for (const key of [
     'WIKIMEDIA_BRIDGE_PORT',
     'POPUP_BRIDGE_PORT'
 ]) {
-    assert(new RegExp('set "' + key + '=[0-9]+"').test(portsSource),
+    assert(Number.isInteger(portsConfig.ports?.[key]?.port),
         'Canonical numeric port missing: ' + key);
+}
+
+if (process.platform === 'win32') {
+    const probe = childProcess.spawnSync(process.env.ComSpec || 'cmd.exe', [
+        '/c', 'call tools\\batch\\eveos-ports.bat && set EVEOS_WEB_PORT && set GEMINI_WS_PORT'
+    ], {
+        encoding: 'utf8',
+        cwd: ROOT
+    });
+    assert(probe.status === 0, 'eveos-ports.bat failed to export registered ports: ' + (probe.stderr || probe.stdout));
 }
 
 const pythonResolverPath = path.join(ROOT, 'tools', 'batch', 'eveos-python.bat');

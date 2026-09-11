@@ -12,10 +12,13 @@ if ROOT not in sys.path:
 
 from server_modules import audioflix_instagram as INSTAGRAM
 from server_modules import audioflix_instagram_browser as INSTAGRAM_BROWSER
+from server_modules import audioflix_instagram_metadata as INSTAGRAM_METADATA
 from server_modules import audioflix_instagram_public as INSTAGRAM_PUBLIC
 from server_modules import audioflix_instagram_public_proxy as INSTAGRAM_PUBLIC_PROXY
 from server_modules import audioflix_localize as LOCALIZE
 from server_modules import audioflix_ytdl as YTDL
+
+INSTAGRAM_METADATA.resolve_metadata = lambda *args, **kwargs: {"ok": False}
 
 
 def check(condition, message):
