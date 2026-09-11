@@ -84,10 +84,38 @@
   color: var(--muted, #94a6b5);
 }
 
+/* Keep the title/tools visible while collapsing the My Songs body. */
+.piano-unified-workspace[data-u-collapsed="1"] > .planner-body > :not(.piano-unified-head) {
+  display: none !important;
+}
+.piano-unified-workspace[data-u-collapsed="1"] > .planner-body {
+  padding-bottom: 0;
+}
+
 /* These remain in the DOM only for controller/storage compatibility. */
 .sheet-workspace-queue[hidden],
 .library-panel[hidden][data-compatibility-bridge] {
   display: none !important;
+}
+
+/* The row has four children: checkbox, favorite, song copy, actions. */
+.piano-unified-workspace .planner-song {
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  scroll-margin: 90px;
+}
+
+.piano-unified-workspace .planner-fav-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  align-self: center;
+}
+
+.piano-unified-workspace .planner-song-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .piano-unified-workspace .planner-editor-head > span,
@@ -96,12 +124,51 @@
   letter-spacing: .06em;
 }
 
-.piano-unified-workspace .planner-song {
-  scroll-margin: 90px;
+.piano-unified-workspace .planner-editor-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.piano-unified-workspace .planner-editor-head > span,
+.piano-unified-workspace .planner-editor-head > strong {
+  grid-column: 1;
+}
+.piano-unified-workspace .piano-editor-toggle {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  min-width: 68px;
+}
+
+.piano-unified-workspace .planner-editor[data-u-collapsed="1"] > :not(.planner-editor-head) {
+  display: none !important;
+}
+.piano-unified-workspace .planner-grid.editor-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+.piano-unified-workspace .planner-editor[data-u-collapsed="1"] {
+  padding: 8px 9px;
 }
 
 .piano-unified-workspace[data-queue-active="1"] .piano-now-playing {
   box-shadow: inset 3px 0 0 var(--accent, #51d8ff);
+}
+
+/* Top-level Piano areas get lightweight disclosure without changing their proven controls. */
+.piano-collapsible-panel > .panel-head {
+  gap: 10px;
+}
+.piano-panel-toggle {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.piano-collapsible-panel[data-u-collapsed="1"] > :not(.panel-head) {
+  display: none !important;
+}
+.recorder-panel[data-u-collapsed="1"] .record-actions {
+  display: none !important;
+}
+.piano-collapsible-panel[data-u-collapsed="1"] > .panel-head {
+  margin-bottom: 0;
 }
 
 @media (max-width: 900px) {
@@ -122,4 +189,25 @@
   .piano-now-controls button { flex: 1 1 auto; }
   .piano-now-controls label { flex: 1 1 100%; }
   .piano-now-controls select { flex: 1; }
+
+  .piano-unified-workspace .planner-song {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: flex-start;
+  }
+  .piano-unified-workspace .planner-song-actions {
+    grid-column: 3;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .piano-unified-workspace .planner-song {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+  .piano-unified-tools {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .piano-unified-tools button { width: 100%; }
+  .piano-panel-toggle { margin-left: 0; }
 }
