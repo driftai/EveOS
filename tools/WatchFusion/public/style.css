@@ -13,395 +13,152 @@
   top: 0;
   z-index: 20;
 }
-.brand {
-  font-weight: 900;
-  letter-spacing: 0.2px;
-  white-space: nowrap;
-  font-size: 17px;
-  color: var(--accent);
-}
-.brand strong {
-  color: var(--text-main);
-}
-.top-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  margin-left: auto;
-}
-.top-actions[hidden] {
-  display: none !important;
-}
+.brand { font-weight: 900; letter-spacing: 0.2px; white-space: nowrap; font-size: 17px; color: var(--accent); }
+.brand strong { color: var(--text-main); }
+.top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+.top-actions[hidden] { display: none !important; }
 .header-toggle {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--border-subtle);
-  border-radius: 9px;
-  margin-left: 2px;
-  background: var(--btn-secondary-bg);
+  width: 34px; height: 34px; min-width: 34px; padding: 0; display: grid; place-items: center;
+  border: 1px solid var(--border-subtle); border-radius: 9px; margin-left: 2px; background: var(--btn-secondary-bg);
 }
-.header-chevron {
-  width: 8px;
-  height: 8px;
-  border-right: 2px solid var(--text-muted);
-  border-bottom: 2px solid var(--text-muted);
-  transform: translateY(-2px) rotate(45deg);
-  transition: transform 0.16s ease;
-}
-.header-toggle.is-expanded .header-chevron {
-  transform: translateY(2px) rotate(225deg);
-}
-.room-setup {
-  max-width: 760px;
-  margin: 24px auto 0;
-  padding: 24px;
-}
-.room-setup-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-}
-.room-setup h2 {
-  font-size: 22px;
-  margin: 0 0 4px;
-  color: var(--text-main);
-}
-.lobby label {
-  display: block;
-  margin: 24px 0 14px;
-  color: var(--text-muted);
-}
-.lobby label input {
-  margin-top: 8px;
-}
-.row {
-  display: flex;
-  gap: 10px;
-}
-.row input {
-  max-width: 190px;
-  text-transform: uppercase;
-}
-.grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
-  max-width: 1500px;
-  margin: 14px auto;
-  padding: 0 14px;
-}
-.maincol {
-  min-width: 0;
-}
-.watch-shell {
-  overflow: hidden;
-}
+.header-chevron { width: 8px; height: 8px; border-right: 2px solid var(--text-muted); border-bottom: 2px solid var(--text-muted); transform: translateY(-2px) rotate(45deg); transition: transform 0.16s ease; }
+.header-toggle.is-expanded .header-chevron { transform: translateY(2px) rotate(225deg); }
+.room-setup { max-width: 760px; margin: 24px auto 0; padding: 24px; }
+.room-setup-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.room-setup h2 { font-size: 22px; margin: 0 0 4px; color: var(--text-main); }
+.lobby label { display: block; margin: 24px 0 14px; color: var(--text-muted); }
+.lobby label input { margin-top: 8px; }
+.row { display: flex; gap: 10px; }
+.row input { max-width: 190px; text-transform: uppercase; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; max-width: 1500px; margin: 14px auto; padding: 0 14px; }
+.maincol { min-width: 0; }
+.watch-shell { overflow: hidden; }
 .watch-shell-head {
-  position: relative;
-  z-index: 50;
-  isolation: isolate;
-  pointer-events: auto !important;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: rgba(17, 21, 29, 0.94);
+  position: relative; z-index: 50; isolation: isolate; pointer-events: auto !important;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle); background: rgba(17, 21, 29, 0.94);
 }
-.source-tabs {
-  position: relative;
-  z-index: 51;
-  pointer-events: auto !important;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  width: 100%;
-}
-.player-wrap {
-  width: 100%;
-  background: #000;
-}
-.player-wrap.media-stage-empty {
-  display: none;
-}
-.player-wrap:has(iframe:not([hidden]), video, #nuvioFrame:not([hidden]), #voxelVisionFrame:not([hidden])) {
-  display: block;
-}
-.player-wrap .player {
-  overflow: hidden;
-  background: #000;
-  aspect-ratio: 16/9;
-  width: 100%;
-  border-radius: 0;
-}
-.player > div {
-  width: 100%;
-  height: 100%;
-}
-.player iframe {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-.player > video {
-  width: 100%;
-  height: 100%;
-  display: block;
-  background: #000;
-  object-fit: contain;
-}
-.player.nuvio-active {
-  aspect-ratio: 16/9;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-}
-.player.voxelvision-active {
-  aspect-ratio: auto;
-  width: 100%;
-  height: min(78vh, 900px);
-  min-height: 560px;
-}
+.source-tabs { position: relative; z-index: 51; pointer-events: auto !important; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.player-wrap { width: 100%; background: #000; }
+.player-wrap.media-stage-empty { display: none; }
+.player-wrap:has(iframe:not([hidden]), video, #nuvioFrame:not([hidden]), #voxelVisionFrame:not([hidden])) { display: block; }
+.player-wrap .player { overflow: hidden; background: #000; aspect-ratio: 16/9; width: 100%; border-radius: 0; }
+.player > div { width: 100%; height: 100%; }
+.player iframe { display: block; width: 100%; height: 100%; border: 0; }
+.player > video { width: 100%; height: 100%; display: block; background: #000; object-fit: contain; }
+.player.nuvio-active { aspect-ratio: 16/9; width: 100%; height: 100%; min-height: 0; }
+.player.voxelvision-active { aspect-ratio: auto; width: 100%; height: min(78vh, 900px); min-height: 560px; }
 .nuvio-frame,
-.voxelvision-frame {
-  display: block;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  border: 0;
-  background: #0b0d12;
-}
-.nuvio-frame[hidden],
-.voxelvision-frame[hidden] {
-  display: none !important;
-}
-[hidden],
-.nuvio-toolbar[hidden],
-.voxelvision-toolbar[hidden],
-.find-media-panel[hidden] {
-  display: none !important;
-}
+.voxelvision-frame { display: block; width: 100%; height: 100%; min-height: 0; border: 0; background: #0b0d12; }
+.nuvio-frame[hidden], .voxelvision-frame[hidden] { display: none !important; }
+[hidden], .nuvio-toolbar[hidden], .voxelvision-toolbar[hidden], .find-media-panel[hidden] { display: none !important; }
 .nuvio-toolbar,
 .voxelvision-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 9px 12px;
-  background: #131722;
-  border-top: 1px solid var(--border-subtle);
-  border-bottom: 1px solid var(--border-subtle);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 12px;
+  background: #131722; border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle);
 }
 .nuvio-toolbar .nuvio-label,
-.voxelvision-toolbar .voxelvision-label {
-  font-size: 13px;
-  font-weight: 800;
-  color: #d7e4f4;
-  margin-right: 2px;
-}
+.voxelvision-toolbar .voxelvision-label { font-size: 13px; font-weight: 800; color: #d7e4f4; margin-right: 2px; }
 .nuvio-toolbar-note,
-.voxelvision-toolbar-note {
-  font-size: 11px;
-  color: var(--text-faint);
-  margin-left: auto;
+.voxelvision-toolbar-note { font-size: 11px; color: var(--text-faint); margin-left: auto; }
+.find-media-panel { padding: 15px 16px; background: rgba(16, 20, 28, 0.94); border-top: 1px solid var(--border-subtle); }
+.find-media-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.find-media-title strong { display: block; font-size: 16px; margin-bottom: 4px; }
+.find-media-title span { font-size: 12px; color: var(--text-muted); }
+.find-media-row { display: flex; gap: 10px; }
+.find-media-row input { flex: 1; min-width: 0; }
+.find-media-row #loadBtn { min-width: 120px; }
+.find-media-hint { font-size: 12px; color: var(--text-muted); margin-top: 9px; }
+.media-results { padding-top: 10px; }
+.media-result-row { display: flex; gap: 10px; }
+.media-result-row select { flex: 1; min-width: 0; }
+.media-status-row { padding: 10px 12px; border-top: 1px solid var(--border-subtle); }
+.smallrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.smallrow span { color: var(--text-muted); font-size: 13px; }
+.smallrow span#syncStatus { margin-left: auto; }
+.side { padding: 16px; display: flex; flex-direction: column; min-height: 500px; }
+.sidehead { display: flex; justify-content: space-between; align-items: center; }
+.members { display: flex; flex-wrap: wrap; gap: 7px; }
+.member-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0; }
+.member-transfer { font: inherit; font-size: 0.72rem; padding: 4px 7px; }
+.chat { flex: 1; overflow: auto; min-height: 260px; display: flex; flex-direction: column; gap: 8px; padding: 8px 2px; }
+.chatform { display: flex; gap: 8px; margin-top: 10px; }
+.chatform input { min-width: 0; }
+.chatform button { padding-inline: 12px; }
+
+/* EveOS owns the outer chrome. Embedded mode removes the second app-frame
+   geometry so WatchFusion uses the entire remaining workspace. */
+html.eveos-embedded,
+html.eveos-embedded body { width: 100%; height: 100%; min-height: 100%; overflow: hidden; }
+html.eveos-embedded body { background: var(--bg-primary); }
+html.eveos-embedded .topbar {
+  min-height: 48px;
+  padding: 6px 10px;
+  background: rgba(13, 16, 23, 0.97);
+  position: relative;
 }
-.find-media-panel {
-  padding: 15px 16px;
-  background: rgba(16, 20, 28, 0.94);
-  border-top: 1px solid var(--border-subtle);
+html.eveos-embedded .brand { font-size: 15px; }
+html.eveos-embedded main,
+html.eveos-embedded #app { height: calc(100% - 48px); min-height: 0; }
+html.eveos-embedded #app { overflow: hidden; }
+html.eveos-embedded .grid {
+  width: 100%; height: 100%; max-width: none; margin: 0; padding: 0; gap: 0; min-height: 0;
 }
-.find-media-title {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
+html.eveos-embedded .maincol { height: 100%; min-height: 0; }
+html.eveos-embedded .watch-shell {
+  height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto;
+  border: 0; border-radius: 0; box-shadow: none; background: var(--bg-primary); backdrop-filter: none;
 }
-.find-media-title strong {
-  display: block;
-  font-size: 16px;
-  margin-bottom: 4px;
+html.eveos-embedded .watch-shell-head { padding: 7px 9px; background: rgba(14, 18, 25, 0.98); }
+html.eveos-embedded .source-tab { border-radius: 7px; padding: 7px 12px; }
+html.eveos-embedded .player-wrap { min-height: 0; height: 100%; overflow: hidden; }
+html.eveos-embedded .player-wrap .player,
+html.eveos-embedded .player.nuvio-active,
+html.eveos-embedded .player.voxelvision-active {
+  aspect-ratio: auto; width: 100%; height: 100%; min-height: 0; max-height: none;
 }
-.find-media-title span {
-  font-size: 12px;
-  color: var(--text-muted);
+html.eveos-embedded .nuvio-frame,
+html.eveos-embedded .voxelvision-frame { width: 100%; height: 100%; min-height: 0; }
+html.eveos-embedded .nuvio-toolbar,
+html.eveos-embedded .voxelvision-toolbar { padding: 6px 9px; }
+html.eveos-embedded .find-media-panel { padding: 12px; overflow: auto; }
+html.eveos-embedded .media-status-row { min-height: 38px; padding: 6px 9px; }
+html.eveos-embedded .room-setup,
+html.eveos-embedded .setup-panel { width: calc(100% - 20px); max-width: none; margin: 10px; }
+html.eveos-embedded .room-setup { padding: 16px; }
+html.eveos-embedded .grid:has(#partyPanel:not([hidden])) { grid-template-columns: minmax(0, 1fr) minmax(280px, 320px); }
+html.eveos-embedded .side {
+  min-height: 0; height: 100%; padding: 12px; border-radius: 0; border-top: 0; border-right: 0; border-bottom: 0;
 }
-.find-media-row {
-  display: flex;
-  gap: 10px;
-}
-.find-media-row input {
-  flex: 1;
-  min-width: 0;
-}
-.find-media-row #loadBtn {
-  min-width: 120px;
-}
-.find-media-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 9px;
-}
-.media-results {
-  padding-top: 10px;
-}
-.media-result-row {
-  display: flex;
-  gap: 10px;
-}
-.media-result-row select {
-  flex: 1;
-  min-width: 0;
-}
-.media-status-row {
-  padding: 10px 12px;
-  border-top: 1px solid var(--border-subtle);
-}
-.smallrow {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.smallrow span {
-  color: var(--text-muted);
-  font-size: 13px;
-}
-.smallrow span#syncStatus {
-  margin-left: auto;
-}
-.side {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  min-height: 500px;
-}
-.sidehead {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.members {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-.member-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 4px 0;
-}
-.member-transfer {
-  font: inherit;
-  font-size: 0.72rem;
-  padding: 4px 7px;
-}
-.chat {
-  flex: 1;
-  overflow: auto;
-  min-height: 260px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 2px;
-}
-.chatform {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-}
-.chatform input {
-  min-width: 0;
-}
-.chatform button {
-  padding-inline: 12px;
-}
+
 @media (min-width: 901px) {
-  .grid:has(#partyPanel:not([hidden])) {
-    grid-template-columns: minmax(0, 1fr) 340px;
-  }
+  .grid:has(#partyPanel:not([hidden])) { grid-template-columns: minmax(0, 1fr) 340px; }
 }
 @media (max-width: 900px) {
-  .side {
-    min-height: 420px;
-  }
+  .side { min-height: 420px; }
+  html.eveos-embedded .grid:has(#partyPanel:not([hidden])) { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  html.eveos-embedded .side { height: auto; min-height: 360px; border-left: 0; border-top: 1px solid var(--border-subtle); }
 }
 @media (max-width: 650px) {
-  .topbar {
-    min-height: 54px;
-    padding: 8px 12px;
-  }
-  .brand {
-    font-size: 16px;
-  }
-  .brand span {
-    display: none;
-  }
+  .topbar { min-height: 54px; padding: 8px 12px; }
+  .brand { font-size: 16px; }
+  .brand span { display: none; }
   .top-actions {
-    position: absolute;
-    right: 52px;
-    top: 54px;
-    z-index: 30;
-    flex-direction: column;
-    align-items: stretch;
-    width: min(240px, calc(100vw - 64px));
-    padding: 10px;
-    background: #11151e;
-    border: 1px solid var(--border-subtle);
-    border-radius: 12px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    position: absolute; right: 52px; top: 54px; z-index: 30; flex-direction: column; align-items: stretch;
+    width: min(240px, calc(100vw - 64px)); padding: 10px; background: #11151e;
+    border: 1px solid var(--border-subtle); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   }
-  .header-toggle {
-    margin-left: 0;
-  }
-  .row,
-  .find-media-row,
-  .media-result-row {
-    flex-wrap: wrap;
-  }
-  .row input {
-    max-width: none;
-  }
-  .row > * {
-    flex: 1;
-  }
-  .find-media-row input {
-    flex-basis: 100%;
-  }
-  .find-media-row #loadBtn {
-    width: 100%;
-  }
-  .watch-shell-head {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .source-tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .source-badge {
-    align-self: flex-start;
-  }
-  .nuvio-toolbar-note {
-    width: 100%;
-    margin-left: 0;
-  }
-  .media-status-row {
-    gap: 6px;
-  }
-  .smallrow span#syncStatus {
-    margin-left: 0;
-    flex-basis: 100%;
-  }
+  .header-toggle { margin-left: 0; }
+  .row, .find-media-row, .media-result-row { flex-wrap: wrap; }
+  .row input { max-width: none; }
+  .row > * { flex: 1; }
+  .find-media-row input { flex-basis: 100%; }
+  .find-media-row #loadBtn { width: 100%; }
+  .watch-shell-head { align-items: stretch; flex-direction: column; gap: 8px; }
+  .source-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .source-badge { align-self: flex-start; }
+  .nuvio-toolbar-note, .voxelvision-toolbar-note { width: 100%; margin-left: 0; }
+  .media-status-row { gap: 6px; }
+  .smallrow span#syncStatus { margin-left: 0; flex-basis: 100%; }
+  html.eveos-embedded main, html.eveos-embedded #app { height: calc(100% - 54px); }
 }
