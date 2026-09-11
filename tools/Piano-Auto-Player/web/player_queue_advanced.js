@@ -169,7 +169,9 @@ function labelFor(song) {
 
 function isFavorite(song) {
   const custom = song.identifiers?.custom || {};
-  return custom.favorite === "true" || listValue(song.identifiers?.tags).some(t => norm(t) === "favorite") || Number(song.identifiers?.personal_rating) >= 4.5;
+  if (custom.favorite === "true") return true;
+  if (custom.favorite === "false") return false;
+  return listValue(song.identifiers?.tags).some(t => norm(t) === "favorite") || Number(song.identifiers?.personal_rating) >= 4.5;
 }
 
 function filteredSongs(songs, prefs) {
@@ -227,6 +229,7 @@ async function installPlanner() {
     queueStatus: section.querySelector("[data-p-queue-status]"), qPlay: section.querySelector("[data-p-q-play]"), qToggle: section.querySelector("[data-p-q-toggle]"), qUp: section.querySelector("[data-p-q-up]"), qDown: section.querySelector("[data-p-q-down]")
   };
   const state = { songs: [], prefs: safePrefs(), selected: new Set(), editingId: "" };
+  const favoritePending = new Set();
   let busy = false;
 
   function toast(message, status = "idle") {
@@ -301,7 +304,7 @@ async function installPlanner() {
   function openEditor(song) {
     state.editingId = song.id; const ids = song.identifiers || {}, custom = ids.custom || {};
     els.editorTitle.textContent = labelFor(song); els.authorEdit.value = ids.author || song.artist || ""; els.genreEdit.value = listValue(ids.genre).join(", "); els.tagsEdit.value = listValue(ids.tags).join(", "); els.ratingEdit.value = ids.personal_rating == null ? "" : String(ids.personal_rating);
-    els.customEdit.value = Object.entries(custom).filter(([k]) => !k.startsWith("override_")).map(([key, value]) => `${key}=${value}`).join("\n");
+    els.customEdit.value = Object.entries(custom).filter(([k]) => !k.startsWith("override_") && k !== "favorite").map(([key, value]) => `${key}=${value}`).join("\n");
     els.ovSpeed.value = custom.override_speed || "";
     els.ovInterval.value = custom.override_interval || "";
     els.ovHold.value = custom.override_hold || "";
@@ -309,17 +312,42 @@ async function installPlanner() {
     els.saveMeta.disabled = false; renderAuto(song); updateEditorQueueUI();
   }
 
-  async function toggleFavorite(song) {
-    const custom = { ...(song.identifiers?.custom || {}) };
-    if (custom.favorite === "true") delete custom.favorite; else custom.favorite = "true";
+  async function toggleFavorite(songId) {
+    const key = String(songId);
+    if (favoritePending.has(key)) return;
+    const index = state.songs.findIndex(item => String(item.id) === key);
+    if (index < 0) return;
+
+    const previous = state.songs[index];
+    const desired = !isFavorite(previous);
+    const identifiers = {
+      ...(previous.identifiers || {}),
+      genre: listValue(previous.identifiers?.genre),
+      tags: listValue(previous.identifiers?.tags),
+      author: clean(previous.identifiers?.author || previous.artist),
+      personal_rating: previous.identifiers?.personal_rating ?? null,
+      custom: { ...(previous.identifiers?.custom || {}), favorite: desired ? "true" : "false" }
+    };
+    const optimistic = { ...previous, identifiers };
+
+    favoritePending.add(key);
+    state.songs[index] = optimistic;
+    renderResults();
+    if (String(state.editingId) === key) openEditor(optimistic);
+
     try {
-      const identifiers = { genre: listValue(song.identifiers?.genre), tags: listValue(song.identifiers?.tags), author: clean(song.identifiers?.author || song.artist), personal_rating: song.identifiers?.personal_rating ?? null, custom };
-      const updated = await saveIdentifiers(song.id, identifiers);
-      if (updated) {
-        state.songs = state.songs.map(item => String(item.id) === String(updated.id) ? updated : item);
-        renderResults(); if (String(state.editingId) === String(song.id)) openEditor(updated);
-      }
-    } catch (err) { toast(err.message, "error"); }
+      const updated = await saveIdentifiers(previous.id, identifiers);
+      if (!updated) throw new Error("Favorite update returned no song record.");
+      state.songs = state.songs.map(item => String(item.id) === key ? updated : item);
+      if (String(state.editingId) === key) openEditor(updated);
+    } catch (err) {
+      state.songs = state.songs.map(item => String(item.id) === key ? previous : item);
+      if (String(state.editingId) === key) openEditor(previous);
+      toast(err.message, "error");
+    } finally {
+      favoritePending.delete(key);
+      renderResults();
+    }
   }
 
   function renderResults() {
@@ -338,7 +366,22 @@ async function installPlanner() {
       const isNext = inQueue && currIdx >= 0 && String(qState.items[currIdx + 1]?.songId) === String(song.id);
 
       const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = state.selected.has(song.id); checkbox.addEventListener("change", () => { checkbox.checked ? state.selected.add(song.id) : state.selected.delete(song.id); renderResults(); });
-      const favBtn = document.createElement("button"); favBtn.type = "button"; favBtn.className = `planner-fav-btn ${isFavorite(song) ? "active" : ""}`; favBtn.textContent = isFavorite(song) ? "★" : "☆"; favBtn.title = isFavorite(song) ? "Unfavorite" : "Favorite"; favBtn.addEventListener("click", () => void toggleFavorite(song));
+      const favorite = isFavorite(song);
+      const favoriteBusy = favoritePending.has(String(song.id));
+      const favBtn = document.createElement("button");
+      favBtn.type = "button";
+      favBtn.className = `planner-fav-btn ${favorite ? "active" : ""}`;
+      favBtn.textContent = favorite ? "★" : "☆";
+      favBtn.title = favorite ? "Unfavorite" : "Favorite";
+      favBtn.setAttribute("aria-pressed", favorite ? "true" : "false");
+      favBtn.setAttribute("aria-label", `${favorite ? "Remove favorite from" : "Favorite"} ${labelFor(song)}`);
+      favBtn.disabled = favoriteBusy;
+      if (favoriteBusy) favBtn.setAttribute("aria-busy", "true");
+      favBtn.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        void toggleFavorite(song.id);
+      });
       const copy = document.createElement("div"); copy.className = "planner-song-copy";
       const title = document.createElement("strong"); title.textContent = labelFor(song);
       const sub = document.createElement("small"); sub.textContent = `${song.identifiers?.genre?.join(", ") || "No genre"} · ${song.automatic_identifiers?.event_count || 0} events · ${durationText(song.automatic_identifiers?.duration_ms || song.duration_ms)}`;
@@ -388,7 +431,7 @@ async function installPlanner() {
     if (clean(els.ovInterval.value)) custom.override_interval = clean(els.ovInterval.value); else delete custom.override_interval;
     if (clean(els.ovHold.value)) custom.override_hold = clean(els.ovHold.value); else delete custom.override_hold;
     if (clean(els.ovGate.value)) custom.override_gate = clean(els.ovGate.value); else delete custom.override_gate;
-    if (song.identifiers?.custom?.favorite === "true") custom.favorite = "true";
+    if (song.identifiers?.custom?.favorite === "true" || song.identifiers?.custom?.favorite === "false") custom.favorite = song.identifiers.custom.favorite;
     try {
       const identifiers = { genre: listValue(els.genreEdit.value), tags: listValue(els.tagsEdit.value), author: clean(els.authorEdit.value), personal_rating: els.ratingEdit.value ? Number(els.ratingEdit.value) : null, custom };
       const updated = await saveIdentifiers(song.id, identifiers);
