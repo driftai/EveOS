@@ -27,16 +27,53 @@ def fetch(url: str) -> tuple[int, bytes]:
         return int(response.status), response.read()
 
 
+def launcher_python() -> str:
+    """Use the same interpreter selection as the Windows launcher when possible."""
+    if os.name != "nt":
+        return sys.executable
+
+    comspec = os.environ.get("ComSpec") or os.environ.get("COMSPEC") or "cmd.exe"
+    command = (
+        r"call tools\batch\eveos-python.bat >nul"
+        r" & if errorlevel 1 exit /b 9"
+        r" & echo(!EVEOS_PYTHON!"
+    )
+    resolved = subprocess.run(
+        [comspec, "/d", "/v:on", "/c", command],
+        cwd=ROOT,
+        env=os.environ.copy(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",
+        timeout=10,
+        check=False,
+    )
+    if resolved.returncode != 0:
+        raise SystemExit(
+            "ASSERT FAILED: launcher Python resolver failed.\n" + (resolved.stdout or "")
+        )
+
+    lines = [line.strip() for line in (resolved.stdout or "").splitlines() if line.strip()]
+    if not lines:
+        raise SystemExit("ASSERT FAILED: launcher Python resolver returned no interpreter path")
+    candidate = Path(lines[-1])
+    if not candidate.is_file():
+        raise SystemExit(f"ASSERT FAILED: launcher Python does not exist: {candidate}")
+    return str(candidate)
+
+
 def main() -> int:
     if not SERVER.is_file():
         raise SystemExit(f"ASSERT FAILED: missing server entrypoint: {SERVER}")
 
     port = free_port()
+    python_executable = launcher_python()
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
 
     process = subprocess.Popen(
-        [sys.executable, str(SERVER), str(port), "--no-browser"],
+        [python_executable, str(SERVER), str(port), "--no-browser"],
         cwd=ROOT,
         env=env,
         stdin=subprocess.DEVNULL,
@@ -54,6 +91,7 @@ def main() -> int:
                 captured.append(output)
                 raise SystemExit(
                     "ASSERT FAILED: EveOS server exited before becoming ready.\n"
+                    f"Launcher Python: {python_executable}\n"
                     + "".join(captured)
                 )
             try:
@@ -63,6 +101,14 @@ def main() -> int:
                 payload = json.loads(body.decode("utf-8"))
                 if not isinstance(payload, dict):
                     raise SystemExit("ASSERT FAILED: /api/status did not return a JSON object")
+                if payload.get("service") != "eveos-local-server":
+                    raise SystemExit(
+                        f"ASSERT FAILED: /api/status returned wrong service identity: {payload.get('service')!r}"
+                    )
+                if int(payload.get("port") or 0) != port:
+                    raise SystemExit(
+                        f"ASSERT FAILED: /api/status returned wrong port: {payload.get('port')!r}"
+                    )
 
                 page_status, page = fetch(f"http://127.0.0.1:{port}/EveOS.html")
                 if page_status != 200:
@@ -70,14 +116,15 @@ def main() -> int:
                 if b"EveOS" not in page[:20000]:
                     raise SystemExit("ASSERT FAILED: /EveOS.html did not return EveOS content")
 
-                print("EVEOS_SERVER_STARTUP_SMOKE_OK")
+                print(f"EVEOS_SERVER_STARTUP_SMOKE_OK (python={python_executable})")
                 return 0
             except (URLError, TimeoutError, ConnectionError, OSError):
                 time.sleep(0.2)
 
         output = process.stdout.read() if process.stdout else ""
         raise SystemExit(
-            "ASSERT FAILED: EveOS server did not become ready within 12 seconds.\n" + output
+            "ASSERT FAILED: EveOS server did not become ready within 12 seconds.\n"
+            f"Launcher Python: {python_executable}\n" + output
         )
     finally:
         if process.poll() is None:
