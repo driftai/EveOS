@@ -99,7 +99,8 @@
             const start = document.createElement('button');
             start.type = 'button';
             start.dataset.wfAction = 'start';
-            start.textContent = `Start WatchFusion for ${config.label}`;
+            start.textContent = 'Start WatchFusion';
+            start.title = `${config.label} live actions become available after the WatchFusion runtime starts.`;
             actions.append(start);
         }
         panel.append(actions);
