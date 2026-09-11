@@ -13,7 +13,8 @@ WatchFusion is designed as a local-first EveOS tool with explicit boundaries for
 
 ## 2. Filesystem containment
 
-- Main WatchFusion static assets are resolved under the WatchFusion `public/` root.
+- Main WatchFusion static assets are served only after both lexical containment and filesystem `realpath` containment under the WatchFusion `public/` root. A symlink/junction resolving outside that root is rejected.
+- The generated `/app.js` bundle reads only its explicit client-file allowlist, and each source file is realpath-checked under `public/` before being read.
 - Nuvio assets under `/nuvio/dist/` are realpath-checked to remain inside the selected Nuvio `dist` root.
 - VoxelVision assets under `/voxelvision/` are realpath-checked to remain inside VoxelVision's public root.
 - Imported VoxelVision media lives under `voxelvision/public/media/imported/` and is ignored by Git.
@@ -42,9 +43,10 @@ Use LAN or Cloudflare sharing only with people you trust, stop the tunnel when t
 ## 5. External Nuvio architecture
 
 - Nuvio is user-installed under `.\nuvio` or an explicit `NUVIO_PATH`; the EveOS repository tracks only `nuvio/.gitkeep`.
+- WatchFusion setup currently installs from the canonical `NuvioMedia/NuvioTVSmart` repository; older documentation may refer to the historical `NuvioMedia/NuvioWeb` URL.
 - `nuvio-wrapper.properties`, `nuvio-wrapper.local.properties`, `local.properties`, `.env*`, and `NUVIO_PATH.txt` are ignored.
 - The generated browser environment exposes only the explicit `PUBLIC_ENV_KEYS` allowlist. Nuvio's Supabase **anon/publishable** key is intentionally browser-public; private service-role credentials must never be placed there.
 
 ## 6. What this policy does not claim
 
-No static review can prove a networked application is vulnerability-free. In particular, dependency vulnerabilities, browser changes, DNS-rebinding edge cases, newly introduced routes, and local machine configuration still need regression testing. Run WatchFusion's security smoke profile and the EveOS verification suite after security-sensitive changes.
+No static review can prove a networked application is vulnerability-free. In particular, dependency vulnerabilities, browser changes, DNS-rebinding/validation-to-connect timing edge cases, newly introduced routes, and local machine configuration still need regression testing. Run WatchFusion's security smoke profile and the EveOS verification suite after security-sensitive changes.
