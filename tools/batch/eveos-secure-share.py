@@ -38,7 +38,7 @@ def strip_access(raw_path: str) -> str:
 
 class Router(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "EveOSSecureShare/1.0"
+    server_version = "EveOSSecureShare/1.1"
 
     def __init__(self, *args, **kwargs):
         self._response_started = False
@@ -91,9 +91,15 @@ class Router(http.server.BaseHTTPRequestHandler):
         target = strip_access(self.path)
         self.send_response(HTTPStatus.SEE_OTHER)
         self.send_header("Location", target or "/")
+        # Selective tools can be embedded inside a separately shared EveOS
+        # origin. SameSite=Strict makes that authenticated iframe lose its
+        # cookie after the token redirect. SameSite=None keeps the intended
+        # remote embed working; Partitioned scopes it to that top-level site on
+        # browsers with CHIPS support. The random per-launch token still gates
+        # access and the origin itself remains loopback-only.
         self.send_header(
             "Set-Cookie",
-            f"{self._cookie_name()}={self.settings['token']}; Path=/; HttpOnly; Secure; SameSite=Strict",
+            f"{self._cookie_name()}={self.settings['token']}; Path=/; HttpOnly; Secure; SameSite=None; Partitioned",
         )
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", "0")
