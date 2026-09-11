@@ -4,6 +4,7 @@
     window.__eveWatchFusionBootstrapReady = true;
 
     let styleReadyPromise = null;
+    let companionsReadyPromise = null;
 
     function stylesheetReady(selector, href, datasetKey) {
         return new Promise((resolve) => {
@@ -28,24 +29,40 @@
         });
     }
 
-    function ensureCompanionScript(src, dataKey) {
-        if (document.querySelector(`script[${dataKey}]`)) return;
-        const script = document.createElement('script');
-        script.src = src;
-        script.async = false;
-        script.setAttribute(dataKey, '1');
-        document.head.appendChild(script);
+    function companionReady(src, dataKey, readyFlag) {
+        return new Promise((resolve) => {
+            if (window[readyFlag]) return resolve();
+            let script = document.querySelector(`script[${dataKey}]`);
+            if (!script) {
+                script = document.createElement('script');
+                script.src = src;
+                script.async = false;
+                script.setAttribute(dataKey, '1');
+                document.head.appendChild(script);
+            }
+            if (window[readyFlag]) return resolve();
+            const settle = () => resolve();
+            script.addEventListener('load', settle, { once: true });
+            script.addEventListener('error', settle, { once: true });
+        });
     }
 
     function ensureRuntimeCompanions() {
-        ensureCompanionScript(
-            'js/modules/features/watchfusion/watchfusion.frame-capabilities.js',
-            'data-eve-watchfusion-frame-capabilities'
-        );
-        ensureCompanionScript(
-            'js/modules/features/watchfusion/watchfusion.selective-start.js',
-            'data-eve-watchfusion-selective-start'
-        );
+        if (!companionsReadyPromise) {
+            companionsReadyPromise = Promise.all([
+                companionReady(
+                    'js/modules/features/watchfusion/watchfusion.frame-capabilities.js',
+                    'data-eve-watchfusion-frame-capabilities',
+                    '__eveWatchFusionFrameCapabilitiesReady'
+                ),
+                companionReady(
+                    'js/modules/features/watchfusion/watchfusion.selective-start.js',
+                    'data-eve-watchfusion-selective-start',
+                    '__eveWatchFusionSelectiveStartReady'
+                )
+            ]);
+        }
+        return companionsReadyPromise;
     }
 
     function ensureStyleReady() {
@@ -97,11 +114,10 @@
     }
 
     function initialize() {
-        ensureRuntimeCompanions();
-        // The button is intentionally withheld until both WatchFusion stylesheets are ready.
-        // This keeps the first visible overlay frame at its final geometry instead of briefly
-        // rendering the raw, document-flow markup and snapping down after CSS arrives.
-        ensureStyleReady().then(bindButtonWhenHostExists);
+        // The WatchFusion button becomes interactive only after both its visual
+        // shell and the human selective-start interceptor are ready. That avoids
+        // a first-click race that could bypass the terminal mode prompt.
+        Promise.all([ensureRuntimeCompanions(), ensureStyleReady()]).then(bindButtonWhenHostExists);
     }
 
     window.EveWatchFusionStyleReady = ensureStyleReady;
