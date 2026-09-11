@@ -4,6 +4,14 @@
   const KEY = 'eveos:piano-host-context';
   let context = null;
 
+  // Prevent the three legacy Piano surfaces from flashing as separate workspaces while the
+  // queue/metadata controllers hydrate. Their DOM remains available as a compatibility bridge;
+  // piano_unified_workspace.js becomes the only visible library/queue/inspector surface.
+  const criticalStyle = document.createElement('style');
+  criticalStyle.id = 'pianoUnifiedCriticalStyle';
+  criticalStyle.textContent = '.library-panel,.sheet-workspace-queue,.sheet-workspace-planner>summary{display:none!important}';
+  document.head.append(criticalStyle);
+
   function accept(event) {
     const payload = event?.data;
     if (!payload || payload.type !== 'eveos:audioflix-context') return;
