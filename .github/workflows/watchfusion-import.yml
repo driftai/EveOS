@@ -1,0 +1,60 @@
+name: One-shot WatchFusion import
+
+on:
+  push:
+    paths:
+      - '.github/workflows/watchfusion-import.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  import-watchfusion:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout EveOS main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Checkout pinned WatchFusion source
+        uses: actions/checkout@v4
+        with:
+          repository: driftai/Private-Test-Builds
+          ref: f2f1db5b68d5529100b3ea5ee2007af144575df6
+          path: .watchfusion-source
+          fetch-depth: 1
+
+      - name: Import WatchFusion exactly
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf tools/WatchFusion
+          mkdir -p tools
+          cp -a .watchfusion-source/WatchFusion tools/WatchFusion
+          rm -rf .watchfusion-source
+          cat > tools/WatchFusion/EVEOS-UPSTREAM.md <<'EOF'
+          # EveOS WatchFusion upstream
+
+          This tree was imported into EveOS from `driftai/Private-Test-Builds/WatchFusion`.
+
+          Pinned upstream commit: `f2f1db5b68d5529100b3ea5ee2007af144575df6`.
+
+          EveOS owns this integrated copy after import. Future upstream refreshes should be deliberate merges, not runtime downloads.
+          EOF
+
+      - name: Commit imported tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/WatchFusion
+          if git diff --cached --quiet; then
+            echo 'WatchFusion import already matches pinned source.'
+            exit 0
+          fi
+          git commit -m 'feat(watchfusion): import standalone core into EveOS'
+          git push origin HEAD:main
