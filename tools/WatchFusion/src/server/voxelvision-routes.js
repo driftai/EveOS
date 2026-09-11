@@ -40,12 +40,32 @@ const MIME_TYPES = Object.freeze({
 
 let youtubeImportBusy = false;
 
-function buildContentSecurityPolicy() {
+function requestHostname(req) {
+  const raw = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  try { return new URL(`http://${raw}`).hostname; } catch { return ''; }
+}
+
+function frameAncestors(req) {
+  const values = new Set([
+    "'self'",
+    'http://127.0.0.1:*',
+    'http://localhost:*',
+    'http://127-0-0-1.sslip.io:*'
+  ]);
+  const hostname = requestHostname(req);
+  if (hostname && /^[A-Za-z0-9.:-]+$/.test(hostname)) {
+    values.add(`http://${hostname}:*`);
+    values.add(`https://${hostname}:*`);
+  }
+  return [...values].join(' ');
+}
+
+function buildContentSecurityPolicy(req) {
   return [
     "default-src 'self'",
     "base-uri 'none'",
     "object-src 'none'",
-    "frame-ancestors 'self'",
+    `frame-ancestors ${frameAncestors(req)}`,
     "form-action 'none'",
     "script-src 'self' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net",
     "style-src 'self'",
@@ -56,14 +76,13 @@ function buildContentSecurityPolicy() {
   ].join('; ');
 }
 
-function securityHeaders() {
+function securityHeaders(req) {
   return {
-    'Content-Security-Policy': buildContentSecurityPolicy(),
+    'Content-Security-Policy': buildContentSecurityPolicy(req),
     'Cross-Origin-Resource-Policy': 'same-origin',
     'Permissions-Policy': 'camera=(), geolocation=(), microphone=()',
     'Referrer-Policy': 'no-referrer',
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'SAMEORIGIN'
+    'X-Content-Type-Options': 'nosniff'
   };
 }
 
@@ -172,7 +191,7 @@ async function serveVoxelVisionFile(req, res, pathname) {
   if (!stat.isFile() || !isContainedVoxelVisionPath(publicRoot, file)) return json(res, 403, { error: 'forbidden' });
 
   const headers = {
-    ...securityHeaders(),
+    ...securityHeaders(req),
     'Content-Type': MIME_TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
     'Accept-Ranges': 'bytes',
     'Cache-Control': /\.(?:html|css|js|mjs)$/i.test(file) ? 'no-cache' : 'public, max-age=3600'
