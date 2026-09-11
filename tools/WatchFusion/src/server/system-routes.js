@@ -19,7 +19,7 @@ function isPublicTunnelRequest(req) {
 export function handleSystemRoute(req, res, parts) {
   if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'health') {
     const { rooms, aliases } = counts();
-    json(res, 200, { ok: true, app: 'WatchFusion', rooms, aliases, time: now(), youtubePlayer: 'iframe-api' });
+    json(res, 200, { ok: true, app: 'WatchFusion', port: PORT, rooms, aliases, time: now(), youtubePlayer: 'iframe-api' });
     return true;
   }
 
