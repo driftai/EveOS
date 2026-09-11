@@ -21,16 +21,25 @@ if errorlevel 1 (
 )
 
 set "LAN_IP="
-for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$ip=[System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) ^| Where-Object {$_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork -and -not [System.Net.IPAddress]::IsLoopback($_)} ^| Select-Object -First 1; if($ip){$ip.IPAddressToString}"`) do set "LAN_IP=%%I"
-if not defined LAN_IP set "LAN_IP=YOUR-PC-LAN-IP"
-set "LAN_URL=http://!LAN_IP!:%WATCHFUSION_PORT%/"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%EVEOS_ROOT%\tools\batch\set-exposure-state.ps1" -Service watchfusion -Mode lan -PublicUrl "!LAN_URL!" -OriginUrl "http://127.0.0.1:%WATCHFUSION_PORT%" >nul 2>nul
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$ip = Get-NetIPConfiguration ^| Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4DefaultGateway -and $_.IPv4Address } ^| ForEach-Object { $_.IPv4Address.IPAddress } ^| Where-Object { $_ -and $_ -notlike '169.254*' } ^| Select-Object -First 1; if ($ip) { $ip.Trim() }"`) do if not defined LAN_IP set "LAN_IP=%%I"
+
+set "LAN_URL="
+if defined LAN_IP set "LAN_URL=http://!LAN_IP!:%WATCHFUSION_PORT%/"
+if defined LAN_URL (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%EVEOS_ROOT%\tools\batch\set-exposure-state.ps1" -Service watchfusion -Mode lan -PublicUrl "!LAN_URL!" -OriginUrl "http://127.0.0.1:%WATCHFUSION_PORT%" >nul 2>nul
+) else (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%EVEOS_ROOT%\tools\batch\set-exposure-state.ps1" -Service watchfusion -Mode lan -OriginUrl "http://127.0.0.1:%WATCHFUSION_PORT%" >nul 2>nul
+)
 
 echo.
 echo [WARN] LAN mode exposes WatchFusion to devices on this trusted local network.
-echo [READY] !LAN_URL!
+if defined LAN_URL (
+  echo [READY] !LAN_URL!
+) else (
+  echo [READY] WatchFusion will bind to all interfaces on port %WATCHFUSION_PORT%.
+  echo [WARN] A preferred LAN IPv4 address could not be resolved automatically.
+)
+echo [INFO] EveOS will keep using its embedded WatchFusion view; no extra browser tab will open.
 echo.
 start "WatchFusion Server (LAN)" cmd /k "cd /d ""%~dp0\.."" && set HOST=0.0.0.0&& set PORT=%WATCHFUSION_PORT%&& node server.js"
-timeout /t 2 /nobreak >nul
-start "" "!LAN_URL!"
 exit /b 0
