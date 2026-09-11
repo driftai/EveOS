@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "ports": {
+    "LIGHTPANDA_BRIDGE_PORT": { "port": 3037, "service": "Lightpanda bridge" },
+    "CAMOFOX_BRIDGE_PORT": { "port": 3038, "service": "Camofox bridge" },
+    "WIKIMEDIA_BRIDGE_PORT": { "port": 3039, "service": "Wikimedia bridge" },
+    "POPUP_BRIDGE_PORT": { "port": 3040, "service": "Popup + Wikimedia bridge" },
+    "EVEOS_WEB_PORT": { "port": 8765, "service": "EveOS web surface" },
+    "WORLD_BOOK_PORT": { "port": 8766, "service": "World Book" },
+    "PIANO_PLAYER_PORT": { "port": 8771, "service": "Piano Auto Player" },
+    "GEMINI_CONTROL_PORT": { "port": 9082, "service": "EveOS local control plane" },
+    "GEMINI_WS_PORT": { "port": 9085, "service": "Gemini Live WebSocket" },
+    "GEMINI_STATUS_PORT": { "port": 9086, "service": "Gemini Live status" },
+    "WATCHFUSION_PORT": { "port": 9087, "service": "WatchFusion" }
+  }
+}
