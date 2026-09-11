@@ -124,8 +124,10 @@ assert(shareRouter.includes('HttpOnly; Secure; SameSite=None; Partitioned'),
 assert(shareRouter.includes('strip_access(self.path)'),
     'Cloudflare share router does not strip access tokens before forwarding');
 const cloudflaredBootstrap = read(path.join(ROOT, 'tools', 'batch', 'ensure-cloudflared.ps1'));
-assert(cloudflaredBootstrap.includes('github.com/cloudflare/cloudflared/releases/latest/download/'),
-    'Cloudflared bootstrap no longer uses the official Cloudflare release source');
+assert(cloudflaredBootstrap.includes('api.github.com/repos/cloudflare/cloudflared/releases/latest'),
+    'Cloudflared bootstrap no longer resolves the official Cloudflare latest release');
+assert(cloudflaredBootstrap.includes('Get-FileHash') && cloudflaredBootstrap.includes('SHA256'),
+    'Cloudflared bootstrap does not verify the published release checksum');
 assert(cloudflaredBootstrap.includes('--version'),
     'Cloudflared bootstrap does not self-check the downloaded executable');
 
