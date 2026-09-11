@@ -66,6 +66,8 @@ function sourceContract() {
     check(ui.includes('data-wf-components') && ui.includes('renderComponents'), 'WF-OFFLINE-HEALTH-UI', 'stopped WatchFusion does not expose setup health in EveOS');
     check(css.includes('var(--accent)') && css.includes('var(--bg-secondary)'), 'WF-THEME', 'WatchFusion shell does not consume EveOS theme tokens');
     check(css.includes('.watchfusion-components') && css.includes('width: 100%'), 'WF-WORKSPACE-SHELL', 'WatchFusion outer shell does not expose the full EveOS workspace/setup surface');
+    check(css.includes('.watchfusion-shell-head') && css.includes('flex-direction: row;') && css.includes('flex-wrap: nowrap;'), 'WF-OUTER-HEADER-SIZING', 'outer WatchFusion header can stack vertically and consume media space');
+    check(css.includes('.watchfusion-frame {') && css.includes('position: absolute;') && css.includes('inset: 0;'), 'WF-OUTER-FRAME-FILL', 'outer WatchFusion iframe is not pinned to the full remaining stage');
 
     check(setupRoutes.includes("parts[1] !== 'setup'") && setupRoutes.includes("parts[2] === 'install'"), 'WF-SETUP-API', 'WatchFusion setup API is not routed');
     check(setupRoutes.includes('isInstallerLocal') && setupRoutes.includes('trycloudflare') && setupRoutes.includes("'cf-ray'"), 'WF-SETUP-LOCAL-ONLY', 'install actions are not protected from tunnel callers');
@@ -75,6 +77,10 @@ function sourceContract() {
     check(setupHtml.includes("get('eveos') === '1'") && setupHtml.includes("classList.add('eveos-embedded')"), 'WF-EMBEDDED-MODE', 'embedded WatchFusion cannot opt into EveOS-native layout geometry');
     check(setupHtml.includes('id="resolveTabBtn"') && setupHtml.includes('id="shortcutVoxelVisionBtn"') && setupHtml.includes('id="shortcutNuvioBtn"'), 'WF-MEDIA-TABS', 'Find Media/Nuvio/VoxelVision tabs were lost in the merger');
     check(innerCss.includes('html.eveos-embedded .grid') && innerCss.includes('max-width: none') && innerCss.includes('aspect-ratio: auto'), 'WF-EMBEDDED-SIZING', 'embedded WatchFusion still uses standalone max-width/aspect constraints');
+    check(innerCss.includes('html.eveos-embedded body {\n  display: flex;') && innerCss.includes('html.eveos-embedded main {\n  flex: 1 1 auto;'), 'WF-EMBEDDED-FLEX-FILL', 'embedded WatchFusion does not flex through the full EveOS stage');
+    check(!innerCss.includes('html.eveos-embedded main,\nhtml.eveos-embedded #app { height: calc(100% - 48px)'), 'WF-NO-DOUBLE-HEADER-SUBTRACT', 'embedded WatchFusion still subtracts its inner header twice');
+    check(innerCss.includes('grid-template-rows: minmax(0, 1fr) auto;'), 'WF-MEDIA-TOOLBAR-GRID', 'embedded media player still consumes 100% height before its toolbar is laid out');
+    check(innerCss.includes('html.eveos-embedded .source-badge { display: none; }'), 'WF-EMBEDDED-TABS-WIDTH', 'redundant source badge still steals horizontal space from embedded tabs');
     check(staticFiles.includes("'client/setup-health.js'") && staticFiles.includes("'client/voxelvision-adapter.js'") && staticFiles.includes("'client/media-player.js'"), 'WF-CLIENT-BUNDLE', 'Setup Health or core media adapters are missing from the integrated bundle');
     check(setupClient.includes("'/api/setup/status'") && setupClient.includes("'/api/setup/install'"), 'WF-SETUP-CLIENT', 'Setup Health UI is not connected to setup API');
 
