@@ -9,7 +9,7 @@ import os
 import threading
 import time
 from http import HTTPStatus
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
 from . import eveos_console_prefs
@@ -22,24 +22,51 @@ from .eveos_http_cors import eveos_cors_origin
 
 
 DEFAULT_PORT = 9082
-# Set once serve_forever() owns it, so a request can ask the plane to stop serving.
 _SERVER = None
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 def _shutdown_plane_after_response(delay: float = 0.4) -> bool:
-    """Stop the control plane itself, once the current response has had time to flush.
-
-    Stop is meant to leave nothing running, and the plane's own console staying open after it read
-    as "the stop did not work". shutdown() must not be called from the thread inside serve_forever,
-    and it would also kill the reply mid-write, so it runs on a short timer from the handler thread.
-
-    Consequence worth knowing: the file:// page cannot start anything again until the plane is back
-    (sign-in with autostart installed, or tools\\batch\\start-eveos-control.bat).
-    """
+    """Stop the control plane itself once the current response has flushed."""
     if _SERVER is None:
         return False
     threading.Timer(delay, _SERVER.shutdown).start()
     return True
+
+
+def _valid_port(value) -> int | None:
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return None
+    return port if 1 <= port <= 65535 else None
+
+
+def _request_web_port(handler) -> int | None:
+    """Resolve the EveOS web port this local page is actually using.
+
+    Explicit ?port= wins for connector callers. Otherwise a localhost page's Origin
+    tells us which EveOS instance is asking. file:// sends Origin: null and therefore
+    keeps the canonical control-plane default.
+    """
+    parsed_request = urlparse(handler.path)
+    query = parse_qs(parsed_request.query)
+    if query.get("port"):
+        requested = _valid_port(query["port"][0])
+        if requested is not None:
+            return requested
+
+    origin = str(handler.headers.get("Origin", "")).strip()
+    if not origin or origin == "null":
+        return None
+    try:
+        parsed_origin = urlparse(origin)
+        host = (parsed_origin.hostname or "").lower()
+        if parsed_origin.scheme not in {"http", "https"} or host not in _LOOPBACK_HOSTS:
+            return None
+        return _valid_port(parsed_origin.port)
+    except ValueError:
+        return None
 
 
 def wait_for_control(port: int, timeout: float) -> int:
@@ -59,13 +86,6 @@ def wait_for_control(port: int, timeout: float) -> int:
 
 
 def _console_preferences() -> dict:
-    """Console preferences alone, with no lifecycle probing.
-
-    Flipping a console switch cannot start or stop anything, so answering it with a full overview
-    means paying ~1.7s of netstat and health probes to return facts that provably did not change.
-    That delay is what made a toggle look like it had not worked: the switch moved, nothing else
-    did, and the panel only caught up seconds later.
-    """
     prefs = eveos_console_prefs.read_all()
     return {
         "ok": True,
@@ -83,20 +103,12 @@ def _console_preferences() -> dict:
     }
 
 
-def _console_overview() -> dict:
-    """What is running, on which port, and whether it shows a console.
-
-    One payload so the settings panel is a single request: asking three lifecycle endpoints and a
-    preferences file separately would let the list render half-stale, which is exactly the kind of
-    "is that actually running?" doubt this panel exists to remove.
-
-    Costs roughly two seconds -- a netstat sweep and three health probes -- so it belongs on the
-    panel opening, not on every switch. See _console_preferences for the cheap path.
-    """
+def _console_overview(web_port=None) -> dict:
+    """What is running, on which port, and whether it shows a console."""
     prefs = eveos_console_prefs.read_all()
     services = []
-    for key, label, status_fn, ports in (
-        ("web", "EveOS localhost", eveos_web_control.get_status,
+    status_specs = (
+        ("web", "EveOS localhost", lambda: eveos_web_control.get_status(port=web_port),
          lambda s: [s.get("port")]),
         ("gemini", "Gemini backend", gemini_control.get_status,
          lambda s: [s.get("websocketPort"), s.get("statusPort")]),
@@ -104,7 +116,8 @@ def _console_overview() -> dict:
          lambda s: [s.get("port")]),
         ("piano", "Piano Auto Player", piano_player_control.get_status,
          lambda s: [s.get("port")]),
-    ):
+    )
+    for key, label, status_fn, ports in status_specs:
         try:
             status = status_fn() or {}
         except Exception as exc:  # noqa: BLE001
@@ -127,17 +140,8 @@ def _console_overview() -> dict:
     }
 
 
-def _stop_everything() -> dict:
-    """Stop every EveOS surface, not just the web server.
-
-    "Stop" in the UI means "shut EveOS down", but it only ever stopped the localhost server. World
-    Book and the Gemini backend kept running with their terminal windows open, and once the page was
-    gone there was no longer anything on screen offering to stop them -- so each session left more
-    orphaned services behind. Stopped dependents-first, then the surface that hosts them.
-
-    A failure to stop one surface must not prevent the others from stopping, so each is isolated;
-    what happened to each is reported back rather than swallowed.
-    """
+def _stop_everything(web_port=None) -> dict:
+    """Stop every EveOS surface, targeting the verified web instance the page is using."""
     also = {}
     for name, stop in (("piano", piano_player_control.stop_server),
                        ("worldBook", world_book_control.stop_server),
@@ -147,10 +151,8 @@ def _stop_everything() -> dict:
         except Exception as exc:  # noqa: BLE001
             also[name] = f"error: {exc}"
 
-    payload = eveos_web_control.stop_server()
+    payload = eveos_web_control.stop_server(port=web_port)
     payload["stoppedAlso"] = also
-    # ...and the plane last, so "Stop" really does leave nothing running. Its console closing is
-    # the visible confirmation; leaving it up made a completed stop look like a failed one.
     payload["controlPlaneStopping"] = _shutdown_plane_after_response()
     return payload
 
@@ -172,6 +174,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        web_port = _request_web_port(self)
         if path in {"/api/health", "/api/control-plane/health"}:
             self._send(
                 {
@@ -185,7 +188,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             )
             return
         if path in {"/api/status", "/status", "/api/control-plane/status"}:
-            web = eveos_web_control.get_status()
+            web = eveos_web_control.get_status(port=web_port)
             self._send(
                 {
                     "ok": True,
@@ -200,7 +203,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             )
             return
         if path == "/api/eveos-server/status":
-            self._send(eveos_web_control.get_status())
+            self._send(eveos_web_control.get_status(port=web_port))
             return
         if path == "/api/gemini-server/status":
             self._send(gemini_control.get_status())
@@ -212,7 +215,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             self._send(piano_player_control.get_status())
             return
         if path == "/api/control-plane/consoles":
-            self._send(_console_overview())
+            self._send(_console_overview(web_port))
             return
         if path == "/api/gemini-credentials/status":
             if not gemini_control.request_can_control(self):
@@ -227,6 +230,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        web_port = _request_web_port(self)
         if path in {
             "/api/eveos-server/start",
             "/api/eveos-server/stop",
@@ -254,9 +258,9 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
 
         action = None
         if path == "/api/eveos-server/start":
-            action = eveos_web_control.start_server
+            action = lambda: eveos_web_control.start_server(port=web_port)
         elif path == "/api/eveos-server/stop":
-            action = _stop_everything
+            action = lambda: _stop_everything(web_port)
         elif path == "/api/gemini-server/start":
             action = gemini_control.start_server
         elif path == "/api/gemini-server/stop":
@@ -279,8 +283,6 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/control-plane/consoles":
             body = gemini_credentials.read_json_body(self) or {}
             try:
-                # A console preference only takes effect the next time that service starts; the
-                # already-running process keeps whatever window it was born with.
                 eveos_console_prefs.set_console(body.get("service"), bool(body.get("headless")))
                 payload = _console_preferences()
                 payload["message"] = "Applies the next time that service starts."
@@ -307,10 +309,6 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         except (ConnectionError, OSError):
-            # The caller went away mid-request. Most visible on Stop, where the page tears its
-            # polling down the moment it fires: the work already happened and only the reply was
-            # lost, so a WinError 10053 traceback in a console the user is watching is pure noise
-            # that reads like the stop itself failed.
             pass
 
 
