@@ -10,6 +10,7 @@ import {
   parsePropertiesFile
 } from '../../../src/server/nuvio-config.js';
 import { rewriteM3u8 } from '../../../src/server/media-routes.js';
+import { addonProxyTimeoutMs } from '../../../src/server/nuvio-proxy.js';
 
 const PORT = 19187;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -89,6 +90,24 @@ export async function runNuvioSmokes() {
     assert.ok(rewritten.includes('&referer=' + encodeURIComponent(referer)));
   })();
 
+  await record('NUV-00D:addon-latency-budget', async () => {
+    assert.equal(addonProxyTimeoutMs('https://addon.example/manifest.json'), 4000);
+    assert.equal(addonProxyTimeoutMs('https://addon.example/meta/movie/tt123.json'), 5000);
+    assert.equal(addonProxyTimeoutMs('https://addon.example/catalog/movie/popular.json'), 8000);
+    assert.equal(addonProxyTimeoutMs('https://addon.example/stream/movie/tt123.json'), 12000);
+    assert.equal(addonProxyTimeoutMs('https://addon.example/subtitles/movie/tt123.json'), 8000);
+  })();
+
+  await record('NUV-00E:browser-plugin-build-patch-contract', async () => {
+    const toolRoot = path.join(__dirname, '..', '..', '..');
+    const build = fs.readFileSync(path.join(toolRoot, 'scripts', 'BUILD-NUVIO.bat'), 'utf8');
+    const patch = fs.readFileSync(path.join(toolRoot, 'scripts', 'PATCH-NUVIO-BROWSER-PLUGINS.ps1'), 'utf8');
+    assert.match(build, /PATCH-NUVIO-BROWSER-PLUGINS\.ps1/);
+    assert.match(patch, /watchFusionBrowserBridge/);
+    assert.match(patch, /__WATCHFUSION_NUVIO_PLUGIN_FETCH__/);
+    assert.match(patch, /PluginServiceClient browser health layout changed/);
+  })();
+
   const server = await startServer({ port: PORT, host: '127.0.0.1' });
   const baseUrl = server.baseUrl;
 
@@ -126,6 +145,10 @@ export async function runNuvioSmokes() {
       assert.ok(res.body.includes('HTMLMediaElement'));
       assert.ok(res.body.includes('__watchFusionNuvioMediaSrcPatched'));
       assert.ok(res.body.includes('mp4|m4v|mov|mkv|webm'));
+      assert.ok(res.body.includes('__NUVIO_ALLOW_BROWSER_PLUGIN_RUNTIME__'));
+      assert.ok(res.body.includes('__WATCHFUSION_NUVIO_PLUGIN_FETCH__'));
+      assert.ok(res.body.includes('/__nuvio__/plugin-fetch'));
+      assert.ok(res.body.includes("nuvioHost === '127.0.0.1'"));
     })();
 
     await record('NUV-02A:user-initiated-youtube-proxy', async () => {
@@ -136,7 +159,32 @@ export async function runNuvioSmokes() {
       assert.doesNotMatch(res.body, /if \(autoplay\) \{\s*event\.target\.playVideo/);
     })();
 
-    // 3. Diagnostics endpoint and filesystem path redaction
+    await record('NUV-02B:plugin-fetch-private-target-rejected', async () => {
+      const response = await request(baseUrl, '/__nuvio__/plugin-fetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: 'http://127.0.0.1:54321/private', method: 'GET' })
+      });
+      assert.equal(response.status, 400);
+      assert.match(response.body, /Private or loopback/);
+    })();
+
+    await record('NUV-02C:plugin-fetch-remote-host-rejected', async () => {
+      const response = await request(baseUrl, '/__nuvio__/plugin-fetch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Host: 'room.trycloudflare.com',
+          Origin: 'https://room.trycoudflare.com',
+          'cf-ray': 'test-ray'
+        },
+        body: JSON.stringify({ url: 'https://example.com/', method: 'GET' })
+      });
+      assert.equal(response.status, 403);
+      assert.match(response.body, /host-local/);
+    })();
+
+     // 3. Diagnostics endpoint and filesystem path redaction
     await record('NUV-03:diagnostics-path-redaction', async () => {
       const res = await request(baseUrl, '/__nuvio__/diagnostics');
       assert.equal(res.status, 200);

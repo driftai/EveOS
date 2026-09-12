@@ -10,6 +10,7 @@ import {
   mergedNuvioConfig
 } from './nuvio-config.js';
 import { handleNuvioAddonProxy } from './nuvio-proxy.js';
+import { handleNuvioPluginFetch } from './nuvio-plugin-proxy.js';
 
 const NUVIO_TYPES = Object.freeze({
   '.css': 'text/css; charset=utf-8',
@@ -101,6 +102,15 @@ export async function handleNuvioRoute(req, res, pathname, url) {
     });
     res.end(req.method === 'HEAD' ? undefined : body);
     return true;
+  }
+
+  if (pathname === '/__nuvio__/plugin-fetch') {
+    if (!isHostLocalRequest(req)) return json(res, 403, { error: 'Nuvio plugin networking is host-local only' });
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      return res.end();
+    }
+    return handleNuvioPluginFetch(req, res);
   }
 
   if (pathname === '/__nuvio__/addon-proxy' || pathname === '/__wrapper__/addon-proxy') {

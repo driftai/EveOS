@@ -53,6 +53,25 @@ export async function runFastSmoke() {
     assert.match(toolbarLayout, /flex-wrap:\s*nowrap/);
   });
 
+  await check('FAST-02A:nuvio-browser-plugin-bridge-contract', () => {
+    const build = fs.readFileSync(path.join(PROJECT_ROOT, 'scripts', 'BUILD-NUVIO.bat'), 'utf8');
+    const patch = fs.readFileSync(path.join(PROJECT_ROOT, 'scripts', 'PATCH-NUVIO-BROWSER-PLUGINS.ps1'), 'utf8');
+    const config = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'server', 'nuvio-config.js'), 'utf8');
+    const routes = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'server', 'nuvio-routes.js'), 'utf8');
+    const bridge = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'server', 'nuvio-plugin-proxy.js'), 'utf8');
+    assert.match(build, /PATCH-NUVIO-BROWSER-PLUGINS\.ps1/);
+    assert.match(build, /-VerifyDist/);
+    assert.match(patch, /watchFusionBrowserBridge/);
+    assert.match(patch, /__WATCHFUSION_NUVIO_PLUGIN_FETCH__/);
+    assert.match(config, /__NUVIO_ALLOW_BROWSER_PLUGIN_RUNTIME__/);
+    assert.match(config, /__WATCHFUSION_NUVIO_PLUGIN_FETCH__/);
+    assert.match(config, /\/__nuvio__\/plugin-fetch/);
+    assert.match(routes, /isHostLocalRequest\(req\)/);
+    assert.match(routes, /\/__nuvio__\/plugin-fetch/);
+    assert.match(bridge, /assertPublicHttpUrl/);
+    assert.match(bridge, /MAX_PLUGIN_RESPONSE_BYTES/);
+  });
+
   await check('FAST-03:nuvio-native-mouse-bridge-contract', () => {
     const bridge = fs.readFileSync(
       path.join(PROJECT_ROOT, 'public', 'client', 'nuvio-external-mouse-bridge.js'),

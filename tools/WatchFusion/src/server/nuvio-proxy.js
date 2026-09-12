@@ -6,6 +6,17 @@ import { json } from './http-utils.js';
 export const ADDON_API_PATH_RE = /(?:^|\/)(?:manifest\.json|catalog\/|meta\/|stream\/|subtitles\/)/i;
 const MAX_PROXY_BODY = 2 * 1024 * 1024;
 
+export function addonProxyTimeoutMs(targetUrl) {
+  let pathname = '';
+  try { pathname = new URL(String(targetUrl || '')).pathname.toLowerCase(); } catch {}
+  if (pathname.endsWith('/manifest.json') || pathname.endsWith('manifest.json')) return 4000;
+  if (/(?:^|\/)meta\//i.test(pathname)) return 5000;
+  if (/(?:^|\/)catalog\//i.test(pathname)) return 8000;
+  if (/(?:^|\/)subtitles\//i.test(pathname)) return 8000;
+  if (/(?:^|\/)stream\//i.test(pathname)) return 12000;
+  return 10000;
+}
+
 export async function isAllowedAddonApiTarget(targetUrl) {
   try {
     const parsed = new URL(String(targetUrl || ''));
@@ -35,9 +46,10 @@ export async function handleNuvioAddonProxy(req, res, targetUrl, depth = 0) {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
       'Accept': req.headers['accept'] || 'application/json, */*',
-      'Content-Type': req.headers['content-type'] || 'application/json'
+      'Content-Type': req.headers['content-type'] || 'application/json',
+      'Accept-Encoding': 'identity'
     },
-    timeout: 15000
+    timeout: addonProxyTimeoutMs(targetUrl)
   }, upstreamRes => {
     const statusCode = upstreamRes.statusCode || 500;
 
@@ -53,15 +65,20 @@ export async function handleNuvioAddonProxy(req, res, targetUrl, depth = 0) {
 
     const chunks = [];
     let size = 0;
+    let tooLarge = false;
 
     upstreamRes.on('data', chunk => {
       size += chunk.length;
       if (size <= MAX_PROXY_BODY) chunks.push(chunk);
-      else upstreamRes.destroy();
+      else {
+        tooLarge = true;
+        upstreamRes.destroy(new Error('Addon API proxy response is too large'));
+      }
     });
 
     upstreamRes.on('end', () => {
       if (res.headersSent || res.writableEnded) return;
+      if (tooLarge) return json(res, 502, { error: 'Addon API proxy response is too large' });
       const payload = Buffer.concat(chunks);
       res.writeHead(statusCode, {
         'Content-Type': upstreamRes.headers['content-type'] || 'application/json; charset=utf-8',
@@ -74,21 +91,19 @@ export async function handleNuvioAddonProxy(req, res, targetUrl, depth = 0) {
 
     upstreamRes.on('error', err => {
       if (!res.headersSent && !res.writableEnded) {
-        json(res, 502, { error: `Addon API proxy stream error: ${err.message}` });
+        json(res, 502, { error: tooLarge ? 'Addon API proxy response is too large' : `Addon API proxy stream error: ${err.message}` });
       }
     });
   });
 
   clientReq.on('timeout', () => {
-    clientReq.destroy();
-    if (!res.headersSent && !res.writableEnded) {
-      json(res, 504, { error: 'Addon API proxy timeout' });
-    }
+    clientReq.destroy(new Error('Addon API proxy timeout'));
   });
 
   clientReq.on('error', err => {
     if (!res.headersSent && !res.writableEnded) {
-      json(res, 502, { error: `Addon API proxy failed: ${err.message}` });
+      const timeout = /timeout/i.test(String(err?.message || ''));
+      json(res, timeout ? 504 : 502, { error: timeout ? 'Addon API proxy timeout' : `Addon API proxy failed: ${err.message}` });
     }
   });
 

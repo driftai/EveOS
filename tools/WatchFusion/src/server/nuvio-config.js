@@ -144,8 +144,49 @@ export async function generateNuvioEnvScript(distPath = NUVIO_DIST) {
 ${hlsJs ? `\n${hlsJs}\n` : ''}
 (function() {
   var origFetch = window.fetch;
+  var nuvioHost = String((window.location && window.location.hostname) || '').toLowerCase();
+  var watchFusionHostLocal = nuvioHost === '127.0.0.1' || nuvioHost === 'localhost' || nuvioHost === '::1';
   var addonPathRe = /(?:^|\\/)(?:manifest\\.json|catalog\\/|meta\\/|stream\\/|subtitles\\/)/i;
   var mediaPathRe = /(?:\\.(?:m3u8|mpd|mp4|m4v|mov|mkv|webm|ts|m2ts|m4s|mp3|aac|flac|urlset)(?:$|[?#])|\\/(?:hls|hls2)(?:\\/|$|[?#])|[?&](?:format|type|mime|output)=(?:m3u8|hls|mpd|dash)(?:&|$))/i;
+
+  window.__NUVIO_ALLOW_BROWSER_PLUGIN_RUNTIME__ = watchFusionHostLocal;
+  if (watchFusionHostLocal && origFetch) {
+    window.__WATCHFUSION_NUVIO_PLUGIN_FETCH__ = async function(request) {
+      var target = request && request.url ? String(request.url) : '';
+      if (!target) throw new Error('Plugin target URL is required');
+      var payload = {
+        url: target,
+        method: String((request && request.method) || 'GET'),
+        headers: (request && request.headers) || {},
+        body: (request && request.body) || '',
+        timeoutMs: Number((request && request.timeoutMs) || 15000),
+        maxResponseBytes: Number((request && request.maxResponseBytes) || 1048576)
+      };
+      var proxyResponse = await origFetch('/__nuvio__/plugin-fetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': '*/*' },
+        body: JSON.stringify(payload),
+        credentials: 'same-origin',
+        signal: request && request.signal ? request.signal : undefined
+      });
+      var responseHeaders = {};
+      try {
+        proxyResponse.headers.forEach(function(value, key) { responseHeaders[key] = value; });
+      } catch (_) {}
+      return {
+        returnValue: true,
+        ok: proxyResponse.ok,
+        status: proxyResponse.status,
+        statusText: proxyResponse.statusText,
+        url: proxyResponse.headers.get('X-WatchFusion-Upstream-Url') || target,
+        body: await proxyResponse.text(),
+        headers: responseHeaders,
+        truncated: false
+      };
+    };
+  } else {
+    try { delete window.__WATCHFUSION_NUVIO_PLUGIN_FETCH__; } catch (_) {}
+  }
 
   function getProxyUrl(urlStr) {
     try {

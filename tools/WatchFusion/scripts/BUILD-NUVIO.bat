@@ -18,11 +18,22 @@ if not exist "%~dp0PATCH-NUVIO-BROWSER-MOUSE.ps1" (
   echo ERROR: Missing WatchFusion Nuvio mouse integration patch.
   exit /b 1
 )
+if not exist "%~dp0PATCH-NUVIO-BROWSER-PLUGINS.ps1" (
+  echo ERROR: Missing WatchFusion Nuvio browser plugin integration patch.
+  exit /b 1
+)
 
 echo Enabling Nuvio native browser mouse controls...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0PATCH-NUVIO-BROWSER-MOUSE.ps1" -NuvioDir "%NUVIO_DIR%"
 if errorlevel 1 (
   echo ERROR: Nuvio native mouse patch failed.
+  exit /b 1
+)
+
+echo Enabling WatchFusion browser plugin networking...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0PATCH-NUVIO-BROWSER-PLUGINS.ps1" -NuvioDir "%NUVIO_DIR%"
+if errorlevel 1 (
+  echo ERROR: Nuvio browser plugin bridge patch failed.
   exit /b 1
 )
 
@@ -52,8 +63,13 @@ if errorlevel 1 (
   echo ERROR: Compiled Nuvio mouse gateway verification failed.
   exit /b 1
 )
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0PATCH-NUVIO-BROWSER-PLUGINS.ps1" -NuvioDir "%NUVIO_DIR%" -VerifyDist
+if errorlevel 1 (
+  echo ERROR: Compiled Nuvio browser plugin bridge verification failed.
+  exit /b 1
+)
 
 echo.
 echo BUILD SUCCESSFUL!
-echo Native browser mouse controls are included in this Nuvio build.
+echo Native browser mouse controls and host-local plugin networking are included in this Nuvio build.
 exit /b 0
