@@ -40,8 +40,9 @@ test.describe('WatchFusion EveOS Detach & Reattach Continuity', () => {
       await route.fulfill({
         status: 200,
         contentType: 'text/html; charset=utf-8',
-        body: `<!doctype html><html><body data-access=""><script>
+        body: `<!doctype html><html><body data-access="" data-config=""><script>
           document.body.dataset.access = localStorage.getItem('access_token') || '';
+          document.body.dataset.config = localStorage.getItem('nuvio-test-config') || '';
         <\/script></body></html>`
       });
     });
@@ -64,7 +65,7 @@ test.describe('WatchFusion EveOS Detach & Reattach Continuity', () => {
         protocol: 1,
         capturedAt: Date.now(),
         source: { kind: 'ready', type: 'ready', title: 'Ready' },
-        storage: { local: [], session: [] },
+        storage: { local: [['nuvio-test-config', 'configured-before-boot']], session: [] },
         nuvioSession: {
           access_token: 'partition-access-token',
           refresh_token: 'partition-refresh-token',
@@ -74,6 +75,7 @@ test.describe('WatchFusion EveOS Detach & Reattach Continuity', () => {
     });
 
     await expect(nuvioFrame.locator('body')).toHaveAttribute('data-access', 'partition-access-token');
+    await expect(nuvioFrame.locator('body')).toHaveAttribute('data-config', 'configured-before-boot');
     const restored = await page.evaluate(() => ({
       access: localStorage.getItem('access_token'),
       refresh: localStorage.getItem('refresh_token'),

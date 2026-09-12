@@ -35,6 +35,14 @@
     return AUTH_KEYS.every(key => (left?.[key] ?? null) === (right?.[key] ?? null));
   }
 
+  function writeStorageEntries(area, entries) {
+    if (!Array.isArray(entries)) return;
+    for (const pair of entries) {
+      if (!Array.isArray(pair) || pair.length !== 2) continue;
+      try { area.setItem(String(pair[0]), String(pair[1])); } catch {}
+    }
+  }
+
   function writeNuvioSession(session) {
     const normalized = normalizeNuvioSession(session);
     if (!normalized) return false;
@@ -102,20 +110,23 @@
   }
 
   async function applySnapshot(snapshot, role) {
+    const previous = readNuvioSession();
+    writeStorageEntries(localStorage, snapshot?.storage?.local);
+    writeStorageEntries(sessionStorage, snapshot?.storage?.session);
+
     const incoming = normalizeNuvioSession(snapshot?.nuvioSession);
-    let authChanged = false;
-    if (incoming) {
-      const previous = readNuvioSession();
-      writeNuvioSession(incoming);
-      authChanged = !sameNuvioSession(previous, incoming);
-    }
+    if (incoming) writeNuvioSession(incoming);
+    const seeded = readNuvioSession();
+    const authChanged = Boolean(incoming) && !sameNuvioSession(previous, seeded);
 
     // Chromium/Edge partition third-party storage by top-level site. An EveOS-
     // embedded WatchFusion frame and a detached top-level WatchFusion window can
     // therefore expose different localStorage buckets even at the same origin.
-    // Seed Nuvio's session before the ordinary state restore and reboot an
-    // already-loaded Nuvio frame once so its public startup path re-runs auth.
-    // This stays at the WatchFusion wrapper boundary; no Nuvio source is patched.
+    // Seed the transferred storage partition (plus a dedicated auth copy so
+    // generic snapshot limits cannot drop the session) before the ordinary
+    // state restore, then reboot an already-loaded Nuvio frame once so its
+    // public startup path re-runs auth. This stays at the WatchFusion wrapper
+    // boundary; no Nuvio source is patched.
     if (authChanged) await reloadNuvioAfterSessionSeed();
     return base.applySnapshot(snapshot, role);
   }
