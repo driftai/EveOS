@@ -339,10 +339,10 @@ For a deeper implementation tour, see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.m
 
 The project-size figures use the same first-party scanner as `npm run smoke:file-size`: physical lines in JavaScript, ES modules, CSS, HTML, Python, PowerShell, and batch files, while excluding dependencies, virtual environments, build/test output, generated runtime data, vendor trees, the external Nuvio install, bundled VoxelVision, and the independently maintained Orogen tree.
 
-- **442,755 physical lines** across **2,869 first-party source and test files**
-- **332,559 JavaScript lines** (`.js`)
+- **442,915 physical lines** across **2,870 first-party source and test files**
+- **332,718 JavaScript lines** (`.js`)
 - **52,525 Python lines** (`.py`)
-- **48,402 CSS lines** (`.css`)
+- **48,403 CSS lines** (`.css`)
 - **3,156 batch lines** (`.bat`)
 - **2,774 HTML lines** (`.html`)
 - **2,310 ES module lines** (`.mjs`)

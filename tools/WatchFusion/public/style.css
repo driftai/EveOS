@@ -174,6 +174,7 @@ html.eveos-embedded .watch-shell-head {
 html.eveos-embedded .source-tabs { gap: 6px; }
 html.eveos-embedded .source-tab { border-radius: 6px; padding: 5px 9px; }
 html.eveos-embedded .source-badge { display: none; }
+html.eveos-embedded #mediaStage.player-wrap,
 html.eveos-embedded .player-wrap {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;

@@ -6,7 +6,10 @@
   const style = document.createElement('style');
   style.id = styleId;
   style.textContent = `
+    html.eveos-embedded #mediaStage.player-wrap,
     html.eveos-embedded .player-wrap {
+      display: grid !important;
+      grid-template-rows: minmax(0, 1fr) auto !important;
       position: relative;
     }
 

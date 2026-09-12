@@ -60,6 +60,8 @@ export async function runNuvioSmokes() {
     assert.match(toolbarLayout, /z-index:\s*70/);
     assert.match(toolbarLayout, /min-height:\s*38px/);
     assert.match(toolbarLayout, /flex-wrap:\s*nowrap/);
+    assert.match(toolbarLayout, /display:\s*grid\s*!important/);
+    assert.match(toolbarLayout, /grid-template-rows:\s*minmax\(0,\s*1fr\)\s*auto\s*!important/);
   })();
 
   await record('NUV-00C:hls-child-resource-rewrite', async () => {
