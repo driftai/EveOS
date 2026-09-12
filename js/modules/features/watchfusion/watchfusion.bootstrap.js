@@ -59,6 +59,11 @@
                     'js/modules/features/watchfusion/watchfusion.selective-start.js?v=9566b0c6e27a',
                     'data-eve-watchfusion-selective-start',
                     '__eveWatchFusionSelectiveStartReady'
+                ),
+                companionReady(
+                    'js/modules/features/watchfusion/watchfusion.continuity.js?v=01eefaa13b21',
+                    'data-eve-watchfusion-continuity',
+                    '__eveWatchFusionContinuityReady'
                 )
             ]);
         }
