@@ -49,8 +49,7 @@ function frameAncestors(req) {
   const values = new Set([
     "'self'",
     'http://127.0.0.1:*',
-    'http://localhost:*',
-    'http://127-0-0-1.sslip.io:*'
+    'http://localhost:*'
   ]);
   const hostname = requestHostname(req);
   if (hostname && /^[A-Za-z0-9.:-]+$/.test(hostname)) {
@@ -61,11 +60,10 @@ function frameAncestors(req) {
 }
 
 function buildContentSecurityPolicy(req) {
-  return [
+  const directives = [
     "default-src 'self'",
     "base-uri 'none'",
     "object-src 'none'",
-    `frame-ancestors ${frameAncestors(req)}`,
     "form-action 'none'",
     "script-src 'self' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net",
     "style-src 'self'",
@@ -73,7 +71,17 @@ function buildContentSecurityPolicy(req) {
     "media-src 'self' blob:",
     "worker-src 'self' blob:",
     "connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co"
-  ].join('; ');
+  ];
+
+  // EveOS still supports a file:// host shell. A file document has an opaque
+  // ancestor origin, so no frame-ancestors allow-list can name it reliably.
+  // Only omit frame-ancestors when the request is proven host-local by the
+  // centralized socket/host/browser boundary. LAN and Cloudflare requests keep
+  // the clickjacking boundary below.
+  if (!isHostLocalRequest(req)) {
+    directives.splice(3, 0, `frame-ancestors ${frameAncestors(req)}`);
+  }
+  return directives.join('; ');
 }
 
 function securityHeaders(req) {
