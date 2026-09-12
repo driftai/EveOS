@@ -36,11 +36,32 @@ export async function runVoxelVisionSmokes() {
       assert.equal(entry.json?.ok, true);
       assert.equal(entry.json?.path, '/voxelvision/');
 
+      // Host-local WatchFusion may itself be nested under EveOS loaded from
+      // file://. That top ancestor has an opaque origin, so a frame-ancestors
+      // allow-list would block VoxelVision even though the immediate parent is
+      // trusted local WatchFusion. The host-local response therefore omits only
+      // that navigation directive while preserving the rest of VoxelVision CSP.
       const shell = await request(baseUrl, '/voxelvision/');
       assert.equal(shell.status, 200);
       assert.match(shell.body, /VOXELVISION/);
-      assert.match(shell.headers['content-security-policy'] || '', /frame-ancestors 'self'/);
-      assert.equal(shell.headers['x-frame-options'], 'SAMEORIGIN');
+      assert.doesNotMatch(shell.headers['content-security-policy'] || '', /frame-ancestors/i);
+      assert.equal(shell.headers['x-frame-options'], undefined);
+      assert.match(shell.headers['content-security-policy'] || '', /default-src 'self'/);
+
+      // LAN/Cloudflare-style traffic is not host-local and must retain the
+      // clickjacking boundary. cf-ray is enough to model the tunnel boundary
+      // even though the test harness itself connects over loopback.
+      const remoteShell = await request(baseUrl, '/voxelvision/', {
+        headers: {
+          host: `room.trycloudflare.com:${PORT}`,
+          'x-forwarded-host': 'room.trycloudflare.com',
+          'cf-ray': 'voxel-smoke-ray',
+          'cf-connecting-ip': '203.0.113.55',
+          'sec-fetch-site': 'same-origin'
+        }
+      });
+      assert.equal(remoteShell.status, 200);
+      assert.match(remoteShell.headers['content-security-policy'] || '', /frame-ancestors 'self'/);
     });
 
     await record('VOX-02:mounted-assets-and-byte-ranges', async () => {
