@@ -67,7 +67,7 @@ exit /b 1
 
 :CLOUDFLARED_NOT_EXIST
 echo.
-echo ERROR: Resolved cloudflared path does not exist:
+echo ERROR: Resolved cloudflared.exe was not found or path does not exist:
 echo   "%CLOUDFLARED%"
 pause
 exit /b 1

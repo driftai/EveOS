@@ -61,7 +61,7 @@
                     '__eveWatchFusionSelectiveStartReady'
                 ),
                 companionReady(
-                    'js/modules/features/watchfusion/watchfusion.continuity.js?v=01eefaa13b21',
+                    'js/modules/features/watchfusion/watchfusion.continuity.js?v=ac283a4f0f2b',
                     'data-eve-watchfusion-continuity',
                     '__eveWatchFusionContinuityReady'
                 )

@@ -4,6 +4,9 @@
   if (window.watchFusionContinuityState) return;
 
   const STORAGE_LIMIT_BYTES = 2 * 1024 * 1024;
+  function isBlob(v) {
+    return Boolean(v && (v instanceof Blob || Object.prototype.toString.call(v) === '[object Blob]' || typeof v.arrayBuffer === 'function'));
+  }
   function clone(value) {
     if (value == null) return value;
     try { return structuredClone(value); } catch {}
@@ -85,11 +88,7 @@
     if (video.readyState < 1 && snapshot.currentTime > 0) {
       await new Promise(resolve => {
         let settled = false;
-        const done = () => {
-          if (settled) return;
-          settled = true;
-          resolve();
-        };
+        const done = () => { if (!settled) { settled = true; resolve(); } };
         video.addEventListener('loadedmetadata', done, { once: true });
         setTimeout(done, 4000);
       });
@@ -102,11 +101,9 @@
     try { video.muted = !!snapshot.muted; } catch {}
     try {
       const time = Math.max(0, Number(snapshot.currentTime) || 0);
-      if (Number.isFinite(video.duration) && video.duration > 0) {
-        video.currentTime = Math.min(time, Math.max(0, video.duration - 0.05));
-      } else {
-        video.currentTime = time;
-      }
+      video.currentTime = Number.isFinite(video.duration) && video.duration > 0
+        ? Math.min(time, Math.max(0, video.duration - 0.05))
+        : time;
     } catch {}
     if (snapshot.paused || snapshot.ended || !allowPlay) {
       try { video.pause(); } catch {}
@@ -167,10 +164,14 @@
       };
       if (includeBlob && snapshot.src.startsWith('blob:')) {
         try {
-          const response = await win.fetch(snapshot.src);
-          if (response.ok) snapshot.blob = await response.blob();
+          if (isBlob(app?.sourceBlob)) snapshot.blob = app.sourceBlob;
+          else {
+            const response = await win.fetch(snapshot.src);
+            if (response.ok) snapshot.blob = await response.blob();
+          }
         } catch {}
       }
+      snapshot.playback = mediaState(video);
       return snapshot;
     } catch {
       return null;
@@ -231,9 +232,7 @@
       room: captureRoom(),
       roomPlayback: clone(typeof state !== 'undefined' ? state?.playback : null),
       storage: { local: readStorage(window.localStorage), session: readStorage(window.sessionStorage) },
-      ui: {
-        sourceInput: document.getElementById('sourceInput')?.value || ''
-      },
+      ui: { sourceInput: document.getElementById('sourceInput')?.value || '' },
       media: typeof mediaVideo !== 'undefined' ? mediaState(mediaVideo) : null,
       youtube: captureYoutube(),
       nuvio: captureNuvio(),
@@ -244,14 +243,8 @@
   function stopRoomTransport() {
     try { eventSource?.close?.(); eventSource = null; } catch {}
     try { window.watchPartyRealtime?.stop?.(); } catch {}
-    try {
-      if (remotePollTimer) clearInterval(remotePollTimer);
-      remotePollTimer = null;
-    } catch {}
-    try {
-      if (pingTimer) clearInterval(pingTimer);
-      pingTimer = null;
-    } catch {}
+    try { if (remotePollTimer) clearInterval(remotePollTimer); remotePollTimer = null; } catch {}
+    try { if (pingTimer) clearInterval(pingTimer); pingTimer = null; } catch {}
   }
 
   function parkCurrentOwner() {
@@ -265,12 +258,7 @@
         else mediaVideo.pause();
       }
     } catch {}
-    try {
-      if (typeof ytPlayer !== 'undefined' && ytPlayer) {
-        applyingRemote = true;
-        ytPlayer.pauseVideo?.();
-      }
-    } catch {}
+    try { if (typeof ytPlayer !== 'undefined' && ytPlayer) { applyingRemote = true; ytPlayer.pauseVideo?.(); } } catch {}
     try { preferredNuvioVideo(document.getElementById('nuvioFrame')?.contentDocument)?.pause?.(); } catch {}
     try { document.getElementById('voxelVisionFrame')?.contentWindow?.app?.video?.pause?.(); } catch {}
   }
@@ -299,12 +287,7 @@
     }
 
     stopRoomTransport();
-    try {
-      roomId = null;
-      roomCode = null;
-      joinCode = null;
-      session = null;
-    } catch {}
+    try { roomId = null; roomCode = null; joinCode = null; session = null; } catch {}
     const source = clone(snapshot?.source) || { kind: 'ready', type: 'ready', title: 'Ready' };
     if (typeof applySoloSource === 'function') {
       applySoloSource(source);
@@ -349,8 +332,17 @@
       try {
         const parsed = new URL(href);
         const current = new URL(frame.src || '/nuvio/dist/index.html', location.origin);
-        if (parsed.origin === location.origin && parsed.pathname.startsWith('/nuvio/') && parsed.href !== current.href) {
-          frame.src = parsed.href;
+        const winHref = frame.contentWindow?.location?.href;
+        if (parsed.origin === location.origin && parsed.pathname.startsWith('/nuvio/')) {
+          if (winHref && winHref !== parsed.href) {
+            if (parsed.hash && frame.contentWindow?.location) {
+              frame.contentWindow.location.hash = parsed.hash;
+            } else {
+              frame.src = parsed.href;
+            }
+          } else if (!winHref && parsed.href !== current.href) {
+            frame.src = parsed.href;
+          }
         }
       } catch {}
     }
@@ -363,17 +355,22 @@
   function applyVoxelSettings(app, doc, snapshot) {
     const settings = snapshot?.settings || {};
     try {
+      if (snapshot?.title && doc?.getElementById('clipTitle')) doc.getElementById('clipTitle').textContent = snapshot.title;
       if (Number.isFinite(Number(settings.grid))) app.setGridResolution?.(Number(settings.grid));
-      if (Number.isFinite(Number(settings.brightness))) app.brightness = Number(settings.brightness);
-      if (Number.isFinite(Number(settings.contrast))) app.contrast = Number(settings.contrast);
+      if (Number.isFinite(Number(settings.brightness))) {
+        app.brightness = Number(settings.brightness);
+        const s = doc?.getElementById('brightnessSlider'); if (s) s.value = String(settings.brightness);
+      }
+      if (Number.isFinite(Number(settings.contrast))) {
+        app.contrast = Number(settings.contrast);
+        const s = doc?.getElementById('contrastSlider'); if (s) s.value = String(settings.contrast);
+      }
       if (settings.height != null) {
-        const slider = doc.getElementById('heightSlider');
-        if (slider) slider.value = String(settings.height);
+        const s = doc?.getElementById('heightSlider'); if (s) s.value = String(settings.height);
         app.updateHeightScale?.();
       }
       if (settings.gap != null) {
-        const slider = doc.getElementById('gapSlider');
-        if (slider) slider.value = String(settings.gap);
+        const s = doc?.getElementById('gapSlider'); if (s) s.value = String(settings.gap);
       }
     } catch {}
   }
@@ -392,7 +389,7 @@
         && String(doc?.getElementById('clipTitle')?.textContent || '') === String(voxel.title || '');
       if (!sameBlobFamily && currentSrc !== voxel.src) {
         try {
-          if (voxel.blob instanceof Blob) {
+          if (isBlob(voxel.blob)) {
             const objectUrl = frame.contentWindow.URL.createObjectURL(voxel.blob);
             await app.loadLiveMedia(objectUrl, voxel.title || 'Transferred VoxelVision media', {
               objectUrl: true,

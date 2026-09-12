@@ -59,7 +59,7 @@ function buildContentSecurityPolicy() {
     "img-src 'self' data: blob:",
     "media-src 'self' blob:",
     "worker-src 'self' blob:",
-    "connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co"
+    "connect-src 'self' blob: https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co"
   ].join('; ');
 }
 

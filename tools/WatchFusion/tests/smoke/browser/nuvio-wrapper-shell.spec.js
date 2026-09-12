@@ -225,6 +225,7 @@ test.describe('WatchFusion Nuvio Native Viewport Wrapper Shell, Media Stage & He
 
     const nuvioFrameElement = await page.waitForSelector('#nuvioFrame');
     const nuvioFrame = await nuvioFrameElement.contentFrame();
+    await nuvioFrame.waitForSelector('body');
 
     const isUntouched = await nuvioFrame.evaluate(() => {
       const doc = document;

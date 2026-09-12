@@ -58,6 +58,7 @@ class VoxelVisionApp {
     this.recordedChunks = [];
     this.isRecording = false;
     this.currentObjectUrl = null;
+    this.sourceBlob = null;
     this.sourceGeneration = 0;
     this.liveDepthFrameA = null;
     this.liveDepthFrameB = null;
@@ -560,6 +561,7 @@ class VoxelVisionApp {
       this.currentObjectUrl = null;
     }
     if (objectUrl) this.currentObjectUrl = src;
+    this.sourceBlob = sourceBlob || null;
 
     this.depthMode = 'live';
     this.depthData = null;

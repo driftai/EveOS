@@ -69,6 +69,8 @@
 
         if (data.type === 'watchfusion:detached-presence') {
             if (data.detached !== true || data.windowName !== 'eveWatchFusionWindow') return false;
+            const expected = window.EveWatchFusion?.getDetachedWindow?.();
+            if (expected && event.source !== expected) return false;
             detachedWindow = event.source;
             detachedOrigin = event.origin;
             configure('detached');
@@ -81,6 +83,13 @@
         if (data.role === 'embedded' && embeddedWindow && event.source === embeddedWindow) return 'embedded';
         if (data.role === 'detached' && detachedWindow && event.source === detachedWindow) return 'detached';
         return '';
+    }
+
+    function effectiveOwnerRole() {
+        if (ownerRole === 'detached' && (!detachedWindow || detachedWindow.closed)) {
+            ownerRole = 'embedded';
+        }
+        return ownerRole;
     }
 
     function relay(data, sourceRole) {
@@ -118,7 +127,6 @@
         if (!sourceRole) return;
 
         if (data.type === 'watchfusion:reattach-request' && sourceRole === 'detached') {
-            ownerRole = 'embedded';
             window.EveWatchFusion?.open?.();
             return;
         }
@@ -134,7 +142,7 @@
 
     document.addEventListener('click', (event) => {
         const button = event.target.closest?.('.topbar-watchfusion-btn');
-        if (!button || ownerRole !== 'detached' || !detachedWindow || detachedWindow.closed) return;
+        if (!button || effectiveOwnerRole() !== 'detached' || !detachedWindow || detachedWindow.closed) return;
         event.preventDefault();
         event.stopImmediatePropagation();
         try { detachedWindow.focus(); } catch {}
@@ -142,7 +150,7 @@
 
     window.EveWatchFusionContinuity = Object.freeze({
         sessionId: () => SESSION_ID,
-        ownerRole: () => ownerRole,
+        ownerRole: () => effectiveOwnerRole(),
         detachedWindow: () => detachedWindow,
         embeddedWindow: () => embeddedWindow
     });

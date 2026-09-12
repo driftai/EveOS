@@ -60,7 +60,10 @@
     closeAfter = false,
     includeBlob = true
   } = {}) {
-    if (!active || applying || pendingTransfer || !sessionId || !stateBridge) return false;
+    if (!active || applying || pendingTransfer || !sessionId || !stateBridge) {
+      console.log('[EMBEDDED LOG] beginTransfer blocked:', { active, applying, pending: Boolean(pendingTransfer), sess: Boolean(sessionId), bridge: Boolean(stateBridge) });
+      return false;
+    }
     applying = true;
     try {
       const snapshot = await stateBridge.captureSnapshot({ includeBlob });
@@ -75,7 +78,13 @@
           if (!stalled || stalled.requestId !== requestId) return;
           pendingTransfer = null;
           closingAfterTransfer = false;
-          recoverSource(stalled.snapshot, 'Detach handoff timed out; playback stayed in this window.');
+          post('watchfusion:continuity-failed', {
+            requestId,
+            sourceRole: role,
+            targetRole,
+            error: `${role === 'detached' ? 'Reattach' : 'Detach'} handoff timed out`
+          });
+          recoverSource(stalled.snapshot, `${role === 'detached' ? 'Reattach' : 'Detach'} handoff timed out; playback stayed in this window.`);
         }, TRANSFER_TIMEOUT_MS)
       };
       if (closeAfter) {
@@ -98,11 +107,11 @@
   }
 
   function startInitialDetachedRequest() {
-    if (role !== 'detached' || active || initialRequestId || !sessionId) return;
+    if (role !== 'detached' || active || initialRequestId || !sessionId || closingAfterTransfer || manualReturnStarted) return;
     initialRequestId = makeId();
     requestAttempts = 0;
     const request = () => {
-      if (active || !initialRequestId || requestAttempts >= 8) {
+      if (active || !initialRequestId || requestAttempts >= 8 || closingAfterTransfer || manualReturnStarted) {
         if (initialRequestTimer) clearInterval(initialRequestTimer);
         initialRequestTimer = null;
         return;
@@ -134,6 +143,10 @@
 
     if (data.type === 'watchfusion:continuity-request') {
       if (role !== 'embedded' || data.targetRole === role) return;
+      if (pendingTransfer && pendingTransfer.requestId !== data.requestId) {
+        clearTimeout(pendingTransfer.timer);
+        pendingTransfer = null;
+      }
       await beginTransfer(data.targetRole, { requestId: data.requestId });
       return;
     }
@@ -143,6 +156,10 @@
       if (initialRequestTimer) clearInterval(initialRequestTimer);
       initialRequestTimer = null;
       initialRequestId = '';
+      if (pendingTransfer) {
+        clearTimeout(pendingTransfer.timer);
+        pendingTransfer = null;
+      }
       applying = true;
       try {
         await stateBridge?.applySnapshot?.(data.snapshot, role);
@@ -174,6 +191,9 @@
       window.__watchFusionContinuityApplying = true;
       if (closeAfter && role === 'detached') {
         closingAfterTransfer = true;
+        if (initialRequestTimer) clearInterval(initialRequestTimer);
+        initialRequestTimer = null;
+        initialRequestId = '';
         setTimeout(() => window.close(), 50);
       }
       return;
@@ -235,6 +255,7 @@
   }
 
   function heartbeat() {
+    if (closingAfterTransfer || manualReturnStarted) return;
     try {
       if (embedded) window.parent.postMessage(presenceMessage('watchfusion:embedded-presence'), '*');
       if (detached) window.opener.postMessage(presenceMessage('watchfusion:detached-presence'), '*');
@@ -276,7 +297,7 @@
   }
 
   window.addEventListener('message', handleHostMessage);
-  window.addEventListener('beforeunload', handleBeforeUnload);
+  window.addEventListener('beforeunload', handleBeforeUnload, true);
 
   window.watchFusionEveContinuity = Object.freeze({
     role,
