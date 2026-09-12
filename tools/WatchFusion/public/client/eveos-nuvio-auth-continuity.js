@@ -9,7 +9,18 @@
   const AUTH_KEYS = Object.freeze(['access_token', 'refresh_token', 'is_anonymous_session']);
   const NUVIO_RELOAD_TIMEOUT_MS = 8000;
 
+  function sanitizeSessionStorage() {
+    try {
+      if (localStorage.getItem('access_token')) {
+        localStorage.removeItem('is_anonymous_session');
+      }
+    } catch {}
+  }
+
+  sanitizeSessionStorage();
+
   function readNuvioSession() {
+    sanitizeSessionStorage();
     const session = {};
     for (const key of AUTH_KEYS) {
       try {
@@ -17,6 +28,9 @@
       } catch {
         session[key] = null;
       }
+    }
+    if (session.access_token) {
+      session.is_anonymous_session = null;
     }
     return session;
   }
@@ -27,6 +41,9 @@
     for (const key of AUTH_KEYS) {
       const value = session[key];
       normalized[key] = value == null ? null : String(value);
+    }
+    if (normalized.access_token) {
+      normalized.is_anonymous_session = null;
     }
     return normalized;
   }
@@ -52,6 +69,9 @@
         if (value == null || value === '') localStorage.removeItem(key);
         else localStorage.setItem(key, value);
       } catch {}
+    }
+    if (normalized.access_token) {
+      try { localStorage.removeItem('is_anonymous_session'); } catch {}
     }
     return true;
   }
@@ -113,6 +133,7 @@
     const previous = readNuvioSession();
     writeStorageEntries(localStorage, snapshot?.storage?.local);
     writeStorageEntries(sessionStorage, snapshot?.storage?.session);
+    sanitizeSessionStorage();
 
     const incoming = normalizeNuvioSession(snapshot?.nuvioSession);
     if (incoming) writeNuvioSession(incoming);
@@ -128,7 +149,10 @@
     // public startup path re-runs auth. This stays at the WatchFusion wrapper
     // boundary; no Nuvio source is patched.
     if (authChanged) await reloadNuvioAfterSessionSeed();
-    return base.applySnapshot(snapshot, role);
+    const result = await base.applySnapshot(snapshot, role);
+    if (incoming) writeNuvioSession(incoming);
+    sanitizeSessionStorage();
+    return result;
   }
 
   window.watchFusionContinuityState = Object.freeze({

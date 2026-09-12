@@ -51,7 +51,7 @@ test.describe('WatchFusion EveOS Detach & Reattach Continuity', () => {
     await page.evaluate(() => {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
-      localStorage.removeItem('is_anonymous_session');
+      localStorage.setItem('is_anonymous_session', '1');
       const frame = document.getElementById('nuvioFrame');
       frame.src = '/nuvio/dist/index.html';
     });
@@ -65,7 +65,7 @@ test.describe('WatchFusion EveOS Detach & Reattach Continuity', () => {
         protocol: 1,
         capturedAt: Date.now(),
         source: { kind: 'ready', type: 'ready', title: 'Ready' },
-        storage: { local: [['nuvio-test-config', 'configured-before-boot']], session: [] },
+        storage: { local: [['nuvio-test-config', 'configured-before-boot'], ['is_anonymous_session', '1']], session: [] },
         nuvioSession: {
           access_token: 'partition-access-token',
           refresh_token: 'partition-refresh-token',
