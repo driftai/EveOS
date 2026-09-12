@@ -36,6 +36,16 @@ Use this for security-only changes.
 
 This is the expensive catch-all profile and runs the complete Node, security, integration, and browser validation. It is for release/final verification, not the default agent loop.
 
+## Nuvio qualification contract
+
+- A synthetic plugin, synthetic HLS URL, or manually injected stream may prove transport mechanics, but it must never be reported as proof that the user's real Nuvio stream discovery works.
+- A `No streams found` regression is qualified only by tracing the real discovery chain: installed source state -> eligibility -> request/execution start -> result count -> Nuvio filtering -> rendered stream row. Local hardware qualification must use the user's actual configured Nuvio profile without clearing or replacing it.
+- Record safe stage/timing evidence rather than credentials or full provider URLs. Never print access tokens, refresh tokens, authenticated cookies, private repository parameters, or scraper secrets.
+- If real providers are unavailable in deterministic CI, use a controlled fixture only for the narrow contract it represents and keep the real-profile qualification requirement explicit and separate.
+- Prefer strengthening the existing Nuvio Node/browser families before creating another smoke file. Add a new family only when no existing owner can express the regression cleanly.
+- Source-tab coverage must treat Nuvio, VoxelVision, and Find Media as one lifecycle contract: opening, switching, hiding, reopening, session/state preservation, and cleanup must not regress another tab.
+- For Nuvio performance regressions, measure navigation-to-metadata and discovery-to-first-stream separately so a fast shell cannot hide a stalled provider pipeline.
+
 ## Enforced output discipline
 
 - Quiet mode is the default and emits one stable summary line on success. `--verbose` is the only opt-in path for detailed passing output.
