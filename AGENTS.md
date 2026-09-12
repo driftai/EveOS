@@ -28,6 +28,19 @@ EveOS inherits WatchFusion's output-efficient verification discipline.
 - Use verbose output only when explicitly diagnosing a failure.
 - Never reduce coverage, skip a required test, suppress a meaningful warning, or weaken an assertion merely to save output/tokens.
 
+## Agent execution efficiency
+
+- Apply this discipline automatically regardless of selected model or reasoning effort. Preserve the user's selection; propose a change only when a concrete task warrants it.
+- Prefer deterministic scripts for tests, parsing, inventories, and repeated mechanics. Background processes and subagents do not make model work quota-free.
+- Batch independent reads; request only relevant file ranges and bounded output. Reuse established evidence and handoffs instead of repeating exploration.
+- Let long commands run to completion; use completion-aware waits (normally 30–60 seconds), not repeated tiny polls. Do useful independent work while they run. Report meaningful progress rather than unchanged polls.
+- Default to a single agent. When delegation is authorized and beneficial, assign one bounded independent responsibility with minimal context, explicit file ownership, stop conditions, and a concise evidence report. Do not delegate merely to wait on a command, recursively fan out, or duplicate the worker's review.
+- Keep a compact test ledger: command, affected scope, result, relevant revision/environment, and ignored artifact location. Run the smallest affected gate, then required uncached final gates; do not reduce coverage to save tokens.
+- Improve opportunistically during authorized work: record a demonstrated failure mode and a verified small technique in the existing relevant note. Consolidate rather than append repetitive history. Do not create periodic research/self-improvement jobs.
+- Propose impactful workflow, architecture, model/cost, dependency, or permission changes with evidence, benefit, risk, and rollback/validation before adopting them. Routine authorized fixes continue normally.
+- Commit coherent validated changes and push through the established workflow; report exact SHA and remaining uncertainty. Never commit secrets, machine-local memory, or validation-only artifacts.
+- Source rationale: [official subagent guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents) and [usage guidance](https://learn.chatgpt.com/docs/pricing), checked 2026-09-12. These are execution practices, not a guarantee of quota savings or autonomous model learning.
+
 ## WatchFusion integration
 
 - EveOS owns the integrated WatchFusion lifecycle/status/theme shell and exposes it as a first-class workspace beside Audioflix.

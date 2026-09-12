@@ -88,12 +88,20 @@ export async function runNodeSmokes() {
 
     // 5. CORS headers on API requests
     await record('NODE-05:cors-preflight-and-headers', async () => {
-      const optionsRes = await request(baseUrl, '/api/rooms/test/join', { method: 'OPTIONS' });
+      const origin = 'http://127.0.0.1:8765';
+      const optionsRes = await request(baseUrl, '/api/rooms/test/join', { method: 'OPTIONS', headers: { origin } });
       assert.equal(optionsRes.status, 204, 'OPTIONS preflight returns 204');
-      assert.equal(optionsRes.headers['access-control-allow-origin'], '*', 'CORS allow-origin wildcard');
+      assert.equal(optionsRes.headers['access-control-allow-origin'], origin, 'trusted origin is reflected');
+      assert.equal(optionsRes.headers.vary, 'Origin');
 
-      const getRes = await request(baseUrl, '/api/network-info');
-      assert.equal(getRes.headers['access-control-allow-origin'], '*', 'GET API returns CORS header');
+      const getRes = await request(baseUrl, '/api/network-info', { headers: { origin } });
+      assert.equal(getRes.headers['access-control-allow-origin'], origin, 'trusted GET has CORS header');
+      for (const rejected of ['https://untrusted.example', 'null']) {
+        const denied = await request(baseUrl, '/api/network-info', { headers: { origin: rejected } });
+        assert.equal(denied.headers['access-control-allow-origin'], undefined, 'untrusted diagnostics origin is not allowed');
+      }
+      const health = await request(baseUrl, '/api/health', { headers: { origin: 'null' } });
+      assert.equal(health.headers['access-control-allow-origin'], 'null', 'file-mode health probe remains supported');
     })();
 
     // 6. Room creation and duplicate handling

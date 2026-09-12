@@ -19,12 +19,24 @@ function initNuvioProvider() {
       const win = frame()?.contentWindow;
       const doc = frame()?.contentDocument;
       if (win?.NuvioRouter && typeof win.NuvioRouter.back === 'function') return win.NuvioRouter.back();
-      const event = new KeyboardEvent('keydown', { key:'Escape', code:'Escape', keyCode:27, which:27, bubbles:true, cancelable:true });
-      doc?.dispatchEvent(event); doc?.body?.dispatchEvent(event);
+      // Nuvio releases its held-Back guard on keyup. Dispatch to a contained
+      // element once: document targets are rejected by its focus engine.
+      const target = doc?.body;
+      if (!target || !win) return;
+      const options = { key:'Escape', code:'Escape', keyCode:27, which:27, bubbles:true, cancelable:true };
+      target.dispatchEvent(new win.KeyboardEvent('keydown', options));
+      target.dispatchEvent(new win.KeyboardEvent('keyup', options));
     } catch {}
   }
   function triggerAppHome() {
-    try { const win = frame()?.contentWindow; if (win?.NuvioRouter && typeof win.NuvioRouter.navigate === 'function') win.NuvioRouter.navigate('home'); } catch {}
+    try {
+      const target = frame();
+      const win = target?.contentWindow;
+      if (win?.NuvioRouter && typeof win.NuvioRouter.navigate === 'function') return win.NuvioRouter.navigate('home');
+      // The external browser build keeps Router private. Re-enter its normal
+      // startup path, preserving same-origin authentication and profile storage.
+      if (target) target.src = new URL('/nuvio/dist/index.html', location.origin).href;
+    } catch { setStatus('Could not open Nuvio Home. Try Reload Nuvio.'); }
   }
   function closeNuvioView() {
     const target = frame();
