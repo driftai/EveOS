@@ -63,6 +63,8 @@ export async function runFastSmoke() {
     assert.match(build, /-VerifyDist/);
     assert.match(patch, /watchFusionBrowserBridge/);
     assert.match(patch, /__WATCHFUSION_NUVIO_PLUGIN_FETCH__/);
+    assert.match(patch, /cinemeta\.strem\.io/);
+    assert.match(patch, /moviedb_id/);
     assert.match(config, /__NUVIO_ALLOW_BROWSER_PLUGIN_RUNTIME__/);
     assert.match(config, /__WATCHFUSION_NUVIO_PLUGIN_FETCH__/);
     assert.match(config, /\/__nuvio__\/plugin-fetch/);

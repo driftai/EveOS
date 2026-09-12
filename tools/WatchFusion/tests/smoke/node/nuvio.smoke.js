@@ -105,6 +105,8 @@ export async function runNuvioSmokes() {
     assert.match(build, /PATCH-NUVIO-BROWSER-PLUGINS\.ps1/);
     assert.match(patch, /watchFusionBrowserBridge/);
     assert.match(patch, /__WATCHFUSION_NUVIO_PLUGIN_FETCH__/);
+    assert.match(patch, /cinemeta\.strem\.io/);
+    assert.match(patch, /moviedb_id/);
     assert.match(patch, /PluginServiceClient browser health layout changed/);
   })();
 
