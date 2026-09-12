@@ -198,13 +198,28 @@ def _stop_everything(web_port=None) -> dict:
         except Exception as exc:  # noqa: BLE001
             also[name] = f"error: {exc}"
 
-    payload = (
-        eveos_web_control.stop_server()
-        if web_port is None
-        else eveos_web_control.stop_server(port=web_port)
-    )
+    try:
+        payload = (
+            eveos_web_control.stop_server()
+            if web_port is None
+            else eveos_web_control.stop_server(port=web_port)
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Global Stop is terminal for this coordinator. A failure in the final web-stop stage
+        # must be reported, but it must not skip the coordinator finalizer after the managed
+        # children have already been asked to stop.
+        payload = {
+            "ok": False,
+            "controllerAvailable": True,
+            "state": "error",
+            "message": f"EveOS localhost stop failed: {exc}",
+        }
+        also["web"] = f"error: {exc}"
+    finally:
+        control_plane_stopping = _shutdown_plane_after_response()
+
     payload["stoppedAlso"] = also
-    payload["controlPlaneStopping"] = _shutdown_plane_after_response()
+    payload["controlPlaneStopping"] = control_plane_stopping
     return payload
 
 
