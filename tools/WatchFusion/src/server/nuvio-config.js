@@ -145,23 +145,29 @@ ${hlsJs ? `\n${hlsJs}\n` : ''}
 (function() {
   var origFetch = window.fetch;
   var addonPathRe = /(?:^|\\/)(?:manifest\\.json|catalog\\/|meta\\/|stream\\/|subtitles\\/)/i;
-  var mediaPathRe = /(?:\\.m3u8|\\.ts|\\.m4s|\\.mpd|\\.urlset|\\/hls|\\/hls2)(?:$|[?#])/i;
+  var mediaPathRe = /(?:\\.(?:m3u8|mpd|mp4|m4v|mov|mkv|webm|ts|m2ts|m4s|mp3|aac|flac|urlset)(?:$|[?#])|\\/(?:hls|hls2)(?:\\/|$|[?#])|[?&](?:format|type|mime|output)=(?:m3u8|hls|mpd|dash)(?:&|$))/i;
 
   function getProxyUrl(urlStr) {
     try {
       var parsed = new URL(urlStr, window.location.href);
       if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
         if (parsed.origin !== window.location.origin) {
+          var mediaCandidate = parsed.pathname + parsed.search;
+          if (mediaPathRe.test(mediaCandidate) || mediaPathRe.test(parsed.href)) {
+            return '/api/media/stream?url=' + encodeURIComponent(parsed.href);
+          }
           if (addonPathRe.test(parsed.pathname)) {
             return '/__nuvio__/addon-proxy?url=' + encodeURIComponent(parsed.href);
-          }
-          if (mediaPathRe.test(parsed.pathname) || mediaPathRe.test(parsed.href)) {
-            return '/api/media/stream?url=' + encodeURIComponent(parsed.href);
           }
         }
       }
     } catch (_) {}
     return null;
+  }
+
+  function proxyMediaUrl(value) {
+    var proxyUrl = getProxyUrl(value);
+    return proxyUrl || value;
   }
 
   try {
@@ -215,6 +221,33 @@ ${hlsJs ? `\n${hlsJs}\n` : ''}
       return origOpen.apply(this, args);
     };
   }
+
+  try {
+    var mediaProto = window.HTMLMediaElement && window.HTMLMediaElement.prototype;
+    var srcDescriptor = mediaProto && Object.getOwnPropertyDescriptor(mediaProto, 'src');
+    if (
+      mediaProto &&
+      srcDescriptor &&
+      typeof srcDescriptor.get === 'function' &&
+      typeof srcDescriptor.set === 'function' &&
+      !window.__watchFusionNuvioMediaSrcPatched
+    ) {
+      Object.defineProperty(mediaProto, 'src', {
+        configurable: srcDescriptor.configurable,
+        enumerable: srcDescriptor.enumerable,
+        get: srcDescriptor.get,
+        set: function(value) {
+          return srcDescriptor.set.call(this, proxyMediaUrl(value));
+        }
+      });
+      var rawMediaSetAttribute = mediaProto.setAttribute;
+      mediaProto.setAttribute = function(name, value) {
+        if (String(name || '').toLowerCase() === 'src') value = proxyMediaUrl(value);
+        return rawMediaSetAttribute.call(this, name, value);
+      };
+      window.__watchFusionNuvioMediaSrcPatched = true;
+    }
+  } catch (_) {}
 })();
 `;
 }

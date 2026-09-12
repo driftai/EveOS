@@ -8,16 +8,33 @@ import { assertPublicHttpUrl } from './public-url.js';
 
 const activeResolutions = new Set();
 
-function rewriteM3u8(content, baseUrl, referer) {
+function buildMediaProxyPath(rawUrl, baseUrl, referer) {
+  try {
+    const resolved = new URL(String(rawUrl || '').trim(), baseUrl);
+    if (!['http:', 'https:'].includes(resolved.protocol)) return rawUrl;
+    return '/api/media/stream?url=' + encodeURIComponent(resolved.href)
+      + (referer ? '&referer=' + encodeURIComponent(referer) : '');
+  } catch {
+    return rawUrl;
+  }
+}
+
+export function rewriteM3u8(content, baseUrl, referer) {
   return content.split('\n').map(line => {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) return line;
-    try {
-      const resolved = new URL(trimmed, baseUrl).href;
-      return '/api/media/stream?url=' + encodeURIComponent(resolved) + (referer ? '&referer=' + encodeURIComponent(referer) : '');
-    } catch {
-      return line;
+    if (!trimmed) return line;
+
+    if (!trimmed.startsWith('#')) {
+      return buildMediaProxyPath(trimmed, baseUrl, referer);
     }
+
+    // HLS can hide additional network dependencies in tag attributes rather
+    // than on ordinary URI lines. Keep keys, init maps, alternate renditions,
+    // and iframe playlists on the same guarded media proxy as segments.
+    return line.replace(/\bURI=(["'])([^"']+)\1/gi, (match, quote, rawUri) => {
+      const proxied = buildMediaProxyPath(rawUri, baseUrl, referer);
+      return `URI=${quote}${proxied}${quote}`;
+    });
   }).join('\n');
 }
 
@@ -33,10 +50,12 @@ async function streamMediaUrl(req, res, targetUrl, referer, depth = 0) {
   }
   const upstreamHeaders = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-    'Accept': '*/*',
+    'Accept': req.headers['accept'] || '*/*',
     'Referer': upstreamReferer
   };
   if (req.headers['range']) upstreamHeaders['Range'] = req.headers['range'];
+  if (req.headers['authorization']) upstreamHeaders['Authorization'] = req.headers['authorization'];
+  if (req.headers['accept-language']) upstreamHeaders['Accept-Language'] = req.headers['accept-language'];
 
   const parsedUrl = new URL(publicUrl);
   const client = parsedUrl.protocol === 'https:' ? https : http;

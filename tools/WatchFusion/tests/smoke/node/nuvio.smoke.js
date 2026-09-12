@@ -9,6 +9,7 @@ import {
   hardenNuvioYoutubeProxyHtml,
   parsePropertiesFile
 } from '../../../src/server/nuvio-config.js';
+import { rewriteM3u8 } from '../../../src/server/media-routes.js';
 
 const PORT = 19187;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -45,6 +46,47 @@ export async function runNuvioSmokes() {
     assert.doesNotMatch(hardened, /event\.target\.playVideo/);
   })();
 
+  await record('NUV-00B:embedded-toolbar-contract', async () => {
+    const toolRoot = path.join(__dirname, '..', '..', '..');
+    const html = fs.readFileSync(path.join(toolRoot, 'public', 'index.html'), 'utf8');
+    const toolbarLayout = fs.readFileSync(path.join(toolRoot, 'public', 'client', 'nuvio-embedded-toolbar.js'), 'utf8');
+    const staticFiles = fs.readFileSync(path.join(toolRoot, 'src', 'server', 'static-files.js'), 'utf8');
+
+    for (const id of ['nuvioToolbar', 'nuvioBackBtn', 'nuvioHomeBtn', 'nuvioReloadBtn', 'nuvioFullBtn', 'nuvioCloseBtn']) {
+      assert.ok(html.includes(`id="${id}"`), `missing ${id}`);
+    }
+    assert.ok(staticFiles.includes("'client/nuvio-embedded-toolbar.js'"));
+    assert.match(toolbarLayout, /html\.eveos-embedded \.nuvio-toolbar/);
+    assert.match(toolbarLayout, /z-index:\s*70/);
+    assert.match(toolbarLayout, /min-height:\s*38px/);
+    assert.match(toolbarLayout, /flex-wrap:\s*nowrap/);
+  })();
+
+  await record('NUV-00C:hls-child-resource-rewrite', async () => {
+    const referer = 'https://catalog.example/watch/episode-1';
+    const rewritten = rewriteM3u8(
+      [
+        '#EXTM3U',
+        '#EXT-X-KEY:METHOD=AES-128,URI="keys/key.bin"',
+        '#EXT-X-MAP:URI="init.mp4"',
+        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",URI="audio/en.m3u8"',
+        'video/segment-001.ts'
+      ].join('\n'),
+      'https://cdn.example/media/master.m3u8',
+      referer
+    );
+
+    for (const url of [
+      'https://cdn.example/media/keys/key.bin',
+      'https://cdn.example/media/init.mp4',
+      'https://cdn.example/media/audio/en.m3u8',
+      'https://cdn.example/media/video/segment-001.ts'
+    ]) {
+      assert.ok(rewritten.includes('/api/media/stream?url=' + encodeURIComponent(url)));
+    }
+    assert.ok(rewritten.includes('&referer=' + encodeURIComponent(referer)));
+  })();
+
   const server = await startServer({ port: PORT, host: '127.0.0.1' });
   const baseUrl = server.baseUrl;
 
@@ -75,6 +117,13 @@ export async function runNuvioSmokes() {
       assert.ok(!res.body.includes('TMDB_API_KEY'));
       assert.ok(res.body.includes('/__nuvio__/youtube-proxy.html'));
       assert.ok(res.body.includes('trailerAutoplay = false'));
+
+      const mediaBranch = res.body.indexOf('if (mediaPathRe.test(mediaCandidate)');
+      const addonBranch = res.body.indexOf('if (addonPathRe.test(parsed.pathname))');
+      assert.ok(mediaBranch >= 0 && addonBranch > mediaBranch, 'media URLs must be classified before generic addon /stream/ paths');
+      assert.ok(res.body.includes('HTMLMediaElement'));
+      assert.ok(res.body.includes('__watchFusionNuvioMediaSrcPatched'));
+      assert.ok(res.body.includes('mp4|m4v|mov|mkv|webm'));
     })();
 
     await record('NUV-02A:user-initiated-youtube-proxy', async () => {

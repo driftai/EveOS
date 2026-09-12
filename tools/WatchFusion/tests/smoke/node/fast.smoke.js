@@ -24,6 +24,12 @@ export async function runFastSmoke() {
     assert.match(html, /id="mediaStage"/);
     assert.match(html, /id="nuvioFrame"/);
     assert.match(html, /id="voxelVisionFrame"/);
+    assert.match(html, /id="nuvioToolbar"/);
+    assert.match(html, /id="nuvioBackBtn"/);
+    assert.match(html, /id="nuvioHomeBtn"/);
+    assert.match(html, /id="nuvioReloadBtn"/);
+    assert.match(html, /id="nuvioFullBtn"/);
+    assert.match(html, /id="nuvioCloseBtn"/);
   });
 
   await check('FAST-02:source-switch-wiring', () => {
@@ -31,6 +37,7 @@ export async function runFastSmoke() {
     const adapter = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'nuvio-adapter.js'), 'utf8');
     const voxelVisionAdapter = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'voxelvision-adapter.js'), 'utf8');
     const hostFix = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'watchfusion-host-input-fix.js'), 'utf8');
+    const toolbarLayout = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'nuvio-embedded-toolbar.js'), 'utf8');
     assert.match(bootstrap, /showNuvio/);
     assert.match(bootstrap, /showVoxelVision/);
     assert.match(adapter, /openNuvioBrowserMode/);
@@ -39,6 +46,11 @@ export async function runFastSmoke() {
     assert.match(hostFix, /shortcutNuvioBtn/);
     assert.match(hostFix, /shortcutVoxelVisionBtn/);
     assert.match(hostFix, /resolveTabBtn/);
+    assert.doesNotThrow(() => new Function(toolbarLayout));
+    assert.match(toolbarLayout, /html\.eveos-embedded \.nuvio-toolbar/);
+    assert.match(toolbarLayout, /z-index:\s*70/);
+    assert.match(toolbarLayout, /min-height:\s*38px/);
+    assert.match(toolbarLayout, /flex-wrap:\s*nowrap/);
   });
 
   await check('FAST-03:nuvio-native-mouse-bridge-contract', () => {
@@ -103,6 +115,7 @@ export async function runFastSmoke() {
       assert.match(response.body, /installWatchFusionHostInputFix/);
       assert.match(response.body, /watchfusion-host-input-fix\.js/);
       assert.match(response.body, /function openVoxelVisionMode/);
+      assert.match(response.body, /__watchfusion_embedded_nuvio_toolbar_layout/);
       assert.ok(response.body.indexOf('installWatchFusionHostInputFix') > response.body.indexOf('function render'));
     } finally {
       await server.stop();
