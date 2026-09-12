@@ -76,6 +76,7 @@ export async function sendFile(req, res) {
       'client/voxelvision-adapter.js',
       'client/setup-health.js',
       'client/eveos-continuity-state.js',
+      'client/eveos-nuvio-auth-continuity.js',
       'client/eveos-embed-bridge.js',
       'client/bootstrap.js',
       'client/watchfusion-host-input-fix.js',

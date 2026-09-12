@@ -35,6 +35,57 @@ test.describe('WatchFusion EveOS Detach & Reattach Continuity', () => {
     expect(result.restoredStorageValue).toBe('continuity-val-999');
   });
 
+  test('Nuvio auth is seeded before an already-loaded detached frame reboots', async ({ page }) => {
+    await page.route('**/nuvio/dist/index.html**', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: `<!doctype html><html><body data-access=""><script>
+          document.body.dataset.access = localStorage.getItem('access_token') || '';
+        <\/script></body></html>`
+      });
+    });
+
+    await page.goto('/');
+    await page.evaluate(() => {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('is_anonymous_session');
+      const frame = document.getElementById('nuvioFrame');
+      frame.src = '/nuvio/dist/index.html';
+    });
+
+    const nuvioFrame = page.frameLocator('#nuvioFrame');
+    await expect(nuvioFrame.locator('body')).toHaveAttribute('data-access', '');
+
+    await page.evaluate(async () => {
+      const stateApi = window.watchFusionContinuityState;
+      await stateApi.applySnapshot({
+        protocol: 1,
+        capturedAt: Date.now(),
+        source: { kind: 'ready', type: 'ready', title: 'Ready' },
+        storage: { local: [], session: [] },
+        nuvioSession: {
+          access_token: 'partition-access-token',
+          refresh_token: 'partition-refresh-token',
+          is_anonymous_session: null
+        }
+      }, 'detached');
+    });
+
+    await expect(nuvioFrame.locator('body')).toHaveAttribute('data-access', 'partition-access-token');
+    const restored = await page.evaluate(() => ({
+      access: localStorage.getItem('access_token'),
+      refresh: localStorage.getItem('refresh_token'),
+      anonymous: localStorage.getItem('is_anonymous_session')
+    }));
+    expect(restored).toEqual({
+      access: 'partition-access-token',
+      refresh: 'partition-refresh-token',
+      anonymous: null
+    });
+  });
+
   test('watchFusionContinuityState applies VoxelVision snapshot settings', async ({ page }) => {
     await page.goto('/');
 
