@@ -85,5 +85,5 @@ export function logNetworkStartup({ port, host, lanMode }) {
   console.log(`Binding: ${host}`);
   console.log(lanMode
     ? 'LAN binding: 0.0.0.0 (all network interfaces)'
-    : 'Local-only binding: 127.0.0.1 (canonical loopback hostname: 127-0-0-1.sslip.io)');
+    : `Local-only binding: 127.0.0.1 (canonical loopback URL: http://127.0.0.1:${port}/)`);
 }
