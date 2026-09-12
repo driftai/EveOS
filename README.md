@@ -10,7 +10,7 @@ EveOS started as a way to organize links and grew into a connected desktop-style
 
 It is Windows-oriented, browser-first, and intentionally modular. Many core workflows still work directly from `EveOS.html`; localhost and companion services unlock filesystem access, native audio, AI backends, World Book, Piano Automation, WatchFusion, and other machine-level features.
 
-> **Project scale:** **442,750 physical lines of first-party code and test automation** across **2,870 source and test files** under the repository's first-party scanner.
+> **Project scale:** **442,755 physical lines of first-party code and test automation** across **2,869 source and test files** under the repository's first-party scanner.
 
 ![EveOS dashboard with a synthetic demo datapack](docs/screenshots/eveos-dashboard.png)
 
@@ -339,11 +339,11 @@ For a deeper implementation tour, see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.m
 
 The project-size figures use the same first-party scanner as `npm run smoke:file-size`: physical lines in JavaScript, ES modules, CSS, HTML, Python, PowerShell, and batch files, while excluding dependencies, virtual environments, build/test output, generated runtime data, vendor trees, the external Nuvio install, bundled VoxelVision, and the independently maintained Orogen tree.
 
-- **442,750 physical lines** across **2,870 first-party source and test files**
-- **332,530 JavaScript lines** (`.js`)
+- **442,755 physical lines** across **2,869 first-party source and test files**
+- **332,559 JavaScript lines** (`.js`)
 - **52,525 Python lines** (`.py`)
 - **48,402 CSS lines** (`.css`)
-- **3,180 batch lines** (`.bat`)
+- **3,156 batch lines** (`.bat`)
 - **2,774 HTML lines** (`.html`)
 - **2,310 ES module lines** (`.mjs`)
 - **1,029 PowerShell lines** (`.ps1`)
