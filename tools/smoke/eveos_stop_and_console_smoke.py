@@ -102,6 +102,32 @@ def main():
         check("error: boom" in payload["stoppedAlso"]["worldBook"], "the failure is reported, not hidden")
         check("watchFusion" in calls and "piano" in calls and "gemini" in calls and "web" in calls,
               "the rest still stop after one managed service fails")
+
+        # The web stop runs after every child. If that final owned-service step raises, global Stop
+        # must still schedule the coordinator shutdown instead of leaving Local Control 9082 behind.
+        calls.clear()
+        H.world_book_control.stop_server = lambda: calls.append("worldBook") or {"ok": True}
+
+        def fail_web_stop(*_a, **_k):
+            calls.append("web")
+            raise RuntimeError("web boom")
+
+        H.eveos_web_control.stop_server = fail_web_stop
+        shutdown_count = len(shutdowns)
+        payload = H._stop_everything()
+        check(payload.get("ok") is False, "a web-stop failure is reported as a failed global Stop")
+        check("web boom" in payload.get("message", ""), "the web-stop failure remains visible")
+        check("error: web boom" in payload.get("stoppedAlso", {}).get("web", ""),
+              "the failed web stage is identified")
+        check(payload.get("controlPlaneStopping") is True,
+              "the coordinator finalizer is scheduled even when the final web-stop stage raises")
+        check(calls == expected,
+              f"all children are attempted before the failing web stage (got {calls})")
+        deadline = __import__("time").monotonic() + 3.0
+        while len(shutdowns) == shutdown_count and __import__("time").monotonic() < deadline:
+            __import__("time").sleep(0.05)
+        check(len(shutdowns) > shutdown_count,
+              "the deferred coordinator shutdown actually runs after a web-stop exception")
     finally:
         (
             H.watchfusion_control.stop_server,
