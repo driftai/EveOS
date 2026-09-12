@@ -40,6 +40,10 @@ function sourceContract() {
     const youtubeImport = read('tools/WatchFusion/voxelvision/youtube-import.js');
     const depthSession = read('tools/WatchFusion/voxelvision/public/js/depth-worker-session.js');
     const maskAssist = read('tools/WatchFusion/voxelvision/public/js/foreground-mask-assist.js');
+    const sensing = read('js/modules/features/watchfusion/watchfusion.runtime-sensing.js');
+
+    check(!sensing.includes('127-0-0-1.sslip.io'), 'WF-SENSING-NO-SSLIP', 'watchfusion.runtime-sensing.js still includes sslip candidate origin');
+    check(sensing.includes('http://127.0.0.1:'), 'WF-SENSING-LOOPBACK-CANONICAL', 'watchfusion.runtime-sensing.js missing literal loopback candidate origin');
 
     check(helper.includes('from . import watchfusion_control'), 'WF-CONTROL-IMPORT', 'control plane does not import WatchFusion lifecycle');
     check(helper.includes('"/api/watchfusion/status"'), 'WF-CONTROL-STATUS', 'WatchFusion status route is missing');

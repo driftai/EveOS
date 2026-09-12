@@ -12,7 +12,7 @@ export default defineConfig({
     ['json', { outputFile: 'test-results/playwright-report.json' }]
   ],
   use: {
-    baseURL: `http://127-0-0-1.sslip.io:${PORT}`,
+    baseURL: `http://127.0.0.1:${PORT}`,
     headless: true,
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
     screenshot: 'only-on-failure',

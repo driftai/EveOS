@@ -115,11 +115,8 @@ export async function runFastSmoke() {
       const health = await request(server.baseUrl, '/api/health');
       assert.equal(health.status, 200);
       assert.equal(health.json?.ok, true);
-      // GET '/' from 127.0.0.1 triggers the canonical loopback redirect (302 to
-      // 127-0-0-1.sslip.io). This is intentional server behavior. Use the canonical
-      // sslip hostname to avoid the redirect and get a real 200 with the HTML.
-      const canonicalBase = server.baseUrl.replace('127.0.0.1', '127-0-0-1.sslip.io');
-      const html = await request(canonicalBase, '/');
+      // GET '/' from 127.0.0.1 serves canonical HTML directly
+      const html = await request(server.baseUrl, '/');
       assert.equal(html.status, 200);
       assert.match(html.body, /WatchFusion/);
     } finally {

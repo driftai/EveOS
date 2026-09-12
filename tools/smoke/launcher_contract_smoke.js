@@ -130,6 +130,12 @@ assert(cloudflaredBootstrap.includes('Get-FileHash') && cloudflaredBootstrap.inc
     'Cloudflared bootstrap does not verify the published release checksum');
 assert(cloudflaredBootstrap.includes('--version'),
     'Cloudflared bootstrap does not self-check the downloaded executable');
+assert(cloudflaredBootstrap.includes('$Destination.download.exe'),
+    'Cloudflared bootstrap must use an executable extension for version self-check');
+assert(cloudflaredBootstrap.includes('ProgramFiles') && cloudflaredBootstrap.includes('WinGet'),
+    'Cloudflared bootstrap does not search standard ProgramFiles or WinGet locations');
+assert(cloudflaredBootstrap.includes('App Paths') || cloudflaredBootstrap.includes('cloudflared.exe'),
+    'Cloudflared bootstrap does not search Windows App Paths registry');
 
 const explicitServer = read(path.join(ROOT, 'server', 'eveos-server-launch.py'));
 assert(explicitServer.includes('default="127.0.0.1"'),

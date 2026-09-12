@@ -33,20 +33,20 @@ export async function runNodeSmokes() {
   const baseUrl = server.baseUrl;
 
   try {
-    // 1. Server startup, root redirect, and canonical host HTML serving
+    // 1. Server startup, canonical host HTML serving, and localhost normalization
     await record('NODE-01:server-startup-and-root', async () => {
-      // Loopback 127.0.0.1 navigations redirect to 127-0-0-1.sslip.io
-      const redirectRes = await request(baseUrl, '/');
-      assert.equal(redirectRes.status, 302, 'Local loopback navigation must 302 redirect to sslip.io host');
-      assert.ok(redirectRes.headers.location?.includes('127-0-0-1.sslip.io'), 'Location header targets 127-0-0-1.sslip.io');
-
-      // Canonical host returns 200 with HTML document
-      const htmlRes = await request(baseUrl, '/', {
-        headers: { host: `127-0-0-1.sslip.io:${PORT}` }
-      });
-      assert.equal(htmlRes.status, 200, 'Canonical host returns status 200');
+      // Canonical host returns 200 with HTML document directly
+      const htmlRes = await request(baseUrl, '/');
+      assert.equal(htmlRes.status, 200, 'Canonical loopback host returns status 200');
       assert.ok(htmlRes.body.toLowerCase().includes('<!doctype html>'), 'Canonical host returns HTML');
       assert.ok(htmlRes.body.includes('WatchParty'), 'Root HTML contains WatchParty');
+
+      // Host localhost redirects to canonical 127.0.0.1 host
+      const redirectRes = await request(baseUrl, '/', {
+        headers: { host: `localhost:${PORT}` }
+      });
+      assert.equal(redirectRes.status, 302, 'localhost navigation must 302 redirect to canonical host');
+      assert.ok(redirectRes.headers.location?.includes(`127.0.0.1:${PORT}`), 'Location header targets 127.0.0.1');
     })();
 
     // 2. Static asset serving and path security

@@ -33,8 +33,8 @@ function shouldRedirectToCanonicalHost(req, url) {
   const isPhysicalIpHost = physicalLan && requestHost === physicalLan;
   const isVirtualIpHost = isVirtualAddress(requestHost);
   const isRetiredVirtualSslip = /^192-168-128-1\.sslip\.io$/i.test(requestHost);
-  const isLocalLoopback = /^(localhost|127\.0\.0\.1)$/i.test(requestHost);
-  if (isLocalLoopback) return `${localHost}${url.pathname}${url.search}`;
+  const isSslipLoopback = /^127-0-0-1\.sslip\.io$/i.test(requestHost);
+  if (requestHost === 'localhost' || isSslipLoopback) return `${localHost}${url.pathname}${url.search}`;
   if (physicalHost && (isPhysicalIpHost || isVirtualIpHost || isRetiredVirtualSslip)) return `${physicalHost}${url.pathname}${url.search}`;
   return null;
 }

@@ -157,7 +157,7 @@ async function loadNetworkInfo() {
 }
 function isReachableLanHost(hostname) { return /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname) || /(?:^|\.)sslip\.io$/i.test(hostname); }
 function lanRoomLink() { return lanBaseUrl && roomId ? `${lanBaseUrl}/watch/${roomId}` : null; }
-function localRoomLink() { return roomId ? `http://127-0-0-1.sslip.io:${location.port||'9085'}/watch/${roomId}` : null; }
+function localRoomLink() { return roomId ? `http://127.0.0.1:${location.port||'9087'}/watch/${roomId}` : null; }
 function shareRoomLink() {
   if (!roomId) return null;
   if (isTryCloudflare) return `${location.origin}/watch/${roomId}`;

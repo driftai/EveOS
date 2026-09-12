@@ -37,7 +37,7 @@ export function lanUrls(address, port) {
   };
 }
 
-export const localCanonicalHostUrl = port => `http://127-0-0-1.sslip.io:${port}`;
+export const localCanonicalHostUrl = port => `http://127.0.0.1:${port}`;
 export const preferredLanHostUrl = port => lanUrls(preferredLanAddress(), port).host;
 
 export function originForRequest(req) {
@@ -55,7 +55,7 @@ export function isHtmlNavigation(req) {
 export function logNetworkStartup({ port, host, lanMode }) {
   console.log(`WatchFusion listening on port ${port}`);
   console.log(`Local: http://127.0.0.1:${port}`);
-  if (!lanMode) console.log('Local mode: loopback only; 127.0.0.1/localhost entry redirects to 127-0-0-1.sslip.io');
+  if (!lanMode) console.log(`Local mode: loopback only (http://127.0.0.1:${port})`);
 
   const addresses = networkAddresses();
   const shareable = addresses.filter(x => x.shareable);
