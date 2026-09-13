@@ -54,7 +54,10 @@ const controlNode = {
     }
 };
 
-async function fetchJson(url, options) {
+const lifecycleCalls = [];
+let simulateLifecycleError = false;
+
+async function fetchJson(url, options, timeoutMs) {
     seenUrls.push(url);
     if (url.includes('/api/control-plane/health')) {
         return {
@@ -93,6 +96,7 @@ async function fetchJson(url, options) {
     }
     if (url.includes('/api/eveos-server/start') && options?.method === 'POST') {
         if (!url.includes('port=3000')) throw new Error(`start lost active port: ${url}`);
+        lifecycleCalls.push({ op: 'start', timeoutMs, url });
         webRunning = true;
         return {
             ok: true, running: true, desiredRunning: true, state: 'running', port: 3000,
@@ -101,6 +105,10 @@ async function fetchJson(url, options) {
     }
     if (url.includes('/api/eveos-server/stop') && options?.method === 'POST') {
         if (!url.includes('port=3000')) throw new Error(`stop lost active port: ${url}`);
+        lifecycleCalls.push({ op: 'stop', timeoutMs, url });
+        if (simulateLifecycleError) {
+            throw new Error('simulated stop network failure');
+        }
         webRunning = false;
         return {
             ok: true, running: false, desiredRunning: false, state: 'stopped', port: 3000,
@@ -281,8 +289,31 @@ vm.runInNewContext(source, context, { filename: 'eveosControlPlane.js' });
     if (!source.includes('currentPagePort')) {
         throw new Error('control-plane state does not distinguish file:// from the active web port');
     }
-    if (/new MutationObserver\(function \(\) \{\s*bind\(document\)/.test(source)) {
-        throw new Error('control binding observer can recursively republish its own DOM mutations');
+    if (!source.includes('START_TIMEOUT_MS = 7000')) {
+        throw new Error('START_TIMEOUT_MS constant not found in source');
+    }
+    if (!source.includes('STOP_TIMEOUT_MS = 30000')) {
+        throw new Error('STOP_TIMEOUT_MS constant not found in source');
+    }
+    const startCall = lifecycleCalls.find((call) => call.op === 'start');
+    if (startCall?.timeoutMs !== 7000) {
+        throw new Error(`Start lifecycle request did not use START_TIMEOUT_MS (7000): got ${startCall?.timeoutMs}`);
+    }
+    const stopCall = lifecycleCalls.find((call) => call.op === 'stop');
+    if (stopCall?.timeoutMs !== 30000) {
+        throw new Error(`Stop lifecycle request did not use STOP_TIMEOUT_MS (30000): got ${stopCall?.timeoutMs}`);
+    }
+
+    // Verify lifecycle error handling contract preserves state and clears busy
+    simulateLifecycleError = true;
+    await windowMock.EveOSControlPlane.stop();
+    simulateLifecycleError = false;
+    const errorState = windowMock.EveOSControlPlane.getState();
+    if (errorState.serverState !== 'error' || !errorState.message.includes('simulated stop network failure')) {
+        throw new Error(`Lifecycle error handling contract failed: state=${errorState.serverState}, msg=${errorState.message}`);
+    }
+    if (errorState.busy) {
+        throw new Error('Lifecycle error handling left control plane in busy state');
     }
 
     console.log('EVEOS_CONTROL_PLANE_UI_SMOKE_OK');

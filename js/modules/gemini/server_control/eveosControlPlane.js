@@ -7,6 +7,8 @@
     const MAIN_WEB_BASE = 'http://127.0.0.1:3000';
     const CANONICAL_WEB_BASE = 'http://127.0.0.1:8765';
     const POLL_MS = 5000;
+    const START_TIMEOUT_MS = 7000;
+    const STOP_TIMEOUT_MS = 30000;
 
     function currentWebBase() {
         try {
@@ -270,6 +272,7 @@
         state.message = enabled ? 'Starting EveOS localhost...' : 'Stopping EveOS localhost...';
         publish();
         try {
+            const timeoutMs = enabled ? START_TIMEOUT_MS : STOP_TIMEOUT_MS;
             const payload = await fetchJson(
                 withWebPort(`${state.helperBaseUrl}/api/eveos-server/${enabled ? 'start' : 'stop'}`),
                 {
@@ -277,7 +280,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: '{}'
                 },
-                7000
+                timeoutMs
             );
             applyWebStatus(payload);
             if (state.webRunning !== enabled && !['error', 'blocked'].includes(state.serverState)) {
