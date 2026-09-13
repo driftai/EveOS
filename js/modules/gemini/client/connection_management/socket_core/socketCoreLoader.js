@@ -19,7 +19,7 @@ const socketCoreScripts = [
     `${SOCKET_CORE_BASE_PATH}/scc/socketConnectionCoordinator.js?v=65c8658b0ced`,
     `${SOCKET_CORE_BASE_PATH}/socketMessageRouter.js?v=e4ddcf12826e`,
     `${SOCKET_CORE_BASE_PATH}/audioPlayerUI.js?v=4ac0a32c2f58`,
-    `${SOCKET_CORE_BASE_PATH}/socketAudioLogic.js?v=7bf7e51894f6`,
+    `${SOCKET_CORE_BASE_PATH}/socketAudioLogic.js?v=11444be6d5c3`,
     `${SOCKET_CORE_BASE_PATH}/serverStatusChecker.js?v=cba3a4ad0191`
 ];
 

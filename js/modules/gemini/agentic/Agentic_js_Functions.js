@@ -95,7 +95,9 @@ for (const name of ['TimePerception', 'ConversationMemory', 'AISelfTalk',
         names: Object.freeze(Object.keys(handlers)),
         async execute(call) {
             const name = String(call?.name || '');
-            const handler = handlers[name];
+            const handler = Object.prototype.hasOwnProperty.call(handlers, name)
+                ? handlers[name]
+                : null;
             if (!handler) throw new Error(`Gemini Live tool is not allowed: ${name || '(missing)'}`);
             const args = call?.args && typeof call.args === 'object' && !Array.isArray(call.args)
                 ? call.args
