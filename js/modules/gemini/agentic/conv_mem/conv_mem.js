@@ -43,8 +43,7 @@ function initializeConversationMemoryModule() {
     console.log("Initializing Conversation Memory Agentic module...");
 
     // Set up initial state
-    window.ConversationMemoryAgentic = {
-        ...window.ConversationMemoryAgentic,
+    Object.assign(window.ConversationMemoryAgentic, {
         resetHistoryState: null,    // Will be defined by historyStateResetter.js
         sendChatHistory: null,      // Will be defined by chatHistorySender.js
         sendInitialContext: null,   // Will be defined by initialContextSender.js
@@ -52,8 +51,9 @@ function initializeConversationMemoryModule() {
         historyLoaded: false,       // Will be managed by chatHistoryState.js
         historyMessages: new Set(), // Will be managed by chatHistoryState.js
         historyMessageOrder: [],    // Will be managed by chatHistoryState.js
-        contextMemoryEnabled: true  // Default value, will be managed by contextMemoryToggleHandler.js
-    };
+        contextMemoryEnabled: true, // Default value, will be managed by contextMemoryToggleHandler.js
+        ...window.ConversationMemoryAgentic
+    });
 
     // Set up event listener for WebSocket connection to send initial context
     window.addEventListener('websocketConnected', () => {
@@ -69,21 +69,9 @@ function initializeConversationMemoryModule() {
     console.log("Conversation Memory Agentic module initialized");
 }
 
-// Load scripts
+// Establish defaults/listeners before loading implementations, without a timer that can
+// later erase functions or history populated by those implementations.
+initializeConversationMemoryModule();
 loadConversationMemoryScripts();
 
-// Initialize after a short delay to ensure scripts are loaded
-setTimeout(initializeConversationMemoryModule, 500);
-
 console.log("js/modules/gemini/agentic/Conversation_Memory_Agentic/Conversation_Memory_Agentic.js finished loading and initial execution");
-
-// Export conversation memory related functions for global use
-window.ConversationMemoryAgentic = {
-    resetHistoryState: null,    // Will be defined by historyStateResetter.js
-    sendChatHistory: null,      // Will be defined by chatHistorySender.js
-    sendInitialContext: null,   // Will be defined by initialContextSender.js
-    sendCurrentChatAsContext: null, // Will be defined by currentChatContextSender.js
-    historyLoaded: false,       // Will be managed by chatHistoryState.js
-    historyMessages: new Set(), // Will be managed by chatHistoryState.js
-    historyMessageOrder: []     // Will be managed by chatHistoryState.js
-}; 

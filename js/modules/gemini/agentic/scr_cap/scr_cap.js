@@ -40,6 +40,27 @@ function initializeScreenCaptureModule() {
         };
     }
 
+    // Expose the same state used by the capture pipeline, not a second stale copy.
+    const api = window.ScreenCaptureIntervalAgentic;
+    Object.assign(api, {
+        getScreenSharingState: () => window.isScreenShared === true,
+        setScreenSharingState: value => {
+            if (typeof value !== 'boolean') throw new TypeError('Screen sharing state must be boolean');
+            window.isScreenShared = value;
+        },
+        getCurrentFrame: () => window.currentFrameB64 || null,
+        setCurrentFrame: value => {
+            if (value !== null && typeof value !== 'string') throw new TypeError('Frame must be a string or null');
+            window.currentFrameB64 = value;
+        }
+    });
+    Object.defineProperties(api, {
+        isScreenShared: { configurable: true, enumerable: true,
+            get: api.getScreenSharingState, set: api.setScreenSharingState },
+        currentFrameB64: { configurable: true, enumerable: true,
+            get: api.getCurrentFrame, set: api.setCurrentFrame }
+    });
+    // These are state accessors, not permission to start screen capture.
     // Note: UI functions are now handled by Screen_Share_MM_Commuication_Panel
     // This module only manages technical state
 }

@@ -15,17 +15,16 @@ window.AgenticFunctions = window.AgenticFunctions || {
     ScreenCaptureInterval: {}
 };
 
-function initializeAgenticModule() {
-    Object.assign(window.AgenticFunctions, {
-        TimePerception: window.TimePerceptionAgentic || {},
-        ConversationMemory: window.ConversationMemoryAgentic || {},
-        AISelfTalk: window.AISelfTalkAgentic || {},
-        AudioProcessingControls: window.AudioProcessingControlsAgentic || {},
-        SessionControls: window.SessionControlsAgentic || {},
-        ScreenCaptureInterval: window.ScreenCaptureIntervalAgentic || {}
+// Child loaders can settle after any fixed timeout and some replace their namespace.
+// Resolve on access: keep the aggregator stable without polling or freezing a stale {}.
+for (const name of ['TimePerception', 'ConversationMemory', 'AISelfTalk',
+    'AudioProcessingControls', 'SessionControls', 'ScreenCaptureInterval']) {
+    const pending = {};
+    Object.defineProperty(window.AgenticFunctions, name, {
+        configurable: true,
+        enumerable: true,
+        // The self-talk implementation uses Ai (not AI); AISelfTalkAgentic is
+        // a legacy placeholder populated by the outer loader, not the runtime.
+        get() { return window[name === 'AISelfTalk' ? 'AiSelfTalkAgentic' : name + 'Agentic'] || pending; }
     });
 }
-
-// Child agentic loaders run before this aggregator in the master loader, but some of them load
-// their own scripts asynchronously. Refresh once after that work has had a chance to settle.
-setTimeout(initializeAgenticModule, 500);

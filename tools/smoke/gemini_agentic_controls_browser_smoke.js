@@ -87,6 +87,16 @@ async function main() {
             && document.getElementById('sessionControlsDialog')?.dataset.sessionControlsBound === '1'
         ), undefined, { timeout: 120000 });
 
+        await page.waitForFunction(() => {
+            const groups = window.AgenticFunctions;
+            return groups && Object.keys(groups).length === 6 && Object.values(groups)
+                .every(group => Object.values(group).some(value => typeof value === 'function'));
+        }, undefined, { timeout: 10000 }).catch(async error => {
+            const inventory = await page.evaluate(() => Object.fromEntries(
+                Object.entries(window.AgenticFunctions || {}).map(([name, group]) =>
+                    [name, Object.fromEntries(Object.entries(group).map(([key, value]) => [key, typeof value]))])));
+            throw new Error(`Agentic implementation readiness failed: ${JSON.stringify(inventory)}; ${error.message}`);
+        });
         const controls = await page.evaluate(() => {
             const ids = [
                 'timePerceptionToggle',
@@ -102,6 +112,9 @@ async function main() {
             ];
             return {
                 missing: ids.filter((id) => !document.getElementById(id)),
+                agenticFunctions: Object.fromEntries(Object.entries(window.AgenticFunctions)
+                    .map(([name, group]) => [name, Object.keys(group)
+                        .filter(key => typeof group[key] === 'function').sort()])),
                 sessionBound: document.getElementById('sessionControlsDialog')?.dataset.sessionControlsBound,
                 liveLinkBound: document.getElementById('gemini-live-link-card')?.dataset.bound,
                 liveLinkTitle: document.querySelector('#gemini-live-link-card .gemini-live-link-title')?.textContent?.trim(),

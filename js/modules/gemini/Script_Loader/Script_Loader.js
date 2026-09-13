@@ -53,11 +53,11 @@ const masterScriptList = [
     `${BASE_PATHS.CLIENT_CORE}/connection_management/waitForConnection.js?v=78e959ad2d9b`,
 
     // 2. Agentic Functions
-    `${BASE_PATHS.AGENTIC}/audio_proc/audio_proc.js?v=8f52459dc38c`,
+    `${BASE_PATHS.AGENTIC}/audio_proc/audio_proc.js?v=b9c37abec210`,
     `${BASE_PATHS.AGENTIC}/self_talk/self_talk.js?v=2e41e1dbad9c`,
-    `${BASE_PATHS.AGENTIC}/scr_cap/scr_cap.js?v=2f76cf3ec888`,
+    `${BASE_PATHS.AGENTIC}/scr_cap/scr_cap.js?v=cd2003932bc1`,
     `${BASE_PATHS.AGENTIC}/sess_ctrl/sess_ctrl.js?v=cc5ee042f918`,
-    `${BASE_PATHS.AGENTIC}/conv_mem/conv_mem.js?v=37636286ed9a`,
+    `${BASE_PATHS.AGENTIC}/conv_mem/conv_mem.js?v=9d973f5cbe45`,
     `${BASE_PATHS.AGENTIC}/time_perc/time_perc.js?v=05fcdfc258d9`,
 
     // 3. Log Interface Display
@@ -83,7 +83,7 @@ const masterScriptList = [
 
     // 5. Aggregator Modules
     APP_ROOT + 'js/modules/gemini/client/Client_Core_Control.js?v=f1ea8e0e2c03',
-    APP_ROOT + 'js/modules/gemini/agentic/Agentic_js_Functions.js?v=0610c485017a',
+    APP_ROOT + 'js/modules/gemini/agentic/Agentic_js_Functions.js?v=25aeb2048eb1',
     APP_ROOT + 'js/modules/gemini/logs/Log_Interface_Display.js?v=bbf83858af82',
     APP_ROOT + 'js/modules/gemini/comm/Communication_Panel.js?v=f59247cf7066'
 ];

@@ -34,7 +34,7 @@ const audioProcessingScripts = [
     `${AUDIO_PROCESSING_BASE_PATH}/playback_settings/sequentialAudioPlayState.js?v=a3e389e81237`,
 
     // Audio Processing and Queue Management
-    `${AUDIO_PROCESSING_BASE_PATH}/playback_proc/audio_injest_core/audioIngestLoader.js?v=320aa144c457`,
+    `${AUDIO_PROCESSING_BASE_PATH}/playback_proc/audio_injest_core/audioIngestLoader.js?v=0ece3f5a0bf4`,
     `${AUDIO_PROCESSING_BASE_PATH}/queue_mgmt/audioQueueStore.js?v=b79f06a3d496`,
     `${AUDIO_PROCESSING_BASE_PATH}/queue_mgmt/queue_core/queueItemSelector.js?v=984dc744106d`,
     `${AUDIO_PROCESSING_BASE_PATH}/queue_mgmt/queue_core/queueUIManager.js?v=df45f5b4416e`,
