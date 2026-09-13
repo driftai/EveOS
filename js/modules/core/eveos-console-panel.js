@@ -137,8 +137,8 @@
         title.textContent = 'Close Local Control after individual tool Stop';
         const description = document.createElement('span');
         description.style.cssText = 'font-size:0.74rem; opacity:0.72; line-height:1.35;';
-        description.textContent = 'Off by default: individual tool Stop keeps port 9082 ready. When enabled, '
-            + 'a successful tool Stop exits 9082 after replying; failed stops keep it alive. Global Stop always exits it.';
+        description.textContent = 'On by default: individual tool Stop exits 9082 after replying; failed stops keep it alive. '
+            + 'Uncheck to keep port 9082 ready for other tools. Global Stop always exits it.';
         copy.append(title, description);
         copy.addEventListener('click', () => {
             input.checked = !input.checked;

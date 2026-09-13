@@ -9,7 +9,7 @@ Shape:
     {
         "default": false,
         "services": {"gemini": true},
-        "keepLocalControlAfterToolStop": true
+        "keepLocalControlAfterToolStop": false
     }
 
 `default` is the console-visibility answer for a service with no entry of its own; false means
@@ -17,11 +17,11 @@ headed, because a console you can see is the point. A per-service entry override
 backend can be silenced without hiding everything else. EVEOS_HEADLESS overrides both console
 settings for a one-off quiet run.
 
-`keepLocalControlAfterToolStop` is deliberately true by default, preserving the proven behavior:
-individual WatchFusion/Gemini/World Book/Piano stops leave the 9082 coordinator alive. The Settings
-toggle is phrased in the inverse ("Close Local Control after individual tool Stop"); opting into
-that behavior writes false here. Failed tool stops never consume the coordinator, and Global Stop
-is terminal regardless of this preference.
+`keepLocalControlAfterToolStop` is deliberately false by default: individual tool Stop exits the
+9082 coordinator once the response completes. The Settings toggle is phrased in the inverse
+("Close Local Control after individual tool Stop"), and is enabled by default. Unchecking it
+writes true here, keeping 9082 ready for other tools. Failed tool stops never consume the coordinator,
+and Global Stop is terminal regardless of this preference.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def _path() -> Path:
 
 
 def read_all() -> dict:
-    """Stored preferences, normalised. Missing/corrupt data uses visible/keep-alive defaults."""
+    """Stored preferences, normalised. Missing/corrupt data uses visible/auto-close defaults."""
     try:
         payload = json.loads(_path().read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
@@ -53,7 +53,7 @@ def read_all() -> dict:
     return {
         "default": bool(payload.get("default")),
         "services": {str(k): bool(v) for k, v in services.items() if k in KNOWN_SERVICES},
-        "keepLocalControlAfterToolStop": bool(payload.get("keepLocalControlAfterToolStop", True)),
+        "keepLocalControlAfterToolStop": bool(payload.get("keepLocalControlAfterToolStop", False)),
     }
 
 

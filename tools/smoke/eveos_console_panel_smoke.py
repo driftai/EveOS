@@ -13,8 +13,8 @@ Four things here are easy to get subtly wrong:
 2. Console precedence is env > per-service > default. Get it backwards and EVEOS_HEADLESS stops
    being an override, or a per-service choice silently loses to the global default.
 
-3. The Local Control lifetime preference must survive console writes and default to keep-alive,
-   so individual tool Stop preserves 9082 unless the user explicitly enables auto-close.
+3. The Local Control lifetime preference must survive console writes and default to auto-close,
+   so individual tool Stop exits 9082 unless the user explicitly opts out.
 
 4. The panel is a thin renderer over one payload. If endpoint keys and the JS reading them drift
    apart, the section can render a misleading stale or all-stopped view.
@@ -48,12 +48,12 @@ def check_backend(store):
     check(store.name != "eveos-web-service.json",
           "local-service preferences are kept apart from the wholesale-rewritten service state file")
 
-    # ---- default is headed, and individual tool Stop keeps Local Control unless explicitly closed ----
+    # ---- default is headed, and individual tool Stop closes Local Control by default ----
     check(P.read_all() == {
         "default": False,
         "services": {},
-        "keepLocalControlAfterToolStop": True,
-    }, "a missing preferences file uses headed consoles and keeps Local Control after tool Stop")
+        "keepLocalControlAfterToolStop": False,
+    }, "a missing preferences file uses headed consoles and closes Local Control after tool Stop by default")
     check(P.headless_for("web") is False, "a service with no entry follows the headed default")
 
     # ---- a per-service override silences one service without hiding the rest ----
@@ -62,11 +62,11 @@ def check_backend(store):
     check(P.headless_for("web") is False, "and does not leak onto other services")
 
     # ---- the coordinator lifetime preference persists alongside console choices ----
-    P.set_keep_local_control_after_tool_stop(False)
-    check(P.read_all()["keepLocalControlAfterToolStop"] is False,
-          "the close-Local-Control opt-in persists")
+    P.set_keep_local_control_after_tool_stop(True)
+    check(P.read_all()["keepLocalControlAfterToolStop"] is True,
+          "the keep-Local-Control opt-out persists")
     P.set_console("default", True)
-    check(P.read_all()["keepLocalControlAfterToolStop"] is False,
+    check(P.read_all()["keepLocalControlAfterToolStop"] is True,
           "console writes preserve the coordinator lifetime preference")
 
     # ---- ...and survives a lifecycle write, which is why this has a separate file ----
@@ -74,7 +74,7 @@ def check_backend(store):
     W._write_desired_state(False)
     check(P.headless_for("gemini") is True,
           "the preference survives start/stop rewrites of the web service state")
-    check(P.read_all()["keepLocalControlAfterToolStop"] is False,
+    check(P.read_all()["keepLocalControlAfterToolStop"] is True,
           "the coordinator lifetime preference also survives web lifecycle rewrites")
 
     # ---- the default applies to services with no entry of their own ----
@@ -96,7 +96,7 @@ def check_backend(store):
     # ---- clearing returns a service to the default without erasing lifecycle preferences ----
     P.clear("web")
     check(P.headless_for("web") is True, "a cleared service follows the default again")
-    check(P.read_all()["keepLocalControlAfterToolStop"] is False,
+    check(P.read_all()["keepLocalControlAfterToolStop"] is True,
           "clearing a console override preserves the coordinator lifetime preference")
 
     # ---- an unknown service is refused rather than silently stored ----
@@ -106,7 +106,7 @@ def check_backend(store):
     except ValueError:
         pass
 
-    P.set_keep_local_control_after_tool_stop(True)
+    P.set_keep_local_control_after_tool_stop(False)
     P.set_console("default", False)
     P.clear("gemini")
 
@@ -126,8 +126,8 @@ def check_overview():
         by_key = {service["key"]: service for service in payload["services"]}
 
         check(payload["ok"] is True, "the overview reports success")
-        check(payload["keepLocalControlAfterToolStop"] is True,
-              "the overview exposes the safe keep-alive default")
+        check(payload["keepLocalControlAfterToolStop"] is False,
+              "the overview exposes the coordinator auto-close default")
         check(set(by_key) == set(P.KNOWN_SERVICES),
               f"every spawnable service is listed (got {sorted(by_key)})")
         check(by_key["web"]["running"] is True and by_key["web"]["ports"] == [8765],
@@ -153,7 +153,7 @@ def check_overview():
         check(not probed, "setting a preference probes no service; it starts nothing")
         check(preferences["preferencesOnly"] is True,
               "the cheap reply says so, or the panel would overwrite its rows with empty state")
-        check(preferences["keepLocalControlAfterToolStop"] is True,
+        check(preferences["keepLocalControlAfterToolStop"] is False,
               "the cheap reply includes the coordinator lifetime preference")
         check(set(s["key"] for s in preferences["services"]) == set(P.KNOWN_SERVICES),
               "every service still gets its console preference back")
@@ -221,8 +221,8 @@ def main():
 
         saved = json.loads(store.read_text(encoding="utf-8")) if store.is_file() else {}
         check(saved.get("default") is False, "the store round-trips through disk, not just memory")
-        check(saved.get("keepLocalControlAfterToolStop") is True,
-              "the safe keep-alive preference round-trips through disk")
+        check(saved.get("keepLocalControlAfterToolStop") is False,
+              "the coordinator auto-close preference round-trips through disk")
 
     check_panel_contract()
 

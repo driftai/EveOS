@@ -68,8 +68,8 @@ def main():
         with TemporaryDirectory() as tmp:
             prefs._path = lambda: Path(tmp) / "eveos-consoles.json"
             stored = prefs.read_all()
-            check(stored.get("keepLocalControlAfterToolStop") is True,
-                  "individual tool Stop keeps Local Control by default")
+            check(stored.get("keepLocalControlAfterToolStop") is False,
+                  "individual tool Stop closes Local Control by default")
             prefs.set_keep_local_control_after_tool_stop(True)
             check(prefs.read_all().get("keepLocalControlAfterToolStop") is True,
                   "keep-Local-Control preference persists")
@@ -82,11 +82,14 @@ def main():
             prefs.clear("gemini")
             check(prefs.read_all().get("keepLocalControlAfterToolStop") is True,
                   "clearing a console override also preserves the lifetime preference")
+            prefs.set_keep_local_control_after_tool_stop(False)
+            check(prefs.read_all().get("keepLocalControlAfterToolStop") is False,
+                  "resetting coordinator auto-close persists")
     finally:
         prefs._path = original_pref_path
 
-    # Individual tool Stop preserves 9082 by default. Only the explicit Settings opt-in (stored as
-    # keepLocalControlAfterToolStop=False) may retire the coordinator after a successful tool stop.
+    # Individual tool Stop exits 9082 by default (keepLocalControlAfterToolStop=False).
+    # Unchecking the Settings toggle (stored as keepLocalControlAfterToolStop=True) preserves 9082.
     # Failures stay retryable regardless of the toggle.
     tool_shutdowns = []
     original_shutdown_after_response = H._shutdown_plane_after_response
