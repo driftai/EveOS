@@ -13,6 +13,10 @@ window.AudioIngestCore.WorkletIngestHandler = {
                 const float32Data = convertPCM16LEToFloat32(arrayBuffer);
                 console.log("Converted to float32, length:", float32Data.length);
 
+                // postMessage(..., [buffer]) detaches the transferred ArrayBuffer on success.
+                // Preserve the resend copy before that transfer so recovery cannot cache a neutered chunk.
+                const cacheCopy = new Float32Array(float32Data);
+
                 // Prepare a monotonic sequence id but only commit it after a successful post
                 const nextSeq = (window._workletSeq || 0) + 1;
 
@@ -60,9 +64,8 @@ window.AudioIngestCore.WorkletIngestHandler = {
                     throw new Error('Failed to deliver audio chunk to worklet node');
                 }
 
-                // Cache a copy for potential resend requests from the worklet
+                // Cache the preserved copy for potential resend requests from the worklet.
                 try {
-                    const cacheCopy = new Float32Array(float32Data); // copy before original may be neutered
                     window._workletCache[nextSeq] = cacheCopy;
                     // Trim cache
                     const keys = Object.keys(window._workletCache).map(k=>parseInt(k)).sort((a,b)=>a-b);
