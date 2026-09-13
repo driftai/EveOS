@@ -24,6 +24,7 @@
     ];
     let lastPayload = null;
     let livePreviewOpen = false;
+    let startupBusy = false;
     let startupMessage = '';
 
     function control() {
@@ -160,6 +161,7 @@
     }
 
     async function startLocalServices() {
+        startupBusy = true;
         startupMessage = 'Starting localhost and Local Control...';
         render(disconnectedPayload(), true);
         try {
@@ -175,6 +177,7 @@
             const payload = await request();
             if (payload) {
                 lastPayload = payload;
+                startupBusy = false;
                 startupMessage = '';
                 render(lastPayload);
                 return payload;
@@ -183,6 +186,7 @@
         } catch (error) {
             startupMessage = error?.message || 'Local Control did not start.';
         }
+        startupBusy = false;
         render(disconnectedPayload(), true);
         return null;
     }
@@ -206,8 +210,8 @@
         button.type = 'button';
         button.className = 'settings-panel-link';
         button.style.cssText = 'font-size:0.78rem; padding:6px 10px; margin-top:8px;';
-        button.textContent = startupMessage ? 'Starting...' : 'Start localhost & Local Services';
-        button.disabled = Boolean(startupMessage);
+        button.textContent = startupBusy ? 'Starting...' : 'Start localhost & Local Services';
+        button.disabled = startupBusy;
         button.addEventListener('click', () => startLocalServices());
         wrap.appendChild(button);
 
@@ -373,6 +377,7 @@
         if (!payload) payload = await request();
         if (payload) {
             lastPayload = payload;
+            startupBusy = false;
             startupMessage = '';
             render(lastPayload);
             return lastPayload;
