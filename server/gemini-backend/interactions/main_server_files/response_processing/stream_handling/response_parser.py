@@ -4,6 +4,7 @@ import websockets
 import json
 import time
 from ...api_configuration.gemini_config import usage_monitor
+from ...api_configuration.live_tools import forward_provider_tool_messages
 from ...status_monitoring.api_usage_monitor import api_usage_tracker
 
 # Configure logging for raw response data
@@ -46,7 +47,7 @@ def _merge_transcript(current, incoming):
     return f"{current} {chunk}".strip()
 
 async def _receive_responses(session, response_handler, connection_monitor, connection_id):
-    """Helper function to handle receiving responses from Gemini session with enhanced error resilience and persistent session support"""
+    """Handle Gemini responses with Live tool, interruption, and session metadata support."""
     turn_id = f"{connection_id}:{time.time_ns()}"
     output_transcription = ""
 
@@ -57,7 +58,6 @@ async def _receive_responses(session, response_handler, connection_monitor, conn
 
     try:
         async for response in session.receive():
-            # Check if connection is still active before processing
             if not connection_monitor.is_websocket_open():
                 print(f"Connection {connection_id} closed during response processing")
                 break
@@ -100,7 +100,10 @@ async def _receive_responses(session, response_handler, connection_monitor, conn
                     "usage": usage,
                 }))
 
-            # Log raw response structure for debugging
+            # Tool calls are metadata-level Live messages and can arrive with no server_content.
+            # Forward them before the server_content guard or they silently disappear.
+            await forward_provider_tool_messages(response, session, connection_monitor)
+
             try:
                 response_logger.debug(f"Raw response structure for {connection_id}: {response}")
                 if hasattr(response, 'server_content') and response.server_content:
@@ -108,12 +111,28 @@ async def _receive_responses(session, response_handler, connection_monitor, conn
             except Exception as e:
                 response_logger.warning(f"Could not log raw response: {e}")
 
-            # Enhanced response parsing with defensive programming
             try:
-                # Check if response has server_content with defensive checks
                 server_content = getattr(response, 'server_content', None)
                 if server_content is None:
                     response_logger.debug(f"Metadata-only response for connection {connection_id}")
+                    continue
+
+                # Gemini Live uses this flag for server-side VAD/barge-in. The provider has already
+                # abandoned the old model turn, so clear server accumulation and tell every browser
+                # playback path to discard queued old speech before accepting the new user turn.
+                if bool(getattr(server_content, "interrupted", False)):
+                    try:
+                        response_handler.audio_processor.reset()
+                    except Exception as reset_error:
+                        response_logger.warning(f"Could not reset interrupted audio: {reset_error}")
+                    response_handler.last_audio_time = None
+                    output_transcription = ""
+                    await connection_monitor.safe_send(json.dumps({
+                        "type": "gemini_interrupted",
+                        "reason": "provider_barge_in",
+                        "turnId": turn_id,
+                    }))
+                    response_logger.info(f"Gemini turn interrupted for connection {connection_id}")
                     continue
 
                 native_transcription = getattr(server_content, "output_transcription", None)
@@ -123,10 +142,8 @@ async def _receive_responses(session, response_handler, connection_monitor, conn
                         getattr(native_transcription, "text", ""),
                     )
 
-                # Process model_turn content if available
                 model_turn = getattr(server_content, 'model_turn', None)
                 if model_turn is not None:
-                    # Process response parts if they exist
                     parts = getattr(model_turn, 'parts', None)
                     if parts:
                         for part in parts:
@@ -134,24 +151,19 @@ async def _receive_responses(session, response_handler, connection_monitor, conn
                     else:
                         print(f"No parts found in model_turn for connection {connection_id}")
 
-                # Check for turn completion (based on Live API documentation)
-                # We check this AFTER processing model_turn parts to ensure final audio is processed
                 turn_complete = getattr(server_content, 'turn_complete', None)
                 if turn_complete is not None and turn_complete:
                     print(f"Turn complete (explicit turn_complete) for connection {connection_id}")
                     await finish_turn()
                     return "rotate" if getattr(connection_monitor, "planned_session_rotation", False) else None
-                
-                # Check for other completion indicators in model_turn
+
                 if model_turn is not None:
-                    # Fallback: Check for legacy completion indicators
                     final_attr = getattr(model_turn, 'final', None)
                     if final_attr is not None and final_attr:
                         print(f"Turn complete (legacy final=True) for connection {connection_id}")
                         await finish_turn()
                         return "rotate" if getattr(connection_monitor, "planned_session_rotation", False) else None
 
-                    # Fallback: Check for other completion indicators
                     is_finished = getattr(model_turn, 'finished', None)
                     is_complete = getattr(model_turn, 'complete', None)
                     if is_finished or is_complete:
@@ -161,12 +173,9 @@ async def _receive_responses(session, response_handler, connection_monitor, conn
                 else:
                     print(f"Non-model_turn content received for connection {connection_id}")
 
-                # Final fallback: Check for audio completion based on timing and content
                 completed = await response_handler.check_audio_completion()
                 if not completed:
-                    # Only log this as debug info, not as an error
                     response_logger.debug(f"No turn completion detected for connection {connection_id}")
-                    # Log available attributes for debugging
                     try:
                         server_content_attrs = [attr for attr in dir(server_content) if not attr.startswith('_')]
                         response_logger.debug(f"Available server_content attributes: {server_content_attrs}")
@@ -175,11 +184,10 @@ async def _receive_responses(session, response_handler, connection_monitor, conn
                             response_logger.debug(f"Available model_turn attributes: {model_turn_attrs}")
                     except Exception as e:
                         response_logger.warning(f"Could not log response attributes: {e}")
-                                
+
             except AttributeError as e:
                 print(f"AttributeError in response parsing for connection {connection_id}: {e}")
                 response_logger.warning(f"Response structure error for {connection_id}: {e}")
-                # Defensive fallback: try to complete any pending audio
                 try:
                     await response_handler.check_audio_completion()
                 except Exception as fallback_error:
@@ -187,47 +195,36 @@ async def _receive_responses(session, response_handler, connection_monitor, conn
             except Exception as e:
                 print(f"Unexpected error in response parsing for connection {connection_id}: {e}")
                 response_logger.error(f"Response parsing error for {connection_id}: {e}")
-                # Try to handle any pending audio before continuing
                 try:
                     await response_handler.check_audio_completion()
                 except Exception as fallback_error:
                     print(f"Fallback audio completion failed: {fallback_error}")
-                
+
         if getattr(connection_monitor, "planned_session_rotation", False):
             return "rotate"
     except websockets.exceptions.ConnectionClosedOK:
-        # This is a normal connection closure (code 1000), not an error
         print(f"Connection {connection_id} closed normally during response receiving")
     except websockets.exceptions.ConnectionClosed as e:
-        # Handle deadline errors and other connection closures through the API error handler
         error_msg = str(e)
         print(f"Connection {connection_id} closed during response receiving: {e}")
-        
-        # Track this as an error in usage monitoring
         usage_monitor.increment_error()
-        
-        # Check if this is a deadline error and handle it properly
+
         if "deadline expired before operation could complete" in error_msg.lower() or e.code == 1011:
-            # Track deadline errors specifically
             usage_monitor.increment_deadline_error()
-            # This is a deadline error - raise it so the outer handler can process it through the API error handler
             raise Exception(f"Deadline expired error: {error_msg}")
         else:
-            # For other connection closures, just re-raise
             raise
     except asyncio.CancelledError:
         print(f"Response receiving task cancelled for connection {connection_id}")
-        raise  # Re-raise so the task is properly cancelled
+        raise
     except Exception as e:
         print(f"Error in _receive_responses for connection {connection_id}: {e}")
         usage_monitor.increment_error()
-        
-        # Send error message to client if possible
+
         if connection_monitor.is_websocket_open():
             await connection_monitor.safe_send(json.dumps({
                 "text": f"Error receiving response: {str(e)}",
                 "is_system_message": True,
                 "is_error": True
             }))
-        # Re-raise the exception so it can be handled by the outer error handler
         raise

@@ -1,7 +1,6 @@
 /**
  * interimIngestHandler.js
- * Handles ingestion and playback of interim audio chunks.
- * Plays at reduced speed for clarity during streaming.
+ * Smooth, monotonic playback for Gemini Live PCM chunks.
  */
 
 window.AudioIngestCore = window.AudioIngestCore || {};
@@ -12,37 +11,35 @@ window.AudioIngestCore.InterimIngestHandler = {
     freshStartRequested: false,
     nextStartTime: 0,
 
-    // Configuration constants for the jitter buffer
-    INITIAL_HEADROOM: 0.15, // Reduced from 0.4s for snappier startup
-    RESYNC_THRESHOLD: 5.0,  // Increased for better jitter tolerance
-    IDLE_THRESHOLD: 10.0,   // Grace period before resetting audio timeline
-    // Ceiling on how far AHEAD of the context clock the queue may run. RESYNC_THRESHOLD catches
-    // the queue falling BEHIND; nothing caught it running ahead, and that is the case that
-    // actually happens: chunks arriving while the AudioContext still waits for its user gesture
-    // are all scheduled the moment it opens, back to back from ~0. A backlog of ~140 lands 6s
-    // into the future and every later chunk inherits that lead, so the voice is heard seconds
-    // after it was spoken and never catches up.
+    INITIAL_HEADROOM: 0.15,
+    RESYNC_THRESHOLD: 5.0,
+    IDLE_THRESHOLD: 10.0,
     MAX_LEAD: 2.0,
-    HEARTBEAT_TIMEOUT: 15000, // Persistence window (ms) to keep turn alive
+    HEARTBEAT_TIMEOUT: 15000,
 
-    /**
-     * Resets the scheduling clock to current time.
-     * Should be called when starting a new stream of interim chunks.
-     */
+    diagnostics: {
+        chunks: 0,
+        underflows: 0,
+        backlogRecoveries: 0,
+        backlogSourcesDropped: 0,
+        hardStops: 0,
+        maxLeadSec: 0,
+        lastLeadSec: 0,
+        lastArrivalGapMs: 0,
+        maxArrivalGapMs: 0,
+        lastPacketAt: 0
+    },
+
     reset: function (context) {
         if (context) {
             this.nextStartTime = context.currentTime;
             this.freshStartRequested = true;
-            this.lastPacketTime = 0; // Clear persistence on explicit reset
-            console.log("[InterimIngestHandler] Scheduling clock reset and fresh start flagged.");
+            this.lastPacketTime = 0;
         }
     },
 
-    /**
-     * Stops all active interim audio sources immediately.
-     */
-    stopAll: function () {
-        console.log(`[InterimIngestHandler] Stopping ${this.activeSources.length} active sources`);
+    /** Hard cancellation is reserved for explicit stop/barge-in. */
+    stopAll: function (reason = 'manual') {
         this.activeSources.forEach(source => {
             try { source.stop(); } catch (e) { }
         });
@@ -50,112 +47,136 @@ window.AudioIngestCore.InterimIngestHandler = {
         this.nextStartTime = 0;
         this.freshStartRequested = false;
         this.lastPacketTime = 0;
+        this.diagnostics.hardStops += 1;
+        if (reason) this.diagnostics.lastStopReason = String(reason);
     },
 
     /**
-     * Checks if interim audio is still playing or scheduled to play.
-     * Includes a 3-second stickiness period after the last packet to prevent 
-     * final transcription packets from hijacking active turns during small gaps.
+     * When the producer gets far ahead, discard only audio that has not begun yet.
+     * The previous implementation called stopAll(), cutting the source the user was actively
+     * hearing and producing the exact mid-word chop this guard was supposed to prevent.
      */
+    dropQueuedBacklog: function (context) {
+        if (!context) return 0;
+        const now = context.currentTime;
+        const kept = [];
+        let dropped = 0;
+        let playingEnd = now;
+
+        this.activeSources.forEach(source => {
+            const start = Number(source._eveStartTime);
+            const end = Number(source._eveEndTime);
+            if (Number.isFinite(start) && start > now + 0.01) {
+                try { source.stop(); } catch (e) { }
+                dropped += 1;
+                return;
+            }
+            kept.push(source);
+            if (Number.isFinite(end) && end > playingEnd) playingEnd = end;
+        });
+
+        this.activeSources = kept;
+        this.nextStartTime = Math.max(playingEnd, now + this.INITIAL_HEADROOM);
+        this.diagnostics.backlogRecoveries += 1;
+        this.diagnostics.backlogSourcesDropped += dropped;
+        return dropped;
+    },
+
     isStillStreaming: function (context) {
         if (!context) return false;
-
         const now = Date.now();
-        const isHeartbeatActive = (this.lastPacketTime > 0 && (now - this.lastPacketTime < this.HEARTBEAT_TIMEOUT));
+        const isHeartbeatActive = this.lastPacketTime > 0
+            && (now - this.lastPacketTime < this.HEARTBEAT_TIMEOUT);
+        return this.activeSources.length > 0
+            || this.nextStartTime > context.currentTime
+            || isHeartbeatActive;
+    },
 
-        // Check if we have active sources or if our next scheduled start time is in the future
-        const hasFutureScheduled = this.nextStartTime > context.currentTime;
-        const hasActiveSources = this.activeSources.length > 0;
-
-        const stillStreaming = hasActiveSources || hasFutureScheduled || isHeartbeatActive;
-
-        if (stillStreaming && !hasActiveSources && !hasFutureScheduled && isHeartbeatActive) {
-            console.log("[InterimIngestHandler] State is 'Still Streaming' due to packet heartbeat persistence.");
-        }
-
-        return stillStreaming;
+    getDiagnostics: function () {
+        const context = window.audioInputContext;
+        const lead = context ? Math.max(0, this.nextStartTime - context.currentTime) : 0;
+        return {
+            available: true,
+            ...this.diagnostics,
+            activeSources: this.activeSources.length,
+            queueLeadSec: Number(lead.toFixed(3)),
+            maxLeadConfiguredSec: this.MAX_LEAD,
+            initialHeadroomSec: this.INITIAL_HEADROOM,
+            contextState: context?.state || 'unavailable',
+            outputSampleRate: Number(context?.sampleRate || 0) || null
+        };
     },
 
     playInterimAudio: async function (base64AudioChunk, context) {
-        this.lastPacketTime = Date.now(); // Record arrival for turn persistence
+        const arrivalNow = Date.now();
+        if (this.diagnostics.lastPacketAt) {
+            const arrivalGap = arrivalNow - this.diagnostics.lastPacketAt;
+            this.diagnostics.lastArrivalGapMs = arrivalGap;
+            this.diagnostics.maxArrivalGapMs = Math.max(this.diagnostics.maxArrivalGapMs, arrivalGap);
+        }
+        this.diagnostics.lastPacketAt = arrivalNow;
+        this.diagnostics.chunks += 1;
+        this.lastPacketTime = arrivalNow;
+
         const arrayBuffer = base64ToArrayBuffer(base64AudioChunk);
         try {
-            if (typeof createAudioBufferFromPCM === 'function') {
-                const audioBuffer = createAudioBufferFromPCM(arrayBuffer, context);
-                const interimSource = context.createBufferSource();
-                interimSource.buffer = audioBuffer;
-                interimSource.playbackRate.value = 1.0;
-                interimSource.connect(context.destination);
-
-                // Determine if this is a fresh start (explicit flag OR long idle)
-                const gap = context.currentTime - this.nextStartTime;
-                const isFreshStart = this.freshStartRequested || (this.activeSources.length === 0 && gap > this.IDLE_THRESHOLD);
-
-                if (isFreshStart) {
-                    // Hardware Warm-up: Send a silent pulse immediately to wake up Bluetooth/Wireless
-                    try {
-                        const chirp = context.createBuffer(1, 1, 24000);
-                        const chirpSource = context.createBufferSource();
-                        chirpSource.buffer = chirp;
-                        chirpSource.connect(context.destination);
-                        chirpSource.start();
-                    } catch (e) {
-                        console.warn("[InterimIngestHandler] Warm-up chirp failed:", e);
-                    }
-
-                    // Schedule voice after headroom
-                    this.nextStartTime = context.currentTime + this.INITIAL_HEADROOM;
-                    this.freshStartRequested = false;
-                    console.log(`[InterimIngestHandler] Fresh start warm-up: ${this.INITIAL_HEADROOM}s lead time.`);
-                } else if (gap > this.RESYNC_THRESHOLD) {
-                    // Significant gap (underrun) - resync to current time to avoid scheduling too far in the past
-                    if (this.activeSources.length > 0) {
-                        console.warn(`[InterimIngestHandler] Underrun detected (gap: ${gap.toFixed(3)}s). Resyncing clock.`);
-                    }
-                    this.nextStartTime = context.currentTime;
-                }
-                // Otherwise: if gap is small (< 2s), we keep the old nextStartTime.
-
-                // Past MAX_LEAD the queue is not jitter, it is stale conversation: audio the model
-                // finished speaking seconds ago, waiting its turn. Drop what has not been heard yet
-                // and rejoin the live edge rather than playing the backlog out and staying behind
-                // for the rest of the turn.
-                const lead = this.nextStartTime - context.currentTime;
-                if (lead > this.MAX_LEAD) {
-                    console.warn(`[InterimIngestHandler] Scheduling lead ${lead.toFixed(2)}s exceeds `
-                        + `${this.MAX_LEAD}s — dropping the stale backlog and resyncing to the live edge.`);
-                    this.stopAll();
-                    this.nextStartTime = context.currentTime + this.INITIAL_HEADROOM;
-                }
-
-                // Final safety: don't schedule too far in the past, but allow
-                // Web Audio to play late chunks immediately (startTime <= currentTime).
-                const startTime = Math.max(this.nextStartTime, context.currentTime);
-                // Extra logging to detect potential truncation/overlap issues
-                console.log(`[InterimIngestHandler] Scheduling interim chunk. startTime=${startTime.toFixed(3)}, currentTime=${context.currentTime.toFixed(3)}, nextStartTime=${this.nextStartTime.toFixed(3)}, activeSources=${this.activeSources.length}`);
-                console.log(`[InterimIngestHandler] AudioBuffer duration: ${audioBuffer.duration.toFixed(3)}s`);
-                // If we're scheduling to start at or before currentTime, record a warning
-                if (startTime <= context.currentTime) {
-                    console.warn('[InterimIngestHandler] Scheduling startTime <= currentTime — chunk may play immediately and could overlap or truncate previous audio.');
-                }
-                interimSource.start(startTime);
-
-                // Track this source
-                this.activeSources.push(interimSource);
-                interimSource.onended = () => {
-                    // Remove from active sources when done
-                    this.activeSources = this.activeSources.filter(s => s !== interimSource);
-                    try {
-                        console.log('[InterimIngestHandler] interimSource.onended fired; remaining activeSources:', this.activeSources.length);
-                    } catch (e) { }
-                };
-
-                // Advance the clock based on the intended start time
-                this.nextStartTime = startTime + audioBuffer.duration;
-                console.log(`[InterimIngestHandler] nextStartTime updated to ${this.nextStartTime.toFixed(3)} (duration ${audioBuffer.duration.toFixed(3)}s)`);
-            } else {
+            if (typeof createAudioBufferFromPCM !== 'function') {
                 console.warn("createAudioBufferFromPCM not available for interim playback");
+                return;
             }
+
+            const audioBuffer = createAudioBufferFromPCM(arrayBuffer, context);
+            const interimSource = context.createBufferSource();
+            interimSource.buffer = audioBuffer;
+            interimSource.playbackRate.value = 1.0;
+            interimSource.connect(context.destination);
+
+            const gap = context.currentTime - this.nextStartTime;
+            const isFreshStart = this.freshStartRequested
+                || (this.activeSources.length === 0 && gap > this.IDLE_THRESHOLD);
+
+            if (isFreshStart) {
+                try {
+                    const chirp = context.createBuffer(1, 1, 24000);
+                    const chirpSource = context.createBufferSource();
+                    chirpSource.buffer = chirp;
+                    chirpSource.connect(context.destination);
+                    chirpSource.start();
+                } catch (e) { /* warm-up is best effort */ }
+
+                this.nextStartTime = context.currentTime + this.INITIAL_HEADROOM;
+                this.freshStartRequested = false;
+            } else if (gap > this.RESYNC_THRESHOLD) {
+                this.diagnostics.underflows += 1;
+                this.nextStartTime = context.currentTime + this.INITIAL_HEADROOM;
+            }
+
+            let lead = this.nextStartTime - context.currentTime;
+            if (lead > this.MAX_LEAD) {
+                const dropped = this.dropQueuedBacklog(context);
+                console.warn(`[InterimIngestHandler] ${lead.toFixed(2)}s stale lead; `
+                    + `dropped ${dropped} not-yet-started sources without cutting current speech.`);
+                lead = this.nextStartTime - context.currentTime;
+            }
+
+            const startTime = Math.max(this.nextStartTime, context.currentTime);
+            if (startTime <= context.currentTime + 0.001 && this.activeSources.length === 0) {
+                this.diagnostics.underflows += 1;
+            }
+
+            interimSource._eveStartTime = startTime;
+            interimSource._eveEndTime = startTime + audioBuffer.duration;
+            interimSource.start(startTime);
+
+            this.activeSources.push(interimSource);
+            interimSource.onended = () => {
+                this.activeSources = this.activeSources.filter(s => s !== interimSource);
+            };
+
+            this.nextStartTime = interimSource._eveEndTime;
+            const scheduledLead = Math.max(0, this.nextStartTime - context.currentTime);
+            this.diagnostics.lastLeadSec = Number(scheduledLead.toFixed(3));
+            this.diagnostics.maxLeadSec = Math.max(this.diagnostics.maxLeadSec, scheduledLead);
         } catch (error) {
             console.error("Error playing interim audio chunk:", error);
         }
