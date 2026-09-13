@@ -136,6 +136,7 @@ def _console_preferences() -> dict:
         "ok": True,
         "default": prefs["default"],
         "envForced": bool(str(os.environ.get("EVEOS_HEADLESS", "")).strip()),
+        "keepLocalControlAfterToolStop": prefs["keepLocalControlAfterToolStop"],
         "preferencesOnly": True,
         "services": [
             {
@@ -182,9 +183,27 @@ def _console_overview(web_port=None) -> dict:
         "ok": True,
         "default": prefs["default"],
         "envForced": bool(str(os.environ.get("EVEOS_HEADLESS", "")).strip()),
+        "keepLocalControlAfterToolStop": prefs["keepLocalControlAfterToolStop"],
         "controlPlanePort": _SERVER.server_port if _SERVER else None,
         "services": services,
     }
+
+
+def _stop_tool(stop) -> dict:
+    """Stop one child; optionally retire Local Control after an explicit success."""
+    try:
+        payload = stop() or {}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "controllerAvailable": True, "state": "error",
+                "message": f"Tool stop failed: {exc}", "controlPlaneStopping": False}
+    if not isinstance(payload, dict):
+        return {"ok": False, "controllerAvailable": True, "state": "error",
+                "message": "Tool stop returned an invalid response.", "controlPlaneStopping": False}
+    keep_alive = eveos_console_prefs.read_all()["keepLocalControlAfterToolStop"]
+    payload["controlPlaneStopping"] = (
+        _shutdown_plane_after_response() if payload.get("ok") is True and not keep_alive else False
+    )
+    return payload
 
 
 def _stop_everything(web_port=None) -> dict:
@@ -319,17 +338,17 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/gemini-server/start":
             action = gemini_control.start_server
         elif path == "/api/gemini-server/stop":
-            action = gemini_control.stop_server
+            action = lambda: _stop_tool(gemini_control.stop_server)
         elif path == "/api/world-book/start":
             action = world_book_control.start_server
         elif path == "/api/world-book/stop":
-            action = world_book_control.stop_server
+            action = lambda: _stop_tool(world_book_control.stop_server)
         elif path == "/api/world-book/launch":
             action = world_book_control.open_launcher
         elif path == "/api/piano-player/start":
             action = piano_player_control.start_server
         elif path == "/api/piano-player/stop":
-            action = piano_player_control.stop_server
+            action = lambda: _stop_tool(piano_player_control.stop_server)
         elif path == "/api/piano-player/launch":
             action = piano_player_control.open_launcher
         elif path == "/api/piano-player/setup":
@@ -337,7 +356,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/watchfusion/start":
             action = watchfusion_control.start_server
         elif path == "/api/watchfusion/stop":
-            action = watchfusion_control.stop_server
+            action = lambda: _stop_tool(watchfusion_control.stop_server)
         elif path == "/api/watchfusion/launch":
             action = watchfusion_control.open_launcher
 
@@ -353,9 +372,15 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/control-plane/consoles":
             body = gemini_credentials.read_json_body(self) or {}
             try:
-                eveos_console_prefs.set_console(body.get("service"), bool(body.get("headless")))
-                payload = _console_preferences()
-                payload["message"] = "Applies the next time that service starts."
+                if "keepLocalControlAfterToolStop" in body:
+                    eveos_console_prefs.set_keep_local_control_after_tool_stop(
+                        bool(body.get("keepLocalControlAfterToolStop")))
+                    payload = _console_preferences()
+                    payload["message"] = "Local Control lifetime preference saved."
+                else:
+                    eveos_console_prefs.set_console(body.get("service"), bool(body.get("headless")))
+                    payload = _console_preferences()
+                    payload["message"] = "Applies the next time that service starts."
             except ValueError as exc:
                 payload = {"ok": False, "message": str(exc)}
             self._send(payload, HTTPStatus.OK if payload.get("ok") else HTTPStatus.BAD_REQUEST)

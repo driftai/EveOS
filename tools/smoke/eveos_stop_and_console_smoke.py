@@ -1,12 +1,15 @@
 """Stop must leave nothing running, and servers must be visible by default.
 
 Regressions covered here include visible-by-default consoles, silent handling of vanished clients,
-and a global Stop that cascades through every managed service before closing the control plane.
-All lifecycle calls are stubbed: this smoke must never stop a real local service.
+individual tool Stop ownership of Local Control, preference persistence, and a global Stop that
+cascades through every managed service before closing the control plane. All lifecycle calls are
+stubbed: this smoke must never stop a real local service.
 """
 
 import os
 import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT not in sys.path:
@@ -57,6 +60,77 @@ def main():
     handler._send({"ok": True}, 200)
     check(handler.sent == [200], "the response was still attempted before the socket failed")
 
+    # The Local Control lifetime preference shares the console-preference file. Prove each writer
+    # preserves the other fields without touching the user's actual runtime data.
+    prefs = H.eveos_console_prefs
+    original_pref_path = prefs._path
+    try:
+        with TemporaryDirectory() as tmp:
+            prefs._path = lambda: Path(tmp) / "eveos-consoles.json"
+            stored = prefs.read_all()
+            check(stored.get("keepLocalControlAfterToolStop") is True,
+                  "individual tool Stop keeps Local Control by default")
+            prefs.set_keep_local_control_after_tool_stop(True)
+            check(prefs.read_all().get("keepLocalControlAfterToolStop") is True,
+                  "keep-Local-Control preference persists")
+            prefs.set_console("gemini", True)
+            stored = prefs.read_all()
+            check(stored.get("keepLocalControlAfterToolStop") is True,
+                  "console writes preserve the Local Control lifetime preference")
+            check(stored.get("services", {}).get("gemini") is True,
+                  "console preference still persists")
+            prefs.clear("gemini")
+            check(prefs.read_all().get("keepLocalControlAfterToolStop") is True,
+                  "clearing a console override also preserves the lifetime preference")
+    finally:
+        prefs._path = original_pref_path
+
+    # Individual tool Stop preserves 9082 by default. Only the explicit Settings opt-in (stored as
+    # keepLocalControlAfterToolStop=False) may retire the coordinator after a successful tool stop.
+    # Failures stay retryable regardless of the toggle.
+    tool_shutdowns = []
+    original_shutdown_after_response = H._shutdown_plane_after_response
+    original_read_all = prefs.read_all
+    try:
+        H._shutdown_plane_after_response = lambda: tool_shutdowns.append(True) or True
+        prefs.read_all = lambda: {
+            "default": False,
+            "services": {},
+            "keepLocalControlAfterToolStop": True,
+        }
+        payload = H._stop_tool(lambda: {"ok": True, "running": False})
+        check(payload.get("controlPlaneStopping") is False,
+              "toggle OFF keeps Local Control alive after successful tool Stop")
+        check(not tool_shutdowns, "toggle OFF schedules no coordinator close")
+
+        prefs.read_all = lambda: {
+            "default": False,
+            "services": {},
+            "keepLocalControlAfterToolStop": False,
+        }
+        payload = H._stop_tool(lambda: {"ok": True, "running": False})
+        check(payload.get("controlPlaneStopping") is True,
+              "toggle ON closes Local Control after successful tool Stop")
+        check(len(tool_shutdowns) == 1, "toggle ON schedules exactly one coordinator close")
+
+        payload = H._stop_tool(lambda: {"ok": False, "message": "still running"})
+        check(payload.get("controlPlaneStopping") is False,
+              "toggle ON still keeps Local Control alive after reported tool-stop failure")
+        check(len(tool_shutdowns) == 1, "failed tool Stop does not schedule another close")
+
+        def fail_tool_stop():
+            raise RuntimeError("tool boom")
+
+        payload = H._stop_tool(fail_tool_stop)
+        check(payload.get("ok") is False and "tool boom" in payload.get("message", ""),
+              "tool-stop exception is surfaced")
+        check(payload.get("controlPlaneStopping") is False,
+              "toggle ON still keeps Local Control alive after tool-stop exception")
+        check(len(tool_shutdowns) == 1, "tool-stop exception does not schedule a close")
+    finally:
+        H._shutdown_plane_after_response = original_shutdown_after_response
+        prefs.read_all = original_read_all
+
     calls = []
     shutdowns = []
 
@@ -88,7 +162,7 @@ def main():
         for key in ("watchFusion", "piano", "worldBook", "gemini"):
             check(payload.get("stoppedAlso", {}).get(key) == "stopped", f"{key} is reported")
         check(payload.get("controlPlaneStopping") is True,
-              "the control plane closes itself, so Stop leaves nothing running")
+              "the control plane closes itself, so Global Stop leaves nothing running")
 
         check(not shutdowns, "shutdown is deferred so the response can flush first")
         deadline = __import__("time").monotonic() + 3.0
@@ -120,7 +194,7 @@ def main():
         check("error: web boom" in payload.get("stoppedAlso", {}).get("web", ""),
               "the failed web stage is identified")
         check(payload.get("controlPlaneStopping") is True,
-              "the coordinator finalizer is scheduled even when the final web-stop stage raises")
+              "Global Stop remains terminal even when the final web-stop stage raises")
         check(calls == expected,
               f"all children are attempted before the failing web stage (got {calls})")
         deadline = __import__("time").monotonic() + 3.0
@@ -138,7 +212,7 @@ def main():
             H._SERVER,
         ) = original
 
-    print("stop + console OK - headed by default, dead client silent, every managed service isolated")
+    print("stop + console OK - partial-stop toggle is opt-in, failures stay retryable, Global Stop terminal")
     print("EVEOS_STOP_AND_CONSOLE_SMOKE_OK")
 
 

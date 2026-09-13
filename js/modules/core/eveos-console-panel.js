@@ -1,17 +1,16 @@
 /**
  * eveos-console-panel.js
  *
- * The Local Services section of Settings: which EveOS servers are up, on which ports, and whether
- * each shows its terminal window.
+ * The Local Services section of Settings: which EveOS servers are up, on which ports, whether each
+ * shows its terminal window, and whether a successful individual tool Stop also closes Local Control.
  *
  * Consoles are headed by default now, so "what is actually running?" should be answerable by
  * looking. But the windows only tell you a process exists -- not which port it took, not that a
  * service you thought was off is quietly up. This panel is the one place that answers both, and the
- * only place to change a console preference without editing a JSON file by hand.
+ * only place to change these local-service preferences without editing a JSON file by hand.
  *
- * Everything comes from a single GET so the list cannot render half-stale. Preferences apply at the
- * next start of that service: a running process keeps the window it was born with, and the panel
- * says so rather than letting a flipped switch imply something changed on screen.
+ * Everything comes from a single GET so the list cannot render half-stale. Console preferences apply
+ * at the next start of that service; the Local Control lifetime preference applies immediately.
  */
 (function () {
     'use strict';
@@ -84,6 +83,7 @@
             ...payload,
             default: reply.default,
             envForced: reply.envForced,
+            keepLocalControlAfterToolStop: reply.keepLocalControlAfterToolStop === true,
             services: (payload.services || []).map((service) => ({
                 ...service,
                 ...(byKey.get(service.key) || {})
@@ -105,6 +105,48 @@
         }
         // A failed write re-renders from stored state, so the switch cannot show an unsaved value.
         render(lastPayload);
+    }
+
+    async function setCloseLocalControlAfterToolStop(closeAfterStop) {
+        const reply = await request({
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keepLocalControlAfterToolStop: !closeAfterStop })
+        }, 4000);
+        if (reply) {
+            lastPayload = reply.preferencesOnly ? mergePreferences(lastPayload, reply) : reply;
+        }
+        render(lastPayload);
+    }
+
+    function lifecyclePreference(payload) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; align-items:flex-start; gap:10px; padding:9px;'
+            + ' border:1px solid rgba(148,163,184,0.22); border-radius:8px; margin-bottom:10px;';
+
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = payload.keepLocalControlAfterToolStop !== true;
+        input.setAttribute('aria-label', 'Close Local Control after individual tool Stop');
+        input.addEventListener('change', () => setCloseLocalControlAfterToolStop(input.checked));
+
+        const copy = document.createElement('label');
+        copy.style.cssText = 'display:flex; flex-direction:column; gap:3px; cursor:pointer;';
+        const title = document.createElement('span');
+        title.style.cssText = 'font-size:0.82rem;';
+        title.textContent = 'Close Local Control after individual tool Stop';
+        const description = document.createElement('span');
+        description.style.cssText = 'font-size:0.74rem; opacity:0.72; line-height:1.35;';
+        description.textContent = 'Off by default: individual tool Stop keeps port 9082 ready. When enabled, '
+            + 'a successful tool Stop exits 9082 after replying; failed stops keep it alive. Global Stop always exits it.';
+        copy.append(title, description);
+        copy.addEventListener('click', () => {
+            input.checked = !input.checked;
+            setCloseLocalControlAfterToolStop(input.checked);
+        });
+
+        row.append(input, copy);
+        return row;
     }
 
     function serviceRow(service, envForced) {
@@ -183,6 +225,8 @@
             return;
         }
 
+        host.appendChild(lifecyclePreference(payload));
+
         const envForced = payload.envForced === true;
         const header = document.createElement('div');
         header.style.cssText = 'display:flex; align-items:center; gap:10px; margin-bottom:8px;';
@@ -196,7 +240,7 @@
         (payload.services || []).forEach((service) => host.appendChild(serviceRow(service, envForced)));
 
         if (envForced) {
-            host.appendChild(note('EVEOS_HEADLESS is set in the environment and overrides every switch'
+            host.appendChild(note('EVEOS_HEADLESS is set in the environment and overrides every console switch'
                 + ' here. Unset it to control consoles from this panel.'));
         } else {
             host.appendChild(note('A console preference applies the next time that service starts.'
@@ -226,6 +270,7 @@
         refresh,
         render,
         setConsole,
+        setCloseLocalControlAfterToolStop,
         getLastPayload: () => lastPayload
     });
 })();
