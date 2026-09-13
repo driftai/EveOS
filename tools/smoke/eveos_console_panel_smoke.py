@@ -193,8 +193,47 @@ def check_panel_contract():
     check("preferencesOnly" in panel and "mergePreferences" in panel,
           "the cheap POST reply is merged into the rows on screen rather than replacing them,"
           " or every toggle would blank out running state and ports")
-    check("button.disabled = !web?.running" in panel,
-          "the live view is offered only when there is a server to view")
+
+    # ---- offline UX contracts ----
+    check("Local control plane not reached" not in panel,
+          "the offline panel does NOT early-return into a stale one-line error message")
+    check("render(disconnectedPayload(), true)" in panel,
+          "an unreachable plane renders the full offline section instead of blanking out")
+    check("Start EveOS localhost from Search Monitor" in panel,
+          "Search Monitor is recommended as the primary startup guidance")
+    check("Start localhost & Local Services" in panel,
+          "the panel provides a direct 'Start localhost & Local Services' action button")
+    check(r"Manual fallback: tools\\batch\\start-eveos-control.bat" in panel,
+          "the BAT launcher is preserved only as secondary manual fallback")
+
+    for key in ("web", "gemini", "worldBook", "piano", "watchFusion"):
+        check(f"'{key}'" in panel, f"disconnected payload specifies service key '{key}'")
+    for label in ("EveOS localhost", "Gemini backend", "World Book", "Piano Auto Player", "WatchFusion"):
+        check(f"'{label}'" in panel, f"disconnected payload specifies service label '{label}'")
+
+    check("state.textContent = unavailable ? 'unavailable' :" in panel,
+          "offline service state is represented as 'unavailable', not falsely 'stopped'")
+    check("input.disabled = !!disabled" in panel,
+          "offline coordinator lifetime toggle is disabled")
+    check("toggle(payload.default, envForced || offline" in panel,
+          "default Headless toggle is disabled while offline")
+    check("toggle(service.headless, envForced || unavailable" in panel,
+          "service Headless toggles are disabled while offline")
+    check("host.appendChild(lifecyclePreference(payload, offline))" in panel,
+          "Close Local Control toggle remains visible while offline")
+    check("heading.textContent = 'Default for new services'" in panel,
+          "default Headless control remains visible while offline")
+    check("button.disabled = disconnected || !web?.running" in panel,
+          "Show live view remains visible but disabled while disconnected")
+    check("Live view is unavailable until Local Control reconnects." in panel,
+          "live view copy explains offline status")
+    check("window.EveOSControlPlane?.start" in panel,
+          "startup button calls established EveOSControlPlane.start() lifecycle path")
+    check("control()?.ensure" in panel,
+          "startup button falls back to EveOSLocalControl.ensure()")
+    check("startupBusy = false" in panel and "button.disabled = startupBusy" in panel,
+          "failed or finished startup restores the Start button to a retryable state")
+
     refresh = panel[panel.index("async function refresh()"):]
     refresh = refresh[:refresh.index("\n    }")]
     check("host.textContent = ''" in refresh,
