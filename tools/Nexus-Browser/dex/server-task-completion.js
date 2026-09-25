@@ -19,9 +19,15 @@ function startTaskCompletion({
   async function handleCommand(ws, message) {
     if (!['task_completion_register', 'task_completion_status'].includes(message?.type)) return false;
     const requestId = String(message.requestId || '').slice(0, 128);
-    const result = message.type === 'task_completion_register'
-      ? await journal.register({ source: message.source, command: message })
-      : await journal.status({ source: message.source, command: message });
+    let result;
+    try {
+      result = message.type === 'task_completion_register'
+        ? await journal.register({ source: message.source, command: message })
+        : await journal.status({ source: message.source, command: message });
+    } catch (error) {
+      result = { ok: false, code: 'TASK_COMPLETION_STORAGE_FAILED',
+        message: String(error.message || error).slice(0, 160) };
+    }
     safeSend(ws, { type: 'task_completion_result', requestId, result });
     return true;
   }

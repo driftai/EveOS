@@ -5,7 +5,7 @@ const localTargets = require('./local-targets/manager');
 const { createDexServerRouting } = require('./dex/server-routing'), { createProviderControlRouting } = require('./dex/provider-control-routing'), { createProviderTargetSpawnRouting } = require('./dex/provider-target-spawn-routing');
 const { createQualificationRestartHook } = require('./dex/qualification-restart'), { createQualificationRouting } = require('./dex/qualification-routing');
 const { createDexStateStore } = require('./dex/state-store'), { createDexServerScheduler } = require('./dex/server-scheduler'), { createDoneWatchDelivery } = require('./dex/done-watch-delivery');
-const { startPostIdleMaintenance } = require('./dex/server-post-idle');
+const { startPostIdleMaintenance } = require('./dex/server-post-idle'), { startTaskCompletion } = require('./dex/server-task-completion');
 const { createEnsureDexClient } = require('./dex/server-ensure-ui');
 const { mergeClientSnapshot } = require('./dex/server-state-merge'), finalState = require('./dex/server-scheduler-state');
 const { createServerDurability } = require('./dex/server-durability');
@@ -39,7 +39,7 @@ let lastProviders = [];
 let lastTarget = null;
 let lastLocalTargets = [];
 let dexStateStore = createDexStateStore();
-let postIdleMaintenance = null;
+let postIdleMaintenance = null, taskCompletion = null;
 let durability = createServerDurability();
 function configureDurability(o = {}) { const prev = { durability, dexStateStore }; if (o.durability) durability = o.durability; if (o.dexStateStore) dexStateStore = o.dexStateStore; return prev; }
 function safeSend(ws, payload) {
@@ -58,7 +58,6 @@ const dexRouting = createDexServerRouting({ uiSockets, safeSend });
 const ensureDexClient = createEnsureDexClient({
   dexRouting, sendToExtension: (payload) => safeSend(extensionSocket, payload)
 });
-
 const qualificationRestart = createQualificationRestartHook(), providerTargetSpawnRouting = createProviderTargetSpawnRouting({ safeSend, getExtensionSocket: () => extensionSocket });
 const disposableRoomCleanup = createDisposableRoomCleanup({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), closeTarget: (input) => providerTargetSpawnRouting.close(input), broadcastState: broadcastDexState });
 const providerControlRouting = createProviderControlRouting({
@@ -86,12 +85,14 @@ const qualificationRouting = createQualificationRouting({ safeSend, getExtension
 const serverDexSource = { clientKind: 'dex' };
 const serverLocalRelay = createServerLocalRelay({ localTargets, mirrorPrompt: (targetId, msg, target) => mirrorPromptToConsoles(targetId, serverDexSource, msg, target), emitEvent: (targetId, payload) => sendLocalEvent(targetId, serverDexSource, payload), broadcastStatus: (targetId) => broadcastLocalStatus(targetId, serverDexSource) });
 const dexScheduler = createDexServerScheduler({ stateStore: { load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot) }, durability: { beforeDispatch: (...args) => durability.beforeDispatch(...args), observe: (...args) => durability.observe(...args), markFailed: (...args) => durability.markFailed(...args), query: (...args) => durability.query(...args) }, getOnlineTargets: () => lastTabs, getProviders: () => lastProviders, getSelectedOnlineTarget: () => lastTarget, getLocalTargets: async (force = false) => { if (force) await refreshLocalTargets(null, { force: true }); return lastLocalTargets; }, isExtensionAvailable: () => !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN && extensionSessions.current().ready, sendExtension: (payload) => safeSend(extensionSocket, payload), sendLocalPrompt: serverLocalRelay.sendLocalPrompt, captureLocalLatest: localTargets.captureLocalLatest, broadcastState: broadcastDexState, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(),
-  onTurnSettled: () => { doneWatchDelivery.flush(); postIdleMaintenance?.tick().catch((error) => console.log('[bridge] post-idle tick: ' + error.message)); }, recordIncident: (input) => durability.recordIncident(input) });
+  onTurnSettled: () => { doneWatchDelivery.flush(); taskCompletion?.flush(); postIdleMaintenance?.tick().catch((error) => console.log('[bridge] post-idle tick: ' + error.message)); }, recordIncident: (input) => durability.recordIncident(input) });
 postIdleMaintenance = startPostIdleMaintenance({
   dexStateStore, providerControlRouting, providerTargetSpawnRouting, dexScheduler,
   localTargets, serverLocalRelay, serverSessionId: SERVER_SESSION_ID
 });
-const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
+taskCompletion = startTaskCompletion({ dexStateStore, localTargets, safeSend, getTabs: () => lastTabs,
+  getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null });
+const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, taskCompletion, SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
 function diagnosticsSnapshot() { return readDiagnostics(); }
 function extensionStatus() {
   return { type: 'bridge_status', connected: !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN, authorityReady: extensionSessions.current().ready };
@@ -251,7 +252,7 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (msg.role === 'provider-control-extension') {
-        ws.role = 'provider-control-extension'; ws.doneWatchVersion = msg.doneWatchVersion === 1 ? 1 : 0; providerControlRouting.providerControlConnected(ws); doneWatchControlSocket = ws; doneWatchDelivery.flush();
+        ws.role = 'provider-control-extension'; ws.doneWatchVersion = msg.doneWatchVersion === 1 ? 1 : 0; providerControlRouting.providerControlConnected(ws); doneWatchControlSocket = ws; doneWatchDelivery.flush(); taskCompletion.flush();
         console.log('[bridge] provider-control extension connected');
         return;
       }
@@ -281,11 +282,12 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'ping') { safeSend(ws, { type: 'pong', at: Date.now() }); return; }
     if (ws.role === 'qualification') { await qualificationRouting.handle(ws, msg); return; }
     if (ws.role === 'provider-control-extension') {
-      if (doneWatchDelivery.handleAck(ws, msg) || await providerControlRouting.handle(ws, msg)) return;
+      if (doneWatchDelivery.handleAck(ws, msg) || taskCompletion.handleAck(ws, msg) || await providerControlRouting.handle(ws, msg)) return;
       safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'BAD_PROVIDER_CONTROL_COMMAND', message: `Unsupported provider-control command: ${msg.type}` });
       return;
     }
     if (ws.role === 'ui') {
+      if (ws.clientKind === 'maintenance' && await taskCompletion.handleCommand(ws, msg)) return;
       if (ws.clientKind === 'maintenance' && ['cleanup_disposable_rooms', 'resolve_passive_recovery'].includes(msg.type)) { if (postIdleMaintenance.leaseActive()) { safeSend(ws, { type: 'error', code: 'POST_IDLE_LEASE_BUSY', message: 'Another maintenance operation owns the exclusive lease.' }); return; } const result = msg.type === 'cleanup_disposable_rooms' ? await disposableRoomCleanup.run(msg.requestId) : dexScheduler.resolvePassiveRecovery({ roomId: msg.roomId, requestId: msg.recoveryRequestId, reason: msg.reason }); if (msg.type === 'resolve_passive_recovery' && result.ok) broadcastDexState(dexStateStore.load()); safeSend(ws, msg.type === 'cleanup_disposable_rooms' ? result : { type: 'resolve_passive_recovery_result', requestId: msg.requestId || null, ...result }); return; }
       if (msg.type === 'dex_state_put' && ws.clientKind === 'dex') {
         if (postIdleMaintenance.leaseActive()) { safeSend(ws, { type: 'error', code: 'POST_IDLE_LEASE_BUSY', message: 'Post-idle maintenance blocks room mutations during local delivery.' }); return; }
@@ -359,7 +361,7 @@ wss.on('connection', (ws, req) => {
         const state = syncExtensionAuthority(extensionSessions.update(ws, msg));
         console.log(`[bridge] extension tabs_update: ${Array.isArray(msg.tabs) ? msg.tabs.length : 0} tab(s) [${state.socket === ws ? 'primary' : `standby; authoritative=${lastTabs.length}`} primary=${state.primarySessionId || 'none'} epoch=${state.primaryConnectionEpoch || 0} sessions=${state.sessionCount}]`);
         if (state.socket !== ws || !state.ready) return;
-        dexScheduler.resume(); doneWatchDelivery.flush();
+        dexScheduler.resume(); doneWatchDelivery.flush(); taskCompletion.flush();
       } else if (extensionSocket !== ws) return;
       await durability.observe(msg, {
         targetClassId: 'online-origin', targetId: msg.tabId || lastTarget?.id || null,

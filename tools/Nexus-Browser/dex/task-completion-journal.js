@@ -28,9 +28,9 @@ function credentialPath(root, id) {
 }
 function compact(job) {
   if (!job) return null;
-  const { id, taskId, roomId, workerMemberId, requesterMemberId, branch, expectedHead,
+  const { id, taskId, roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
     registeredAt, expiresAt, state, report, claimedAt, deliveredAt, deliveryError } = job;
-  return { id, taskId, roomId, workerMemberId, requesterMemberId, branch, expectedHead,
+  return { id, taskId, roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
     registeredAt, expiresAt, state, report: report || null, claimedAt: claimedAt || null,
     deliveredAt: deliveredAt || null, deliveryError: deliveryError || null };
 }
