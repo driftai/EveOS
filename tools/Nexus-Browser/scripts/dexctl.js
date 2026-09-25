@@ -30,7 +30,7 @@ Usage:
   node scripts/dexctl.js continue-relay --room <id-or-name> [--turns N] --agy-pid 86660
   node scripts/dexctl.js send <message> --agy-pid 86660 [--room <id-or-name>] [--no-relay]
   node scripts/dexctl.js resume <message> --agy-pid 86660 [--room <id-or-name>]
-  node scripts/dexctl.js report-post-idle <job-id> --agy-pid <existing-pid> --result success|failed --summary <evidence> [--doctor-ok true --global-idle true --adapter-revision 37 --new-session <id>]
+  node scripts/dexctl.js report-post-idle <job-id> --agy-pid <existing-pid> --result success|failed --summary <evidence> [--doctor-ok true --global-idle true --adapter-revision <requested-revision> --new-session <id>]
   node scripts/dexctl.js post-idle-status --agy-pid <existing-pid> [--room <room-id>]
   node scripts/dexctl.js reload-extension
   node scripts/dexctl.js reload-tab <tab-id>

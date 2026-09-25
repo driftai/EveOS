@@ -46,6 +46,7 @@ function verdict(data, { serverLogAvailable = null, serverLogPath = defaultLogPa
     lastIncident: data.durability?.incidents?.last || null,
     stateRepair: data.stateRepair || { repairs: [], issues: [] },
     orchestration: data.orchestration || null,
+    postIdle: data.postIdle || null,
     controlPlane: data.controlPlane || null,
     diagnose: 'npm run diagnose -- --request-id <id> --room-id <id> --provider <provider>',
     issues, notes

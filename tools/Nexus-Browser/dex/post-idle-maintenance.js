@@ -57,13 +57,15 @@ function deploymentPrompt(job) {
     'Expected branch: ' + job.branch,
     'Exact qualified SHA: ' + job.expectedHead,
     '',
-    'Drift approved supervised deployment. Before changes, check ALL localhost Dex',
-    'rooms are idle, recovery-free, have no pending turns or active workers. Recheck',
+    'The requester asserts Drift approved deployment. Verify the human authorization',
+    'in the task context; stop and request it if missing. Before changes, check ALL',
+    'localhost Dex rooms are idle and recovery-free. Confirm there are',
+    'no pending turns or active workers. Recheck',
     'the exact Git SHA and clean working tree. Abort on any mismatch or busy room.',
     'Identify the CURRENT Nexus child and its actual supervisor; do not reuse an',
     'old PID. Restart only the verified supervised child. Observe fresh PID/session.',
     'From tools/Nexus-Browser run npm run extension:refresh. Verify this EXISTING',
-    'Eve ChatGPT tab uses adapter revision 37, then npm run doctor. Recheck global',
+    'Eve ChatGPT tab uses adapter revision ' + job.expectedAdapterRevision + ', then npm run doctor. Recheck global',
     'room idleness, pending receipts, recovery and transcript preservation.',
     'Do not change main, spawn agents, create rooms or run HEADSUP yet.',
     'Never retry an uncertain restart or reload. Report exact failure evidence.',
@@ -72,7 +74,7 @@ function deploymentPrompt(job) {
     'node scripts/dexctl.js report-post-idle ' + job.id + ' --agy-pid <YOUR_EXISTING_PID>',
     '  --result success|failed --summary "<concise exact evidence>"',
     'For success also supply --doctor-ok true --global-idle true',
-    '  --adapter-revision 37 --new-session <NEW_SERVER_SESSION_ID>.',
+    '  --adapter-revision ' + job.expectedAdapterRevision + ' --new-session <NEW_SERVER_SESSION_ID>.',
     'If dispatch outcome is uncertain, do not replay the task.',
     'This is a one-shot handoff; no acknowledgement loop.'
   ].join('\n');
@@ -103,7 +105,7 @@ function createPostIdleMaintenance({
   const compact = (job) => job ? ({
     id: job.id, intentId: job.intentId, roomId: job.roomId,
     authorMemberId: job.authorMemberId, targetMemberId: job.targetMemberId,
-    task: job.task, expectedHead: job.expectedHead, state: job.state,
+    task: job.task, expectedHead: job.expectedHead, expectedAdapterRevision: job.expectedAdapterRevision, state: job.state,
     createdAt: job.createdAt, expiresAt: job.expiresAt, claimedAt: job.claimedAt || null,
     deliveryAcceptedAt: job.deliveryAcceptedAt || null, completedAt: job.completedAt || null,
     failureCode: job.failureCode || null, summary: job.summary || null, report: job.report || null
@@ -133,7 +135,10 @@ function createPostIdleMaintenance({
     const intentId = String(command.intentId || '');
     const expectedHead = String(command.expectedHead || '').toLowerCase();
     const branch = String(command.branch || '');
-    if (!INTENT_RE.test(intentId) || !SHA_RE.test(expectedHead) || branch !== 'codex/nexus-agent-only-mode') {
+    const expectedAdapterRevision = Number(command.expectedAdapterRevision);
+    if (!INTENT_RE.test(intentId) || !SHA_RE.test(expectedHead)
+      || !['codex/nexus-agent-only-mode','codex/nexus-post-idle-maintenance'].includes(branch)
+      || !Number.isInteger(expectedAdapterRevision) || expectedAdapterRevision < 37 || expectedAdapterRevision > 1000) {
       return fail('POST_IDLE_BAD_INTENT', 'Require a stable intentId, exact SHA and qualified development branch.');
     }
     const target = (room.members || []).find((member) => member.id === command.targetMemberId);
@@ -153,7 +158,7 @@ function createPostIdleMaintenance({
       id: 'post-idle-' + randomUUID(), intentId, roomId: room.id,
       authorMemberId: author.id, targetMemberId: target.id,
       targetId: target.binding.targetId, providerId: target.binding.providerId,
-      task: command.task, expectedHead, branch, state: 'armed',
+      task: command.task, expectedHead, expectedAdapterRevision, branch, state: 'armed',
       createdAt: stamp(), expiresAt: new Date(now() + TTL_MS).toISOString(),
       armedServerSessionId: serverSessionId
     };
@@ -179,9 +184,9 @@ function createPostIdleMaintenance({
     const summary = String(command.summary || '').trim().slice(0, 480);
     if (!summary) return fail('POST_IDLE_BAD_REPORT', 'Provide concise evidence.');
     if (command.result === 'success' && (command.doctorOk !== true || command.globalIdle !== true
-      || Number(command.adapterRevision) !== 37 || !String(command.newSession || '').trim()
+      || Number(command.adapterRevision) !== job.expectedAdapterRevision || !String(command.newSession || '').trim()
       || String(command.newSession) === String(job.armedServerSessionId))) {
-      return fail('POST_IDLE_INCOMPLETE_EVIDENCE', 'Success requires doctor OK, global idle, revision 37 and a NEW server session ID.');
+      return fail('POST_IDLE_INCOMPLETE_EVIDENCE', 'Success requires doctor OK, global idle, exact requested adapter revision and a NEW server session ID.');
     }
     job.state = command.result === 'success' ? 'reported_success' : 'reported_failure';
     job.report = { result: command.result, summary, doctorOk: command.doctorOk === true,

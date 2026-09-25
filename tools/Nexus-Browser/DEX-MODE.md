@@ -265,3 +265,42 @@ The browser page no longer owns `state.queue`, `state.turn`, provider selection 
 The extension remains the concrete Online-Origin transport adapter and therefore still performs provider-page DOM work. Local-Origin adapters remain process-specific transports. Both sit below the same localhost scheduler boundary.
 
 Open provider tabs are revision-gated. After an extension update, a stale page-side adapter is detected before provider work or Dex tool-result delivery; only that exact stale provider tab is reloaded, the complete registered provider stack is re-probed, and delivery resumes without requiring a manual browser refresh.
+
+## Durable post-idle maintenance handoff (revision 38)
+
+A bound browser agent can arm exactly ONE bounded, durable, out-of-band instruction for an
+EXACT existing Local-Origin Antigravity room member. Example (replace real IDs and SHA):
+
+```text
+[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-agent-only-mode","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":38}]]
+```
+
+A trailing control command ends the originating relay; no trailing DONE or second
+relay is necessary. The server waits until **every** localhost room is idle and
+recovery-free, no pending turn/control receipt exists, and the requested exact
+branch/SHA and clean working tree match locally. It claims the job in a separate
+fsynced atomic journal BEFORE prompting the original existing terminal. This
+dispatch is performed by the supervised localhost server, not the Dex round robin.
+The local agent, not the server, carries out the fixed deployment procedure;
+the server does not grant arbitrary shell execution. The agent must verify
+the user's explicit authorization before taking consequential action.
+
+One exclusive delivery lease blocks new Dex relays and conflicting UI mutations
+while the prompt is being submitted. Jobs expire if not dispatched within five
+minutes; an identical recent deployment or repeated intentId is suppressed.
+After any crash or uncertain local submission, the job is NEVER automatically
+replayed. A confirmed prompt submission is NOT proof deployment succeeded.
+The authenticated original local terminal must submit a one-shot execution receipt
+after restart using `node scripts/dexctl.js report-post-idle <job-id> --agy-pid
+<existing-pid> --result success|failed --summary "<evidence>"`. Success additionally
+requires `--doctor-ok true --global-idle true --adapter-revision <requested>
+--new-session <new-server-session-id>`. The receipt is explicitly
+**local-agent-reported**, not independent model verification.
+
+To inspect without waking the whole room, the bound browser can use
+`[[DEX:CMD {"action":"post_idle_status","room":"<exact room id>"}]]`.
+An undispatched job alone can be cancelled with
+`[[DEX:CMD {"action":"cancel_post_idle","jobId":"<exact job id>"}]]`.
+No completion automatically creates a Dex relay turn, acknowledgement or HEADSUP.
+The independent durable journal survives supervisor child restarts; do not
+manually replay a job whose outcome is unknown.
