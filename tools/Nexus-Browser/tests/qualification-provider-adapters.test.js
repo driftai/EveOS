@@ -40,12 +40,14 @@ test('all provider adapters keep ordinary send behavior separate from exact-once
   }
 });
 
-test('ChatGPT exact-once mode cannot fall through from a failed click into form submission', () => {
+test('ChatGPT failed Send click cannot fall through into form submission in any mode', () => {
   const code = source('chatgpt');
-  const exactGuard = code.indexOf("if (exactOnce) throw new Error('ChatGPT qualification prompt was not committed");
+  const click = code.indexOf('sendControl.click()');
+  const failClosed = code.indexOf("throw new Error('ChatGPT Send click unconfirmed; draft preserved; no automatic replay.')", click);
   const formFallback = code.indexOf('if (requestComposerSubmit(composer))');
-  assert.ok(exactGuard >= 0);
-  assert.ok(formFallback > exactGuard);
+  assert.ok(click >= 0, 'Send button click must be present');
+  assert.ok(failClosed > click, 'unconfirmed click must throw before any fallback');
+  assert.ok(formFallback > failClosed, 'form fallback must be unreachable after an unconfirmed click');
 });
 
 test('Gemini exact-once mode bypasses multi-event click fallback and excludes AI Studio', () => {
