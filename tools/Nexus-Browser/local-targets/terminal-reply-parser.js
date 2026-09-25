@@ -308,6 +308,22 @@ function mergeVisibleReply(previousText, nextText) {
   return `${previous}\n\n${next}`;
 }
 
+function selectReadyReply(structuredReply, accumulatedReply) {
+  const structured = String(structuredReply || '').trim();
+  const accumulated = String(accumulatedReply || '').trim();
+  if (!structured) return accumulated;
+  if (!accumulated || structured === accumulated) return structured;
+  if (structured.includes(accumulated)) return structured;
+
+  const structuredAt = accumulated.lastIndexOf(structured);
+  if (structuredAt > 0) {
+    const prefix = accumulated.slice(0, structuredAt).trim();
+    const prefixLines = screenLines(prefix).filter((line) => String(line || '').trim());
+    if (prefixLines.length >= 3 && prefixLines.some(isStrongReplyStart)) return accumulated;
+  }
+  return structured;
+}
+
 module.exports = {
   cleanScreenLine,
   screenLines,
@@ -326,5 +342,6 @@ module.exports = {
   findPreviousReplyStart,
   extractVisibleReply,
   mergeVisibleReply,
-  extractReadyStructuredReply
+  extractReadyStructuredReply,
+  selectReadyReply
 };

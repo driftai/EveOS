@@ -266,6 +266,16 @@ The extension remains the concrete Online-Origin transport adapter and therefore
 
 Open provider tabs are revision-gated. After an extension update, a stale page-side adapter is detected before provider work or Dex tool-result delivery; only that exact stale provider tab is reloaded, the complete registered provider stack is re-probed, and delivery resumes without requiring a manual browser refresh.
 
+## Long Existing-Session turns and exact-once final delivery
+
+Existing Antigravity terminal qualification can run longer than three minutes. The
+local capture adapter now observes the same dispatched turn for up to 25 minutes,
+emits throttled activity only when the terminal output changes, and remains bounded
+by the scheduler's independent 30-minute absolute lease. If observation expires,
+LOCAL_EXISTING_TIMEOUT enters capture-only recovery for the ORIGINAL turn; it
+must never create a second terminal prompt or silently stop the relay. Inspect the
+room recovery journal and incident log before manually reconciling an old turn.
+
 ## Durable post-idle maintenance handoff (revision 38)
 
 A bound browser agent can arm exactly ONE bounded, durable, out-of-band instruction for an

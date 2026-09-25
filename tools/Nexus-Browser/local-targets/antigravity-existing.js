@@ -13,7 +13,7 @@ const {
   findPromptResponseStart,
   extractReadyStructuredReply,
   returnedPromptBoundary,
-  isStrongReplyStart
+  selectReadyReply
 } = require('./terminal-reply-parser');
 const { dataDir } = require('../runtime-config');
 
@@ -224,22 +224,6 @@ async function waitForReadySnapshot(pid, {
 
 const activePids = new Set();
 
-function selectReadyReply(structuredReply, accumulatedReply) {
-  const structured = String(structuredReply || '').trim();
-  const accumulated = String(accumulatedReply || '').trim();
-  if (!structured) return accumulated;
-  if (!accumulated || structured === accumulated) return structured;
-  if (structured.includes(accumulated)) return structured;
-
-  const structuredAt = accumulated.lastIndexOf(structured);
-  if (structuredAt > 0) {
-    const prefix = accumulated.slice(0, structuredAt).trim();
-    const prefixLines = screenLines(prefix).filter((line) => String(line || '').trim());
-    if (prefixLines.length >= 3 && prefixLines.some(isStrongReplyStart)) return accumulated;
-  }
-  return structured;
-}
-
 async function sendPrompt({
   requestId,
   text,
@@ -252,7 +236,7 @@ async function sendPrompt({
   inboxPrunerImpl = pruneInbox,
   sleepImpl = sleep,
   nowImpl = Date.now,
-  timeoutMs = 180000,
+  timeoutMs = 25 * 60 * 1000, // 2 minutes to attach + 25 to observe < server's 30-minute absolute lease.
   pollMs = 100,
   stableMs = 1600,
   readyTimeoutMs = 120000,
@@ -306,6 +290,7 @@ async function sendPrompt({
 
     let lastScreen = String(before.text || '');
     let lastChangeAt = nowImpl();
+    let lastActivityAt = lastChangeAt;
     let lastReply = '';
     let changed = false;
     const deadline = nowImpl() + timeoutMs;
@@ -319,6 +304,13 @@ async function sendPrompt({
         changed = true;
         lastScreen = screen;
         lastChangeAt = nowImpl();
+        // Real terminal changes keep the 4-minute server idle lease alive during long tool runs.
+        // A static/spinning console cannot extend the independent 30-minute absolute lease.
+        if (!looksReadyForInput(screen) && lastChangeAt - lastActivityAt >= 30000) {
+          lastActivityAt = lastChangeAt;
+          emit?.({ type: 'activity_update', requestId, text: 'Existing terminal output changed; still running.',
+            targetClassId: 'local-origin', providerId: target.providerId, providerName: target.providerName });
+        }
         const visibleReply = extractVisibleReply(before.text, screen, terminalPrompt, lastReply);
         const reply = mergeVisibleReply(lastReply, visibleReply);
         if (reply && reply !== lastReply) {
@@ -348,7 +340,8 @@ async function sendPrompt({
 
     emit?.({
       type: 'error', requestId, code: 'LOCAL_EXISTING_TIMEOUT',
-      message: 'Timed out waiting for the existing Antigravity terminal to return to its prompt.',
+      message: 'Existing terminal exceeded its bounded observation window; capture the original turn without resending.',
+      timeoutMs, attachedPid: pid,
       targetClassId: 'local-origin'
     });
     return 1;
