@@ -251,19 +251,19 @@
     return true;
   }
   async function handleMalformedMessage(msg, sender) {
-    if (msg?.type !== 'dex_provider_command_malformed') return;
+    if (msg?.type !== 'dex_provider_command_malformed') return false;
     const provider = providerForUrl(sender?.tab?.url);
     if (!provider || !sender?.tab?.id || msg.providerId !== provider.id
-      || !MALFORMED_CODES.has(msg.code)) return;
+      || !MALFORMED_CODES.has(msg.code)) return false;
     const actionId = String(msg.clientActionId || '');
-    if (!/^[-a-z0-9:]{8,256}$/i.test(actionId)) return;
+    if (!/^[-a-z0-9:]{8,256}$/i.test(actionId)) return false;
     if (!remember(recentActions, 'repair:' + sender.tab.id + ':' + actionId)) {
       telemetry.duplicateCommandsSuppressed += 1;
-      return;
+      return false;
     }
     telemetry.repairNudgesReceived += 1;
     const tabId = Number(sender.tab.id);
-    if (!(await claimRepairTab(tabId))) { telemetry.duplicateCommandsSuppressed += 1; return; }
+    if (!(await claimRepairTab(tabId))) { telemetry.duplicateCommandsSuppressed += 1; return false; }
     const freshness = globalThis.BrowserAiBridgeProviderAdapterFreshness;
     try {
       if (!freshness?.ensure || !globalThis.chrome?.tabs?.sendMessage) {
@@ -295,10 +295,12 @@
         throw new Error(String(ack?.error || 'Provider did not confirm nudge submission.').slice(0, 140));
       }
       telemetry.repairNudgesAccepted += 1;
+      return true;
     } catch (error) {
       telemetry.repairNudgesRejected += 1;
       telemetry.lastDeliveryError = String(error?.message || error).slice(0, 160);
       // A negative or unknown result is recorded; no automatic retry.
+      return false;
     }
   }
 
@@ -314,8 +316,15 @@
   }
 
   if (typeof chrome !== 'undefined' && chrome.runtime) {
-    chrome.runtime.onMessage.addListener((msg, sender) => {
-      if (msg?.type === 'dex_provider_command_malformed') { handleMalformedMessage(msg, sender).catch(() => {}); return; }
+    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+      if (msg?.type === 'dex_provider_command_malformed') {
+        // Keep MV3's async response channel alive until exact-tab submission has
+        // either been accepted or explicitly failed. Do not claim success early.
+        handleMalformedMessage(msg, sender)
+          .then((accepted) => sendResponse({ ok: accepted === true, accepted: accepted === true }))
+          .catch((error) => sendResponse({ ok: false, error: String(error?.message || error).slice(0, 160) }));
+        return true;
+      }
       if (msg?.type !== 'dex_provider_command') return;
       handleContentMessage(msg, sender).catch(() => {});
     });

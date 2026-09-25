@@ -265,7 +265,12 @@
         });
         telemetry.nudgesSent += 1;
         telemetry.phase = 'repair-nudge-handed-to-background';
-        result?.catch?.((error) => {
+        result?.then?.((ack) => {
+          if (ack?.ok === false) {
+            telemetry.phase = 'repair-nudge-rejected';
+            telemetry.lastError = String(ack.error || 'No exact-tab nudge was accepted.').slice(0, 160);
+          }
+        })?.catch?.((error) => {
           telemetry.phase = 'repair-nudge-background-rejected';
           telemetry.lastError = String(error?.message || error).slice(0, 160);
         });

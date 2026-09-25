@@ -111,6 +111,7 @@ test('headed watcher waits for final generation, nudges once, prevents correctiv
 
 function bridgeHarness(sharedStore, accept = true) {
   const injected = [];
+  let runtimeListener;
   const session = {
     async get(key) { return { [key]: sharedStore.get(key) || 0 }; },
     async set(value) { for (const [key, val] of Object.entries(value)) sharedStore.set(key, val); },
@@ -121,7 +122,9 @@ function bridgeHarness(sharedStore, accept = true) {
     BrowserAiBridgeProviders: { providerForUrl: (url) => url.includes('chatgpt.com')
       ? { id: 'chatgpt', name: 'ChatGPT' } : null },
     BrowserAiBridgeProviderAdapterFreshness: { ensure: async () => {} },
-    chrome: { storage: { session }, tabs: { async get(id) {
+    setInterval: () => 0,
+    chrome: { runtime: { onMessage: { addListener(fn) { runtimeListener = fn; } } },
+      storage: { session }, tabs: { async get(id) {
       return { id, url: 'https://chatgpt.com/c/eve' };
     }, async sendMessage(id, message) {
       injected.push({ id, message });
@@ -129,7 +132,8 @@ function bridgeHarness(sharedStore, accept = true) {
     } } }
   };
   vm.runInNewContext(bridgeSrc, sandbox, { filename: 'dex-provider-control-bridge.js' });
-  return { bridge: sandbox.BrowserAiBridgeDexProviderControlBridge, injected, sandbox };
+  return { bridge: sandbox.BrowserAiBridgeDexProviderControlBridge, injected, sandbox,
+    getRuntimeListener: () => runtimeListener };
 }
 
 test('background claims one exact-tab nudge and persists cooldown across content and worker reloads', async () => {
@@ -174,4 +178,24 @@ test('a provider conversation navigation blocks the nudge before touching the ne
   assert.equal(h.injected.length, 0);
   assert.equal(h.bridge.diagnostics().repairNudgesRejected, 1);
   assert.match(h.bridge.diagnostics().lastDeliveryError, /navigated/);
+});
+
+test('MV3 malformed-command listener keeps response channel alive until exact-tab acknowledgement', async () => {
+  const success = bridgeHarness(new Map());
+  const sender = { tab: { id: 64, url: 'https://chatgpt.com/c/eve' } };
+  const payload = { type: 'dex_provider_command_malformed', providerId: 'chatgpt',
+    clientActionId: 'chatgpt:message:listener-success', code: 'MISSING_CLOSER' };
+  let receipt = null;
+  const keepAlive = success.getRuntimeListener()(payload, sender, (value) => { receipt = value; });
+  assert.equal(keepAlive, true, 'the service-worker event must retain its asynchronous reply channel');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(success.injected.length, 1);
+  assert.equal(receipt?.ok, true);
+  assert.equal(receipt?.accepted, true);
+  const failure = bridgeHarness(new Map(), false);
+  let rejected = null;
+  assert.equal(failure.getRuntimeListener()(payload, sender, (value) => { rejected = value; }), true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(failure.injected.length, 1);
+  assert.equal(rejected?.ok, false, 'browser negative acknowledgement must propagate to the originating watcher');
 });
