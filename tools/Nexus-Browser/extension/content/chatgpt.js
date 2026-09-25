@@ -273,12 +273,12 @@
   }
 
   async function waitForPromptDeparture(composer, text, timeoutMs = SUBMIT_ATTEMPT_SETTLE_MS, isCommitted = null) {
-    const started = Date.now();
+    const started = Date.now(), gone = () => { const live = typeof document === 'undefined' ? composer : input.findComposer?.(); return !!isCommitted?.() || !!live && !input.composerText(live).trim() && !input.composerContainsText(composer, text); };
     while (Date.now() - started < timeoutMs) {
-      if (!input.composerContainsText(composer, text) || isCommitted?.()) return true;
+      if (gone()) return true;
       await new Promise((resolve) => setTimeout(resolve, 40));
     }
-    return !input.composerContainsText(composer, text) || !!isCommitted?.();
+    return gone();
   }
   async function waitForSendControl(composer, timeoutMs = 2000) {
     const started = Date.now();
