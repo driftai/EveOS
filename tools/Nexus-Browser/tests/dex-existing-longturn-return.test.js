@@ -7,6 +7,7 @@ const policy = require('../public/dex-failure-policy');
 const { sendPrompt, TARGET_PREFIX } = require('../local-targets/antigravity-existing');
 const { TURN_ABSOLUTE_TIMEOUT_MS } = require('../dex/server-turn-lease');
 const parser = require('../local-targets/terminal-reply-parser');
+const { createServerSchedulerRecovery } = require('../dex/server-scheduler-recovery');
 
 const target = { id: TARGET_PREFIX + '670819', pid: 670819,
   providerId: 'local-antigravity-existing', providerName: 'Antigravity CLI' };
@@ -85,4 +86,54 @@ test('structured reply selection and terminal source remain modular and bounded'
     const count = fs.readFileSync(path.join(dir, file), 'utf8').replace(/\r?\n$/, '').split(/\r?\n/).length;
     assert.ok(count <= 440, file + ' exceeds the 440-line source headroom cap (' + count + ')');
   }
+});
+
+test('late terminal final reconciles the original timed-out turn and routes exactly one reply', () => {
+  const at = new Date().toISOString();
+  const room = {
+    id: 'eve-astro-long', name: 'Eve + Astro',
+    members: [
+      { id: 'eve', name: 'Eve', binding: { targetClassId: 'online-origin',
+        targetId: 42, providerId: 'chatgpt', url: 'https://chatgpt.com/c/eve' } },
+      { id: 'astro', name: 'Astro', binding: { targetClassId: 'local-origin',
+        targetId: target.id, providerId: target.providerId } }
+    ],
+    messages: [{ id: 'msg-original', senderKind: 'agent', senderId: 'eve',
+      senderName: 'Eve', text: 'Qualify the original revision.' }],
+    relay: { active: false, remaining: 1, waitingFor: null },
+    recovery: {
+      requestId: 'dex-turn-late', memberId: 'astro', sourceMessageId: 'msg-original',
+      targetClassId: 'local-origin', providerId: target.providerId,
+      relayActive: true, relayRemaining: 1, retryCount: 0,
+      dispatched: true, startedAt: at, interruptedAt: at
+    }
+  };
+  let state = { rooms: [room] }, sequence = 0;
+  const next = [];
+  const recovery = createServerSchedulerRecovery({
+    load: () => structuredClone(state),
+    save: (snapshot) => { state = structuredClone(snapshot); return structuredClone(state); },
+    uid: () => 'capture-id',
+    addMessage: (entry, payload) => {
+      const message = { ...payload, id: 'recovered-' + (++sequence) };
+      entry.messages.push(message);
+      return message;
+    },
+    setStopped: (entry, reason) => { entry.relay.active = false; entry.relay.lastStopReason = reason; },
+    enqueueNext: (_entry, message) => next.push(message.id),
+    processSoon: () => {}
+  });
+  const final = {
+    type: 'response_final', requestId: 'dex-turn-late',
+    text: '### Consolidated Qualification Report\n938 passed, 0 failed.'
+  };
+  assert.equal(recovery.handleEvent(final), true);
+  assert.equal(state.rooms[0].recovery, undefined);
+  assert.equal(state.rooms[0].relay.active, true);
+  assert.equal(state.rooms[0].messages.length, 2);
+  assert.deepEqual(next, ['recovered-1'], 'the existing report gets ONE next-agent relay');
+  assert.equal(state.rooms[0].finalReceipts.length, 1);
+  assert.equal(state.rooms[0].finalReceipts[0].requestId, 'dex-turn-late');
+  assert.equal(recovery.handleEvent(final), false, 'late duplicate is ignored');
+  assert.equal(next.length, 1);
 });
