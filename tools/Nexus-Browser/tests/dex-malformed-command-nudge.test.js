@@ -123,6 +123,7 @@ function bridgeHarness(sharedStore, accept = true) {
       ? { id: 'chatgpt', name: 'ChatGPT' } : null },
     BrowserAiBridgeProviderAdapterFreshness: { ensure: async () => {} },
     setInterval: () => 0,
+    WebSocket: class { static OPEN = 1; },
     chrome: { runtime: { onMessage: { addListener(fn) { runtimeListener = fn; } } },
       storage: { session }, tabs: { async get(id) {
       return { id, url: 'https://chatgpt.com/c/eve' };
