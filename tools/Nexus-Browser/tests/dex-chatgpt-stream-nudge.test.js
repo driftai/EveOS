@@ -222,3 +222,20 @@ test('expired stream cache sends the second reason, exact-tab continuation and o
   assert.equal(h.sends.filter((event) => event.message.type === 'send_prompt').length, 1);
   assert.equal(h.authRequests[0][2], 'CHATGPT_STREAM_CACHE_EXPIRED');
 });
+
+test('a URL-only room binding cannot silently authorize one of two duplicate ChatGPT tabs', () => {
+  const snapshot = state();
+  snapshot.rooms[1].members[0].binding = {
+    targetClassId: 'online-origin', providerId: 'chatgpt', url
+  };
+  const gate = createServerStreamNudgeAuth({
+    getState: () => snapshot,
+    getTabs: () => [{ id: 42, providerId: 'chatgpt', url }, { id: 84, providerId: 'chatgpt', url }],
+    extensionReady: () => true
+  });
+  const result = gate.check({ source, reason: marker.reason, turnKey: marker.turnKey });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'STREAM_NUDGE_NO_DEX_MEMBERSHIP');
+  snapshot.rooms[1].members[0].binding.targetId = 42;
+  assert.equal(gate.check({ source, reason: marker.reason, turnKey: marker.turnKey }).ok, true);
+});

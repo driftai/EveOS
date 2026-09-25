@@ -28,13 +28,17 @@ function createServerStreamNudgeAuth({
     if (!extensionReady()) return deny('STREAM_NUDGE_EXTENSION_NOT_READY', true);
     const snapshot = getState();
     if (!Array.isArray(snapshot?.rooms)) return deny('STREAM_NUDGE_STATE_UNAVAILABLE');
-    const authoritative = (getTabs() || []).find((t) => Number(t.id) === tabId
-      && t.providerId === 'chatgpt' && t.url === source.url);
+    const matchingTabs = (getTabs() || []).filter((t) =>
+      t.providerId === 'chatgpt' && t.url === source.url);
+    const authoritative = matchingTabs.find((t) => Number(t.id) === tabId);
     if (!authoritative) return deny('STREAM_NUDGE_TARGET_NOT_BOUND');
+    const tabMatch = (binding) => binding?.targetId == null
+      ? matchingTabs.length === 1 // Legacy URL-only bindings fail closed if ambiguous.
+      : Number(binding.targetId) === tabId;
     const bound = snapshot.rooms.flatMap((room) => (room.members || [])
       .filter((m) => m.binding?.targetClassId === 'online-origin'
         && m.binding?.providerId === 'chatgpt' && m.binding?.url === source.url
-        && (m.binding?.targetId == null || Number(m.binding.targetId) === tabId))
+        && tabMatch(m.binding))
       .map((member) => ({ room, member })));
     if (!bound.length) return deny('STREAM_NUDGE_NO_DEX_MEMBERSHIP');
     if (maintenanceBusy()) return deny('STREAM_NUDGE_MAINTENANCE_BUSY', true);
@@ -44,7 +48,7 @@ function createServerStreamNudgeAuth({
       const shared = (room.members || []).some((m) =>
         m.binding?.targetClassId === 'online-origin' && m.binding?.providerId === 'chatgpt'
         && m.binding?.url === source.url
-        && (m.binding?.targetId == null || Number(m.binding.targetId) === tabId));
+        && tabMatch(m.binding));
       return shared && (room.relay?.active || room.relay?.waitingFor
         || room.pendingTurn || room.recovery || room.pendingProviderControlReceipt);
     });
