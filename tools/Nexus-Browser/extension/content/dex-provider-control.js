@@ -140,6 +140,7 @@
   let candidateSince = 0;
   const turnIdentities = new WeakMap();
   const dispatchedTurns = new Map();
+  const inFlightTurns = new Set();
   let nextTurnIdentity = 0;
   let lastDuplicateKey = '';
   let repairOriginTurn = '';
@@ -219,6 +220,7 @@
     const turnKey = `${runtime.id}:${commandIdentity(answerApi, parsed || malformed)}`;
     const fingerprint = malformed ? `${turnKey}:invalid:${malformed.code}:${controlHash(malformed.raw)}` : `${turnKey}:${parsed.raw}`;
     const observedAt = Date.now();
+    if (inFlightTurns.has(turnKey)) { telemetry.phase = 'delivery-pending'; return; }
     if (dispatchedTurns.has(turnKey)) {
       telemetry.phase = 'duplicate-suppressed';
       if (lastDuplicateKey !== turnKey) {
@@ -281,25 +283,36 @@
       return;
     }
     if (repairOriginTurn && repairOriginTurn !== turnKey) repairOriginTurn = '';
-    rememberDispatch(turnKey, observedAt);
-    resetCandidate();
+    resetCandidate(); inFlightTurns.add(turnKey);
     try {
-      const result = chrome.runtime.sendMessage({
-        type: 'dex_provider_command',
-        providerId: runtime.id,
-        clientActionId: turnKey,
-        command: parsed.command
-      });
-      telemetry.phase = 'handed-to-background';
-      telemetry.dispatchedAt = Date.now();
-      telemetry.lastError = null;
-      result?.catch?.((error) => {
-        telemetry.phase = 'background-send-rejected';
+      const result = chrome.runtime.sendMessage({ type: 'dex_provider_command',
+        providerId: runtime.id, clientActionId: turnKey, command: parsed.command });
+      telemetry.phase = 'awaiting-localhost-admission';
+      Promise.resolve(result).then((ack) => {
+        inFlightTurns.delete(turnKey);
+        if (ack?.ok === true && ack?.accepted === true) {
+          rememberDispatch(turnKey, Date.now());
+          telemetry.phase = ack.deduplicated ? 'background-deduplicated' : 'localhost-admitted';
+          telemetry.dispatchedAt = Date.now(); telemetry.lastError = null; return;
+        }
+        if (ack?.retryable === true && ack?.dispatched === false) {
+          telemetry.phase = 'definite-pre-dispatch-failure';
+          telemetry.lastError = String(ack.code || ack.error || 'Dex command was not admitted.').slice(0, 160);
+          lastFingerprint = ''; schedule(1200); return;
+        }
+        rememberDispatch(turnKey, Date.now());
+        telemetry.phase = 'delivery-outcome-uncertain';
+        telemetry.lastError = String(ack?.code || ack?.error || 'No localhost ownership receipt.').slice(0, 160);
+      }).catch((error) => {
+        inFlightTurns.delete(turnKey); rememberDispatch(turnKey, Date.now());
+        telemetry.phase = 'background-delivery-uncertain';
         telemetry.lastError = String(error?.message || error).slice(0, 160);
       });
     } catch (error) {
-      telemetry.phase = 'background-send-failed';
+      inFlightTurns.delete(turnKey);
+      telemetry.phase = 'background-send-failed-before-promise';
       telemetry.lastError = String(error?.message || error).slice(0, 160);
+      lastFingerprint = ''; schedule(1200);
     }
   }
 
