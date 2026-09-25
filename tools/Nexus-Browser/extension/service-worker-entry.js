@@ -4,6 +4,7 @@ if (typeof importScripts === 'function') {
   importScripts('content/provider-adapter-revision.js');
   importScripts('provider-adapter-freshness.js');
   importScripts('provider-target-spawn.js');
+  importScripts('task-completion-bridge.js');
   importScripts('dex-provider-control-bridge.js');
   importScripts('dex-final-receipt.js');
   importScripts('dex-final-delivery-wiring.js');

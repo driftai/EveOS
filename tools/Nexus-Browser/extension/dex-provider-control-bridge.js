@@ -10,9 +10,11 @@
   const DEDUPE_TTL_MS = 120000;
   const MAX_SEEN = 256;
   const REPAIR_COOLDOWN_MS = 5 * 60 * 1000;
+  const taskCompletionApi = globalThis.BrowserAiBridgeTaskCompletionBridge
+    || (typeof require === 'function' ? require('./task-completion-bridge.js') : null);
   const repairTabs = new Map();
   const MALFORMED_CODES = new Set(['MALFORMED_DELIMITERS', 'MISSING_CLOSER', 'INCOMPLETE_MARKER', 'INCOMPLETE_JSON', 'INVALID_JSON', 'UNKNOWN_ACTION', 'TRAILING_TEXT']);
-  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, doneWatchesReceived: 0, doneWatchesConfirmed: 0, doneWatchesFailed: 0, headsUpsReceived: 0, headsUpsConfirmed: 0, headsUpsFailed: 0, repairNudgesReceived: 0, repairNudgesAccepted: 0, repairNudgesRejected: 0, lastDeliveryError: null };
+  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, doneWatchesReceived: 0, doneWatchesConfirmed: 0, doneWatchesFailed: 0, headsUpsReceived: 0, headsUpsConfirmed: 0, headsUpsFailed: 0, repairNudgesReceived: 0, repairNudgesAccepted: 0, repairNudgesRejected: 0, taskCompletionsReceived: 0, taskCompletionsConfirmed: 0, taskCompletionsFailed: 0, lastDeliveryError: null };
   function diagnostics() {
     return { ...telemetry, pending: pending.size, recentActions: recentActions.size, deliveredResults: deliveredResults.size };
   }
@@ -24,6 +26,9 @@
   }
   let socket = null;
   let connecting = null;
+  const taskCompletionBridge = taskCompletionApi?.createTaskCompletionBridge({
+    providerForUrl, remember, deliveredResults, getSocket: () => socket, telemetry
+  });
 
   const uid = () => `provider-control-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
 
@@ -140,6 +145,7 @@
     let msg;
     try { msg = JSON.parse(String(raw?.data ?? raw)); } catch { return; }
     if (msg?.type === 'dex_done_watch_event') { handleDoneWatchEvent(msg); return; }
+    if (msg?.type === 'dex_task_completion_event') { taskCompletionBridge?.handle(msg); return; }
     if (msg?.type !== 'provider_control_result' || !msg.requestId) return;
     if (!remember(deliveredResults, String(msg.requestId))) {
       telemetry.duplicateResultsSuppressed += 1;
@@ -332,7 +338,7 @@
     ensureSocket().catch(() => {});
   }
 
-  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, injectDoneWatch, handleDoneWatchEvent, handleContentMessage, handleMalformedMessage, claimRepairTab, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
+  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, injectDoneWatch, handleDoneWatchEvent, taskCompletionBridge, handleContentMessage, handleMalformedMessage, claimRepairTab, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
   globalThis.BrowserAiBridgeDexProviderControlBridge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
