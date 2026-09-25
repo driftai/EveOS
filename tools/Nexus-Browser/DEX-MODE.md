@@ -1,3 +1,7 @@
+## ChatGPT article-turn and exact-composer send recovery (revision 45)
+
+Revision 44 passed local gates but its installed ChatGPT tab still showed zero assistant nodes. Revision 45 adds a guarded `article:has(.markdown.prose)` fallback, explicit user veto and nested-article safety. For incoming Dex relays and out-of-band notifications, submit via the exact active composer; never overwrite unrelated drafts or click another visible Send button. Attempt one real Send click, or native form submit/Enter only when no matching Send control exists; uncertain admission leaves the draft and requires review. Astro must qualify and live-prove this exact revision before main promotion or branch deletion.
+
 ## ChatGPT semantic turn recovery (revision 44)
 
 Revision 44 responds to the live revision-43 failure where the exact bound ChatGPT tab was current and repeatedly rescanned but `assistantNodes` remained zero. The answer adapter now accepts semantic `data-turn="assistant"` / `data-turn="user"` turn shells in addition to the existing explicit role markers and guarded DIL fallback. A selection id by itself still never grants assistant ownership, so user text cannot become executable Dex control merely because the renderer changed.
@@ -370,7 +374,7 @@ A bound browser agent can arm exactly ONE bounded, durable, out-of-band instruct
 EXACT existing Local-Origin Antigravity room member. Example (replace real IDs and SHA):
 
 ```text
-[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-post-idle-maintenance","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":44}]]
+[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-post-idle-maintenance","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":45}]]
 ```
 
 A trailing control command ends the originating relay; no trailing DONE or second
