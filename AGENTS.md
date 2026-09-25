@@ -12,6 +12,15 @@ These rules apply to development and verification across EveOS.
 - `config/eveos-ports.json` is the single source of truth for EveOS-owned service ports. New services must register an environment key, label, and unique port there instead of introducing a new literal port in a launcher or lifecycle controller.
 - Environment port overrides are allowed for qualification/debugging, but the control-plane entry point must reject effective collisions before starting.
 
+## Branch hygiene and exact-state qualification
+
+- Default to `main` plus **one** active development/qualification branch. An additional temporary branch must have a named purpose and a cleanup checkpoint; do not accumulate abandoned qualification branches.
+- Keep the current, locally qualified rollback branch until the replacement has completed the **exact-head** local Nexus suite, root structural/AI gates, supervised deployment and doctor checks. A newer unqualified feature branch is not a substitute for that rollback.
+- Before removing an old local or remote branch: fetch and record its exact head; prove `git merge-base --is-ancestor <old-SHA> <current-SHA>`; check no unmerged commits, open PRs, local worktrees or live deployment depend on it; preserve its rollback SHA in the handoff. Confirm the selected branch is not checked out and that the current branch/working tree are clean. If the deletion capability is unavailable, provide the exact manual command and mark cleanup **pending**, not completed.
+- Never force-push or delete `main`, a currently deployed revision, a diverged branch, or another agent's unexplained work. Do not rewrite production deployment history to create the appearance of a two-branch repository.
+- The Eve-first/Astro-second handoff must include exact source branch/SHA, qualified branch/SHA, new work's tests, all eight locally durable Dex room idle/recovery checks, deployment restraint and the **next safe cleanup step**. One-shot detached qualification results return to the requesting agent through the authenticated completion journal without creating another relay turn. A submitted notification is not proof that the ChatGPT model read it.
+- Durable workflow pointers: ChatGPT Library `/Projects/Eve OS/EVE-DEV-WORKFLOW.md` and `/Eve/Context-Packs/File-Manager-Cleanup-Workflow.md` (the canonical Library path may include a different displayed prefix; locate by document identity, not by guessing a path).
+
 ## Smoke-test output and quota policy
 
 EveOS inherits WatchFusion's output-efficient verification discipline.
