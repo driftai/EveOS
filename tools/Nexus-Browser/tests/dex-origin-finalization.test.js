@@ -74,3 +74,40 @@ test('unfinished relay times out once within bounded four-minute window', async 
   assert.ok(h.state().time >= MAX_ORIGIN_WAIT_MS);
   assert.ok(h.state().time <= MAX_ORIGIN_WAIT_MS + ORIGIN_POLL_MS);
 });
+
+test('provider control ACK is early but Dex send routes only after exact origin commit', async () => {
+  let clock = 0;
+  const current = room();
+  const ws = { role: 'provider-control-extension' }, dex = { role: 'dex' };
+  const sent = [];
+  const control = createProviderControlRouting({
+    getState: () => {
+      if (clock >= 15000 && !current.pendingProviderControlReceipt) {
+        current.pendingProviderControlReceipt = {
+          commandKey: receipt.commandKey(COMMAND), executorMemberId: 'eve',
+          agentMessageId: 'msg-final', turnRequestId: 'dex-turn-current'
+        };
+        delete current.recovery;
+        current.relay.active = false;
+        current.relay.waitingFor = null;
+      }
+      return { rooms: [current] };
+    },
+    now: () => clock, sleep: async (ms) => { clock += ms; },
+    validateSource: async () => true, getDexClient: () => dex,
+    getExtension: () => null,
+    safeSend(socket, event) { sent.push({ socket, event, clock }); return true; },
+    setTimer: () => 1, clearTimer() {}
+  });
+  assert.equal(await control.handle(ws, {
+    type: 'provider_control_request', requestId: 'control-early', source: SOURCE,
+    command: COMMAND
+  }), true);
+  const received = sent.find((item) => item.socket === ws
+    && item.event.type === 'provider_control_received');
+  const dispatched = sent.find((item) => item.socket === dex
+    && item.event.type === 'provider_control_request');
+  assert.equal(received?.clock, 0, 'only transport acknowledgement is immediate');
+  assert.equal(dispatched?.clock, 15000, 'execution waits for finalized exact origin');
+  assert.equal(dispatched?.event.requestId, 'control-early');
+});
