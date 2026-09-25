@@ -25,6 +25,7 @@
   const { transientStatusLine, substantiveAssistantText } = pageState;
 
   const { looksCompleteAssistantText, obviouslyPartialAssistantText } = pageState;
+  const malformedDexControl = (text) => !!globalThis.BrowserAiBridgeDexProviderControlContent?.malformedTrailingCommand?.(text);
   const generationSettleMs = (options) => pageState.generationSettleMs(options, {
     RELIABLE_GENERATION_SETTLE_MS, STATUS_SIGNAL_SETTLE_MS, INCOMPLETE_NO_SIGNAL_SETTLE_MS
   });
@@ -91,7 +92,7 @@
         ? returnApi.freshReply(answer, watcher.assistantBaseline) : ''));
       const finalText = current || watcher.lastText;
       if (returnApi.trailingReturn(finalText) && !returnApi.exactReturn(finalText, requestId)) return false;
-      if (!finalText || (!looksCompleteAssistantText(finalText) && (!allowUnpunctuated || obviouslyPartialAssistantText(finalText)))) return false;
+      if (!finalText || (!looksCompleteAssistantText(finalText) && (!allowUnpunctuated || (obviouslyPartialAssistantText(finalText) && !malformedDexControl(finalText))))) return false;
       if (allowUnpunctuated && finalText !== watcher.lastText) { watcher.lastText = finalText; watcher.lastChangedAt = Date.now(); return false; }
       if (watcher.finalPending) return false;
       const observedAt = Date.now();
@@ -196,7 +197,7 @@
         return;
       }
 
-      if (reportedGenerating || obviouslyPartialAssistantText(watcher.lastText)) return;
+      if (reportedGenerating || (obviouslyPartialAssistantText(watcher.lastText) && !malformedDexControl(watcher.lastText))) return;
       const now = Date.now();
       if (returnApi.exactReturn(watcher.lastText, requestId)
           && now - watcher.lastChangedAt >= RELIABLE_GENERATION_SETTLE_MS) {
@@ -204,7 +205,7 @@
       }
       const stableFor = now - watcher.lastChangedAt;
       if (watcher.sawGenerating) {
-        const settleMs = generationSettleMs({
+        const settleMs = malformedDexControl(watcher.lastText) ? STATUS_SIGNAL_SETTLE_MS : generationSettleMs({
           sawReliableGenerating: watcher.sawReliableGenerating,
           text: watcher.lastText
         });
@@ -215,7 +216,7 @@
         ) finalize({ allowUnpunctuated: !looksCompleteAssistantText(watcher.lastText) });
         return;
       }
-      const settleMs = looksCompleteAssistantText(watcher.lastText)
+      const settleMs = looksCompleteAssistantText(watcher.lastText) || malformedDexControl(watcher.lastText)
         ? NO_SIGNAL_SETTLE_MS
         : INCOMPLETE_NO_SIGNAL_SETTLE_MS;
       if (stableFor >= settleMs) finalize({ allowUnpunctuated: !looksCompleteAssistantText(watcher.lastText) });
