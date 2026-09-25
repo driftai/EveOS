@@ -3,6 +3,7 @@
   if (typeof window !== 'undefined') globalThis.__browserAiBridgeDexProviderControlLoaded = true;
 
   const PREFIX = '[[DEX:CMD ';
+  const DIL_TURN_SELECTOR = '[data-chatgpt-selection-message-id]:has([class*="DilResponseRoot"])';
   const ACTIONS = new Set(['help', 'onboard', 'checkpoint', 'read_checkpoint', 'rooms', 'targets', 'create_room', 'use_room', 'status', 'rename_room', 'configure_room', 'rename_self', 'set_self_relay', 'rename_agent', 'set_agent_relay', 'remove_agent', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room', 'reload_extension']);
   const PROVIDERS = [
     { id: 'deepseek', answer: 'BrowserAiBridgeDeepSeekAnswer', input: 'BrowserAiBridgeDeepSeekInput' },
@@ -62,7 +63,7 @@
 
   function assistantTurn(node) {
     try {
-      return node?.closest?.('[data-message-author-role="assistant"], [data-role="assistant"], [data-message-author="assistant"], .agent-turn') || null;
+      return node?.closest?.(`[data-message-author-role="assistant"], [data-role="assistant"], [data-message-author="assistant"], .agent-turn, ${DIL_TURN_SELECTOR}`) || null;
     } catch {
       return null;
     }
@@ -101,6 +102,9 @@
   let lastFingerprint = '';
   let candidateFingerprint = '';
   let candidateSince = 0;
+  const telemetry = { samples: 0, lastScanAt: null, assistantNodes: 0, phase: 'boot', candidateAction: null, dispatchedAt: null, lastError: null };
+
+  function diagnostics() { return { ...telemetry }; }
 
   function schedule(delay = 900) {
     if (timer !== null) return;
@@ -121,12 +125,17 @@
   }
 
   function sample() {
+    telemetry.samples += 1;
+    telemetry.lastScanAt = Date.now();
     const runtime = providerRuntime();
-    if (!runtime) return;
+    if (!runtime) { telemetry.phase = 'adapter-unavailable'; return; }
     const answerApi = globalThis[runtime.answer];
+    telemetry.assistantNodes = nodeCount(answerApi);
     const text = latestCandidateText(answerApi);
     const parsed = parseTrailingCommand(text);
+    telemetry.candidateAction = parsed?.command?.action || null;
     if (!parsed) {
+      telemetry.phase = telemetry.assistantNodes ? 'no-trailing-command' : 'no-assistant-nodes';
       resetCandidate();
       return;
     }
@@ -134,6 +143,7 @@
     const fingerprint = `${runtime.id}:${nodeCount(answerApi)}:${parsed.raw}`;
     const observedAt = Date.now();
     if (fingerprint !== candidateFingerprint) {
+      telemetry.phase = 'stabilizing';
       candidateFingerprint = fingerprint;
       candidateSince = observedAt;
       schedule(SETTLED_MS);
@@ -142,10 +152,11 @@
 
     const stableMs = Math.max(0, observedAt - candidateSince);
     if (!commandReady(generationActive(runtime), stableMs)) {
+      telemetry.phase = 'waiting-for-idle';
       schedule(500);
       return;
     }
-    if (fingerprint === lastFingerprint) return;
+    if (fingerprint === lastFingerprint) { telemetry.phase = 'duplicate-suppressed'; return; }
 
     lastFingerprint = fingerprint;
     resetCandidate();
@@ -155,8 +166,17 @@
         providerId: runtime.id,
         command: parsed.command
       });
-      result?.catch?.(() => {});
-    } catch {}
+      telemetry.phase = 'handed-to-background';
+      telemetry.dispatchedAt = Date.now();
+      telemetry.lastError = null;
+      result?.catch?.((error) => {
+        telemetry.phase = 'background-send-rejected';
+        telemetry.lastError = String(error?.message || error).slice(0, 160);
+      });
+    } catch (error) {
+      telemetry.phase = 'background-send-failed';
+      telemetry.lastError = String(error?.message || error).slice(0, 160);
+    }
   }
 
   if (typeof chrome !== 'undefined' && chrome.runtime) {
@@ -185,6 +205,7 @@
 
   const api = {
     PREFIX,
+    DIL_TURN_SELECTOR,
     ACTIONS,
     PROVIDERS,
     SETTLED_MS,
@@ -195,6 +216,7 @@
     assistantNodes,
     assistantTurn,
     latestCandidateText,
+    diagnostics,
     commandReady
   };
   if (typeof window !== 'undefined') globalThis.BrowserAiBridgeDexProviderControlContent = api;

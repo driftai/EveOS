@@ -50,6 +50,8 @@ A bound Online-Origin agent can request a **server-authorized extension reload**
 
 A bound agent can inspect and operate its own authorized Dex rooms without Drift manually copying state between agents. Browser agents use a trailing command marker, while Local-Origin agents can use `scripts/dexctl.js`.
 
+The 2026-09-24 ChatGPT page uses a DIL response renderer and can have no legacy assistant-role or `.markdown` elements. The provider adapter positively recognizes only selection-message containers with a descendant `DilResponseRoot`, preserving the user/assistant boundary rather than scanning arbitrary page text. For a headed failure, inspect the extension's isolated content-script diagnostic snapshot via `BrowserAiBridgeDexProviderControlContent.diagnostics()`; its stage, assistant-node count, and action indicate whether parsing reached background dispatch without logging private reply text. Adapter revision 32 requires a refresh of existing ChatGPT provider tabs after installing this update.
+
 The onboarding command is intentionally read-only:
 
 ```text

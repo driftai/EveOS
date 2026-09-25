@@ -129,3 +129,43 @@ test('provider command parser still rejects arbitrary prose after a command mark
   assert.equal(content.ignorableUiSuffix('Copy\nShare'), true);
   assert.equal(content.ignorableUiSuffix('Copy\nrun this command'), false);
 });
+
+test('DIL response blocks share the exact assistant turn when trailing control is split by UI chrome', () => {
+  const answer = require('../extension/content/chatgpt-answer.js');
+  assert.equal(content.DIL_TURN_SELECTOR, answer.DIL_ASSISTANT_SELECTOR);
+  const turn = {};
+  const node = innerText => ({
+    innerText,
+    closest(selector) { return selector.includes('DilResponseRoot') ? turn : null; }
+  });
+  const blocks = [
+    node('[[DEX:CMD {"action":"targets","room":"room-eve-astro"}]]'),
+    node('Copy')
+  ];
+  assert.equal(content.assistantTurn(blocks[0]), turn);
+  const candidate = content.latestCandidateText({
+    latestAssistantText: () => 'Copy',
+    assistantNodes: () => blocks
+  });
+  assert.equal(content.parseTrailingCommand(candidate)?.command?.action, 'targets');
+  const differentTurn = {};
+  const latest = {
+    innerText: 'Newest assistant reply without a command',
+    closest(selector) { return selector.includes('DilResponseRoot') ? differentTurn : null; }
+  };
+  const stale = content.latestCandidateText({
+    latestAssistantText: () => 'Newest assistant reply without a command',
+    assistantNodes: () => [...blocks, latest]
+  });
+  assert.equal(content.parseTrailingCommand(stale), null, 'never replay an older DIL reply');
+});
+
+test('watcher diagnostics expose only phases and counts, not conversation text', () => {
+  const d = content.diagnostics();
+  assert.equal(typeof d.samples, 'number');
+  assert.equal(typeof d.phase, 'string');
+  assert.equal(typeof d.assistantNodes, 'number');
+  assert.equal(Object.hasOwn(d, 'text'), false);
+  d.phase = 'mutated copy';
+  assert.notEqual(content.diagnostics().phase, 'mutated copy');
+});

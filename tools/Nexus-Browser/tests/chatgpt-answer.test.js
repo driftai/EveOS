@@ -114,3 +114,35 @@ test('prompt-bound response skips an older assistant turn', () => {
   turns.pop();
   assert.equal(chatgptAnswer.responseTextForUserPrompt('fresh proof prompt', 1, root), '');
 });
+
+test('role-free ChatGPT DIL assistant replies are scoped to the selection message and remain readable', () => {
+  const message = node({ 'data-chatgpt-selection-message-id': 'assistant-msg' }, 'group flex min-w-0 flex-col');
+  const dilRoot = element('DIV', [
+    element('P', [textNode('Ready. [[DEX:CMD {"action":"status","room":"room-eve-astro"}]]')])
+  ]);
+  dilRoot.className = 'DilRenderer-tB76Jj DilResponseRoot-HfQrEh';
+  dilRoot.parentElement = message;
+  message.querySelector = selector => selector === '[class*="DilResponseRoot"]' ? dilRoot : null;
+  message.querySelectorAll = selector => selector === chatgptAnswer.CONTENT_SELECTOR ? [dilRoot] : [];
+  const root = { querySelectorAll(selector) {
+    return selector === chatgptAnswer.ASSISTANT_SELECTOR ? [message] : [];
+  } };
+  assert.match(chatgptAnswer.ASSISTANT_SELECTOR, /DilResponseRoot/);
+  assert.equal(chatgptAnswer.hasDilAssistantMessage(message), true);
+  const nodes = chatgptAnswer.assistantNodes(root);
+  assert.deepEqual(nodes, [dilRoot]);
+  assert.equal(chatgptAnswer.isAssistantOwned(dilRoot), true);
+  assert.match(chatgptAnswer.getTurnAssistantText(nodes), /\[\[DEX:CMD \{"action":"status"/);
+});
+
+test('a selection id without a DIL response root never confers assistant ownership', () => {
+  const user = node({ 'data-chatgpt-selection-message-id': 'user-msg' }, 'group flex');
+  user.querySelector = () => null;
+  const userContent = node({}, 'MarkdownRoot', user);
+  assert.equal(chatgptAnswer.hasDilAssistantMessage(user), false);
+  assert.equal(chatgptAnswer.isAssistantOwned(userContent), false);
+  const explicitUser = node({ 'data-message-author-role': 'user', 'data-chatgpt-selection-message-id': 'user-dil' });
+  explicitUser.querySelector = () => ({ className: 'DilResponseRoot-synthetic' });
+  const quoted = node({}, 'TextBase', explicitUser);
+  assert.equal(chatgptAnswer.isAssistantOwned(quoted), false, 'explicit user ownership always wins');
+});

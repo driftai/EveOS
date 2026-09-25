@@ -2,11 +2,16 @@
   if (typeof window !== 'undefined' && globalThis.__browserAiBridgeChatGptAnswerLoaded) return;
   if (typeof window !== 'undefined') globalThis.__browserAiBridgeChatGptAnswerLoaded = true;
 
+  // Verified on the headed ChatGPT DIL renderer (2026-09-24). A selection
+  // message is assistant-owned only when it contains a real DIL response root;
+  // selection ids alone also occur on non-assistant content.
+  const DIL_ASSISTANT_SELECTOR = '[data-chatgpt-selection-message-id]:has([class*="DilResponseRoot"])';
   const ASSISTANT_SELECTOR = [
     '[data-message-author-role="assistant"]',
     '[data-role="assistant"]',
     '[data-message-author="assistant"]',
-    '.agent-turn'
+    '.agent-turn',
+    DIL_ASSISTANT_SELECTOR
   ].join(',');
   const USER_SELECTOR = [
     '[data-message-author-role="user"]',
@@ -14,7 +19,7 @@
     '[data-message-author="user"]',
     '.user-turn'
   ].join(',');
-  const CONTENT_SELECTOR = '.markdown, .markdown-new-styling, .prose, [class*="markdown"]';
+  const CONTENT_SELECTOR = '.markdown, .markdown-new-styling, .prose, [class*="markdown"], [class*="DilResponseRoot"]';
   const SKIP_SELECTOR = [
     'script',
     'style',
@@ -65,9 +70,17 @@
     return role === 'user' || classText(node).includes('user-turn');
   }
 
+  function hasDilAssistantMessage(node) {
+    if (!node?.hasAttribute?.('data-chatgpt-selection-message-id')
+        && node?.getAttribute?.('data-chatgpt-selection-message-id') == null) return false;
+    try { return !!node.querySelector?.('[class*="DilResponseRoot"]'); }
+    catch { return false; }
+  }
+
   function hasAssistantMarker(node) {
     const role = attr(node, 'data-message-author-role') || attr(node, 'data-role') || attr(node, 'data-message-author');
-    return role === 'assistant' || classText(node).includes('agent-turn');
+    return role === 'assistant' || classText(node).includes('agent-turn')
+      || (role !== 'user' && hasDilAssistantMessage(node));
   }
 
   function isUserOwned(node) {
@@ -290,10 +303,12 @@
 
   const api = {
     ASSISTANT_SELECTOR,
+    DIL_ASSISTANT_SELECTOR,
     USER_SELECTOR,
     CONTENT_SELECTOR,
     hasUserMarker,
     hasAssistantMarker,
+    hasDilAssistantMessage,
     isUserOwned,
     isAssistantOwned,
     emojiAlt,
