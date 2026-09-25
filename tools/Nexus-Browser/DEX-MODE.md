@@ -1,3 +1,7 @@
+## ChatGPT semantic turn recovery (revision 44)
+
+Revision 44 responds to the live revision-43 failure where the exact bound ChatGPT tab was current and repeatedly rescanned but `assistantNodes` remained zero. The answer adapter now accepts semantic `data-turn="assistant"` / `data-turn="user"` turn shells in addition to the existing explicit role markers and guarded DIL fallback. A selection id by itself still never grants assistant ownership, so user text cannot become executable Dex control merely because the renderer changed.
+
 ## Passive Dex-bound ChatGPT self-heal (revision 43)
 
 Revision 43 closes the case where a valid Dex marker is visible in ChatGPT but the old/stale content watcher never sees it. The provider-control service worker periodically asks localhost for exact Online-Origin ChatGPT targets present in durable Dex rooms. Localhost derives those targets from the durable room graph and the authoritative extension tab list; ambiguous URL-only bindings fail closed.
@@ -366,7 +370,7 @@ A bound browser agent can arm exactly ONE bounded, durable, out-of-band instruct
 EXACT existing Local-Origin Antigravity room member. Example (replace real IDs and SHA):
 
 ```text
-[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-post-idle-maintenance","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":43}]]
+[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-post-idle-maintenance","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":44}]]
 ```
 
 A trailing control command ends the originating relay; no trailing DONE or second

@@ -2,11 +2,12 @@
   if (typeof window !== 'undefined' && globalThis.__browserAiBridgeChatGptAnswerLoaded) return;
   if (typeof window !== 'undefined') globalThis.__browserAiBridgeChatGptAnswerLoaded = true;
 
-  // Verified on the headed ChatGPT DIL renderer (2026-09-24). A selection
-  // message is assistant-owned only when it contains a real DIL response root;
-  // selection ids alone also occur on non-assistant content.
+  // ChatGPT ships multiple headed renderers. Prefer semantic role/turn markers;
+  // DIL selection ids remain a guarded fallback because selection ids alone also
+  // occur on non-assistant content.
   const DIL_ASSISTANT_SELECTOR = '[data-chatgpt-selection-message-id]:has([class*="DilResponseRoot"])';
   const ASSISTANT_SELECTOR = [
+    '[data-turn="assistant"]',
     '[data-message-author-role="assistant"]',
     '[data-role="assistant"]',
     '[data-message-author="assistant"]',
@@ -14,6 +15,7 @@
     DIL_ASSISTANT_SELECTOR
   ].join(',');
   const USER_SELECTOR = [
+    '[data-turn="user"]',
     '[data-message-author-role="user"]',
     '[data-role="user"]',
     '[data-message-author="user"]',
@@ -67,7 +69,7 @@
 
   function hasUserMarker(node) {
     const role = attr(node, 'data-message-author-role') || attr(node, 'data-role') || attr(node, 'data-message-author');
-    return role === 'user' || classText(node).includes('user-turn');
+    return attr(node, 'data-turn') === 'user' || role === 'user' || classText(node).includes('user-turn');
   }
 
   function hasDilAssistantMessage(node) {
@@ -79,7 +81,7 @@
 
   function hasAssistantMarker(node) {
     const role = attr(node, 'data-message-author-role') || attr(node, 'data-role') || attr(node, 'data-message-author');
-    return role === 'assistant' || classText(node).includes('agent-turn')
+    return attr(node, 'data-turn') === 'assistant' || role === 'assistant' || classText(node).includes('agent-turn')
       || (role !== 'user' && hasDilAssistantMessage(node));
   }
 

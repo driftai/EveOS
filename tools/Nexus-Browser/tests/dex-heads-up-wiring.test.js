@@ -38,7 +38,7 @@ test('the existing one-shot notification transport recognizes only explicit out-
   assert.match(worker, /\^dex-\(\?:done-watch\|heads-up\)-/);
   assert.match(chat, /'dex-heads-up'/);
   assert.match(read('extension/content/chatgpt-return.js'), /HEADSUP:/);
-  assert.match(read('extension/content/provider-adapter-revision.js'), /ADAPTER_REVISION = 43/);
+  assert.match(read('extension/content/provider-adapter-revision.js'), /ADAPTER_REVISION = 44/);
 });
 test('heads-up is opt-in and documented as a single recipient ping, not a subscription or model loop', () => {
   const docs = read('DEX-MODE.md');

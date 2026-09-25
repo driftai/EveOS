@@ -13,7 +13,7 @@ function memoryStore() {
   };
 }
 
-function harness({ revision = 43, control = true, draft = false } = {}) {
+function harness({ revision = 44, control = true, draft = false } = {}) {
   const local = memoryStore(), session = memoryStore();
   const sent = [], injected = [], reloaded = [], runtimeReloads = [];
   const tab = { id: 42, url: 'https://chatgpt.com/c/eve' };
@@ -41,7 +41,7 @@ function harness({ revision = 43, control = true, draft = false } = {}) {
     }
   };
   const watchdog = createBoundTabWatchdog({
-    chromeApi: api, getSocket: () => null, expectedRevision: 43, now: () => 1000
+    chromeApi: api, getSocket: () => null, expectedRevision: 44, now: () => 1000
   });
   return { watchdog, api, local, session, sent, injected, reloaded, runtimeReloads,
     target: { targetClassId: 'online-origin', providerId: 'chatgpt',
@@ -66,7 +66,7 @@ test('missing control watcher is soft-injected and immediately rescans the visib
 });
 
 test('stale page revision reloads only when globally safe and no composer draft exists', async (t) => {
-  const h = harness({ revision: 42 });
+  const h = harness({ revision: 43 });
   t.after(() => h.watchdog.stop());
   await h.watchdog.repairTarget(h.target, { hardReloadSafe: false });
   assert.equal(h.reloaded.length, 0);
@@ -77,7 +77,7 @@ test('stale page revision reloads only when globally safe and no composer draft 
 });
 
 test('stale page revision never destroys an unsent ChatGPT composer draft', async (t) => {
-  const h = harness({ revision: 42, draft: true });
+  const h = harness({ revision: 43, draft: true });
   t.after(() => h.watchdog.stop());
   await h.watchdog.repairTarget(h.target, { hardReloadSafe: true });
   assert.equal(h.reloaded.length, 0);
@@ -88,15 +88,15 @@ test('stale extension runtime self-reloads once per server-advertised revision w
   const h = harness();
   t.after(() => h.watchdog.stop());
   assert.equal(await h.watchdog.runtimeReloadIfNeeded({
-    expectedAdapterRevision: 44, reloadSafe: false
+    expectedAdapterRevision: 45, reloadSafe: false
   }), false);
   assert.equal(h.runtimeReloads.length, 0);
   assert.equal(await h.watchdog.runtimeReloadIfNeeded({
-    expectedAdapterRevision: 44, reloadSafe: true
+    expectedAdapterRevision: 45, reloadSafe: true
   }), true);
   assert.equal(h.runtimeReloads.length, 1);
   assert.equal(await h.watchdog.runtimeReloadIfNeeded({
-    expectedAdapterRevision: 44, reloadSafe: true
+    expectedAdapterRevision: 45, reloadSafe: true
   }), false);
   assert.equal(h.runtimeReloads.length, 1, 'uncertain runtime reload is never looped');
 });

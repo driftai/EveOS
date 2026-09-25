@@ -56,6 +56,20 @@ test('ChatGPT legacy assistant fallbacks remain recognized', () => {
   assert.equal(chatgptAnswer.hasAssistantMarker(node({}, 'agent-turn')), true);
 });
 
+test('ChatGPT semantic data-turn shells preserve assistant/user ownership', () => {
+  const assistant = node({ 'data-turn': 'assistant' }); assistant.innerText = 'semantic assistant';
+  const user = node({ 'data-turn': 'user' }); user.innerText = 'semantic user';
+  assert.equal(chatgptAnswer.hasAssistantMarker(assistant), true);
+  assert.equal(chatgptAnswer.hasUserMarker(user), true);
+  assert.equal(chatgptAnswer.isAssistantOwned(assistant), true);
+  assert.equal(chatgptAnswer.isAssistantOwned(user), false);
+  const root = { querySelectorAll(selector) {
+    return selector === chatgptAnswer.ASSISTANT_SELECTOR ? [assistant] : [];
+  } };
+  assert.deepEqual(chatgptAnswer.assistantNodes(root), [assistant]);
+  assert.equal(chatgptAnswer.getTurnAssistantText(chatgptAnswer.assistantNodes(root)), 'semantic assistant');
+});
+
 test('ChatGPT nested-node pruning keeps only the outer response block', () => {
   const inner = {};
   const outer = { contains(candidate) { return candidate === inner; } };
