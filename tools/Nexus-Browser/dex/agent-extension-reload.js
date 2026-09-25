@@ -48,7 +48,8 @@ function createAgentExtensionReload({
   function diagnostics() {
     return {
       active: active ? { requestId: active.requestId, roomId: active.roomId, acked: active.acked, startedAt: active.startedAt } : null,
-      last: last ? { ...last } : null
+      last: last ? { ok: last.ok, requestId: last.requestId, roomId: last.roomId, beforeEpoch: last.beforeEpoch,
+        afterEpoch: last.afterEpoch, completedAt: last.completedAt, resultCode: last.resultCode } : null
     };
   }
   async function run({ source, command, requestId, transportRole }) {
