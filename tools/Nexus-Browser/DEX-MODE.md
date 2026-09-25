@@ -1,3 +1,7 @@
+## Valid Dex command ownership handshake (revision 42)
+
+A valid trailing `[[DEX:CMD ...]]` is not considered delivered until localhost acknowledges ownership with `provider_control_received`. The background keeps Chrome's asynchronous response channel alive until that receipt or a bounded timeout. Definite failures before ownership may retry the same visible marker. An uncertain admission outcome is never replayed automatically because localhost may already own the request. This is separate from malformed-marker nudges and provider stream recovery.
+
 ## Durable, authenticated detached qualification completion (revision 41)
 
 After **revision 41 has been locally qualified and deployed**, the existing
@@ -354,7 +358,7 @@ A bound browser agent can arm exactly ONE bounded, durable, out-of-band instruct
 EXACT existing Local-Origin Antigravity room member. Example (replace real IDs and SHA):
 
 ```text
-[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-post-idle-maintenance","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":41}]]
+[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-post-idle-maintenance","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":42}]]
 ```
 
 A trailing control command ends the originating relay; no trailing DONE or second
