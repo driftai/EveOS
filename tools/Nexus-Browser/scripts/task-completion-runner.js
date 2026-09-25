@@ -10,6 +10,7 @@ const { WebSocket } = require('ws');
 const { urls, dataDir, EVEOS_ROOT } = require('../runtime-config');
 const { gitState, readJournal, writeJournal } = require('../dex/post-idle-maintenance');
 const { JOB_ID, credentialPath, resultPath, tokenMatches } = require('../dex/task-completion-journal');
+const { readLocalAuth } = require('../dex/task-completion-local-auth');
 
 const NEXUS = path.resolve(__dirname, '..');
 const STAGES = Object.freeze([
@@ -29,6 +30,7 @@ function options(argv) {
 }
 function request(type, payload = {}) {
   return new Promise((resolve, reject) => {
+    const auth = readLocalAuth(); // Only this local runner can read the server-side credential.
     const ws = new WebSocket(process.env.NEXUS_BROWSER_WS || urls().websocket);
     const id = 'task-completion-cli-' + randomUUID();
     const timer = setTimeout(() => {
@@ -40,7 +42,7 @@ function request(type, payload = {}) {
     }
     ws.once('open', () => {
       ws.send(JSON.stringify({ type: 'hello', role: 'ui', clientKind: 'maintenance' }));
-      ws.send(JSON.stringify({ type, requestId: id, ...payload }));
+      ws.send(JSON.stringify({ type, requestId: id, ...payload, auth }));
     });
     ws.on('message', (raw) => {
       let msg; try { msg = JSON.parse(String(raw)); } catch { return; }

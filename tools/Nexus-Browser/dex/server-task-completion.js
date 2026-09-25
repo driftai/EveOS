@@ -1,12 +1,14 @@
 'use strict';
 const { createTaskCompletionJournal } = require('./task-completion-journal');
 const { createTaskCompletionDelivery } = require('./task-completion-delivery');
+const { loadOrCreateLocalAuth, localAuthMatches } = require('./task-completion-local-auth');
 function startTaskCompletion({
   dexStateStore, localTargets, safeSend, getSocket, getTabs,
   onError = (error) => console.error('[bridge] task-completion:', error)
 } = {}) {
-  let journal;
+  let journal, localSecret;
   try {
+    localSecret = loadOrCreateLocalAuth();
     journal = createTaskCompletionJournal({
       getState: () => dexStateStore.load(),
       validateLocal: async (source) => {
@@ -36,6 +38,12 @@ function startTaskCompletion({
   async function handleCommand(ws, message) {
     if (!['task_completion_register', 'task_completion_status'].includes(message?.type)) return false;
     const requestId = String(message.requestId || '').slice(0, 128);
+    if (!localAuthMatches(message.auth, localSecret)) {
+      safeSend(ws, { type: 'task_completion_result', requestId,
+        result: { ok: false, code: 'TASK_COMPLETION_LOCAL_AUTH_DENIED',
+          message: 'The requesting maintenance client lacks the local capability.' } });
+      return true;
+    }
     let result;
     try {
       result = message.type === 'task_completion_register'
