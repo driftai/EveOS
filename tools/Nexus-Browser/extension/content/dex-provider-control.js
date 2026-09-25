@@ -3,7 +3,7 @@
   if (typeof window !== 'undefined') globalThis.__browserAiBridgeDexProviderControlLoaded = true;
 
   const PREFIX = '[[DEX:CMD ';
-  const ACTIONS = new Set(['help', 'onboard', 'checkpoint', 'read_checkpoint', 'rooms', 'targets', 'create_room', 'use_room', 'status', 'rename_room', 'configure_room', 'rename_self', 'set_self_relay', 'rename_agent', 'set_agent_relay', 'remove_agent', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room']);
+  const ACTIONS = new Set(['help', 'onboard', 'checkpoint', 'read_checkpoint', 'rooms', 'targets', 'create_room', 'use_room', 'status', 'rename_room', 'configure_room', 'rename_self', 'set_self_relay', 'rename_agent', 'set_agent_relay', 'remove_agent', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room', 'reload_extension']);
   const PROVIDERS = [
     { id: 'deepseek', answer: 'BrowserAiBridgeDeepSeekAnswer', input: 'BrowserAiBridgeDeepSeekInput' },
     { id: 'grok', answer: 'BrowserAiBridgeGrokAnswer', input: 'BrowserAiBridgeGrokInput' },

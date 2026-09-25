@@ -4,6 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createAgentExtensionReload } = require('../dex/agent-extension-reload');
+const watcher = require('../extension/content/dex-provider-control.js');
+const revision = require('../extension/content/provider-adapter-revision.js');
 const { MUTATING_ACTIONS: SERVER_ACTIONS } = require('../dex/provider-control-routing');
 const { MUTATING_ACTIONS: BROWSER_ACTIONS, ACTIONS } = require('../public/dex-provider-control');
 const BOUND = { targetClassId: 'online-origin', providerId: 'chatgpt', targetId: 42, url: 'https://chatgpt.com/c/eve' };
@@ -96,4 +98,12 @@ test('server wiring routes reload ACK and uses new control socket for verified c
   assert.match(server, /providerControlRouting\.observeExtension\(msg, ws\)/);
   assert.match(server, /getExtension: \(\) =>/);
   assert.match(worker, /reloading_extension', requestId: msg\.requestId/);
+});
+
+test('headed content watcher recognizes the new trailing reload marker at revision 31', () => {
+  const parsed = watcher.parseTrailingCommand('Ready.\\n[[DEX:CMD {"action":"reload_extension","room":"room-eve-astro"}]]');
+  assert.equal(parsed?.command?.action, 'reload_extension');
+  assert.equal(parsed.command.room, 'room-eve-astro');
+  assert.equal(watcher.parseTrailingCommand('[[DEX:CMD {"action":"reload_extension","room":"room-eve-astro"}]]\\nmore prose'), null);
+  assert.equal(revision.ADAPTER_REVISION, 31);
 });
