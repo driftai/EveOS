@@ -66,14 +66,16 @@ test('extension reload is recognized as provider control and stops the relay bef
     { action: 'stop', kind: 'control', reason: 'Eve requested Dex provider control' });
 });
 
-test('unknown trailing Dex commands remain ordinary prose and do not pause the relay', () => {
+test('unknown trailing Dex commands remain visible but stop before another relay turn', () => {
   const text = 'Typo should stay visible. [[DEX:CMD {"action":"spawn_agnet","room":"Worker Room"}]]';
   const parsed = protocol.parseAgentReply(text);
   assert.equal(parsed.text, text);
   assert.equal(parsed.providerCommand, undefined);
+  assert.equal(parsed.malformedCommand, true);
   assert.deepEqual(
     protocol.relayDisposition(parsed, 'Eve', false, { active: true, remaining: 5 }),
-    { action: 'continue', kind: 'reply', reason: null }
+    { action: 'stop', kind: 'invalid-control',
+      reason: 'Eve emitted malformed trailing Dex control · awaiting explicit correction' }
   );
 });
 
