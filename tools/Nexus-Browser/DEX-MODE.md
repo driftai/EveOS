@@ -1,3 +1,11 @@
+## Passive Dex-bound ChatGPT self-heal (revision 43)
+
+Revision 43 closes the case where a valid Dex marker is visible in ChatGPT but the old/stale content watcher never sees it. The provider-control service worker periodically asks localhost for exact Online-Origin ChatGPT targets present in durable Dex rooms. Localhost derives those targets from the durable room graph and the authoritative extension tab list; ambiguous URL-only bindings fail closed.
+
+For a current adapter, the worker sends `dex_provider_control_rescan` so the existing rendered assistant turn is inspected again. If the page revision is current but the control watcher is missing, only `content/dex-provider-control.js` is injected and rescanned. If the page revision is stale, a hard page reload is allowed only when the **global** post-idle gate is safe and a DOM probe confirms there is no unsent composer draft. One hard reload attempt is persisted per expected revision; uncertainty does not create a reload loop.
+
+The bound-target snapshot also carries `expectedAdapterRevision`. After revision 43 has been installed once, an older running extension worker can notice a newer server revision and call `chrome.runtime.reload()` exactly once when the same global-idle gate is safe. The new worker then repairs its bound tabs. A pre-revision-43 worker cannot discover code it does not contain, so the first revision-43 installation remains a supervised bootstrap. Do not interpret self-heal as permission to restart Nexus or mutate rooms.
+
 ## Valid Dex command ownership handshake (revision 42)
 
 A valid trailing `[[DEX:CMD ...]]` is not considered delivered until localhost acknowledges ownership with `provider_control_received`. The background keeps Chrome's asynchronous response channel alive until that receipt or a bounded timeout. Definite failures before ownership may retry the same visible marker. An uncertain admission outcome is never replayed automatically because localhost may already own the request. This is separate from malformed-marker nudges and provider stream recovery.
@@ -358,7 +366,7 @@ A bound browser agent can arm exactly ONE bounded, durable, out-of-band instruct
 EXACT existing Local-Origin Antigravity room member. Example (replace real IDs and SHA):
 
 ```text
-[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-post-idle-maintenance","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":42}]]
+[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-post-idle-maintenance","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":43}]]
 ```
 
 A trailing control command ends the originating relay; no trailing DONE or second
