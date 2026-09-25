@@ -191,3 +191,22 @@ test('no Send button uses native form requestSubmit once and confirms departure'
     assert.equal(submits, 1);
   } finally { chatgptInput.composerContainsText = prior; }
 });
+
+test('remounted ChatGPT composer must actually empty before a Dex send is acknowledged', async () => {
+  const former = { tagName: 'TEXTAREA', value: 'Dex return' };
+  const current = { tagName: 'TEXTAREA', value: 'Dex return' };
+  const priorFind = chatgptInput.findComposer, oldDocument = global.document;
+  let clicked = 0;
+  global.document = {};
+  chatgptInput.findComposer = () => current;
+  try {
+    await assert.rejects(chatgpt.submitComposer(former, 'Dex return', {
+      click() { clicked++; former.value = ''; }
+    }, { exactOnce: true, isCommitted: () => false }), /unconfirmed/);
+    assert.equal(clicked, 1);
+    assert.equal(current.value, 'Dex return', 'the unsent remounted draft must be preserved');
+  } finally {
+    chatgptInput.findComposer = priorFind;
+    global.document = oldDocument;
+  }
+});
