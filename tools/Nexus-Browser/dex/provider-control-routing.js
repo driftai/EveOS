@@ -11,7 +11,7 @@ const MUTATING_ACTIONS = new Set([
   'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
   'arm_post_idle', 'cancel_post_idle', 'report_post_idle'
 ]);
-const DEDUPE_TTL_MS = 120000;
+const DEDUPE_TTL_MS = 120000, MAX_ORIGIN_WAIT_MS = 4 * 60 * 1000, ORIGIN_POLL_MS = 250;
 
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -119,7 +119,7 @@ function createProviderControlRouting({
     return authorization;
   }
 
-  async function settleOrigin(source, command, requestId, timeoutMs = 8000) {
+  async function settleOrigin(source, command, requestId, timeoutMs = MAX_ORIGIN_WAIT_MS) {
     if (typeof getState !== 'function') return { origin: null };
     let snapshot = getState();
     let origin = controlReceiptApi.findIntent(snapshot, source, command);
@@ -135,7 +135,7 @@ function createProviderControlRouting({
 
     const deadline = now() + timeoutMs;
     while (now() < deadline) {
-      await sleep(75);
+      await sleep(ORIGIN_POLL_MS);
       snapshot = getState();
       origin = controlReceiptApi.findIntentInRoom(snapshot, active.roomId, source, command);
       if (origin) return { origin };
@@ -433,6 +433,6 @@ function createProviderControlRouting({
 }
 
 module.exports = {
-  MUTATING_ACTIONS, DEDUPE_TTL_MS, stableValue, sourceFingerprint, mutationKey,
+  MUTATING_ACTIONS, DEDUPE_TTL_MS, MAX_ORIGIN_WAIT_MS, ORIGIN_POLL_MS, stableValue, sourceFingerprint, mutationKey,
   createProviderControlRouting
 };
