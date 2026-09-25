@@ -43,6 +43,6 @@ test('the existing one-shot notification transport recognizes only explicit out-
 test('heads-up is opt-in and documented as a single recipient ping, not a subscription or model loop', () => {
   const docs = read('DEX-MODE.md');
   assert.match(docs, /HEADSUP:Eve/);
-  assert.match(docs, /not a Dex relay turn/i);
+  assert.match(docs, /HEADSUP is \*\*not\*\* a new room turn/);
   assert.match(docs, /no automatic/i);
 });
