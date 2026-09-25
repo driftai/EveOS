@@ -32,6 +32,21 @@
     room.updatedAt = at;
     return { ok: true, watch };
   }
+  function snapshot(room) {
+    return { watches: room.doneWatches, revision: room.doneWatchRevision, updatedAt: room.updatedAt };
+  }
+  function restore(room, previous) {
+    Object.assign(room, { doneWatches: previous.watches, doneWatchRevision: previous.revision, updatedAt: previous.updatedAt });
+  }
+  function armSend(room, sender, command, uid) {
+    if (command.notifyOnDone !== true) return { ok: true, armed: false };
+    if (command.relay === false) return { ok: false, code: 'DEX_DONE_WATCH_RELAY_REQUIRED', message: 'notifyOnDone requires relay:true.' };
+    const ref = String(command.notifyMember || '').trim();
+    const matches = ref ? (room.members || []).filter((member) =>
+      member.id === ref || String(member.name || '').toLowerCase() === ref.toLowerCase()) : [];
+    if (ref && matches.length !== 1) return { ok: false, code: 'DEX_DONE_WATCH_BAD_TARGET', message: 'notifyMember must name a single room participant.' };
+    return arm(room, { watcherMemberId: sender.id, targetMemberId: matches[0]?.id || null, id: uid('done-watch') });
+  }
   function disarm(room, watcherMemberId, at = new Date().toISOString()) {
     const before = watches(room).length;
     room.doneWatches = watches(room).filter((entry) => entry.watcherMemberId !== watcherMemberId);
@@ -76,7 +91,7 @@
       'This is a one-shot background notification, not a Dex relay turn. Your watch is now disarmed.',
       'If further DONE events require your attention, explicitly issue a new watch_done command. Do not start a confirmation loop merely to acknowledge this notification.'].join('\n');
   }
-  const api = { MAX_WATCHES, MAX_EVENTS, WATCH_TTL_MS, memberById, summary, arm, disarm, consume, notificationText };
+  const api = { MAX_WATCHES, MAX_EVENTS, WATCH_TTL_MS, memberById, summary, arm, armSend, snapshot, restore, disarm, consume, notificationText };
   if (typeof globalThis !== 'undefined') globalThis.BrowserAiBridgeDexDoneWatch = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

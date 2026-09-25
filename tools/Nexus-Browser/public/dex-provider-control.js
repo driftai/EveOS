@@ -395,9 +395,9 @@
       const text = clean(command.text);
       if (!text) return { ok: false, code: 'DEX_CONTROL_EMPTY_MESSAGE', message: 'send requires non-empty text.' };
       if (roomBusy(state, room)) return { ok: false, code: 'DEX_CONTROL_ROOM_BUSY', message: `Dex room ${room.name} is already relaying. Wait for it to stop before initiating an out-of-band provider message.` };
-      if (command.notifyOnDone === true && command.relay === false) return { ok: false, code: 'DEX_DONE_WATCH_RELAY_REQUIRED', message: 'notifyOnDone requires relay:true.' };
-      const target = command.notifyMember ? roomAdminApi.resolveMember(room, command.notifyMember).member : null;
-      if (command.notifyOnDone === true && command.notifyMember && !target) return { ok: false, code: 'DEX_DONE_WATCH_BAD_TARGET', message: 'notifyMember must name a single room participant.' };
+      const priorWatch = doneWatchApi.snapshot(room);
+      const enrollment = doneWatchApi.armSend(room, member, command, uid);
+      if (!enrollment.ok) return enrollment;
       const message = roomMessage(room, 'agent', member.id, member.name, text, false);
       if (command.relay === false) {
         persist();
@@ -405,13 +405,8 @@
         log?.(`Provider control recorded note from ${member.name} in ${room.name}.`);
         return { ok: true, silent: true, action, message: `Recorded message in ${room.name} without starting relay.`, data: { roomId: room.id, messageId: message.id } };
       }
-      const previous = { watches: room.doneWatches, revision: room.doneWatchRevision, updatedAt: room.updatedAt };
-      if (command.notifyOnDone === true) {
-        const enrolled = doneWatchApi.arm(room, { watcherMemberId: member.id, targetMemberId: target?.id || null, id: uid('done-watch') });
-        if (!enrolled.ok) { room.messages.pop(); return enrolled; }
-      }
       if (startRelay(room, message) === false) {
-        room.messages.pop(); Object.assign(room, { doneWatches: previous.watches, doneWatchRevision: previous.revision, updatedAt: previous.updatedAt });
+        room.messages.pop(); doneWatchApi.restore(room, priorWatch);
         return { ok: false, code: 'DEX_CONTROL_RELAY_START_FAILED', message: 'Relay could not start; no DONE watcher was armed.' };
       }
       log?.(`Provider control started ${room.name} from ${member.name}.`);

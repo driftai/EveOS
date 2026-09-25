@@ -96,6 +96,28 @@ function nextPendingDelay(snapshot, stamp = Date.now()) {
   return delays.length ? Math.min(...delays) : null;
 }
 
+// Recovery data belongs to the state layer; the scheduler handles dispatch.
+function createRecoveryJournal(current, member, room, at) {
+  return {
+    requestId: current.requestId,
+    memberId: member.id,
+    sourceMessageId: current.sourceMessageId,
+    targetClassId: member.binding?.targetClassId || 'online-origin',
+    providerId: member.binding?.providerId || null,
+    relayActive: !!room.relay?.active,
+    relayRemaining: Number(room.relay?.remaining || 0),
+    retryCount: Number(current.retryCount || 0),
+    dispatched: false,
+    startedAt: at,
+    interruptedAt: null,
+    captureRequestId: null,
+    candidateText: null,
+    candidateAt: 0,
+    ensureTargetRequestId: null,
+    selectingTargetId: null
+  };
+}
+
 function resolveOnline(member, tabs = []) {
   const binding = member?.binding || {};
   return tabs.find((tab) => String(tab.id) === String(binding.targetId) && tab.providerId === binding.providerId)
@@ -136,6 +158,6 @@ function supportsOperation(providers, providerId, operation) {
 module.exports = {
   roomById, memberById, messageById, addMessage, requestStop, setStopped,
   validPending, queueTurn, enqueueNext, pendingRooms, duePendingRooms, nextPendingDelay,
-  resolveOnline, resolveLocal, priorReply, safeBudget,
+  createRecoveryJournal, resolveOnline, resolveLocal, priorReply, safeBudget,
   providerById, supportsOperation
 };

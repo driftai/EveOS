@@ -52,24 +52,7 @@ function createDexServerScheduler({
 
   async function localTarget(member) { return stateApi.resolveLocal(member, await getLocalTargets(true)); }
   function writeRecovery(snapshot, room, member) {
-    room.recovery = {
-      requestId: current.requestId,
-      memberId: member.id,
-      sourceMessageId: current.sourceMessageId,
-      targetClassId: member.binding?.targetClassId || 'online-origin',
-      providerId: member.binding?.providerId || null,
-      relayActive: !!room.relay?.active,
-      relayRemaining: Number(room.relay?.remaining || 0),
-      retryCount: Number(current.retryCount || 0),
-      dispatched: false,
-      startedAt: now(),
-      interruptedAt: null,
-      captureRequestId: null,
-      candidateText: null,
-      candidateAt: 0,
-      ensureTargetRequestId: null,
-      selectingTargetId: null
-    };
+    room.recovery = stateApi.createRecoveryJournal(current, member, room, now());
     save(snapshot);
   }
   function markDispatched() {
@@ -349,8 +332,8 @@ function createDexServerScheduler({
     if (disposition.action === 'stop') setStopped(room, disposition.reason);
     else enqueueNext(room, message);
     save(snapshot);
-    try { onTurnSettled(); } catch {}
     processSoon(0);
+    try { onTurnSettled(); } catch {}
     return true;
   }
 
