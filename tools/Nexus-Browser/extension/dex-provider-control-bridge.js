@@ -239,6 +239,7 @@
     const key = 'dex-control-repair-tab:' + tabId;
     const now = Date.now();
     if (repairTabs.get(tabId) > now) return false;
+    repairTabs.set(tabId, now + REPAIR_COOLDOWN_MS); // synchronous claim across concurrent events
     const store = globalThis.chrome?.storage?.session;
     try {
       const last = store ? (await store.get(key))?.[key] : 0;
