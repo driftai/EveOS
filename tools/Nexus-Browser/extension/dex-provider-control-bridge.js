@@ -9,6 +9,7 @@
   const deliveredResults = new Map();
   const streamAuthPending = new Map();
   const streamFinalPending = new Map();
+  const commandAdmission = new Map();
   const DEDUPE_TTL_MS = 120000;
   const MAX_SEEN = 256;
   const REPAIR_COOLDOWN_MS = 5 * 60 * 1000;
@@ -160,7 +161,16 @@
         entry.resolve(msg.result || { ok: false, code: 'STREAM_NUDGE_NO_FINAL_RESULT' }); }
       return;
     }
+    if (msg?.type === 'provider_control_received' && msg.requestId) {
+      const admission = commandAdmission.get(String(msg.requestId));
+      if (admission) { clearTimeout(admission.timer); commandAdmission.delete(String(msg.requestId));
+        admission.resolve({ ok: true, accepted: true, dispatched: true, requestId: String(msg.requestId) }); }
+      return;
+    }
     if (msg?.type !== 'provider_control_result' || !msg.requestId) return;
+    const admission = commandAdmission.get(String(msg.requestId));
+    if (admission) { clearTimeout(admission.timer); commandAdmission.delete(String(msg.requestId));
+      admission.resolve({ ok: true, accepted: true, dispatched: true, requestId: String(msg.requestId), completed: true }); }
     if (!remember(deliveredResults, String(msg.requestId))) {
       telemetry.duplicateResultsSuppressed += 1;
       return;
@@ -280,28 +290,41 @@
   }
 
   async function handleContentMessage(msg, sender) {
-    if (msg?.type !== 'dex_provider_command') return;
+    if (msg?.type !== 'dex_provider_command') return { ok: false, accepted: false, dispatched: false, code: 'DEX_CONTROL_BAD_MESSAGE' };
     const provider = providerForUrl(sender?.tab?.url);
-    if (!provider || !sender?.tab?.id || msg.providerId !== provider.id) return;
-    const actionId = String(msg.clientActionId || '');
-    if (actionId && !remember(recentActions, `${sender.tab.id}:${actionId}`)) {
+    if (!provider || !sender?.tab?.id || msg.providerId !== provider.id)
+      return { ok: false, accepted: false, dispatched: false, code: 'DEX_CONTROL_BAD_SOURCE' };
+    const actionId = String(msg.clientActionId || ''), actionKey = actionId ? `${sender.tab.id}:${actionId}` : '';
+    if (actionKey && recentActions.has(actionKey)) {
       telemetry.duplicateCommandsSuppressed += 1;
-      return;
+      return { ok: true, accepted: true, dispatched: true, deduplicated: true };
     }
-    const requestId = uid();
-    const source = sourceFromSender(sender, provider);
-    // A valid independent command clears the short repair-loop cooldown.
+    const requestId = uid(), source = sourceFromSender(sender, provider);
     repairTabs.delete(Number(sender.tab.id));
-    const store = globalThis.chrome?.storage?.session;
-    try { await store?.remove?.('dex-control-repair-tab:' + sender.tab.id); } catch {}
+    try { await globalThis.chrome?.storage?.session?.remove?.('dex-control-repair-tab:' + sender.tab.id); } catch {}
+    let ws;
+    try { ws = await ensureSocket(); }
+    catch (error) { return { ok: false, accepted: false, dispatched: false, retryable: true,
+      code: 'DEX_CONTROL_OFFLINE', error: String(error.message || error).slice(0, 160) }; }
     pending.set(requestId, { source, at: Date.now() });
-    try {
-      const ws = await ensureSocket();
-      ws.send(JSON.stringify({ type: 'provider_control_request', requestId, source, command: msg.command || {} }));
-    } catch (error) {
+    const admitted = new Promise((resolve) => {
+      const timer = setTimeout(() => { commandAdmission.delete(requestId);
+        resolve({ ok: false, accepted: false, dispatched: true, retryable: false,
+          uncertain: true, code: 'DEX_CONTROL_ADMISSION_TIMEOUT' }); }, 6000);
+      commandAdmission.set(requestId, { resolve, timer, at: Date.now() });
+    });
+    try { ws.send(JSON.stringify({ type: 'provider_control_request', requestId,
+      clientActionId: actionId || null, source, command: msg.command || {} })); }
+    catch (error) {
+      const admission = commandAdmission.get(requestId);
+      if (admission) { clearTimeout(admission.timer); commandAdmission.delete(requestId); }
       pending.delete(requestId);
-      await injectResult(source, requestId, { ok: false, code: 'DEX_CONTROL_OFFLINE', message: error.message }).catch(() => {});
+      return { ok: false, accepted: false, dispatched: false, retryable: true,
+        code: 'DEX_CONTROL_SEND_FAILED', error: String(error.message || error).slice(0, 160) };
     }
+    const receipt = await admitted;
+    if (receipt.accepted && actionKey) remember(recentActions, actionKey);
+    return receipt;
   }
 
 
@@ -398,7 +421,11 @@
         return true;
       }
       if (msg?.type !== 'dex_provider_command') return;
-      handleContentMessage(msg, sender).catch(() => {});
+      handleContentMessage(msg, sender)
+        .then((result) => sendResponse(result || { ok: false, accepted: false, dispatched: false }))
+        .catch((error) => sendResponse({ ok: false, accepted: false, dispatched: false,
+          code: 'DEX_CONTROL_BACKGROUND_FAILURE', error: String(error?.message || error).slice(0, 160) }));
+      return true;
     });
     setInterval(prunePending, 30000);
     ensureSocket().catch(() => {});
