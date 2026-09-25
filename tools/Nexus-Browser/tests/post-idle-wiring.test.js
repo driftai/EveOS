@@ -27,9 +27,13 @@ test('localhost owns authorization, global idleness and atomic one-shot dispatch
   const router = read('dex/provider-control-routing.js');
   const scheduler = read('dex/server-scheduler.js');
   const helper = read('dex/post-idle-maintenance.js');
-  assert.match(server, /createPostIdleMaintenance/);
-  assert.match(server, /getState: \(\) => dexStateStore\.load\(\)/);
-  assert.match(server, /getTarget: \(id\) => localTargets\.getLocalTarget\(id\)/);
+  const runtime = read('dex/server-post-idle.js');
+  const ui = read('dex/server-ensure-ui.js');
+  assert.match(server, /startPostIdleMaintenance/);
+  assert.match(runtime, /createPostIdleMaintenance/);
+  assert.match(ui, /ensure_dex_ui/);
+  assert.match(runtime, /getState: \(\) => dexStateStore\.load\(\)/);
+  assert.match(runtime, /getTarget: \(id\) => localTargets\.getLocalTarget\(id\)/);
   assert.match(server, /maintenanceBusy: \(\) => !!postIdleMaintenance\?\.leaseActive\(\)/);
   assert.match(router, /POST_IDLE_ACTIONS\.has\(action\)/);
   assert.match(router, /commitOriginReceipt\(origin, result, requestId\)/);

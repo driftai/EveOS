@@ -1,6 +1,7 @@
 const orchestrationPolicy = require('./provider-orchestration-policy'), controlReceiptApi = require('./provider-control-receipt');
 const { createAgentExtensionReload } = require('./agent-extension-reload');
 const POST_IDLE_ACTIONS = new Set(['arm_post_idle','post_idle_status','cancel_post_idle','report_post_idle']);
+const { runPostIdleCommand } = require('./post-idle-control');
 const doneWatchApi = require('../public/dex-done-watch');
 const { randomUUID } = require('node:crypto');
 
@@ -177,16 +178,7 @@ function createProviderControlRouting({
     }
     const origin = settledOrigin.origin;
     if (POST_IDLE_ACTIONS.has(action)) {
-      const maintenance = getMaintenance();
-      if (!maintenance) {
-        fail(ws, requestId, source, 'POST_IDLE_UNAVAILABLE', 'Post-idle handoff is unavailable.', origin);
-        return true;
-      }
-      const method = ({ arm_post_idle: 'arm', post_idle_status: 'status',
-        cancel_post_idle: 'cancel', report_post_idle: 'report' })[action];
-      let result;
-      try { result = maintenance[method]({ source, command }); }
-      catch (error) { result = { ok: false, code: 'POST_IDLE_INTERNAL', message: String(error.message || error).slice(0, 180) }; }
+      const result = runPostIdleCommand(getMaintenance(), action, source, command);
       const receipt = commitOriginReceipt(origin, result, requestId);
       sendResult({ sourceSocket: ws, requestId, source }, result, receipt);
       return true;

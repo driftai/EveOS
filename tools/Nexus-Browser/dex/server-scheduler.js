@@ -23,8 +23,7 @@ function createDexServerScheduler({
   setTimer = setTimeout,
   clearTimer = clearTimeout
 } = {}) {
-  let current = null, retryTimer = null;
-  let processing = false;
+  let current = null, retryTimer = null, processing = false;
   const uid = (prefix = 'dex') => `${prefix}-${randomUUID()}`;
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const load = () => stateStore?.load?.() || { version: 1, rooms: [], activeRoomId: null, savedAt: now() };
