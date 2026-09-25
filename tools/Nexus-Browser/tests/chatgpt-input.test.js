@@ -210,3 +210,73 @@ test('remounted ChatGPT composer must actually empty before a Dex send is acknow
     global.document = oldDocument;
   }
 });
+
+function composerScope({ buttons = [], editors = [] } = {}) {
+  return {
+    tagName: 'DIV', parentElement: null,
+    querySelectorAll(selector) {
+      if (selector === 'input, textarea, [contenteditable="true"]') return editors;
+      if (selector === 'button, [role="button"]') return buttons;
+      if (selector.includes('send-button')) return buttons.filter(button =>
+        button.getAttribute?.('data-testid')?.includes('send-button'));
+      if (selector === '#composer-submit-button') return buttons.filter(button => button.id === 'composer-submit-button');
+      if (selector.includes('aria-label')) return buttons.filter(button => /send/i.test(button.getAttribute?.('aria-label') || ''));
+      return [];
+    }
+  };
+}
+
+test('form-less ChatGPT finds its real Send in an outer sibling actions bar', () => {
+  const send = control({ testId: 'send-button', aria: 'Send prompt' });
+  const composer = Object.assign(composerScope(), {
+    id: 'prompt-textarea', isContentEditable: true, closest: () => null
+  });
+  const inner = composerScope({ editors: [composer] });
+  const scroll = composerScope({ editors: [composer] });
+  const boundary = composerScope({ editors: [composer] });
+  const actionsBarOwner = composerScope({ buttons: [send], editors: [composer] });
+  const body = composerScope({ buttons: [control({ id: 'composer-submit-button' })], editors: [composer] });
+  composer.parentElement = inner;
+  inner.parentElement = scroll;
+  scroll.parentElement = boundary;
+  boundary.parentElement = actionsBarOwner;
+  actionsBarOwner.parentElement = body;
+  body.tagName = 'BODY';
+  const old = global.document;
+  global.document = { body, querySelectorAll() { throw new Error('Never search document-wide buttons'); } };
+  try { assert.equal(chatgptInput.findSendControl(composer), send); }
+  finally { global.document = old; }
+});
+
+test('form-less composer refuses a Send button in a shared ancestor containing another editor', () => {
+  const send = control({ testId: 'send-button' });
+  const composer = Object.assign(composerScope(), { isContentEditable: true, closest: () => null });
+  const foreign = Object.assign(composerScope(), { isContentEditable: true });
+  const inner = composerScope({ editors: [composer] });
+  const shared = composerScope({ buttons: [send], editors: [composer, foreign] });
+  composer.parentElement = inner; inner.parentElement = shared;
+  const old = global.document;
+  global.document = { querySelectorAll() { return [send]; } };
+  try { assert.equal(chatgptInput.findSendControl(composer), null); }
+  finally { global.document = old; }
+});
+
+test('form-less Send lookup rejects disabled or voice-only controls without unsafe global fallback', () => {
+  const composer = Object.assign(composerScope(), { isContentEditable: true, closest: () => null });
+  const actions = composerScope({
+    buttons: [control({ testId: 'send-button', disabled: true }), control({ aria: 'Start Voice' })],
+    editors: [composer]
+  });
+  composer.parentElement = actions;
+  const old = global.document;
+  global.document = { querySelectorAll() { return [control({ testId: 'send-button' })]; } };
+  try { assert.equal(chatgptInput.findSendControl(composer), null); }
+  finally { global.document = old; }
+});
+
+test('Dex result without scoped Send or native form fails closed instead of synthetic Enter', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '../extension/content/chatgpt.js'), 'utf8');
+  assert.match(source, /!sendControl && String\(delivery\?\.kind \|\| ''\)\.startsWith\('dex-'\)/);
+  assert.match(source, /scoped Send button unavailable; preserving Dex draft instead of synthetic Enter/);
+});
