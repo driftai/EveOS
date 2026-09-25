@@ -54,6 +54,8 @@ test('native stream errors are classified distinctly and exact-tab recovery load
   const state = require('../extension/content/chatgpt-page-state.js');
   assert.equal(state.classifyIssueText('Error in message stream')?.code, 'CHATGPT_MESSAGE_STREAM_ERROR');
   assert.equal(state.classifyIssueText('The user said Error in message stream')?.code, undefined);
+  assert.equal(state.classifyIssueText('Stream cache expired')?.code, 'CHATGPT_STREAM_CACHE_EXPIRED');
+  assert.equal(state.classifyIssueText('The docs mention Stream cache expired')?.code, undefined);
   const group = manifest.content_scripts.find((entry) => entry.matches.includes('https://chatgpt.com/*'));
   assert.ok(group.js.indexOf('content/chatgpt-stream-nudge.js') > group.js.indexOf('content/chatgpt.js'));
   assert.ok(providers.getProvider('chatgpt').contentScripts.includes('content/chatgpt-stream-nudge.js'));

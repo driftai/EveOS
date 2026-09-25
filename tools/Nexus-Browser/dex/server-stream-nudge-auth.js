@@ -6,6 +6,7 @@ function createServerStreamNudgeAuth({
   maintenanceBusy = () => false
 } = {}) {
   const metrics = { requests: 0, allowed: 0, deferred: 0, denied: 0 };
+  const REASONS = new Set(['CHATGPT_MESSAGE_STREAM_ERROR', 'CHATGPT_STREAM_CACHE_EXPIRED']);
   const CHAT = (value) => {
     try { const url = new URL(String(value || '')); return url.protocol === 'https:'
       && url.hostname === 'chatgpt.com' && !url.username && !url.password; }
@@ -18,10 +19,10 @@ function createServerStreamNudgeAuth({
       metrics[deferred ? 'deferred' : 'denied']++;
       return { ok: false, code, retryable: deferred };
     };
-    if (input.reason !== 'CHATGPT_MESSAGE_STREAM_ERROR'
+    if (!REASONS.has(input.reason)
       || source.targetClassId !== 'online-origin' || source.providerId !== 'chatgpt'
       || !Number.isSafeInteger(tabId) || tabId < 1 || !CHAT(source.url)
-      || !/^native-[a-z0-9-]{8,110}$/i.test(String(input.turnKey || ''))) {
+      || !/^(?:native|dex)-[a-z0-9-]{8,128}$/i.test(String(input.turnKey || ''))) {
       return deny('STREAM_NUDGE_BAD_SOURCE');
     }
     if (!extensionReady()) return deny('STREAM_NUDGE_EXTENSION_NOT_READY', true);

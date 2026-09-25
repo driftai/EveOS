@@ -185,5 +185,34 @@ test('static integration registers both scripts after main ChatGPT adapter and a
   assert.ok(worker.indexOf('dex-provider-control-bridge.js') < worker.indexOf('chatgpt-stream-nudge-bridge.js'));
   assert.match(read('server.js'), /streamNudgeAuth\.handle\(ws, msg, safeSend\)/);
   assert.match(read('extension/dex-provider-control-bridge.js'), /authorizeStreamNudge/);
-  assert.equal(require('../extension/content/provider-adapter-revision').ADAPTER_REVISION, 40);
+  assert.equal(require('../extension/content/provider-adapter-revision').ADAPTER_REVISION, 41);
+});
+
+test('both native stream errors authorize on the exact bound chat; malformed dex key is denied', () => {
+  for (const reason of ['CHATGPT_MESSAGE_STREAM_ERROR', 'CHATGPT_STREAM_CACHE_EXPIRED']) {
+    assert.equal(auth().check({ source, reason, turnKey: 'dex-dex-turn-deadbeef00000000' }).ok, true);
+  }
+  assert.equal(auth().check({ source, reason: 'PROVIDER_RATE_LIMITED',
+    turnKey: 'native-user-9-1234567890' }).ok, false);
+  assert.equal(pageState.classifyIssueText('Stream cache expired')?.code, 'CHATGPT_STREAM_CACHE_EXPIRED');
+  assert.equal(pageState.classifyIssueText('I said Stream cache expired'), null);
+});
+test('expired stream cache sends the second reason, exact-tab continuation and one persistent claim', async () => {
+  let clock = 1000, user = {}, issue = null;
+  const events = [];
+  const controller = createStreamNudgeController({
+    pageState: { issueSnapshot: () => new Map(), findChangedIssue: () => issue },
+    answer: { userNodes: () => [user] },
+    input: { generationLooksActive: () => false },
+    now: () => clock, send: (payload) => events.push(payload)
+  });
+  user = {}; issue = { code: 'CHATGPT_STREAM_CACHE_EXPIRED' };
+  controller.sample(); clock += 1800; assert.equal(controller.sample(), true);
+  assert.equal(events[0].reason, 'CHATGPT_STREAM_CACHE_EXPIRED');
+  const h = harness();
+  assert.equal(await h.bridge.handle(events[0], h.sender), true);
+  assert.match(h.sends[1].message.text, /Stream cache expired/);
+  assert.equal(await h.bridge.handle(events[0], h.sender), false);
+  assert.equal(h.sends.filter((event) => event.message.type === 'send_prompt').length, 1);
+  assert.equal(h.authRequests[0][2], 'CHATGPT_STREAM_CACHE_EXPIRED');
 });

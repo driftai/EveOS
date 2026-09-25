@@ -1,3 +1,9 @@
+## Exact-tab ChatGPT stream recovery (revision 41)
+
+Nexus recognizes two distinct ChatGPT provider error banners: `Error in message stream` and `Stream cache expired`. A watcher on the exact ChatGPT tab bound to **any** durable Dex room may request one continuation nudge, even if the interrupted reply was the first message or an attempted HEADSUP. The existing provider-control socket checks **all** rooms, the exact target tab and URL, active relays, recovery and post-idle maintenance before permitting injection. Busy rooms are rechecked for up to 30 seconds, not interrupted. If the original lease has not settled, Nexus leaves the nudge undelivered rather than risking a concurrent or duplicate turn.
+
+The out-of-band continuation is a new user message in the *same* chat, not replay of the lost Dex message. It asks the agent to inspect earlier tool effects and durable receipts before retrying a missing command or HEADSUP. The content watcher claims an exact original turn once; the background extension persists a 15-minute per-tab suppression claim before injection. A failed/uncertain send is never automatically replayed. An error in the continuation itself is recorded without recursive nudges. Diagnostic counters report authorization, deferral, delivery and outcome; they do not expose conversation text. Provider submission acknowledgment is not proof of complete model delivery, and some ChatGPT UI/server errors may prevent composer submission entirely.
+
 # Dex Mode
 
 Dex Mode is the Nexus Browser's rudimentary multi-agent room layer.

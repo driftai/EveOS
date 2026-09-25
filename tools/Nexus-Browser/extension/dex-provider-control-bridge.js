@@ -228,7 +228,7 @@
   }
 
 
-  async function authorizeStreamNudge(source, turnKey) {
+  async function authorizeStreamNudge(source, turnKey, reason = 'CHATGPT_MESSAGE_STREAM_ERROR') {
     const ws = await ensureSocket();
     if (streamAuthPending.size >= 24) return { ok: false, code: 'STREAM_NUDGE_AUTH_LIMIT' };
     const requestId = uid();
@@ -241,7 +241,7 @@
       try {
         ws.send(JSON.stringify({
           type: 'dex_stream_nudge_authorize', requestId, source, turnKey,
-          reason: 'CHATGPT_MESSAGE_STREAM_ERROR'
+          reason
         }));
       } catch {
         clearTimeout(timer); streamAuthPending.delete(requestId);

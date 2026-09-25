@@ -109,8 +109,8 @@
       return true;
     }
     function emitProviderIssue(issue) {
-      if (issue.code === 'CHATGPT_MESSAGE_STREAM_ERROR')
-        globalThis.BrowserAiBridgeChatGptStreamNudge?.reportDexError?.(requestId);
+      if (!watcher.outOfBand && ['CHATGPT_MESSAGE_STREAM_ERROR', 'CHATGPT_STREAM_CACHE_EXPIRED'].includes(issue.code))
+        globalThis.BrowserAiBridgeChatGptStreamNudge?.reportDexError?.(requestId, issue.code);
       if (watcher.outOfBand) {
         if (watcher.deliveryKind === 'dex-stream-nudge')
           emit({ type: 'nexus_stream_nudge_reply_result', turnKey: watcher.deliveryTurnKey, ok: false });

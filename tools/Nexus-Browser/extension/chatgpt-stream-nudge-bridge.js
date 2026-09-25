@@ -1,5 +1,6 @@
 (() => {
   const REASON = 'CHATGPT_MESSAGE_STREAM_ERROR', COOLDOWN_MS = 15 * 60 * 1000;
+  const REASONS = new Set([REASON, 'CHATGPT_STREAM_CACHE_EXPIRED']);
   const exactChat = (value) => {
     try { const url = new URL(String(value || '')); return url.protocol === 'https:'
       && url.hostname === 'chatgpt.com' && !url.username && !url.password; }
@@ -8,18 +9,19 @@
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   function createStreamNudgeBridge({
     chromeApi = globalThis.chrome, freshness = globalThis.BrowserAiBridgeProviderAdapterFreshness,
-    authorize = (source, key) => globalThis.BrowserAiBridgeDexProviderControlBridge
-      ?.authorizeStreamNudge?.(source, key),
+    authorize = (source, key, reason) => globalThis.BrowserAiBridgeDexProviderControlBridge
+      ?.authorizeStreamNudge?.(source, key, reason),
     now = Date.now, wait = sleep
   } = {}) {
     const inFlight = new Set();
     const stats = { seen: 0, accepted: 0, rejected: 0, suppressed: 0, deferred: 0,
       completed: 0, replyErrors: 0, lastError: null };
     const key = (tabId) => 'nexus-stream-nudge:' + tabId;
-    function text() {
+    function text(reason = REASON) {
+      const label = reason === 'CHATGPT_STREAM_CACHE_EXPIRED' ? 'Stream cache expired' : 'Error in message stream';
       return [
         '[NEXUS CHATGPT STREAM RECOVERY — EXACT-CHAT ONE SHOT]',
-        'This Dex-bound ChatGPT chat displayed "Error in message stream" while',
+        'This Dex-bound ChatGPT chat displayed "' + label + '" while',
         'its previous reply was being generated. Continue from the LAST VERIFIED',
         'checkpoint in this conversation, including the original task if unfinished.',
         'Your earlier message may already have executed tools, written files,',
@@ -38,14 +40,14 @@
       return { targetClassId: 'online-origin', providerId: 'chatgpt',
         targetId: tab.id, url: tab.url };
     }
-    async function check(source, turnKey, { allowWait = true } = {}) {
-      for (let attempt = 0; attempt < (allowWait ? 12 : 1); attempt++) {
+    async function check(source, turnKey, reason, { allowWait = true } = {}) {
+      for (let attempt = 0; attempt < (allowWait ? 40 : 1); attempt++) {
         let result;
-        try { result = await authorize(source, turnKey); }
+        try { result = await authorize(source, turnKey, reason); }
         catch { return { ok: false, code: 'STREAM_NUDGE_AUTH_UNAVAILABLE' }; }
         if (result?.ok === true && result.authorized === true
           && Array.isArray(result.roomIds) && result.roomIds.length) return result;
-        if (!result?.retryable || !allowWait || attempt >= 11) {
+        if (!result?.retryable || !allowWait || attempt >= 39) {
           return result || { ok: false, code: 'STREAM_NUDGE_AUTH_UNAVAILABLE' };
         }
         stats.deferred++;
@@ -57,7 +59,7 @@
       if (msg?.type !== 'nexus_chatgpt_stream_error') return false;
       const tab = sender?.tab || {}, id = Number(tab.id);
       if (!Number.isSafeInteger(id) || id < 1 || !exactChat(tab.url)
-        || msg.reason !== REASON || !/^(?:native|dex)-[a-z0-9-]{8,128}$/i.test(msg.turnKey || '')
+        || !REASONS.has(msg.reason) || !/^(?:native|dex)-[a-z0-9-]{8,128}$/i.test(msg.turnKey || '')
         || (sender?.id && sender.id !== chromeApi.runtime.id)) {
         stats.rejected++; return false;
       }
@@ -72,7 +74,7 @@
         const source = exactSource(tab);
         // The server reads ALL durable rooms. Only an exact live tab bound to
         // at least one room may receive a continuation, including idle rooms.
-        const permitted = await check(source, msg.turnKey);
+        const permitted = await check(source, msg.turnKey, msg.reason);
         if (!permitted?.ok) throw Error(permitted?.code || 'STREAM_NUDGE_AUTH_DENIED');
         const before = await chromeApi.tabs.get(id);
         if (before?.url !== tab.url) throw Error('Original Dex-bound chat navigated.');
@@ -82,7 +84,7 @@
         if (live?.url !== tab.url) throw Error('ChatGPT tab navigated before nudge.');
         // Recheck room state immediately before durable claim. Another relay
         // may have started during adapter hydration; fail closed if so.
-        const fresh = await check(source, msg.turnKey, { allowWait: false });
+        const fresh = await check(source, msg.turnKey, msg.reason, { allowWait: false });
         if (!fresh?.ok) throw Error(fresh?.code || 'STREAM_NUDGE_AUTH_CHANGED');
         await store.set({ [recordKey]: { until: now() + COOLDOWN_MS,
           turnKey: msg.turnKey, state: 'claimed', roomIds: fresh.roomIds } });
@@ -91,7 +93,7 @@
         if (suppressed?.ok !== true) throw Error('Loop-suppression acknowledgement missing.');
         const ack = await chromeApi.tabs.sendMessage(id, {
           type: 'send_prompt', requestId: 'nexus-stream-nudge-' + id + '-' + msg.turnKey,
-          text: text(), delivery: { kind: 'dex-stream-nudge', turnKey: msg.turnKey }
+          text: text(msg.reason), delivery: { kind: 'dex-stream-nudge', turnKey: msg.turnKey }
         });
         if (ack?.ok !== true) throw Error(String(ack?.error || 'Continuation prompt not accepted').slice(0, 160));
         await store.set({ [recordKey]: { until: now() + COOLDOWN_MS,
@@ -121,7 +123,7 @@
     return { handle, handleOutcome, diagnostics: () => ({ ...stats, pending: inFlight.size }),
       text, check, COOLDOWN_MS, REASON };
   }
-  const api = { createStreamNudgeBridge, COOLDOWN_MS, REASON };
+  const api = { createStreamNudgeBridge, COOLDOWN_MS, REASON, REASONS };
   globalThis.BrowserAiBridgeChatGptStreamNudgeBridge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {

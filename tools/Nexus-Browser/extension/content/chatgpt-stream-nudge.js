@@ -2,6 +2,7 @@
   if (typeof window !== 'undefined' && globalThis.__browserAiBridgeChatGptStreamNudgeLoaded) return;
   if (typeof window !== 'undefined') globalThis.__browserAiBridgeChatGptStreamNudgeLoaded = true;
   const ERROR_CODE = 'CHATGPT_MESSAGE_STREAM_ERROR', SETTLE_MS = 1600;
+  const RECOVERABLE = new Set([ERROR_CODE, 'CHATGPT_STREAM_CACHE_EXPIRED']);
   const SUPPRESS_MS = 15 * 60 * 1000;
   function createStreamNudgeController({
     pageState, answer, input, getRuntime = () => globalThis.BrowserAiBridgeChatGptRuntime,
@@ -18,21 +19,21 @@
       suppressedUntil = Math.max(suppressedUntil, now() + Math.min(SUPPRESS_MS, Math.max(0, ms)));
       waiting = false; candidateAt = 0; baseline = pageState.issueSnapshot();
     }
-    function sendOnce(turnKey) {
-      if (!turnKey || now() < suppressedUntil || lastSentKey === turnKey) return false;
+    function sendOnce(turnKey, reason = ERROR_CODE) {
+      if (!RECOVERABLE.has(reason) || !turnKey || now() < suppressedUntil || lastSentKey === turnKey) return false;
       lastSentKey = turnKey; waiting = false; candidateAt = 0; attempts++;
       // The content script reports only a reason and bounded turn key, NEVER
       // the failed prompt, agent reply, room data or any executable command.
       try { send({ type: 'nexus_chatgpt_stream_error',
-        reason: ERROR_CODE, turnKey }); } catch {}
+        reason, turnKey }); } catch {}
       return true;
     }
-    function reportDexError(requestId) {
+    function reportDexError(requestId, reason = ERROR_CODE) {
       if (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{8,128}$/.test(requestId)) return false;
       // The regular watcher has already seen an exact provider error. It may
       // stop its Dex turn before a DOM-based idle scan can observe the same UI.
       if (!waiting && lastSentKey) return false;
-      return sendOnce(waiting ? key : 'dex-' + requestId.slice(0, 120));
+      return sendOnce(waiting ? key : 'dex-' + requestId.slice(0, 120), reason);
     }
     function sample() {
       const current = now(), user = answer.userNodes().at(-1) || null;
@@ -54,7 +55,7 @@
       if (!waiting || generating || current < suppressedUntil
         || key === lastSentKey || !lastUser) return false;
       const issue = pageState.findChangedIssue(baseline);
-      if (issue?.code !== ERROR_CODE) { candidateAt = 0; return false; }
+      if (!RECOVERABLE.has(issue?.code)) { candidateAt = 0; return false; }
       // A user or agent discussing the error string in ordinary rendered
       // markdown is not evidence of an actual ChatGPT stream failure.
       const element = issue.element;
@@ -63,12 +64,12 @@
       if (quoted && !errorSurface) { candidateAt = 0; return false; }
       if (!candidateAt) { candidateAt = current; return false; }
       if (current - candidateAt < SETTLE_MS) return false;
-      return sendOnce(key);
+      return sendOnce(key, issue.code);
     }
     const diagnostics = () => ({ attempts, waiting, dexOwned, suppressed: now() < suppressedUntil });
-    return { sample, reportDexError, suppressFor, diagnostics, ERROR_CODE, SETTLE_MS, SUPPRESS_MS };
+    return { sample, reportDexError, suppressFor, diagnostics, ERROR_CODE, RECOVERABLE, SETTLE_MS, SUPPRESS_MS };
   }
-  const api = { createStreamNudgeController, ERROR_CODE, SETTLE_MS, SUPPRESS_MS };
+  const api = { createStreamNudgeController, ERROR_CODE, RECOVERABLE, SETTLE_MS, SUPPRESS_MS };
   globalThis.BrowserAiBridgeChatGptStreamNudge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof document !== 'undefined' && document.body && typeof chrome !== 'undefined') {
