@@ -56,9 +56,11 @@ Auto relay is bounded by a user-configurable turn budget (default 8, max 50). A 
 
 Dex control markers are trailing-only and have explicit relay semantics:
 
-- `[[DEX:DONE]]` — record the reply and stop because the room task is complete.
+- `[[DEX:DONE]]` — record the reply and stop because the room task is complete **and no agent still needs a direct confirmation**. The reply remains readable in the room transcript, but Dex does not send it to another agent as a new turn.
 - `[[DEX:USER]]` — record the reply and stop because human input is required.
 - `[[DEX:NOTE]]` — record an informational room note and stop the current relay without implying task completion or requiring a user answer.
+
+**Two-agent acknowledgement:** when Eve asks Astro for a reply that Eve must personally receive, Astro replies with the acknowledgement and **no trailing marker**. Dex sends that reply to Eve on the next round-robin turn; Eve verifies the response and then ends with `[[DEX:DONE]]`. For a short handshake set the room budget to **two agent turns** (Astro, then Eve), so the budget still stops the relay if Eve forgets DONE. If Eve only needs the reply preserved in the room for human review and no subsequent agent turn, Astro may end with DONE immediately. Do not explicitly instruct the responder to end with DONE when the objective is a direct agent-to-agent return. In rooms with more than two participants, the next turn follows room order and may not return directly to the requesting agent; use explicit routing or a deliberately ordered room rather than assuming a generic no-marker reply returns to the origin. These instructions clarify existing semantics and do not add a new token or force hidden return turns.
 
 Dex strips recognized trailing markers before rendering the room message. Mentioning one of the markers in ordinary prose does not trigger it, and unknown `[[DEX:...]]` markers are preserved as normal text.
 

@@ -113,6 +113,24 @@ test('relay prompt advertises self-discoverable provider control without embeddi
 });
 
 
+test('two-agent acknowledgement returns to requester before DONE closes the room', () => {
+  const value = room();
+  const astroAck = protocol.parseAgentReply('ASTRO_LINK_ACK. Confirmed receipt in my existing terminal.');
+  assert.deepEqual(protocol.relayDisposition(astroAck, 'Astro', false, { active: true, remaining: 1 }),
+    { action: 'continue', kind: 'reply', reason: null });
+  assert.equal(protocol.nextMemberIndex(value, {
+    senderKind: 'agent', senderId: 'astro'
+  }), 0, 'the no-marker acknowledgement goes back to Eve in this two-member room');
+
+  const eveConfirmation = protocol.parseAgentReply('ACK received; live link verified. [[DEX:DONE]]');
+  assert.deepEqual(protocol.relayDisposition(eveConfirmation, 'Eve', false, { active: true, remaining: 0 }),
+    { action: 'stop', kind: 'done', reason: 'Eve marked the room complete' });
+
+  const prematureDone = protocol.parseAgentReply('ASTRO_LINK_ACK [[DEX:DONE]]');
+  assert.equal(protocol.relayDisposition(prematureDone, 'Astro', false, { active: true, remaining: 1 }).action,
+    'stop', 'DONE from the responder stops before the requester gets an agent turn');
+});
+
 test('relay disposition centralizes stop and continue semantics', () => {
   assert.deepEqual(
     protocol.relayDisposition({ note: true }, 'Astro', false, { active: true, remaining: 4 }),
@@ -150,6 +168,9 @@ test('relay prompt carries explicit room, turn, recipient, participants and cont
   assert.match(prompt, /- From User \(Drift\)/);
   assert.match(prompt, /- From Eve/);
   assert.match(prompt, /\[\[DEX:DONE\]\]/);
+  assert.match(prompt, /responder must reply WITHOUT a control marker/);
+  assert.match(prompt, /requester can then end its confirmation turn/);
+  assert.match(prompt, /NEXT participating agent in room order/);
   assert.match(prompt, /\[\[DEX:USER\]\]/);
   assert.match(prompt, /\[\[DEX:NOTE\]\]/);
   assert.match(prompt, /Control markers are interpreted only when they trail the reply/);
