@@ -10,7 +10,7 @@ DEX-MODE.md for the CLI and strict bootstrap prerequisites.
 
 ### Dex-bound ChatGPT stream recovery (adapter revision 41)
 
-Nexus recognizes both `Error in message stream` and `Stream cache expired` as terminal provider banners, not as plain quoted conversation text. For an exact tab bound to any durable Dex room (including a first-time message or pending HEADSUP), the extension requests localhost authorization, waits up to 30 seconds for conflicting relays/recovery to settle, and may send **one** same-tab out-of-band continuation. It never blindly retries an already-dispatched command or task, and records unavailable/uncertain sends without loops. This requires supervised revision-41 installation and local qualification; source commits alone do not update the live extension. See DEX-MODE.md.
+Nexus recognizes both `Error in message stream` and `Stream cache expired` as terminal provider banners, not as plain quoted conversation text. For an exact tab bound to any durable Dex room (including a first-time message or pending HEADSUP), the extension requests localhost authorization, waits up to 30 seconds for unrelated conflicts, and may send **one** same-tab out-of-band continuation. A matching parked `dex-turn-*` recovery is deliberately allowed: stale capture pauses briefly, the continuation final is correlated back to that exact request, and normal recovery/RETURN/DONE/HEADSUP semantics resume without replaying the original prompt. It never blindly retries an already-dispatched command or task, and records unavailable/uncertain sends without loops. This requires supervised revision-41 installation and local qualification; source commits alone do not update the live extension. See DEX-MODE.md.
 
 # EveOS Nexus Browser
 

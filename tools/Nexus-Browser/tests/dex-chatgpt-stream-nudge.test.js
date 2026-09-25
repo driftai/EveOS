@@ -183,7 +183,8 @@ test('static integration registers both scripts after main ChatGPT adapter and a
   assert.ok(group.js.indexOf('content/chatgpt-stream-nudge.js') > group.js.indexOf('content/chatgpt.js'));
   const worker = read('extension/service-worker-entry.js');
   assert.ok(worker.indexOf('dex-provider-control-bridge.js') < worker.indexOf('chatgpt-stream-nudge-bridge.js'));
-  assert.match(read('server.js'), /streamNudgeAuth\.handle\(ws, msg, safeSend\)/);
+  assert.match(read('server.js'), /await streamNudgeAuth\.handle\(ws, msg, safeSend\)/);
+  assert.match(read('../public/dex-failure-policy.js'), /CHATGPT_STREAM_CACHE_EXPIRED: \{ action: 'recover'/);
   assert.match(read('extension/dex-provider-control-bridge.js'), /authorizeStreamNudge/);
   assert.equal(require('../extension/content/provider-adapter-revision').ADAPTER_REVISION, 41);
 });
