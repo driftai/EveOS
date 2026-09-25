@@ -12,7 +12,7 @@
   const PROVIDER_CONTROL_ACTIONS = new Set([
     'help', 'onboard', 'checkpoint', 'read_checkpoint', 'rooms', 'targets', 'create_room', 'use_room', 'status',
     'rename_room', 'configure_room', 'rename_self', 'set_self_relay', 'rename_agent', 'set_agent_relay', 'remove_agent',
-    'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room'
+    'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room', 'reload_extension'
   ]);
   const NESTED_RELAY_MARKER = /\[{1,2}DEX ROOM RELAY\]/i;
   const OLD_CONTEXT_TRUNCATION = '[truncated by Dex context window]';
