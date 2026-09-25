@@ -105,6 +105,7 @@
         if (receipt?.ok === true) stopWatcher(requestId);
         else watcher.finalPending = false;
       }).catch(() => { watcher.finalPending = false; });
+      else if (result === null) watcher.finalPending = false;
       else stopWatcher(requestId);
       return true;
     }

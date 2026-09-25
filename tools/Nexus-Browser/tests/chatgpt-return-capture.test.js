@@ -80,3 +80,25 @@ test('wrong exact-turn return marker or unchanged historical reply never finaliz
     assert.equal(h.events.some((event) => event.type === 'response_final'), false);
   }
 });
+
+test('synchronous extension transport failure retains the exact final until delivery can be queued', async () => {
+  const h = headed();
+  let unavailable = true;
+  const send = h.ctx.chrome.runtime.sendMessage;
+  h.ctx.chrome.runtime.sendMessage = (event) => {
+    if (unavailable && event.type === 'response_final') throw new Error('extension unavailable');
+    return send(event);
+  };
+  h.sample();
+  h.advance(1600);
+  h.sample();
+  assert.equal(h.ctx.BrowserAiBridgeChatGptRuntime.responsePending(), true,
+    'an unqueued final must not be marked complete');
+  assert.equal(h.events.filter((item) => item.type === 'response_final').length, 0);
+  unavailable = false;
+  h.advance(1600);
+  h.sample();
+  await Promise.resolve();
+  assert.equal(h.events.filter((item) => item.type === 'response_final').length, 1);
+  assert.equal(h.ctx.BrowserAiBridgeChatGptRuntime.responsePending(), false);
+});
