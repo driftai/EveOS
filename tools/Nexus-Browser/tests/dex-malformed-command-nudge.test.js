@@ -121,7 +121,9 @@ function bridgeHarness(sharedStore, accept = true) {
     BrowserAiBridgeProviders: { providerForUrl: (url) => url.includes('chatgpt.com')
       ? { id: 'chatgpt', name: 'ChatGPT' } : null },
     BrowserAiBridgeProviderAdapterFreshness: { ensure: async () => {} },
-    chrome: { storage: { session }, tabs: { async sendMessage(id, message) {
+    chrome: { storage: { session }, tabs: { async get(id) {
+      return { id, url: 'https://chatgpt.com/c/eve' };
+    }, async sendMessage(id, message) {
       injected.push({ id, message });
       return accept ? { ok: true } : { ok: false, error: 'submission uncertain' };
     } } }
@@ -160,4 +162,16 @@ test('negative browser acknowledgement never causes automatic replay', async () 
   assert.equal(h.bridge.diagnostics().repairNudgesRejected, 1);
   assert.equal(h.bridge.diagnostics().repairNudgesAccepted, 0);
   assert.match(h.bridge.diagnostics().lastDeliveryError, /submission uncertain/);
+});
+
+test('a provider conversation navigation blocks the nudge before touching the new chat', async () => {
+  const store = new Map(), h = bridgeHarness(store);
+  const sender = { tab: { id: 99, url: 'https://chatgpt.com/c/previous-room' } };
+  await h.bridge.handleMalformedMessage({
+    type: 'dex_provider_command_malformed', providerId: 'chatgpt',
+    clientActionId: 'chatgpt:message:stale-chat', code: 'MISSING_CLOSER'
+  }, sender);
+  assert.equal(h.injected.length, 0);
+  assert.equal(h.bridge.diagnostics().repairNudgesRejected, 1);
+  assert.match(h.bridge.diagnostics().lastDeliveryError, /navigated/);
 });

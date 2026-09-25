@@ -270,6 +270,10 @@
         throw new Error('Exact provider adapter or tab messaging is unavailable.');
       }
       await freshness.ensure(tabId, provider, chrome);
+      const currentTab = await chrome.tabs.get(tabId);
+      if (String(currentTab?.url || '') !== String(sender.tab.url || '')) {
+        throw new Error('Original provider conversation navigated before format nudge delivery.');
+      }
       const message = [
         '[DEX FORMAT NUDGE — ONE SHOT]',
         'Your previous assistant reply appeared to attempt a Dex command.',
