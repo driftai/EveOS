@@ -7,6 +7,7 @@
   const pending = new Map();
   const recentActions = new Map();
   const deliveredResults = new Map();
+  const streamAuthPending = new Map();
   const DEDUPE_TTL_MS = 120000;
   const MAX_SEEN = 256;
   const REPAIR_COOLDOWN_MS = 5 * 60 * 1000;
@@ -146,6 +147,14 @@
     try { msg = JSON.parse(String(raw?.data ?? raw)); } catch { return; }
     if (msg?.type === 'dex_done_watch_event') { handleDoneWatchEvent(msg); return; }
     if (msg?.type === 'dex_task_completion_event') { taskCompletionBridge?.handle(msg); return; }
+    if (msg?.type === 'dex_stream_nudge_authorization') {
+      const entry = streamAuthPending.get(String(msg.requestId || ''));
+      if (entry) {
+        clearTimeout(entry.timer); streamAuthPending.delete(String(msg.requestId));
+        entry.resolve(msg.result || { ok: false, code: 'STREAM_NUDGE_NO_AUTH_RESULT' });
+      }
+      return;
+    }
     if (msg?.type !== 'provider_control_result' || !msg.requestId) return;
     if (!remember(deliveredResults, String(msg.requestId))) {
       telemetry.duplicateResultsSuppressed += 1;
@@ -172,6 +181,11 @@
     ws.addEventListener('message', handleServerMessage);
     ws.addEventListener('close', () => {
       if (socket === ws) socket = null;
+      for (const [key, entry] of streamAuthPending) {
+        clearTimeout(entry.timer);
+        entry.resolve({ ok: false, code: 'STREAM_NUDGE_AUTH_SOCKET_LOST' });
+        streamAuthPending.delete(key);
+      }
       connecting = null;
     });
     ws.addEventListener('error', () => {});
@@ -211,6 +225,29 @@
       connecting = null;
     });
     return connecting;
+  }
+
+
+  async function authorizeStreamNudge(source, turnKey) {
+    const ws = await ensureSocket();
+    if (streamAuthPending.size >= 24) return { ok: false, code: 'STREAM_NUDGE_AUTH_LIMIT' };
+    const requestId = uid();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        streamAuthPending.delete(requestId);
+        resolve({ ok: false, code: 'STREAM_NUDGE_AUTH_TIMEOUT' });
+      }, 4000);
+      streamAuthPending.set(requestId, { resolve, timer });
+      try {
+        ws.send(JSON.stringify({
+          type: 'dex_stream_nudge_authorize', requestId, source, turnKey,
+          reason: 'CHATGPT_MESSAGE_STREAM_ERROR'
+        }));
+      } catch {
+        clearTimeout(timer); streamAuthPending.delete(requestId);
+        resolve({ ok: false, code: 'STREAM_NUDGE_AUTH_SEND_FAILED' });
+      }
+    });
   }
 
   async function handleContentMessage(msg, sender) {
@@ -338,7 +375,7 @@
     ensureSocket().catch(() => {});
   }
 
-  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, injectDoneWatch, handleDoneWatchEvent, taskCompletionBridge, handleContentMessage, handleMalformedMessage, claimRepairTab, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
+  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, injectDoneWatch, handleDoneWatchEvent, taskCompletionBridge, handleContentMessage, handleMalformedMessage, authorizeStreamNudge, claimRepairTab, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
   globalThis.BrowserAiBridgeDexProviderControlBridge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
