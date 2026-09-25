@@ -37,7 +37,10 @@ test('ChatGPT prompt submission confirms departure or committed turn before esca
   assert.match(chatgpt, /form\.requestSubmit\(\)/);
   assert.match(chatgpt, /requestComposerSubmit\(composer\)[\s\S]{0,220}waitForPromptDeparture\(composer, text, SUBMIT_ATTEMPT_SETTLE_MS, isCommitted\)/);
   assert.match(chatgpt, /dispatchComposerEnter\(composer\)/);
-  assert.match(chatgpt, /prompt remained in the composer after click, form, and Enter submission attempts/i);
+  assert.match(chatgpt, /ChatGPT Send click unconfirmed; draft preserved; no automatic replay/);
+  assert.match(chatgpt, /ChatGPT form submit unconfirmed; draft preserved; no automatic replay/);
+  assert.match(chatgpt, /ChatGPT Enter submit unconfirmed; draft preserved; no automatic replay/);
+  assert.match(chatgpt, /const sendControl = input\.findSendControl\(composer\)/);
   assert.match(chatgpt, /\.then\(\(submissionMode\) => sendResponse\(\{ ok: true, submissionMode \}\)\)/);
 });
 
