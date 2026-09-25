@@ -20,7 +20,7 @@ test('DONE-watch commands are shared by relay, UI, content, and localhost route'
     assert.equal(ui.MUTATING_ACTIONS.has(name), true);
     assert.equal(routing.MUTATING_ACTIONS.has(name), true);
   }
-  assert.equal(revision.ADAPTER_REVISION, 41);
+  assert.equal(revision.ADAPTER_REVISION, 42);
 });
 
 test('browser loads DONE watch before provider-control and the runtime owns completion consumption', () => {
