@@ -67,12 +67,35 @@
     return parsed;
   }
 
+
+  // Prevent incomplete trailing control from accidentally continuing a relay.
+  // The browser watcher, not the server, owns the one-shot exact-tab nudge.
+  function malformedTrailingControl(value) {
+    const lines = cleanText(value).split('\n');
+    let marker = -1;
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      if (/^\s*\[\s*\[\s*DEX\s*:\s*CMD\b/i.test(lines[i])) { marker = i; break; }
+    }
+    if (marker < 0) return false;
+    const prior = lines.slice(0, marker).join('\n');
+    const fence = String.fromCharCode(96).repeat(3);
+    if ((prior.split(fence).length - 1) % 2) return false;
+    const candidate = lines.slice(marker).join('\n').trim();
+    if (candidate.length > 8192) return false;
+    if (!candidate.startsWith('[[DEX:CMD ') || !candidate.endsWith(']]')) return true;
+    try {
+      const command = JSON.parse(candidate.slice('[[DEX:CMD '.length, -2).trim());
+      return !PROVIDER_CONTROL_ACTIONS.has(cleanText(command?.action).toLowerCase());
+    } catch { return true; }
+  }
+
   function parseAgentReply(value) {
     let text = cleanText(value);
     const providerCommand = trailingProviderCommand(text);
     const handoff = providerCommand?.action === 'handoff_room'
       && cleanText(providerCommand.command.room) && cleanText(providerCommand.command.text)
       ? providerCommand : null;
+    const malformedCommand = !providerCommand && malformedTrailingControl(text);
     if (providerCommand) text = cleanText(text.slice(0, providerCommand.index));
     const controls = new Set();
     let returnRequestId = null, headsUpTarget = null, headsUpCount = 0;
@@ -98,6 +121,7 @@
       ...(headsUpCount === 1 && headsUpTarget ? { headsUpTarget } : {}),
       ...(headsUpCount > 1 || (headsUpCount === 1 && !headsUpTarget) ? { headsUpInvalid: true } : {}),
       ...(providerCommand ? { providerCommand: providerCommand.action, providerControlCommand: providerCommand.command } : {}),
+      ...(malformedCommand ? { malformedCommand: true } : {}),
       ...(handoff ? { handoff: true } : {})
     };
   }
@@ -106,6 +130,7 @@
     const name = cleanName(memberName, 'Agent');
     if (parsed.handoff) return { action: 'stop', kind: 'handoff', reason: `${name} requested a cross-room handoff` };
     if (parsed.providerCommand) return { action: 'stop', kind: 'control', reason: `${name} requested Dex provider control` };
+    if (parsed.malformedCommand) return { action: 'stop', kind: 'invalid-control', reason: `${name} emitted malformed trailing Dex control · awaiting explicit correction` };
     if (parsed.needsUser) return { action: 'stop', kind: 'user', reason: `${name} requested user input` };
     if (parsed.done) return { action: 'stop', kind: 'done', reason: `${name} marked the room complete` };
     if (parsed.note) return { action: 'stop', kind: 'note', reason: `${name} posted a note` };
@@ -281,6 +306,7 @@
     MAX_RELAY_TURNS,
     PROVIDER_CONTROL_ACTIONS,
     trailingProviderCommand,
+    malformedTrailingControl,
     trailingHandoff,
     messageWrapper,
     parseAgentReply,
