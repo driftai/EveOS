@@ -57,5 +57,6 @@ test('native stream errors are classified distinctly and exact-tab recovery load
   const group = manifest.content_scripts.find((entry) => entry.matches.includes('https://chatgpt.com/*'));
   assert.ok(group.js.indexOf('content/chatgpt-stream-nudge.js') > group.js.indexOf('content/chatgpt.js'));
   assert.ok(providers.getProvider('chatgpt').contentScripts.includes('content/chatgpt-stream-nudge.js'));
-  assert.match(chatgpt, /__browserAiBridgeChatGptDexStreamErrorUntil/);
+  assert.match(chatgpt, /BrowserAiBridgeChatGptStreamNudge\?\.reportDexError/);
+  assert.match(chatgpt, /deliveryKind: delivery\?\.kind/);
 });

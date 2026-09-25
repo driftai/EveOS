@@ -9,9 +9,7 @@
     || (typeof module !== 'undefined' && module.exports ? require('./response-deadline.js') : null);
   const pageState = globalThis.BrowserAiBridgeChatGptPageState
     || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-page-state.js') : null);
-
   if (!input || !answer || !deadline || !pageState) throw new Error('ChatGPT bridge modules were not loaded in the expected order.');
-
   const { DEFAULT_RESPONSE_DEADLINES, nextResponseDeadline, minutes } = deadline;
   const active = new Map();
   const RELIABLE_GENERATION_SETTLE_MS = 1500;
@@ -30,11 +28,9 @@
   const returnApi = globalThis.BrowserAiBridgeChatGptReturn
     || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-return.js') : null);
   if (!returnApi) throw new Error('ChatGPT return capture helper missing.');
-
   function emit(payload) {
     try { return chrome.runtime.sendMessage(payload); } catch { return null; }
   }
-
   function stopWatcher(requestId) {
     const watcher = active.get(requestId);
     if (!watcher) return;
@@ -43,7 +39,6 @@
     clearTimeout(watcher.timeout);
     active.delete(requestId);
   }
-
   function reportGenerationActivity(watcher, requestId, isGenerating, force = false) {
     if (watcher.outOfBand) return;
     const stamp = Date.now();
@@ -58,13 +53,13 @@
     watcher.lastHeartbeatAt = stamp;
     emit({ type: 'response_activity', requestId, isGenerating, generationState: state, observedAt: stamp });
   }
-
   function watchResponse(requestId, baseline) {
     const watcher = {
       baselineCount: baseline.count,
       assistantBaseline: baseline.assistantBaseline || null,
       promptCommitted: false,
       finalPending: false, notification: !!baseline.notification, outOfBand: !!baseline.outOfBand,
+      deliveryKind: baseline.deliveryKind || null, deliveryTurnKey: baseline.deliveryTurnKey || null,
       baselineText: baseline.text,
       baselineIssues: baseline.issues || new Map(),
       userBaselineCount: Number(baseline.userCount || 0), prompt: String(baseline.prompt || ''),
@@ -84,7 +79,6 @@
       timer: null,
       timeout: null
     };
-
     function finalize({ allowUnpunctuated = false } = {}) {
       const anchored = answer.responseTextForUserPrompt(watcher.prompt, watcher.userBaselineCount);
       const current = substantiveAssistantText(anchored || (watcher.promptCommitted
@@ -96,7 +90,11 @@
       if (watcher.finalPending) return false;
       const observedAt = Date.now();
       watcher.finalPending = true;
-      if (watcher.outOfBand) { stopWatcher(requestId); return true; }
+      if (watcher.outOfBand) {
+        if (watcher.deliveryKind === 'dex-stream-nudge')
+          emit({ type: 'nexus_stream_nudge_reply_result', turnKey: watcher.deliveryTurnKey, ok: true });
+        stopWatcher(requestId); return true;
+      }
       const result = emit({ type: 'response_final', requestId, text: finalText, observedAt, detail: {
         adapterSettleMs: Math.max(0, observedAt - (watcher.generatingEndedAt || watcher.lastChangedAt)),
         stableForMs: Math.max(0, observedAt - watcher.lastChangedAt), reliableGeneration: watcher.sawReliableGenerating,
@@ -110,10 +108,14 @@
       else stopWatcher(requestId);
       return true;
     }
-
     function emitProviderIssue(issue) {
       if (issue.code === 'CHATGPT_MESSAGE_STREAM_ERROR')
-        globalThis.__browserAiBridgeChatGptDexStreamErrorUntil = Date.now() + 10 * 60 * 1000;
+        globalThis.BrowserAiBridgeChatGptStreamNudge?.reportDexError?.(requestId);
+      if (watcher.outOfBand) {
+        if (watcher.deliveryKind === 'dex-stream-nudge')
+          emit({ type: 'nexus_stream_nudge_reply_result', turnKey: watcher.deliveryTurnKey, ok: false });
+        stopWatcher(requestId); return;
+      }
       const observedForMs = watcher.issueSince ? Date.now() - watcher.issueSince : 0;
       if (!watcher.outOfBand) emit({
         type: 'adapter_error',
@@ -132,7 +134,6 @@
       });
       stopWatcher(requestId);
     }
-
     function providerIssueBlocksFinalization() {
       const issue = pageState.findChangedIssue(watcher.baselineIssues);
       if (!issue) {
@@ -145,7 +146,6 @@
         }
         return false;
       }
-
       const now = Date.now();
       if (issue.fingerprint !== watcher.issueFingerprint) {
         watcher.issueFingerprint = issue.fingerprint;
@@ -158,7 +158,6 @@
       }
       return true;
     }
-
     function sample() {
       if (watcher.finalPending) return;
       const reportedGenerating = input.generationLooksActive();
@@ -349,7 +348,8 @@
       count: beforeNodes.length,
       text: substantiveAssistantText(answer.getTurnAssistantText(beforeNodes, beforeNodes.length)),
       issues: pageState.issueSnapshot(), userCount: userBaselineCount, prompt: text,
-      assistantBaseline: returnApi.baseline(beforeNodes), notification: ['dex-heads-up', 'dex-done-watch', 'dex-task-completion', 'dex-stream-nudge'].includes(delivery?.kind), outOfBand: ['dex-control-nudge', 'dex-stream-nudge'].includes(delivery?.kind)
+      assistantBaseline: returnApi.baseline(beforeNodes), notification: ['dex-heads-up', 'dex-done-watch', 'dex-task-completion'].includes(delivery?.kind), outOfBand: ['dex-control-nudge', 'dex-stream-nudge'].includes(delivery?.kind),
+      deliveryKind: delivery?.kind || null, deliveryTurnKey: delivery?.turnKey || null
     };
 
     const sendWaitMs = ['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion', 'dex-stream-nudge'].includes(delivery?.kind) ? DEX_CONTROL_SEND_WAIT_MS : 5000;
