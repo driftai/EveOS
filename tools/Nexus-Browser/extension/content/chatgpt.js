@@ -321,6 +321,8 @@
   }
 
   async function submitComposer(composer, text, sendControl, { exactOnce = false, isCommitted = null } = {}) {
+    if (input.composerText?.(composer)?.trim() && input.composerText(composer).replace(/\s+/g, ' ').trim() !== String(text).replace(/\s+/g, ' ').trim()) throw new Error('ChatGPT draft changed; refusing automatic submission.');
+    if (typeof document !== 'undefined' && input.generationLooksActive?.()) throw new Error('ChatGPT is still generating; preserving injected draft.');
     // One actual submission gesture per attempt. Synthetic Enter is untrusted in
     // modern browsers; use the scoped Send control first, then native form submit.
     if (sendControl) {
