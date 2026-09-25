@@ -2,12 +2,10 @@ const protocol = require('../public/dex-protocol');
 const failurePolicy = require('../public/dex-failure-policy');
 const stateApi = require('./server-scheduler-state');
 const controlReceiptApi = require('./provider-control-receipt');
-
 const RETRY_MS = 10000;
 const STABLE_MS = 1200;
 const UNCERTAIN_STABLE_MS = 60 * 1000;
 const MAX_RECOVERY_MS = 11 * 60 * 1000;
-
 function createServerSchedulerRecovery({
   load, save, uid, nowMs = () => Date.now(),
   getOnlineTargets = () => [], getProviders = () => [], getSelectedOnlineTarget = () => null,
@@ -331,6 +329,11 @@ function createServerSchedulerRecovery({
     const room = (snapshot.rooms || []).find((entry) => entry.recovery && !entry.recovery.passiveAt);
     const recovery = room?.recovery;
     if (!room || !recovery) return false;
+    if (recovery.streamNudge?.deadlineAt) {
+      const until = Date.parse(recovery.streamNudge.deadlineAt);
+      if (Number.isFinite(until) && until > nowMs()) { processSoon(Math.min(1000, until - nowMs())); return false; }
+      delete recovery.streamNudge; save(snapshot);
+    }
     if (timedOut(recovery)) {
       expire(room, recovery);
       save(snapshot);

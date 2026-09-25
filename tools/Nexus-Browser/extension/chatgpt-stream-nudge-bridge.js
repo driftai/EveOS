@@ -11,6 +11,8 @@
     chromeApi = globalThis.chrome, freshness = globalThis.BrowserAiBridgeProviderAdapterFreshness,
     authorize = (source, key, reason) => globalThis.BrowserAiBridgeDexProviderControlBridge
       ?.authorizeStreamNudge?.(source, key, reason),
+    submitFinal = (source, payload) => globalThis.BrowserAiBridgeDexProviderControlBridge
+      ?.submitStreamNudgeFinal?.(source, payload),
     now = Date.now, wait = sleep
   } = {}) {
     const inFlight = new Set();
@@ -91,13 +93,15 @@
         const suppressed = await chromeApi.tabs.sendMessage(id,
           { type: 'nexus_stream_nudge_suppress' });
         if (suppressed?.ok !== true) throw Error('Loop-suppression acknowledgement missing.');
+        const originalRequestId = msg.turnKey.startsWith('dex-') ? msg.turnKey.slice(4) : null;
         const ack = await chromeApi.tabs.sendMessage(id, {
           type: 'send_prompt', requestId: 'nexus-stream-nudge-' + id + '-' + msg.turnKey,
-          text: text(msg.reason), delivery: { kind: 'dex-stream-nudge', turnKey: msg.turnKey }
+          text: text(msg.reason), delivery: { kind: 'dex-stream-nudge', turnKey: msg.turnKey,
+            originalRequestId, reason: msg.reason }
         });
         if (ack?.ok !== true) throw Error(String(ack?.error || 'Continuation prompt not accepted').slice(0, 160));
         await store.set({ [recordKey]: { until: now() + COOLDOWN_MS,
-          turnKey: msg.turnKey, state: 'submitted', roomIds: fresh.roomIds } });
+          turnKey: msg.turnKey, reason: msg.reason, state: 'submitted', roomIds: fresh.roomIds } });
         stats.accepted++; stats.lastError = null;
         return true;
       } catch (error) {
@@ -115,6 +119,14 @@
       if (!store?.get || !store?.set) return false;
       const record = (await store.get(recordKey))?.[recordKey];
       if (!record || record.state !== 'submitted' || record.turnKey !== msg.turnKey) return false;
+      if (msg.ok === true && msg.originalRequestId) {
+        const source = exactSource(tab);
+        const receipt = await submitFinal(source, { ...msg, reason: record.reason || msg.reason });
+        if (receipt?.ok !== true) {
+          await store.set({ [recordKey]: { ...record, state: 'reply-outcome-unknown' } });
+          stats.replyErrors++; return false;
+        }
+      }
       await store.set({ [recordKey]: { ...record,
         state: msg.ok === true ? 'reply-completed' : 'reply-error' } });
       if (msg.ok === true) stats.completed++; else stats.replyErrors++;

@@ -8,6 +8,8 @@
     COMMAND_FAILED: { action: 'recover', maxAttempts: 4, delays: [900, 1400, 2200, 3500] },
     PROMPT_SEND_FAILED: { action: 'recover', maxAttempts: 0, delays: [] },
     PROVIDER_CONNECTION_INTERRUPTED: { action: 'recover', maxAttempts: 0, delays: [] },
+    CHATGPT_MESSAGE_STREAM_ERROR: { action: 'recover', maxAttempts: 0, delays: [] },
+    CHATGPT_STREAM_CACHE_EXPIRED: { action: 'recover', maxAttempts: 0, delays: [] },
     RESPONSE_TIMEOUT: { action: 'recover', maxAttempts: 0, delays: [] },
     RESPONSE_TIMEOUT_ACTIVE: { action: 'recover', maxAttempts: 0, delays: [] },
     RESPONSE_TIMEOUT_ABSOLUTE: { action: 'recover', maxAttempts: 0, delays: [] },

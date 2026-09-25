@@ -239,3 +239,34 @@ test('a URL-only room binding cannot silently authorize one of two duplicate Cha
   snapshot.rooms[1].members[0].binding.targetId = 42;
   assert.equal(gate.check({ source, reason: marker.reason, turnKey: marker.turnKey }).ok, true);
 });
+
+test('active Dex provider stream failure parks the original turn for one correlated continuation final', async () => {
+  const failure = require('../public/dex-failure-policy');
+  for (const code of ['CHATGPT_MESSAGE_STREAM_ERROR', 'CHATGPT_STREAM_CACHE_EXPIRED'])
+    assert.equal(failure.decision(code, { dispatched: true }).action, 'recover');
+  const snapshot = state();
+  snapshot.rooms[1].recovery = {
+    requestId: 'dex-turn-0000abcd1234', memberId: 'eve',
+    streamNudge: { reason: 'CHATGPT_STREAM_CACHE_EXPIRED',
+      deadlineAt: new Date(Date.now() + 45000).toISOString() }
+  };
+  const reconciled = [];
+  const gate = createServerStreamNudgeAuth({
+    getState: () => snapshot, getTabs: () => [{ id: 42, providerId: 'chatgpt', url }],
+    extensionReady: () => true, reconcileFinal: async (event) => { reconciled.push(event); return true; }
+  });
+  const input = { source, reason: 'CHATGPT_STREAM_CACHE_EXPIRED',
+    turnKey: 'dex-dex-turn-0000abcd1234' };
+  assert.equal(gate.check(input).ok, true, 'the exact parked recovery may receive a continuation');
+  const result = await gate.final({ type: 'dex_stream_nudge_final', ...input,
+    originalRequestId: 'dex-turn-0000abcd1234', text: 'Recovered final response.' });
+  assert.equal(result.ok, true);
+  assert.equal(reconciled.length, 1);
+  assert.deepEqual(reconciled[0], {
+    type: 'response_final', requestId: 'dex-turn-0000abcd1234',
+    text: 'Recovered final response.', observedAt: reconciled[0].observedAt,
+    detail: { via: 'dex-stream-nudge', reason: 'CHATGPT_STREAM_CACHE_EXPIRED' }
+  });
+  assert.equal((await gate.final({ type: 'dex_stream_nudge_final', ...input,
+    originalRequestId: 'dex-turn-WRONG0000', text: 'duplicate' })).ok, false);
+});

@@ -60,6 +60,7 @@
       promptCommitted: false,
       finalPending: false, notification: !!baseline.notification, outOfBand: !!baseline.outOfBand,
       deliveryKind: baseline.deliveryKind || null, deliveryTurnKey: baseline.deliveryTurnKey || null,
+      deliveryOriginalRequestId: baseline.deliveryOriginalRequestId || null, deliveryReason: baseline.deliveryReason || null,
       baselineText: baseline.text,
       baselineIssues: baseline.issues || new Map(),
       userBaselineCount: Number(baseline.userCount || 0), prompt: String(baseline.prompt || ''),
@@ -92,7 +93,9 @@
       watcher.finalPending = true;
       if (watcher.outOfBand) {
         if (watcher.deliveryKind === 'dex-stream-nudge')
-          emit({ type: 'nexus_stream_nudge_reply_result', turnKey: watcher.deliveryTurnKey, ok: true });
+          emit({ type: 'nexus_stream_nudge_reply_result', turnKey: watcher.deliveryTurnKey,
+            originalRequestId: watcher.deliveryOriginalRequestId, reason: watcher.deliveryReason,
+            ok: true, text: finalText });
         stopWatcher(requestId); return true;
       }
       const result = emit({ type: 'response_final', requestId, text: finalText, observedAt, detail: {
@@ -166,9 +169,7 @@
         watcher.sawReliableGenerating = true;
         watcher.generatingEndedAt = 0;
       }
-
       if (providerIssueBlocksFinalization()) return;
-
       const anchored = answer.responseTextForUserPrompt(watcher.prompt, watcher.userBaselineCount);
       const rawText = anchored || (watcher.promptCommitted
         ? returnApi.freshReply(answer, watcher.assistantBaseline) : '');
@@ -187,7 +188,6 @@
         watcher.generatingEndedAt = Date.now();
         reportGenerationActivity(watcher, requestId, false, true);
       }
-
       if (!text) return;
       if (watcher.notification) returnApi.rememberNotificationReply(answer, text, watcher.assistantBaseline);
       watcher.started = true;
@@ -197,7 +197,6 @@
         if (!watcher.outOfBand) emit({ type: 'response_partial', requestId, text });
         return;
       }
-
       if (reportedGenerating || (obviouslyPartialAssistantText(watcher.lastText) && !malformedDexControl(watcher.lastText))) return;
       const now = Date.now();
       if (returnApi.exactReturn(watcher.lastText, requestId)
@@ -349,7 +348,8 @@
       text: substantiveAssistantText(answer.getTurnAssistantText(beforeNodes, beforeNodes.length)),
       issues: pageState.issueSnapshot(), userCount: userBaselineCount, prompt: text,
       assistantBaseline: returnApi.baseline(beforeNodes), notification: ['dex-heads-up', 'dex-done-watch', 'dex-task-completion'].includes(delivery?.kind), outOfBand: ['dex-control-nudge', 'dex-stream-nudge'].includes(delivery?.kind),
-      deliveryKind: delivery?.kind || null, deliveryTurnKey: delivery?.turnKey || null
+      deliveryKind: delivery?.kind || null, deliveryTurnKey: delivery?.turnKey || null,
+      deliveryOriginalRequestId: delivery?.originalRequestId || null, deliveryReason: delivery?.reason || null
     };
 
     const sendWaitMs = ['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion', 'dex-stream-nudge'].includes(delivery?.kind) ? DEX_CONTROL_SEND_WAIT_MS : 5000;

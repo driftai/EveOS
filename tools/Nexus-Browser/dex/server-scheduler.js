@@ -6,7 +6,6 @@ const stateApi = require('./server-scheduler-state'), controlReceiptApi = requir
 const { createServerSchedulerRecovery } = require('./server-scheduler-recovery');
 const { TURN_TIMEOUT_MS, TURN_IDLE_TIMEOUT_MS, TURN_ABSOLUTE_TIMEOUT_MS,
   activityFromTransport, createServerTurnLease } = require('./server-turn-lease');
-
 function createDexServerScheduler({
   stateStore,
   durability,
@@ -36,7 +35,6 @@ function createDexServerScheduler({
     if (retryTimer) clearTimer(retryTimer);
     retryTimer = setTimer(() => { retryTimer = null; process().catch((error) => failCurrent(error.message)); }, Math.max(0, delay));
   }
-
   const recovery = createServerSchedulerRecovery({
     load, save, uid,
     getOnlineTargets, getProviders, getSelectedOnlineTarget, getLocalTargets,
@@ -52,7 +50,6 @@ function createDexServerScheduler({
   });
   const lease = createServerTurnLease({ load, save, roomById: stateApi.roomById,
     getCurrent: () => current, onTimeout: handleTurnError, now, nowMs, setTimer, clearTimer });
-
   async function localTarget(member) { return stateApi.resolveLocal(member, await getLocalTargets(true)); }
   function writeRecovery(snapshot, room, member) {
     room.recovery = stateApi.createRecoveryJournal(current, member, room, now());
@@ -281,9 +278,12 @@ function createDexServerScheduler({
       save(snapshot); processSoon(delayMs); return true;
     }
     if (decision.action === 'recover') {
+      if (room.recovery && ['CHATGPT_MESSAGE_STREAM_ERROR', 'CHATGPT_STREAM_CACHE_EXPIRED'].includes(msg.code)) {
+        room.recovery.streamNudge = { reason: msg.code, requestedAt: now(),
+          deadlineAt: new Date(nowMs() + 45000).toISOString() }; save(snapshot);
+      }
       parkCurrent(`${msg.code || 'RELAY_ERROR'} requires capture recovery.`);
-      processSoon(decision.delayMs || 0);
-      return true;
+      processSoon(decision.delayMs || 0); return true;
     }
     if (decision.action === 'incident') recordIncident({
       code: msg.code || 'RELAY_ERROR', message: msg.message || '', roomId: room.id,

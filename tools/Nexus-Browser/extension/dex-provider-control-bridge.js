@@ -8,6 +8,7 @@
   const recentActions = new Map();
   const deliveredResults = new Map();
   const streamAuthPending = new Map();
+  const streamFinalPending = new Map();
   const DEDUPE_TTL_MS = 120000;
   const MAX_SEEN = 256;
   const REPAIR_COOLDOWN_MS = 5 * 60 * 1000;
@@ -149,10 +150,14 @@
     if (msg?.type === 'dex_task_completion_event') { taskCompletionBridge?.handle(msg); return; }
     if (msg?.type === 'dex_stream_nudge_authorization') {
       const entry = streamAuthPending.get(String(msg.requestId || ''));
-      if (entry) {
-        clearTimeout(entry.timer); streamAuthPending.delete(String(msg.requestId));
-        entry.resolve(msg.result || { ok: false, code: 'STREAM_NUDGE_NO_AUTH_RESULT' });
-      }
+      if (entry) { clearTimeout(entry.timer); streamAuthPending.delete(String(msg.requestId));
+        entry.resolve(msg.result || { ok: false, code: 'STREAM_NUDGE_NO_AUTH_RESULT' }); }
+      return;
+    }
+    if (msg?.type === 'dex_stream_nudge_final_ack') {
+      const entry = streamFinalPending.get(String(msg.requestId || ''));
+      if (entry) { clearTimeout(entry.timer); streamFinalPending.delete(String(msg.requestId));
+        entry.resolve(msg.result || { ok: false, code: 'STREAM_NUDGE_NO_FINAL_RESULT' }); }
       return;
     }
     if (msg?.type !== 'provider_control_result' || !msg.requestId) return;
@@ -182,9 +187,12 @@
     ws.addEventListener('close', () => {
       if (socket === ws) socket = null;
       for (const [key, entry] of streamAuthPending) {
-        clearTimeout(entry.timer);
-        entry.resolve({ ok: false, code: 'STREAM_NUDGE_AUTH_SOCKET_LOST' });
+        clearTimeout(entry.timer); entry.resolve({ ok: false, code: 'STREAM_NUDGE_AUTH_SOCKET_LOST' });
         streamAuthPending.delete(key);
+      }
+      for (const [key, entry] of streamFinalPending) {
+        clearTimeout(entry.timer); entry.resolve({ ok: false, code: 'STREAM_NUDGE_FINAL_SOCKET_LOST' });
+        streamFinalPending.delete(key);
       }
       connecting = null;
     });
@@ -246,6 +254,27 @@
       } catch {
         clearTimeout(timer); streamAuthPending.delete(requestId);
         resolve({ ok: false, code: 'STREAM_NUDGE_AUTH_SEND_FAILED' });
+      }
+    });
+  }
+
+
+  async function submitStreamNudgeFinal(source, payload = {}) {
+    const ws = await ensureSocket(), requestId = uid();
+    if (streamFinalPending.size >= 24) return { ok: false, code: 'STREAM_NUDGE_FINAL_LIMIT' };
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        streamFinalPending.delete(requestId);
+        resolve({ ok: false, code: 'STREAM_NUDGE_FINAL_TIMEOUT' });
+      }, 5000);
+      streamFinalPending.set(requestId, { resolve, timer });
+      try {
+        ws.send(JSON.stringify({ type: 'dex_stream_nudge_final', requestId, source,
+          originalRequestId: payload.originalRequestId, turnKey: payload.turnKey,
+          reason: payload.reason, text: String(payload.text || '').slice(0, 131072) }));
+      } catch {
+        clearTimeout(timer); streamFinalPending.delete(requestId);
+        resolve({ ok: false, code: 'STREAM_NUDGE_FINAL_SEND_FAILED' });
       }
     });
   }
@@ -375,7 +404,7 @@
     ensureSocket().catch(() => {});
   }
 
-  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, injectDoneWatch, handleDoneWatchEvent, taskCompletionBridge, handleContentMessage, handleMalformedMessage, authorizeStreamNudge, claimRepairTab, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
+  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, injectDoneWatch, handleDoneWatchEvent, taskCompletionBridge, handleContentMessage, handleMalformedMessage, authorizeStreamNudge, submitStreamNudgeFinal, claimRepairTab, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
   globalThis.BrowserAiBridgeDexProviderControlBridge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
