@@ -9,7 +9,8 @@
   const deliveredResults = new Map();
   const DEDUPE_TTL_MS = 120000;
   const MAX_SEEN = 256;
-  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, doneWatchesReceived: 0, doneWatchesConfirmed: 0, doneWatchesFailed: 0, headsUpsReceived: 0, headsUpsConfirmed: 0, headsUpsFailed: 0, lastDeliveryError: null };
+  const MALFORMED_CODES = new Set(['MALFORMED_DELIMITERS', 'MISSING_CLOSER', 'INCOMPLETE_MARKER', 'INCOMPLETE_JSON', 'INVALID_JSON', 'UNKNOWN_ACTION', 'TRAILING_TEXT']);
+  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, doneWatchesReceived: 0, doneWatchesConfirmed: 0, doneWatchesFailed: 0, headsUpsReceived: 0, headsUpsConfirmed: 0, headsUpsFailed: 0, repairNudgesReceived: 0, repairNudgesAccepted: 0, repairNudgesRejected: 0, lastDeliveryError: null };
   function diagnostics() {
     return { ...telemetry, pending: pending.size, recentActions: recentActions.size, deliveredResults: deliveredResults.size };
   }
@@ -225,6 +226,56 @@
     }
   }
 
+
+  // One-shot, exact-tab feedback. Never guess command arguments or replay an
+  // ambiguous browser submission, and never send a localhost room command.
+  async function handleMalformedMessage(msg, sender) {
+    if (msg?.type !== 'dex_provider_command_malformed') return;
+    const provider = providerForUrl(sender?.tab?.url);
+    if (!provider || !sender?.tab?.id || msg.providerId !== provider.id
+      || !MALFORMED_CODES.has(msg.code)) return;
+    const actionId = String(msg.clientActionId || '');
+    if (!/^[-a-z0-9:]{8,256}$/i.test(actionId)) return;
+    if (!remember(recentActions, 'repair:' + sender.tab.id + ':' + actionId)) {
+      telemetry.duplicateCommandsSuppressed += 1;
+      return;
+    }
+    telemetry.repairNudgesReceived += 1;
+    const tabId = Number(sender.tab.id);
+    const freshness = globalThis.BrowserAiBridgeProviderAdapterFreshness;
+    try {
+      if (!freshness?.ensure || !globalThis.chrome?.tabs?.sendMessage) {
+        throw new Error('Exact provider adapter or tab messaging is unavailable.');
+      }
+      await freshness.ensure(tabId, provider, chrome);
+      const message = [
+        '[DEX FORMAT NUDGE — ONE SHOT]',
+        'Your previous assistant reply appeared to attempt a Dex command.',
+        'Reason: ' + msg.code + '. No malformed command was executed.',
+        'If the original action is still appropriate, issue a NEW assistant',
+        'reply containing ONE complete trailing Dex CMD marker with valid JSON.',
+        'Both opening brackets, literal JSON braces, and both closing brackets',
+        'must appear in the RENDERED reply. Do not use fenced code or quotes.',
+        'Preserve the intended action and arguments. If the previous reply does',
+        'not contain enough information, ask the user instead of guessing.',
+        'This nudge is single-use; another malformed reply will NOT nudge again.',
+        'Do not create acknowledgement loops or claim a command was sent.'
+      ].join('\n');
+      const ack = await chrome.tabs.sendMessage(tabId, {
+        type: 'send_prompt', requestId: 'dex-control-repair-' + actionId,
+        text: message, delivery: { kind: 'dex-control-nudge', originalTurnKey: actionId }
+      });
+      if (ack?.ok !== true) {
+        throw new Error(String(ack?.error || 'Provider did not confirm nudge submission.').slice(0, 140));
+      }
+      telemetry.repairNudgesAccepted += 1;
+    } catch (error) {
+      telemetry.repairNudgesRejected += 1;
+      telemetry.lastDeliveryError = String(error?.message || error).slice(0, 160);
+      // A negative or unknown result is recorded; no automatic retry.
+    }
+  }
+
   function prunePending(maxAgeMs = DEDUPE_TTL_MS) {
     const now = Date.now();
     for (const [requestId, entry] of pending) {
@@ -237,6 +288,7 @@
 
   if (typeof chrome !== 'undefined' && chrome.runtime) {
     chrome.runtime.onMessage.addListener((msg, sender) => {
+      if (msg?.type === 'dex_provider_command_malformed') { handleMalformedMessage(msg, sender).catch(() => {}); return; }
       if (msg?.type !== 'dex_provider_command') return;
       handleContentMessage(msg, sender).catch(() => {});
     });
@@ -244,7 +296,7 @@
     ensureSocket().catch(() => {});
   }
 
-  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, injectDoneWatch, handleDoneWatchEvent, handleContentMessage, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
+  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, injectDoneWatch, handleDoneWatchEvent, handleContentMessage, handleMalformedMessage, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
   globalThis.BrowserAiBridgeDexProviderControlBridge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
