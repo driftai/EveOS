@@ -364,7 +364,7 @@
       issues: pageState.issueSnapshot(), userCount: userBaselineCount, prompt: text
     };
 
-    const sendWaitMs = delivery?.kind === 'dex-control-result' ? DEX_CONTROL_SEND_WAIT_MS : 5000;
+    const sendWaitMs = ['dex-control-result', 'dex-done-watch'].includes(delivery?.kind) ? DEX_CONTROL_SEND_WAIT_MS : 5000;
     const ready = await waitForReadyComposer(composer, text, sendWaitMs);
     composer = ready.composer;
     if (!composer || !input.composerContainsText(composer, text)) {

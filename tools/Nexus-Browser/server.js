@@ -4,7 +4,7 @@ const { WebSocketServer, WebSocket } = require('ws');
 const localTargets = require('./local-targets/manager');
 const { createDexServerRouting } = require('./dex/server-routing'), { createProviderControlRouting } = require('./dex/provider-control-routing'), { createProviderTargetSpawnRouting } = require('./dex/provider-target-spawn-routing');
 const { createQualificationRestartHook } = require('./dex/qualification-restart'), { createQualificationRouting } = require('./dex/qualification-routing');
-const { createDexStateStore } = require('./dex/state-store'), { createDexServerScheduler } = require('./dex/server-scheduler');
+const { createDexStateStore } = require('./dex/state-store'), { createDexServerScheduler } = require('./dex/server-scheduler'), { createDoneWatchDelivery } = require('./dex/done-watch-delivery');
 const { mergeClientSnapshot } = require('./dex/server-state-merge');
 const { createServerDurability } = require('./dex/server-durability');
 const { createExtensionSessionArbiter } = require('./dex/extension-session-arbiter');
@@ -21,7 +21,7 @@ const ASSET_REVISION = assetRevision();
 const server = http.createServer(createHttpHandler({ host: HOST, port: PORT, publicDir: PUBLIC_DIR, diagnostics: diagnosticsSnapshot }));
 const wss = new WebSocketServer({ noServer: true });
 const heartbeat = attachWebSocketHeartbeat(wss);
-let extensionSocket = null;
+let extensionSocket = null, doneWatchControlSocket = null;
 const extensionSessions = createExtensionSessionArbiter({
   isOpen: (ws) => ws?.readyState === WebSocket.OPEN,
   onAuthoritySettled: (state) => {
@@ -86,10 +86,11 @@ const providerControlRouting = createProviderControlRouting({
     return true;
   }
 });
+const doneWatchDelivery = createDoneWatchDelivery({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, safeSend, getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null, getTabs: () => lastTabs });
 const qualificationRouting = createQualificationRouting({ safeSend, getExtensionSocket: () => extensionSocket, getDurability: () => durability, getStateStore: () => dexStateStore, restartHook: qualificationRestart, serverSessionId: SERVER_SESSION_ID });
 const serverDexSource = { clientKind: 'dex' };
 const serverLocalRelay = createServerLocalRelay({ localTargets, mirrorPrompt: (targetId, msg, target) => mirrorPromptToConsoles(targetId, serverDexSource, msg, target), emitEvent: (targetId, payload) => sendLocalEvent(targetId, serverDexSource, payload), broadcastStatus: (targetId) => broadcastLocalStatus(targetId, serverDexSource) });
-const dexScheduler = createDexServerScheduler({ stateStore: { load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot) }, durability: { beforeDispatch: (...args) => durability.beforeDispatch(...args), observe: (...args) => durability.observe(...args), markFailed: (...args) => durability.markFailed(...args), query: (...args) => durability.query(...args) }, getOnlineTargets: () => lastTabs, getProviders: () => lastProviders, getSelectedOnlineTarget: () => lastTarget, getLocalTargets: async (force = false) => { if (force) await refreshLocalTargets(null, { force: true }); return lastLocalTargets; }, isExtensionAvailable: () => !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN && extensionSessions.current().ready, sendExtension: (payload) => safeSend(extensionSocket, payload), sendLocalPrompt: serverLocalRelay.sendLocalPrompt, captureLocalLatest: localTargets.captureLocalLatest, broadcastState: broadcastDexState, recordIncident: (input) => durability.recordIncident(input) });
+const dexScheduler = createDexServerScheduler({ stateStore: { load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot) }, durability: { beforeDispatch: (...args) => durability.beforeDispatch(...args), observe: (...args) => durability.observe(...args), markFailed: (...args) => durability.markFailed(...args), query: (...args) => durability.query(...args) }, getOnlineTargets: () => lastTabs, getProviders: () => lastProviders, getSelectedOnlineTarget: () => lastTarget, getLocalTargets: async (force = false) => { if (force) await refreshLocalTargets(null, { force: true }); return lastLocalTargets; }, isExtensionAvailable: () => !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN && extensionSessions.current().ready, sendExtension: (payload) => safeSend(extensionSocket, payload), sendLocalPrompt: serverLocalRelay.sendLocalPrompt, captureLocalLatest: localTargets.captureLocalLatest, broadcastState: broadcastDexState, onTurnSettled: () => doneWatchDelivery.flush(), recordIncident: (input) => durability.recordIncident(input) });
 const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
 function diagnosticsSnapshot() { return readDiagnostics(); }
 function extensionStatus() {
@@ -254,7 +255,7 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (msg.role === 'provider-control-extension') {
-        ws.role = 'provider-control-extension'; providerControlRouting.providerControlConnected(ws);
+        ws.role = 'provider-control-extension'; ws.doneWatchVersion = msg.doneWatchVersion === 1 ? 1 : 0; providerControlRouting.providerControlConnected(ws); doneWatchControlSocket = ws; doneWatchDelivery.flush();
         console.log('[bridge] provider-control extension connected');
         return;
       }
@@ -285,7 +286,7 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'ping') { safeSend(ws, { type: 'pong', at: Date.now() }); return; }
     if (ws.role === 'qualification') { await qualificationRouting.handle(ws, msg); return; }
     if (ws.role === 'provider-control-extension') {
-      if (await providerControlRouting.handle(ws, msg)) return;
+      if (doneWatchDelivery.handleAck(ws, msg) || await providerControlRouting.handle(ws, msg)) return;
       safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'BAD_PROVIDER_CONTROL_COMMAND', message: `Unsupported provider-control command: ${msg.type}` });
       return;
     }
@@ -361,7 +362,7 @@ wss.on('connection', (ws, req) => {
         const state = syncExtensionAuthority(extensionSessions.update(ws, msg));
         console.log(`[bridge] extension tabs_update: ${Array.isArray(msg.tabs) ? msg.tabs.length : 0} tab(s) [${state.socket === ws ? 'primary' : `standby; authoritative=${lastTabs.length}`} primary=${state.primarySessionId || 'none'} epoch=${state.primaryConnectionEpoch || 0} sessions=${state.sessionCount}]`);
         if (state.socket !== ws || !state.ready) return;
-        dexScheduler.resume();
+        dexScheduler.resume(); doneWatchDelivery.flush();
       } else if (extensionSocket !== ws) return;
       await durability.observe(msg, {
         targetClassId: 'online-origin', targetId: msg.tabId || lastTarget?.id || null,
@@ -393,6 +394,7 @@ wss.on('connection', (ws, req) => {
 
   ws.on('close', (code, reason) => {
     providerControlRouting.dropSocket(ws); qualificationRouting.dropSocket(ws);
+    if (doneWatchControlSocket === ws) doneWatchControlSocket = null;
     if (ws.role === 'extension') {
       const state = syncExtensionAuthority(extensionSessions.drop(ws, { closeCode: Number(code) || null, closeReason: String(reason || '') }));
       if (state.wasPrimary) {

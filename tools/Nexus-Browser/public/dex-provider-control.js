@@ -5,16 +5,18 @@
     || (typeof module !== 'undefined' && module.exports ? require('./dex-agent-continuity.js') : null);
   const participantApi = globalThis.BrowserAiBridgeDexProviderParticipants
     || (typeof module !== 'undefined' && module.exports ? require('./dex-provider-participants.js') : null);
+  const doneWatchApi = globalThis.BrowserAiBridgeDexDoneWatch
+    || (typeof module !== 'undefined' && module.exports ? require('./dex-done-watch.js') : null);
   const membersApi = globalThis.BrowserAiBridgeDexMembers
     || (typeof module !== 'undefined' && module.exports ? require('./dex-members.js') : null);
-  if (!roomAdminApi || !continuityApi || !participantApi || !membersApi) throw new Error('Dex room admin, continuity, participant, and member helpers must load before provider control.');
+  if (!roomAdminApi || !continuityApi || !participantApi || !membersApi || !doneWatchApi) throw new Error('Dex room admin, continuity, participant, and member helpers must load before provider control.');
   const SELECTION_KEY = 'browser-ai-bridge.dex.provider-control.v1';
   const ACTIONS = new Set([
     'help', 'onboard', 'checkpoint', 'read_checkpoint', 'rooms', 'targets', 'create_room', 'use_room', 'status',
     'rename_self', 'set_self_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room',
-    'stop_relay', 'continue_relay', 'reload_extension', ...roomAdminApi.ACTIONS
+    'stop_relay', 'continue_relay', 'reload_extension', 'watch_done', 'unwatch_done', ...roomAdminApi.ACTIONS
   ]);
-  const MUTATING_ACTIONS = new Set(['checkpoint','create_room','rename_room','configure_room','add_agent','spawn_agent','despawn_agent','rename_agent','set_agent_relay','remove_agent','rename_self','set_self_relay','stop_relay','continue_relay','clear_chat','delete_room','send','handoff_room','reload_extension']);
+  const MUTATING_ACTIONS = new Set(['checkpoint','create_room','rename_room','configure_room','add_agent','spawn_agent','despawn_agent','rename_agent','set_agent_relay','remove_agent','rename_self','set_self_relay','stop_relay','continue_relay','clear_chat','delete_room','send','handoff_room','reload_extension','watch_done','unwatch_done']);
   function clean(value, max = 16000) {
     return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, max);
   }
@@ -139,7 +141,7 @@
         providerName: member?.binding?.providerName || null,
         relayEnabled: member?.relayEnabled !== false
       },
-      commands: ['rooms', 'targets', 'status', 'checkpoint', 'read_checkpoint', 'use_room', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension'],
+      commands: ['rooms', 'targets', 'status', 'checkpoint', 'read_checkpoint', 'use_room', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done'],
       spawnProviders: providers.filter((entry) => entry.orchestration?.spawnable).map((entry) => ({ providerId: entry.id, providerName: entry.name })),
       continuity: continuityApi.onboardingGuidance(room, member, provider),
       rules: [
@@ -149,6 +151,7 @@
         'Normal relay replies must not impersonate another participant or rewrite Dex routing metadata.',
         'Managed browser workers are bounded resources. Use spawn_agent only for explicit idle rooms and despawn_agent before deleting their room.',
         'A bound browser chat may request reload_extension only for its exact idle room. This server-owned operation does not grant shell access and fails closed if another Dex room is busy.',
+        'send with notifyOnDone:true attaches a one-shot DONE notification to the sender, without another Dex relay turn. The sender can rearm using watch_done or cancel using unwatch_done; default is off.',
         'Disposable proof/test rooms are temporary resources. After the final idle status and managed-worker cleanup, delete the room with delete_room; do not leave one-use qualification rooms behind.'
       ]
     };
@@ -203,7 +206,9 @@
             '[[DEX:CMD {"action":"add_agent","room":"<room>","targetClassId":"online-origin","targetId":"<target id>","name":"<agent name>"}]]',
             '[[DEX:CMD {"action":"spawn_agent","room":"<room>","providerId":"<spawnable provider id>","name":"<worker name>"}]]',
             '[[DEX:CMD {"action":"despawn_agent","room":"<room>","member":"<managed member id or name>"}]]',
-            '[[DEX:CMD {"action":"send","text":"<message>","relay":true}]]',
+            '[[DEX:CMD {"action":"send","text":"<message>","relay":true,"notifyOnDone":true,"notifyMember":"<optional exact member name or id>"}]]',
+            '[[DEX:CMD {"action":"watch_done","room":"<room id>","member":"<optional exact member name or id>"}]]',
+            '[[DEX:CMD {"action":"unwatch_done","room":"<room id>"}]]',
             '[[DEX:CMD {"action":"handoff_room","room":"<authorized room id or exact name>","text":"<message>","turns":8}]]',
             '[[DEX:CMD {"action":"reload_extension","room":"<exact authorized room id>"}]]'
           ],
@@ -218,7 +223,7 @@
       if (!ACTIONS.has(action)) return { ok: false, code: 'DEX_CONTROL_BAD_ACTION', message: `Unsupported Dex provider-control action: ${action || '(missing)'}` };
       if (!source.targetClassId || !source.providerId) return { ok: false, code: 'DEX_CONTROL_BAD_SOURCE', message: 'Provider-control source identity is incomplete.' };
       if (action === 'help') return help();
-      if (action === 'reload_extension') return { ok: false, code: 'DEX_CONTROL_SERVER_ONLY', message: 'Extension reload must be authorized by the localhost provider-control router, not the browser UI.' };
+      if (['reload_extension', 'watch_done', 'unwatch_done'].includes(action)) return { ok: false, code: 'DEX_CONTROL_SERVER_ONLY', message: `${action} is owned by the localhost provider-control router.` };
       if (action === 'create_room') {
         if (typeof createRoom !== 'function') {
           return { ok: false, code: 'DEX_CONTROL_CREATE_UNAVAILABLE', message: 'Dex room creation is unavailable in this runtime.' };
@@ -336,7 +341,7 @@
           kind: message.senderKind,
           text: clean(message.text, 400)
         }));
-        return { ok: true, action, message: `Dex room ${room.name} status.`, data: { ...roomSummary(room, member, true), checkpoint: continuityApi.compact(continuityApi.checkpointFor(room, member?.id)), latest } };
+        return { ok: true, action, message: `Dex room ${room.name} status.`, data: { ...roomSummary(room, member, true), checkpoint: continuityApi.compact(continuityApi.checkpointFor(room, member?.id)), doneWatch: doneWatchApi.summary(room, member?.id), latest } };
       }
       if (action === 'stop_relay') {
         if (typeof stopRoom !== 'function') return { ok: false, code: 'DEX_CONTROL_STOP_UNAVAILABLE', message: 'Relay stop is unavailable in this runtime.' };
@@ -390,6 +395,9 @@
       const text = clean(command.text);
       if (!text) return { ok: false, code: 'DEX_CONTROL_EMPTY_MESSAGE', message: 'send requires non-empty text.' };
       if (roomBusy(state, room)) return { ok: false, code: 'DEX_CONTROL_ROOM_BUSY', message: `Dex room ${room.name} is already relaying. Wait for it to stop before initiating an out-of-band provider message.` };
+      if (command.notifyOnDone === true && command.relay === false) return { ok: false, code: 'DEX_DONE_WATCH_RELAY_REQUIRED', message: 'notifyOnDone requires relay:true.' };
+      const target = command.notifyMember ? roomAdminApi.resolveMember(room, command.notifyMember).member : null;
+      if (command.notifyOnDone === true && command.notifyMember && !target) return { ok: false, code: 'DEX_DONE_WATCH_BAD_TARGET', message: 'notifyMember must name a single room participant.' };
       const message = roomMessage(room, 'agent', member.id, member.name, text, false);
       if (command.relay === false) {
         persist();
@@ -397,7 +405,15 @@
         log?.(`Provider control recorded note from ${member.name} in ${room.name}.`);
         return { ok: true, silent: true, action, message: `Recorded message in ${room.name} without starting relay.`, data: { roomId: room.id, messageId: message.id } };
       }
-      startRelay(room, message);
+      const previous = { watches: room.doneWatches, revision: room.doneWatchRevision, updatedAt: room.updatedAt };
+      if (command.notifyOnDone === true) {
+        const enrolled = doneWatchApi.arm(room, { watcherMemberId: member.id, targetMemberId: target?.id || null, id: uid('done-watch') });
+        if (!enrolled.ok) { room.messages.pop(); return enrolled; }
+      }
+      if (startRelay(room, message) === false) {
+        room.messages.pop(); Object.assign(room, { doneWatches: previous.watches, doneWatchRevision: previous.revision, updatedAt: previous.updatedAt });
+        return { ok: false, code: 'DEX_CONTROL_RELAY_START_FAILED', message: 'Relay could not start; no DONE watcher was armed.' };
+      }
       log?.(`Provider control started ${room.name} from ${member.name}.`);
       return { ok: true, silent: true, action, message: `Sent to ${room.name} and started relay.`, data: { roomId: room.id, messageId: message.id } };
     }

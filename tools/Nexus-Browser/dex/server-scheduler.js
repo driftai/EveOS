@@ -2,7 +2,7 @@ const { randomUUID } = require('node:crypto');
 const protocol = require('../public/dex-protocol');
 const healthApi = require('../public/dex-provider-health');
 const failurePolicy = require('../public/dex-failure-policy');
-const stateApi = require('./server-scheduler-state'), controlReceiptApi = require('./provider-control-receipt');
+const stateApi = require('./server-scheduler-state'), controlReceiptApi = require('./provider-control-receipt'), doneWatchApi = require('../public/dex-done-watch');
 const { createServerSchedulerRecovery } = require('./server-scheduler-recovery');
 const { TURN_TIMEOUT_MS, TURN_IDLE_TIMEOUT_MS, TURN_ABSOLUTE_TIMEOUT_MS,
   activityFromTransport, createServerTurnLease } = require('./server-turn-lease');
@@ -17,7 +17,7 @@ function createDexServerScheduler({
   sendLocalPrompt,
   captureLocalLatest,
   broadcastState = () => {},
-  broadcastEvent = () => {},
+  broadcastEvent = () => {}, onTurnSettled = () => {},
   recordIncident = (input) => durability?.recordIncident?.(input),
   now = () => new Date().toISOString(), nowMs = () => Date.now(),
   setTimer = setTimeout,
@@ -81,7 +81,6 @@ function createDexServerScheduler({
       save(snapshot); current.dispatched = true;
     }
   }
-
   async function dispatchOnline(target) {
     if (!current) return false;
     if (!isExtensionAvailable()) return parkCurrent('Extension bridge offline before dispatch.');
@@ -345,10 +344,12 @@ function createDexServerScheduler({
     delete room.recovery;
     room.relay.waitingFor = null;
     const disposition = protocol.relayDisposition(parsed, member.name, repeated, room.relay);
+    if (parsed.done) doneWatchApi.consume(room, { completedMemberId: member.id, message, at: now() });
     clearCurrent();
     if (disposition.action === 'stop') setStopped(room, disposition.reason);
     else enqueueNext(room, message);
     save(snapshot);
+    try { onTurnSettled(); } catch {}
     processSoon(0);
     return true;
   }

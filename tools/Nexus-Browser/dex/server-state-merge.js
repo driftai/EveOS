@@ -25,9 +25,21 @@ function mergeCheckpoints(serverValue, clientValue) {
   };
 }
 
+function mergeDoneWatchFields(serverRoom = {}, clientRoom = {}) {
+  // A newer browser arming may supersede the server; a stale browser snapshot
+  // must never resurrect a one-shot watch already consumed by the scheduler.
+  const useClient = Number(clientRoom.doneWatchRevision || 0) > Number(serverRoom.doneWatchRevision || 0);
+  const owner = useClient ? clientRoom : serverRoom;
+  return {
+    doneWatches: Array.isArray(owner.doneWatches) ? owner.doneWatches : [],
+    doneWatchRevision: Number(owner.doneWatchRevision || 0),
+    doneWatchEvents: Array.isArray(serverRoom.doneWatchEvents) ? serverRoom.doneWatchEvents : []
+  };
+}
+
 function mergeIdleRoom(serverRoom, clientRoom) {
   const client = clientRoom && typeof clientRoom === 'object' ? clientRoom : {};
-  const merged = { ...client, relay: { ...(serverRoom.relay || {}) } };
+  const merged = { ...client, ...mergeDoneWatchFields(serverRoom, client), relay: { ...(serverRoom.relay || {}) } };
   delete merged.pendingTurn;
   delete merged.recovery;
   return merged;
@@ -37,6 +49,7 @@ function mergeBusyRoom(serverRoom, clientRoom) {
   const client = clientRoom && typeof clientRoom === 'object' ? clientRoom : {};
   return {
     ...serverRoom,
+    ...mergeDoneWatchFields(serverRoom, client),
     ...(client.name != null ? { name: client.name } : {}),
     ...(client.userName != null ? { userName: client.userName } : {}),
     ...(client.settings && typeof client.settings === 'object' ? {
@@ -90,6 +103,7 @@ module.exports = {
   runtimeBusy,
   mergeMessages,
   mergeCheckpoints,
+  mergeDoneWatchFields,
   mergeIdleRoom,
   mergeBusyRoom,
   mergeClientSnapshot

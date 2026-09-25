@@ -12,7 +12,7 @@
   const PROVIDER_CONTROL_ACTIONS = new Set([
     'help', 'onboard', 'checkpoint', 'read_checkpoint', 'rooms', 'targets', 'create_room', 'use_room', 'status',
     'rename_room', 'configure_room', 'rename_self', 'set_self_relay', 'rename_agent', 'set_agent_relay', 'remove_agent',
-    'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room', 'reload_extension'
+    'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done'
   ]);
   const NESTED_RELAY_MARKER = /\[{1,2}DEX ROOM RELAY\]/i;
   const OLD_CONTEXT_TRUNCATION = '[truncated by Dex context window]';
@@ -186,6 +186,9 @@
     const contextLimit = clampInt(room?.settings?.contextMessages, 2, 20, 8);
     const history = (room?.messages || []).filter((message) => message.id !== sourceMessage?.id);
     const context = boundedContext(history, contextLimit);
+    const doneSubscribers = (room?.doneWatches || []).filter((watch) => watch.watcherMemberId !== addressed?.id
+      && (!watch.targetMemberId || watch.targetMemberId === addressed?.id)
+      && Date.parse(watch.expiresAt || '') > Date.now()).length;
     const source = messageWrapper(sourceMessage);
     return [
       '[DEX ROOM RELAY]',
@@ -207,6 +210,7 @@
       '- Do not add a "From" label; Dex attaches speaker identity automatically.',
       `- End with ${DONE_TOKEN} only when the room task is complete and no other agent must receive or acknowledge your reply. DONE records this reply in the transcript and STOPS relay before the next agent gets a turn.`,
       '- For a two-agent request that asks for direct confirmation, the responder must reply WITHOUT a control marker so Dex relays the acknowledgement to the requesting agent. The requester can then end its confirmation turn with [[DEX:DONE]]. Do not exchange extra acknowledgements.',
+      `- Active one-shot DONE subscribers for your response: ${doneSubscribers}. If a requester subscribed, DONE still stops relay but sends them a separate background notification, not another Dex relay turn. With no subscription, use the direct-return rule above when confirmation is required.`,
       '- Without a trailing marker, Dex continues to the NEXT participating agent in room order, not necessarily the original requester if the room has more than two agents.',
       `- End with ${USER_TOKEN} only when human input is required before work can continue.`,
       `- End with ${NOTE_TOKEN} only for an informational room note that should be recorded without triggering another agent turn.`,

@@ -9,7 +9,7 @@
   const deliveredResults = new Map();
   const DEDUPE_TTL_MS = 120000;
   const MAX_SEEN = 256;
-  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, lastDeliveryError: null };
+  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, doneWatchesReceived: 0, doneWatchesConfirmed: 0, doneWatchesFailed: 0, lastDeliveryError: null };
   function diagnostics() {
     return { ...telemetry, pending: pending.size, recentActions: recentActions.size, deliveredResults: deliveredResults.size };
   }
@@ -97,9 +97,44 @@
     });
   }
 
+  async function injectDoneWatch(msg) {
+    const source = msg?.source || {};
+    if (!source.targetId || !source.url || !msg?.eventId || !msg?.text)
+      throw new Error('Incomplete DONE watch event.');
+    const provider = providerForUrl(source.url);
+    const freshness = globalThis.BrowserAiBridgeProviderAdapterFreshness;
+    if (!provider || provider.id !== source.providerId || !freshness?.ensure)
+      throw new Error('DONE watch target is not an exact authorized browser provider.');
+    await freshness.ensure(Number(source.targetId), provider, chrome);
+    const accepted = await chrome.tabs.sendMessage(Number(source.targetId), {
+      type: 'send_prompt', requestId: `dex-done-watch-${msg.eventId}`,
+      text: msg.text, delivery: { kind: 'dex-done-watch', eventId: msg.eventId }
+    });
+    if (accepted?.ok !== true)
+      throw new Error(String(accepted?.error || 'DONE notification submission was not confirmed.').slice(0, 160));
+  }
+
+  function handleDoneWatchEvent(msg) {
+    const key = String(msg?.eventId || '');
+    if (!key) return;
+    if (!remember(deliveredResults, `done:${key}`)) return;
+    telemetry.doneWatchesReceived += 1;
+    // The event is claimed once; neither reconnect nor an ambiguous browser
+    // send acknowledgement may re-submit it automatically.
+    injectDoneWatch(msg).then(() => {
+      telemetry.doneWatchesConfirmed += 1;
+      socket?.send?.(JSON.stringify({ type: 'dex_done_watch_ack', eventId: key, ok: true }));
+    }).catch((error) => {
+      telemetry.doneWatchesFailed += 1;
+      telemetry.lastDeliveryError = String(error?.message || error).slice(0, 160);
+      socket?.send?.(JSON.stringify({ type: 'dex_done_watch_ack', eventId: key, ok: false, error: telemetry.lastDeliveryError }));
+    });
+  }
+
   function handleServerMessage(raw) {
     let msg;
     try { msg = JSON.parse(String(raw?.data ?? raw)); } catch { return; }
+    if (msg?.type === 'dex_done_watch_event') { handleDoneWatchEvent(msg); return; }
     if (msg?.type !== 'provider_control_result' || !msg.requestId) return;
     if (!remember(deliveredResults, String(msg.requestId))) {
       telemetry.duplicateResultsSuppressed += 1;
@@ -153,7 +188,7 @@
         ws.addEventListener('open', () => {
           clearTimeout(timer);
           socket = ws;
-          ws.send(JSON.stringify({ type: 'hello', role: 'provider-control-extension' }));
+          ws.send(JSON.stringify({ type: 'hello', role: 'provider-control-extension', doneWatchVersion: 1 }));
           resolve(ws);
         }, { once: true });
         ws.addEventListener('error', () => {
@@ -207,7 +242,7 @@
     ensureSocket().catch(() => {});
   }
 
-  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, handleContentMessage, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
+  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, injectDoneWatch, handleDoneWatchEvent, handleContentMessage, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
   globalThis.BrowserAiBridgeDexProviderControlBridge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
