@@ -160,3 +160,42 @@ test('a selection id without a DIL response root never confers assistant ownersh
   const quoted = node({}, 'TextBase', explicitUser);
   assert.equal(chatgptAnswer.isAssistantOwned(quoted), false, 'explicit user ownership always wins');
 });
+
+test('role-free headed article with markdown.prose is assistant-owned without DIL markers', () => {
+  const turn = node({}, 'conversation-turn');
+  turn.tagName = 'ARTICLE';
+  const content = element('DIV', [element('P', [textNode('Real reply. [[DEX:CMD {"action":"status"}]]')])]);
+  content.className = 'markdown prose';
+  content.parentElement = turn;
+  content.closest = (selector) => selector === 'article' ? turn : null;
+  turn.querySelector = (selector) => selector === '.markdown.prose' ? content : null;
+  turn.querySelectorAll = (selector) => selector === chatgptAnswer.CONTENT_SELECTOR ? [content] : [];
+  const root = { querySelectorAll(selector) {
+    return selector === chatgptAnswer.ASSISTANT_SELECTOR ? [turn] : [];
+  } };
+  assert.equal(chatgptAnswer.hasArticleAssistantMessage(turn), true);
+  assert.deepEqual(chatgptAnswer.assistantNodes(root), [content]);
+  assert.equal(chatgptAnswer.isAssistantOwned(content), true);
+  assert.match(chatgptAnswer.getTurnAssistantText([content]), /DEX:CMD/);
+});
+test('explicit user article with quoted markdown.prose never confers assistant ownership', () => {
+  const user = node({ 'data-role': 'user' });
+  user.tagName = 'ARTICLE';
+  const quoted = node({}, 'markdown prose', user);
+  quoted.closest = () => user;
+  user.querySelector = (selector) => selector === '.markdown.prose' ? quoted : null;
+  const root = { querySelectorAll(selector) {
+    return selector === chatgptAnswer.ASSISTANT_SELECTOR ? [user] : [];
+  } };
+  assert.equal(chatgptAnswer.hasArticleAssistantMessage(user), false);
+  assert.equal(chatgptAnswer.isAssistantOwned(quoted), false);
+  assert.deepEqual(chatgptAnswer.assistantNodes(root), []);
+});
+test('outer article cannot claim the nested article reply as its own', () => {
+  const outer = node(); outer.tagName = 'ARTICLE';
+  const inner = node(); inner.tagName = 'ARTICLE'; inner.parentElement = outer;
+  const content = node({}, 'markdown prose', inner);
+  content.closest = (selector) => selector === 'article' ? inner : null;
+  outer.querySelector = (selector) => selector === '.markdown.prose' ? content : null;
+  assert.equal(chatgptAnswer.hasArticleAssistantMessage(outer), false);
+});
