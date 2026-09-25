@@ -9,7 +9,7 @@
   const deliveredResults = new Map();
   const DEDUPE_TTL_MS = 120000;
   const MAX_SEEN = 256;
-  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, lastDeliveryError: null };
+  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, lastDeliveryError: null };
   function diagnostics() {
     return { ...telemetry, pending: pending.size, recentActions: recentActions.size, deliveredResults: deliveredResults.size };
   }
@@ -61,12 +61,19 @@
     const freshness = globalThis.BrowserAiBridgeProviderAdapterFreshness;
     if (!provider || !freshness?.ensure) throw new Error('Dex result delivery could not resolve provider adapter freshness.');
     await freshness.ensure(Number(source.targetId), provider, chrome);
-    await chrome.tabs.sendMessage(Number(source.targetId), {
+    const acknowledgement = await chrome.tabs.sendMessage(Number(source.targetId), {
       type: 'send_prompt',
       requestId: `dex-control-result-${requestId}`,
       text: formatResult(result),
       delivery: { kind: 'dex-control-result' }
     });
+    // chrome.tabs.sendMessage resolves even when the provider responds { ok:false }.
+    // Record that negative acknowledgement instead of silently treating seeded text
+    // as successfully submitted; never replay an uncertain send automatically.
+    if (acknowledgement?.ok === false) {
+      throw new Error(`DEX_RESULT_SUBMISSION_FAILED: ${String(acknowledgement.error || 'Provider rejected result submission.').slice(0, 120)}`);
+    }
+    return acknowledgement;
   }
 
   function sameTarget(a = {}, b = {}) {
@@ -103,7 +110,11 @@
     const result = msg.result || { ok: false, message: 'Dex provider-control returned no result.' };
     pending.delete(msg.requestId);
     telemetry.deliveriesAttempted += 1;
-    injectResult(source, msg.requestId, result).catch((error) => {
+    injectResult(source, msg.requestId, result).then(() => {
+      telemetry.deliveriesAccepted += 1;
+      telemetry.lastDeliveryError = null;
+    }).catch((error) => {
+      telemetry.deliveriesRejected += 1;
       telemetry.lastDeliveryError = String(error?.message || error).slice(0, 160);
     });
     if (msg.originReceipt?.originTarget && (!sameTarget(msg.originReceipt.originTarget, source) || result?.silent)) {

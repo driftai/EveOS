@@ -120,3 +120,53 @@ test('background sends each content action once and injects each result ID once'
   assert.equal(bridge.diagnostics().duplicateResultsSuppressed, 1);
   assert.equal(bridge.diagnostics().lastDeliveryError, null);
 });
+
+test('provider negative send acknowledgement is reported rather than mistaken for delivered Dex result', async () => {
+  const outbound = [], injected = [];
+  class Socket {
+    static OPEN = 1;
+    constructor() {
+      this.readyState = 1;
+      this.listeners = new Map();
+      queueMicrotask(() => this.listeners.get('open')?.());
+    }
+    addEventListener(event, fn) { this.listeners.set(event, fn); }
+    send(text) { outbound.push(JSON.parse(text)); }
+  }
+  const context = {
+    NexusBrowserRuntimeConfig: { websocketUrl: 'ws://localhost/ws', healthUrl: 'http://localhost/health' },
+    BrowserAiBridgeProviders: { providerForUrl: () => ({ id: 'chatgpt', name: 'ChatGPT' }) },
+    BrowserAiBridgeProviderAdapterFreshness: { ensure: async () => {} },
+    chrome: { tabs: { async sendMessage(tabId, payload) {
+      injected.push({ tabId, payload });
+      return { ok: false, error: 'ChatGPT composer remained populated after submission attempts.' };
+    } } },
+    fetch: async () => ({ ok: true }),
+    WebSocket: Socket,
+    setTimeout,
+    clearTimeout,
+    setInterval: () => 0
+  };
+  vm.runInNewContext(bridgeSource, context, { filename: 'dex-provider-control-bridge.js' });
+  const bridge = context.BrowserAiBridgeDexProviderControlBridge;
+  await bridge.handleContentMessage({
+    type: 'dex_provider_command', providerId: 'chatgpt',
+    clientActionId: 'chatgpt:message:turn-negative-ack', command: { action: 'targets' }
+  }, { tab: { id: 42, url: 'https://chatgpt.com/c/eve' } });
+  const requests = outbound.filter(msg => msg.type === 'provider_control_request');
+  assert.equal(requests.length, 1);
+  const response = JSON.stringify({
+    type: 'provider_control_result', requestId: requests[0].requestId,
+    source: { targetId: 42, url: 'https://chatgpt.com/c/eve' },
+    result: { ok: true, message: 'Targets returned.' }
+  });
+  bridge.handleServerMessage(response);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(injected.length, 1);
+  assert.equal(bridge.diagnostics().deliveriesRejected, 1);
+  assert.equal(bridge.diagnostics().deliveriesAccepted, 0);
+  assert.match(bridge.diagnostics().lastDeliveryError, /DEX_RESULT_SUBMISSION_FAILED: ChatGPT composer remained populated/);
+  bridge.handleServerMessage(response);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(injected.length, 1, 'negative acknowledgement must not trigger unsafe replay');
+});
