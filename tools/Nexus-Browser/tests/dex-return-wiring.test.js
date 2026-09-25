@@ -14,7 +14,7 @@ test('RETURN helper is loaded in both headed and dynamically injected ChatGPT ad
     assert.ok(files.indexOf('content/chatgpt-return.js') > files.indexOf('content/chatgpt-answer.js'));
     assert.ok(files.indexOf('content/chatgpt-return.js') < files.indexOf('content/chatgpt.js'));
   }
-  assert.match(read('extension/content/provider-adapter-revision.js'), /ADAPTER_REVISION = 44/);
+  assert.match(read('extension/content/provider-adapter-revision.js'), /ADAPTER_REVISION = 45/);
 });
 
 test('returned final text is durably queued before delivery and only acknowledged after localhost commit', () => {
