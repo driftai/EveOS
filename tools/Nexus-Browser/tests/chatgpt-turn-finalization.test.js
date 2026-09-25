@@ -24,7 +24,7 @@ test('ChatGPT finalization treats transient status text as activity instead of a
   assert.match(source, /const transientOnly = !!String\(rawText \|\| ''\)\.trim\(\) && !text;/);
   assert.match(source, /if \(transientOnly\) \{\s*watcher\.sawGenerating = true;/);
   assert.match(source, /watcher\.sawReliableGenerating = true;/);
-  assert.match(source, /const settleMs = generationSettleMs\(\{\s*sawReliableGenerating: watcher\.sawReliableGenerating,\s*text: watcher\.lastText\s*\}\);/);
+  assert.match(source, /const settleMs = malformedDexControl\(watcher\.lastText\) \? STATUS_SIGNAL_SETTLE_MS : generationSettleMs\(\{\s*sawReliableGenerating: watcher\.sawReliableGenerating,\s*text: watcher\.lastText\s*\}\);/);
   assert.match(source, /INCOMPLETE_NO_SIGNAL_SETTLE_MS/);
   assert.match(source, /looksCompleteAssistantText\(watcher\.lastText\)/);
   assert.match(source, /const anchored = answer\.responseTextForUserPrompt/);
@@ -89,7 +89,7 @@ test('ChatGPT keeps obvious fragments fail-closed but can settle stable unpunctu
   assert.equal(chatgpt.obviouslyPartialAssistantText('R'), true);
   assert.equal(chatgpt.obviouslyPartialAssistantText('because I want that to shape the'), true);
   assert.equal(chatgpt.obviouslyPartialAssistantText('PAUSE-READY received once'), false);
-  assert.match(source, /if \(reportedGenerating \|\| obviouslyPartialAssistantText\(watcher\.lastText\)\) return;/);
+  assert.match(source, /if \(reportedGenerating \|\| \(obviouslyPartialAssistantText\(watcher\.lastText\) && !malformedDexControl\(watcher\.lastText\)\)\) return;/);
   assert.match(source, /allowUnpunctuated: !looksCompleteAssistantText\(watcher\.lastText\)/);
   assert.match(source, /text && obviouslyPartialAssistantText\(text\) \? 'incomplete'/);
   assert.match(source, /text && obviouslyPartialAssistantText\(text\) \? 'incomplete' : 'unknown'/);

@@ -76,7 +76,7 @@ test('provider command watcher never executes while generation is active', () =>
 });
 
 test('provider command watcher stabilizes the exact marker before runtime dispatch', () => {
-  assert.match(source, /candidateFingerprint = fingerprint;\s*candidateSince = observedAt;\s*schedule\(SETTLED_MS\);/);
+  assert.match(source, /candidateFingerprint = fingerprint;\s*candidateSince = observedAt;\s*schedule\(malformed \? MALFORMED_SETTLED_MS : SETTLED_MS\);/);
   assert.match(source, /commandReady\(generationActive\(runtime\), stableMs\)/);
   assert.match(source, /chrome\.runtime\.sendMessage\(\{\s*type: 'dex_provider_command'/);
 });
