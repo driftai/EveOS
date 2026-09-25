@@ -3,7 +3,8 @@
 // prompt. A nudge is never a scheduler turn or permission to replay a task.
 function createServerStreamNudgeAuth({
   getState = () => null, getTabs = () => [], extensionReady = () => false,
-  maintenanceBusy = () => false, reconcileFinal = async () => false
+  maintenanceBusy = () => false, reconcileFinal = async () => false,
+  expectedAdapterRevision = () => 0, reloadSafe = () => false
 } = {}) {
   const metrics = { requests: 0, allowed: 0, deferred: 0, denied: 0, boundSnapshots: 0 };
   const REASONS = new Set(['CHATGPT_MESSAGE_STREAM_ERROR', 'CHATGPT_STREAM_CACHE_EXPIRED']);
@@ -119,7 +120,7 @@ function createServerStreamNudgeAuth({
 
   async function handle(ws, msg, send) {
     if (msg?.type === 'dex_bound_targets_request') {
-      send(ws, { type: 'dex_bound_targets_snapshot', requestId: String(msg.requestId || '').slice(0, 128),
+      send(ws, { type: 'dex_bound_targets_snapshot', requestId: String(msg.requestId || '').slice(0, 128), expectedAdapterRevision: Number(expectedAdapterRevision() || 0), reloadSafe: reloadSafe() === true,
         targets: boundTargets() });
       return true;
     }

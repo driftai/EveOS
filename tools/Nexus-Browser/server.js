@@ -11,6 +11,7 @@ const { mergeClientSnapshot } = require('./dex/server-state-merge'), finalState 
 const { createServerDurability } = require('./dex/server-durability');
 const { createExtensionSessionArbiter } = require('./dex/extension-session-arbiter');
 const { assetRevision } = require('./server-asset-revision');
+const { ADAPTER_REVISION: EXPECTED_ADAPTER_REVISION } = require('./extension/content/provider-adapter-revision');
 const { createDiagnosticsSnapshot } = require('./server-diagnostics');
 const { createServerLocalRelay } = require('./dex/server-local-relay');
 const { attachWebSocketHeartbeat } = require('./dex/ws-heartbeat'), { createDisposableRoomCleanup } = require('./dex/disposable-room-cleanup');
@@ -82,7 +83,8 @@ const providerControlRouting = createProviderControlRouting({
 });
 const streamNudgeAuth = createServerStreamNudgeAuth({ getState: () => dexStateStore.load(), getTabs: () => lastTabs,
   extensionReady: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1,
-  maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), reconcileFinal: (event) => dexScheduler.handleTransportEvent(event) });
+  maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), reconcileFinal: (event) => dexScheduler.handleTransportEvent(event),
+  expectedAdapterRevision: () => EXPECTED_ADAPTER_REVISION, reloadSafe: () => !!postIdleMaintenance?.readyRooms?.() && extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 });
 const doneWatchDelivery = createDoneWatchDelivery({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, safeSend, getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null, getTabs: () => lastTabs });
 const qualificationRouting = createQualificationRouting({ safeSend, getExtensionSocket: () => extensionSocket, getDurability: () => durability, getStateStore: () => dexStateStore, restartHook: qualificationRestart, serverSessionId: SERVER_SESSION_ID });
 const serverDexSource = { clientKind: 'dex' };
@@ -114,7 +116,6 @@ function sendLocalStatus(ws, targetId = ws?.localTargetId) {
   if (!targetId) return false;
   return safeSend(ws, localStatusPayload(targetId));
 }
-
 function sendLocalEvent(targetId, source, payload) {
   safeSend(source, payload);
   for (const peer of uiSockets) {
@@ -123,7 +124,6 @@ function sendLocalEvent(targetId, source, payload) {
     safeSend(peer, payload);
   }
 }
-
 function broadcastLocalStatus(targetId, source = null) {
   const payload = localStatusPayload(targetId);
   if (source?.clientKind === 'console') safeSend(source, payload);
