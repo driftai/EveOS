@@ -13,7 +13,7 @@ function createServerSchedulerRecovery({
   getOnlineTargets = () => [], getProviders = () => [], getSelectedOnlineTarget = () => null,
   getLocalTargets = async () => [], isExtensionAvailable = () => true, sendExtension = () => false,
   captureLocalLatest, recordIncident = () => {}, markTimedOut = () => Promise.resolve(),
-  addMessage, enqueueNext, setStopped, processSoon
+  addMessage, enqueueNext, setStopped, processSoon, onRecovered = () => {}, onTurnSettled = () => {}
 } = {}) {
   let active = null;
 
@@ -312,12 +312,14 @@ function createServerSchedulerRecovery({
       agentMessage: message, turnRequestId: recovery.requestId, at: new Date(nowMs()).toISOString()
     });
     const disposition = protocol.relayDisposition(parsed, member.name, repeated, room.relay);
+    try { onRecovered({ room, member, message, parsed }); } catch {}
     clearActive();
     if (requestedStopReason) setStopped(room, requestedStopReason);
     else if (disposition.action === 'stop') setStopped(room, `Recovered · ${disposition.reason}`);
     else enqueueNext(room, message);
     save(snapshot);
     processSoon(0);
+    try { onTurnSettled(); } catch {}
     return true;
   }
 
@@ -358,7 +360,6 @@ function createServerSchedulerRecovery({
       processSoon(0);
       return true;
     }
-
     setStopped(room, 'Dispatch ledger unavailable or uncertain · no automatic replay');
     recordIncident({
       code: 'TURN_LEDGER_UNCERTAIN',
@@ -370,7 +371,6 @@ function createServerSchedulerRecovery({
     save(snapshot);
     return false;
   }
-
   function handleEvent(msg) {
     const terminalType = ['response', 'final'].join('_');
     if (msg?.type === terminalType) {
@@ -395,13 +395,11 @@ function createServerSchedulerRecovery({
         return true;
       }
     }
-
     if (!active) return false;
     const snapshot = load();
     const room = stateApi.roomById(snapshot, active.roomId);
     const recovery = room?.recovery;
     if (!recovery) return false;
-
     if (msg.type === 'target_ensured' && msg.requestId === recovery.ensureTargetRequestId) {
       recovery.ensureTargetRequestId = null;
       save(snapshot);
@@ -409,7 +407,6 @@ function createServerSchedulerRecovery({
       processSoon(0);
       return true;
     }
-
     if (msg.type === 'target_selected' && recovery.selectingTargetId
         && String(msg.target?.id) === String(recovery.selectingTargetId)) {
       recovery.selectingTargetId = null;
@@ -422,7 +419,6 @@ function createServerSchedulerRecovery({
       }
       return true;
     }
-
     if (msg.requestId !== recovery.captureRequestId) return false;
     if (msg.type === 'capture_result') return finish(msg, false);
     if (msg.type === 'error') {
@@ -434,8 +430,6 @@ function createServerSchedulerRecovery({
     }
     return false;
   }
-
   return { hasWork, resume, handleEvent, capture, transportLost, resolvePassive, diagnostics: () => ({ active: active ? { ...active } : null }) };
 }
-
 module.exports = { RETRY_MS, STABLE_MS, UNCERTAIN_STABLE_MS, MAX_RECOVERY_MS, createServerSchedulerRecovery };

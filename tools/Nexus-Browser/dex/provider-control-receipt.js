@@ -74,15 +74,17 @@ function findIntent(snapshot, source, command) {
 function activeSourceTurn(snapshot, source) {
   const matches = [];
   for (const room of snapshot?.rooms || []) {
-    const memberId = room?.recovery?.memberId || room?.relay?.waitingFor || null;
+    // A timed-out passive recovery is capture-only, not an active turn.
+    const liveRecovery = room?.recovery?.passiveAt ? null : room?.recovery;
+    const memberId = liveRecovery?.memberId || room?.relay?.waitingFor || null;
     const member = memberId ? (room.members || []).find((entry) => entry.id === memberId) : null;
-    const active = !!room?.recovery || (room?.relay?.active === true && !!room?.relay?.waitingFor);
+    const active = !!liveRecovery || (room?.relay?.active === true && !!room?.relay?.waitingFor);
     if (!active || !member || !bindingMatchesSource(member.binding, source)) continue;
     matches.push({
       roomId: room.id,
       roomName: room.name,
       memberId: member.id,
-      requestId: room?.recovery?.requestId || null
+      requestId: liveRecovery?.requestId || null
     });
   }
   if (!matches.length) return null;

@@ -147,8 +147,11 @@
   }
 
   function generationActive(runtime) {
-    try { return !!globalThis[runtime?.input]?.generationLooksActive?.(); }
-    catch { return false; }
+    try {
+      const visibleGeneration = !!globalThis[runtime?.input]?.generationLooksActive?.();
+      return visibleGeneration || (runtime?.id === 'chatgpt'
+        && !!globalThis.BrowserAiBridgeChatGptRuntime?.responsePending?.());
+    } catch { return false; }
   }
 
   function resetCandidate() {

@@ -22,23 +22,7 @@
   const SUBMIT_ATTEMPT_SETTLE_MS = 600;
   const SUBMIT_FINAL_SETTLE_MS = 1200;
   const DEX_CONTROL_SEND_WAIT_MS = 12000, GENERATION_HEARTBEAT_MS = 15000;
-  const STATUS_ONLY_RE = /^(?:thinking|working|searching(?: the web)?|browsing|reading|analyzing|reasoning|generating|loading|preparing)(?:\s*(?:\.{1,3}|…))?(?:\s+for\s+\d+(?:\.\d+)?\s*(?:ms|s|sec(?:onds?)?|m|min(?:utes?)?))?$/i;
-  const ELAPSED_STATUS_RE = /^(?:worked|thought|reasoned|searched|browsed)\s+for\s+\d+(?:\.\d+)?\s*(?:ms|s|sec(?:onds?)?|m|min(?:utes?)?)$/i;
-
-  function transientStatusLine(value) {
-    const line = String(value || '').replace(/^[\s•●○◆▶►▸]+/u, '').trim();
-    if (!line || line.length > 120) return false;
-    return STATUS_ONLY_RE.test(line) || ELAPSED_STATUS_RE.test(line);
-  }
-
-  function substantiveAssistantText(value) {
-    const lines = String(value || '').replace(/\r/g, '').replace(/\u00a0/g, ' ').split('\n');
-    while (lines.length && !lines[0].trim()) lines.shift();
-    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-    while (lines.length && transientStatusLine(lines[0])) lines.shift();
-    while (lines.length && transientStatusLine(lines[lines.length - 1])) lines.pop();
-    return lines.join('\n').trim();
-  }
+  const { transientStatusLine, substantiveAssistantText } = pageState;
 
   function looksCompleteAssistantText(value) {
     const text = String(value || '').trim();
@@ -174,7 +158,6 @@
 
     function sample() {
       const reportedGenerating = input.generationLooksActive();
-      reportGenerationActivity(watcher, requestId, reportedGenerating);
       if (reportedGenerating) {
         watcher.sawGenerating = true;
         watcher.sawReliableGenerating = true;
@@ -186,6 +169,9 @@
       const rawText = answer.responseTextForUserPrompt(watcher.prompt, watcher.userBaselineCount);
       const text = substantiveAssistantText(rawText);
       const transientOnly = !!String(rawText || '').trim() && !text;
+      // Status-only text belongs to the current prompt: it is visible work,
+      // even when ChatGPT's stop-button generation signal is temporarily absent.
+      reportGenerationActivity(watcher, requestId, reportedGenerating || transientOnly);
       if (transientOnly) {
         watcher.sawGenerating = true;
         watcher.generatingEndedAt = 0;
@@ -230,7 +216,8 @@
     function handleDeadline() {
       const decision = nextResponseDeadline({
         startedAt: watcher.startedAt,
-        isGenerating: input.generationLooksActive(),
+        isGenerating: input.generationLooksActive() || (watcher.lastGenerationState === 'active'
+          && Date.now() - watcher.lastHeartbeatAt < 60000),
         hasText: !!watcher.lastText
       });
       if (decision.action === 'wait') {
@@ -413,6 +400,9 @@
       }
     });
   }
+
+  // The command watcher must not dispatch a marker before response_final.
+  globalThis.BrowserAiBridgeChatGptRuntime = { responsePending: () => active.size > 0 };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {

@@ -2,6 +2,25 @@
   if (typeof window !== 'undefined' && globalThis.__browserAiBridgeChatGptPageStateLoaded) return;
   if (typeof window !== 'undefined') globalThis.__browserAiBridgeChatGptPageStateLoaded = true;
 
+  const STATUS_ONLY_RE = /^(?:thinking|working|searching(?: the web)?|browsing|reading|analyzing|reasoning|generating|loading|preparing)(?:\s*(?:\.{1,3}|…))?(?:\s+for\s+\d+(?:\.\d+)?\s*(?:ms|s|sec(?:onds?)?|m|min(?:utes?)?))?$/i;
+  const ELAPSED_STATUS_RE = /^(?:worked|thought|reasoned|searched|browsed)\s+for\s+\d+(?:\.\d+)?\s*(?:ms|s|sec(?:onds?)?|m|min(?:utes?)?)$/i;
+
+  function transientStatusLine(value) {
+    const line = String(value || '').replace(/^[\s•●○◆▶►▸]+/u, '').trim();
+    if (!line || line.length > 120) return false;
+    return STATUS_ONLY_RE.test(line) || ELAPSED_STATUS_RE.test(line);
+  }
+
+  function substantiveAssistantText(value) {
+    const lines = String(value || '').replace(/\r/g, '').replace(/\u00a0/g, ' ').split('\n');
+    while (lines.length && !lines[0].trim()) lines.shift();
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    while (lines.length && transientStatusLine(lines[0])) lines.shift();
+    while (lines.length && transientStatusLine(lines[lines.length - 1])) lines.pop();
+    return lines.join('\n').trim();
+  }
+
+
   const CONNECTION_GRACE_MS = 60 * 1000;
   const SURFACE_SELECTORS = [
     '[role="alert"]',
@@ -187,6 +206,7 @@
 
   const api = {
     CONNECTION_GRACE_MS,
+    transientStatusLine, substantiveAssistantText,
     normalizeText,
     visible,
     classifyIssueText,

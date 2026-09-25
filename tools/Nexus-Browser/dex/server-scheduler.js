@@ -45,7 +45,10 @@ function createDexServerScheduler({
     markTimedOut: (journal) => durability?.markFailed?.(
       journal?.requestId, 'RECOVERY_TIMEOUT',
       { targetClassId: journal?.targetClassId || null, providerId: journal?.providerId || null }),
-    addMessage, enqueueNext, setStopped, processSoon
+    addMessage, enqueueNext, setStopped, processSoon,
+    onRecovered: ({ room, member, message, parsed }) => {
+      if (parsed.done) doneWatchApi.consume(room, { completedMemberId: member.id, message, at: now() });
+    }, onTurnSettled
   });
   const lease = createServerTurnLease({ load, save, roomById: stateApi.roomById,
     getCurrent: () => current, onTimeout: handleTurnError, now, nowMs, setTimer, clearTimer });
