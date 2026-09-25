@@ -56,6 +56,16 @@ test('relay provider-control vocabulary matches the executable provider command 
   assert.deepEqual([...protocol.PROVIDER_CONTROL_ACTIONS].sort(), [...providerControl.ACTIONS].sort());
 });
 
+test('extension reload is recognized as provider control and stops the relay before the localhost safety gate', () => {
+  const value = 'Reload only while all rooms are idle. [[DEX:CMD {"action":"reload_extension","room":"room-1"}]]';
+  const parsed = protocol.parseAgentReply(value);
+  assert.equal(parsed.text, 'Reload only while all rooms are idle.');
+  assert.equal(parsed.providerCommand, 'reload_extension');
+  assert.deepEqual(parsed.providerControlCommand, { action: 'reload_extension', room: 'room-1' });
+  assert.deepEqual(protocol.relayDisposition(parsed, 'Eve', false, { active: true, remaining: 2 }),
+    { action: 'stop', kind: 'control', reason: 'Eve requested Dex provider control' });
+});
+
 test('unknown trailing Dex commands remain ordinary prose and do not pause the relay', () => {
   const text = 'Typo should stay visible. [[DEX:CMD {"action":"spawn_agnet","room":"Worker Room"}]]';
   const parsed = protocol.parseAgentReply(text);
