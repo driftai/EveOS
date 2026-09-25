@@ -28,6 +28,8 @@ test('truncated closing brackets, spaced delimiters, broken JSON, unknown action
     ['[[DEX:CMD {"action":"status"}]', 'MISSING_CLOSER'],
     ['[[DEX:CMD', 'MALFORMED_DELIMITERS'],
     ['[ [DEX:CMD {"action":"status"}] ]', 'MALFORMED_DELIMITERS'],
+    ['[DEX:CMD {"action":"status"}]', 'MALFORMED_DELIMITERS'],
+    ['Starting the action: [[DEX:CMD {"action":"status"}', 'MISSING_CLOSER'],
     ['[[DEX:CMD {"action":"status"', 'INCOMPLETE_JSON'],
     ['[[DEX:CMD {"action":status}]]', 'INVALID_JSON'],
     ['[[DEX:CMD {"action":"unsupported"}]]', 'UNKNOWN_ACTION'],

@@ -64,13 +64,14 @@
     while (lines.length && ui.test(lines.at(-1).trim())) lines.pop();
     let start = -1;
     for (let i = lines.length - 1; i >= 0; i -= 1) {
-      if (/^\s*\[\s*\[\s*DEX\s*:\s*CMD\b/i.test(lines[i])) { start = i; break; }
+      if (/\[\s*(?:\[\s*)?DEX\s*:\s*CMD\b/i.test(lines[i]) && !/^\s*>/.test(lines[i])) { start = i; break; }
     }
     if (start < 0) return null;
     const prior = lines.slice(0, start).join('\n');
-    const offset = prior.length + (start ? 1 : 0) + lines[start].indexOf('[');
+    const markerAt = lines[start].search(/\[\s*(?:\[\s*)?DEX\s*:\s*CMD\b/i);
+    const offset = prior.length + (start ? 1 : 0) + markerAt;
     if (insideFence(lines.join('\n'), offset)) return null;
-    const raw = lines.slice(start).join('\n').trim();
+    const raw = [lines[start].slice(markerAt), ...lines.slice(start + 1)].join('\n').trim();
     if (raw.length > 8192) return null;
     if (!raw.startsWith(PREFIX)) return { code: 'MALFORMED_DELIMITERS', raw };
     if (raw.includes(']]') && !raw.endsWith(']]')) return { code: 'TRAILING_TEXT', raw };

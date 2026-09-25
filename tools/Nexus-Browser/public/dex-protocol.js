@@ -74,13 +74,14 @@
     const lines = cleanText(value).split('\n');
     let marker = -1;
     for (let i = lines.length - 1; i >= 0; i -= 1) {
-      if (/^\s*\[\s*\[\s*DEX\s*:\s*CMD\b/i.test(lines[i])) { marker = i; break; }
+      if (/\[\s*(?:\[\s*)?DEX\s*:\s*CMD\b/i.test(lines[i]) && !/^\s*>/.test(lines[i])) { marker = i; break; }
     }
     if (marker < 0) return false;
     const prior = lines.slice(0, marker).join('\n');
     const fence = String.fromCharCode(96).repeat(3);
     if ((prior.split(fence).length - 1) % 2) return false;
-    const candidate = lines.slice(marker).join('\n').trim();
+    const markerAt = lines[marker].search(/\[\s*(?:\[\s*)?DEX\s*:\s*CMD\b/i);
+    const candidate = [lines[marker].slice(markerAt), ...lines.slice(marker + 1)].join('\n').trim();
     if (candidate.length > 8192) return false;
     if (!candidate.startsWith('[[DEX:CMD ') || !candidate.endsWith(']]')) return true;
     try {
