@@ -318,8 +318,14 @@
 
   if (typeof chrome !== 'undefined' && chrome.runtime) {
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-      if (msg?.type !== 'dex_provider_control_ping') return;
-      sendResponse({ ok: true, adapter: 'dex-provider-control' });
+      if (!['dex_provider_control_ping', 'dex_provider_control_rescan'].includes(msg?.type)) return;
+      const revision = Number(globalThis.BrowserAiBridgeProviderAdapterRevision?.ADAPTER_REVISION || 0);
+      if (msg.type === 'dex_provider_control_rescan') {
+        if (timer !== null) { clearTimeout(timer); timer = null; }
+        schedule(25);
+      }
+      sendResponse({ ok: true, adapter: 'dex-provider-control', revision,
+        phase: telemetry.phase });
       return true;
     });
   }
