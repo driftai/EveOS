@@ -5,7 +5,7 @@ function createServerStreamNudgeAuth({
   getState = () => null, getTabs = () => [], extensionReady = () => false,
   maintenanceBusy = () => false, reconcileFinal = async () => false
 } = {}) {
-  const metrics = { requests: 0, allowed: 0, deferred: 0, denied: 0 };
+  const metrics = { requests: 0, allowed: 0, deferred: 0, denied: 0, boundSnapshots: 0 };
   const REASONS = new Set(['CHATGPT_MESSAGE_STREAM_ERROR', 'CHATGPT_STREAM_CACHE_EXPIRED']);
   const CHAT = (value) => {
     try { const url = new URL(String(value || '')); return url.protocol === 'https:'
@@ -94,7 +94,35 @@ function createServerStreamNudgeAuth({
       : { ok: false, code: 'STREAM_NUDGE_FINAL_NOT_ACCEPTED' };
   }
 
+
+  function boundTargets() {
+    const snapshot = getState(), tabs = Array.isArray(getTabs()) ? getTabs() : [];
+    if (!Array.isArray(snapshot?.rooms)) return [];
+    const out = new Map();
+    for (const room of snapshot.rooms) for (const member of room.members || []) {
+      const binding = member.binding || {};
+      if (binding.targetClassId !== 'online-origin' || !binding.providerId || !binding.url) continue;
+      const matches = tabs.filter((tab) => tab.providerId === binding.providerId && tab.url === binding.url);
+      const tab = binding.targetId == null
+        ? (matches.length === 1 ? matches[0] : null)
+        : matches.find((candidate) => String(candidate.id) === String(binding.targetId));
+      if (!tab?.id) continue;
+      const key = binding.providerId + ':' + tab.id + ':' + binding.url;
+      const saved = out.get(key) || { targetClassId: 'online-origin',
+        providerId: binding.providerId, targetId: Number(tab.id), url: binding.url, roomIds: [] };
+      if (!saved.roomIds.includes(room.id)) saved.roomIds.push(room.id);
+      out.set(key, saved);
+    }
+    metrics.boundSnapshots++;
+    return [...out.values()];
+  }
+
   async function handle(ws, msg, send) {
+    if (msg?.type === 'dex_bound_targets_request') {
+      send(ws, { type: 'dex_bound_targets_snapshot', requestId: String(msg.requestId || '').slice(0, 128),
+        targets: boundTargets() });
+      return true;
+    }
     if (msg?.type === 'dex_stream_nudge_authorize') {
       const result = check(msg);
       send(ws, { type: 'dex_stream_nudge_authorization',
@@ -109,6 +137,6 @@ function createServerStreamNudgeAuth({
     }
     return false;
   }
-  return { check, final, handle, diagnostics: () => ({ ...metrics }) };
+  return { check, final, boundTargets, handle, diagnostics: () => ({ ...metrics }) };
 }
 module.exports = { createServerStreamNudgeAuth };
