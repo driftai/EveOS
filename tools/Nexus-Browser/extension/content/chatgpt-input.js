@@ -148,6 +148,9 @@
   }
 
   function findSendControl(composer) {
+    // Prefer the exact composer subtree. A global Send button may belong to an
+    // unrelated inline editor and must never receive a Dex-injected prompt.
+    const scope = composer?.closest?.('form') || composer?.parentElement?.parentElement || document;
     const selectors = [
       '#composer-submit-button',
       'button[data-testid="send-button"]',
@@ -159,7 +162,7 @@
     ];
 
     for (const selector of selectors) {
-      const matches = [...document.querySelectorAll(selector)]
+      const matches = [...scope.querySelectorAll(selector)]
         .filter(visible)
         .map((control) => ({ control, score: sendControlScore(control) }))
         .filter((entry) => entry.score >= 100)
@@ -167,7 +170,6 @@
       if (matches[0]) return matches[0].control;
     }
 
-    const scope = composer.closest?.('form') || composer.parentElement?.parentElement || document;
     const candidates = [...scope.querySelectorAll('button, [role="button"]')]
       .filter(visible)
       .map((control) => ({ control, score: sendControlScore(control) }))
