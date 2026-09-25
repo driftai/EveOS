@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const content = require('../extension/content/dex-provider-control.js');
-
-const source = fs.readFileSync(path.join(__dirname, '..', 'extension', 'content', 'dex-provider-control.js'), 'utf8');
+const root = path.resolve(__dirname, '..');
+const source = fs.readFileSync(path.join(root, 'extension', 'content', 'dex-provider-control.js'), 'utf8');
 
 test('provider command parser accepts only known trailing JSON control markers', () => {
   const parsed = content.parseTrailingCommand('Ready.\n\n[[DEX:CMD {"action":"rooms"}]]');
@@ -176,8 +176,12 @@ test('assistant message identity survives DIL block reflow and separates differe
   assert.notEqual(fallback, original);
 });
 
-test('watcher claims the entire turn before handing a command to background', () => {
-  assert.match(source, /rememberDispatch\(turnKey, observedAt\);[\s\S]{0,160}chrome\.runtime\.sendMessage/);
+test('watcher keeps the turn in-flight until localhost owns the command', () => {
+  assert.match(source, /inFlightTurns\.add\(turnKey\)/);
+  assert.match(source, /chrome\.runtime\.sendMessage\(\{ type: 'dex_provider_command'/);
+  assert.match(source, /ack\?\.ok === true && ack\?\.accepted === true/);
+  assert.match(source, /rememberDispatch\(turnKey, Date\.now\(\)\)/);
+  assert.doesNotMatch(source, /rememberDispatch\(turnKey, observedAt\);[\s\S]{0,160}chrome\.runtime\.sendMessage/);
   assert.match(source, /clientActionId: turnKey/);
 });
 
