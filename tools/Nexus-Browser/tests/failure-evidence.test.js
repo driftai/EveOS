@@ -103,7 +103,7 @@ test('provider-control records managed spawn failure evidence as an incident', a
   assert.equal(incidents[0].roomId, 'room-1');
   assert.equal(incidents[0].source, 'provider-control-spawn');
   assert.equal(incidents[0].evidence.detail.spawnEvidence.phase, 'first-turn-prime');
-  assert.deepEqual(caller.sent[0].result.data.failureDetail, error.detail);
+  assert.deepEqual(caller.sent.find((entry) => entry.type === 'provider_control_result').result.data.failureDetail, error.detail);
   assert.equal(dex.sent.length, 0);
 });
 

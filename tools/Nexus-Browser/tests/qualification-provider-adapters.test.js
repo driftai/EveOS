@@ -13,7 +13,9 @@ function providerForId(providerId) {
 function source(providerId) {
   const provider = providerForId(providerId);
   const group = provider?.groups?.find((item) => item.expectedAdapter === providerId);
-  const entry = [...(group?.files || [])].reverse().find((file) => file.endsWith('.js'));
+  const files = group?.files || [];
+  const entry = files.find((file) => file === 'content/' + providerId + '.js')
+    || [...files].reverse().find((file) => file.endsWith('.js'));
   if (!entry) throw new Error('No primary adapter entrypoint registered for ' + providerId);
   return fs.readFileSync(path.resolve(__dirname, '../extension', entry), 'utf8');
 }

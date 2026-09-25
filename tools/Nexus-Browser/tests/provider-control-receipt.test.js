@@ -133,8 +133,9 @@ test('provider-control routing returns one correlated receipt to the executor br
     result: { ok: true, action: 'add_agent', message: 'Added Eve Engineering 3.', data: { addedMemberId: 'agent-3' } }
   });
 
-  assert.equal(executor.sent.length, 1);
-  assert.equal(executor.sent[0].originReceipt.originTarget.targetId, 10);
+  assert.equal(executor.sent.filter((entry) => entry.type === 'provider_control_received').length, 1);
+  assert.equal(executor.sent.filter((entry) => entry.type === 'provider_control_result').length, 1);
+  assert.equal(executor.sent.find((entry) => entry.type === 'provider_control_result').originReceipt.originTarget.targetId, 10);
   assert.equal(broadcasts.length, 1);
   assert.equal(receipt.pendingCount(value), 0);
   assert.equal(value.rooms[0].messages.at(-1).senderKind, 'system');

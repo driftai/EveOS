@@ -74,7 +74,7 @@ test('in-flight spawns consume the managed worker cap before another tab is crea
     command: { action: 'spawn_agent', room: 'room-1', providerId: 'muse', name: 'Fifth Worker' }
   });
   assert.equal(spawnCalls, 1);
-  const rejected = caller.sent.find((entry) => entry.requestId === 'spawn-cap-b');
+  const rejected = caller.sent.find((entry) => entry.type === 'provider_control_result' && entry.requestId === 'spawn-cap-b');
   assert.equal(rejected.result.code, 'DEX_CONTROL_SPAWN_LIMIT');
   assert.match(rejected.result.message, /3 managed browser worker\(s\) and 1 spawn\(s\) in flight/);
 

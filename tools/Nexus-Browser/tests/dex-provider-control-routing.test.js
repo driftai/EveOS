@@ -6,6 +6,14 @@ const controlReceipt = require('../dex/provider-control-receipt');
 function socket(role, clientKind) {
   return { role, clientKind, sent: [] };
 }
+function resultFor(ws, requestId = null) {
+  const results = ws.sent.filter((entry) => entry.type === 'provider_control_result');
+  return requestId ? results.find((entry) => entry.requestId === requestId) : results.at(-1);
+}
+function admissionFor(ws, requestId = null) {
+  const receipts = ws.sent.filter((entry) => entry.type === 'provider_control_received');
+  return requestId ? receipts.find((entry) => entry.requestId === requestId) : receipts.at(-1);
+}
 function harness(validateSource = async () => true, overrides = {}) {
   const dex = socket('ui', 'dex');
   const uiSockets = new Set([dex]);
@@ -30,13 +38,14 @@ test('provider-control extension request routes to Dex UI and result returns onl
     command: { action: 'rooms' }
   };
   assert.equal(await routing.handle(extension, request), true);
+  assert.equal(admissionFor(extension, 'ctl-1')?.requestId, 'ctl-1');
   assert.equal(dex.sent.length, 1);
   assert.equal(dex.sent[0].requestId, 'ctl-1');
 
   const result = { type: 'provider_control_result', requestId: 'ctl-1', source: request.source, result: { ok: true } };
   assert.equal(await routing.handle(dex, result), true);
-  assert.equal(extension.sent.length, 1);
-  assert.deepEqual(extension.sent[0].result, { ok: true });
+  assert.equal(extension.sent.length, 2);
+  assert.deepEqual(resultFor(extension, 'ctl-1').result, { ok: true });
 });
 
 test('provider-control local client is rejected when source validation fails', async () => {
@@ -49,7 +58,7 @@ test('provider-control local client is rejected when source validation fails', a
     command: { action: 'rooms' }
   });
   assert.equal(handled, true);
-  assert.equal(local.sent[0].result.code, 'DEX_CONTROL_BAD_SOURCE');
+  assert.equal(resultFor(local).result.code, 'DEX_CONTROL_BAD_SOURCE');
 });
 
 test('provider-control request reports Dex UI offline instead of disappearing', async () => {
@@ -63,7 +72,7 @@ test('provider-control request reports Dex UI offline instead of disappearing', 
     source: { targetClassId: 'local-origin', targetId: 'local:antigravity-existing:86660', providerId: 'local-antigravity-existing' },
     command: { action: 'status' }
   }), true);
-  assert.equal(local.sent[0].result.code, 'DEX_UI_OFFLINE');
+  assert.equal(resultFor(local).result.code, 'DEX_UI_OFFLINE');
 });
 
 
@@ -91,7 +100,7 @@ test('provider-control wakes a headed Dex client before declaring the UI offline
   const dex = [...uiSockets].find((entry) => entry.clientKind === 'dex');
   assert.equal(dex.sent[0].requestId, 'ctl-wake');
   await routing.handle(dex, { type: 'provider_control_result', requestId: 'ctl-wake', source: dex.sent[0].source, result: { ok: true, action: 'status' } });
-  assert.equal(local.sent[0].result.ok, true);
+  assert.equal(resultFor(local).result.ok, true);
 });
 
 test('duplicate mutating provider-control requests coalesce and replay the committed result', async () => {
@@ -121,18 +130,18 @@ test('duplicate mutating provider-control requests coalesce and replay the commi
     result: { ok: true, silent: true, action: 'handoff_room', data: { roomId: 'room-2', commitState: 'committed', commitId: 'msg-commit-1' } }
   };
   assert.equal(await routing.handle(dex, result), true);
-  assert.equal(first.sent[0].result.ok, true);
-  assert.equal(second.sent[0].result.ok, true);
-  assert.equal(second.sent[0].result.data.commitState, 'committed');
-  assert.equal(second.sent[0].result.data.commitId, 'msg-commit-1');
+  assert.equal(resultFor(first).result.ok, true);
+  assert.equal(resultFor(second).result.ok, true);
+  assert.equal(resultFor(second).result.data.commitState, 'committed');
+  assert.equal(resultFor(second).result.data.commitId, 'msg-commit-1');
 
   const third = socket('provider-control-extension', null);
   assert.equal(await routing.handle(third, {
     type: 'provider_control_request', requestId: 'mut-3', source, command
   }), true);
   assert.equal(dex.sent.length, 1);
-  assert.equal(third.sent[0].result.ok, true);
-  assert.equal(third.sent[0].result.data.commitId, 'msg-commit-1');
+  assert.equal(resultFor(third).result.ok, true);
+  assert.equal(resultFor(third).result.data.commitId, 'msg-commit-1');
 });
 
 test('spawn_agent creates one verified fresh target and routes only that target to Dex', async () => {
@@ -172,7 +181,7 @@ test('spawn_agent creates one verified fresh target and routes only that target 
     type: 'provider_control_result', requestId: 'spawn-1', source,
     result: { ok: true, action: 'spawn_agent', data: { addedMemberId: 'worker-1' } }
   });
-  assert.equal(caller.sent[0].result.ok, true);
+  assert.equal(resultFor(caller).result.ok, true);
 });
 
 test('spawn_agent waits only for the exact caller current turn to settle idle', async () => {
@@ -220,7 +229,7 @@ test('spawn_agent waits only for the exact caller current turn to settle idle', 
     type: 'provider_control_result', requestId: 'spawn-settle', source,
     result: { ok: true, action: 'spawn_agent', data: { addedMemberId: 'worker-settle' } }
   });
-  assert.equal(caller.sent[0].result.ok, true);
+  assert.equal(resultFor(caller).result.ok, true);
 });
 
 test('spawn_agent does not wait for a different participant busy turn', async () => {
@@ -247,7 +256,7 @@ test('spawn_agent does not wait for a different participant busy turn', async ()
     command: { action: 'spawn_agent', room: 'room-1', providerId: 'muse' }
   });
   assert.equal(spawnCalls, 0);
-  assert.equal(caller.sent[0].result.code, 'DEX_CONTROL_ROOM_BUSY');
+  assert.equal(resultFor(caller).result.code, 'DEX_CONTROL_ROOM_BUSY');
 });
 
 test('duplicate spawn_agent requests coalesce before browser tab creation', async () => {
@@ -285,8 +294,8 @@ test('duplicate spawn_agent requests coalesce before browser tab creation', asyn
     type: 'provider_control_result', requestId: 'spawn-a', source,
     result: { ok: true, action: 'spawn_agent', data: { addedMemberId: 'worker-1' } }
   });
-  assert.equal(first.sent[0].result.ok, true);
-  assert.equal(second.sent[0].result.ok, true);
+  assert.equal(resultFor(first).result.ok, true);
+  assert.equal(resultFor(second).result.ok, true);
 });
 
 test('managed browser spawning is rejected for Local-Origin callers', async () => {
@@ -299,7 +308,7 @@ test('managed browser spawning is rejected for Local-Origin callers', async () =
     source: { targetClassId: 'local-origin', targetId: 'local:x', providerId: 'local-antigravity-cli' },
     command: { action: 'spawn_agent', room: 'room-1', providerId: 'muse' }
   });
-  assert.equal(local.sent[0].result.code, 'DEX_CONTROL_ONLINE_REQUIRED');
+  assert.equal(resultFor(local).result.code, 'DEX_CONTROL_ONLINE_REQUIRED');
 });
 
 test('despawn_agent closes the exact managed browser target only after Dex removes it', async () => {
@@ -335,7 +344,7 @@ test('despawn_agent closes the exact managed browser target only after Dex remov
   });
   assert.equal(closed.length, 1);
   assert.equal(closed[0].targetId, 77);
-  assert.equal(caller.sent[0].result.data.targetClosed, true);
+  assert.equal(resultFor(caller).result.data.targetClosed, true);
 });
 
 test('mutating provider-control request survives origin socket loss for exact-once reconciliation', async () => {
@@ -367,7 +376,7 @@ test('mutating provider-control request survives origin socket loss for exact-on
     type: 'provider_control_request', requestId: 'mut-drop-2', source, command
   });
   assert.equal(dex.sent.length, 1);
-  assert.equal(retry.sent[0].result.ok, true);
+  assert.equal(resultFor(retry).result.ok, true);
 });
 
 test('late fresh-target completion after control timeout is closed instead of orphaned', async () => {
@@ -406,7 +415,7 @@ test('late fresh-target completion after control timeout is closed instead of or
   resolveSpawn({ id: 77, providerId: 'muse', providerName: 'Muse', url: 'https://muse.ai/thread/new' });
   await run;
 
-  assert.equal(caller.sent[0].result.code, 'DEX_CONTROL_OUTCOME_UNKNOWN');
+  assert.equal(resultFor(caller).result.code, 'DEX_CONTROL_OUTCOME_UNKNOWN');
   assert.equal(closed.length, 1);
   assert.equal(closed[0].targetId, 77);
   assert.match(closed[0].requestId, /late-cleanup/);
@@ -441,7 +450,7 @@ test('timed-out mutating provider-control reports unknown commit state instead o
 
   assert.equal(dex.sent.length, 1);
   timers[0]();
-  const result = sourceSocket.sent[0].result;
+  const result = resultFor(sourceSocket).result;
   assert.equal(result.code, 'DEX_CONTROL_OUTCOME_UNKNOWN');
   assert.deepEqual(result.data, { commitState: 'unknown', commitId: null });
   assert.match(result.message, /inspect room status before retrying/i);

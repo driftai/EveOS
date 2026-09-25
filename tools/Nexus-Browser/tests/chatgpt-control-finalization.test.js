@@ -23,7 +23,7 @@ test('headed control marker waits for the authoritative ChatGPT reply to finaliz
     BrowserAiBridgeChatGptRuntime: { responsePending: () => pending },
     Date: { now: () => now },
     chrome: { runtime: {
-      sendMessage(value) { requests.push(value); return Promise.resolve(); },
+      sendMessage(value) { requests.push(value); return Promise.resolve({ ok: true, accepted: true, dispatched: true }); },
       onMessage: { addListener() {} }
     } },
     document: { body: {} },
@@ -45,5 +45,7 @@ test('headed control marker waits for the authoritative ChatGPT reply to finaliz
   assert.equal(requests.length, 1);
   assert.equal(requests[0].command.action, 'status');
   assert.equal(requests[0].clientActionId, 'chatgpt:message:assistant-1');
-  assert.equal(context.BrowserAiBridgeDexProviderControlContent.diagnostics().phase, 'handed-to-background');
+  return Promise.resolve().then(() => {
+    assert.equal(context.BrowserAiBridgeDexProviderControlContent.diagnostics().phase, 'localhost-admitted');
+  });
 });

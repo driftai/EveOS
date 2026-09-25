@@ -31,7 +31,7 @@ test('one DIL assistant turn dispatches once despite late content-block reflow',
     },
     chrome: { runtime: {
       onMessage: { addListener() {} },
-      sendMessage(msg) { sent.push(msg); return Promise.resolve(); }
+      sendMessage(msg) { sent.push(msg); return Promise.resolve({ ok: true, accepted: true, dispatched: true }); }
     } },
     BrowserAiBridgeChatGptAnswer: {
       assistantNodes: () => nodes,
@@ -99,12 +99,16 @@ test('background sends each content action once and injects each result ID once'
     type: 'dex_provider_command', providerId: 'chatgpt',
     clientActionId: 'chatgpt:message:turn-one', command: { action: 'status' }
   };
-  await Promise.all([
-    bridge.handleContentMessage(command, sender),
-    bridge.handleContentMessage(command, sender)
-  ]);
+  const firstRun = bridge.handleContentMessage(command, sender);
+  await new Promise(resolve => setImmediate(resolve));
   const requests = outbound.filter(msg => msg.type === 'provider_control_request');
   assert.equal(requests.length, 1);
+  bridge.handleServerMessage(JSON.stringify({
+    type: 'provider_control_received', requestId: requests[0].requestId
+  }));
+  await firstRun;
+  const duplicate = await bridge.handleContentMessage(command, sender);
+  assert.equal(duplicate.deduplicated, true);
 
   const response = JSON.stringify({
     type: 'provider_control_result',
@@ -149,12 +153,17 @@ test('provider negative send acknowledgement is reported rather than mistaken fo
   };
   vm.runInNewContext(bridgeSource, context, { filename: 'dex-provider-control-bridge.js' });
   const bridge = context.BrowserAiBridgeDexProviderControlBridge;
-  await bridge.handleContentMessage({
+  const run = bridge.handleContentMessage({
     type: 'dex_provider_command', providerId: 'chatgpt',
     clientActionId: 'chatgpt:message:turn-negative-ack', command: { action: 'targets' }
   }, { tab: { id: 42, url: 'https://chatgpt.com/c/eve' } });
+  await new Promise(resolve => setImmediate(resolve));
   const requests = outbound.filter(msg => msg.type === 'provider_control_request');
   assert.equal(requests.length, 1);
+  bridge.handleServerMessage(JSON.stringify({
+    type: 'provider_control_received', requestId: requests[0].requestId
+  }));
+  await run;
   const response = JSON.stringify({
     type: 'provider_control_result', requestId: requests[0].requestId,
     source: { targetId: 42, url: 'https://chatgpt.com/c/eve' },

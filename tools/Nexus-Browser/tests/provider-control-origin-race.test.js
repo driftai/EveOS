@@ -69,7 +69,7 @@ test('control waits for relay correlation before routing', async () => {
   await routing.handle(caller, { type: 'provider_control_request', requestId: 'race-ok', source, command });
   assert.equal(dex.sent.length, 1);
   await routing.handle(dex, { type: 'provider_control_result', requestId: 'race-ok', source, result: { ok: true, action: 'status', message: 'ok' } });
-  assert.equal(caller.sent[0].originReceipt.roomId, 'coord');
+  assert.equal(caller.sent.find((entry) => entry.type === 'provider_control_result').originReceipt.roomId, 'coord');
 });
 
 test('control fails closed if relay settles without correlation', async () => {
@@ -90,5 +90,5 @@ test('control fails closed if relay settles without correlation', async () => {
   });
   await routing.handle(caller, { type: 'provider_control_request', requestId: 'race-fail', source, command: { action: 'status', room: 'coord' } });
   assert.equal(dex.sent.length, 0);
-  assert.equal(caller.sent[0].result.code, 'DEX_CONTROL_ORIGIN_UNCORRELATED');
+  assert.equal(caller.sent.find((entry) => entry.type === 'provider_control_result').result.code, 'DEX_CONTROL_ORIGIN_UNCORRELATED');
 });
