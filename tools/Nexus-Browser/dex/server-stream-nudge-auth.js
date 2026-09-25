@@ -37,9 +37,13 @@ function createServerStreamNudgeAuth({
       : Number(binding.targetId) === tabId;
     const originalRequestId = String(input.turnKey || '').startsWith('dex-')
       ? String(input.turnKey).slice(4) : '';
-    const matchingRecovery = (room) => !!originalRequestId
-      && room.recovery?.requestId === originalRequestId
-      && room.recovery?.streamNudge?.reason === input.reason;
+    const matchingRecovery = (room) => {
+      if (!originalRequestId || room.recovery?.requestId !== originalRequestId
+        || room.recovery?.streamNudge?.reason !== input.reason) return false;
+      const member = (room.members || []).find((m) => m.id === room.recovery.memberId);
+      return member?.binding?.providerId === source.providerId && member?.binding?.url === source.url
+        && tabMatch(member.binding);
+    };
     const bound = snapshot.rooms.flatMap((room) => (room.members || [])
       .filter((m) => m.binding?.targetClassId === 'online-origin'
         && m.binding?.providerId === 'chatgpt' && m.binding?.url === source.url

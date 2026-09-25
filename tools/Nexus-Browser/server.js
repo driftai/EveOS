@@ -82,7 +82,7 @@ const providerControlRouting = createProviderControlRouting({
 });
 const streamNudgeAuth = createServerStreamNudgeAuth({ getState: () => dexStateStore.load(), getTabs: () => lastTabs,
   extensionReady: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1,
-  maintenanceBusy: () => !!postIdleMaintenance?.leaseActive() });
+  maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), reconcileFinal: (event) => dexScheduler.handleTransportEvent(event) });
 const doneWatchDelivery = createDoneWatchDelivery({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, safeSend, getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null, getTabs: () => lastTabs });
 const qualificationRouting = createQualificationRouting({ safeSend, getExtensionSocket: () => extensionSocket, getDurability: () => durability, getStateStore: () => dexStateStore, restartHook: qualificationRestart, serverSessionId: SERVER_SESSION_ID });
 const serverDexSource = { clientKind: 'dex' };
@@ -282,7 +282,7 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'ping') { safeSend(ws, { type: 'pong', at: Date.now() }); return; }
     if (ws.role === 'qualification') { await qualificationRouting.handle(ws, msg); return; }
     if (ws.role === 'provider-control-extension') {
-      if ((ws === doneWatchControlSocket && streamNudgeAuth.handle(ws, msg, safeSend)) || doneWatchDelivery.handleAck(ws, msg) || taskCompletion.handleAck(ws, msg) || await providerControlRouting.handle(ws, msg)) return;
+      if ((ws === doneWatchControlSocket && await streamNudgeAuth.handle(ws, msg, safeSend)) || doneWatchDelivery.handleAck(ws, msg) || taskCompletion.handleAck(ws, msg) || await providerControlRouting.handle(ws, msg)) return;
       safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'BAD_PROVIDER_CONTROL_COMMAND', message: `Unsupported provider-control command: ${msg.type}` });
       return;
     }
