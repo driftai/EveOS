@@ -1,3 +1,13 @@
+### Background result delivery (revision 41)
+
+An existing local Antigravity CLI can register a fixed, authenticated
+qualification run tied to the exact Dex room, requester, task ID and Git SHA.
+After the installed revision-41 supervisor validates it, a detached child
+writes a signed report and the server delivers the outcome to the original
+Online-Origin tab **outside the Dex relay**, at most once. No task replay on
+uncertain delivery; missing or corrupt local credentials fail closed. See
+DEX-MODE.md for the CLI and strict bootstrap prerequisites.
+
 ### Dex-bound ChatGPT stream recovery (adapter revision 41)
 
 Nexus recognizes both `Error in message stream` and `Stream cache expired` as terminal provider banners, not as plain quoted conversation text. For an exact tab bound to any durable Dex room (including a first-time message or pending HEADSUP), the extension requests localhost authorization, waits up to 30 seconds for conflicting relays/recovery to settle, and may send **one** same-tab out-of-band continuation. It never blindly retries an already-dispatched command or task, and records unavailable/uncertain sends without loops. This requires supervised revision-41 installation and local qualification; source commits alone do not update the live extension. See DEX-MODE.md.

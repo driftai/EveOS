@@ -1,3 +1,44 @@
+## Durable, authenticated detached qualification completion (revision 41)
+
+After **revision 41 has been locally qualified and deployed**, the existing
+Antigravity CLI can launch the fixed four-gate qualification batch without
+keeping the Eve–Astro Dex relay open:
+
+\`\`\`powershell
+cd tools/Nexus-Browser
+node scripts/task-completion-runner.js start --agy-pid <EXISTING_AGY_PID> --room <EXACT_DEX_ROOM_ID> --requester <EXACT_EVE_MEMBER_ID> --branch codex/nexus-post-idle-maintenance --sha <CURRENT_40_CHARACTER_HEAD> --task-id <UNIQUE_BATCH_ID>
+\`\`\`
+
+The local runner uses a server-created, owner-local persistent credential.
+Do not put that credential, its file contents or a generated task report token
+into chat, Dex transcripts, logs or Git. Registration checks the exact room,
+existing Local-Origin Astro binding, Online-Origin requester, clean Git branch,
+exact SHA and unique task ID. It writes the local credential and durable task
+record **before** the one-shot detached launch. The worker checks the same
+immutable values and writes a signed result with each gate's exit code, bounded
+summary and log-relative paths.
+
+The server scans the signed result into a separate fsynced journal, waits
+until the original requester is idle and its exact browser tab is connected,
+then claims the completion **before** one out-of-band notification. A positive
+browser submission acknowledges the claim, **not** independent verification
+that the model read the report. A failed or uncertain submission, server crash
+or tab change preserves the report for manual review without replaying the
+completed task. The runner can inspect the original job:
+
+\`\`\`powershell
+node scripts/task-completion-runner.js status --agy-pid <EXISTING_AGY_PID> --room <EXACT_DEX_ROOM_ID>
+\`\`\`
+
+This command is **not usable while the live bridge is still on an older
+revision**. Bootstrap the first revision-41 deployment and qualification
+through the existing manual, supervised procedure; do not start a second
+background batch just because the old transport loses its report. Keep all
+eight durable Dex rooms and managed workers idle before any actual server
+restart; preserve old session IDs, transcripts and local work. See AGENTS.md
+for the two-branch cleanup gate. The older qualified development branch stays
+available as a rollback until the new exact SHA is verified locally and live.
+
 ## Exact-tab ChatGPT stream recovery (revision 41)
 
 Nexus recognizes two distinct ChatGPT provider error banners: `Error in message stream` and `Stream cache expired`. A watcher on the exact ChatGPT tab bound to **any** durable Dex room may request one continuation nudge, even if the interrupted reply was the first message or an attempted HEADSUP. The existing provider-control socket checks **all** rooms, the exact target tab and URL, active relays, recovery and post-idle maintenance before permitting injection. Busy rooms are rechecked for up to 30 seconds, not interrupted. If the original lease has not settled, Nexus leaves the nudge undelivered rather than risking a concurrent or duplicate turn.
