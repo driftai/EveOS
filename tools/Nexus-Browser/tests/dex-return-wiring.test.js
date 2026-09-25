@@ -38,7 +38,7 @@ test('returned final text is durably queued before delivery and only acknowledge
 test('first-party source headroom and non-replay invariants remain intact', () => {
   for (const file of ['server.js', 'dex/server-scheduler.js', 'dex/server-scheduler-recovery.js',
     'extension/service-worker.js', 'extension/content/chatgpt.js', 'public/dex-protocol.js']) {
-    const count = read(file).split(/\r?\n/).length;
+    const count = read(file).replace(/\r?\n$/, '').split(/\r?\n/).length;
     assert.ok(count <= 440, file + ' exceeded growth guard: ' + count);
   }
   const outbox = read('extension/dex-final-receipt.js');
