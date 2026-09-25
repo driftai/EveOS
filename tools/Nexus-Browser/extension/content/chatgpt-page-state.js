@@ -193,6 +193,17 @@
     return null;
   }
 
+  // A user or assistant discussing the exact banner is not a provider failure.
+  function trustedStreamIssue(issue) {
+    if (!issue) return false;
+    if (!['CHATGPT_MESSAGE_STREAM_ERROR', 'CHATGPT_STREAM_CACHE_EXPIRED'].includes(issue.code)) return true;
+    const element = issue.element;
+    if (!element?.closest) return true; // Server-owned DOM sensor supplies provenance in production.
+    if (isInsideUserMessage(element)) return false;
+    const providerBanner = element.closest('[role="alert"], [data-testid*="error" i]');
+    const quoted = element.closest('.markdown, .prose, [class*="DilResponseRoot"]');
+    return !quoted || !!providerBanner;
+  }
   function isInsideUserMessage(element) {
     return !!element?.closest?.('[data-message-author-role="user"], [data-role="user"]');
   }
@@ -245,7 +256,7 @@
     looksCompleteAssistantText, obviouslyPartialAssistantText, generationSettleMs,
     normalizeText,
     visible,
-    classifyIssueText,
+    classifyIssueText, trustedStreamIssue,
     issueSnapshot,
     findChangedIssue
   };

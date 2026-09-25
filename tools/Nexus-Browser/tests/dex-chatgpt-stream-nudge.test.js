@@ -196,6 +196,12 @@ test('both native stream errors authorize on the exact bound chat; malformed dex
     turnKey: 'native-user-9-1234567890' }).ok, false);
   assert.equal(pageState.classifyIssueText('Stream cache expired')?.code, 'CHATGPT_STREAM_CACHE_EXPIRED');
   assert.equal(pageState.classifyIssueText('I said Stream cache expired'), null);
+  assert.equal(pageState.trustedStreamIssue({ code: 'CHATGPT_STREAM_CACHE_EXPIRED', element: {
+    closest: (selector) => selector.includes('markdown') ? {} : null
+  } }), false, 'quoted ChatGPT prose must not be treated as provider failure');
+  assert.equal(pageState.trustedStreamIssue({ code: 'CHATGPT_STREAM_CACHE_EXPIRED', element: {
+    closest: (selector) => selector.includes('role="alert"') ? {} : null
+  } }), true);
 });
 test('expired stream cache sends the second reason, exact-tab continuation and one persistent claim', async () => {
   let clock = 1000, user = {}, issue = null;

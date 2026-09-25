@@ -136,7 +136,7 @@
     }
     function providerIssueBlocksFinalization() {
       const issue = pageState.findChangedIssue(watcher.baselineIssues);
-      if (!issue) {
+      if (!pageState.trustedStreamIssue(issue)) {
         if (watcher.issueFingerprint) {
           watcher.issueFingerprint = null;
           watcher.issueSince = 0;

@@ -272,7 +272,7 @@ The extension remains the concrete Online-Origin transport adapter and therefore
 
 Open provider tabs are revision-gated. After an extension update, a stale page-side adapter is detected before provider work or Dex tool-result delivery; only that exact stale provider tab is reloaded, the complete registered provider stack is re-probed, and delivery resumes without requiring a manual browser refresh.
 
-## One-shot malformed Dex CMD feedback (adapter revision 39)
+## One-shot malformed Dex CMD feedback (introduced in revision 39)
 
 An Online-Origin agent's latest completed assistant reply can fail to render a valid
 trailing Dex CMD marker (for example, missing the final two closing brackets,
@@ -307,13 +307,13 @@ LOCAL_EXISTING_TIMEOUT enters capture-only recovery for the ORIGINAL turn; it
 must never create a second terminal prompt or silently stop the relay. Inspect the
 room recovery journal and incident log before manually reconciling an old turn.
 
-## Durable post-idle maintenance handoff (revision 38)
+## Durable post-idle maintenance handoff (introduced in revision 38)
 
 A bound browser agent can arm exactly ONE bounded, durable, out-of-band instruction for an
 EXACT existing Local-Origin Antigravity room member. Example (replace real IDs and SHA):
 
 ```text
-[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-post-idle-maintenance","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":39}]]
+[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-post-idle-maintenance","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":41}]]
 ```
 
 A trailing control command ends the originating relay; no trailing DONE or second
