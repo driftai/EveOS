@@ -137,3 +137,57 @@ test('ChatGPT treats a committed user turn as submission success even if compose
   }
 });
 
+
+test('Dex send targets the active composer form, not an unrelated visible Send button', () => {
+  const foreign = control({ id: 'composer-submit-button', aria: 'Send prompt' });
+  const local = control({ testId: 'send-button' });
+  const form = { querySelectorAll() { return [local]; } };
+  const composer = { closest(selector) { return selector === 'form' ? form : null; } };
+  const old = global.document;
+  global.document = { querySelectorAll() { return [foreign]; } };
+  try { assert.equal(chatgptInput.findSendControl(composer), local); }
+  finally { global.document = old; }
+});
+test('Dex send cannot reach a foreign Send button while its own form is hydrating', () => {
+  const form = { querySelectorAll() { return []; } };
+  const composer = { closest() { return form; } };
+  const old = global.document;
+  global.document = { querySelectorAll() { return [control({ testId: 'send-button' })]; } };
+  try { assert.equal(chatgptInput.findSendControl(composer), null); }
+  finally { global.document = old; }
+});
+test('Dex prompt hydration refuses to overwrite a different draft', async () => {
+  const draft = { tagName: 'TEXTAREA', value: 'my unsent draft' };
+  const previous = chatgptInput.findComposer;
+  chatgptInput.findComposer = () => draft;
+  try {
+    await assert.rejects(chatgpt.waitForReadyComposer(draft, 'Dex message', 100),
+      /different draft/);
+    assert.equal(draft.value, 'my unsent draft');
+  } finally { chatgptInput.findComposer = previous; }
+});
+test('uncertain Send click never triggers form or Enter fallback and leaves draft intact', async () => {
+  const field = { tagName: 'TEXTAREA', value: 'Dex message', closest() { return form; } };
+  let clicks = 0, submits = 0;
+  const form = { requestSubmit() { submits++; } };
+  const prior = chatgptInput.composerContainsText;
+  chatgptInput.composerContainsText = (composer, text) => composer.value === text;
+  try {
+    await assert.rejects(chatgpt.submitComposer(field, 'Dex message', { click() { clicks++; } },
+      { exactOnce: true, isCommitted: () => false }), /unconfirmed/);
+    assert.equal(clicks, 1);
+    assert.equal(submits, 0);
+    assert.equal(field.value, 'Dex message');
+  } finally { chatgptInput.composerContainsText = prior; }
+});
+test('no Send button uses native form requestSubmit once and confirms departure', async () => {
+  let submits = 0; const form = { requestSubmit() { submits++; field.value = ''; } };
+  const field = { tagName: 'TEXTAREA', value: 'Dex message', closest() { return form; } };
+  const prior = chatgptInput.composerContainsText;
+  chatgptInput.composerContainsText = (composer, text) => composer.value === text;
+  try {
+    assert.equal(await chatgpt.submitComposer(field, 'Dex message', null,
+      { exactOnce: true }), 'requestSubmit');
+    assert.equal(submits, 1);
+  } finally { chatgptInput.composerContainsText = prior; }
+});
