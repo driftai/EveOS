@@ -22,6 +22,7 @@ function verdict(data, { serverLogAvailable = null, serverLogPath = defaultLogPa
   if (serverLogAvailable !== null && data.supervised == null) issues.push('server diagnostics predate the runtime-log sensor; restart START.bat');
   else if (data.supervised && serverLogAvailable === false) issues.push('supervisor runtime log unavailable; restart START.bat so failure evidence can be captured');
   if (!data.extensionConnected) issues.push('extension offline');
+  if (data.taskCompletion?.available === false) issues.push('task completion journal unavailable: ' + data.taskCompletion.error);
   if (!data.dexUiConnected) notes.push('Dex UI sleeping; localhost scheduling/recovery continues headlessly and UI opens only when control is needed');
   if (data.recoveryRooms > 0) issues.push(`${data.recoveryRooms} room(s) recovering interrupted turns`);
   if (data.durability?.turnLedger?.reliable === false) issues.push('durable turn ledger is unreliable; automatic safe-replay is disabled');
@@ -47,6 +48,7 @@ function verdict(data, { serverLogAvailable = null, serverLogPath = defaultLogPa
     stateRepair: data.stateRepair || { repairs: [], issues: [] },
     orchestration: data.orchestration || null,
     postIdle: data.postIdle || null,
+    taskCompletion: data.taskCompletion || null,
     controlPlane: data.controlPlane || null,
     diagnose: 'npm run diagnose -- --request-id <id> --room-id <id> --provider <provider>',
     issues, notes

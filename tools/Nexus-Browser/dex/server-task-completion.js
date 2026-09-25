@@ -5,14 +5,31 @@ function startTaskCompletion({
   dexStateStore, localTargets, safeSend, getSocket, getTabs,
   onError = (error) => console.error('[bridge] task-completion:', error)
 } = {}) {
-  const journal = createTaskCompletionJournal({
-    getState: () => dexStateStore.load(),
-    validateLocal: async (source) => {
-      const target = await localTargets.getLocalTarget(String(source.targetId || ''));
-      return !!target && target.id === source.targetId
-        && target.providerId === source.providerId && target.sessionOrigin === 'existing';
-    }
-  });
+  let journal;
+  try {
+    journal = createTaskCompletionJournal({
+      getState: () => dexStateStore.load(),
+      validateLocal: async (source) => {
+        const target = await localTargets.getLocalTarget(String(source.targetId || ''));
+        return !!target && target.id === source.targetId
+          && target.providerId === source.providerId && target.sessionOrigin === 'existing';
+      }
+    });
+  } catch (error) {
+    // Invalid/corrupt journal must not cause endless supervised server restarts.
+    // Never recreate or overwrite the source of truth automatically.
+    const reason = String(error.message || error).slice(0, 160);
+    return {
+      handleCommand: async (ws, msg) => {
+        if (!['task_completion_register', 'task_completion_status'].includes(msg?.type)) return false;
+        safeSend(ws, { type: 'task_completion_result', requestId: msg.requestId || null,
+          result: { ok: false, code: 'TASK_COMPLETION_JOURNAL_UNAVAILABLE', message: reason } });
+        return true;
+      },
+      handleAck: () => false, flush: () => {},
+      diagnostics: () => ({ available: false, error: reason })
+    };
+  }
   const delivery = createTaskCompletionDelivery({
     journal, getState: () => dexStateStore.load(), getTabs, getSocket, safeSend
   });

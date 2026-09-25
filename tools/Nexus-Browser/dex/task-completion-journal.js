@@ -41,6 +41,7 @@ function createTaskCompletionJournal({
 } = {}) {
   const journal = readJournal(filePath, io);
   let recovered = false;
+  const registering = new Set();
   for (const job of journal.jobs) {
     if (job.state !== 'sent-unconfirmed') continue;
     job.state = 'outcome-unknown';
@@ -79,6 +80,7 @@ function createTaskCompletionJournal({
       || !/^[A-Za-z0-9_.\/-]{1,128}$/.test(branch) || branch.includes('..')) {
       return error('TASK_COMPLETION_BAD_INTENT', 'Require task ID, exact 40-character SHA and explicit branch.');
     }
+    if (registering.has(taskId)) return error('TASK_COMPLETION_REGISTRATION_IN_PROGRESS', 'Exact registration is in progress; inspect status before retrying.');
     const previous = journal.jobs.find((job) => job.taskId === taskId);
     if (previous) {
       if (previous.roomId !== room.id || previous.workerMemberId !== worker.id
@@ -91,6 +93,8 @@ function createTaskCompletionJournal({
       }
       return { ok: true, deduplicated: true, job: compact(previous) };
     }
+    registering.add(taskId);
+    try {
     // Fail closed on registration against unqualified or dirty local source.
     let git;
     try { git = await readGit(); }
@@ -117,6 +121,7 @@ function createTaskCompletionJournal({
     journal.jobs.push(job);
     try { save(); } catch (e) { journal.jobs.pop(); throw e; }
     return { ok: true, job: compact(job) };
+    } finally { registering.delete(taskId); }
   }
   async function status({ source = {}, command = {} } = {}) {
     if (source.targetClassId !== 'local-origin' || !(await validateLocal(source))) {
