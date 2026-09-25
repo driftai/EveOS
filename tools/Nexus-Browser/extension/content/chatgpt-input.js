@@ -148,9 +148,11 @@
   }
 
   function findSendControl(composer) {
-    // Prefer the exact composer subtree. A global Send button may belong to an
-    // unrelated inline editor and must never receive a Dex-injected prompt.
-    const scope = composer?.closest?.('form') || composer?.parentElement?.parentElement || document;
+    // Real form ownership is authoritative. Form-less ChatGPT places Send in an
+    // outer sibling action bar, so walk bounded ancestors instead of document.
+    // A second visible editor at any wider scope is an ownership ambiguity.
+    if (!composer) return null;
+    const form = composer.closest?.('form');
     const selectors = [
       '#composer-submit-button',
       'button[data-testid="send-button"]',
@@ -160,22 +162,38 @@
       'button[aria-label="Send"]',
       'button.composer-submit-btn'
     ];
-
-    for (const selector of selectors) {
-      const matches = [...scope.querySelectorAll(selector)]
+    function otherEditorIn(scope) {
+      const editors = [...(scope?.querySelectorAll?.('input, textarea, [contenteditable="true"]') || [])]
+        .filter(usableComposer);
+      return editors.some((editor) => editor !== composer
+        && !composer.contains?.(editor) && !editor.contains?.(composer));
+    }
+    function scopedControl(scope) {
+      if (!scope?.querySelectorAll) return null;
+      for (const selector of selectors) {
+        const matches = [...scope.querySelectorAll(selector)]
+          .filter(visible)
+          .map((control) => ({ control, score: sendControlScore(control) }))
+          .filter((entry) => entry.score >= 100)
+          .sort((a, b) => b.score - a.score);
+        if (matches[0]) return matches[0].control;
+      }
+      const candidates = [...scope.querySelectorAll('button, [role="button"]')]
         .filter(visible)
         .map((control) => ({ control, score: sendControlScore(control) }))
         .filter((entry) => entry.score >= 100)
         .sort((a, b) => b.score - a.score);
-      if (matches[0]) return matches[0].control;
+      return candidates[0]?.control || null;
     }
-
-    const candidates = [...scope.querySelectorAll('button, [role="button"]')]
-      .filter(visible)
-      .map((control) => ({ control, score: sendControlScore(control) }))
-      .filter((entry) => entry.score >= 100)
-      .sort((a, b) => b.score - a.score);
-    return candidates[0]?.control || null;
+    if (form) return otherEditorIn(form) ? null : scopedControl(form);
+    for (let scope = composer, depth = 0; scope && depth <= 7; scope = scope.parentElement, depth++) {
+      if (String(scope.tagName || '').toUpperCase() === 'BODY'
+          || (typeof document !== 'undefined' && scope === document.body)) break;
+      if (scope !== composer && otherEditorIn(scope)) return null;
+      const control = scopedControl(scope);
+      if (control) return control;
+    }
+    return null;
   }
 
   function generationLooksActive(root = document) {
