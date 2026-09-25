@@ -190,3 +190,15 @@ test('watcher diagnostics expose only phases and counts, not conversation text',
   d.phase = 'mutated copy';
   assert.notEqual(content.diagnostics().phase, 'mutated copy');
 });
+
+test('valid command suppression waits for explicit localhost ownership', () => {
+  const bridge = fs.readFileSync(path.join(root, 'extension/dex-provider-control-bridge.js'), 'utf8');
+  const routing = fs.readFileSync(path.join(root, 'dex/provider-control-routing.js'), 'utf8');
+  assert.match(source, /awaiting-localhost-admission/);
+  assert.match(source, /ack\?\.ok === true && ack\?\.accepted === true/);
+  assert.match(source, /delivery-outcome-uncertain/);
+  assert.match(bridge, /provider_control_received/);
+  assert.match(bridge, /DEX_CONTROL_ADMISSION_TIMEOUT/);
+  assert.match(bridge, /sendResponse\(result/);
+  assert.match(routing, /type: 'provider_control_received'/);
+});
