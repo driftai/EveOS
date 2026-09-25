@@ -87,6 +87,9 @@ test('background sends each content action once and injects each result ID once'
     chrome: { tabs: { async sendMessage(tabId, payload) { injected.push({ tabId, payload }); } } },
     fetch: async () => ({ ok: true }),
     WebSocket: Socket,
+    // vm contexts do not inherit Node timers; ensureSocket needs both.
+    setTimeout,
+    clearTimeout,
     setInterval: () => 0
   };
   vm.runInNewContext(bridgeSource, context, { filename: 'dex-provider-control-bridge.js' });
