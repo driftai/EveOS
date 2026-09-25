@@ -1,6 +1,6 @@
 (() => {
   const REASON = 'CHATGPT_MESSAGE_STREAM_ERROR', COOLDOWN_MS = 15 * 60 * 1000;
-  const exactChat = /^https:\/\/chatgpt\.com\/c\/[a-zA-Z0-9-]+(?:[?#].*)?$/;
+  const exactChat = /^https:\/\/chatgpt\.com(?:\/[A-Za-z0-9_./?=&%#-]*)?$/;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   function createStreamNudgeBridge({
     chromeApi = globalThis.chrome, freshness = globalThis.BrowserAiBridgeProviderAdapterFreshness,

@@ -6,7 +6,7 @@ function createServerStreamNudgeAuth({
   maintenanceBusy = () => false
 } = {}) {
   const metrics = { requests: 0, allowed: 0, deferred: 0, denied: 0 };
-  const CHAT = /^https:\/\/chatgpt\.com\/c\/[a-zA-Z0-9-]+(?:[?#].*)?$/;
+  const CHAT = /^https:\/\/chatgpt\.com(?:\/[A-Za-z0-9_./?=&%#-]*)?$/;
   function check(input = {}) {
     metrics.requests++;
     const source = input.source || {}, tabId = Number(source.targetId);
