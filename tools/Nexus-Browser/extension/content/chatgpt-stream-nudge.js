@@ -18,6 +18,22 @@
       suppressedUntil = Math.max(suppressedUntil, now() + Math.min(SUPPRESS_MS, Math.max(0, ms)));
       waiting = false; candidateAt = 0; baseline = pageState.issueSnapshot();
     }
+    function sendOnce(turnKey) {
+      if (!turnKey || now() < suppressedUntil || lastSentKey === turnKey) return false;
+      lastSentKey = turnKey; waiting = false; candidateAt = 0; attempts++;
+      // The content script reports only a reason and bounded turn key, NEVER
+      // the failed prompt, agent reply, room data or any executable command.
+      try { send({ type: 'nexus_chatgpt_stream_error',
+        reason: ERROR_CODE, turnKey }); } catch {}
+      return true;
+    }
+    function reportDexError(requestId) {
+      if (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{8,128}$/.test(requestId)) return false;
+      // The regular watcher has already seen an exact provider error. It may
+      // stop its Dex turn before a DOM-based idle scan can observe the same UI.
+      if (!waiting && lastSentKey) return false;
+      return sendOnce(waiting ? key : 'dex-' + requestId.slice(0, 120));
+    }
     function sample() {
       const current = now(), user = answer.userNodes().at(-1) || null;
       const generating = !!input.generationLooksActive();
@@ -34,22 +50,23 @@
         baseline = pageState.issueSnapshot();
       }
       generation = generating;
-      if (dexActive || current < Number(globalThis.__browserAiBridgeChatGptDexStreamErrorUntil || 0)) dexOwned = true;
-      if (!waiting || generating || dexOwned || current < suppressedUntil
+      if (dexActive) dexOwned = true; // Diagnostic only: server checks ALL rooms before injection.
+      if (!waiting || generating || current < suppressedUntil
         || key === lastSentKey || !lastUser) return false;
       const issue = pageState.findChangedIssue(baseline);
       if (issue?.code !== ERROR_CODE) { candidateAt = 0; return false; }
+      // A user or agent discussing the error string in ordinary rendered
+      // markdown is not evidence of an actual ChatGPT stream failure.
+      const element = issue.element;
+      const errorSurface = element?.closest?.('[role="alert"], [data-testid*="error" i]');
+      const quoted = element?.closest?.('.markdown, .prose, [class*="DilResponseRoot"]');
+      if (quoted && !errorSurface) { candidateAt = 0; return false; }
       if (!candidateAt) { candidateAt = current; return false; }
       if (current - candidateAt < SETTLE_MS) return false;
-      waiting = false; candidateAt = 0; lastSentKey = key; attempts++;
-      // No replay of the original user prompt, Dex turn, or any external action.
-      // No original prompt or assistant text is sent to the service worker.
-      try { send({ type: 'nexus_chatgpt_stream_error', reason: ERROR_CODE, turnKey: key }); }
-      catch {} // The worker may be asleep; never automatically repeat uncertain sends.
-      return true;
+      return sendOnce(key);
     }
     const diagnostics = () => ({ attempts, waiting, dexOwned, suppressed: now() < suppressedUntil });
-    return { sample, suppressFor, diagnostics, ERROR_CODE, SETTLE_MS, SUPPRESS_MS };
+    return { sample, reportDexError, suppressFor, diagnostics, ERROR_CODE, SETTLE_MS, SUPPRESS_MS };
   }
   const api = { createStreamNudgeController, ERROR_CODE, SETTLE_MS, SUPPRESS_MS };
   globalThis.BrowserAiBridgeChatGptStreamNudge = api;
@@ -61,6 +78,7 @@
     if (pageState && answer && input) {
       const controller = createStreamNudgeController({ pageState, answer, input });
       api.suppressFor = controller.suppressFor;
+      api.reportDexError = controller.reportDexError;
       api.diagnostics = controller.diagnostics;
       const schedule = () => {
         clearTimeout(api.scanTimer);
