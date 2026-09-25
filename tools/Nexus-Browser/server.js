@@ -282,7 +282,7 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'ping') { safeSend(ws, { type: 'pong', at: Date.now() }); return; }
     if (ws.role === 'qualification') { await qualificationRouting.handle(ws, msg); return; }
     if (ws.role === 'provider-control-extension') {
-      if (streamNudgeAuth.handle(ws, msg, safeSend) || doneWatchDelivery.handleAck(ws, msg) || taskCompletion.handleAck(ws, msg) || await providerControlRouting.handle(ws, msg)) return;
+      if ((ws === doneWatchControlSocket && streamNudgeAuth.handle(ws, msg, safeSend)) || doneWatchDelivery.handleAck(ws, msg) || taskCompletion.handleAck(ws, msg) || await providerControlRouting.handle(ws, msg)) return;
       safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'BAD_PROVIDER_CONTROL_COMMAND', message: `Unsupported provider-control command: ${msg.type}` });
       return;
     }

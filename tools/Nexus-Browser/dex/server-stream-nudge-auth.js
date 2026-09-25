@@ -6,7 +6,11 @@ function createServerStreamNudgeAuth({
   maintenanceBusy = () => false
 } = {}) {
   const metrics = { requests: 0, allowed: 0, deferred: 0, denied: 0 };
-  const CHAT = /^https:\/\/chatgpt\.com(?:\/[A-Za-z0-9_./?=&%#-]*)?$/;
+  const CHAT = (value) => {
+    try { const url = new URL(String(value || '')); return url.protocol === 'https:'
+      && url.hostname === 'chatgpt.com' && !url.username && !url.password; }
+    catch { return false; }
+  };
   function check(input = {}) {
     metrics.requests++;
     const source = input.source || {}, tabId = Number(source.targetId);
@@ -16,7 +20,7 @@ function createServerStreamNudgeAuth({
     };
     if (input.reason !== 'CHATGPT_MESSAGE_STREAM_ERROR'
       || source.targetClassId !== 'online-origin' || source.providerId !== 'chatgpt'
-      || !Number.isSafeInteger(tabId) || tabId < 1 || !CHAT.test(source.url || '')
+      || !Number.isSafeInteger(tabId) || tabId < 1 || !CHAT(source.url)
       || !/^native-[a-z0-9-]{8,110}$/i.test(String(input.turnKey || ''))) {
       return deny('STREAM_NUDGE_BAD_SOURCE');
     }

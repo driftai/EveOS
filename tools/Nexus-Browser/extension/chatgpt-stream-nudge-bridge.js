@@ -1,6 +1,10 @@
 (() => {
   const REASON = 'CHATGPT_MESSAGE_STREAM_ERROR', COOLDOWN_MS = 15 * 60 * 1000;
-  const exactChat = /^https:\/\/chatgpt\.com(?:\/[A-Za-z0-9_./?=&%#-]*)?$/;
+  const exactChat = (value) => {
+    try { const url = new URL(String(value || '')); return url.protocol === 'https:'
+      && url.hostname === 'chatgpt.com' && !url.username && !url.password; }
+    catch { return false; }
+  };
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   function createStreamNudgeBridge({
     chromeApi = globalThis.chrome, freshness = globalThis.BrowserAiBridgeProviderAdapterFreshness,
@@ -52,7 +56,7 @@
     async function handle(msg, sender) {
       if (msg?.type !== 'nexus_chatgpt_stream_error') return false;
       const tab = sender?.tab || {}, id = Number(tab.id);
-      if (!Number.isSafeInteger(id) || id < 1 || !exactChat.test(tab.url || '')
+      if (!Number.isSafeInteger(id) || id < 1 || !exactChat(tab.url)
         || msg.reason !== REASON || !/^(?:native|dex)-[a-z0-9-]{8,128}$/i.test(msg.turnKey || '')
         || (sender?.id && sender.id !== chromeApi.runtime.id)) {
         stats.rejected++; return false;
@@ -104,7 +108,7 @@
     async function handleOutcome(msg, sender) {
       if (msg?.type !== 'nexus_stream_nudge_reply_result') return false;
       const tab = sender?.tab || {}, id = Number(tab.id), recordKey = key(id);
-      if (!Number.isSafeInteger(id) || !exactChat.test(tab.url || '')) return false;
+      if (!Number.isSafeInteger(id) || !exactChat(tab.url)) return false;
       const store = chromeApi?.storage?.local;
       if (!store?.get || !store?.set) return false;
       const record = (await store.get(recordKey))?.[recordKey];
