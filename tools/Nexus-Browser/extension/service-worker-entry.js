@@ -5,6 +5,7 @@ if (typeof importScripts === 'function') {
   importScripts('provider-adapter-freshness.js');
   importScripts('provider-target-spawn.js');
   importScripts('task-completion-bridge.js');
+  importScripts('dex-bound-tab-watchdog.js');
   importScripts('dex-provider-control-bridge.js');
   importScripts('chatgpt-stream-nudge-bridge.js');
   importScripts('dex-final-receipt.js');
