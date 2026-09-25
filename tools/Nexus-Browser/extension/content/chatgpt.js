@@ -23,7 +23,6 @@
   const SUBMIT_FINAL_SETTLE_MS = 1200;
   const DEX_CONTROL_SEND_WAIT_MS = 12000, GENERATION_HEARTBEAT_MS = 15000;
   const { transientStatusLine, substantiveAssistantText } = pageState;
-
   const { looksCompleteAssistantText, obviouslyPartialAssistantText } = pageState;
   const malformedDexControl = (text) => !!globalThis.BrowserAiBridgeDexProviderControlContent?.malformedTrailingCommand?.(text);
   const generationSettleMs = (options) => pageState.generationSettleMs(options, {
@@ -47,6 +46,7 @@
   }
 
   function reportGenerationActivity(watcher, requestId, isGenerating, force = false) {
+    if (watcher.outOfBand) return;
     const stamp = Date.now();
     const state = isGenerating ? 'active' : 'idle';
     if (isGenerating) {
@@ -65,7 +65,7 @@
       baselineCount: baseline.count,
       assistantBaseline: baseline.assistantBaseline || null,
       promptCommitted: false,
-      finalPending: false, notification: !!baseline.notification,
+      finalPending: false, notification: !!baseline.notification, outOfBand: !!baseline.outOfBand,
       baselineText: baseline.text,
       baselineIssues: baseline.issues || new Map(),
       userBaselineCount: Number(baseline.userCount || 0), prompt: String(baseline.prompt || ''),
@@ -97,6 +97,7 @@
       if (watcher.finalPending) return false;
       const observedAt = Date.now();
       watcher.finalPending = true;
+      if (watcher.outOfBand) { stopWatcher(requestId); return true; }
       const result = emit({ type: 'response_final', requestId, text: finalText, observedAt, detail: {
         adapterSettleMs: Math.max(0, observedAt - (watcher.generatingEndedAt || watcher.lastChangedAt)),
         stableForMs: Math.max(0, observedAt - watcher.lastChangedAt), reliableGeneration: watcher.sawReliableGenerating,
@@ -113,7 +114,7 @@
 
     function emitProviderIssue(issue) {
       const observedForMs = watcher.issueSince ? Date.now() - watcher.issueSince : 0;
-      emit({
+      if (!watcher.outOfBand) emit({
         type: 'adapter_error',
         requestId,
         code: issue.code || 'CHATGPT_PROVIDER_ERROR',
@@ -193,7 +194,7 @@
       if (text !== watcher.lastText) {
         watcher.lastText = text;
         watcher.lastChangedAt = Date.now();
-        emit({ type: 'response_partial', requestId, text });
+        if (!watcher.outOfBand) emit({ type: 'response_partial', requestId, text });
         return;
       }
 
@@ -347,10 +348,10 @@
       count: beforeNodes.length,
       text: substantiveAssistantText(answer.getTurnAssistantText(beforeNodes, beforeNodes.length)),
       issues: pageState.issueSnapshot(), userCount: userBaselineCount, prompt: text,
-      assistantBaseline: returnApi.baseline(beforeNodes), notification: ['dex-heads-up', 'dex-done-watch'].includes(delivery?.kind)
+      assistantBaseline: returnApi.baseline(beforeNodes), notification: ['dex-heads-up', 'dex-done-watch'].includes(delivery?.kind), outOfBand: delivery?.kind === 'dex-control-nudge'
     };
 
-    const sendWaitMs = ['dex-control-result', 'dex-done-watch', 'dex-heads-up'].includes(delivery?.kind) ? DEX_CONTROL_SEND_WAIT_MS : 5000;
+    const sendWaitMs = ['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge'].includes(delivery?.kind) ? DEX_CONTROL_SEND_WAIT_MS : 5000;
     const ready = await waitForReadyComposer(composer, text, sendWaitMs);
     composer = ready.composer;
     if (!composer || !input.composerContainsText(composer, text)) {
@@ -395,7 +396,7 @@
           .then((submissionMode) => sendResponse({ ok: true, submissionMode }))
           .catch((error) => {
             stopWatcher(msg.requestId);
-            emit({ type: 'adapter_error', requestId: msg.requestId, code: 'PROMPT_SEND_FAILED', message: error.message });
+            if (msg.delivery?.kind !== 'dex-control-nudge') emit({ type: 'adapter_error', requestId: msg.requestId, code: 'PROMPT_SEND_FAILED', message: error.message });
             sendResponse({ ok: false, error: error.message });
           });
         return true;
