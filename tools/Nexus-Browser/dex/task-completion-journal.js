@@ -197,7 +197,9 @@ function createTaskCompletionJournal({
     job.deliveryError = String(message || 'Submission outcome unknown. No automatic replay.').slice(0, 160);
     save(); return compact(job);
   }
-  const ready = () => journal.jobs.filter((job) => job.state === 'ready').map(compact);
+  const deliveryView = (job) => ({ ...compact(job), requesterTarget: job.requesterTarget,
+    workerTargetId: job.workerTargetId, workerProviderId: job.workerProviderId });
+  const ready = () => journal.jobs.filter((job) => job.state === 'ready').map(deliveryView);
   const all = () => journal.jobs.map(compact);
   const diagnostics = () => {
     const states = {};
