@@ -5,6 +5,8 @@ if (typeof importScripts === 'function') {
   importScripts('provider-adapter-freshness.js');
   importScripts('provider-target-spawn.js');
   importScripts('dex-provider-control-bridge.js');
+  importScripts('dex-final-receipt.js');
+  importScripts('dex-final-delivery-wiring.js');
   importScripts('host-access.js');
   importScripts('target-state.js');
   importScripts('target-resurrection.js');

@@ -15,7 +15,7 @@ test('ChatGPT tool status heartbeats are scoped to the exact active prompt', () 
   assert.match(page, /function transientStatusLine\(value\)/);
   assert.match(chat, /responsePending: \(\) => active\.size > 0/);
   assert.match(content, /BrowserAiBridgeChatGptRuntime\?\.responsePending\?\.\(\)/);
-  assert.match(read('extension/content/provider-adapter-revision.js'), /ADAPTER_REVISION = 35/);
+  assert.match(read('extension/content/provider-adapter-revision.js'), /ADAPTER_REVISION = 36/);
 });
 
 test('recovered DONE notifications are committed before dispatch is resumed', () => {

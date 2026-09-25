@@ -27,7 +27,8 @@ test('ChatGPT finalization treats transient status text as activity instead of a
   assert.match(source, /const settleMs = generationSettleMs\(\{\s*sawReliableGenerating: watcher\.sawReliableGenerating,\s*text: watcher\.lastText\s*\}\);/);
   assert.match(source, /INCOMPLETE_NO_SIGNAL_SETTLE_MS/);
   assert.match(source, /looksCompleteAssistantText\(watcher\.lastText\)/);
-  assert.match(source, /substantiveAssistantText\(\s*answer\.responseTextForUserPrompt/);
+  assert.match(source, /const anchored = answer\.responseTextForUserPrompt/);
+  assert.match(source, /returnApi\.freshReply\(answer, watcher\.assistantBaseline\)/);
 });
 
 test('capture_latest binds recovery to the expected prompt when provided', () => {

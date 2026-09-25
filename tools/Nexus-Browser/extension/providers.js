@@ -216,6 +216,7 @@
             'content/chatgpt-page-state.js',
             'content/chatgpt-input.js',
             'content/chatgpt-answer.js',
+            'content/chatgpt-return.js',
             'content/chatgpt.js'
           ],
           globals: [

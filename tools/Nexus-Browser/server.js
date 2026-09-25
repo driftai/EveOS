@@ -5,7 +5,7 @@ const localTargets = require('./local-targets/manager');
 const { createDexServerRouting } = require('./dex/server-routing'), { createProviderControlRouting } = require('./dex/provider-control-routing'), { createProviderTargetSpawnRouting } = require('./dex/provider-target-spawn-routing');
 const { createQualificationRestartHook } = require('./dex/qualification-restart'), { createQualificationRouting } = require('./dex/qualification-routing');
 const { createDexStateStore } = require('./dex/state-store'), { createDexServerScheduler } = require('./dex/server-scheduler'), { createDoneWatchDelivery } = require('./dex/done-watch-delivery');
-const { mergeClientSnapshot } = require('./dex/server-state-merge');
+const { mergeClientSnapshot } = require('./dex/server-state-merge'), finalState = require('./dex/server-scheduler-state');
 const { createServerDurability } = require('./dex/server-durability');
 const { createExtensionSessionArbiter } = require('./dex/extension-session-arbiter');
 const { assetRevision } = require('./server-asset-revision');
@@ -158,7 +158,6 @@ function forwardToExtension(payload, source) {
     safeSend(source, { type: 'error', requestId: payload.requestId || null, code: 'EXTENSION_OFFLINE', message: 'The browser extension bridge is not connected.' });
   }
 }
-
 async function handleLocalUiCommand(ws, msg) {
   if (msg.type === 'request_local_targets') { await refreshLocalTargets(ws, { force: !!msg.force }); return true; }
   if (msg.type === 'request_local_status') {
@@ -233,17 +232,14 @@ async function handleLocalUiCommand(ws, msg) {
   }
   return false;
 }
-
 wss.on('connection', (ws, req) => {
   ws.role = null; ws.remoteAddress = req?.socket?.remoteAddress || '';
   ws.clientKind = 'browser';
   ws.localTargetId = null;
-
   ws.on('message', async (raw) => {
     let msg;
     try { msg = JSON.parse(String(raw)); }
     catch { safeSend(ws, { type: 'error', code: 'BAD_JSON', message: 'Bridge received invalid JSON.' }); return; }
-
     if (msg.type === 'hello') {
       if (msg.role === 'qualification') { qualificationRouting.accept(ws); return; }
       if (msg.role === 'extension') {
@@ -282,7 +278,6 @@ wss.on('connection', (ws, req) => {
       safeSend(ws, { type: 'error', code: 'BAD_ROLE', message: 'Unsupported hello.role.' });
       return;
     }
-
     if (msg.type === 'ping') { safeSend(ws, { type: 'pong', at: Date.now() }); return; }
     if (ws.role === 'qualification') { await qualificationRouting.handle(ws, msg); return; }
     if (ws.role === 'provider-control-extension') {
@@ -290,7 +285,6 @@ wss.on('connection', (ws, req) => {
       safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'BAD_PROVIDER_CONTROL_COMMAND', message: `Unsupported provider-control command: ${msg.type}` });
       return;
     }
-
     if (ws.role === 'ui') {
       if (ws.clientKind === 'maintenance' && ['cleanup_disposable_rooms', 'resolve_passive_recovery'].includes(msg.type)) { const result = msg.type === 'cleanup_disposable_rooms' ? await disposableRoomCleanup.run(msg.requestId) : dexScheduler.resolvePassiveRecovery({ roomId: msg.roomId, requestId: msg.recoveryRequestId, reason: msg.reason }); if (msg.type === 'resolve_passive_recovery' && result.ok) broadcastDexState(dexStateStore.load()); safeSend(ws, msg.type === 'cleanup_disposable_rooms' ? result : { type: 'resolve_passive_recovery_result', requestId: msg.requestId || null, ...result }); return; }
       if (msg.type === 'dex_state_put' && ws.clientKind === 'dex') {
@@ -356,7 +350,6 @@ wss.on('connection', (ws, req) => {
       forwardToExtension(msg, ws);
       return;
     }
-
     if (ws.role === 'extension') {
       if (msg.type === 'tabs_update') {
         const state = syncExtensionAuthority(extensionSessions.update(ws, msg));
@@ -386,12 +379,16 @@ wss.on('connection', (ws, req) => {
         console.log(`[bridge] extension error [${msg.requestId || 'n/a'}]: ${msg.code} - ${msg.message}`);
       }
       await dexScheduler.handleTransportEvent(msg);
+      if (msg.type === 'response_final' && msg.requestId) {
+        const receipt = finalState.findFinalReceipt(dexStateStore.load(), msg.requestId);
+        if (receipt) safeSend(ws, { type: 'dex_turn_receipt', requestId: msg.requestId,
+          messageId: receipt.messageId, roomId: receipt.roomId, state: 'committed' });
+      }
       dexRouting.broadcastExtensionEvent(msg);
       return;
     }
     safeSend(ws, { type: 'error', code: 'HELLO_REQUIRED', message: 'Send hello before other bridge messages.' });
   });
-
   ws.on('close', (code, reason) => {
     providerControlRouting.dropSocket(ws); qualificationRouting.dropSocket(ws);
     if (doneWatchControlSocket === ws) doneWatchControlSocket = null;
@@ -417,7 +414,6 @@ wss.on('connection', (ws, req) => {
   });
   ws.on('error', (err) => console.error('[bridge] websocket error:', err.message));
 });
-
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   if (url.pathname !== '/ws' || !websocketOriginAllowed(req.headers.origin, PORT)) {
@@ -427,7 +423,6 @@ server.on('upgrade', (req, socket, head) => {
   }
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
-
 server.on('close', () => { heartbeat.stop(); localTargets.stopLocalTargets(); });
 if (require.main === module) {
   server.listen(PORT, HOST, () => {
@@ -436,5 +431,4 @@ if (require.main === module) {
     dexScheduler.resume();
   });
 }
-
 module.exports = { server, wss, HOST, PORT, RUNTIME_URLS, SERVER_SESSION_ID, refreshLocalTargets, configureDurability, websocketOriginAllowed };

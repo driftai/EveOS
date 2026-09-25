@@ -95,7 +95,7 @@
         }
         if (now - entry.lastChangedAt < settleMs) return;
 
-        const delivered = send({
+        const delivered = await send({
           type: 'response_final',
           requestId,
           text,

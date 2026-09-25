@@ -200,7 +200,22 @@
     });
   }
 
+  function dispatchComposerEnter(composer) {
+    const keyOptions = {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true
+    };
+    composer.dispatchEvent(new KeyboardEvent('keydown', keyOptions));
+    composer.dispatchEvent(new KeyboardEvent('keypress', keyOptions));
+    composer.dispatchEvent(new KeyboardEvent('keyup', keyOptions));
+  }
+
   const api = {
+    dispatchComposerEnter,
     visible,
     composerSelectors,
     usableComposer,

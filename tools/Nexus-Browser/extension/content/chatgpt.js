@@ -24,32 +24,16 @@
   const DEX_CONTROL_SEND_WAIT_MS = 12000, GENERATION_HEARTBEAT_MS = 15000;
   const { transientStatusLine, substantiveAssistantText } = pageState;
 
-  function looksCompleteAssistantText(value) {
-    const text = String(value || '').trim();
-    if (!text) return false;
-    if (/\[\[DEX:(?:DONE|USER|NOTE)\]\]$/.test(text)) return true;
-    if (/\`\`\`$/.test(text)) return true;
-    return /[.!?…\)\]\}"'\`]$/.test(text);
-  }
-
-  function obviouslyPartialAssistantText(value) {
-    const text = String(value || '').trim();
-    if (!text || text.length < 8) return true;
-    return /\b(?:a|an|the|to|of|and|or|but|because|with|for|from|that|which|who|as|in|on|at|by|if|when|while|than|then|so)$/i.test(text);
-  }
-
-  function generationSettleMs({ sawReliableGenerating = false, text = '' } = {}) {
-    const baseSettleMs = sawReliableGenerating
-      ? RELIABLE_GENERATION_SETTLE_MS
-      : STATUS_SIGNAL_SETTLE_MS;
-    if (!looksCompleteAssistantText(text)) {
-      return Math.max(baseSettleMs, INCOMPLETE_NO_SIGNAL_SETTLE_MS);
-    }
-    return baseSettleMs;
-  }
+  const { looksCompleteAssistantText, obviouslyPartialAssistantText } = pageState;
+  const generationSettleMs = (options) => pageState.generationSettleMs(options, {
+    RELIABLE_GENERATION_SETTLE_MS, STATUS_SIGNAL_SETTLE_MS, INCOMPLETE_NO_SIGNAL_SETTLE_MS
+  });
+  const returnApi = globalThis.BrowserAiBridgeChatGptReturn
+    || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-return.js') : null);
+  if (!returnApi) throw new Error('ChatGPT return capture helper missing.');
 
   function emit(payload) {
-    try { chrome.runtime.sendMessage(payload); } catch {}
+    try { return chrome.runtime.sendMessage(payload); } catch { return null; }
   }
 
   function stopWatcher(requestId) {
@@ -78,6 +62,9 @@
   function watchResponse(requestId, baseline) {
     const watcher = {
       baselineCount: baseline.count,
+      assistantBaseline: baseline.assistantBaseline || null,
+      promptCommitted: false,
+      finalPending: false,
       baselineText: baseline.text,
       baselineIssues: baseline.issues || new Map(),
       userBaselineCount: Number(baseline.userCount || 0), prompt: String(baseline.prompt || ''),
@@ -99,14 +86,26 @@
     };
 
     function finalize({ allowUnpunctuated = false } = {}) {
-      const current = substantiveAssistantText(
-        answer.responseTextForUserPrompt(watcher.prompt, watcher.userBaselineCount)
-      );
+      const anchored = answer.responseTextForUserPrompt(watcher.prompt, watcher.userBaselineCount);
+      const current = substantiveAssistantText(anchored || (watcher.promptCommitted
+        ? returnApi.freshReply(answer, watcher.assistantBaseline) : ''));
       const finalText = current || watcher.lastText;
+      if (returnApi.trailingReturn(finalText) && !returnApi.exactReturn(finalText, requestId)) return false;
       if (!finalText || (!looksCompleteAssistantText(finalText) && (!allowUnpunctuated || obviouslyPartialAssistantText(finalText)))) return false;
       if (allowUnpunctuated && finalText !== watcher.lastText) { watcher.lastText = finalText; watcher.lastChangedAt = Date.now(); return false; }
-      const observedAt = Date.now(); emit({ type: 'response_final', requestId, text: finalText, observedAt, detail: { adapterSettleMs: Math.max(0, observedAt - (watcher.generatingEndedAt || watcher.lastChangedAt)), stableForMs: Math.max(0, observedAt - watcher.lastChangedAt), reliableGeneration: watcher.sawReliableGenerating } });
-      stopWatcher(requestId);
+      if (watcher.finalPending) return false;
+      const observedAt = Date.now();
+      watcher.finalPending = true;
+      const result = emit({ type: 'response_final', requestId, text: finalText, observedAt, detail: {
+        adapterSettleMs: Math.max(0, observedAt - (watcher.generatingEndedAt || watcher.lastChangedAt)),
+        stableForMs: Math.max(0, observedAt - watcher.lastChangedAt), reliableGeneration: watcher.sawReliableGenerating,
+        returnRequested: returnApi.exactReturn(finalText, requestId)
+      } });
+      if (result?.then) result.then((receipt) => {
+        if (receipt?.ok === true) stopWatcher(requestId);
+        else watcher.finalPending = false;
+      }).catch(() => { watcher.finalPending = false; });
+      else stopWatcher(requestId);
       return true;
     }
 
@@ -157,6 +156,7 @@
     }
 
     function sample() {
+      if (watcher.finalPending) return;
       const reportedGenerating = input.generationLooksActive();
       if (reportedGenerating) {
         watcher.sawGenerating = true;
@@ -166,8 +166,11 @@
 
       if (providerIssueBlocksFinalization()) return;
 
-      const rawText = answer.responseTextForUserPrompt(watcher.prompt, watcher.userBaselineCount);
+      const anchored = answer.responseTextForUserPrompt(watcher.prompt, watcher.userBaselineCount);
+      const rawText = anchored || (watcher.promptCommitted
+        ? returnApi.freshReply(answer, watcher.assistantBaseline) : '');
       const text = substantiveAssistantText(rawText);
+      if (returnApi.trailingReturn(text) && !returnApi.exactReturn(text, requestId)) return;
       const transientOnly = !!String(rawText || '').trim() && !text;
       // Status-only text belongs to the current prompt: it is visible work,
       // even when ChatGPT's stop-button generation signal is temporarily absent.
@@ -194,6 +197,10 @@
 
       if (reportedGenerating || obviouslyPartialAssistantText(watcher.lastText)) return;
       const now = Date.now();
+      if (returnApi.exactReturn(watcher.lastText, requestId)
+          && now - watcher.lastChangedAt >= RELIABLE_GENERATION_SETTLE_MS) {
+        finalize(); return;
+      }
       const stableFor = now - watcher.lastChangedAt;
       if (watcher.sawGenerating) {
         const settleMs = generationSettleMs({
@@ -249,21 +256,10 @@
     watcher.timer = setInterval(sample, 350);
     watcher.timeout = setTimeout(handleDeadline, DEFAULT_RESPONSE_DEADLINES.idleTimeoutMs);
     active.set(requestId, watcher);
+    return watcher;
   }
 
-  function dispatchComposerEnter(composer) {
-    const keyOptions = {
-      key: 'Enter',
-      code: 'Enter',
-      keyCode: 13,
-      which: 13,
-      bubbles: true,
-      cancelable: true
-    };
-    composer.dispatchEvent(new KeyboardEvent('keydown', keyOptions));
-    composer.dispatchEvent(new KeyboardEvent('keypress', keyOptions));
-    composer.dispatchEvent(new KeyboardEvent('keyup', keyOptions));
-  }
+  const dispatchComposerEnter = input.dispatchComposerEnter;
 
   async function waitForComposerText(composer, text, timeoutMs = 900) {
     const started = Date.now();
@@ -348,7 +344,8 @@
     const baseline = {
       count: beforeNodes.length,
       text: substantiveAssistantText(answer.getTurnAssistantText(beforeNodes, beforeNodes.length)),
-      issues: pageState.issueSnapshot(), userCount: userBaselineCount, prompt: text
+      issues: pageState.issueSnapshot(), userCount: userBaselineCount, prompt: text,
+      assistantBaseline: returnApi.baseline(beforeNodes)
     };
 
     const sendWaitMs = ['dex-control-result', 'dex-done-watch'].includes(delivery?.kind) ? DEX_CONTROL_SEND_WAIT_MS : 5000;
@@ -363,8 +360,9 @@
       throw new Error('Refusing to click a ChatGPT voice/upload control as the send button.');
     }
 
-    watchResponse(requestId, baseline);
-    return submitComposer(composer, text, sendControl, { exactOnce: qualification?.exactOnce === true, isCommitted: () => answer.normalizeText(answer.getTurnUserText(answer.userNodes(), userBaselineCount)).includes(answer.normalizeText(text)) });
+    const watcher = watchResponse(requestId, baseline);
+    return submitComposer(composer, text, sendControl, { exactOnce: qualification?.exactOnce === true, isCommitted: () => answer.normalizeText(answer.getTurnUserText(answer.userNodes(), userBaselineCount)).includes(answer.normalizeText(text)) })
+      .then((mode) => { watcher.promptCommitted = true; return mode; });
   }
 
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
@@ -374,7 +372,9 @@
         return;
       }
       if (msg.type === 'capture_latest') {
-        const text = substantiveAssistantText(msg.expectedPrompt ? answer.responseTextForUserPrompt(msg.expectedPrompt, 0) : answer.latestAssistantText());
+        const anchored = msg.expectedPrompt ? answer.responseTextForUserPrompt(msg.expectedPrompt, 0) : answer.latestAssistantText();
+        const latest = !anchored && msg.originalTurnRequestId ? answer.latestAssistantText() : '';
+        const text = substantiveAssistantText(anchored || (returnApi.exactReturn(latest, msg.originalTurnRequestId) ? latest : ''));
         const isGenerating = !!input.generationLooksActive();
         sendResponse({
           ok: true,

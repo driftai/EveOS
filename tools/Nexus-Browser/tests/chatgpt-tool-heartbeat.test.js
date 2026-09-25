@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const pageState = require('../extension/content/chatgpt-page-state');
+const returnApi = require('../extension/content/chatgpt-return');
 const { createServerTurnLease, TURN_IDLE_TIMEOUT_MS, TURN_ABSOLUTE_TIMEOUT_MS } = require('../dex/server-turn-lease');
 
 test('ChatGPT transient statuses emit bounded server-visible activity through long tool work', () => {
@@ -26,6 +27,7 @@ test('ChatGPT transient statuses emit bounded server-visible activity through lo
       minutes: () => 4
     },
     BrowserAiBridgeChatGptPageState: pageState,
+    BrowserAiBridgeChatGptReturn: returnApi,
     Date: { now: () => stamp },
     MutationObserver: class { constructor(cb) { tick = cb; } observe() {} disconnect() {} },
     chrome: { runtime: { onMessage: { addListener() {} }, sendMessage(event) { sent.push(event); } } },

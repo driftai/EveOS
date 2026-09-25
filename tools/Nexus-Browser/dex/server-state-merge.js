@@ -39,7 +39,7 @@ function mergeDoneWatchFields(serverRoom = {}, clientRoom = {}) {
 
 function mergeIdleRoom(serverRoom, clientRoom) {
   const client = clientRoom && typeof clientRoom === 'object' ? clientRoom : {};
-  const merged = { ...client, ...mergeDoneWatchFields(serverRoom, client), relay: { ...(serverRoom.relay || {}) } };
+  const merged = { ...client, ...mergeDoneWatchFields(serverRoom, client), finalReceipts: serverRoom.finalReceipts || [], relay: { ...(serverRoom.relay || {}) } };
   delete merged.pendingTurn;
   delete merged.recovery;
   return merged;
@@ -50,6 +50,7 @@ function mergeBusyRoom(serverRoom, clientRoom) {
   return {
     ...serverRoom,
     ...mergeDoneWatchFields(serverRoom, client),
+    finalReceipts: serverRoom.finalReceipts || [],
     ...(client.name != null ? { name: client.name } : {}),
     ...(client.userName != null ? { userName: client.userName } : {}),
     ...(client.settings && typeof client.settings === 'object' ? {

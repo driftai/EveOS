@@ -21,6 +21,31 @@
   }
 
 
+  function looksCompleteAssistantText(value) {
+    const text = String(value || '').trim();
+    if (!text) return false;
+    if (/\[\[DEX:(?:DONE|USER|NOTE|RETURN:dex-turn-[A-Za-z0-9-]{8,128})\]\]$/.test(text)) return true;
+    if (/\`\`\`$/.test(text)) return true;
+    return /[.!?…\)\]\}"'\`]$/.test(text);
+  }
+
+  function obviouslyPartialAssistantText(value) {
+    const text = String(value || '').trim();
+    if (!text || text.length < 8) return true;
+    return /\b(?:a|an|the|to|of|and|or|but|because|with|for|from|that|which|who|as|in|on|at|by|if|when|while|than|then|so)$/i.test(text);
+  }
+
+  function generationSettleMs({ sawReliableGenerating = false, text = '' } = {}, { RELIABLE_GENERATION_SETTLE_MS = 1500, STATUS_SIGNAL_SETTLE_MS = 3000, INCOMPLETE_NO_SIGNAL_SETTLE_MS = 60000 } = {}) {
+    const baseSettleMs = sawReliableGenerating
+      ? RELIABLE_GENERATION_SETTLE_MS
+      : STATUS_SIGNAL_SETTLE_MS;
+    if (!looksCompleteAssistantText(text)) {
+      return Math.max(baseSettleMs, INCOMPLETE_NO_SIGNAL_SETTLE_MS);
+    }
+    return baseSettleMs;
+  }
+
+
   const CONNECTION_GRACE_MS = 60 * 1000;
   const SURFACE_SELECTORS = [
     '[role="alert"]',
@@ -207,6 +232,7 @@
   const api = {
     CONNECTION_GRACE_MS,
     transientStatusLine, substantiveAssistantText,
+    looksCompleteAssistantText, obviouslyPartialAssistantText, generationSettleMs,
     normalizeText,
     visible,
     classifyIssueText,

@@ -193,7 +193,7 @@ function createServerSchedulerRecovery({
     const selected = getSelectedOnlineTarget();
     if (selected && String(selected.id) === String(target.id) && selected.providerId === target.providerId) {
       save(snapshot);
-      if (!sendExtension({ type: 'capture_latest', requestId, expectedPrompt: recovery.expectedPrompt || '' })) {
+      if (!sendExtension({ type: 'capture_latest', requestId, expectedPrompt: recovery.expectedPrompt || '', originalTurnRequestId: recovery.requestId })) {
         recovery.captureRequestId = null;
         save(snapshot);
         clearActive();
@@ -242,6 +242,7 @@ function createServerSchedulerRecovery({
     }
 
     const parsed = protocol.parseAgentReply(observed.text || '');
+    if (parsed.returnRequestId && parsed.returnRequestId !== recovery.requestId) return false;
     const body = protocol.cleanText(parsed.text);
     if (!body) {
       recovery.captureRequestId = null;
@@ -312,6 +313,7 @@ function createServerSchedulerRecovery({
       agentMessage: message, turnRequestId: recovery.requestId, at: new Date(nowMs()).toISOString()
     });
     const disposition = protocol.relayDisposition(parsed, member.name, repeated, room.relay);
+    stateApi.rememberFinalReceipt(room, recovery.requestId, message.id, new Date(nowMs()).toISOString());
     try { onRecovered({ room, member, message, parsed }); } catch {}
     clearActive();
     if (requestedStopReason) setStopped(room, requestedStopReason);
@@ -411,7 +413,7 @@ function createServerSchedulerRecovery({
         && String(msg.target?.id) === String(recovery.selectingTargetId)) {
       recovery.selectingTargetId = null;
       save(snapshot);
-      if (!sendExtension({ type: 'capture_latest', requestId: recovery.captureRequestId, expectedPrompt: recovery.expectedPrompt || '' })) {
+      if (!sendExtension({ type: 'capture_latest', requestId: recovery.captureRequestId, expectedPrompt: recovery.expectedPrompt || '', originalTurnRequestId: recovery.requestId })) {
         recovery.captureRequestId = null;
         save(snapshot);
         clearActive();

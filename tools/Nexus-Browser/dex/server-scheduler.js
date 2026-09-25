@@ -330,7 +330,9 @@ function createDexServerScheduler({
     delete room.recovery;
     room.relay.waitingFor = null;
     const disposition = protocol.relayDisposition(parsed, member.name, repeated, room.relay);
+    if (parsed.returnRequestId && parsed.returnRequestId !== current.requestId) return false;
     if (parsed.done) doneWatchApi.consume(room, { completedMemberId: member.id, message, at: now() });
+    stateApi.rememberFinalReceipt(room, current.requestId, message.id, now());
     clearCurrent();
     if (disposition.action === 'stop') setStopped(room, disposition.reason);
     else enqueueNext(room, message);

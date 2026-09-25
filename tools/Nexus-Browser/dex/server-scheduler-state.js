@@ -23,6 +23,24 @@ function addMessage(room, { id, senderKind, senderId, senderName, text, at }) {
   return message;
 }
 
+function rememberFinalReceipt(room, requestId, messageId, at = new Date().toISOString()) {
+  if (!requestId || !messageId) return false;
+  room.finalReceipts = Array.isArray(room.finalReceipts) ? room.finalReceipts : [];
+  if (room.finalReceipts.some((entry) => entry.requestId === requestId)) return false;
+  room.finalReceipts.push({ requestId, messageId, committedAt: at });
+  room.finalReceipts = room.finalReceipts.slice(-128);
+  return true;
+}
+function findFinalReceipt(snapshot, requestId) {
+  for (const room of snapshot?.rooms || []) {
+    const receipt = (room.finalReceipts || []).find((entry) => entry.requestId === requestId);
+    // The receipt was committed after the message; later transcript cleanup
+    // must not make an already-committed result look undelivered.
+    if (receipt) return { roomId: room.id, ...receipt };
+  }
+  return null;
+}
+
 function requestStop(room, reason, at) {
   room.relay = room.relay || {};
   room.relay.active = false;
@@ -156,7 +174,7 @@ function supportsOperation(providers, providerId, operation) {
 }
 
 module.exports = {
-  roomById, memberById, messageById, addMessage, requestStop, setStopped,
+  roomById, memberById, messageById, addMessage, rememberFinalReceipt, findFinalReceipt, requestStop, setStopped,
   validPending, queueTurn, enqueueNext, pendingRooms, duePendingRooms, nextPendingDelay,
   createRecoveryJournal, resolveOnline, resolveLocal, priorReply, safeBudget,
   providerById, supportsOperation
