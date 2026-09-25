@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-test('headed control marker waits for the authoritative ChatGPT reply to finalize', () => {
+test('headed control marker waits for the authoritative ChatGPT reply to finalize', async () => {
   const src = fs.readFileSync(path.resolve(__dirname, '../extension/content/dex-provider-control.js'), 'utf8');
   const commandText = '[[DEX:CMD {"action":"status","room":"eve-astro"}]]';
   let now = 1000, pending = true;
@@ -45,7 +45,8 @@ test('headed control marker waits for the authoritative ChatGPT reply to finaliz
   assert.equal(requests.length, 1);
   assert.equal(requests[0].command.action, 'status');
   assert.equal(requests[0].clientActionId, 'chatgpt:message:assistant-1');
-  return Promise.resolve().then(() => {
-    assert.equal(context.BrowserAiBridgeDexProviderControlContent.diagnostics().phase, 'localhost-admitted');
-  });
+  // The mocked Chrome promise crosses a vm context. Yield through Node's
+  // task queue so both thenable-assimilation microtasks have committed.
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(context.BrowserAiBridgeDexProviderControlContent.diagnostics().phase, 'localhost-admitted');
 });

@@ -9,7 +9,7 @@ const watcherSource = fs.readFileSync(path.join(__dirname, '..', 'extension/cont
 const bridgeSource = fs.readFileSync(path.join(__dirname, '..', 'extension/dex-provider-control-bridge.js'), 'utf8');
 const MARKER = '[[DEX:CMD {"action":"status","room":"room-eve-astro"}]]';
 
-test('one DIL assistant turn dispatches once despite late content-block reflow', () => {
+test('one DIL assistant turn dispatches once despite late content-block reflow', async () => {
   let now = 10000;
   const timers = [], sent = [];
   let onMutation;
@@ -50,6 +50,9 @@ test('one DIL assistant turn dispatches once despite late content-block reflow',
   flush();
   assert.equal(sent.length, 1);
   assert.equal(sent[0].clientActionId, 'chatgpt:message:turn-one');
+  // Let the mocked localhost-admission promise move the turn from in-flight
+  // into durable dispatched state before simulating late DIL reflow.
+  await new Promise((resolve) => setImmediate(resolve));
 
   nodes.push({ innerText: 'Copy', closest: () => originalTurn });
   onMutation();
