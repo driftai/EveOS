@@ -1,7 +1,6 @@
 (() => {
   if (typeof window !== 'undefined' && globalThis.__browserAiBridgeChatGptLoaded) return;
   if (typeof window !== 'undefined') globalThis.__browserAiBridgeChatGptLoaded = true;
-
   const input = globalThis.BrowserAiBridgeChatGptInput
     || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-input.js') : null);
   const answer = globalThis.BrowserAiBridgeChatGptAnswer
@@ -113,6 +112,8 @@
     }
 
     function emitProviderIssue(issue) {
+      if (issue.code === 'CHATGPT_MESSAGE_STREAM_ERROR')
+        globalThis.__browserAiBridgeChatGptDexStreamErrorUntil = Date.now() + 10 * 60 * 1000;
       const observedForMs = watcher.issueSince ? Date.now() - watcher.issueSince : 0;
       if (!watcher.outOfBand) emit({
         type: 'adapter_error',
@@ -348,10 +349,10 @@
       count: beforeNodes.length,
       text: substantiveAssistantText(answer.getTurnAssistantText(beforeNodes, beforeNodes.length)),
       issues: pageState.issueSnapshot(), userCount: userBaselineCount, prompt: text,
-      assistantBaseline: returnApi.baseline(beforeNodes), notification: ['dex-heads-up', 'dex-done-watch', 'dex-task-completion'].includes(delivery?.kind), outOfBand: delivery?.kind === 'dex-control-nudge'
+      assistantBaseline: returnApi.baseline(beforeNodes), notification: ['dex-heads-up', 'dex-done-watch', 'dex-task-completion', 'dex-stream-nudge'].includes(delivery?.kind), outOfBand: ['dex-control-nudge', 'dex-stream-nudge'].includes(delivery?.kind)
     };
 
-    const sendWaitMs = ['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion'].includes(delivery?.kind) ? DEX_CONTROL_SEND_WAIT_MS : 5000;
+    const sendWaitMs = ['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion', 'dex-stream-nudge'].includes(delivery?.kind) ? DEX_CONTROL_SEND_WAIT_MS : 5000;
     const ready = await waitForReadyComposer(composer, text, sendWaitMs);
     composer = ready.composer;
     if (!composer || !input.composerContainsText(composer, text)) {
@@ -396,7 +397,7 @@
           .then((submissionMode) => sendResponse({ ok: true, submissionMode }))
           .catch((error) => {
             stopWatcher(msg.requestId);
-            if (msg.delivery?.kind !== 'dex-control-nudge') emit({ type: 'adapter_error', requestId: msg.requestId, code: 'PROMPT_SEND_FAILED', message: error.message });
+            if (!['dex-control-nudge', 'dex-stream-nudge'].includes(msg.delivery?.kind)) emit({ type: 'adapter_error', requestId: msg.requestId, code: 'PROMPT_SEND_FAILED', message: error.message });
             sendResponse({ ok: false, error: error.message });
           });
         return true;

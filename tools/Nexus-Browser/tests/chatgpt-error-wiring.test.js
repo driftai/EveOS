@@ -45,7 +45,17 @@ test('ChatGPT prompt submission confirms departure or committed turn before esca
 test('Dex control results wait longer and follow the hydrated ChatGPT composer', () => {
   assert.match(chatgpt, /DEX_CONTROL_SEND_WAIT_MS = 12000/);
   assert.match(chatgpt, /async function waitForReadyComposer/);
-  assert.match(chatgpt, /\['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion'\]\.includes\(delivery\?\.kind\) \? DEX_CONTROL_SEND_WAIT_MS : 5000/);
+  assert.match(chatgpt, /\['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion', 'dex-stream-nudge'\]\.includes\(delivery\?\.kind\) \? DEX_CONTROL_SEND_WAIT_MS : 5000/);
   assert.match(chatgpt, /const ready = await waitForReadyComposer\(composer, text, sendWaitMs\)/);
   assert.match(chatgpt, /delivery: msg\.delivery \|\| null/);
+});
+
+test('native stream errors are classified distinctly and exact-tab recovery loads after ChatGPT runtime', () => {
+  const state = require('../extension/content/chatgpt-page-state.js');
+  assert.equal(state.classifyIssueText('Error in message stream')?.code, 'CHATGPT_MESSAGE_STREAM_ERROR');
+  assert.equal(state.classifyIssueText('The user said Error in message stream')?.code, undefined);
+  const group = manifest.content_scripts.find((entry) => entry.matches.includes('https://chatgpt.com/*'));
+  assert.ok(group.js.indexOf('content/chatgpt-stream-nudge.js') > group.js.indexOf('content/chatgpt.js'));
+  assert.ok(providers.getProvider('chatgpt').contentScripts.includes('content/chatgpt-stream-nudge.js'));
+  assert.match(chatgpt, /__browserAiBridgeChatGptDexStreamErrorUntil/);
 });

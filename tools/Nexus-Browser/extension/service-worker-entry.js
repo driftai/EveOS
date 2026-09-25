@@ -6,6 +6,7 @@ if (typeof importScripts === 'function') {
   importScripts('provider-target-spawn.js');
   importScripts('task-completion-bridge.js');
   importScripts('dex-provider-control-bridge.js');
+  importScripts('chatgpt-stream-nudge-bridge.js');
   importScripts('dex-final-receipt.js');
   importScripts('dex-final-delivery-wiring.js');
   importScripts('host-access.js');

@@ -217,13 +217,15 @@
             'content/chatgpt-input.js',
             'content/chatgpt-answer.js',
             'content/chatgpt-return.js',
-            'content/chatgpt.js'
+            'content/chatgpt.js',
+            'content/chatgpt-stream-nudge.js'
           ],
           globals: [
             '__browserAiBridgeChatGptPageStateLoaded',
             '__browserAiBridgeChatGptInputLoaded',
             '__browserAiBridgeChatGptAnswerLoaded',
             '__browserAiBridgeChatGptLoaded',
+            '__browserAiBridgeChatGptStreamNudgeLoaded',
             'BrowserAiBridgeResponseDeadline',
             'BrowserAiBridgeChatGptPageState',
             'BrowserAiBridgeChatGptInput',

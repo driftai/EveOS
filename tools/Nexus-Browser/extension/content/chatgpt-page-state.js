@@ -55,7 +55,7 @@
     '[data-testid*="warning" i]',
     '[data-testid*="notice" i]'
   ];
-  const HIGH_CONFIDENCE_TEXT = /(connection interrupted|network error|lost connection|unable to connect|reconnect(?:ing)?|maximum length for this conversation|conversation (?:is |has )?(?:too long|reached)|start a new chat to continue|unable to load conversation|conversation not found|error generating (?:a )?response|something went wrong|too many requests|rate limit|usage limit|session expired|sign in to continue|log in to continue)/i;
+  const HIGH_CONFIDENCE_TEXT = /(error in message stream|connection interrupted|network error|lost connection|unable to connect|reconnect(?:ing)?|maximum length for this conversation|conversation (?:is |has )?(?:too long|reached)|start a new chat to continue|unable to load conversation|conversation not found|error generating (?:a )?response|something went wrong|too many requests|rate limit|usage limit|session expired|sign in to continue|log in to continue)/i;
 
   function normalizeText(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
@@ -82,6 +82,11 @@
     const providerText = normalizeText(value);
     if (!providerText || providerText.length > 900) return null;
     const lower = providerText.toLowerCase();
+    if (/^error in message stream[.!]?$/.test(lower)) return {
+      code: 'CHATGPT_MESSAGE_STREAM_ERROR', category: 'generation',
+      terminal: true, retryable: true, rebindRecommended: false, providerText,
+      message: 'ChatGPT reported an interrupted message stream; original tool effects are uncertain.'
+    };
 
     if (/maximum length for this conversation|conversation (?:is |has )?(?:too long|reached (?:its|the) (?:maximum )?length)|start a new chat to continue|conversation.*context.*limit/.test(lower)) {
       return {
