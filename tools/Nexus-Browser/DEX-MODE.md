@@ -266,6 +266,31 @@ The extension remains the concrete Online-Origin transport adapter and therefore
 
 Open provider tabs are revision-gated. After an extension update, a stale page-side adapter is detected before provider work or Dex tool-result delivery; only that exact stale provider tab is reloaded, the complete registered provider stack is re-probed, and delivery resumes without requiring a manual browser refresh.
 
+## One-shot malformed Dex CMD feedback (adapter revision 39)
+
+An Online-Origin agent's latest completed assistant reply can fail to render a valid
+trailing Dex CMD marker (for example, missing the final two closing brackets,
+spaced opening brackets, invalid JSON, an unsupported action or unexpected
+trailing prose). The extension waits for generation to finish and the exact
+assistant turn to settle, then sends **one** targeted formatting nudge to the
+same authorized provider tab. It never executes, autocorrects or guesses a
+malformed command. The follow-up must be a **new** assistant reply containing
+one valid literal trailing marker. If the intended arguments cannot be
+reconstructed, ask the user instead of inventing them.
+
+Each nudge is claimed once per exact assistant turn and has a five-minute
+per-tab cooldown persisted through a content-script or service-worker reload.
+One malformed repair follow-up cannot trigger another automatic nudge. A
+correctly formed new command clears the cooldown. A failed or uncertain
+browser submission is recorded without automatic retry. Nudge diagnostics
+expose reason codes and counters only, not conversation text.
+
+The server's relay parser also fails closed on a malformed trailing CMD
+instead of interpreting it as ordinary prose and scheduling another agent.
+Code-fenced examples and markers in older assistant turns are not nudged.
+If a renderer drops the marker entirely, with no recognizable fragment
+remaining, the watcher cannot infer that a command was intended.
+
 ## Long Existing-Session turns and exact-once final delivery
 
 Existing Antigravity terminal qualification can run longer than three minutes. The
