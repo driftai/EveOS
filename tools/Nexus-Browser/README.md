@@ -46,7 +46,7 @@ Dex starts in **Agent-Only Mode on every new page load or reload**. Structural h
 
 This is **a local browser UI editing gate, not a backend permission change or an agent capability grant**. Bound agents still use their exact-session, exact-room provider-control authorization and busy-state safeguards. A human can opt into room editing without granting an unrelated agent access to it.
 
-The local-only `npm run extension:reload` command is a separate privileged lifecycle operation; `reload_extension` is **not** a supported trailing `[[DEX:CMD ...]]` action. Use `npm run extension:refresh` when code changed and you want the shared gate before that reload.
+A bound Online-Origin agent can request a **server-authorized extension reload** with `[[DEX:CMD {"action":"reload_extension","room":"<exact authorized room id>"}]]`. Only the exact bound browser tab may request it, and all rooms and provider-control operations must be idle. Localhost rejects ambiguous extension sessions, requests one reload, and verifies the acknowledgement plus a new authoritative connection epoch, fresh target snapshot, and new provider-control bridge before returning success. This does **not** expose PowerShell, arbitrary commands, or local-agent privileges. For the initial checkout that installs this feature, use the local `npm run extension:reload` command once; use `npm run extension:refresh` when extension code changes and you want the shared gate before reloading.
 
 A bound agent can inspect and operate its own authorized Dex rooms without Drift manually copying state between agents. Browser agents use a trailing command marker, while Local-Origin agents can use `scripts/dexctl.js`.
 

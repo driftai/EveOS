@@ -237,7 +237,7 @@ async function getSearchResultsWithCollapsedRecovery(requestId, searchIndex, sen
 async function handleBridgeCommand(msg) {
   try {
     if (await qualificationControlApi.handleCommand(qualificationControl, msg, { chromeApi: chrome, getProvider, providerMatchesUrl, waitForTabComplete, selectTarget, clearSelectedTarget, publishTabs, targetResurrectionApi, safeSend, getSelection: async () => { if (targetTabId == null || !targetProviderId) return null; try { const tab = await chrome.tabs.get(targetTabId); return { tabId: targetTabId, providerId: targetProviderId, url: tab.url || tab.pendingUrl || '' }; } catch { return null; } } })) return;
-    if (msg.type === 'reload_extension') { safeSend({ type: 'reloading_extension' }); chrome.runtime?.reload?.(); return; }
+    if (msg.type === 'reload_extension') { safeSend({ type: 'reloading_extension', requestId: msg.requestId || null }); chrome.runtime?.reload?.(); return; }
     if (msg.type === 'ensure_dex_ui') { await dexUiEnsureApi.ensureDexUiTab(chrome); return; }
     if (msg.type === 'reload_tab') {
       const id = Number(msg.tabId);

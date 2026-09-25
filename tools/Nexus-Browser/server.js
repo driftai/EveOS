@@ -71,7 +71,7 @@ const providerControlRouting = createProviderControlRouting({
   uiSockets,
   safeSend,
   ensureDexClient,
-  getDexClient: () => dexRouting.dexClient(), getState: () => dexStateStore.load(), saveState: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, spawnTarget: (input) => providerTargetSpawnRouting.spawn(input), closeTarget: (input) => providerTargetSpawnRouting.close(input), recordIncident: (input) => { const event = durability.recordIncident(input); console.log(`[bridge] incident ${event.code} [${event.requestId || 'n/a'}] source=${event.source || 'unknown'}`); return event; },
+  getDexClient: () => dexRouting.dexClient(), getState: () => dexStateStore.load(), saveState: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, getExtension: () => { const s = extensionSessions.current(); return { socket: extensionSocket, ready: s.ready, epoch: s.primaryConnectionEpoch, sessionCount: s.sessionCount, targets: lastTabs }; }, spawnTarget: (input) => providerTargetSpawnRouting.spawn(input), closeTarget: (input) => providerTargetSpawnRouting.close(input), recordIncident: (input) => { const event = durability.recordIncident(input); console.log(`[bridge] incident ${event.code} [${event.requestId || 'n/a'}] source=${event.source || 'unknown'}`); return event; },
   async validateSource(source, ws) {
     if (ws?.role === 'provider-control-extension') {
       return source?.targetClassId === 'online-origin'
@@ -254,7 +254,7 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (msg.role === 'provider-control-extension') {
-        ws.role = 'provider-control-extension';
+        ws.role = 'provider-control-extension'; providerControlRouting.providerControlConnected(ws);
         console.log('[bridge] provider-control extension connected');
         return;
       }
@@ -367,7 +367,7 @@ wss.on('connection', (ws, req) => {
         targetClassId: 'online-origin', targetId: msg.tabId || lastTarget?.id || null,
         providerId: msg.providerId || lastTarget?.providerId || null
       }).catch(() => {});
-      if (providerTargetSpawnRouting.observe(msg)) return;
+      if (providerControlRouting.observeExtension(msg, ws) || providerTargetSpawnRouting.observe(msg)) return;
       if (qualificationRouting.observeExtension(msg)) return;
       if (msg.type === 'target_selected') {
         lastTarget = msg.target || null;

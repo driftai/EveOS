@@ -1,9 +1,10 @@
 const orchestrationPolicy = require('./provider-orchestration-policy'), controlReceiptApi = require('./provider-control-receipt');
+const { createAgentExtensionReload } = require('./agent-extension-reload');
 
 const MUTATING_ACTIONS = new Set([
   'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
   'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
-  'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room'
+  'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension'
 ]);
 const DEDUPE_TTL_MS = 120000;
 
@@ -29,13 +30,14 @@ function mutationKey(source, command = {}) {
 
 function createProviderControlRouting({
   uiSockets, safeSend, validateSource, ensureDexClient, getDexClient,
-  getState, saveState, broadcastState, spawnTarget, closeTarget, recordIncident,
+  getState, saveState, broadcastState, spawnTarget, closeTarget, recordIncident, getExtension,
   now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 }) {
   const pending = new Map();
   const pendingMutations = new Map();
   const recentMutations = new Map();
+  const agentExtensionReload = createAgentExtensionReload({ getState, getExtension, hasPending: () => pending.size > 0, safeSend, recordIncident, now, sleep });
 
   function dexClient() {
     return typeof getDexClient === 'function'
@@ -169,6 +171,13 @@ function createProviderControlRouting({
       return true;
     }
     const origin = settledOrigin.origin;
+    if (action === 'reload_extension') {
+      const outcome = await agentExtensionReload.run({ source, command, requestId, transportRole: ws.role });
+      const recipient = outcome.socket || ws;
+      const receipt = commitOriginReceipt(origin, outcome.result, requestId);
+      sendResult({ sourceSocket: recipient, requestId, source }, outcome.result, receipt);
+      return true;
+    }
     pruneRecent();
     const key = mutationKey(source, command);
     if (key) {
@@ -338,6 +347,7 @@ function createProviderControlRouting({
   }
 
   function dropSocket(ws) {
+    agentExtensionReload.dropSocket(ws);
     for (const [requestId, entry] of pending) {
       entry.waiters = entry.waiters.filter((waiter) => waiter.sourceSocket !== ws);
       if (entry.sourceSocket !== ws) continue;
@@ -352,7 +362,9 @@ function createProviderControlRouting({
 
   return {
     handle, dropSocket, pending, pendingMutations, recentMutations,
-    mutationKey: (source, command) => mutationKey(source, command), settleOrigin
+    mutationKey: (source, command) => mutationKey(source, command), settleOrigin,
+    observeExtension: agentExtensionReload.observeExtension, providerControlConnected: agentExtensionReload.providerControlConnected,
+    agentExtensionReload
   };
 }
 

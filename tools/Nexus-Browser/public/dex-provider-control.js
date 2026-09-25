@@ -12,9 +12,9 @@
   const ACTIONS = new Set([
     'help', 'onboard', 'checkpoint', 'read_checkpoint', 'rooms', 'targets', 'create_room', 'use_room', 'status',
     'rename_self', 'set_self_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room',
-    'stop_relay', 'continue_relay', ...roomAdminApi.ACTIONS
+    'stop_relay', 'continue_relay', 'reload_extension', ...roomAdminApi.ACTIONS
   ]);
-  const MUTATING_ACTIONS = new Set(['checkpoint','create_room','rename_room','configure_room','add_agent','spawn_agent','despawn_agent','rename_agent','set_agent_relay','remove_agent','rename_self','set_self_relay','stop_relay','continue_relay','clear_chat','delete_room','send','handoff_room']);
+  const MUTATING_ACTIONS = new Set(['checkpoint','create_room','rename_room','configure_room','add_agent','spawn_agent','despawn_agent','rename_agent','set_agent_relay','remove_agent','rename_self','set_self_relay','stop_relay','continue_relay','clear_chat','delete_room','send','handoff_room','reload_extension']);
   function clean(value, max = 16000) {
     return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, max);
   }
@@ -139,7 +139,7 @@
         providerName: member?.binding?.providerName || null,
         relayEnabled: member?.relayEnabled !== false
       },
-      commands: ['rooms', 'targets', 'status', 'checkpoint', 'read_checkpoint', 'use_room', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room'],
+      commands: ['rooms', 'targets', 'status', 'checkpoint', 'read_checkpoint', 'use_room', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension'],
       spawnProviders: providers.filter((entry) => entry.orchestration?.spawnable).map((entry) => ({ providerId: entry.id, providerName: entry.name })),
       continuity: continuityApi.onboardingGuidance(room, member, provider),
       rules: [
@@ -148,6 +148,7 @@
         'Room relay context is intentionally bounded. Ask for missing context instead of assuming it.',
         'Normal relay replies must not impersonate another participant or rewrite Dex routing metadata.',
         'Managed browser workers are bounded resources. Use spawn_agent only for explicit idle rooms and despawn_agent before deleting their room.',
+        'A bound browser chat may request reload_extension only for its exact idle room. This server-owned operation does not grant shell access and fails closed if another Dex room is busy.',
         'Disposable proof/test rooms are temporary resources. After the final idle status and managed-worker cleanup, delete the room with delete_room; do not leave one-use qualification rooms behind.'
       ]
     };
@@ -203,7 +204,8 @@
             '[[DEX:CMD {"action":"spawn_agent","room":"<room>","providerId":"<spawnable provider id>","name":"<worker name>"}]]',
             '[[DEX:CMD {"action":"despawn_agent","room":"<room>","member":"<managed member id or name>"}]]',
             '[[DEX:CMD {"action":"send","text":"<message>","relay":true}]]',
-            '[[DEX:CMD {"action":"handoff_room","room":"<authorized room id or exact name>","text":"<message>","turns":8}]]'
+            '[[DEX:CMD {"action":"handoff_room","room":"<authorized room id or exact name>","text":"<message>","turns":8}]]',
+            '[[DEX:CMD {"action":"reload_extension","room":"<exact authorized room id>"}]]'
           ],
           note: 'Commands are trailing-only. Browser providers are authorized only for rooms containing that exact provider chat; local agents are authorized only for their exact local target.'
         }
@@ -216,6 +218,7 @@
       if (!ACTIONS.has(action)) return { ok: false, code: 'DEX_CONTROL_BAD_ACTION', message: `Unsupported Dex provider-control action: ${action || '(missing)'}` };
       if (!source.targetClassId || !source.providerId) return { ok: false, code: 'DEX_CONTROL_BAD_SOURCE', message: 'Provider-control source identity is incomplete.' };
       if (action === 'help') return help();
+      if (action === 'reload_extension') return { ok: false, code: 'DEX_CONTROL_SERVER_ONLY', message: 'Extension reload must be authorized by the localhost provider-control router, not the browser UI.' };
       if (action === 'create_room') {
         if (typeof createRoom !== 'function') {
           return { ok: false, code: 'DEX_CONTROL_CREATE_UNAVAILABLE', message: 'Dex room creation is unavailable in this runtime.' };
