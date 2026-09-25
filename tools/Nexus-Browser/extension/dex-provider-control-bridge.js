@@ -9,6 +9,8 @@
   const deliveredResults = new Map();
   const DEDUPE_TTL_MS = 120000;
   const MAX_SEEN = 256;
+  const REPAIR_COOLDOWN_MS = 5 * 60 * 1000;
+  const repairTabs = new Map();
   const MALFORMED_CODES = new Set(['MALFORMED_DELIMITERS', 'MISSING_CLOSER', 'INCOMPLETE_MARKER', 'INCOMPLETE_JSON', 'INVALID_JSON', 'UNKNOWN_ACTION', 'TRAILING_TEXT']);
   const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, doneWatchesReceived: 0, doneWatchesConfirmed: 0, doneWatchesFailed: 0, headsUpsReceived: 0, headsUpsConfirmed: 0, headsUpsFailed: 0, repairNudgesReceived: 0, repairNudgesAccepted: 0, repairNudgesRejected: 0, lastDeliveryError: null };
   function diagnostics() {
@@ -216,6 +218,10 @@
     }
     const requestId = uid();
     const source = sourceFromSender(sender, provider);
+    // A valid independent command clears the short repair-loop cooldown.
+    repairTabs.delete(Number(sender.tab.id));
+    const store = globalThis.chrome?.storage?.session;
+    try { await store?.remove?.('dex-control-repair-tab:' + sender.tab.id); } catch {}
     pending.set(requestId, { source, at: Date.now() });
     try {
       const ws = await ensureSocket();
@@ -229,6 +235,20 @@
 
   // One-shot, exact-tab feedback. Never guess command arguments or replay an
   // ambiguous browser submission, and never send a localhost room command.
+  async function claimRepairTab(tabId) {
+    const key = 'dex-control-repair-tab:' + tabId;
+    const now = Date.now();
+    if (repairTabs.get(tabId) > now) return false;
+    const store = globalThis.chrome?.storage?.session;
+    try {
+      const last = store ? (await store.get(key))?.[key] : 0;
+      if (Number(last) > now) { repairTabs.set(tabId, Number(last)); return false; }
+    } catch {} // In-memory claim remains protective if storage is unavailable.
+    const until = now + REPAIR_COOLDOWN_MS;
+    repairTabs.set(tabId, until);
+    try { await store?.set?.({ [key]: until }); } catch {}
+    return true;
+  }
   async function handleMalformedMessage(msg, sender) {
     if (msg?.type !== 'dex_provider_command_malformed') return;
     const provider = providerForUrl(sender?.tab?.url);
@@ -242,6 +262,7 @@
     }
     telemetry.repairNudgesReceived += 1;
     const tabId = Number(sender.tab.id);
+    if (!(await claimRepairTab(tabId))) { telemetry.duplicateCommandsSuppressed += 1; return; }
     const freshness = globalThis.BrowserAiBridgeProviderAdapterFreshness;
     try {
       if (!freshness?.ensure || !globalThis.chrome?.tabs?.sendMessage) {
@@ -281,6 +302,7 @@
     for (const [requestId, entry] of pending) {
       if (now - entry.at > maxAgeMs) pending.delete(requestId);
     }
+    for (const [tabId, until] of repairTabs) if (until <= now) repairTabs.delete(tabId);
     for (const map of [recentActions, deliveredResults]) {
       for (const [key, at] of map) if (now - at > maxAgeMs) map.delete(key);
     }
@@ -296,7 +318,7 @@
     ensureSocket().catch(() => {});
   }
 
-  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, injectDoneWatch, handleDoneWatchEvent, handleContentMessage, handleMalformedMessage, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
+  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, injectDoneWatch, handleDoneWatchEvent, handleContentMessage, handleMalformedMessage, claimRepairTab, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
   globalThis.BrowserAiBridgeDexProviderControlBridge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
