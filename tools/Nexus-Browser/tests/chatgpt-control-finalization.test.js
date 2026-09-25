@@ -13,6 +13,8 @@ test('headed control marker waits for the authoritative ChatGPT reply to finaliz
   const message = { getAttribute(name) { return name === 'data-chatgpt-selection-message-id' ? 'assistant-1' : null; } };
   const latest = { innerText: commandText, closest: () => message };
   const context = {
+    // Browser export is guarded by window; expose it in this isolated VM.
+    window: {},
     BrowserAiBridgeChatGptAnswer: {
       latestAssistantText: () => commandText,
       assistantNodes: () => [latest]
