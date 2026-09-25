@@ -1,3 +1,7 @@
+## Current branch implementation (revision 46 candidate)
+
+The bounded form-less Send ownership fix and rejection of synthetic Enter are committed on this same temporary branch. The adapter revision is now 46 so the stale-tab watchdog can distinguish older revision-45 content scripts; this **has not been live deployed or verified**. A later `DEX_CONTROL_ORIGIN_TIMEOUT` occurred when the originating relay failed to finalize within its correlation window. It refused the command; do not resubmit automatically or treat that separate failure as proof about the Send-button patch.
+
 # Dex ChatGPT result sticks in composer — live triage
 
 **Observed:** Drift refreshed the bound ChatGPT tab and issued a harmless Dex `status` command. Dex returned an OK status but the injected `[DEX TOOL RESULT]` draft required Drift to press Enter manually. **This is a failed auto-submit test.** The server-side origin-finalization fix works separately; don't mistake command execution or a seeded draft for submitted delivery.
