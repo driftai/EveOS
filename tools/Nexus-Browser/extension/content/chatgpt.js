@@ -359,7 +359,7 @@
       throw new Error('ChatGPT composer did not become ready with the prompt text after hydration/reseed.');
     }
     const sendControl = input.findSendControl(composer);
-
+    if (!sendControl && String(delivery?.kind || '').startsWith('dex-') && !composer?.closest?.('form')) throw new Error('ChatGPT scoped Send button unavailable; preserving Dex draft instead of synthetic Enter.');
     if (sendControl && input.isUnsafeSendControl?.(sendControl)) {
       throw new Error('Refusing to click a ChatGPT voice/upload control as the send button.');
     }
