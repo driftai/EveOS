@@ -20,7 +20,7 @@ test('provider/extension/browser registries all recognize exact post-idle comman
     assert.equal(content.ACTIONS.has(name), true, name);
   }
   assert.deepEqual([...routing.MUTATING_ACTIONS].sort(), [...browser.MUTATING_ACTIONS].sort());
-  assert.equal(revision.ADAPTER_REVISION, 39);
+  assert.equal(revision.ADAPTER_REVISION, 40);
 });
 test('localhost owns authorization, global idleness and atomic one-shot dispatch', () => {
   const server = read('server.js');
