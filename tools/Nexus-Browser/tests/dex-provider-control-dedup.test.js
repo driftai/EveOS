@@ -87,7 +87,7 @@ test('background sends each content action once and injects each result ID once'
     NexusBrowserRuntimeConfig: { websocketUrl: 'ws://localhost/ws', healthUrl: 'http://localhost/health' },
     BrowserAiBridgeProviders: { providerForUrl: () => ({ id: 'chatgpt', name: 'ChatGPT' }) },
     BrowserAiBridgeProviderAdapterFreshness: { ensure: async () => {} },
-    chrome: { tabs: { async sendMessage(tabId, payload) { injected.push({ tabId, payload }); } } },
+    chrome: { tabs: { async sendMessage(tabId, payload) { injected.push({ tabId, payload }); return { ok: true, submissionMode: 'click' }; } } },
     fetch: async () => ({ ok: true }),
     WebSocket: Socket,
     // vm contexts do not inherit Node timers; ensureSocket needs both.
@@ -126,6 +126,8 @@ test('background sends each content action once and injects each result ID once'
   assert.equal(bridge.diagnostics().duplicateCommandsSuppressed, 1);
   assert.equal(bridge.diagnostics().duplicateResultsSuppressed, 1);
   assert.equal(bridge.diagnostics().lastDeliveryError, null);
+  assert.equal(bridge.diagnostics().lastSubmission?.mode, 'click');
+  assert.equal(bridge.diagnostics().lastSubmission?.ok, true);
 });
 
 test('provider negative send acknowledgement is reported rather than mistaken for delivered Dex result', async () => {
@@ -177,8 +179,61 @@ test('provider negative send acknowledgement is reported rather than mistaken fo
   assert.equal(injected.length, 1);
   assert.equal(bridge.diagnostics().deliveriesRejected, 1);
   assert.equal(bridge.diagnostics().deliveriesAccepted, 0);
+  assert.equal(bridge.diagnostics().lastSubmission?.ok, false);
   assert.match(bridge.diagnostics().lastDeliveryError, /DEX_RESULT_SUBMISSION_FAILED: ChatGPT composer remained populated/);
   bridge.handleServerMessage(response);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(injected.length, 1, 'negative acknowledgement must not trigger unsafe replay');
+});
+
+test('missing or ambiguous provider submission ACK is not mistaken for a delivered result', async () => {
+  const outbound = [], injected = [];
+  class Socket {
+    static OPEN = 1;
+    constructor() {
+      this.readyState = 1;
+      this.listeners = new Map();
+      queueMicrotask(() => this.listeners.get('open')?.());
+    }
+    addEventListener(event, fn) { this.listeners.set(event, fn); }
+    send(text) { outbound.push(JSON.parse(text)); }
+  }
+  const context = {
+    NexusBrowserRuntimeConfig: { websocketUrl: 'ws://localhost/ws', healthUrl: 'http://localhost/health' },
+    BrowserAiBridgeProviders: { providerForUrl: () => ({ id: 'chatgpt', name: 'ChatGPT' }) },
+    BrowserAiBridgeProviderAdapterFreshness: { ensure: async () => {} },
+    chrome: { tabs: { async sendMessage(tabId, payload) {
+      injected.push({ tabId, payload });
+      return undefined; // MV3 messaging may resolve without a content-script ACK.
+    } } },
+    fetch: async () => ({ ok: true }),
+    WebSocket: Socket, setTimeout, clearTimeout, setInterval: () => 0
+  };
+  vm.runInNewContext(bridgeSource, context, { filename: 'dex-provider-control-bridge.js' });
+  const bridge = context.BrowserAiBridgeDexProviderControlBridge;
+  const run = bridge.handleContentMessage({
+    type: 'dex_provider_command', providerId: 'chatgpt',
+    clientActionId: 'chatgpt:message:turn-no-ack', command: { action: 'status' }
+  }, { tab: { id: 42, url: 'https://chatgpt.com/c/eve' } });
+  await new Promise(resolve => setImmediate(resolve));
+  const request = outbound.find(msg => msg.type === 'provider_control_request');
+  assert.ok(request);
+  bridge.handleServerMessage(JSON.stringify({
+    type: 'provider_control_received', requestId: request.requestId
+  }));
+  await run;
+  const response = JSON.stringify({
+    type: 'provider_control_result', requestId: request.requestId,
+    source: { targetId: 42, url: 'https://chatgpt.com/c/eve' },
+    result: { ok: true, message: 'Status.' }
+  });
+  bridge.handleServerMessage(response);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(bridge.diagnostics().deliveriesAccepted, 0);
+  assert.equal(bridge.diagnostics().deliveriesRejected, 1);
+  assert.equal(bridge.diagnostics().lastSubmission?.ok, false);
+  assert.match(bridge.diagnostics().lastDeliveryError, /No positive provider submission acknowledgement/);
+  bridge.handleServerMessage(response);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(injected.length, 1, 'unknown admission must never cause an automatic replay');
 });
