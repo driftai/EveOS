@@ -48,6 +48,7 @@ function createDexServerScheduler({
     addMessage, enqueueNext, setStopped, processSoon,
     onRecovered: ({ room, member, message, parsed }) => {
       if (parsed.done) doneWatchApi.consume(room, { completedMemberId: member.id, message, at: now() });
+      if (parsed.headsUpTarget || parsed.headsUpInvalid) doneWatchApi.emitHeadsUp(room, { senderMemberId: member.id, targetRef: parsed.headsUpTarget, invalid: parsed.headsUpInvalid, done: parsed.done, message, at: now() });
     }, onTurnSettled
   });
   const lease = createServerTurnLease({ load, save, roomById: stateApi.roomById,
@@ -332,6 +333,7 @@ function createDexServerScheduler({
     const disposition = protocol.relayDisposition(parsed, member.name, repeated, room.relay);
     if (parsed.returnRequestId && parsed.returnRequestId !== current.requestId) return false;
     if (parsed.done) doneWatchApi.consume(room, { completedMemberId: member.id, message, at: now() });
+    if (parsed.headsUpTarget || parsed.headsUpInvalid) doneWatchApi.emitHeadsUp(room, { senderMemberId: member.id, targetRef: parsed.headsUpTarget, invalid: parsed.headsUpInvalid, done: parsed.done, message, at: now() });
     stateApi.rememberFinalReceipt(room, current.requestId, message.id, now());
     clearCurrent();
     if (disposition.action === 'stop') setStopped(room, disposition.reason);
@@ -435,5 +437,4 @@ function createDexServerScheduler({
     handleTransportEvent, onStateChanged, transportLost, resume, process, resolvePassiveRecovery: (input) => recovery.resolvePassive(input), diagnostics
   };
 }
-
 module.exports = { TURN_TIMEOUT_MS, TURN_IDLE_TIMEOUT_MS, TURN_ABSOLUTE_TIMEOUT_MS, createDexServerScheduler };

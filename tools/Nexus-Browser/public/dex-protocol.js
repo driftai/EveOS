@@ -74,15 +74,17 @@
       ? providerCommand : null;
     if (providerCommand) text = cleanText(text.slice(0, providerCommand.index));
     const controls = new Set();
-    let returnRequestId = null;
-    const trailingToken = /\s*(\[\[DEX:(?:[A-Z_]+|RETURN:dex-turn-[A-Za-z0-9-]{8,128})\]\])\s*$/;
+    let returnRequestId = null, headsUpTarget = null, headsUpCount = 0;
+    const trailingToken = /\s*(\[\[DEX:(?:[A-Z_]+|RETURN:dex-turn-[A-Za-z0-9-]{8,128}|HEADSUP:[^\]\[\r\n]{1,80})\]\])\s*$/;
     let match = text.match(trailingToken);
     while (match) {
       const kind = CONTROL_BY_TOKEN[match[1]];
       const tagged = /^\[\[DEX:RETURN:(dex-turn-[A-Za-z0-9-]{8,128})\]\]$/.exec(match[1]);
-      if (!kind && !tagged) break;
+      const headsUp = /^\[\[DEX:HEADSUP:([^\]\[\r\n]{1,80})\]\]$/.exec(match[1]);
+      if (!kind && !tagged && !headsUp) break;
       if (kind) controls.add(kind);
       if (tagged) returnRequestId = tagged[1];
+      if (headsUp) { headsUpCount += 1; headsUpTarget = cleanText(headsUp[1]); }
       text = cleanText(text.slice(0, match.index));
       match = text.match(trailingToken);
     }
@@ -92,6 +94,8 @@
       needsUser: controls.has('user'),
       note: controls.has('note'),
       ...(returnRequestId ? { returnRequestId } : {}),
+      ...(headsUpCount === 1 && headsUpTarget ? { headsUpTarget } : {}),
+      ...(headsUpCount > 1 || (headsUpCount === 1 && !headsUpTarget) ? { headsUpInvalid: true } : {}),
       ...(providerCommand ? { providerCommand: providerCommand.action, providerControlCommand: providerCommand.command } : {}),
       ...(handoff ? { handoff: true } : {})
     };
@@ -213,7 +217,8 @@
       '- Room, routing, recipient, and speaker identity metadata are authoritative.',
       '- Do not add a "From" label; Dex attaches speaker identity automatically.',
       `- End with ${DONE_TOKEN} only when the room task is complete and no other agent must receive or acknowledge your reply. DONE records this reply in the transcript and STOPS relay before the next agent gets a turn.`,
-      `- Optional exact-turn delivery receipt: append [[DEX:RETURN:${requestId || 'dex-turn-EXACT_ID'}]] at the end of your reply, before any DONE/USER/NOTE marker. This asks the headed provider to capture and deliver this exact turn with durable server acknowledgement. RETURN does not stop relay; DONE still stops relay. Do not claim delivery until its receipt appears.`,
+      `- Optional exact-turn delivery receipt: append [[DEX:RETURN:${requestId || 'dex-turn-EXACT_ID'}]] at the end of your reply, before any HEADSUP/DONE/USER/NOTE marker. RETURN confirms durable delivery into Dex, not delivery to another agent.`,
+      '- Optional outgoing heads-up: only if one other named ONLINE room participant needs your completed result, end with [[DEX:HEADSUP:<unique member name or ID>]] [[DEX:DONE]]. If combining RETURN, put RETURN before HEADSUP. DONE still stops relay; HEADSUP requests ONE separate out-of-band notification to that exact member, never a round-robin turn. No automatic ACK or chaining; skip HEADSUP when nobody needs notification. Local-Origin recipient heads-ups are not yet supported.',
       '- For a two-agent request that asks for direct confirmation, the responder must reply WITHOUT a control marker so Dex relays the acknowledgement to the requesting agent. The requester can then end its confirmation turn with [[DEX:DONE]]. Do not exchange extra acknowledgements.',
       `- Active one-shot DONE subscribers for your response: ${doneSubscribers}. If a requester subscribed, DONE still stops relay but sends them a separate background notification, not another Dex relay turn. With no subscription, use the direct-return rule above when confirmation is required.`,
       '- Without a trailing marker, Dex continues to the NEXT participating agent in room order, not necessarily the original requester if the room has more than two agents.',

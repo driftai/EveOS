@@ -39,7 +39,7 @@ function mergeDoneWatchFields(serverRoom = {}, clientRoom = {}) {
 
 function mergeIdleRoom(serverRoom, clientRoom) {
   const client = clientRoom && typeof clientRoom === 'object' ? clientRoom : {};
-  const merged = { ...client, ...mergeDoneWatchFields(serverRoom, client), finalReceipts: serverRoom.finalReceipts || [], relay: { ...(serverRoom.relay || {}) } };
+  const merged = { ...client, ...mergeDoneWatchFields(serverRoom, client), finalReceipts: serverRoom.finalReceipts || [], lastHeadsUp: serverRoom.lastHeadsUp || null, relay: { ...(serverRoom.relay || {}) } };
   delete merged.pendingTurn;
   delete merged.recovery;
   return merged;

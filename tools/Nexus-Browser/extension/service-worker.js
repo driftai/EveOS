@@ -380,6 +380,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
     if (!allowed.has(msg.type)) return;
     const provider = getProvider(targetProviderId);
     if (!provider) return;
+    if (/^dex-(?:done-watch|heads-up)-/.test(String(msg.requestId || ''))) { if (msg.type === 'response_final') { rememberCompletedRequest(msg.requestId); sendResponse({ ok: true, notification: true }); } return; }
     if (msg.type === 'adapter_error') {
       if (msg.requestId) { stopResponsePoll(msg.requestId); chatgptNavigationRecoveryApi.stop(msg.requestId); }
       if (hasCompletedRequest(msg.requestId)) return;

@@ -26,6 +26,9 @@ function createDoneWatchDelivery({
     for (const room of snapshot.rooms || []) {
       for (const event of room.doneWatchEvents || []) {
         if (event.delivery !== 'pending') continue;
+        if (event.kind === 'heads-up' && Date.parse(event.expiresAt || '') <= Date.parse(now())) {
+          event.delivery = 'expired'; event.deliveryAt = now(); dirty = true; continue;
+        }
         const member = doneWatch.memberById(room, event.watcherMemberId);
         if (!member || member.binding?.targetClassId !== 'online-origin') {
           event.delivery = 'unavailable'; event.deliveryAt = now(); dirty = true;
@@ -39,7 +42,7 @@ function createDoneWatchDelivery({
         if (!tab) { waiting += 1; continue; }
         const source = { targetClassId: 'online-origin', targetId: tab.id,
           providerId: tab.providerId, url: tab.url };
-        const packet = { type: 'dex_done_watch_event', eventId: event.id, source,
+        const packet = { type: 'dex_done_watch_event', eventId: event.id, kind: event.kind || 'done-watch', source,
           text: doneWatch.notificationText(room, event) };
         // Claim durably before transport. Reconnection must never resend an
         // event whose dispatch result is unknown.

@@ -9,7 +9,7 @@
   const deliveredResults = new Map();
   const DEDUPE_TTL_MS = 120000;
   const MAX_SEEN = 256;
-  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, doneWatchesReceived: 0, doneWatchesConfirmed: 0, doneWatchesFailed: 0, lastDeliveryError: null };
+  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, doneWatchesReceived: 0, doneWatchesConfirmed: 0, doneWatchesFailed: 0, headsUpsReceived: 0, headsUpsConfirmed: 0, headsUpsFailed: 0, lastDeliveryError: null };
   function diagnostics() {
     return { ...telemetry, pending: pending.size, recentActions: recentActions.size, deliveredResults: deliveredResults.size };
   }
@@ -106,9 +106,10 @@
     if (!provider || provider.id !== source.providerId || !freshness?.ensure)
       throw new Error('DONE watch target is not an exact authorized browser provider.');
     await freshness.ensure(Number(source.targetId), provider, chrome);
+    const kind = msg.kind === 'heads-up' ? 'dex-heads-up' : 'dex-done-watch';
     const accepted = await chrome.tabs.sendMessage(Number(source.targetId), {
-      type: 'send_prompt', requestId: `dex-done-watch-${msg.eventId}`,
-      text: msg.text, delivery: { kind: 'dex-done-watch', eventId: msg.eventId }
+      type: 'send_prompt', requestId: `${kind}-${msg.eventId}`,
+      text: msg.text, delivery: { kind, eventId: msg.eventId }
     });
     if (accepted?.ok !== true)
       throw new Error(String(accepted?.error || 'DONE notification submission was not confirmed.').slice(0, 160));
@@ -118,14 +119,15 @@
     const key = String(msg?.eventId || '');
     if (!key) return;
     if (!remember(deliveredResults, `done:${key}`)) return;
-    telemetry.doneWatchesReceived += 1;
+    const category = msg.kind === 'heads-up' ? 'headsUps' : 'doneWatches';
+    telemetry[`${category}Received`] += 1;
     // The event is claimed once; neither reconnect nor an ambiguous browser
     // send acknowledgement may re-submit it automatically.
     injectDoneWatch(msg).then(() => {
-      telemetry.doneWatchesConfirmed += 1;
+      telemetry[`${category}Confirmed`] += 1;
       socket?.send?.(JSON.stringify({ type: 'dex_done_watch_ack', eventId: key, ok: true }));
     }).catch((error) => {
-      telemetry.doneWatchesFailed += 1;
+      telemetry[`${category}Failed`] += 1;
       telemetry.lastDeliveryError = String(error?.message || error).slice(0, 160);
       socket?.send?.(JSON.stringify({ type: 'dex_done_watch_ack', eventId: key, ok: false, error: telemetry.lastDeliveryError }));
     });

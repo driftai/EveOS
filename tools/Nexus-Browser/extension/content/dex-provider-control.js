@@ -168,6 +168,9 @@
     telemetry.assistantNodes = nodeCount(answerApi);
     const text = latestCandidateText(answerApi);
     const parsed = parseTrailingCommand(text);
+    if (runtime.id === 'chatgpt' && globalThis.BrowserAiBridgeChatGptReturn?.isNotificationReply?.(answerApi, text)) {
+      telemetry.phase = 'notification-command-suppressed'; resetCandidate(); return;
+    }
     telemetry.candidateAction = parsed?.command?.action || null;
     if (!parsed) {
       telemetry.phase = telemetry.assistantNodes ? 'no-trailing-command' : 'no-assistant-nodes';

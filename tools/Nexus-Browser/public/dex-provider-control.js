@@ -151,7 +151,7 @@
         'Normal relay replies must not impersonate another participant or rewrite Dex routing metadata.',
         'Managed browser workers are bounded resources. Use spawn_agent only for explicit idle rooms and despawn_agent before deleting their room.',
         'A bound browser chat may request reload_extension only for its exact idle room. This server-owned operation does not grant shell access and fails closed if another Dex room is busy.',
-        'send with notifyOnDone:true attaches a one-shot DONE notification to the sender, without another Dex relay turn. The sender can rearm using watch_done or cancel using unwatch_done; default is off.',
+        'send with notifyOnDone:true lets the requester opt into one DONE notification. A finishing agent may instead append [[DEX:HEADSUP:<unique online room member>]] [[DEX:DONE]] to notify just that agent; no extra relay turn, automatic acknowledgement, or subscription. Both are optional.',
         'Disposable proof/test rooms are temporary resources. After the final idle status and managed-worker cleanup, delete the room with delete_room; do not leave one-use qualification rooms behind.'
       ]
     };

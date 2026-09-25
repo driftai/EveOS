@@ -64,7 +64,7 @@
       baselineCount: baseline.count,
       assistantBaseline: baseline.assistantBaseline || null,
       promptCommitted: false,
-      finalPending: false,
+      finalPending: false, notification: !!baseline.notification,
       baselineText: baseline.text,
       baselineIssues: baseline.issues || new Map(),
       userBaselineCount: Number(baseline.userCount || 0), prompt: String(baseline.prompt || ''),
@@ -187,7 +187,7 @@
       }
 
       if (!text) return;
-
+      if (watcher.notification) returnApi.rememberNotificationReply(answer, text, watcher.assistantBaseline);
       watcher.started = true;
       if (text !== watcher.lastText) {
         watcher.lastText = text;
@@ -346,10 +346,10 @@
       count: beforeNodes.length,
       text: substantiveAssistantText(answer.getTurnAssistantText(beforeNodes, beforeNodes.length)),
       issues: pageState.issueSnapshot(), userCount: userBaselineCount, prompt: text,
-      assistantBaseline: returnApi.baseline(beforeNodes)
+      assistantBaseline: returnApi.baseline(beforeNodes), notification: ['dex-heads-up', 'dex-done-watch'].includes(delivery?.kind)
     };
 
-    const sendWaitMs = ['dex-control-result', 'dex-done-watch'].includes(delivery?.kind) ? DEX_CONTROL_SEND_WAIT_MS : 5000;
+    const sendWaitMs = ['dex-control-result', 'dex-done-watch', 'dex-heads-up'].includes(delivery?.kind) ? DEX_CONTROL_SEND_WAIT_MS : 5000;
     const ready = await waitForReadyComposer(composer, text, sendWaitMs);
     composer = ready.composer;
     if (!composer || !input.composerContainsText(composer, text)) {
