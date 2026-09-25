@@ -35,7 +35,7 @@ test('localhost owns authorization, global idleness and atomic one-shot dispatch
   assert.match(router, /commitOriginReceipt\(origin, result, requestId\)/);
   assert.match(scheduler, /if \(maintenanceBusy\(\)\) return/);
   assert.match(helper, /job\.state = 'claimed'; save\(\)/);
-  assert.match(helper, /state === 'outcome_unknown'/);
+  assert.match(helper, /job\.state = job\.deliveryAcceptedAt \? 'awaiting_report' : 'outcome_unknown'/);
   assert.match(helper, /readGit/);
   assert.match(helper, /readyRooms\(/);
 });
