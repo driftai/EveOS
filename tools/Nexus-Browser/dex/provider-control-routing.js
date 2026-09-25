@@ -1,12 +1,14 @@
 const orchestrationPolicy = require('./provider-orchestration-policy'), controlReceiptApi = require('./provider-control-receipt');
 const { createAgentExtensionReload } = require('./agent-extension-reload');
+const POST_IDLE_ACTIONS = new Set(['arm_post_idle','post_idle_status','cancel_post_idle','report_post_idle']);
 const doneWatchApi = require('../public/dex-done-watch');
 const { randomUUID } = require('node:crypto');
 
 const MUTATING_ACTIONS = new Set([
   'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
   'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
-  'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done'
+  'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
+  'arm_post_idle', 'cancel_post_idle', 'report_post_idle'
 ]);
 const DEDUPE_TTL_MS = 120000;
 
@@ -33,6 +35,7 @@ function mutationKey(source, command = {}) {
 function createProviderControlRouting({
   uiSockets, safeSend, validateSource, ensureDexClient, getDexClient,
   getState, saveState, broadcastState, spawnTarget, closeTarget, recordIncident, getExtension,
+  getMaintenance = () => null, maintenanceBusy = () => false,
   now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 }) {
@@ -173,6 +176,26 @@ function createProviderControlRouting({
       return true;
     }
     const origin = settledOrigin.origin;
+    if (POST_IDLE_ACTIONS.has(action)) {
+      const maintenance = getMaintenance();
+      if (!maintenance) {
+        fail(ws, requestId, source, 'POST_IDLE_UNAVAILABLE', 'Post-idle handoff is unavailable.', origin);
+        return true;
+      }
+      const method = ({ arm_post_idle: 'arm', post_idle_status: 'status',
+        cancel_post_idle: 'cancel', report_post_idle: 'report' })[action];
+      let result;
+      try { result = maintenance[method]({ source, command }); }
+      catch (error) { result = { ok: false, code: 'POST_IDLE_INTERNAL', message: String(error.message || error).slice(0, 180) }; }
+      const receipt = commitOriginReceipt(origin, result, requestId);
+      sendResult({ sourceSocket: ws, requestId, source }, result, receipt);
+      return true;
+    }
+    if (maintenanceBusy() && MUTATING_ACTIONS.has(action)) {
+      fail(ws, requestId, source, 'POST_IDLE_LEASE_BUSY',
+        'Post-idle maintenance holds the exclusive local dispatch lease.', origin);
+      return true;
+    }
     if (action === 'watch_done' || action === 'unwatch_done') {
       const snapshot = typeof getState === 'function' ? getState() : null;
       if (!snapshot || typeof saveState !== 'function') {

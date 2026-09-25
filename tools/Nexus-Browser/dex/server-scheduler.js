@@ -17,7 +17,7 @@ function createDexServerScheduler({
   sendLocalPrompt,
   captureLocalLatest,
   broadcastState = () => {},
-  broadcastEvent = () => {}, onTurnSettled = () => {},
+  broadcastEvent = () => {}, onTurnSettled = () => {}, maintenanceBusy = () => false,
   recordIncident = (input) => durability?.recordIncident?.(input),
   now = () => new Date().toISOString(), nowMs = () => Date.now(),
   setTimer = setTimeout,
@@ -222,6 +222,7 @@ function createDexServerScheduler({
   }
 
   function startRelay({ roomId, sourceMessageId, budget = null } = {}) {
+    if (maintenanceBusy()) return { ok: false, code: 'POST_IDLE_LEASE_BUSY', message: 'Post-idle local handoff holds the exclusive relay-start lease.' };
     const snapshot = load();
     const room = stateApi.roomById(snapshot, roomId);
     const source = stateApi.messageById(room, sourceMessageId);
