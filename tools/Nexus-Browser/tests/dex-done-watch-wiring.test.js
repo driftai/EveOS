@@ -50,7 +50,8 @@ test('server-owned one-shot delivery cannot be reset by stale UI and does not co
   assert.match(delivery, /event\.delivery !== 'pending'/);
   assert.match(delivery, /busy/);
   assert.match(bridge, /type: 'dex_done_watch_ack'/);
-  assert.match(bridge, /kind: 'dex-done-watch'/);
+  assert.match(bridge, /msg\.kind === 'heads-up' \? 'dex-heads-up' : 'dex-done-watch'/);
+  assert.match(bridge, /delivery: \{ kind, eventId: msg\.eventId \}/);
   assert.match(read('extension/content/chatgpt.js'), /'dex-done-watch'/);
 });
 
