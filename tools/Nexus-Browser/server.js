@@ -5,7 +5,7 @@ const localTargets = require('./local-targets/manager');
 const { createDexServerRouting } = require('./dex/server-routing'), { createProviderControlRouting } = require('./dex/provider-control-routing'), { createProviderTargetSpawnRouting } = require('./dex/provider-target-spawn-routing');
 const { createQualificationRestartHook } = require('./dex/qualification-restart'), { createQualificationRouting } = require('./dex/qualification-routing');
 const { createDexStateStore } = require('./dex/state-store'), { createDexServerScheduler } = require('./dex/server-scheduler'), { createDoneWatchDelivery } = require('./dex/done-watch-delivery');
-const { startPostIdleMaintenance } = require('./dex/server-post-idle'), { startTaskCompletion } = require('./dex/server-task-completion');
+const { startPostIdleMaintenance } = require('./dex/server-post-idle'), { startTaskCompletion } = require('./dex/server-task-completion'), { createServerStreamNudgeAuth } = require('./dex/server-stream-nudge-auth');
 const { createEnsureDexClient } = require('./dex/server-ensure-ui');
 const { mergeClientSnapshot } = require('./dex/server-state-merge'), finalState = require('./dex/server-scheduler-state');
 const { createServerDurability } = require('./dex/server-durability');
@@ -80,6 +80,9 @@ const providerControlRouting = createProviderControlRouting({
     return true;
   }
 });
+const streamNudgeAuth = createServerStreamNudgeAuth({ getState: () => dexStateStore.load(), getTabs: () => lastTabs,
+  extensionReady: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1,
+  maintenanceBusy: () => !!postIdleMaintenance?.leaseActive() });
 const doneWatchDelivery = createDoneWatchDelivery({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, safeSend, getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null, getTabs: () => lastTabs });
 const qualificationRouting = createQualificationRouting({ safeSend, getExtensionSocket: () => extensionSocket, getDurability: () => durability, getStateStore: () => dexStateStore, restartHook: qualificationRestart, serverSessionId: SERVER_SESSION_ID });
 const serverDexSource = { clientKind: 'dex' };
@@ -92,7 +95,7 @@ postIdleMaintenance = startPostIdleMaintenance({
 });
 taskCompletion = startTaskCompletion({ dexStateStore, localTargets, safeSend, getTabs: () => lastTabs,
   getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null });
-const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, taskCompletion, SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
+const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, taskCompletion, streamNudgeAuth, SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
 function diagnosticsSnapshot() { return readDiagnostics(); }
 function extensionStatus() {
   return { type: 'bridge_status', connected: !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN, authorityReady: extensionSessions.current().ready };
@@ -100,16 +103,13 @@ function extensionStatus() {
 function classSnapshot() {
   return { type: 'target_classes_update', classes: localTargets.publicTargetClasses(), localTargetTypes: localTargets.publicLocalTargetTypes() };
 }
-
 function selectedLocalTarget(ws) {
   if (!ws?.localTargetId) return null;
   return lastLocalTargets.find((target) => target.id === ws.localTargetId) || null;
 }
-
 function localStatusPayload(targetId) {
   return { type: 'local_target_status', targetId, status: localTargets.getLocalTargetStatus(targetId) };
 }
-
 function sendLocalStatus(ws, targetId = ws?.localTargetId) {
   if (!targetId) return false;
   return safeSend(ws, localStatusPayload(targetId));
@@ -282,7 +282,7 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'ping') { safeSend(ws, { type: 'pong', at: Date.now() }); return; }
     if (ws.role === 'qualification') { await qualificationRouting.handle(ws, msg); return; }
     if (ws.role === 'provider-control-extension') {
-      if (doneWatchDelivery.handleAck(ws, msg) || taskCompletion.handleAck(ws, msg) || await providerControlRouting.handle(ws, msg)) return;
+      if (streamNudgeAuth.handle(ws, msg, safeSend) || doneWatchDelivery.handleAck(ws, msg) || taskCompletion.handleAck(ws, msg) || await providerControlRouting.handle(ws, msg)) return;
       safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'BAD_PROVIDER_CONTROL_COMMAND', message: `Unsupported provider-control command: ${msg.type}` });
       return;
     }
