@@ -86,7 +86,7 @@ function createPostIdleMaintenance({
   serverSessionId = null, onChange = () => {}
 } = {}) {
   const journal = readJournal(filePath, io);
-  let inFlight = false;
+  let inFlight = false, checking = false;
   const stamp = () => new Date(now()).toISOString();
   const save = () => {
     journal.jobs = journal.jobs.slice(-MAX_HISTORY);
@@ -191,14 +191,16 @@ function createPostIdleMaintenance({
     job.completedAt = stamp(); save();
     return { ok: true, action: 'report_post_idle', message: 'Durable local-origin receipt recorded without a new relay turn.', data: { job: compact(job) } };
   }
-  const leaseActive = () => inFlight;
+  const leaseActive = () => inFlight || checking;
   function close(job, state, code, summary) {
     if (!job || !['armed', 'claimed', 'submitted', 'awaiting_report'].includes(job.state)) return;
     job.state = state; job.failureCode = code || null; job.summary = String(summary || '').slice(0, 480);
     job.completedAt = stamp(); save();
   }
   async function tick() {
-    if (inFlight) return false;
+    if (checking || inFlight) return false;
+    checking = true;
+    try {
     const job = journal.jobs.find((entry) => entry.state === 'armed');
     if (!job) return false;
     if (now() >= Date.parse(job.expiresAt)) { close(job, 'expired', 'POST_IDLE_EXPIRED', 'No dispatch before expiry.'); return false; }
@@ -241,6 +243,7 @@ function createPostIdleMaintenance({
       else close(job, 'outcome_unknown', 'POST_IDLE_DELIVERY_UNCERTAIN', error.message);
     } finally { inFlight = false; }
     return dispatched;
+    } finally { checking = false; }
   }
   return { arm, status, cancel, report, tick, leaseActive,
     readyRooms: () => readyRooms(getState(), hasPendingControls, hasActiveTurn),

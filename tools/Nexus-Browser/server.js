@@ -99,15 +99,12 @@ postIdleMaintenance = createPostIdleMaintenance({
   getState: () => dexStateStore.load(),
   hasPendingControls: () => providerControlRouting.pending.size > 0 || providerTargetSpawnRouting.pending.size > 0,
   hasActiveTurn: () => !!dexScheduler.diagnostics().current,
-  getTarget: (id) => localTargets.getLocalTarget(id),
-  getTargetStatus: (id) => localTargets.getLocalTargetStatus(id),
-  sendPrompt: (task) => serverLocalRelay.sendLocalPrompt(task),
-  serverSessionId: SERVER_SESSION_ID
+  getTarget: (id) => localTargets.getLocalTarget(id), getTargetStatus: (id) => localTargets.getLocalTargetStatus(id),
+  sendPrompt: (task) => serverLocalRelay.sendLocalPrompt(task), serverSessionId: SERVER_SESSION_ID
 });
-// Idle polling NEVER replays a claimed or uncertain prompt: the claim is persisted first.
-const postIdleTimer = setInterval(() => postIdleMaintenance.tick()
-  .catch((error) => console.log('[bridge] post-idle tick: ' + error.message)), 1000);
-postIdleTimer.unref?.();
+// Durable claims prevent replay if this server restarts while Astro works.
+const postIdleTimer = setInterval(() => postIdleMaintenance.tick().catch((error) =>
+  console.log('[bridge] post-idle tick: ' + error.message)), 1000); postIdleTimer.unref?.();
 const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
 function diagnosticsSnapshot() { return readDiagnostics(); }
 function extensionStatus() {

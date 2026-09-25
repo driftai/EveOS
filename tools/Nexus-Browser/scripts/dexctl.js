@@ -30,6 +30,8 @@ Usage:
   node scripts/dexctl.js continue-relay --room <id-or-name> [--turns N] --agy-pid 86660
   node scripts/dexctl.js send <message> --agy-pid 86660 [--room <id-or-name>] [--no-relay]
   node scripts/dexctl.js resume <message> --agy-pid 86660 [--room <id-or-name>]
+  node scripts/dexctl.js report-post-idle <job-id> --agy-pid <existing-pid> --result success|failed --summary <evidence> [--doctor-ok true --global-idle true --adapter-revision 37 --new-session <id>]
+  node scripts/dexctl.js post-idle-status --agy-pid <existing-pid> [--room <room-id>]
   node scripts/dexctl.js reload-extension
   node scripts/dexctl.js reload-tab <tab-id>
   node scripts/dexctl.js cleanup-disposable-rooms
@@ -177,6 +179,16 @@ function commandFrom(parsed) {
     if (!text) throw new Error('send requires message text.');
     return { action: 'send', text, relay: commandName === 'resume' ? true : options.relay !== false, ...(options.room ? { room: options.room } : {}) };
   }
+  if (commandName === 'report-post-idle') {
+    const jobId = positionals[0];
+    if (!jobId) throw new Error('report-post-idle requires the exact job id.');
+    return { action: 'report_post_idle', jobId, result: options.result,
+      summary: options.summary, doctorOk: options.doctorOk === 'true',
+      globalIdle: options.globalIdle === 'true',
+      adapterRevision: options.adapterRevision ? Number(options.adapterRevision) : null,
+      newSession: options.newSession || null };
+  }
+  if (commandName === 'post-idle-status') return { action: 'post_idle_status', ...(options.room ? { room: options.room } : {}) };
   if (commandName === 'help') return { action: 'help' };
   throw new Error(`Unknown command: ${commandName}`);
 }
