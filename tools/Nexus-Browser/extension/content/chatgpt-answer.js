@@ -6,13 +6,15 @@
   // DIL selection ids remain a guarded fallback because selection ids alone also
   // occur on non-assistant content.
   const DIL_ASSISTANT_SELECTOR = '[data-chatgpt-selection-message-id]:has([class*="DilResponseRoot"])';
+  const ARTICLE_ASSISTANT_SELECTOR = 'article:has(.markdown.prose)';
   const ASSISTANT_SELECTOR = [
     '[data-turn="assistant"]',
     '[data-message-author-role="assistant"]',
     '[data-role="assistant"]',
     '[data-message-author="assistant"]',
     '.agent-turn',
-    DIL_ASSISTANT_SELECTOR
+    DIL_ASSISTANT_SELECTOR,
+    ARTICLE_ASSISTANT_SELECTOR
   ].join(',');
   const USER_SELECTOR = [
     '[data-turn="user"]',
@@ -79,10 +81,20 @@
     catch { return false; }
   }
 
+  // Role-free article fallback from the current headed renderer. An explicit user
+  // marker always vetoes this inference; nested articles never confer ownership.
+  function hasArticleAssistantMessage(node) {
+    if (String(node?.tagName || '').toUpperCase() !== 'ARTICLE' || hasUserMarker(node)) return false;
+    try {
+      const content = node.querySelector?.('.markdown.prose');
+      return !!content && (!content.closest?.('article') || content.closest('article') === node);
+    } catch { return false; }
+  }
+
   function hasAssistantMarker(node) {
     const role = attr(node, 'data-message-author-role') || attr(node, 'data-role') || attr(node, 'data-message-author');
     return attr(node, 'data-turn') === 'assistant' || role === 'assistant' || classText(node).includes('agent-turn')
-      || (role !== 'user' && hasDilAssistantMessage(node));
+      || (role !== 'user' && (hasDilAssistantMessage(node) || hasArticleAssistantMessage(node)));
   }
 
   function isUserOwned(node) {
@@ -306,11 +318,13 @@
   const api = {
     ASSISTANT_SELECTOR,
     DIL_ASSISTANT_SELECTOR,
+    ARTICLE_ASSISTANT_SELECTOR,
     USER_SELECTOR,
     CONTENT_SELECTOR,
     hasUserMarker,
     hasAssistantMarker,
     hasDilAssistantMessage,
+    hasArticleAssistantMessage,
     isUserOwned,
     isAssistantOwned,
     emojiAlt,
