@@ -16,7 +16,7 @@
   const STATUS_SIGNAL_SETTLE_MS = 3000;
   const NO_SIGNAL_SETTLE_MS = 5000;
   const INCOMPLETE_NO_SIGNAL_SETTLE_MS = 60000;
-  const SUBMIT_ATTEMPT_SETTLE_MS = 600;
+  const SUBMIT_ATTEMPT_SETTLE_MS = 2400;
   const SUBMIT_FINAL_SETTLE_MS = 1200;
   const DEX_CONTROL_SEND_WAIT_MS = 12000, GENERATION_HEARTBEAT_MS = 15000;
   const { transientStatusLine, substantiveAssistantText } = pageState;
@@ -296,6 +296,7 @@
       if (latest) composer = latest;
       if (!composer) { await new Promise((resolve) => setTimeout(resolve, 50)); continue; }
       if (!input.composerContainsText(composer, text)) {
+        if (input.composerText?.(composer)?.trim()) throw new Error('ChatGPT composer contains a different draft; refusing to replace it.');
         input.setComposerText(composer, text);
         if (!(await waitForComposerText(composer, text))) {
           await new Promise((resolve) => setTimeout(resolve, 50));
@@ -320,24 +321,21 @@
   }
 
   async function submitComposer(composer, text, sendControl, { exactOnce = false, isCommitted = null } = {}) {
+    // One actual submission gesture per attempt. Synthetic Enter is untrusted in
+    // modern browsers; use the scoped Send control first, then native form submit.
     if (sendControl) {
       sendControl.click();
       if (await waitForPromptDeparture(composer, text, SUBMIT_ATTEMPT_SETTLE_MS, isCommitted)) return 'click';
-      if (exactOnce) throw new Error('ChatGPT qualification prompt was not committed after the single allowed send-button click.');
+      throw new Error('ChatGPT Send click unconfirmed; draft preserved; no automatic replay.');
     }
-    if (exactOnce) {
-      dispatchComposerEnter(composer);
-      if (await waitForPromptDeparture(composer, text, SUBMIT_FINAL_SETTLE_MS, isCommitted)) return 'enter';
-      throw new Error('ChatGPT qualification prompt was not committed after the single allowed Enter submission.');
-    }
-
     if (requestComposerSubmit(composer)) {
       if (await waitForPromptDeparture(composer, text, SUBMIT_ATTEMPT_SETTLE_MS, isCommitted)) return 'requestSubmit';
+      throw new Error('ChatGPT form submit unconfirmed; draft preserved; no automatic replay.');
     }
-
+    if (!input.composerContainsText(composer, text)) throw new Error('ChatGPT composer changed before Enter; refusing submission.');
     dispatchComposerEnter(composer);
     if (await waitForPromptDeparture(composer, text, SUBMIT_FINAL_SETTLE_MS, isCommitted)) return 'enter';
-    throw new Error('ChatGPT prompt remained in the composer after click, form, and Enter submission attempts.');
+    throw new Error('ChatGPT Enter submit unconfirmed; draft preserved; no automatic replay.');
   }
 
   async function submitPrompt(requestId, text, { qualification = null, delivery = null } = {}) {
@@ -358,7 +356,7 @@
     if (!composer || !input.composerContainsText(composer, text)) {
       throw new Error('ChatGPT composer did not become ready with the prompt text after hydration/reseed.');
     }
-    const sendControl = ready.control;
+    const sendControl = input.findSendControl(composer);
 
     if (sendControl && input.isUnsafeSendControl?.(sendControl)) {
       throw new Error('Refusing to click a ChatGPT voice/upload control as the send button.');
