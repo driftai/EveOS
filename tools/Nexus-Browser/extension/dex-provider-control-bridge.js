@@ -19,7 +19,7 @@
     || (typeof require === 'function' ? require('./dex-bound-tab-watchdog.js') : null);
   const repairTabs = new Map();
   const MALFORMED_CODES = new Set(['MALFORMED_DELIMITERS', 'MISSING_CLOSER', 'INCOMPLETE_MARKER', 'INCOMPLETE_JSON', 'INVALID_JSON', 'UNKNOWN_ACTION', 'TRAILING_TEXT']);
-  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, doneWatchesReceived: 0, doneWatchesConfirmed: 0, doneWatchesFailed: 0, headsUpsReceived: 0, headsUpsConfirmed: 0, headsUpsFailed: 0, repairNudgesReceived: 0, repairNudgesAccepted: 0, repairNudgesRejected: 0, taskCompletionsReceived: 0, taskCompletionsConfirmed: 0, taskCompletionsFailed: 0, lastDeliveryError: null };
+  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, deliveriesAccepted: 0, deliveriesRejected: 0, doneWatchesReceived: 0, doneWatchesConfirmed: 0, doneWatchesFailed: 0, headsUpsReceived: 0, headsUpsConfirmed: 0, headsUpsFailed: 0, repairNudgesReceived: 0, repairNudgesAccepted: 0, repairNudgesRejected: 0, taskCompletionsReceived: 0, taskCompletionsConfirmed: 0, taskCompletionsFailed: 0, lastDeliveryError: null, lastSubmission: null };
   function diagnostics() {
     return { ...telemetry, pending: pending.size, recentActions: recentActions.size, deliveredResults: deliveredResults.size };
   }
@@ -66,7 +66,7 @@
   }
 
   async function injectResult(source, requestId, result) {
-    if (!source?.targetId || !globalThis.chrome?.tabs?.sendMessage) return;
+    if (!source?.targetId || !globalThis.chrome?.tabs?.sendMessage) throw new Error('DEX_RESULT_SUBMISSION_FAILED: exact target or tab messenger missing.');
     if (result?.ok && result?.silent) return;
     const provider = providerForUrl(source.url);
     const freshness = globalThis.BrowserAiBridgeProviderAdapterFreshness;
@@ -81,8 +81,8 @@
     // chrome.tabs.sendMessage resolves even when the provider responds { ok:false }.
     // Record that negative acknowledgement instead of silently treating seeded text
     // as successfully submitted; never replay an uncertain send automatically.
-    if (acknowledgement?.ok === false) {
-      throw new Error(`DEX_RESULT_SUBMISSION_FAILED: ${String(acknowledgement.error || 'Provider rejected result submission.').slice(0, 120)}`);
+    if (acknowledgement?.ok !== true) {
+      throw new Error(`DEX_RESULT_SUBMISSION_FAILED: ${String(acknowledgement?.error || 'No positive provider submission acknowledgement.').slice(0, 120)}`);
     }
     return acknowledgement;
   }
@@ -181,11 +181,11 @@
     const result = msg.result || { ok: false, message: 'Dex provider-control returned no result.' };
     pending.delete(msg.requestId);
     telemetry.deliveriesAttempted += 1;
-    injectResult(source, msg.requestId, result).then(() => {
-      telemetry.deliveriesAccepted += 1;
+    injectResult(source, msg.requestId, result).then((ack) => {
+      telemetry.deliveriesAccepted += 1; telemetry.lastSubmission = { ok: true, requestId: msg.requestId, tabId: source?.targetId || null, mode: String(ack?.submissionMode || 'unknown').slice(0, 24) };
       telemetry.lastDeliveryError = null;
     }).catch((error) => {
-      telemetry.deliveriesRejected += 1;
+      telemetry.deliveriesRejected += 1; telemetry.lastSubmission = { ok: false, requestId: msg.requestId, tabId: source?.targetId || null };
       telemetry.lastDeliveryError = String(error?.message || error).slice(0, 160);
     });
     if (msg.originReceipt?.originTarget && (!sameTarget(msg.originReceipt.originTarget, source) || result?.silent)) {
