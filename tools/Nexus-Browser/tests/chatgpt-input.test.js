@@ -280,3 +280,28 @@ test('Dex result without scoped Send or native form fails closed instead of synt
   assert.match(source, /!sendControl && String\(delivery\?\.kind \|\| ''\)\.startsWith\('dex-'\)/);
   assert.match(source, /scoped Send button unavailable; preserving Dex draft instead of synthetic Enter/);
 });
+
+test('form-less Dex result clicks only its recovered local Send button once', async () => {
+  let clicks = 0, syntheticEnters = 0;
+  const composer = Object.assign(composerScope(), {
+    tagName: 'TEXTAREA', value: 'Dex result', closest: () => null,
+    dispatchEvent() { syntheticEnters++; }
+  });
+  const send = Object.assign(control({ testId: 'send-button' }), {
+    click() { clicks++; composer.value = ''; }
+  });
+  const inner = composerScope({ editors: [composer] });
+  const actions = composerScope({ editors: [composer], buttons: [send] });
+  composer.parentElement = inner;
+  inner.parentElement = actions;
+  const old = global.document;
+  global.document = { querySelectorAll() { return []; } };
+  try {
+    const found = chatgptInput.findSendControl(composer);
+    assert.equal(found, send);
+    assert.equal(await chatgpt.submitComposer(composer, 'Dex result', found,
+      { exactOnce: true, isCommitted: () => clicks === 1 }), 'click');
+    assert.equal(clicks, 1);
+    assert.equal(syntheticEnters, 0);
+  } finally { global.document = old; }
+});
