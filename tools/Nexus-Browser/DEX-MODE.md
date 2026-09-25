@@ -307,7 +307,7 @@ A bound browser agent can arm exactly ONE bounded, durable, out-of-band instruct
 EXACT existing Local-Origin Antigravity room member. Example (replace real IDs and SHA):
 
 ```text
-[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-agent-only-mode","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":38}]]
+[[DEX:CMD {"action":"arm_post_idle","room":"<exact room id>","targetMemberId":"<exact Astro member id>","task":"supervised-revision-deployment","intentId":"deployment-once-20260925","branch":"codex/nexus-post-idle-maintenance","expectedHead":"<exact 40-character git SHA>","expectedAdapterRevision":39}]]
 ```
 
 A trailing control command ends the originating relay; no trailing DONE or second
