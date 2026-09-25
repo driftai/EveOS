@@ -5,6 +5,20 @@
   const WS_URL = runtimeConfig.websocketUrl;
   const HEALTH_URL = runtimeConfig.healthUrl;
   const pending = new Map();
+  const recentActions = new Map();
+  const deliveredResults = new Map();
+  const DEDUPE_TTL_MS = 120000;
+  const MAX_SEEN = 256;
+  const telemetry = { duplicateCommandsSuppressed: 0, duplicateResultsSuppressed: 0, deliveriesAttempted: 0, lastDeliveryError: null };
+  function diagnostics() {
+    return { ...telemetry, pending: pending.size, recentActions: recentActions.size, deliveredResults: deliveredResults.size };
+  }
+  function remember(map, key) {
+    if (map.has(key)) return false;
+    map.set(key, Date.now());
+    while (map.size > MAX_SEEN) map.delete(map.keys().next().value);
+    return true;
+  }
   let socket = null;
   let connecting = null;
 
@@ -79,12 +93,19 @@
   function handleServerMessage(raw) {
     let msg;
     try { msg = JSON.parse(String(raw?.data ?? raw)); } catch { return; }
-    if (msg?.type !== 'provider_control_result') return;
+    if (msg?.type !== 'provider_control_result' || !msg.requestId) return;
+    if (!remember(deliveredResults, String(msg.requestId))) {
+      telemetry.duplicateResultsSuppressed += 1;
+      return;
+    }
     const entry = pending.get(msg.requestId);
     const source = entry?.source || msg.source;
     const result = msg.result || { ok: false, message: 'Dex provider-control returned no result.' };
     pending.delete(msg.requestId);
-    injectResult(source, msg.requestId, result).catch(() => {});
+    telemetry.deliveriesAttempted += 1;
+    injectResult(source, msg.requestId, result).catch((error) => {
+      telemetry.lastDeliveryError = String(error?.message || error).slice(0, 160);
+    });
     if (msg.originReceipt?.originTarget && (!sameTarget(msg.originReceipt.originTarget, source) || result?.silent)) {
       injectOriginReceipt(msg.originReceipt, msg.requestId).catch(() => {});
     }
@@ -139,6 +160,11 @@
     if (msg?.type !== 'dex_provider_command') return;
     const provider = providerForUrl(sender?.tab?.url);
     if (!provider || !sender?.tab?.id || msg.providerId !== provider.id) return;
+    const actionId = String(msg.clientActionId || '');
+    if (actionId && !remember(recentActions, `${sender.tab.id}:${actionId}`)) {
+      telemetry.duplicateCommandsSuppressed += 1;
+      return;
+    }
     const requestId = uid();
     const source = sourceFromSender(sender, provider);
     pending.set(requestId, { source, at: Date.now() });
@@ -151,10 +177,13 @@
     }
   }
 
-  function prunePending(maxAgeMs = 120000) {
+  function prunePending(maxAgeMs = DEDUPE_TTL_MS) {
     const now = Date.now();
     for (const [requestId, entry] of pending) {
       if (now - entry.at > maxAgeMs) pending.delete(requestId);
+    }
+    for (const map of [recentActions, deliveredResults]) {
+      for (const [key, at] of map) if (now - at > maxAgeMs) map.delete(key);
     }
   }
 
@@ -167,7 +196,7 @@
     ensureSocket().catch(() => {});
   }
 
-  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, handleContentMessage, handleServerMessage, prunePending, localRelayReady, ensureSocket };
+  const api = { pending, uid, sourceFromSender, formatResult, sameTarget, injectOriginReceipt, handleContentMessage, handleServerMessage, prunePending, diagnostics, localRelayReady, ensureSocket };
   globalThis.BrowserAiBridgeDexProviderControlBridge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

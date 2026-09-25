@@ -160,6 +160,27 @@ test('DIL response blocks share the exact assistant turn when trailing control i
   assert.equal(content.parseTrailingCommand(stale), null, 'never replay an older DIL reply');
 });
 
+test('assistant message identity survives DIL block reflow and separates different turns', () => {
+  const first = { getAttribute(name) { return name === 'data-chatgpt-selection-message-id' ? 'turn-1' : null; } };
+  const second = { getAttribute(name) { return name === 'data-chatgpt-selection-message-id' ? 'turn-2' : null; } };
+  const api = (turn, count) => ({
+    assistantNodes: () => Array.from({ length: count }, () => ({ closest: () => turn }))
+  });
+  const parsed = content.parseTrailingCommand('[[DEX:CMD {"action":"status"}]]');
+  const original = content.commandIdentity(api(first, 2), parsed);
+  assert.equal(content.commandIdentity(api(first, 4), parsed), original);
+  assert.notEqual(content.commandIdentity(api(second, 2), parsed), original);
+  const legacy = {};
+  const fallback = content.commandIdentity(api(legacy, 1), parsed);
+  assert.equal(content.commandIdentity(api(legacy, 3), parsed), fallback);
+  assert.notEqual(fallback, original);
+});
+
+test('watcher claims the entire turn before handing a command to background', () => {
+  assert.match(source, /rememberDispatch\(turnKey, observedAt\);[\s\S]{0,160}chrome\.runtime\.sendMessage/);
+  assert.match(source, /clientActionId: turnKey/);
+});
+
 test('watcher diagnostics expose only phases and counts, not conversation text', () => {
   const d = content.diagnostics();
   assert.equal(typeof d.samples, 'number');

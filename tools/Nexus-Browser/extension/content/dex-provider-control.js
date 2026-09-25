@@ -102,7 +102,39 @@
   let lastFingerprint = '';
   let candidateFingerprint = '';
   let candidateSince = 0;
-  const telemetry = { samples: 0, lastScanAt: null, assistantNodes: 0, phase: 'boot', candidateAction: null, dispatchedAt: null, lastError: null };
+  const turnIdentities = new WeakMap();
+  const dispatchedTurns = new Map();
+  let nextTurnIdentity = 0;
+  let lastDuplicateKey = '';
+  const MAX_DISPATCHED_TURNS = 256;
+  const telemetry = { samples: 0, lastScanAt: null, assistantNodes: 0, phase: 'boot', candidateAction: null, dispatchedAt: null, duplicateTurnsSuppressed: 0, lastError: null };
+
+  // Use the stable DIL message ID instead of the changing content-block count.
+  function commandIdentity(answerApi, parsed = null) {
+    const nodes = assistantNodes(answerApi);
+    const latest = nodes[nodes.length - 1];
+    if (!latest) return `unscoped:${controlHash(parsed?.raw || '')}`;
+    const turn = assistantTurn(latest) || latest;
+    const stableId = turn.getAttribute?.('data-chatgpt-selection-message-id')
+      || turn.getAttribute?.('data-message-id');
+    if (stableId) return `message:${stableId}`;
+    if (!turnIdentities.has(turn)) turnIdentities.set(turn, `dom:${++nextTurnIdentity}`);
+    return turnIdentities.get(turn);
+  }
+
+  function controlHash(value) {
+    let hash = 2166136261;
+    for (const character of String(value || '')) {
+      hash ^= character.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16);
+  }
+
+  function rememberDispatch(key, observedAt) {
+    dispatchedTurns.set(key, observedAt);
+    while (dispatchedTurns.size > MAX_DISPATCHED_TURNS) dispatchedTurns.delete(dispatchedTurns.keys().next().value);
+  }
 
   function diagnostics() { return { ...telemetry }; }
 
@@ -140,8 +172,17 @@
       return;
     }
 
-    const fingerprint = `${runtime.id}:${nodeCount(answerApi)}:${parsed.raw}`;
+    const turnKey = `${runtime.id}:${commandIdentity(answerApi, parsed)}`;
+    const fingerprint = `${turnKey}:${parsed.raw}`;
     const observedAt = Date.now();
+    if (dispatchedTurns.has(turnKey)) {
+      telemetry.phase = 'duplicate-suppressed';
+      if (lastDuplicateKey !== turnKey) {
+        telemetry.duplicateTurnsSuppressed += 1;
+        lastDuplicateKey = turnKey;
+      }
+      return;
+    }
     if (fingerprint !== candidateFingerprint) {
       telemetry.phase = 'stabilizing';
       candidateFingerprint = fingerprint;
@@ -159,11 +200,13 @@
     if (fingerprint === lastFingerprint) { telemetry.phase = 'duplicate-suppressed'; return; }
 
     lastFingerprint = fingerprint;
+    rememberDispatch(turnKey, observedAt);
     resetCandidate();
     try {
       const result = chrome.runtime.sendMessage({
         type: 'dex_provider_command',
         providerId: runtime.id,
+        clientActionId: turnKey,
         command: parsed.command
       });
       telemetry.phase = 'handed-to-background';
@@ -216,6 +259,7 @@
     assistantNodes,
     assistantTurn,
     latestCandidateText,
+    commandIdentity,
     diagnostics,
     commandReady
   };
