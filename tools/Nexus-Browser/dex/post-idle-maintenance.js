@@ -44,7 +44,8 @@ function gitState(root = EVEOS_ROOT) {
 }
 function readyRooms(snapshot, hasPendingControls = () => false, hasActiveTurn = () => false) {
   return !!snapshot && Array.isArray(snapshot.rooms)
-    && !snapshot.rooms.some((room) => roomBusy(room) || !!room.pendingProviderControlReceipt)
+    && !snapshot.rooms.some((room) => roomBusy(room) || !!room.pendingProviderControlReceipt
+      || (room.members || []).some((member) => member.binding?.managedByDex === true))
     && !hasPendingControls() && !hasActiveTurn();
 }
 function deploymentPrompt(job) {

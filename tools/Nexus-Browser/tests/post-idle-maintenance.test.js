@@ -79,6 +79,9 @@ test('global idle includes every room, pending control receipt, scheduler turn a
   h.setPending(false); h.setTurn(true);
   assert.equal(await h.api.tick(), false);
   h.setTurn(false);
+  h.other.members = [{ id: 'worker', binding: { managedByDex: true, targetClassId: 'online-origin' } }];
+  assert.equal(await h.api.tick(), false, 'managed browser workers block global maintenance');
+  h.other.members = [];
   assert.equal(await h.api.tick(), true);
   assert.equal(h.dispatched.length, 1);
   assert.equal(h.dispatched[0].targetId, ASTRO.targetId);

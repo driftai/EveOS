@@ -297,7 +297,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (ws.role === 'ui') {
-      if (ws.clientKind === 'maintenance' && ['cleanup_disposable_rooms', 'resolve_passive_recovery'].includes(msg.type)) { const result = msg.type === 'cleanup_disposable_rooms' ? await disposableRoomCleanup.run(msg.requestId) : dexScheduler.resolvePassiveRecovery({ roomId: msg.roomId, requestId: msg.recoveryRequestId, reason: msg.reason }); if (msg.type === 'resolve_passive_recovery' && result.ok) broadcastDexState(dexStateStore.load()); safeSend(ws, msg.type === 'cleanup_disposable_rooms' ? result : { type: 'resolve_passive_recovery_result', requestId: msg.requestId || null, ...result }); return; }
+      if (ws.clientKind === 'maintenance' && ['cleanup_disposable_rooms', 'resolve_passive_recovery'].includes(msg.type)) { if (postIdleMaintenance.leaseActive()) { safeSend(ws, { type: 'error', code: 'POST_IDLE_LEASE_BUSY', message: 'Another maintenance operation owns the exclusive lease.' }); return; } const result = msg.type === 'cleanup_disposable_rooms' ? await disposableRoomCleanup.run(msg.requestId) : dexScheduler.resolvePassiveRecovery({ roomId: msg.roomId, requestId: msg.recoveryRequestId, reason: msg.reason }); if (msg.type === 'resolve_passive_recovery' && result.ok) broadcastDexState(dexStateStore.load()); safeSend(ws, msg.type === 'cleanup_disposable_rooms' ? result : { type: 'resolve_passive_recovery_result', requestId: msg.requestId || null, ...result }); return; }
       if (msg.type === 'dex_state_put' && ws.clientKind === 'dex') {
         if (postIdleMaintenance.leaseActive()) { safeSend(ws, { type: 'error', code: 'POST_IDLE_LEASE_BUSY', message: 'Post-idle maintenance blocks room mutations during local delivery.' }); return; }
         if (!dexRouting.isPrimaryDex(ws)) {
@@ -312,7 +312,7 @@ wss.on('connection', (ws, req) => {
         }
         return;
       }
-      if (['dex_relay_start', 'dex_relay_stop', 'dex_relay_continue'].includes(msg.type) && ws.clientKind === 'dex') {
+      if (['dex_relay_start', 'dex_relay_stop', 'dex_relay_continue'].includes(msg.type) && ws.clientKind === 'dex') { if (postIdleMaintenance.leaseActive()) { safeSend(ws, { type: 'error', code: 'POST_IDLE_LEASE_BUSY', message: 'Post-idle task owns the relay mutation lease.' }); return; }
         if (!dexRouting.isPrimaryDex(ws)) { safeSend(ws, { type: 'error', code: 'DEX_RUNTIME_STANDBY', message: 'Standby Dex tab cannot mutate room execution.' }); return; }
         const result = msg.type === 'dex_relay_start' ? dexScheduler.startRelay(msg) : msg.type === 'dex_relay_stop' ? dexScheduler.stopRelay(msg) : dexScheduler.continueRelay(msg);
         safeSend(ws, { type: 'dex_relay_result', requestId: msg.requestId || null, result }); return;
