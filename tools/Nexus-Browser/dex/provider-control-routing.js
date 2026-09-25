@@ -170,7 +170,7 @@ function createProviderControlRouting({
       fail(ws, requestId, source, 'DEX_CONTROL_BAD_SOURCE', 'Provider-control source could not be verified.');
       return true;
     }
-
+    safeSend(ws, { type: 'provider_control_received', requestId, clientActionId: msg.clientActionId || null });
     const settledOrigin = await settleOrigin(source, command, requestId);
     if (settledOrigin.error) {
       fail(ws, requestId, source, settledOrigin.error.code, settledOrigin.error.message);
