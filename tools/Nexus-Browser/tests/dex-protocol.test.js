@@ -263,3 +263,65 @@ test('relay prompt exposes runtime provider availability to other agents', () =>
   assert.match(prompt, /Quota reached/);
   assert.match(prompt, /wait for provider quota reset/);
 });
+
+test('consecutive return and done markers are extracted and stripped cleanly', () => {
+  const normal = 'Report body.\n\n[[DEX:RETURN:dex-turn-12345678-abcd-1234-ef01-123456789abc]] [[DEX:DONE]]';
+  const parsed = protocol.parseAgentReply(normal);
+  assert.equal(parsed.text, 'Report body.');
+  assert.equal(parsed.done, true);
+  assert.equal(parsed.returnRequestId, 'dex-turn-12345678-abcd-1234-ef01-123456789abc');
+});
+
+test('quoted examples, code fences, blockquotes and ordinary prose cannot become executable trailing commands', () => {
+  const fence = String.fromCharCode(96).repeat(3);
+  const unclosed = 'Example syntax:\n' + fence + '\n[[DEX:DONE]]';
+  assert.deepEqual(protocol.parseAgentReply(unclosed), {
+    text: unclosed, done: false, needsUser: false, note: false
+  });
+
+  const backticked = 'Do not use ' + String.fromCharCode(96) + '[[DEX:DONE]]' + String.fromCharCode(96);
+  assert.deepEqual(protocol.parseAgentReply(backticked), {
+    text: backticked, done: false, needsUser: false, note: false
+  });
+
+  const blockquote = 'Here is what to avoid:\n> [[DEX:DONE]]';
+  assert.deepEqual(protocol.parseAgentReply(blockquote), {
+    text: blockquote, done: false, needsUser: false, note: false
+  });
+
+  const blockquoteWrapped = 'Here is what to avoid:\n> [[DEX:\nDONE]]';
+  assert.deepEqual(protocol.parseAgentReply(blockquoteWrapped), {
+    text: blockquoteWrapped, done: false, needsUser: false, note: false
+  });
+
+  const blockquoteReturn = 'Here is what to avoid:\n> [[DEX:RETURN:dex-turn-12345678-abcd-1234-ef01-123456789abc]]';
+  assert.deepEqual(protocol.parseAgentReply(blockquoteReturn), {
+    text: blockquoteReturn, done: false, needsUser: false, note: false
+  });
+
+  const blockquotedCmd = 'To onboard, run:\n> [[DEX:CMD {"action":"onboard"}]]';
+  const parsedBlockquotedCmd = protocol.parseAgentReply(blockquotedCmd);
+  assert.equal(parsedBlockquotedCmd.providerCommand, undefined);
+  assert.equal(parsedBlockquotedCmd.text, blockquotedCmd);
+
+  const fencedCmd = 'Example:\n' + fence + '\n[[DEX:CMD {"action":"onboard"}]]\n' + fence;
+  assert.equal(protocol.parseAgentReply(fencedCmd).providerCommand, undefined);
+
+  const unclosedCmd = 'Example:\n' + fence + '\n[[DEX:CMD {"action":"onboard"}]]';
+  assert.equal(protocol.parseAgentReply(unclosedCmd).providerCommand, undefined);
+
+  const backtickedCmd = 'Do not run ' + String.fromCharCode(96) + '[[DEX:CMD {"action":"onboard"}]]' + String.fromCharCode(96);
+  assert.equal(protocol.parseAgentReply(backtickedCmd).providerCommand, undefined);
+
+  const prose = 'The token [[DEX:DONE]] was discussed in review.';
+  assert.deepEqual(protocol.parseAgentReply(prose), {
+    text: prose, done: false, needsUser: false, note: false
+  });
+});
+
+test('normalization preserves response body whitespace and indentation', () => {
+  const body = 'Summary:\n  - Item 1\n    - Indented sub-item\n\n```js\nconst x = 1;\n```\n\n[[DEX:DONE]]';
+  const parsed = protocol.parseAgentReply(body);
+  assert.equal(parsed.done, true);
+  assert.equal(parsed.text, 'Summary:\n  - Item 1\n    - Indented sub-item\n\n```js\nconst x = 1;\n```');
+});

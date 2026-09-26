@@ -47,15 +47,22 @@
   }
 
   function trailingProviderCommand(value) {
-    const text = cleanText(value), prefix = '[[DEX:CMD ';
+    const text = cleanText(value), prefix = '[[DEX:CMD ', fence = '```';
     if (!text.endsWith(']]')) return null;
     let index = text.indexOf(prefix);
     while (index >= 0) {
-      try {
-        const command = JSON.parse(text.slice(index + prefix.length, -2).trim());
-        const action = cleanText(command?.action).toLowerCase();
-        if (PROVIDER_CONTROL_ACTIONS.has(action)) return { command, action, index };
-      } catch {}
+      const prior = text.slice(0, index);
+      const lineStart = text.lastIndexOf('\n', index);
+      const linePrefix = text.slice(lineStart + 1, index);
+      const inFence = (prior.split(fence).length - 1) % 2 === 1;
+      const isQuoted = /^\s*>/.test(linePrefix) || (linePrefix.split('`').length - 1) % 2 === 1;
+      if (!inFence && !isQuoted) {
+        try {
+          const command = JSON.parse(text.slice(index + prefix.length, -2).trim());
+          const action = cleanText(command?.action).toLowerCase();
+          if (PROVIDER_CONTROL_ACTIONS.has(action)) return { command, action, index };
+        } catch {}
+      }
       index = text.indexOf(prefix, index + prefix.length);
     }
     return null;
@@ -101,9 +108,18 @@
     const controls = new Set();
     let returnRequestId = null, headsUpTarget = null, headsUpCount = 0;
     let contextOverride = null, budgetIncrease = null, invalidFlag = false;
+    const fence = '```';
+    if ((text.split(fence).length - 1) % 2 === 1) {
+      return { text, done: false, needsUser: false, note: false,
+        ...(malformedCommand ? { malformedCommand: true } : {}),
+        ...(handoff ? { handoff: true } : {}) };
+    }
     const trailingToken = /\s*(\[\[DEX:(?:[A-Z_]+|RETURN:dex-turn-[A-Za-z0-9-]{8,128}|HEADSUP:[^\]\[\r\n]{1,80}|CONTEXT:[0-9]{1,3}|BUDGET:\+[0-9]{1,3})\]\])\s*$/;
     let match = text.match(trailingToken);
     while (match) {
+      const lineStart = text.lastIndexOf('\n', match.index);
+      const linePrefix = text.slice(lineStart + 1, match.index);
+      if (/^\s*>/.test(linePrefix) || (linePrefix.split('`').length - 1) % 2 === 1) break;
       const kind = CONTROL_BY_TOKEN[match[1]];
       const tagged = /^\[\[DEX:RETURN:(dex-turn-[A-Za-z0-9-]{8,128})\]\]$/.exec(match[1]);
       const headsUp = /^\[\[DEX:HEADSUP:([^\]\[\r\n]{1,80})\]\]$/.exec(match[1]);

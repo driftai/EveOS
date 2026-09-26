@@ -324,20 +324,49 @@ function mergeVisibleReply(previousText, nextText) {
   return `${previous}\n\n${next}`;
 }
 
-function selectReadyReply(structuredReply, accumulatedReply) {
+function reconstructTerminalReturn(text, expectedTurnId) {
+  if (!text || !expectedTurnId) return text;
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    const raw = lines[i];
+    const curr = raw.trim();
+    if (/^>/.test(curr)) continue;
+    const prefixMatch = curr.match(/\[\[DEX:RETURN:(dex-turn-[A-Za-z0-9-]*)$/i);
+    if (!prefixMatch) continue;
+    const partialId = prefixMatch[1];
+    if (!expectedTurnId.startsWith(partialId)) continue;
+    const remainder = expectedTurnId.slice(partialId.length);
+    const nextLine = lines[i + 1].trim();
+    if (nextLine.startsWith(remainder + ']]')) {
+      const after = nextLine.slice((remainder + ']]').length).trim();
+      const indent = raw.slice(0, raw.indexOf(curr));
+      lines[i] = indent + curr + remainder + ']]' + (after ? ' ' + after : '');
+      lines.splice(i + 1, 1);
+      i -= 1;
+    }
+  }
+  return lines.join('\n');
+}
+
+function selectReadyReply(structuredReply, accumulatedReply, expectedTurnId = null) {
   const structured = String(structuredReply || '').trim();
   const accumulated = String(accumulatedReply || '').trim();
-  if (!structured) return accumulated;
-  if (!accumulated || structured === accumulated) return structured;
-  if (structured.includes(accumulated)) return structured;
-
-  const structuredAt = accumulated.lastIndexOf(structured);
-  if (structuredAt > 0) {
-    const prefix = accumulated.slice(0, structuredAt).trim();
-    const prefixLines = screenLines(prefix).filter((line) => String(line || '').trim());
-    if (prefixLines.length >= 3 && prefixLines.some(isStrongReplyStart)) return accumulated;
+  let chosen = structured;
+  if (!structured) chosen = accumulated;
+  else if (!accumulated || structured === accumulated) chosen = structured;
+  else if (structured.includes(accumulated)) chosen = structured;
+  else {
+    const structuredAt = accumulated.lastIndexOf(structured);
+    if (structuredAt > 0) {
+      const prefix = accumulated.slice(0, structuredAt).trim();
+      const prefixLines = screenLines(prefix).filter((line) => String(line || '').trim());
+      if (prefixLines.length >= 3 && prefixLines.some(isStrongReplyStart)) chosen = accumulated;
+      else chosen = structured;
+    } else {
+      chosen = structured;
+    }
   }
-  return structured;
+  return expectedTurnId ? reconstructTerminalReturn(chosen, expectedTurnId) : chosen;
 }
 
 module.exports = {
@@ -359,5 +388,6 @@ module.exports = {
   extractVisibleReply,
   mergeVisibleReply,
   extractReadyStructuredReply,
-  selectReadyReply
+  selectReadyReply,
+  reconstructTerminalReturn
 };

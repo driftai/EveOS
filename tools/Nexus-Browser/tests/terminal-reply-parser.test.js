@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   extractVisibleReply,
-  mergeVisibleReply
+  mergeVisibleReply,
+  selectReadyReply,
+  reconstructTerminalReturn
 } = require('../local-targets/terminal-reply-parser');
 
 test('reflow resync replaces a stale wrapped link tail instead of cross-splicing later text', () => {
@@ -90,4 +92,27 @@ test('prompt-tail recovery remains intact after parser extraction', () => {
     extractVisibleReply('Previous\n>\n? for shortcuts', current, prompt),
     'Actual reply starts here.'
   );
+});
+
+test('reconstructTerminalReturn joins line-wrapped return marker matching expectedTurnId', () => {
+  const wrapped = 'Turn finished.\n  [[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-\n  facdbdd25b31]] [[DEX:DONE]]';
+  const expected = 'dex-turn-315f54a5-7416-411e-b4a2-facdbdd25b31';
+  const reconstructed = reconstructTerminalReturn(wrapped, expected);
+  assert.equal(reconstructed, 'Turn finished.\n  [[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-facdbdd25b31]] [[DEX:DONE]]');
+});
+
+test('reconstructTerminalReturn leaves non-matching expectedTurnId or blockquoted returns untouched', () => {
+  const wrapped = 'Turn finished.\n  [[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-\n  facdbdd25b31]] [[DEX:DONE]]';
+  const mismatch = 'dex-turn-99999999-0000-0000-0000-000000000000';
+  assert.equal(reconstructTerminalReturn(wrapped, mismatch), wrapped);
+
+  const quoted = 'Quote:\n  > [[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-\n  > facdbdd25b31]] [[DEX:DONE]]';
+  assert.equal(reconstructTerminalReturn(quoted, 'dex-turn-315f54a5-7416-411e-b4a2-facdbdd25b31'), quoted);
+});
+
+test('selectReadyReply applies expectedTurnId reconstruction to chosen output', () => {
+  const wrapped = 'Structured reply body.\n[[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-\nfacdbdd25b31]] [[DEX:DONE]]';
+  const expected = 'dex-turn-315f54a5-7416-411e-b4a2-facdbdd25b31';
+  const chosen = selectReadyReply(wrapped, '', expected);
+  assert.equal(chosen, 'Structured reply body.\n[[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-facdbdd25b31]] [[DEX:DONE]]');
 });

@@ -13,7 +13,8 @@ const {
   findPromptResponseStart,
   extractReadyStructuredReply,
   returnedPromptBoundary,
-  selectReadyReply
+  selectReadyReply,
+  reconstructTerminalReturn
 } = require('./terminal-reply-parser');
 const { dataDir } = require('../runtime-config');
 
@@ -327,7 +328,7 @@ async function sendPrompt({
         const visibleReply = extractVisibleReply(before.text, screen, terminalPrompt, lastReply);
         const structuredReply = extractReadyStructuredReply(screen);
         const accumulatedReply = mergeVisibleReply(lastReply, visibleReply) || visibleReply || lastReply;
-        const reply = selectReadyReply(structuredReply, accumulatedReply);
+        const reply = selectReadyReply(structuredReply, accumulatedReply, requestId);
         emit?.({
           type: 'response_final', requestId, text: reply || '(Visible terminal turn completed.)',
           targetClassId: 'local-origin', providerId: target.providerId, providerName: target.providerName,
@@ -425,6 +426,7 @@ module.exports = {
   mergeVisibleReply,
   extractReadyStructuredReply,
   selectReadyReply,
+  reconstructTerminalReturn,
   sendPrompt,
   captureLatest,
   status,
