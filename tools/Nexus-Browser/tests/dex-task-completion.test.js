@@ -134,3 +134,41 @@ test('active original room and offline exact target retain the report without sp
   assert.equal(journal.all()[0].state, 'ready');
   assert.equal(packets.length, 0);
 });
+
+test('registered external signal accepts only matching signed completion without launching a process', async (t) => {
+  const f = fixture(t), journal = f.make();
+  const external = { ...command('external-task-one'), jobType: 'external-signal' };
+  const registered = await journal.register({ source: LOCAL, command: external });
+  assert.equal(registered.ok, true);
+  assert.equal(registered.job.jobType, 'external-signal');
+  assert.equal((await journal.register({ source: LOCAL, command: external })).deduplicated, true);
+  assert.equal((await journal.register({ source: LOCAL, command: command('external-task-one') })).code,
+    'TASK_COMPLETION_ID_CONFLICT');
+  assert.equal((await journal.register({ source: LOCAL,
+    command: { ...command('untrusted-type'), jobType: 'shell' } })).code, 'TASK_COMPLETION_BAD_TYPE');
+  assert.equal(journal.all()[0].state, 'armed', 'registration never launches an arbitrary local job');
+  const creds = JSON.parse(fs.readFileSync(credentialPath(f.root, registered.job.id), 'utf8'));
+  assert.equal(creds.jobType, 'external-signal');
+  writeJournal(resultPath(f.root, registered.job.id), {
+    version: 1, id: registered.job.id, taskId: external.taskId, jobType: external.jobType,
+    expectedHead: SHA, token: creds.token, result: 'success', summary: 'Authorized local signal completed.',
+    stageResults: []
+  });
+  assert.equal(journal.scan(), 1);
+  assert.equal(journal.all()[0].state, 'ready');
+  assert.equal(journal.all()[0].report.result, 'success');
+  assert.equal(f.make().all()[0].jobType, 'external-signal');
+});
+test('external signal rejects a legacy qualification payload even with a valid local token', async (t) => {
+  const f = fixture(t), journal = f.make();
+  const external = { ...command('external-task-two'), jobType: 'external-signal' };
+  const registered = await journal.register({ source: LOCAL, command: external });
+  const creds = JSON.parse(fs.readFileSync(credentialPath(f.root, registered.job.id), 'utf8'));
+  writeJournal(resultPath(f.root, registered.job.id), {
+    version: 1, id: registered.job.id, taskId: external.taskId,
+    expectedHead: SHA, token: creds.token, result: 'success', summary: 'Wrong signed job type.'
+  });
+  assert.equal(journal.scan(), 1);
+  assert.equal(journal.all()[0].report.result, 'unknown');
+  assert.equal(journal.all()[0].report.code, 'TASK_COMPLETION_INVALID_REPORT');
+});

@@ -12,6 +12,8 @@ const MAX_JOBS = 128, REPORT_MAX_BYTES = 32768;
 const JOB_ID = /^task-completion-[0-9a-f-]{36}$/i;
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{3,95}$/;
 const SHA = /^[0-9a-f]{40}$/i;
+// The journal receives signed results; this list is NOT a shell/execution grant.
+const JOB_TYPES = new Set(['qualification', 'external-signal']);
 const DEFAULT_FILE = path.join(dataDir(), 'task-completion-journal.json');
 const hash = (token) => createHash('sha256').update(String(token)).digest('hex');
 function tokenMatches(token, digest) {
@@ -28,9 +30,9 @@ function credentialPath(root, id) {
 }
 function compact(job) {
   if (!job) return null;
-  const { id, taskId, roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
+  const { id, taskId, jobType = 'qualification', roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
     registeredAt, expiresAt, state, report, claimedAt, deliveredAt, deliveryError } = job;
-  return { id, taskId, roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
+  return { id, taskId, jobType, roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
     registeredAt, expiresAt, state, report: report || null, claimedAt: claimedAt || null,
     deliveredAt: deliveredAt || null, deliveryError: deliveryError || null };
 }
@@ -74,6 +76,9 @@ function createTaskCompletionJournal({
       return error('TASK_COMPLETION_BAD_ROOM', 'Require one exact room, existing local worker and online requester.');
     }
     const taskId = String(command.taskId || '');
+    const jobType = command.jobType == null ? 'qualification' : String(command.jobType);
+    if (!JOB_TYPES.has(jobType)) return error('TASK_COMPLETION_BAD_TYPE',
+      'Only qualification or externally completed signed-report jobs are registered.');
     const expectedHead = String(command.expectedHead || '').toLowerCase();
     const branch = String(command.branch || '');
     if (!TASK_ID.test(taskId) || !SHA.test(expectedHead)
@@ -85,7 +90,8 @@ function createTaskCompletionJournal({
     if (previous) {
       if (previous.roomId !== room.id || previous.workerMemberId !== worker.id
         || previous.requesterMemberId !== requester.id || previous.expectedHead !== expectedHead
-        || previous.branch !== branch || !validWorker(previous, source)) {
+        || previous.branch !== branch || (previous.jobType || 'qualification') !== jobType
+        || !validWorker(previous, source)) {
         return error('TASK_COMPLETION_ID_CONFLICT', 'This task ID already belongs to another immutable request.');
       }
       if (!io.existsSync(credentialPath(root, previous.id))) {
@@ -107,7 +113,7 @@ function createTaskCompletionJournal({
     }
     const id = 'task-completion-' + randomUUID(), token = randomBytes(32).toString('hex');
     const job = {
-      id, taskId, roomId: room.id, roomName: room.name || room.id,
+      id, taskId, jobType, roomId: room.id, roomName: room.name || room.id,
       workerMemberId: worker.id, workerTargetId: String(worker.binding.targetId),
       workerProviderId: worker.binding.providerId,
       requesterMemberId: requester.id, requesterTarget: compactBinding(requester.binding),
@@ -116,7 +122,7 @@ function createTaskCompletionJournal({
     };
     // Credential is an existing-local-runner capability, not part of room state,
     // browser notification text or the status API.
-    const credential = { version: 1, id, taskId, expectedHead, branch, token };
+    const credential = { version: 1, id, taskId, jobType, expectedHead, branch, token };
     writeJournal(credentialPath(root, id), credential, io);
     journal.jobs.push(job);
     try { save(); } catch (e) { journal.jobs.pop(); throw e; }
@@ -154,6 +160,7 @@ function createTaskCompletionJournal({
         } catch { continue; } // Do not treat transient or unreadable files as success.
         if (payload?.version !== 1 || payload.id !== job.id
           || payload.taskId !== job.taskId || String(payload.expectedHead).toLowerCase() !== job.expectedHead
+          || (payload.jobType || 'qualification') !== (job.jobType || 'qualification')
           || !tokenMatches(payload.token, job.tokenDigest)
           || !['success', 'failed'].includes(payload.result)
           || typeof payload.summary !== 'string' || !payload.summary.trim()) {
@@ -214,5 +221,5 @@ function createTaskCompletionJournal({
   return { register, status, scan, claim, ack, uncertain, ready, all, diagnostics,
     root, filePath, resultPath: (id) => resultPath(root, id) };
 }
-module.exports = { TTL_MS, MAX_JOBS, REPORT_MAX_BYTES, DEFAULT_FILE, JOB_ID, TASK_ID,
+module.exports = { TTL_MS, MAX_JOBS, REPORT_MAX_BYTES, DEFAULT_FILE, JOB_ID, TASK_ID, JOB_TYPES,
   resultPath, credentialPath, tokenMatches, createTaskCompletionJournal };

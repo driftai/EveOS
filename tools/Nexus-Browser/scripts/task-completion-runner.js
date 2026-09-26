@@ -114,7 +114,7 @@ function runStage(stage, directory) {
 }
 function signedResult(credentials, result, stages, summary) {
   return { version: 1, id: credentials.id, taskId: credentials.taskId,
-    expectedHead: credentials.expectedHead, token: credentials.token, result,
+    jobType: 'qualification', expectedHead: credentials.expectedHead, token: credentials.token, result,
     summary: String(summary).slice(0, 1000), stageResults: stages,
     logs: STAGES.map((s) => 'task-completions/logs/' + credentials.id + '/' + s.file),
     completedAt: new Date().toISOString() };
@@ -127,6 +127,8 @@ async function execute(id) {
     .find((entry) => entry.id === id);
   if (!record || record.state !== 'armed' || record.taskId !== credential.taskId
     || record.branch !== credential.branch || record.expectedHead !== credential.expectedHead
+    || (record.jobType || 'qualification') !== 'qualification'
+    || (credential.jobType || 'qualification') !== 'qualification'
     || !tokenMatches(credential.token, record.tokenDigest)) {
     throw Error('Immutable registered task credentials/state do not match.');
   }
@@ -153,7 +155,7 @@ async function start(opts) {
   const taskId = opts['task-id'] || 'qualification-' + randomUUID();
   const registered = await request('task_completion_register', {
     source: agent, roomId: opts.room, requesterMemberId: opts.requester,
-    expectedHead: git.sha, branch: git.branch, taskId
+    expectedHead: git.sha, branch: git.branch, taskId, jobType: 'qualification'
   });
   if (!registered?.ok) throw Error(JSON.stringify(registered));
   const job = registered.job;
