@@ -88,3 +88,16 @@ test('expired proof or unexpected raw sensitive data cannot become a stored prop
   assert.equal(result.ok, true);
   assert.doesNotMatch(fs.readFileSync(f.filePath, 'utf8'), /do-not-persist/);
 });
+
+test('duplicate or extra-field private records cannot resurrect ambiguous authority', (t) => {
+  const f = fixture(t), store = f.open();
+  assert.equal(store.commitVerified(f.proposal).ok, true);
+  const original = JSON.parse(fs.readFileSync(f.filePath, 'utf8'));
+  fs.writeFileSync(f.filePath, JSON.stringify({
+    version: 1, enrollments: [...original.enrollments, { ...original.enrollments[0] }]
+  }));
+  assert.throws(() => f.open(), /PRIVATE_JOURNAL_INVALID/);
+  const injected = { ...original.enrollments[0], rawConversationId: 'should-never-load' };
+  fs.writeFileSync(f.filePath, JSON.stringify({ version: 1, enrollments: [injected] }));
+  assert.throws(() => f.open(), /PRIVATE_JOURNAL_INVALID/);
+});

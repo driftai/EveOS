@@ -27,6 +27,19 @@ function readPrivate(file, io) {
       || !valid(r.processEpoch) || !digest(r.sessionKeyDigest)
       || !digest(r.executableDigest) || !Number.isSafeInteger(r.pid) || r.pid <= 0))
     throw new Error('LOCAL_ENROLLMENT_PRIVATE_JOURNAL_INVALID');
+  const fields = ['deviceId', 'enrolledAt', 'executableDigest', 'grantId', 'memberId',
+    'pid', 'processEpoch', 'roomId', 'sessionKeyDigest', 'targetId'];
+  const owners = new Set(), targets = new Set(), sessions = new Set();
+  for (const r of data.enrollments) {
+    const owner = r.roomId + '\0' + r.memberId;
+    const session = r.deviceId + '\0' + r.sessionKeyDigest;
+    if (Object.keys(r).sort().join('|') !== fields.join('|')
+      || r.targetId !== 'local:antigravity-existing:' + r.pid
+      || !Number.isFinite(Date.parse(r.enrolledAt || ''))
+      || owners.has(owner) || targets.has(r.targetId) || sessions.has(session))
+      throw new Error('LOCAL_ENROLLMENT_PRIVATE_JOURNAL_INVALID');
+    owners.add(owner); targets.add(r.targetId); sessions.add(session);
+  }
   return data;
 }
 function openPrivateEnrollmentStore({
