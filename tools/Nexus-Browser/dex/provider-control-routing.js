@@ -41,6 +41,7 @@ function createProviderControlRouting({
   const pending = new Map();
   const pendingMutations = new Map();
   const recentMutations = new Map();
+  let admissionLane = Promise.resolve();
   const agentExtensionReload = createAgentExtensionReload({ getState, getExtension, hasPending: () => pending.size > 0, safeSend, recordIncident, now, sleep });
   function dexClient() {
     return typeof getDexClient === 'function'
@@ -157,10 +158,14 @@ function createProviderControlRouting({
     safeSend(ws, { type: 'provider_control_received', requestId, clientActionId: msg.clientActionId || null });
     // New authenticated room sends are admitted to the durable inbox without
     // waiting on a different agent's unfinished or NOTE-stopped relay.
-    if (directRoomSend(command) && getState && saveState)
-      return directSend.route({ source, command, requestId, ws },
+    if (directRoomSend(command) && getState && saveState) {
+      const run = admissionLane.then(() => directSend.route({ source, command, requestId, ws },
         { getState, saveState, broadcastState, getScheduler, now, sendResult,
-          commitOriginReceipt, findOrigin: controlReceiptApi.findIntent });
+          commitOriginReceipt, findOrigin: controlReceiptApi.findIntent }));
+      admissionLane = run.catch(() => {});
+      return run.catch(() => (fail(ws, requestId, source, 'DEX_SEND_ADMISSION_UNCERTAIN',
+        'Storage error: the outcome may be uncertain. Inspect the same request ID; do not create a new send.'), true));
+    }
     if (['room_budget', 'room_log'].includes(action)) return roomTools.route(
       { source, command, requestId, ws, origin: null },
       { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt });

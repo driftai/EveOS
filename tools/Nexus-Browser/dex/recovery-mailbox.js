@@ -4,6 +4,7 @@
 const { randomUUID, createHash } = require('node:crypto');
 const { commandKey } = require('./provider-control-receipt');
 const stateApi = require('./server-scheduler-state');
+const protocol = require('../public/dex-protocol');
 const MAX_QUEUED = 8, MAX_RECEIPTS = 128;
 function matchingMember(room, source = {}) {
   return (room?.members || []).find((member) => {
@@ -81,8 +82,9 @@ function queueSend(snapshot, { source, command, requestId,
   });
   message.clientRequestId = requestId;
   message.intentDigest = digest;
-  queue.push({ requestId, messageId: message.id, queuedAt: at,
-    budget: stateApi.safeBudget(command.turns ?? room.settings?.maxTurns, 8) });
+  const selected = room.members?.[protocol.nextMemberIndex(room, message)];
+  queue.push({ requestId, messageId: message.id, targetMemberId: selected?.id || null,
+    queuedAt: at, budget: stateApi.safeBudget(command.turns ?? room.settings?.maxTurns, 8) });
   room.deferredSendReceipts = [...(room.deferredSendReceipts || []),
     { requestId, messageId: message.id, senderId: member.id, intentDigest: digest,
       phase: 'queued', at }].slice(-MAX_RECEIPTS);
@@ -101,15 +103,27 @@ function updateReceipts(room, entries, phase) {
   room.deferredSendReceipts = (room.deferredSendReceipts || []).map((receipt) =>
     ids.has(receipt.requestId) ? { ...receipt, phase } : receipt);
 }
-function takeBatch(room, count = MAX_QUEUED) {
-  const queue = room.deferredRelays || [];
-  if (!queue.length || count <= 0) return [];
-  const entries = queue.splice(0, Math.min(MAX_QUEUED, count));
-  const valid = entries.filter((entry) => {
-    const message = stateApi.messageById(room, entry.messageId);
-    return message && stateApi.memberById(room, message.senderId);
-  });
-  updateReceipts(room, entries.filter((entry) => !valid.includes(entry)), 'orphaned');
+function recipientFor(room, entry) {
+  const message = stateApi.messageById(room, entry.messageId);
+  if (!message || !stateApi.memberById(room, message.senderId)) return null;
+  const member = entry.targetMemberId
+    ? stateApi.memberById(room, entry.targetMemberId)
+    : room.members?.[protocol.nextMemberIndex(room, message)];
+  if (!member) return entry.targetMemberId ? null : 'waiting-for-recipient';
+  return member.relayEnabled === false ? 'waiting-for-recipient' : member.id;
+}
+function takeBatch(room, count = MAX_QUEUED, recipientId = null) {
+  const queue = room.deferredRelays || [], valid = [], orphaned = [];
+  let target = recipientId;
+  while (queue.length && valid.length < Math.min(MAX_QUEUED, count)) {
+    const next = queue[0], recipient = recipientFor(room, next);
+    if (recipient === 'waiting-for-recipient') break;
+    if (!recipient) { orphaned.push(queue.shift()); continue; }
+    if (target && recipient !== target) break; // Never deliver one agent's report to another.
+    target = recipient;
+    valid.push(queue.shift());
+  }
+  updateReceipts(room, orphaned, 'orphaned');
   updateReceipts(room, valid, 'batched');
   return valid;
 }
@@ -118,7 +132,7 @@ function takeBatch(room, count = MAX_QUEUED) {
 function stageForPending(room) {
   if (!room?.pendingTurn || !(room.deferredRelays || []).length) return 0;
   const prior = room.pendingTurn.inboxMessageIds || [];
-  const batch = takeBatch(room, MAX_QUEUED - prior.length);
+  const batch = takeBatch(room, MAX_QUEUED - prior.length, room.pendingTurn.memberId);
   room.pendingTurn.inboxMessageIds = [...new Set([...prior, ...batch.map((e) => e.messageId)])];
   return batch.length;
 }
@@ -127,7 +141,8 @@ function activateNext(snapshot, at = new Date().toISOString()) {
     !room.recovery && !room.pendingTurn && !room.pendingProviderControlReceipt
     && !room.relay?.active && !room.relay?.waitingFor
     && (room.members || []).some((member) => member.relayEnabled !== false)
-    && (room.deferredRelays || []).length > 0);
+    && (room.deferredRelays || []).length > 0
+    && recipientFor(room, room.deferredRelays[0]) !== 'waiting-for-recipient');
   rooms.sort((a, b) => Date.parse(a.deferredRelays[0].queuedAt)
     - Date.parse(b.deferredRelays[0].queuedAt));
   const room = rooms[0];

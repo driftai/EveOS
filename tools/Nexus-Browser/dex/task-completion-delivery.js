@@ -44,10 +44,12 @@ function createTaskCompletionDelivery({
       return { reason: 'participant-rebound' };
     }
     if (room.relay?.active || room.pendingTurn || room.recovery
-      || room.pendingProviderControlReceipt) return { reason: 'origin-room-busy', waiting: true };
+      || room.pendingProviderControlReceipt || room.deferredRelays?.length)
+      return { reason: 'origin-room-busy', waiting: true };
     // Never inject into an agent currently processing another room's relay.
     const otherBusy = (snapshot.rooms || []).some((entry) =>
-      (entry.relay?.active || entry.pendingTurn || entry.recovery || entry.pendingProviderControlReceipt)
+      (entry.relay?.active || entry.pendingTurn || entry.recovery
+        || entry.pendingProviderControlReceipt || entry.deferredRelays?.length)
       && (entry.members || []).some((member) => same(member.binding, job.requesterTarget)));
     if (otherBusy) return { reason: 'requester-busy', waiting: true };
     const tab = getTabs().find((entry) =>

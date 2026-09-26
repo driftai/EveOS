@@ -15,7 +15,8 @@ function findRoom(snapshot = {}, ref = '') {
 }
 
 function roomBusy(room) {
-  return !!room?.relay?.active || !!room?.relay?.waitingFor || !!room?.pendingTurn || !!room?.recovery;
+  return !!room?.relay?.active || !!room?.relay?.waitingFor || !!room?.pendingTurn || !!room?.recovery
+    || !!room?.pendingProviderControlReceipt || !!room?.deferredRelays?.length;
 }
 
 function managedMembers(snapshot = {}) {
