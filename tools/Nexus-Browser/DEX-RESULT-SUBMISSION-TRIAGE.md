@@ -1,3 +1,9 @@
+## Interrupted-recovery room-busy prevention: watchdog qualification
+
+The September 25 failure returned `DEX_CONTROL_ROOM_BUSY` although `relayActive:false` and `waitingFor:null`: the prior Online-Origin Eve `dex-turn-0d91fb6b-e29c-43e7-ae54-1b6f50cb8a09` held `recoveryPending:true`. The diagnostic branch now has a localhost durable mailbox for authenticated, exact-member `send` requests during idle recovery, a time-bounded passive archive, exact-ID late-final quarantine and recovery-deadline waking **even when capture callbacks or the extension are missing**. Queued means persisted, NOT delivered. Once old recovery is safely reconciled, one new relay begins and old late finals are inert.
+
+The liveness patch separates recovery's asynchronous capture from the scheduler processing lock, wakes at the exact 11-minute recovery deadline and guards against an old pending local capture settling into a newer recovery. Invalid timestamps enter passive quarantine with an incident, not an infinite retry. Added tests: `tests/dex-recovery-liveness.test.js` (five scenarios). Isolated remote simulation passed; Astro must independently run actual Node gates and exercise a live exact-room queued handoff. Never repeat the original uncertain prompt, bypass drafts, or call a green unit suite proof of ChatGPT auto-send.
+
 ## Interrupted-room recovery gate: queued sends and late-final archives
 
 Previous failure: Dex could report `relayActive:false` and `waitingFor:null` while

@@ -180,7 +180,16 @@ function createDexServerScheduler({
       const snapshot = load();
       const passive = recovery.maintainPassive(snapshot);
       if (passive.changed) { save(snapshot); processSoon(0); return true; }
-      if (recovery.hasWork(snapshot)) return recovery.resume(durability);
+      if (recovery.hasWork(snapshot)) {
+        // Captures can await the local terminal indefinitely. Do not hold
+        // process() locked while the independent recovery deadline is armed.
+        recovery.resume(durability).catch((error) => {
+          recordIncident({ code: 'RECOVERY_WORKER_ERROR', source: 'server-scheduler',
+            evidence: { error: String(error?.message || error).slice(0, 160) } });
+          processSoon(1000);
+        });
+        return false;
+      }
       if (recoveryMailbox.activateNext(snapshot, now())) {
         save(snapshot); processSoon(0); return true;
       }

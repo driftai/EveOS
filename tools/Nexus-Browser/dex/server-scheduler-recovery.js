@@ -3,6 +3,7 @@ const failurePolicy = require('../public/dex-failure-policy');
 const stateApi = require('./server-scheduler-state');
 const controlReceiptApi = require('./provider-control-receipt');
 const passiveLife = require('./passive-recovery-lifecycle');
+const { createRecoveryLiveness } = require('./recovery-liveness');
 const RETRY_MS = 10000;
 const STABLE_MS = 1200;
 const UNCERTAIN_STABLE_MS = 60 * 1000;
@@ -51,6 +52,10 @@ function createServerSchedulerRecovery({
     return stateApi.resolveLocal(member, targets);
   }
   function clearActive() { active = null; }
+  const liveness = createRecoveryLiveness({ load, save, nowMs, schedule: processSoon,
+    ceilingMs: MAX_RECOVERY_MS, findRoom: stateApi.roomById, expire, clearActive,
+    onInvalid: (room, journal) => recordIncident({ code: 'RECOVERY_INVALID_TIMESTAMP',
+      roomId: room.id, requestId: journal.requestId, source: 'server-scheduler' }) });
   function resolvePassive({ roomId, requestId, reason = 'Externally reconciled' } = {}) {
     if (active?.roomId === roomId) return { ok: false, code: 'RECOVERY_ACTIVE', message: 'Recovery worker is still active.' };
     const snapshot = load();
@@ -104,6 +109,7 @@ function createServerSchedulerRecovery({
       sourceMessageId: recovery.sourceMessageId,
       requestId: recovery.requestId
     };
+    liveness.arm(recovery);
     return capture();
   }
   async function capture() {
@@ -123,7 +129,8 @@ function createServerSchedulerRecovery({
       return false;
     }
     if (recovery.targetClassId === 'local-origin') {
-      const target = await resolveLocal(member);
+      const worker = active, target = await resolveLocal(member);
+      if (active !== worker) return false;
       if (!target) {
         clearActive();
         processSoon(RETRY_MS);
@@ -131,11 +138,10 @@ function createServerSchedulerRecovery({
       }
       try {
         const result = await captureLocalLatest({ targetId: target.id });
-        return finish(result || { text: '' }, true);
+        return active === worker ? finish(result || { text: '' }, true) : false;
       } catch {
-        clearActive();
-        processSoon(RETRY_MS);
-        return false;
+        if (active !== worker) return false;
+        clearActive(); processSoon(RETRY_MS); return false;
       }
     }
     if (!isExtensionAvailable()) {
@@ -204,7 +210,6 @@ function createServerSchedulerRecovery({
     }
     return true;
   }
-
   function finish(capture, local = false, authoritative = false) {
     if (!active) return false;
     const snapshot = load();
@@ -212,14 +217,12 @@ function createServerSchedulerRecovery({
     const recovery = room?.recovery;
     const member = stateApi.memberById(room, recovery?.memberId);
     if (!room || !recovery || !member) return false;
-
     const observed = typeof capture === 'string' ? { text: capture } : (capture || {});
     const generationState = observed.generationState
       || (observed.isGenerating === true ? 'active' : observed.isGenerating === false ? 'idle' : 'unknown');
     recovery.lastCaptureObservedAt = observed.observedAt || null;
     recovery.lastCaptureGenerationState = generationState;
     recovery.lastCaptureCompletenessHint = observed.completenessHint || null;
-
     if (!local && !authoritative && (observed.isGenerating === true || generationState === 'active')) {
       recovery.captureRequestId = null;
       recovery.candidateText = null;
@@ -315,8 +318,8 @@ function createServerSchedulerRecovery({
   }
 
   async function resume(durability) {
-    if (active) return false;
     const snapshot = load();
+    if (active) return liveness.check(active, snapshot);
     const room = (snapshot.rooms || []).find((entry) => entry.recovery && !entry.recovery.passiveAt);
     const recovery = room?.recovery;
     if (!room || !recovery) return false;
