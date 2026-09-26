@@ -76,6 +76,11 @@
       pending.delete(entry.id);
       return { composer, control: composer ? input.findSendControl(composer) : null, timedOut: true };
     }
+    function checkpoint(id, phase) {
+      if (!['scoping-send', 'arming-watcher', 'pre-gesture'].includes(phase)) return;
+      const entry = pending.get(String(id || 'anonymous'));
+      if (entry && !entry.gesture) setPhase(entry, phase);
+    }
     function gesture(id, kind) {
       const entry = pending.get(String(id || 'anonymous'));
       if (!entry) return;
@@ -97,7 +102,7 @@
     function diagnostics() {
       return { ...stats, terminalCount: terminal.size, pending: [...pending.values()].map(info) };
     }
-    return { ready, gesture, finish, diagnostics };
+    return { ready, checkpoint, gesture, finish, diagnostics };
   }
   const api = { createDeliveryWatchdog };
   globalThis.BrowserAiBridgeChatGptDeliveryWatchdog = api;

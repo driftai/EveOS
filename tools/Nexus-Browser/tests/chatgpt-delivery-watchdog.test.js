@@ -112,3 +112,67 @@ test('Dex delivery waits for a committed user turn after one successful click', 
   assert.equal(mode, 'click');
   assert.equal(clicks, 1);
 });
+
+test('pre-gesture checkpoints identify stalled delivery without disclosing its draft', async () => {
+  const h = rig({ available: true });
+  await h.guard.ready(h.composer, 'private Dex draft', 1000, 'r-stalled');
+  h.guard.checkpoint('r-stalled', 'scoping-send');
+  h.guard.checkpoint('r-stalled', 'arming-watcher');
+  assert.equal(h.guard.diagnostics().pending[0].phase, 'arming-watcher');
+  assert.equal(JSON.stringify(h.guard.diagnostics()).includes('private Dex draft'), false);
+  h.guard.finish('r-stalled', false, 'arming-watcher');
+  assert.equal(h.guard.diagnostics().pending.length, 0);
+  assert.equal(h.guard.diagnostics().last.reason, 'arming-watcher');
+  assert.equal(h.guard.diagnostics().last.gesture, null);
+});
+
+test('failed response watcher after ready releases the request without clicking or overwriting the draft', async () => {
+  const vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, '../extension/content/chatgpt.js'), 'utf8');
+  const original = 'Existing Dex draft';
+  const composer = { tagName: 'TEXTAREA', value: original, closest: () => null };
+  let clicks = 0;
+  const control = { click() { clicks++; } };
+  const input = {
+    findComposer: () => composer,
+    composerText: () => composer.value,
+    composerContainsText: (_field, value) => composer.value === value,
+    setComposerText: () => { throw Error('Must preserve the existing draft'); },
+    findSendControl: () => control,
+    isUnsafeSendControl: () => false,
+    generationLooksActive: () => false
+  };
+  const watchdog = createDeliveryWatchdog({ input });
+  const ctx = {
+    module: { exports: {} },
+    BrowserAiBridgeChatGptInput: input,
+    BrowserAiBridgeChatGptDeliveryWatchdog: { createDeliveryWatchdog: () => watchdog },
+    BrowserAiBridgeChatGptAnswer: {
+      assistantNodes: () => [], userNodes: () => [],
+      getTurnAssistantText: () => '', getTurnUserText: () => '', normalizeText: String
+    },
+    BrowserAiBridgeResponseDeadline: {
+      DEFAULT_RESPONSE_DEADLINES: { idleTimeoutMs: 240000 },
+      nextResponseDeadline: () => ({ action: 'wait', delayMs: 240000 }),
+      minutes: (n) => n
+    },
+    BrowserAiBridgeChatGptPageState: {
+      issueSnapshot: () => new Map(), transientStatusLine: () => false,
+      substantiveAssistantText: (value) => String(value || ''),
+      looksCompleteAssistantText: () => true, obviouslyPartialAssistantText: () => false
+    },
+    BrowserAiBridgeChatGptReturn: { baseline: () => ({}) },
+    chrome: { runtime: { onMessage: { addListener() {} }, sendMessage() {} } },
+    document: { body: {} },
+    MutationObserver: class { constructor() { throw Error('observer setup failed'); } },
+    setTimeout, clearTimeout, setInterval, clearInterval
+  };
+  vm.runInNewContext(source, ctx);
+  await assert.rejects(ctx.module.exports.submitPrompt('r-watch-throw', original,
+    { delivery: { kind: 'dex-control-result' } }), /observer setup failed/);
+  assert.equal(clicks, 0);
+  assert.equal(composer.value, original);
+  assert.equal(watchdog.diagnostics().pending.length, 0);
+  assert.equal(watchdog.diagnostics().last.reason, 'arming-watcher');
+  assert.equal(watchdog.diagnostics().last.gesture, null);
+});

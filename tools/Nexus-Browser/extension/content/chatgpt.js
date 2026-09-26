@@ -344,23 +344,28 @@
     const sendWaitMs = ['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion', 'dex-stream-nudge'].includes(delivery?.kind) ? 30000 : 5000;
     const committed = () => answer.normalizeText(answer.getTurnUserText(answer.userNodes(), userBaselineCount)).includes(answer.normalizeText(text));
     const ready = await waitForReadyComposer(composer, text, sendWaitMs, requestId, committed);
-    composer = ready.composer;
-    if (!ready.committed && (!composer || !input.composerContainsText(composer, text))) {
-      throw new Error('ChatGPT composer did not become ready with the prompt text after hydration/reseed.');
+    let stage = 'post-ready';
+    try {
+      composer = ready.composer;
+      if (!ready.committed && (!composer || !input.composerContainsText(composer, text)))
+        throw new Error('ChatGPT composer did not become ready with the prompt text after hydration/reseed.');
+      stage = 'scoping-send'; deliveryGuard.checkpoint(requestId, stage);
+      const sendControl = input.findSendControl(composer);
+      if (!ready.committed && !sendControl && String(delivery?.kind || '').startsWith('dex-') && !composer?.closest?.('form'))
+        throw new Error('ChatGPT scoped Send button unavailable; preserving Dex draft instead of synthetic Enter.');
+      if (sendControl && input.isUnsafeSendControl?.(sendControl))
+        throw new Error('Refusing to click a ChatGPT voice/upload control as the send button.');
+      stage = 'arming-watcher'; deliveryGuard.checkpoint(requestId, stage);
+      const watcher = watchResponse(requestId, baseline);
+      if (ready.committed) { watcher.promptCommitted = true; return 'observed'; }
+      stage = 'pre-gesture'; deliveryGuard.checkpoint(requestId, stage);
+      const mode = await submitComposer(composer, text, sendControl, { exactOnce: qualification?.exactOnce === true,
+        isCommitted: committed, requireCommit: String(delivery?.kind || '').startsWith('dex-'),
+        onGesture: (kind) => deliveryGuard.gesture(requestId, kind) });
+      deliveryGuard.finish(requestId, true, mode); watcher.promptCommitted = true; return mode;
+    } catch (error) {
+      deliveryGuard.finish(requestId, false, stage); stopWatcher(requestId); throw error;
     }
-    const sendControl = input.findSendControl(composer);
-    if (!ready.committed && !sendControl && String(delivery?.kind || '').startsWith('dex-') && !composer?.closest?.('form')) { deliveryGuard.finish(requestId, false, 'no-safe-send'); throw new Error('ChatGPT scoped Send button unavailable; preserving Dex draft instead of synthetic Enter.'); }
-    if (sendControl && input.isUnsafeSendControl?.(sendControl)) {
-      throw new Error('Refusing to click a ChatGPT voice/upload control as the send button.');
-    }
-
-    const watcher = watchResponse(requestId, baseline);
-    if (ready.committed) { watcher.promptCommitted = true; return 'observed'; }
-    return submitComposer(composer, text, sendControl, { exactOnce: qualification?.exactOnce === true,
-      isCommitted: committed, requireCommit: String(delivery?.kind || '').startsWith('dex-'),
-      onGesture: (kind) => deliveryGuard.gesture(requestId, kind) })
-      .then((mode) => { deliveryGuard.finish(requestId, true, mode); watcher.promptCommitted = true; return mode; })
-      .catch((error) => { deliveryGuard.finish(requestId, false, error.message); throw error; });
   }
 
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
