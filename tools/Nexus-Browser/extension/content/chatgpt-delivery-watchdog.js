@@ -51,7 +51,8 @@
         if (!input.composerContainsText(composer, text)) {
           setPhase(entry, 'waiting', 'composer-hydrating'); await wait(pollMs); continue;
         }
-        const generating = !!input.generationLooksActive?.();
+        let generating = false;
+        try { generating = !!input.generationLooksActive?.(); } catch { /* No DOM in isolated tests. */ }
         const control = input.findSendControl(composer);
         const form = composer?.closest?.('form');
         if (!generating && (control || (form && typeof form.requestSubmit === 'function'))) {
