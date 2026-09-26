@@ -344,3 +344,30 @@ test('provider-control reply records durable correlation to the exact originatin
   assert.equal(saved.pendingProviderControlReceipt.originSenderId, 'eve');
   assert.equal(saved.pendingProviderControlReceipt.originTarget.targetId, 9);
 });
+
+test('final scheduled reply can extend its physical budget and request extra context for next hop', async () => {
+  const h = harness();
+  assert.equal(h.scheduler.startRelay({ roomId: 'room-1', sourceMessageId: 'm1', budget: 1 }).ok, true);
+  await runNextTimer(h);
+  const first = h.scheduler.diagnostics().current.requestId;
+  await h.scheduler.handleTransportEvent({
+    type: 'prompt_accepted', requestId: first, tabId: 9, providerId: 'future-provider'
+  });
+  await h.scheduler.handleTransportEvent({ type: 'response_final', requestId: first,
+    text: 'Work continues. [[DEX:CONTEXT:5]] [[DEX:BUDGET:+3]]' });
+  let room = h.store.value().rooms[0];
+  assert.equal(room.relay.active, true);
+  assert.equal(room.relay.turnBudgetTotal, 4);
+  assert.equal(room.relay.scheduledTurns, 2);
+  assert.equal(room.relay.remaining, 2);
+  assert.equal(room.messages.at(-1).text, 'Work continues.');
+  assert.equal(room.messages.at(-1).contextOverride, 5);
+  assert.equal(room.pendingTurn.memberId, 'eve');
+  await h.scheduler.process();
+  const prompts = h.sent.filter(m => m.type === 'send_prompt');
+  assert.equal(prompts.length, 2, 'one fresh next prompt; no replay of prior dispatch');
+  assert.match(prompts[1].text, /4 allocated.*2 scheduled.*2 unscheduled remaining/);
+  assert.match(prompts[1].text, /Context selection: 1 earlier message/);
+  assert.ok(prompts[1].text.includes('Current message:') && prompts[1].text.includes('Work continues.'));
+  assert.equal(h.scheduler.diagnostics().current.memberId, 'eve');
+});
