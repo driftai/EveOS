@@ -1,10 +1,10 @@
 const orchestrationPolicy = require('./provider-orchestration-policy'), controlReceiptApi = require('./provider-control-receipt');
 const { createAgentExtensionReload } = require('./agent-extension-reload');
+const recoveryMailbox = require('./recovery-mailbox');
 const POST_IDLE_ACTIONS = new Set(['arm_post_idle','post_idle_status','cancel_post_idle','report_post_idle']);
 const { runPostIdleCommand } = require('./post-idle-control');
 const doneWatchApi = require('../public/dex-done-watch');
 const { randomUUID } = require('node:crypto');
-
 const MUTATING_ACTIONS = new Set([
   'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
   'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
@@ -12,13 +12,11 @@ const MUTATING_ACTIONS = new Set([
   'arm_post_idle', 'cancel_post_idle', 'report_post_idle'
 ]);
 const DEDUPE_TTL_MS = 120000, MAX_ORIGIN_WAIT_MS = 4 * 60 * 1000, ORIGIN_POLL_MS = 250;
-
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableValue(value[key])]));
 }
-
 function sourceFingerprint(source = {}) {
   return [
     source.targetClassId || '',
@@ -26,13 +24,11 @@ function sourceFingerprint(source = {}) {
     source.url || source.targetId || ''
   ].join('|');
 }
-
 function mutationKey(source, command = {}) {
   const action = String(command.action || '').trim().toLowerCase();
   if (!MUTATING_ACTIONS.has(action)) return '';
   return `${sourceFingerprint(source)}|${JSON.stringify(stableValue({ ...command, action }))}`;
 }
-
 function createProviderControlRouting({
   uiSockets, safeSend, validateSource, ensureDexClient, getDexClient,
   getState, saveState, broadcastState, spawnTarget, closeTarget, recordIncident, getExtension,
@@ -44,20 +40,17 @@ function createProviderControlRouting({
   const pendingMutations = new Map();
   const recentMutations = new Map();
   const agentExtensionReload = createAgentExtensionReload({ getState, getExtension, hasPending: () => pending.size > 0, safeSend, recordIncident, now, sleep });
-
   function dexClient() {
     return typeof getDexClient === 'function'
       ? getDexClient()
       : ([...uiSockets].find((peer) => peer.clientKind === 'dex') || null);
   }
-
   function pruneRecent() {
     const stamp = now();
     for (const [key, entry] of recentMutations) {
       if (stamp - entry.at > DEDUPE_TTL_MS) recentMutations.delete(key);
     }
   }
-
   function sendResult(waiter, result, originReceipt = null) {
     if (!waiter?.sourceSocket) return false;
     return safeSend(waiter.sourceSocket, {
@@ -68,7 +61,6 @@ function createProviderControlRouting({
       ...(originReceipt ? { originReceipt } : {})
     });
   }
-
   function commitOriginReceipt(origin, result, requestId) {
     if (!origin || typeof getState !== 'function' || typeof saveState !== 'function') return null;
     const applied = controlReceiptApi.applyResult(getState(), origin, result, requestId, new Date(now()).toISOString());
@@ -77,37 +69,31 @@ function createProviderControlRouting({
     if (typeof broadcastState === 'function') broadcastState(saved);
     return applied.receipt;
   }
-
   function finish(requestId, payload) {
     const entry = pending.get(requestId);
     if (!entry) return false;
     clearTimer(entry.timer);
     pending.delete(requestId);
     if (entry.key && pendingMutations.get(entry.key) === requestId) pendingMutations.delete(entry.key);
-
     const result = payload?.result || { ok: false, code: 'DEX_CONTROL_FAILED', message: 'Dex provider-control returned no result.' };
     if (entry.key && (result.ok || result.code === 'DEX_CONTROL_OUTCOME_UNKNOWN')) {
       recentMutations.set(entry.key, { at: now(), result });
     }
-
     const originReceipt = commitOriginReceipt(entry.origin, result, requestId);
     sendResult(entry, result, originReceipt);
     for (const waiter of entry.waiters) sendResult(waiter, result);
     return true;
   }
-
   function fail(sourceSocket, requestId, source, code, message, origin = null) {
     const result = { ok: false, code, message };
     sendResult({ sourceSocket, requestId, source }, result, commitOriginReceipt(origin, result, requestId));
   }
-
   function orchestrationAuthorization(action, source, command) {
     const snapshot = typeof getState === 'function' ? getState() : {};
     if (action === 'spawn_agent') return orchestrationPolicy.authorizeSpawn(snapshot, source, command);
     if (action === 'despawn_agent') return orchestrationPolicy.authorizeDespawn(snapshot, source, command);
     return null;
   }
-
   async function settledOrchestrationAuthorization(action, source, command, timeoutMs = 10000) {
     let authorization = orchestrationAuthorization(action, source, command);
     if (!authorization?.waitForSourceTurn) return authorization;
@@ -118,7 +104,6 @@ function createProviderControlRouting({
     }
     return authorization;
   }
-
   async function settleOrigin(source, command, requestId, timeoutMs = MAX_ORIGIN_WAIT_MS) {
     if (typeof getState !== 'function') return { origin: null };
     let snapshot = getState();
@@ -132,14 +117,12 @@ function createProviderControlRouting({
         message: 'Dex found more than one active relay turn for this provider-control source; refusing to execute without a unique origin.'
       } };
     }
-
     const deadline = now() + timeoutMs;
     while (now() < deadline) {
       await sleep(ORIGIN_POLL_MS);
       snapshot = getState();
       origin = controlReceiptApi.findIntentInRoom(snapshot, active.roomId, source, command);
       if (origin) return { origin };
-
       const current = controlReceiptApi.activeSourceTurn(snapshot, source);
       const sameTurn = current && !current.ambiguous
         && current.roomId === active.roomId
@@ -156,7 +139,6 @@ function createProviderControlRouting({
       message: `The provider-control command arrived before relay turn ${active.requestId || requestId || 'unknown'} finalized. Dex waited for exact origin correlation and refused to execute after timeout.`
     } };
   }
-
   async function handleRequest(ws, msg) {
     const requestId = String(msg.requestId || '');
     const source = msg.source || {};
@@ -258,7 +240,23 @@ function createProviderControlRouting({
         return true;
       }
     }
-
+    // Interrupted-room sends are durably queued server-side instead of
+    // receiving ROOM_BUSY or depending on a live Dex UI for admission.
+    if (action === 'send' && getState && saveState) {
+      const queued = recoveryMailbox.queueInterruptedSend(getState(), {
+        source, command, requestId, at: new Date(now()).toISOString()
+      });
+      if (queued) {
+        if (queued.changed) {
+          const saved = saveState(queued.snapshot);
+          broadcastState?.(saved);
+        }
+        if (key && queued.result.ok) recentMutations.set(key, { at: now(), result: queued.result });
+        const receipt = commitOriginReceipt(origin, queued.result, requestId);
+        sendResult({ sourceSocket: ws, requestId, source }, queued.result, receipt);
+        return true;
+      }
+    }
     let dex = dexClient();
     if (!dex && typeof ensureDexClient === 'function') {
       try { await ensureDexClient(); } catch {}
@@ -268,7 +266,6 @@ function createProviderControlRouting({
       fail(ws, requestId, source, 'DEX_UI_OFFLINE', 'Dex Mode UI could not be started automatically. Open Nexus Browser in EveOS once and retry.', origin);
       return true;
     }
-
     const authorization = await settledOrchestrationAuthorization(action, source, command);
     if (authorization?.ok && action === 'spawn_agent') {
       const snapshot = typeof getState === 'function' ? getState() : {};

@@ -39,7 +39,7 @@ function mergeDoneWatchFields(serverRoom = {}, clientRoom = {}) {
 
 function mergeIdleRoom(serverRoom, clientRoom) {
   const client = clientRoom && typeof clientRoom === 'object' ? clientRoom : {};
-  const merged = { ...client, ...mergeDoneWatchFields(serverRoom, client), finalReceipts: serverRoom.finalReceipts || [], lastHeadsUp: serverRoom.lastHeadsUp || null, relay: { ...(serverRoom.relay || {}) } };
+  const merged = { ...client, ...mergeDoneWatchFields(serverRoom, client), messages: mergeMessages(serverRoom.messages || [], client.messages || []), finalReceipts: serverRoom.finalReceipts || [], lastHeadsUp: serverRoom.lastHeadsUp || null, deferredRelays: serverRoom.deferredRelays || [], deferredSendReceipts: serverRoom.deferredSendReceipts || [], lateFinalWatches: serverRoom.lateFinalWatches || [], relay: { ...(serverRoom.relay || {}) } };
   delete merged.pendingTurn;
   delete merged.recovery;
   return merged;
@@ -51,6 +51,7 @@ function mergeBusyRoom(serverRoom, clientRoom) {
     ...serverRoom,
     ...mergeDoneWatchFields(serverRoom, client),
     finalReceipts: serverRoom.finalReceipts || [],
+    deferredRelays: serverRoom.deferredRelays || [], deferredSendReceipts: serverRoom.deferredSendReceipts || [], lateFinalWatches: serverRoom.lateFinalWatches || [],
     ...(client.name != null ? { name: client.name } : {}),
     ...(client.userName != null ? { userName: client.userName } : {}),
     ...(client.settings && typeof client.settings === 'object' ? {

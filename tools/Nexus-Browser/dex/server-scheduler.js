@@ -4,6 +4,7 @@ const healthApi = require('../public/dex-provider-health');
 const failurePolicy = require('../public/dex-failure-policy');
 const stateApi = require('./server-scheduler-state'), controlReceiptApi = require('./provider-control-receipt'), doneWatchApi = require('../public/dex-done-watch');
 const { createServerSchedulerRecovery } = require('./server-scheduler-recovery');
+const recoveryMailbox = require('./recovery-mailbox');
 const { TURN_TIMEOUT_MS, TURN_IDLE_TIMEOUT_MS, TURN_ABSOLUTE_TIMEOUT_MS,
   activityFromTransport, createServerTurnLease } = require('./server-turn-lease');
 function createDexServerScheduler({
@@ -85,7 +86,6 @@ function createDexServerScheduler({
     broadcastEvent({ type: 'dex_scheduler_event', event: 'dispatch', requestId: current.requestId, roomId: current.roomId, memberId: current.memberId });
     return true;
   }
-
   async function dispatchLocal(target) {
     if (!current) return false;
     const turn = { ...current };
@@ -118,7 +118,6 @@ function createDexServerScheduler({
     }
     return true;
   }
-
   async function routeCurrent() {
     if (!current) return false;
     const snapshot = load();
@@ -130,19 +129,16 @@ function createDexServerScheduler({
       processSoon(0);
       return false;
     }
-
     current.prompt = protocol.buildRelayPrompt({
       room, member, recipient: member, sourceMessage: source,
       requestId: current.requestId,
       providerHealth: healthApi.roomContext(room, getOnlineTargets() || [])
     }); if (room.recovery) { room.recovery.expectedPrompt = current.prompt; save(snapshot); }
-
     if (member.binding?.targetClassId === 'local-origin') {
       const target = await localTarget(member);
       if (!target) return handleTurnError({ code: 'LOCAL_TARGET_NOT_FOUND', message: 'Local agent target is unavailable.' });
       return dispatchLocal(target);
     }
-
     if (!stateApi.supportsOperation(getProviders() || [], member.binding?.providerId, 'send')) {
       return handleTurnError({ code: 'PROVIDER_OPERATION_UNSUPPORTED', message: 'Bound provider does not declare send support in the active adapter contract.' });
     }
@@ -159,15 +155,12 @@ function createDexServerScheduler({
       })) return parkCurrent('Extension bridge disconnected while restoring target.');
       return true;
     }
-
     if (healthApi.blocking(target.health)) return failCurrent(healthApi.blockMessage(member, target.health), healthApi.stopReason(target.health));
-
     current.targetId = target.id;
     const selected = getSelectedOnlineTarget();
     if (selected && String(selected.id) === String(target.id) && selected.providerId === target.providerId) {
       return dispatchOnline(target);
     }
-
     if (!room.relay.restoreTarget && selected) {
       room.relay.restoreTarget = { id: selected.id, providerId: selected.providerId, url: selected.url || '' };
     }
@@ -180,19 +173,23 @@ function createDexServerScheduler({
     })) return parkCurrent('Extension bridge disconnected while selecting target.');
     return true;
   }
-
   async function process() {
     if (processing || current) return false;
     processing = true;
     try {
       const snapshot = load();
+      const passive = recovery.maintainPassive(snapshot);
+      if (passive.changed) { save(snapshot); processSoon(0); return true; }
       if (recovery.hasWork(snapshot)) return recovery.resume(durability);
+      if (recoveryMailbox.activateNext(snapshot, now())) {
+        save(snapshot); processSoon(0); return true;
+      }
       const room = stateApi.duePendingRooms(snapshot, nowMs())[0];
       if (!room) {
-        const delay = stateApi.nextPendingDelay(snapshot, nowMs());
-        return delay == null ? maybeRestoreTarget(snapshot) : (processSoon(delay), false);
+        const due = stateApi.nextPendingDelay(snapshot, nowMs());
+        const delays = [due, passive.nextDelay].filter((v) => v != null);
+        return !delays.length ? maybeRestoreTarget(snapshot) : (processSoon(Math.min(...delays)), false);
       }
-
       const pending = { ...room.pendingTurn };
       const member = stateApi.memberById(room, pending.memberId);
       const source = stateApi.messageById(room, pending.sourceMessageId);
@@ -202,7 +199,6 @@ function createDexServerScheduler({
         save(snapshot);
         return false;
       }
-
       delete room.pendingTurn;
       current = {
         roomId: room.id, memberId: member.id,
@@ -216,7 +212,6 @@ function createDexServerScheduler({
       processing = false;
     }
   }
-
   function startRelay({ roomId, sourceMessageId, budget = null } = {}) {
     if (maintenanceBusy()) return { ok: false, code: 'POST_IDLE_LEASE_BUSY', message: 'Post-idle local handoff holds the exclusive relay-start lease.' };
     const snapshot = load();
@@ -238,7 +233,6 @@ function createDexServerScheduler({
     processSoon(0);
     return { ok: true, roomId };
   }
-
   function stopRelay({ roomId, reason = 'Stopped' } = {}) {
     const snapshot = load(), room = stateApi.roomById(snapshot, roomId);
     if (!room) return { ok: false, code: 'DEX_ROOM_NOT_FOUND', message: 'Dex room not found.' };
@@ -258,7 +252,6 @@ function createDexServerScheduler({
       ? { ok: false, code: 'DEX_RELAY_NO_MESSAGES', message: 'Continue relay requires a room message.' }
       : startRelay({ roomId, sourceMessageId: source.id, budget });
   }
-
   async function handleTurnError(msg = {}) {
     if (!current) return false;
     const snapshot = load();
@@ -295,7 +288,6 @@ function createDexServerScheduler({
       decision.action === 'pause' ? 'Provider or transport action required' : 'Relay error'
     );
   }
-
   function failCurrent(message, stopReason = 'Relay error') {
     if (!current) return false;
     const snapshot = load();
@@ -313,7 +305,6 @@ function createDexServerScheduler({
     processSoon(0);
     return false;
   }
-
   function completeTurn(text) {
     if (!current) return false;
     const snapshot = load();

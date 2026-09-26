@@ -113,7 +113,7 @@
       recoveryPending: !!room.recovery,
       recoveryDispatched: !!room.recovery?.dispatched,
       recoveryInterrupted: !!room.recovery?.interruptedAt,
-      recoveryRequestId: room.recovery?.requestId || null,
+      recoveryRequestId: room.recovery?.requestId || null, recoveryPassiveAt: room.recovery?.passiveAt || null, deferredSends: (room.deferredRelays || []).length, archivedLateFinalWatches: (room.lateFinalWatches || []).length,
       recoveryMemberId: room.recovery?.memberId || null,
       recoveryMemberName: (room.members || []).find((entry) => entry.id === room.recovery?.memberId)?.name || null,
       messages: room.messages?.length || 0

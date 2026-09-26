@@ -2,6 +2,7 @@ const protocol = require('../public/dex-protocol');
 const failurePolicy = require('../public/dex-failure-policy');
 const stateApi = require('./server-scheduler-state');
 const controlReceiptApi = require('./provider-control-receipt');
+const passiveLife = require('./passive-recovery-lifecycle');
 const RETRY_MS = 10000;
 const STABLE_MS = 1200;
 const UNCERTAIN_STABLE_MS = 60 * 1000;
@@ -14,17 +15,14 @@ function createServerSchedulerRecovery({
   addMessage, enqueueNext, setStopped, processSoon, onRecovered = () => {}, onTurnSettled = () => {}
 } = {}) {
   let active = null;
-
   function hasWork(snapshot = load()) {
     return !!active || (snapshot.rooms || []).some((room) => !!room.recovery && !room.recovery.passiveAt);
   }
-
   function timedOut(recovery) {
     if (recovery?.passiveAt) return false;
     const started = Date.parse(recovery?.interruptedAt || recovery?.startedAt || '');
     return Number.isFinite(started) && nowMs() - started > MAX_RECOVERY_MS;
   }
-
   function expire(room, recovery) {
     const reason = 'Interrupted turn recovery timed out · awaiting late provider final';
     recovery.passiveAt = new Date(nowMs()).toISOString();
@@ -46,15 +44,13 @@ function createServerSchedulerRecovery({
       evidence: { passiveLateFinalWatch: true }
     });
     Promise.resolve(markTimedOut(recovery)).catch(() => {});
+    processSoon(passiveLife.PASSIVE_GRACE_MS);
   }
-
   async function resolveLocal(member) {
     const targets = await getLocalTargets(true);
     return stateApi.resolveLocal(member, targets);
   }
-
   function clearActive() { active = null; }
-
   function resolvePassive({ roomId, requestId, reason = 'Externally reconciled' } = {}) {
     if (active?.roomId === roomId) return { ok: false, code: 'RECOVERY_ACTIVE', message: 'Recovery worker is still active.' };
     const snapshot = load();
@@ -75,6 +71,7 @@ function createServerSchedulerRecovery({
       roomId: room.id, requestId: recovery.requestId,
       memberId: recovery.memberId || null, passiveAt: recovery.passiveAt
     };
+    passiveLife.keepWatch(room, recovery, nowMs(), 'manual-exact-id');
     delete room.recovery;
     room.relay = room.relay || {};
     Object.assign(room.relay, {
@@ -85,7 +82,6 @@ function createServerSchedulerRecovery({
     processSoon(0);
     return { ok: true, code: 'RECOVERY_PASSIVE_RESOLVED', message: 'Passive recovery journal resolved without replay.', data: resolved };
   }
-
   function transportLost() {
     if (!active) return false;
     const snapshot = load();
@@ -100,7 +96,6 @@ function createServerSchedulerRecovery({
     clearActive();
     return true;
   }
-
   async function start(room, recovery) {
     if (recovery?.passiveAt) return false;
     active = {
@@ -111,7 +106,6 @@ function createServerSchedulerRecovery({
     };
     return capture();
   }
-
   async function capture() {
     if (!active) return false;
     const snapshot = load();
@@ -128,7 +122,6 @@ function createServerSchedulerRecovery({
       clearActive();
       return false;
     }
-
     if (recovery.targetClassId === 'local-origin') {
       const target = await resolveLocal(member);
       if (!target) {
@@ -145,7 +138,6 @@ function createServerSchedulerRecovery({
         return false;
       }
     }
-
     if (!isExtensionAvailable()) {
       clearActive();
       return false;
@@ -185,7 +177,6 @@ function createServerSchedulerRecovery({
       processSoon(RETRY_MS);
       return false;
     }
-
     const requestId = uid('dex-recover');
     recovery.captureRequestId = requestId;
     const selected = getSelectedOnlineTarget();
@@ -380,6 +371,10 @@ function createServerSchedulerRecovery({
     const terminalType = ['response', 'final'].join('_');
     if (msg?.type === terminalType) {
       const snapshot = load();
+      if (stateApi.findFinalReceipt(snapshot, msg.requestId)) return true;
+      if (passiveLife.acceptLateFinal(snapshot, msg, { stamp: nowMs(), addMessage })) {
+        save(snapshot); processSoon(0); return true;
+      }
       const room = (snapshot.rooms || []).find((entry) => entry.recovery?.requestId === msg.requestId);
       const journal = room?.recovery;
       const recovering = !!journal?.interruptedAt || active?.roomId === room?.id;
@@ -435,6 +430,7 @@ function createServerSchedulerRecovery({
     }
     return false;
   }
-  return { hasWork, resume, handleEvent, capture, transportLost, resolvePassive, diagnostics: () => ({ active: active ? { ...active } : null }) };
+  return { hasWork, resume, handleEvent, capture, transportLost, resolvePassive,
+    maintainPassive: (snapshot) => passiveLife.maintain(snapshot, nowMs()), diagnostics: () => ({ active: active ? { ...active } : null }) };
 }
 module.exports = { RETRY_MS, STABLE_MS, UNCERTAIN_STABLE_MS, MAX_RECOVERY_MS, createServerSchedulerRecovery };
