@@ -37,6 +37,7 @@
   }
 
   function findComposer() {
+    if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return null;
     for (const selector of composerSelectors()) {
       const match = [...document.querySelectorAll(selector)].find(usableComposer);
       if (match) return match;
@@ -232,17 +233,29 @@
   }
 
   function dispatchComposerEnter(composer) {
+    if (!composer) return;
+    try { composer.focus?.(); } catch {}
+    if (typeof KeyboardEvent === 'undefined') return;
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    const target = (active && composer.contains?.(active)) ? active : (composer.querySelector?.('p') || composer);
     const keyOptions = {
       key: 'Enter',
       code: 'Enter',
       keyCode: 13,
       which: 13,
+      charCode: 13,
       bubbles: true,
-      cancelable: true
+      cancelable: true,
+      composed: true
     };
-    composer.dispatchEvent(new KeyboardEvent('keydown', keyOptions));
-    composer.dispatchEvent(new KeyboardEvent('keypress', keyOptions));
-    composer.dispatchEvent(new KeyboardEvent('keyup', keyOptions));
+    target.dispatchEvent(new KeyboardEvent('keydown', keyOptions));
+    target.dispatchEvent(new KeyboardEvent('keypress', keyOptions));
+    target.dispatchEvent(new KeyboardEvent('keyup', keyOptions));
+    if (target !== composer) {
+      composer.dispatchEvent(new KeyboardEvent('keydown', keyOptions));
+      composer.dispatchEvent(new KeyboardEvent('keypress', keyOptions));
+      composer.dispatchEvent(new KeyboardEvent('keyup', keyOptions));
+    }
   }
 
   const api = {

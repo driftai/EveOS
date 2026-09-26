@@ -305,3 +305,43 @@ test('form-less Dex result clicks only its recovered local Send button once', as
     assert.equal(syntheticEnters, 0);
   } finally { global.document = old; }
 });
+
+test('staged composer text triggers Enter and Send retry when initial click is unconfirmed', async () => {
+  let clicks = 0, keydowns = 0;
+  const composer = {
+    tagName: 'TEXTAREA', value: 'Dex retry test', closest: () => null,
+    focus() {},
+    dispatchEvent(event) {
+      if (event?.type === 'keydown' && event.key === 'Enter') {
+        keydowns++;
+        composer.value = '';
+      }
+    }
+  };
+  const send = {
+    click() {
+      clicks++;
+    }
+  };
+  const oldWin = global.window, oldDoc = global.document, oldKey = global.KeyboardEvent;
+  global.window = {};
+  global.document = { activeElement: composer, querySelectorAll: () => [] };
+  global.KeyboardEvent = class KeyboardEvent { constructor(type, options) { this.type = type; Object.assign(this, options); } };
+  const prior = chatgptInput.composerContainsText;
+  chatgptInput.composerContainsText = (c, text) => c.value === text;
+  try {
+    const mode = await chatgpt.submitComposer(composer, 'Dex retry test', send, {
+      exactOnce: false,
+      confirmTimeoutMs: 2000,
+      isCommitted: () => composer.value === ''
+    });
+    assert.equal(mode, 'click');
+    assert.equal(clicks, 1);
+    assert.equal(keydowns, 1);
+  } finally {
+    chatgptInput.composerContainsText = prior;
+    global.window = oldWin;
+    global.document = oldDoc;
+    global.KeyboardEvent = oldKey;
+  }
+});

@@ -306,14 +306,25 @@
   async function submitComposer(composer, text, sendControl, { exactOnce = false, isCommitted = null, onGesture = null, requireCommit = false, confirmTimeoutMs = 8000 } = {}) {
     if (input.composerText?.(composer)?.trim() && input.composerText(composer).replace(/\s+/g, ' ').trim() !== String(text).replace(/\s+/g, ' ').trim()) throw new Error('ChatGPT draft changed; refusing automatic submission.');
     if (typeof document !== 'undefined' && input.generationLooksActive?.()) throw new Error('ChatGPT is still generating; preserving injected draft.');
-    // One actual submission gesture per attempt. Synthetic Enter is untrusted in
-    // modern browsers; use the scoped Send control first, then native form submit.
     const settleMs = requireCommit ? confirmTimeoutMs : SUBMIT_ATTEMPT_SETTLE_MS;
     if (sendControl) {
       if (typeof window !== 'undefined') await new Promise((r) => setTimeout(r, 350));
       const liveSend = () => input.findSendControl(composer) || sendControl;
+      const retryStaged = async () => {
+        await new Promise((r) => setTimeout(r, 450));
+        const live = input.findComposer?.() || composer;
+        if (isCommitted?.() || input.generationLooksActive?.() || !input.composerContainsText(live, text)) return;
+        try { live.focus?.(); } catch {}
+        dispatchComposerEnter(live);
+        await new Promise((r) => setTimeout(r, 350));
+        const stillLive = input.findComposer?.() || live;
+        if (!isCommitted?.() && !input.generationLooksActive?.() && input.composerContainsText(stillLive, text)) {
+          (input.findSendControl(stillLive) || liveSend()).click?.();
+          dispatchComposerEnter(stillLive);
+        }
+      };
       onGesture?.('click'); sendControl.click();
-      if (!exactOnce && typeof window !== 'undefined') { await new Promise((r) => setTimeout(r, 400)); if (!isCommitted?.() && !input.generationLooksActive?.()) liveSend().click(); }
+      if (!exactOnce && typeof window !== 'undefined') await retryStaged();
       if (await waitForPromptDeparture(composer, text, settleMs, isCommitted, requireCommit)) return 'click';
       throw new Error('ChatGPT Send click unconfirmed; draft preserved; no automatic replay.');
     }
@@ -408,31 +419,14 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      ...input,
-      ...answer,
-      ...pageState,
-      RELIABLE_GENERATION_SETTLE_MS,
-      STATUS_SIGNAL_SETTLE_MS,
-      NO_SIGNAL_SETTLE_MS,
-      INCOMPLETE_NO_SIGNAL_SETTLE_MS,
-      SUBMIT_ATTEMPT_SETTLE_MS,
-      SUBMIT_FINAL_SETTLE_MS,
-      DEX_CONTROL_SEND_WAIT_MS,
-      transientStatusLine,
-      substantiveAssistantText,
-      looksCompleteAssistantText,
-      obviouslyPartialAssistantText,
-      generationSettleMs,
-      watchResponse,
-      submitPrompt,
-      submitComposer,
-      requestComposerSubmit,
-      waitForPromptDeparture,
-      waitForSendControl,
-      waitForReadyComposer,
-      stopWatcher,
-      dispatchComposerEnter,
-      waitForComposerText
+      ...input, ...answer, ...pageState,
+      RELIABLE_GENERATION_SETTLE_MS, STATUS_SIGNAL_SETTLE_MS, NO_SIGNAL_SETTLE_MS,
+      INCOMPLETE_NO_SIGNAL_SETTLE_MS, SUBMIT_ATTEMPT_SETTLE_MS, SUBMIT_FINAL_SETTLE_MS,
+      DEX_CONTROL_SEND_WAIT_MS, transientStatusLine, substantiveAssistantText,
+      looksCompleteAssistantText, obviouslyPartialAssistantText, generationSettleMs,
+      watchResponse, submitPrompt, submitComposer, requestComposerSubmit,
+      waitForPromptDeparture, waitForSendControl, waitForReadyComposer,
+      stopWatcher, dispatchComposerEnter, waitForComposerText
     };
   }
 })();
