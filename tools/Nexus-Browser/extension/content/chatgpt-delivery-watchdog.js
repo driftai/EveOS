@@ -7,7 +7,7 @@
   function createDeliveryWatchdog({ input, now = Date.now, wait = sleep,
     pollMs = 120, staleAfterMs = 4000, maxReseeds = 2 } = {}) {
     if (!input) throw Error('ChatGPT input helper required.');
-    const pending = new Map(), stats = { ready: 0, blocked: 0, staleDrafts: 0,
+    const pending = new Map(), terminal = new Map(), stats = { ready: 0, blocked: 0, staleDrafts: 0,
       safeReseeds: 0, confirmed: 0, uncertain: 0, foreignDrafts: 0, last: null };
     const clean = (v) => String(v || '').replace(/\s+/g, ' ').trim();
     const info = (entry) => ({ requestId: entry.id, phase: entry.phase,
@@ -19,6 +19,7 @@
     }
     function start(id) {
       const key = String(id || 'anonymous');
+      if (terminal.has(key)) throw Error('Dex delivery previously attempted or completed; never replay the same request.');
       const old = pending.get(key);
       if (old && old.gesture) throw Error('Dex delivery already attempted a submission gesture; never replay.');
       if (old && old.phase === 'confirmed') return old;
@@ -31,7 +32,7 @@
       let seededAt = now();
       while (now() <= deadline) {
         if (isCommitted?.()) { setPhase(entry, 'confirmed', 'already-committed'); stats.confirmed++;
-          pending.delete(entry.id); return { composer, control: null, committed: true }; }
+          pending.delete(entry.id); terminal.set(entry.id, 'confirmed'); return { composer, control: null, committed: true }; }
         const latest = input.findComposer();
         if (latest) composer = latest;
         if (!composer) { setPhase(entry, 'waiting', 'composer-hydrating'); await wait(pollMs); continue; }
@@ -43,7 +44,7 @@
         }
         if (!actual) {
           if (isCommitted?.()) { setPhase(entry, 'confirmed', 'already-committed');
-            stats.confirmed++; pending.delete(entry.id);
+            stats.confirmed++; pending.delete(entry.id); terminal.set(entry.id, 'confirmed');
             return { composer, control: null, committed: true }; }
           input.setComposerText(composer, text);
           seededAt = now();
@@ -87,10 +88,14 @@
       if (success) { stats.confirmed++; setPhase(entry, 'confirmed', reason); }
       else if (entry.gesture) { stats.uncertain++; setPhase(entry, 'uncertain', reason || 'gesture-outcome-unknown'); }
       else { stats.blocked++; setPhase(entry, 'blocked', reason || 'pre-gesture-failure'); }
+      if (success || entry.gesture) {
+        terminal.set(entry.id, success ? 'confirmed' : 'uncertain');
+        if (terminal.size > 128) terminal.delete(terminal.keys().next().value);
+      }
       pending.delete(entry.id);
     }
     function diagnostics() {
-      return { ...stats, pending: [...pending.values()].map(info) };
+      return { ...stats, terminalCount: terminal.size, pending: [...pending.values()].map(info) };
     }
     return { ready, gesture, finish, diagnostics };
   }
