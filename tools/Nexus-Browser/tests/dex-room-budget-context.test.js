@@ -149,3 +149,52 @@ test('private history data never leaks into the durable room control receipt', a
   assert.equal(receipts[0].data.messages, undefined);
   assert.equal(JSON.stringify(receipts[0]).includes('new source'), false);
 });
+
+test('last scheduled recipient gets one explicit decision nudge with real extension headroom', () => {
+  const r = room(), src = r.messages.at(-1);
+  const envelope = protocol.buildRelayPrompt({ room: r, recipient: r.members[0],
+    sourceMessage: src, requestId: 'dex-turn-final' });
+  assert.match(envelope, /8 allocated.*8 scheduled.*0 unscheduled remaining/);
+  assert.match(envelope, /FINAL-TURN BUDGET NUDGE — DECISION FOR THIS RECIPIENT/);
+  assert.match(envelope, /1–492/);
+  assert.match(envelope, /\[\[DEX:BUDGET:\+N\]\]/);
+  assert.match(envelope, /no automatic extension or extra nudge turn/);
+  assert.match(envelope, /Budget exhaustion is not DONE/);
+  assert.equal((envelope.match(/FINAL-TURN BUDGET NUDGE/g) || []).length, 1);
+  assert.equal(r.relay.remaining, 0, 'building a reminder never changes the budget');
+  assert.equal(r.messages.length, 5, 'building a reminder never inserts a transcript turn');
+});
+test('nudge only appears for the exact final scheduled recipient, never an earlier or already stopped turn', () => {
+  const r = room(), sourceMessage = r.messages.at(-1);
+  const prompt = recipient => protocol.buildRelayPrompt({ room: r, recipient,
+    sourceMessage, requestId: 'dex-turn-check' });
+  r.relay.remaining = 1;
+  assert.doesNotMatch(prompt(r.members[0]), /FINAL-TURN BUDGET NUDGE/);
+  r.relay.remaining = 0;
+  assert.doesNotMatch(prompt(r.members[1]), /FINAL-TURN BUDGET NUDGE/);
+  r.relay.active = false;
+  assert.doesNotMatch(prompt(r.members[0]), /FINAL-TURN BUDGET NUDGE/);
+});
+test('hard-cap final turn tells the agent there is no legal extension, without promising another relay', () => {
+  const r = room();
+  r.relay.turnBudgetTotal = 500; r.relay.scheduledTurns = 500; r.relay.remaining = 0;
+  const prompt = protocol.buildRelayPrompt({ room: r, recipient: r.members[0],
+    sourceMessage: r.messages.at(-1), requestId: 'dex-turn-hard-cap' });
+  assert.match(prompt, /FINAL-TURN BUDGET NUDGE — HARD LIMIT REACHED/);
+  assert.match(prompt, /cannot extend this run/);
+  assert.doesNotMatch(prompt, /choose N/);
+  assert.equal(stateApi.extendBudget(r, { budgetIncrease: 4 }), 0);
+});
+test('nudge provides a valid last-turn response path without forcing continuation', () => {
+  const r = room();
+  const noExtension = protocol.parseAgentReply('Task incomplete but stopping at budget.');
+  assert.equal(stateApi.extendBudget(r, noExtension), 0);
+  assert.equal(protocol.relayDisposition(noExtension, 'Eve', false, r.relay).kind, 'budget');
+  const optedIn = protocol.parseAgentReply('Continue the task. [[DEX:BUDGET:+3]] [[DEX:RETURN:dex-turn-7f22a583-748f-46da-a5fa-3b5e07954941]]');
+  assert.equal(stateApi.extendBudget(r, optedIn), 3);
+  assert.equal(r.relay.remaining, 3);
+  assert.equal(protocol.relayDisposition(optedIn, 'Eve', false, r.relay).action, 'continue');
+  const complete = protocol.parseAgentReply('Complete. [[DEX:BUDGET:+2]] [[DEX:DONE]]');
+  assert.equal(stateApi.extendBudget(r, complete), 0);
+  assert.equal(protocol.relayDisposition(complete, 'Eve', false, r.relay).kind, 'done');
+});

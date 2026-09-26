@@ -94,6 +94,7 @@ test('localhost owns a normal online turn from queue through completion', async 
   assert.equal(room.relay.remaining, 0);
   assert.equal(room.recovery.dispatched, true);
   assert.match(room.recovery.expectedPrompt, /test/);
+  assert.match(room.recovery.expectedPrompt, /FINAL-TURN BUDGET NUDGE/);
 
   const requestId = h.scheduler.diagnostics().current.requestId;
   await h.scheduler.handleTransportEvent({ type: 'prompt_accepted', requestId, tabId: 9, providerId: 'future-provider' });
@@ -349,6 +350,10 @@ test('final scheduled reply can extend its physical budget and request extra con
   const h = harness();
   assert.equal(h.scheduler.startRelay({ roomId: 'room-1', sourceMessageId: 'm1', budget: 1 }).ok, true);
   await runNextTimer(h);
+  const original = h.sent.filter(m => m.type === 'send_prompt');
+  assert.equal(original.length, 1);
+  assert.match(original[0].text, /FINAL-TURN BUDGET NUDGE/);
+  assert.match(original[0].text, /choose N/);
   const first = h.scheduler.diagnostics().current.requestId;
   await h.scheduler.handleTransportEvent({
     type: 'prompt_accepted', requestId: first, tabId: 9, providerId: 'future-provider'
@@ -366,6 +371,8 @@ test('final scheduled reply can extend its physical budget and request extra con
   await h.scheduler.process();
   const prompts = h.sent.filter(m => m.type === 'send_prompt');
   assert.equal(prompts.length, 2, 'one fresh next prompt; no replay of prior dispatch');
+  assert.doesNotMatch(prompts[1].text, /FINAL-TURN BUDGET NUDGE/,
+    'an opted-in budget extension must remove the final-turn warning until the next final turn');
   assert.match(prompts[1].text, /4 allocated.*2 scheduled.*2 unscheduled remaining/);
   assert.match(prompts[1].text, /Context selection: 1 earlier message/);
   assert.ok(prompts[1].text.includes('Current message:') && prompts[1].text.includes('Work continues.'));

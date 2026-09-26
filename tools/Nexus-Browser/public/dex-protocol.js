@@ -270,6 +270,29 @@
     const budget = Number.isInteger(total) && total >= 1
       ? `Turn budget: ${total} allocated · ${Math.max(0, total - remaining)} scheduled · ${remaining} unscheduled remaining (this turn is already scheduled).`
       : `Turn budget: ${remaining} unscheduled remaining · legacy allocation unknown.`;
+    const allocated = Number.isInteger(total) && total > 0 ? total
+      : Math.max(0, Number(room?.relay?.scheduledTurns || 0)) + remaining;
+    const headroom = Math.max(0, MAX_RELAY_TURNS - allocated);
+    const finalTurn = room?.relay?.active === true && remaining === 0
+      && (room?.relay?.waitingFor === addressed?.id
+        || room?.pendingTurn?.memberId === addressed?.id);
+    const budgetNudge = !finalTurn ? '' : headroom > 0
+      ? [
+        'FINAL-TURN BUDGET NUDGE — DECISION FOR THIS RECIPIENT',
+        'This is your LAST scheduled relay turn. Unless you explicitly extend the budget in THIS reply,',
+        'Dex will stop after your response even if the task remains unfinished. Budget exhaustion is not DONE.',
+        `If more agent exchanges are genuinely needed, choose N (1–${headroom}) and append [[DEX:BUDGET:+N]]`,
+        'before RETURN/other trailing markers. Example: [[DEX:BUDGET:+4]] adds four turns to this run.',
+        'You decide; no automatic extension or extra nudge turn is generated. Do not append DONE, USER,',
+        'NOTE or CMD if you intend the budget extension to continue this relay.',
+        'If finished, reply normally with DONE. If no extension is needed, omit the budget flag.',
+        'This extension changes only the current run, not the room default; change the default while idle.'
+      ].join(' ') : [
+        'FINAL-TURN BUDGET NUDGE — HARD LIMIT REACHED',
+        'This is the last scheduled turn and the room has reached 500 allocated turns.',
+        'A BUDGET flag cannot extend this run. Finish normally, or stop and coordinate a separate',
+        'authorized continuation after the current request is durably settled. Never replay this turn.'
+      ].join(' ');
     const doneSubscribers = (room?.doneWatches || []).filter((watch) => watch.watcherMemberId !== addressed?.id
       && (!watch.targetMemberId || watch.targetMemberId === addressed?.id)
       && Date.parse(watch.expiresAt || '') > Date.now()).length;
@@ -285,6 +308,7 @@
       'Participants:',
       participants,
       budget,
+      ...(budgetNudge ? [budgetNudge] : []),
       `Default future turn budget: ${clampInt(room?.settings?.maxTurns, 1, MAX_RELAY_TURNS, 8)} (limit ${MAX_RELAY_TURNS}).`,
       '',
       'Provider availability:',
