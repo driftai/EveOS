@@ -186,7 +186,7 @@ test('static integration registers both scripts after main ChatGPT adapter and a
   assert.match(read('server.js'), /await streamNudgeAuth\.handle\(ws, msg, safeSend\)/);
   assert.match(read('public/dex-failure-policy.js'), /CHATGPT_STREAM_CACHE_EXPIRED: \{ action: 'recover'/);
   assert.match(read('extension/dex-provider-control-bridge.js'), /authorizeStreamNudge/);
-  assert.equal(require('../extension/content/provider-adapter-revision').ADAPTER_REVISION, 45);
+  assert.equal(require('../extension/content/provider-adapter-revision').ADAPTER_REVISION, 46);
 });
 
 test('both native stream errors authorize on the exact bound chat; malformed dex key is denied', () => {
