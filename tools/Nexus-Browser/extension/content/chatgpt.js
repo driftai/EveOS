@@ -3,6 +3,8 @@
   if (typeof window !== 'undefined') globalThis.__browserAiBridgeChatGptLoaded = true;
   const input = globalThis.BrowserAiBridgeChatGptInput
     || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-input.js') : null);
+  const deliveryWatchdogApi = globalThis.BrowserAiBridgeChatGptDeliveryWatchdog
+    || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-delivery-watchdog.js') : null);
   const answer = globalThis.BrowserAiBridgeChatGptAnswer
     || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-answer.js') : null);
   const deadline = globalThis.BrowserAiBridgeResponseDeadline
@@ -11,6 +13,8 @@
     || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-page-state.js') : null);
   if (!input || !answer || !deadline || !pageState) throw new Error('ChatGPT bridge modules were not loaded in the expected order.');
   const { DEFAULT_RESPONSE_DEADLINES, nextResponseDeadline, minutes } = deadline;
+  const deliveryGuard = deliveryWatchdogApi.createDeliveryWatchdog({ input });
+  deliveryWatchdogApi.active = deliveryGuard;
   const active = new Map();
   const RELIABLE_GENERATION_SETTLE_MS = 1500;
   const STATUS_SIGNAL_SETTLE_MS = 3000;
@@ -289,25 +293,8 @@
     }
     return input.findSendControl(composer);
   }
-  async function waitForReadyComposer(composer, text, timeoutMs = 2000) {
-    const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
-      const latest = input.findComposer();
-      if (latest) composer = latest;
-      if (!composer) { await new Promise((resolve) => setTimeout(resolve, 50)); continue; }
-      if (!input.composerContainsText(composer, text)) {
-        if (input.composerText?.(composer)?.trim()) throw new Error('ChatGPT composer contains a different draft; refusing to replace it.');
-        input.setComposerText(composer, text);
-        if (!(await waitForComposerText(composer, text))) {
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          continue;
-        }
-      }
-      const control = input.findSendControl(composer);
-      if (control) return { composer, control };
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    return { composer, control: composer ? input.findSendControl(composer) : null };
+  async function waitForReadyComposer(composer, text, timeoutMs = 2000, requestId = null, isCommitted = null) {
+    return deliveryGuard.ready(composer, text, timeoutMs, requestId, isCommitted);
   }
   function requestComposerSubmit(composer) {
     const form = composer?.closest?.('form');
@@ -320,22 +307,23 @@
     }
   }
 
-  async function submitComposer(composer, text, sendControl, { exactOnce = false, isCommitted = null } = {}) {
+  async function submitComposer(composer, text, sendControl, { exactOnce = false, isCommitted = null, onGesture = null } = {}) {
     if (input.composerText?.(composer)?.trim() && input.composerText(composer).replace(/\s+/g, ' ').trim() !== String(text).replace(/\s+/g, ' ').trim()) throw new Error('ChatGPT draft changed; refusing automatic submission.');
     if (typeof document !== 'undefined' && input.generationLooksActive?.()) throw new Error('ChatGPT is still generating; preserving injected draft.');
     // One actual submission gesture per attempt. Synthetic Enter is untrusted in
     // modern browsers; use the scoped Send control first, then native form submit.
     if (sendControl) {
-      sendControl.click();
+      onGesture?.('click'); sendControl.click();
       if (await waitForPromptDeparture(composer, text, SUBMIT_ATTEMPT_SETTLE_MS, isCommitted)) return 'click';
       throw new Error('ChatGPT Send click unconfirmed; draft preserved; no automatic replay.');
     }
+    if (composer?.closest?.('form')?.requestSubmit) onGesture?.('requestSubmit');
     if (requestComposerSubmit(composer)) {
       if (await waitForPromptDeparture(composer, text, SUBMIT_ATTEMPT_SETTLE_MS, isCommitted)) return 'requestSubmit';
       throw new Error('ChatGPT form submit unconfirmed; draft preserved; no automatic replay.');
     }
     if (!input.composerContainsText(composer, text)) throw new Error('ChatGPT composer changed before Enter; refusing submission.');
-    dispatchComposerEnter(composer);
+    onGesture?.('enter'); dispatchComposerEnter(composer);
     if (await waitForPromptDeparture(composer, text, SUBMIT_FINAL_SETTLE_MS, isCommitted)) return 'enter';
     throw new Error('ChatGPT Enter submit unconfirmed; draft preserved; no automatic replay.');
   }
@@ -352,21 +340,25 @@
       deliveryOriginalRequestId: delivery?.originalRequestId || null, deliveryReason: delivery?.reason || null
     };
 
-    const sendWaitMs = ['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion', 'dex-stream-nudge'].includes(delivery?.kind) ? DEX_CONTROL_SEND_WAIT_MS : 5000;
-    const ready = await waitForReadyComposer(composer, text, sendWaitMs);
+    const sendWaitMs = ['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion', 'dex-stream-nudge'].includes(delivery?.kind) ? 30000 : 5000;
+    const committed = () => answer.normalizeText(answer.getTurnUserText(answer.userNodes(), userBaselineCount)).includes(answer.normalizeText(text));
+    const ready = await waitForReadyComposer(composer, text, sendWaitMs, requestId, committed);
     composer = ready.composer;
-    if (!composer || !input.composerContainsText(composer, text)) {
+    if (!ready.committed && (!composer || !input.composerContainsText(composer, text))) {
       throw new Error('ChatGPT composer did not become ready with the prompt text after hydration/reseed.');
     }
     const sendControl = input.findSendControl(composer);
-    if (!sendControl && String(delivery?.kind || '').startsWith('dex-') && !composer?.closest?.('form')) throw new Error('ChatGPT scoped Send button unavailable; preserving Dex draft instead of synthetic Enter.');
+    if (!ready.committed && !sendControl && String(delivery?.kind || '').startsWith('dex-') && !composer?.closest?.('form')) { deliveryGuard.finish(requestId, false, 'no-safe-send'); throw new Error('ChatGPT scoped Send button unavailable; preserving Dex draft instead of synthetic Enter.'); }
     if (sendControl && input.isUnsafeSendControl?.(sendControl)) {
       throw new Error('Refusing to click a ChatGPT voice/upload control as the send button.');
     }
 
     const watcher = watchResponse(requestId, baseline);
-    return submitComposer(composer, text, sendControl, { exactOnce: qualification?.exactOnce === true, isCommitted: () => answer.normalizeText(answer.getTurnUserText(answer.userNodes(), userBaselineCount)).includes(answer.normalizeText(text)) })
-      .then((mode) => { watcher.promptCommitted = true; return mode; });
+    if (ready.committed) { watcher.promptCommitted = true; return 'observed'; }
+    return submitComposer(composer, text, sendControl, { exactOnce: qualification?.exactOnce === true,
+      isCommitted: committed, onGesture: (kind) => deliveryGuard.gesture(requestId, kind) })
+      .then((mode) => { deliveryGuard.finish(requestId, true, mode); watcher.promptCommitted = true; return mode; })
+      .catch((error) => { deliveryGuard.finish(requestId, false, error.message); throw error; });
   }
 
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
