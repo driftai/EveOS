@@ -56,3 +56,14 @@ test('one blocked room cannot starve an independent eligible room',()=>{
  assert.equal(state.rooms[1].pendingTurn.sourceMessageId,'runnable');
  assert.equal(state.rooms[0].deferredRelays.length,1);
 });
+
+test('when the other recipient is disabled at admission, a report is held instead of echoing to sender',()=>{
+ const state={rooms:[room()]},r=state.rooms[0];
+ r.members[0].relayEnabled=false;
+ assert.equal(put(state,'disabled-at-send','Report for offline Eve').result.ok,true);
+ assert.equal(r.deferredRelays[0].targetMemberId,'eve');
+ assert.equal(inbox.activateNext(state),false);
+ r.members[0].relayEnabled=true;
+ assert.equal(inbox.activateNext(state),true);
+ assert.equal(r.pendingTurn.memberId,'eve');
+});

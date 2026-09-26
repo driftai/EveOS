@@ -82,7 +82,13 @@ function queueSend(snapshot, { source, command, requestId,
   });
   message.clientRequestId = requestId;
   message.intentDigest = digest;
-  const selected = room.members?.[protocol.nextMemberIndex(room, message)];
+  let selected = room.members?.[protocol.nextMemberIndex(room, message)];
+  // With only the sender enabled, preserve the next other participant instead
+  // of silently routing a fresh out-of-band result back to its own author.
+  if ((!selected || selected.id === member.id) && (room.members || []).length > 1) {
+    const senderIndex = room.members.findIndex((entry) => entry.id === member.id);
+    selected = room.members[(senderIndex + 1) % room.members.length] || selected;
+  }
   queue.push({ requestId, messageId: message.id, targetMemberId: selected?.id || null,
     queuedAt: at, budget: stateApi.safeBudget(command.turns ?? room.settings?.maxTurns, 8) });
   room.deferredSendReceipts = [...(room.deferredSendReceipts || []),
