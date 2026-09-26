@@ -15,7 +15,7 @@ function harness() {
       sourceMessageId: 'source', dispatched: true, passiveAt: new Date().toISOString() },
     messages: [{ id: 'source', senderKind: 'user', text: 'Old task' }]
   }] };
-  const ws = { role: 'extension', sent: [] }, events = [];
+  const ws = { role: 'provider-control-extension', sent: [] }, events = [];
   const routing = createProviderControlRouting({
     uiSockets: new Set(), safeSend(socket, payload) { socket.sent.push(payload); return true; },
     validateSource: async () => true,
