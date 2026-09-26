@@ -92,7 +92,7 @@ function execute(snapshot, { source, command, at = new Date().toISOString() } = 
   if (!Number.isInteger(turns) || turns < 1 || turns > protocol.MAX_RELAY_TURNS)
     return { snapshot, changed: false, result: { ok: false, code: 'DEX_BUDGET_INVALID',
       message: 'turns must be an integer between 1 and 500.' } };
-  if (room.recovery || room.pendingTurn || room.relay?.active || room.relay?.waitingFor)
+  if (room.recovery || room.pendingTurn || room.relay?.active || room.relay?.waitingFor || (room.deferredRelays || []).length)
     return { snapshot, changed: false, result: { ok: false, code: 'DEX_BUDGET_BUSY',
       message: 'Cannot replace an active/in-flight budget. Append [[DEX:BUDGET:+N]] during your own relay reply, or retry after safe recovery.' } };
   room.settings = room.settings || {};

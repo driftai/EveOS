@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createDexServerScheduler } = require('../dex/server-scheduler.js');
+const inbox = require('../dex/recovery-mailbox.js');
 
 function memoryStore(seed) {
   let current = JSON.parse(JSON.stringify(seed));
@@ -377,4 +378,61 @@ test('final scheduled reply can extend its physical budget and request extra con
   assert.match(prompts[1].text, /Context selection: 1 earlier message/);
   assert.ok(prompts[1].text.includes('Current message:') && prompts[1].text.includes('Work continues.'));
   assert.equal(h.scheduler.diagnostics().current.memberId, 'eve');
+});
+
+test('in-flight reports queue while Eve works; NOTE cannot swallow them and FIFO resumes automatically', async () => {
+  const h = harness();
+  assert.equal(h.scheduler.startRelay({ roomId: 'room-1', sourceMessageId: 'm1', budget: 2 }).ok, true);
+  await runNextTimer(h);
+  const first = h.scheduler.diagnostics().current.requestId;
+  const snapshot = h.store.value(), room = snapshot.rooms[0], source = room.members[0].binding;
+  for (let n = 1; n <= 2; n++) {
+    const admitted = inbox.queueRoomSend(snapshot, { source, requestId: 'incoming-' + n,
+      command: { action: 'send', room: room.id, relay: true, text: 'NEW REPORT ' + n },
+      makeId: () => 'msg-incoming-' + n });
+    assert.equal(admitted.result.data.deliveryState, 'queued');
+  }
+  h.store.save(snapshot);
+  h.scheduler.onStateChanged();
+  assert.equal(h.sent.filter(m => m.type === 'send_prompt').length, 1);
+  await h.scheduler.handleTransportEvent({ type: 'response_final', requestId: first,
+    text: 'Waiting for the result. [[DEX:NOTE]]' });
+  assert.equal(h.store.value().rooms[0].relay.active, false);
+  assert.equal(h.store.value().rooms[0].deferredRelays.length, 2);
+  await h.scheduler.process();
+  assert.equal(h.store.value().rooms[0].pendingTurn.sourceMessageId, 'msg-incoming-2');
+  assert.deepEqual(h.store.value().rooms[0].pendingTurn.inboxMessageIds, ['msg-incoming-1']);
+  await h.scheduler.process();
+  const prompts = h.sent.filter(m => m.type === 'send_prompt');
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1].text, /NEW INCOMING ROOM UPDATES \(FIFO/);
+  assert.match(prompts[1].text, /Queued message IDs: msg-incoming-1/);
+  assert.ok(prompts[1].text.indexOf('NEW REPORT 1') < prompts[1].text.indexOf('NEW REPORT 2'));
+  assert.equal(h.store.value().rooms[0].deferredRelays.length, 0);
+  assert.equal(h.store.value().rooms[0].deferredSendReceipts.every(e => e.phase === 'dispatched'), true);
+});
+test('ordinary continuing turn stages newer reports in next prompt, never mid-gesture or twice', async () => {
+  const h = harness();
+  h.scheduler.startRelay({ roomId: 'room-1', sourceMessageId: 'm1', budget: 2 });
+  await runNextTimer(h);
+  const requestId = h.scheduler.diagnostics().current.requestId;
+  const snapshot = h.store.value(), room = snapshot.rooms[0], source = room.members[0].binding;
+  for (let n = 1; n <= 2; n++) inbox.queueRoomSend(snapshot, {
+    source, requestId: 'r-' + n,
+    command: { action: 'send', room: room.id, relay: true, text: 'Pending update ' + n },
+    makeId: () => 'queue-' + n
+  });
+  h.store.save(snapshot);
+  await h.scheduler.handleTransportEvent({ type: 'response_final', requestId, text: 'Continue task.' });
+  const queued = h.store.value().rooms[0];
+  assert.equal(queued.relay.active, true);
+  assert.deepEqual(queued.pendingTurn.inboxMessageIds, ['queue-1', 'queue-2']);
+  assert.equal(queued.deferredRelays.length, 0);
+  await h.scheduler.process();
+  const prompts = h.sent.filter(m => m.type === 'send_prompt');
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1].text, /Queued message IDs: queue-1, queue-2/);
+  assert.match(prompts[1].text, /Current message:\nContinue task\./);
+  assert.equal(h.store.value().rooms[0].recovery.inboxMessageIds.length, 2,
+    'the exact queued update IDs survive into the durable recovery journal');
 });

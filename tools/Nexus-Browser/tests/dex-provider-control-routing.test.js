@@ -378,3 +378,44 @@ test('mutating provider-control request survives origin socket loss for exact-on
   assert.equal(dex.sent.length, 1);
   assert.equal(resultFor(retry).result.ok, true);
 });
+
+test('authenticated incoming report is committed while another turn is busy even when Dex UI is offline', async () => {
+  const exact = { targetClassId: 'local-origin', providerId: 'local-antigravity-existing',
+    targetId: 'local:antigravity-existing:9' };
+  let stored = { rooms: [{ id: 'room-1', name: 'Eve + Astro',
+    members: [{ id: 'astro', name: 'Astro', binding: exact },
+      { id: 'eve', name: 'Eve', binding: { targetClassId: 'online-origin',
+        targetId: 42, providerId: 'chatgpt', url: 'https://chatgpt.com/c/eve' } }],
+    messages: [{ id: 'm1', senderKind: 'user', text: 'Previous request' }],
+    relay: { active: true, waitingFor: 'eve', remaining: 2 },
+    recovery: { requestId: 'dex-turn-old', memberId: 'eve', dispatched: true }
+  }] };
+  let persisted = 0, wakeups = 0;
+  const uiSockets = new Set(), safeSend = (ws, payload) => { ws.sent.push(payload); return true; };
+  const common = { uiSockets, safeSend, validateSource: async () => true,
+    getState: () => JSON.parse(JSON.stringify(stored)),
+    saveState: value => { persisted++; stored = JSON.parse(JSON.stringify(value)); return stored; },
+    broadcastState: () => {},
+    getScheduler: () => ({ onStateChanged() { wakeups++; } })
+  };
+  const caller = socket('provider-control-extension', null);
+  const first = createProviderControlRouting(common);
+  const send = { type: 'provider_control_request', requestId: 'ctl-report-1', source: exact,
+    command: { action: 'send', room: 'room-1', relay: true,
+      text: 'Astro finished the tests; hold deployment because two assertions need alignment.' } };
+  assert.equal(await first.handle(caller, send), true);
+  assert.equal(resultFor(caller).result.data.deliveryState, 'queued');
+  assert.equal(persisted, 1);
+  assert.equal(wakeups, 1);
+  assert.equal(stored.rooms[0].recovery.requestId, 'dex-turn-old',
+    'an in-flight turn stays untouched');
+  assert.equal(stored.rooms[0].deferredRelays.length, 1);
+  assert.equal(stored.rooms[0].messages.length, 2);
+  const restarted = createProviderControlRouting(common);
+  const retry = socket('provider-control-extension', null);
+  assert.equal(await restarted.handle(retry, send), true);
+  assert.equal(resultFor(retry).result.data.messageId, resultFor(caller).result.data.messageId);
+  assert.equal(stored.rooms[0].messages.length, 2, 'persisted request ID survives a router restart');
+  assert.equal(persisted, 1, 'duplicates do not rewrite room state');
+  assert.equal(restarted.pending.size, 0, 'new reports do not wait for stale origin-receipt polling');
+});

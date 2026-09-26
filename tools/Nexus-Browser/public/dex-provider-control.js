@@ -87,7 +87,7 @@
     return !!room.relay?.active
       || !!room.relay?.waitingFor
       || !!room.pendingTurn
-      || !!room.recovery;
+      || !!room.recovery || !!room.pendingProviderControlReceipt || !!room.deferredRelays?.length;
   }
   function clearRoomHistory(room) {
     if (!room) return 0;

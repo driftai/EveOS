@@ -2,6 +2,8 @@ function runtimeBusy(room) {
   return !!room && (
     !!room.recovery ||
     !!room.pendingTurn ||
+    !!room.pendingProviderControlReceipt ||
+    (room.deferredRelays || []).length > 0 ||
     !!room.relay?.active ||
     !!room.relay?.waitingFor
   );

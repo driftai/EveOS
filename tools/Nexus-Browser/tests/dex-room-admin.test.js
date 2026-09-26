@@ -23,7 +23,7 @@ test('room admin can rename and configure an idle room', () => {
   });
   assert.equal(configured.ok, true);
   assert.equal(value.name, 'Research Room');
-  assert.deepEqual(value.settings, { autoRelay: false, maxTurns: 500, contextMessages: 12 });
+  assert.deepEqual(value.settings, { autoRelay: false, maxTurns: 500, contextMessages: 12, contextDefaultMessages: 12, budgetRevision: 1 });
 });
 
 test('room admin resolves participants by id or unique exact name', () => {

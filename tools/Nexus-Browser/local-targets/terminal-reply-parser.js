@@ -15,6 +15,10 @@ function looksReadyForInput(text) {
   for (let i = 0; i < lines.length; i += 1)
     if (/^\s*>/.test(lines[i])) latestPrompt = i;
   if (latestPrompt < 0 || !/^\s*>\s*[?|│`]?$/.test(lines[latestPrompt])) return false;
+  // Antigravity can show an empty input prompt while /tasks still has active
+  // work. That is a progress checkpoint, never a completed Dex reply.
+  if (lines.slice(latestPrompt + 1).some((line) =>
+    /\b[1-9]\d*\s+task\(s\)(?:\s|·|$)/i.test(line))) return false;
   return lines.slice(latestPrompt + 1).every((line) => {
     const value = String(line || '').trim();
     return !value || /^\?\s+for shortcuts/i.test(value)

@@ -1,6 +1,7 @@
 const orchestrationPolicy = require('./provider-orchestration-policy'), controlReceiptApi = require('./provider-control-receipt');
 const { createAgentExtensionReload } = require('./agent-extension-reload');
-const recoveryMailbox = require('./recovery-mailbox');
+const directSend = require('./provider-control-direct-send');
+const { directRoomSend } = require('./direct-room-send-policy');
 const roomTools = require('./room-tools');
 const POST_IDLE_ACTIONS = new Set(['arm_post_idle','post_idle_status','cancel_post_idle','report_post_idle']);
 const { runPostIdleCommand } = require('./post-idle-control');
@@ -154,6 +155,15 @@ function createProviderControlRouting({
       return true;
     }
     safeSend(ws, { type: 'provider_control_received', requestId, clientActionId: msg.clientActionId || null });
+    // New authenticated room sends are admitted to the durable inbox without
+    // waiting on a different agent's unfinished or NOTE-stopped relay.
+    if (directRoomSend(command) && getState && saveState)
+      return directSend.route({ source, command, requestId, ws },
+        { getState, saveState, broadcastState, getScheduler, now, sendResult,
+          commitOriginReceipt, findOrigin: controlReceiptApi.findIntent });
+    if (['room_budget', 'room_log'].includes(action)) return roomTools.route(
+      { source, command, requestId, ws, origin: null },
+      { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt });
     const settledOrigin = await settleOrigin(source, command, requestId);
     if (settledOrigin.error) {
       fail(ws, requestId, source, settledOrigin.error.code, settledOrigin.error.message);
@@ -241,24 +251,6 @@ function createProviderControlRouting({
       if (canonical) {
         if (!canonical.origin && origin) canonical.origin = origin;
         canonical.waiters.push({ sourceSocket: ws, requestId, source });
-        return true;
-      }
-    }
-    // Interrupted-room sends are durably queued server-side instead of
-    // receiving ROOM_BUSY or depending on a live Dex UI for admission.
-    if (action === 'send' && getState && saveState) {
-      const queued = recoveryMailbox.queueInterruptedSend(getState(), {
-        source, command, requestId, at: new Date(now()).toISOString()
-      });
-      if (queued) {
-        if (queued.changed) {
-          queued.snapshot.savedAt = new Date(now()).toISOString();
-          const saved = saveState(queued.snapshot);
-          broadcastState?.(saved);
-        }
-        if (key && queued.result.ok) recentMutations.set(key, { at: now(), result: queued.result });
-        const receipt = commitOriginReceipt(origin, queued.result, requestId);
-        sendResult({ sourceSocket: ws, requestId, source }, queued.result, receipt);
         return true;
       }
     }

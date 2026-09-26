@@ -122,6 +122,7 @@ function createRecoveryJournal(current, member, room, at) {
     requestId: current.requestId,
     memberId: member.id,
     sourceMessageId: current.sourceMessageId,
+    inboxMessageIds: (current.inboxMessageIds || []).slice(0, 8),
     targetClassId: member.binding?.targetClassId || 'online-origin',
     providerId: member.binding?.providerId || null,
     relayActive: !!room.relay?.active,

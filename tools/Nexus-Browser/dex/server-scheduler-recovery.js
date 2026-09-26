@@ -4,6 +4,7 @@ const stateApi = require('./server-scheduler-state');
 const controlReceiptApi = require('./provider-control-receipt');
 const passiveLife = require('./passive-recovery-lifecycle');
 const { createRecoveryLiveness } = require('./recovery-liveness');
+const { directRoomSend } = require('./direct-room-send-policy');
 const RETRY_MS = 10000;
 const STABLE_MS = 1200;
 const UNCERTAIN_STABLE_MS = 60 * 1000;
@@ -296,7 +297,7 @@ function createServerSchedulerRecovery({
       senderKind: 'agent', senderId: member.id,
       senderName: member.name, text: body, contextOverride: parsed.contextOverride
     });
-    if (parsed.providerControlCommand) controlReceiptApi.rememberIntent(room, {
+    if (parsed.providerControlCommand && !directRoomSend(parsed.providerControlCommand)) controlReceiptApi.rememberIntent(room, {
       executorMember: member, sourceMessage, command: parsed.providerControlCommand,
       agentMessage: message, turnRequestId: recovery.requestId, at: new Date(nowMs()).toISOString()
     });
@@ -349,6 +350,7 @@ function createServerSchedulerRecovery({
       const retryCount = Number(recovery.retryCount || 0);
       delete room.recovery;
       stateApi.queueTurn(room, member, source, new Date().toISOString(), retryCount);
+      room.pendingTurn.inboxMessageIds = (recovery.inboxMessageIds || []).slice(0, 8);
       save(snapshot);
       processSoon(0);
       return true;

@@ -259,10 +259,15 @@
     return earlier.filter((_entry, index) => anchors.has(index));
   }
 
-  function buildRelayPrompt({ room, recipient, member, sourceMessage, requestId, providerHealth = '' }) {
+  function buildRelayPrompt({ room, recipient, member, sourceMessage, requestId, providerHealth = '', inboxMessageIds = [] }) {
     const addressed = recipient || member;
     const participants = (room?.members || []).map((entry) => `- ${memberSummary(entry)}`).join('\n') || '- none';
-    const history = selectRelayHistory(room, sourceMessage);
+    const inboxIds = new Set(inboxMessageIds);
+    const incoming = (room?.messages || []).filter((message) => inboxIds.has(message.id)
+      && message.id !== sourceMessage?.id);
+    const history = selectRelayHistory({ ...room, messages: (room?.messages || [])
+      .filter((message) => !inboxIds.has(message.id)) }, sourceMessage);
+    const incomingContext = boundedContext(incoming, Math.max(1, incoming.length), 20000);
     const context = boundedContext(history, Math.max(1, history.length),
       sourceMessage?.contextOverride ? 24000 : DEFAULT_MAX_CONTEXT_CHARS);
     const total = Number(room?.relay?.turnBudgetTotal);
@@ -325,15 +330,21 @@
       `- Active one-shot DONE subscribers for your response: ${doneSubscribers}. If a requester subscribed, DONE still stops relay but sends them a separate background notification, not another Dex relay turn. With no subscription, use the direct-return rule above when confirmation is required.`,
       '- Without a trailing marker, Dex continues to the NEXT participating agent in room order, not necessarily the original requester if the room has more than two agents.',
       `- End with ${USER_TOKEN} only when human input is required before work can continue.`,
-      `- End with ${NOTE_TOKEN} only for an informational room note that should be recorded without triggering another agent turn.`,
+      `- End with ${NOTE_TOKEN} only when no immediate agent reply is needed. NOTE stops round-robin relay, but NEW authorized incoming reports still enter the durable FIFO and will be routed after the current turn settles.`,
+      '- Before NOTE/DONE while another agent is still working: first secure the result in the room or register an explicit background task-completion watch. NOTE does not monitor disconnected terminal jobs; only captured turns or authenticated new sends enter the durable inbox.',
       '- Control markers are interpreted only when they trail the reply.',
-      '- Recent room context defaults to one latest prior message PER room agent, excluding the current source. Older room history stays durable; Current message is authoritative and unabridged.',
+      '- Recent room context defaults to one latest prior message PER room agent, excluding the current source. Fresh authorized incoming messages queued during another turn appear separately in FIFO order. Older room history remains durable.',
       '- For THIS outgoing reply only, put [[DEX:CONTEXT:12]] BEFORE RETURN/DONE to attach up to 12 prior room messages to the next recipient; valid range 1–40. Read your own backlog without a new room message: [[DEX:CMD {"action":"room_log","limit":10}]] (a CMD pauses relay).',
       '- To extend a still-running relay before it runs out, put [[DEX:BUDGET:+4]] BEFORE RETURN/DONE to add four more unscheduled turns (up to 500 allocated per run). To inspect/change the idle room budget, use [[DEX:CMD {"action":"room_budget"}]] or [[DEX:CMD {"action":"set_room_budget","turns":12,"resume":true}]]; CMD pauses the current relay.',
       '- Do not rewrite Room/Recipient routing in prose.',
       '- If you need Dex room/worker controls, end with [[DEX:CMD {"action":"onboard"}]] to receive the current self-service command set. A trailing provider-control command pauses this relay before the control action runs.',
       '- If this exact chat is also bound to another Dex room, an intentional transfer may end with [[DEX:CMD {"action":"handoff_room","room":"<authorized room id or exact name>","text":"<message>","turns":8}]]. Dex stops this room before starting the authorized target room.',
       '',
+      ...(incoming.length ? [
+        'NEW INCOMING ROOM UPDATES (FIFO; authoritative new messages, queued while another turn was active):',
+        `Queued message IDs: ${incoming.map((message) => message.id).join(', ')}.`,
+        incomingContext || '(Updates remain in the durable room log; request room_log to read them.)', ''
+      ] : []),
       'Recent room context (projected):',
       `Context selection: ${history.length} earlier message(s), latest per agent unless explicitly expanded.`,
       context || '(no earlier room messages)',

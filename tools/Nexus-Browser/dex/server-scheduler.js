@@ -5,6 +5,7 @@ const failurePolicy = require('../public/dex-failure-policy');
 const stateApi = require('./server-scheduler-state'), controlReceiptApi = require('./provider-control-receipt'), doneWatchApi = require('../public/dex-done-watch');
 const { createServerSchedulerRecovery } = require('./server-scheduler-recovery');
 const recoveryMailbox = require('./recovery-mailbox');
+const { directRoomSend } = require('./direct-room-send-policy');
 const { TURN_TIMEOUT_MS, TURN_IDLE_TIMEOUT_MS, TURN_ABSOLUTE_TIMEOUT_MS,
   activityFromTransport, createServerTurnLease } = require('./server-turn-lease');
 function createDexServerScheduler({
@@ -30,7 +31,7 @@ function createDexServerScheduler({
   const save = (snapshot) => { const value = stateStore.save({ ...snapshot, savedAt: now() }); broadcastState(clone(value)); return value; };
   const addMessage = (room, input) => stateApi.addMessage(room, { id: uid('msg'), at: now(), ...input });
   const setStopped = (room, reason) => stateApi.setStopped(room, reason, now());
-  const enqueueNext = (room, source) => stateApi.enqueueNext(room, source, now());
+  const enqueueNext = (room, source) => { const ok = stateApi.enqueueNext(room, source, now()); if (ok) recoveryMailbox.stageForPending(room); return ok; };
   function clearCurrent() { lease.clear(); current = null; }
   function processSoon(delay = 0) {
     if (retryTimer) clearTimer(retryTimer);
@@ -131,7 +132,7 @@ function createDexServerScheduler({
     }
     current.prompt = protocol.buildRelayPrompt({
       room, member, recipient: member, sourceMessage: source,
-      requestId: current.requestId,
+      requestId: current.requestId, inboxMessageIds: current.inboxMessageIds || [],
       providerHealth: healthApi.roomContext(room, getOnlineTargets() || [])
     }); if (room.recovery) { room.recovery.expectedPrompt = current.prompt; save(snapshot); }
     if (member.binding?.targetClassId === 'local-origin') {
@@ -199,6 +200,7 @@ function createDexServerScheduler({
         const delays = [due, passive.nextDelay].filter((v) => v != null);
         return !delays.length ? maybeRestoreTarget(snapshot) : (processSoon(Math.min(...delays)), false);
       }
+      recoveryMailbox.stageForPending(room);
       const pending = { ...room.pendingTurn };
       const member = stateApi.memberById(room, pending.memberId);
       const source = stateApi.messageById(room, pending.sourceMessageId);
@@ -211,7 +213,7 @@ function createDexServerScheduler({
       delete room.pendingTurn;
       current = {
         roomId: room.id, memberId: member.id,
-        sourceMessageId: source.id, requestId: uid('dex-turn'),
+        sourceMessageId: source.id, inboxMessageIds: pending.inboxMessageIds || [], requestId: uid('dex-turn'),
         retryCount: Number(pending.retryCount || 0),
         phase: 'ready', targetId: null, prompt: ''
       };
@@ -227,7 +229,7 @@ function createDexServerScheduler({
     const room = stateApi.roomById(snapshot, roomId);
     const source = stateApi.messageById(room, sourceMessageId);
     if (!room || !source) return { ok: false, code: 'DEX_RELAY_SOURCE_NOT_FOUND', message: 'Relay source message is unavailable.' };
-    if (current?.roomId === room.id || room.recovery || room.pendingTurn || room.relay?.waitingFor) {
+    if (current?.roomId === room.id || room.recovery || room.pendingTurn || room.relay?.waitingFor || (room.deferredRelays || []).length) {
       return { ok: false, code: 'DEX_RELAY_BUSY', message: 'That Dex room already has pending or active work.' };
     }
     if (!(room.members || []).some((member) => member.relayEnabled !== false)) {
@@ -331,7 +333,7 @@ function createDexServerScheduler({
       senderName: member.name, text: parsed.text || '(No textual response.)',
       contextOverride: parsed.contextOverride
     });
-    if (parsed.providerControlCommand) controlReceiptApi.rememberIntent(room, { executorMember: member, sourceMessage, command: parsed.providerControlCommand, agentMessage: message, turnRequestId: current.requestId, at: now() });
+    if (parsed.providerControlCommand && !directRoomSend(parsed.providerControlCommand)) controlReceiptApi.rememberIntent(room, { executorMember: member, sourceMessage, command: parsed.providerControlCommand, agentMessage: message, turnRequestId: current.requestId, at: now() });
     delete room.recovery;
     room.relay.waitingFor = null;
     stateApi.extendBudget(room, parsed);
@@ -424,6 +426,7 @@ function createDexServerScheduler({
       recoveryPending: !!activeRoom?.recovery
     } : null;
     return { owner: 'localhost', current: active,
+      queuedIncoming: (snapshot.rooms || []).map((room) => ({ roomId: room.id, queued: (room.deferredRelays || []).length })).filter((entry) => entry.queued),
       pendingRooms: stateApi.pendingRooms(snapshot).map((room) => room.id),
       recoveryRooms: (snapshot.rooms || []).filter((room) => !!room.recovery).map((room) => room.id),
       recovery: recovery.diagnostics() };

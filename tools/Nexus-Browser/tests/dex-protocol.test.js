@@ -150,6 +150,7 @@ test('relay disposition centralizes stop and continue semantics', () => {
 
 test('relay prompt carries explicit room, turn, recipient, participants and context metadata', () => {
   const value = room();
+  value.settings.contextDefaultMessages = 2;
   value.messages.push(
     { id: 'm1', senderKind: 'user', senderName: 'Drift', text: 'Build the first pass.' },
     { id: 'm2', senderKind: 'agent', senderId: 'eve', senderName: 'Eve', text: 'I will design it.' }
