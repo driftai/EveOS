@@ -37,7 +37,7 @@ function createDexServerScheduler({
     retryTimer = setTimer(() => { retryTimer = null; process().catch((error) => failCurrent(error.message)); }, Math.max(0, delay));
   }
   const recovery = createServerSchedulerRecovery({
-    load, save, uid,
+    load, save, uid, nowMs,
     getOnlineTargets, getProviders, getSelectedOnlineTarget, getLocalTargets,
     isExtensionAvailable, sendExtension, captureLocalLatest, recordIncident,
     markTimedOut: (journal) => durability?.markFailed?.(
