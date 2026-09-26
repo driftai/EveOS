@@ -309,13 +309,20 @@
     const settleMs = requireCommit ? confirmTimeoutMs : SUBMIT_ATTEMPT_SETTLE_MS;
     if (sendControl) {
       if (typeof window !== 'undefined') await new Promise((r) => setTimeout(r, 350));
+      if (isCommitted?.()) return 'observed';
+      if (composer?.isConnected === false || sendControl?.isConnected === false
+          || !input.composerContainsText(composer, text)
+          || input.isDisabledControl?.(sendControl) || input.isUnsafeSendControl?.(sendControl)
+          || (typeof document !== 'undefined' && input.generationLooksActive?.()))
+        throw new Error('ChatGPT composer or Send control changed during staging; no submission attempted.');
       onGesture?.('click'); sendControl.click();
       if (await waitForPromptDeparture(composer, text, settleMs, isCommitted, requireCommit)) return 'click';
       throw new Error('ChatGPT Send click unconfirmed; draft preserved; no automatic replay.');
     }
     if (composer?.closest?.('form')?.requestSubmit) {
+      // requestSubmit may dispatch before throwing; mark the gesture first.
+      onGesture?.('requestSubmit');
       if (requestComposerSubmit(composer)) {
-        onGesture?.('requestSubmit');
         if (await waitForPromptDeparture(composer, text, settleMs, isCommitted, requireCommit)) return 'requestSubmit';
       }
       throw new Error('ChatGPT form submit unconfirmed; draft preserved; no automatic replay.');

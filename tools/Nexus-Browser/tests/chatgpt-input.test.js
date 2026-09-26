@@ -377,3 +377,33 @@ test('throwing requestSubmit handler cannot fall through to Enter and preserves 
 });
 
 
+
+test('throwing requestSubmit records its irreversible gesture before handler effects', async () => {
+  const events = [], form = { requestSubmit() {
+    events.push('attempt');
+    throw new Error('submit handler ran then threw');
+  } };
+  const composer = { tagName: 'TEXTAREA', value: 'Dex exact-once form',
+    closest: (selector) => selector === 'form' ? form : null };
+  await assert.rejects(chatgpt.submitComposer(composer, 'Dex exact-once form', null, {
+    onGesture: kind => events.push(kind), isCommitted: () => false
+  }), /form submit unconfirmed/);
+  assert.deepEqual(events, ['requestSubmit', 'attempt'],
+    'A throwing form cannot leave the durable watchdog at gesture:null');
+});
+test('staging detects a draft changed while waiting and never clicks Send', async () => {
+  let clicks = 0;
+  const composer = { tagName: 'TEXTAREA', value: 'Original draft',
+    closest: () => null };
+  const oldWindow = global.window, oldDocument = global.document;
+  global.window = {}; global.document = { querySelectorAll: () => [] };
+  try {
+    const pending = chatgpt.submitComposer(composer, 'Original draft', {
+      click() { clicks++; }
+    }, { onGesture: () => { throw Error('must not record a gesture'); } });
+    setTimeout(() => { composer.value = 'Foreign changed draft'; }, 40);
+    await assert.rejects(pending, /changed during staging/);
+    assert.equal(clicks, 0);
+    assert.equal(composer.value, 'Foreign changed draft');
+  } finally { global.window = oldWindow; global.document = oldDocument; }
+});
