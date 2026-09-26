@@ -276,8 +276,8 @@
     return input.composerContainsText(composer, text);
   }
 
-  async function waitForPromptDeparture(composer, text, timeoutMs = SUBMIT_ATTEMPT_SETTLE_MS, isCommitted = null) {
-    const started = Date.now(), gone = () => { const live = typeof document === 'undefined' ? composer : input.findComposer?.(); return !!isCommitted?.() || !!live && !input.composerText(live).trim() && !input.composerContainsText(composer, text); };
+  async function waitForPromptDeparture(composer, text, timeoutMs = SUBMIT_ATTEMPT_SETTLE_MS, isCommitted = null, requireCommit = false) {
+    const started = Date.now(), gone = () => { const live = typeof document === 'undefined' ? composer : input.findComposer?.(); return !!isCommitted?.() || (!requireCommit && !!live && !input.composerText(live).trim() && !input.composerContainsText(composer, text)); };
     while (Date.now() - started < timeoutMs) {
       if (gone()) return true;
       await new Promise((resolve) => setTimeout(resolve, 40));
@@ -307,24 +307,25 @@
     }
   }
 
-  async function submitComposer(composer, text, sendControl, { exactOnce = false, isCommitted = null, onGesture = null } = {}) {
+  async function submitComposer(composer, text, sendControl, { exactOnce = false, isCommitted = null, onGesture = null, requireCommit = false, confirmTimeoutMs = 8000 } = {}) {
     if (input.composerText?.(composer)?.trim() && input.composerText(composer).replace(/\s+/g, ' ').trim() !== String(text).replace(/\s+/g, ' ').trim()) throw new Error('ChatGPT draft changed; refusing automatic submission.');
     if (typeof document !== 'undefined' && input.generationLooksActive?.()) throw new Error('ChatGPT is still generating; preserving injected draft.');
     // One actual submission gesture per attempt. Synthetic Enter is untrusted in
     // modern browsers; use the scoped Send control first, then native form submit.
+    const settleMs = requireCommit ? confirmTimeoutMs : SUBMIT_ATTEMPT_SETTLE_MS;
     if (sendControl) {
       onGesture?.('click'); sendControl.click();
-      if (await waitForPromptDeparture(composer, text, SUBMIT_ATTEMPT_SETTLE_MS, isCommitted)) return 'click';
+      if (await waitForPromptDeparture(composer, text, settleMs, isCommitted, requireCommit)) return 'click';
       throw new Error('ChatGPT Send click unconfirmed; draft preserved; no automatic replay.');
     }
     if (composer?.closest?.('form')?.requestSubmit) onGesture?.('requestSubmit');
     if (requestComposerSubmit(composer)) {
-      if (await waitForPromptDeparture(composer, text, SUBMIT_ATTEMPT_SETTLE_MS, isCommitted)) return 'requestSubmit';
+      if (await waitForPromptDeparture(composer, text, settleMs, isCommitted, requireCommit)) return 'requestSubmit';
       throw new Error('ChatGPT form submit unconfirmed; draft preserved; no automatic replay.');
     }
     if (!input.composerContainsText(composer, text)) throw new Error('ChatGPT composer changed before Enter; refusing submission.');
     onGesture?.('enter'); dispatchComposerEnter(composer);
-    if (await waitForPromptDeparture(composer, text, SUBMIT_FINAL_SETTLE_MS, isCommitted)) return 'enter';
+    if (await waitForPromptDeparture(composer, text, requireCommit ? settleMs : SUBMIT_FINAL_SETTLE_MS, isCommitted, requireCommit)) return 'enter';
     throw new Error('ChatGPT Enter submit unconfirmed; draft preserved; no automatic replay.');
   }
 
@@ -356,7 +357,8 @@
     const watcher = watchResponse(requestId, baseline);
     if (ready.committed) { watcher.promptCommitted = true; return 'observed'; }
     return submitComposer(composer, text, sendControl, { exactOnce: qualification?.exactOnce === true,
-      isCommitted: committed, onGesture: (kind) => deliveryGuard.gesture(requestId, kind) })
+      isCommitted: committed, requireCommit: String(delivery?.kind || '').startsWith('dex-'),
+      onGesture: (kind) => deliveryGuard.gesture(requestId, kind) })
       .then((mode) => { deliveryGuard.finish(requestId, true, mode); watcher.promptCommitted = true; return mode; })
       .catch((error) => { deliveryGuard.finish(requestId, false, error.message); throw error; });
   }
