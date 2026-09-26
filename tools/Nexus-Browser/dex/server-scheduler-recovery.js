@@ -22,7 +22,8 @@ function createServerSchedulerRecovery({
   function timedOut(recovery) {
     if (recovery?.passiveAt) return false;
     const started = Date.parse(recovery?.interruptedAt || recovery?.startedAt || '');
-    return Number.isFinite(started) && nowMs() - started > MAX_RECOVERY_MS;
+    if (!Number.isFinite(started)) recordIncident({ code: 'RECOVERY_INVALID_TIMESTAMP', requestId: recovery?.requestId, source: 'server-scheduler' });
+    return !Number.isFinite(started) || nowMs() - started > MAX_RECOVERY_MS;
   }
   function expire(room, recovery) {
     const reason = 'Interrupted turn recovery timed out · awaiting late provider final';

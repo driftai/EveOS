@@ -102,9 +102,8 @@ test('corrupt recovery timestamps fail closed instead of pinning a room permanen
   const h = rig({ badTimestamp: true });
   const recovery = createServerSchedulerRecovery(h.args);
   await recovery.resume(h.durability);
-  assert.ok(h.scheduled.includes(1));
-  await recovery.resume(h.durability);
   assert.ok(h.state.rooms[0].recovery.passiveAt);
+  assert.ok(h.scheduled.includes(PASSIVE_GRACE_MS));
   assert.equal(h.incidents.filter(item => item.code === 'RECOVERY_INVALID_TIMESTAMP').length, 1);
   assert.equal(h.sent.filter(msg => msg.type === 'send_prompt').length, 0);
   assert.equal(remainingMs({ startedAt: 'bad-time' }, Date.now(), MAX_RECOVERY_MS), null);
@@ -154,4 +153,14 @@ test('a hung local capture does not hold the scheduler processing lock beyond th
   await scheduler.process();
   assert.equal(h.state.rooms[0].recovery, undefined);
   assert.equal(h.state.rooms[0].lateFinalWatches.length, 1);
+});
+
+test('invalid offline recovery is quarantined immediately, without hot-looping', async () => {
+  const h = rig({ offline: true, badTimestamp: true });
+  const recovery = createServerSchedulerRecovery(h.args);
+  await recovery.resume(h.durability);
+  assert.ok(h.state.rooms[0].recovery.passiveAt);
+  assert.equal(h.incidents.filter(item => item.code === 'RECOVERY_INVALID_TIMESTAMP').length, 1);
+  assert.equal(h.sent.length, 0);
+  assert.equal(h.scheduled.filter(ms => ms === 1).length, 0);
 });
