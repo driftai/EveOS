@@ -309,28 +309,15 @@
     const settleMs = requireCommit ? confirmTimeoutMs : SUBMIT_ATTEMPT_SETTLE_MS;
     if (sendControl) {
       if (typeof window !== 'undefined') await new Promise((r) => setTimeout(r, 350));
-      const liveSend = () => input.findSendControl(composer) || sendControl;
-      const retryStaged = async () => {
-        await new Promise((r) => setTimeout(r, 450));
-        const live = input.findComposer?.() || composer;
-        if (isCommitted?.() || input.generationLooksActive?.() || !input.composerContainsText(live, text)) return;
-        try { live.focus?.(); } catch {}
-        dispatchComposerEnter(live);
-        await new Promise((r) => setTimeout(r, 350));
-        const stillLive = input.findComposer?.() || live;
-        if (!isCommitted?.() && !input.generationLooksActive?.() && input.composerContainsText(stillLive, text)) {
-          (input.findSendControl(stillLive) || liveSend()).click?.();
-          dispatchComposerEnter(stillLive);
-        }
-      };
       onGesture?.('click'); sendControl.click();
-      if (!exactOnce && typeof window !== 'undefined') await retryStaged();
       if (await waitForPromptDeparture(composer, text, settleMs, isCommitted, requireCommit)) return 'click';
       throw new Error('ChatGPT Send click unconfirmed; draft preserved; no automatic replay.');
     }
-    if (composer?.closest?.('form')?.requestSubmit) onGesture?.('requestSubmit');
-    if (requestComposerSubmit(composer)) {
-      if (await waitForPromptDeparture(composer, text, settleMs, isCommitted, requireCommit)) return 'requestSubmit';
+    if (composer?.closest?.('form')?.requestSubmit) {
+      if (requestComposerSubmit(composer)) {
+        onGesture?.('requestSubmit');
+        if (await waitForPromptDeparture(composer, text, settleMs, isCommitted, requireCommit)) return 'requestSubmit';
+      }
       throw new Error('ChatGPT form submit unconfirmed; draft preserved; no automatic replay.');
     }
     if (!input.composerContainsText(composer, text)) throw new Error('ChatGPT composer changed before Enter; refusing submission.');

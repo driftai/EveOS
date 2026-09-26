@@ -251,11 +251,6 @@
     target.dispatchEvent(new KeyboardEvent('keydown', keyOptions));
     target.dispatchEvent(new KeyboardEvent('keypress', keyOptions));
     target.dispatchEvent(new KeyboardEvent('keyup', keyOptions));
-    if (target !== composer) {
-      composer.dispatchEvent(new KeyboardEvent('keydown', keyOptions));
-      composer.dispatchEvent(new KeyboardEvent('keypress', keyOptions));
-      composer.dispatchEvent(new KeyboardEvent('keyup', keyOptions));
-    }
   }
 
   const api = {

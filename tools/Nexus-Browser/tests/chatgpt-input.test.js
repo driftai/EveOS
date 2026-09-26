@@ -306,42 +306,74 @@ test('form-less Dex result clicks only its recovered local Send button once', as
   } finally { global.document = old; }
 });
 
-test('staged composer text triggers Enter and Send retry when initial click is unconfirmed', async () => {
-  let clicks = 0, keydowns = 0;
-  const composer = {
-    tagName: 'TEXTAREA', value: 'Dex retry test', closest: () => null,
-    focus() {},
-    dispatchEvent(event) {
-      if (event?.type === 'keydown' && event.key === 'Enter') {
-        keydowns++;
-        composer.value = '';
-      }
+test('delayed confirmation after a successful first click confirms without second gesture', async () => {
+  let clicks = 0, enters = 0, checks = 0;
+  const composer = { tagName: 'TEXTAREA', value: 'Dex delayed confirmation test', closest: () => null, dispatchEvent() { enters++; } };
+  const send = { click() { clicks++; } };
+  const mode = await chatgpt.submitComposer(composer, 'Dex delayed confirmation test', send, {
+    confirmTimeoutMs: 2000,
+    isCommitted: () => {
+      checks++;
+      if (checks >= 3) { composer.value = ''; return true; }
+      return false;
     }
-  };
-  const send = {
-    click() {
-      clicks++;
-    }
-  };
-  const oldWin = global.window, oldDoc = global.document, oldKey = global.KeyboardEvent;
-  global.window = {};
-  global.document = { activeElement: composer, querySelectorAll: () => [] };
+  });
+  assert.equal(mode, 'click');
+  assert.equal(clicks, 1, 'Send must be clicked exactly once');
+  assert.equal(enters, 0, 'No synthetic Enter gesture allowed during delayed confirmation');
+  assert.ok(checks >= 3, 'Multiple checks must occur before confirmation');
+});
+
+test('unconfirmed click with text still visible preserves draft without secondary gesture', async () => {
+  let clicks = 0, enters = 0;
+  const composer = { tagName: 'TEXTAREA', value: 'Dex unconfirmed draft', closest: () => null, dispatchEvent() { enters++; } };
+  const send = { click() { clicks++; } };
+  await assert.rejects(
+    chatgpt.submitComposer(composer, 'Dex unconfirmed draft', send, { confirmTimeoutMs: 80, isCommitted: () => false }),
+    /ChatGPT Send click unconfirmed; draft preserved; no automatic replay\./
+  );
+  assert.equal(clicks, 1, 'Send must be clicked exactly once');
+  assert.equal(enters, 0, 'No synthetic Enter gesture allowed when click is unconfirmed');
+  assert.equal(composer.value, 'Dex unconfirmed draft', 'Draft must be preserved intact');
+});
+
+test('nested-editor event bubbling dispatches to target without duplicate dispatch on composer', () => {
+  const composerEvents = [], targetEvents = [];
+  let p = null;
+  const composer = { tagName: 'DIV', focus() {}, contains(el) { return el === p; }, querySelector(s) { return s === 'p' ? p : null; }, dispatchEvent(e) { composerEvents.push(e.type); } };
+  p = { tagName: 'P', parentElement: composer, dispatchEvent(e) { targetEvents.push(e.type); if (e.bubbles && this.parentElement) this.parentElement.dispatchEvent(e); } };
+  const oldDoc = global.document, oldKey = global.KeyboardEvent;
+  global.document = { activeElement: p };
   global.KeyboardEvent = class KeyboardEvent { constructor(type, options) { this.type = type; Object.assign(this, options); } };
-  const prior = chatgptInput.composerContainsText;
-  chatgptInput.composerContainsText = (c, text) => c.value === text;
   try {
-    const mode = await chatgpt.submitComposer(composer, 'Dex retry test', send, {
-      exactOnce: false,
-      confirmTimeoutMs: 2000,
-      isCommitted: () => composer.value === ''
-    });
-    assert.equal(mode, 'click');
-    assert.equal(clicks, 1);
-    assert.equal(keydowns, 1);
+    chatgptInput.dispatchComposerEnter(composer);
+    assert.deepEqual(targetEvents, ['keydown', 'keypress', 'keyup']);
+    assert.deepEqual(composerEvents, ['keydown', 'keypress', 'keyup'], 'Composer receives exactly one bubbling set');
   } finally {
-    chatgptInput.composerContainsText = prior;
-    global.window = oldWin;
     global.document = oldDoc;
     global.KeyboardEvent = oldKey;
   }
 });
+
+test('throwing requestSubmit handler cannot fall through to Enter and preserves draft', async () => {
+  const throwingForm = { requestSubmit() { throw new Error('Form requestSubmit failed'); } };
+  const composer = { closest(s) { return s === 'form' ? throwingForm : null; } };
+  assert.equal(chatgpt.requestComposerSubmit(composer), false, 'requestComposerSubmit safely returns false');
+
+  let enterKeydowns = 0;
+  const oldKey = global.KeyboardEvent;
+  global.KeyboardEvent = class KeyboardEvent { constructor(type, options) { this.type = type; Object.assign(this, options); } };
+  const field = { tagName: 'TEXTAREA', value: 'Dex submit test', closest(s) { return s === 'form' ? throwingForm : null; }, focus() {}, dispatchEvent(e) { if (e.type === 'keydown') enterKeydowns++; } };
+  try {
+    await assert.rejects(
+      chatgpt.submitComposer(field, 'Dex submit test', null, { confirmTimeoutMs: 80, isCommitted: () => false }),
+      /ChatGPT form submit unconfirmed; draft preserved; no automatic replay\./
+    );
+    assert.equal(enterKeydowns, 0, 'Throwing requestSubmit must not fall through to Enter');
+    assert.equal(field.value, 'Dex submit test', 'Draft must be preserved intact');
+  } finally {
+    global.KeyboardEvent = oldKey;
+  }
+});
+
+
