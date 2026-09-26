@@ -28,12 +28,9 @@
     return `online:${source.providerId || 'provider'}:${source.url || source.targetId || 'target'}`;
   }
   function bindingMatchesSource(binding = {}, source = {}) {
-    if (binding.targetClassId !== source.targetClassId) return false;
-    if (source.targetClassId === 'local-origin') {
-      if (String(binding.targetId || '') === String(source.targetId || '')) return true;
-      return binding.providerId === 'local-antigravity-existing' && source.providerId === 'local-antigravity-existing';
-    }
-    if (binding.providerId !== source.providerId) return false;
+    if (binding.targetClassId !== source.targetClassId || binding.providerId !== source.providerId) return false;
+    if (source.targetClassId === 'local-origin')
+      return !!binding.targetId && String(binding.targetId) === String(source.targetId || '');
     if (binding.targetId && source.targetId && String(binding.targetId) === String(source.targetId)) return true;
     if (binding.url && source.url) return binding.url === source.url;
     return String(binding.targetId || '') === String(source.targetId || '');

@@ -148,10 +148,14 @@ function resolveOnline(member, tabs = []) {
 
 function resolveLocal(member, targets = []) {
   const binding = member?.binding || {};
-  return targets.find((target) => target.id === binding.targetId)
-    || (binding.providerId === 'local-antigravity-existing'
-      ? targets.find((target) => target.providerId === 'local-antigravity-existing') : null)
-    || null;
+  if (binding.targetClassId !== 'local-origin' || !binding.providerId || !binding.targetId
+    || !Array.isArray(targets)) return null;
+  const matches = targets.filter((target) => target && String(target.id) === String(binding.targetId));
+  // Same-provider fallback can silently dispatch to a DIFFERENT Antigravity PID.
+  // Leave the room pending until an independently authenticated rebind is committed.
+  return matches.length === 1 && matches[0].providerId === binding.providerId
+    && (!matches[0].targetClassId || matches[0].targetClassId === 'local-origin')
+    ? matches[0] : null;
 }
 
 function priorReply(room, member, sourceMessageId) {

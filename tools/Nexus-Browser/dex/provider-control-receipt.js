@@ -15,7 +15,7 @@ function bindingMatchesSource(binding = {}, source = {}) {
     if (binding.targetId != null && source.targetId != null && String(binding.targetId) === String(source.targetId)) return true;
     return !!binding.url && !!source.url && binding.url === source.url;
   }
-  return String(binding.targetId || '') === String(source.targetId || '');
+  return !!binding.targetId && String(binding.targetId) === String(source.targetId || '');
 }
 
 function compactBinding(binding = null) {
