@@ -1,3 +1,4 @@
+const { commandKey } = require('./provider-control-receipt');
 const MAX_MANAGED_AGENTS = 4;
 
 function sameSource(binding = {}, source = {}) {
@@ -49,7 +50,14 @@ function authorizeRoom(snapshot, source, command) {
   if (!room || !member) {
     return { ok: false, code: 'DEX_CONTROL_ROOM_NOT_FOUND', message: 'That room is not authorized for this exact provider chat/session.' };
   }
-  if (roomBusy(room)) {
+  // The caller's own correlated control receipt must not block its action
+  // after that exact turn settles. All other receipts and queued work still block.
+  const pending = room.pendingProviderControlReceipt;
+  const ownSettledReceipt = pending && pending.executorMemberId === member.id
+    && pending.commandKey === commandKey(command)
+    && !room.relay?.active && !room.relay?.waitingFor
+    && !room.pendingTurn && !room.recovery && !(room.deferredRelays || []).length;
+  if (roomBusy(room) && !ownSettledReceipt) {
     const currentSourceTurn = room.relay?.active === true
       && room.relay?.waitingFor === member.id
       && (!room.recovery?.memberId || room.recovery.memberId === member.id);

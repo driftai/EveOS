@@ -334,6 +334,7 @@
       '- Before NOTE/DONE while another agent is still working: first secure the result in the room or register an explicit background task-completion watch. NOTE does not monitor disconnected terminal jobs; only captured turns or authenticated new sends enter the durable inbox.',
       '- Control markers are interpreted only when they trail the reply.',
       '- Recent room context defaults to one latest prior message PER room agent, excluding the current source. Fresh authorized incoming messages queued during another turn appear separately in FIFO order. Older room history remains durable.',
+       '- Current message is the authoritative unabridged source for this relay turn; earlier context is projected, while NEW INCOMING updates remain independently authoritative.',
       '- For THIS outgoing reply only, put [[DEX:CONTEXT:12]] BEFORE RETURN/DONE to attach up to 12 prior room messages to the next recipient; valid range 1–40. Read your own backlog without a new room message: [[DEX:CMD {"action":"room_log","limit":10}]] (a CMD pauses relay).',
       '- To extend a still-running relay before it runs out, put [[DEX:BUDGET:+4]] BEFORE RETURN/DONE to add four more unscheduled turns (up to 500 allocated per run). To inspect/change the idle room budget, use [[DEX:CMD {"action":"room_budget"}]] or [[DEX:CMD {"action":"set_room_budget","turns":12,"resume":true}]]; CMD pauses the current relay.',
       '- Do not rewrite Room/Recipient routing in prose.',
