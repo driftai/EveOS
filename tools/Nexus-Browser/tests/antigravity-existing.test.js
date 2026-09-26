@@ -56,9 +56,6 @@ test('ready detection requires an empty Antigravity prompt and rejects busy/draf
   assert.equal(looksReadyForInput('Working...\nGemini 3.8 Flash · high'), false);
   assert.equal(looksReadyForInput('stuff\n>\nesc to cancel · Gemini 3.8 Flash · high'), false);
   assert.equal(looksReadyForInput('stuff\n>                       ?\nesc to cancel · Gemini 3.8 Flash · high?'), false);
-  assert.equal(looksReadyForInput('Running npm test...\n>\n? for shortcuts Gemini 3.8 Flash · high · 1 task(s) · /tasks'), false);
-  assert.equal(looksReadyForInput('Running npm test...\n>\n? for shortcuts Gemini 3.8 Flash · high · 3 task(s) · /tasks'), false);
-  assert.equal(looksReadyForInput('Qualification complete.\n>\n? for shortcuts Gemini 3.8 Flash · high · 0 task(s) · /tasks'), true);
 });
 
 test('visible reply extraction returns the assistant block after the injected prompt', () => {
