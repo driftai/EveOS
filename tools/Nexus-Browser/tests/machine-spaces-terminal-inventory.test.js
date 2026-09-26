@@ -42,7 +42,7 @@ test('same provider with changed PID or process creation epoch cannot inherit se
   assert.equal(resolveExact(snapshot, { deviceId, targetId: 'terminal-ps-one',
     processEpoch: 'birth-101' }), null);
   assert.equal(resolveExact(snapshot, { deviceId, targetId: 'terminal-ps-one',
-    processEpoch: 'birth-100', pid: 25123 })?.pid, 25032);
+    processEpoch: 'birth-100', pid: 25123 }), null);
   assert.equal(resolveExact(snapshot, { deviceId: 'different', targetId: 'terminal-ps-one',
     processEpoch: 'birth-100' }), null);
 });

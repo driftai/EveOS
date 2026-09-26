@@ -51,12 +51,13 @@ function buildInventory({ deviceId, records, attest } = {}) {
   return Object.freeze({ version: 1, targetClassId: CLASS, deviceId,
     targets: Object.freeze(targets) });
 }
-function resolveExact(inventory, { deviceId, targetId, processEpoch } = {}) {
+function resolveExact(inventory, { deviceId, targetId, processEpoch, pid = null } = {}) {
   if (inventory?.targetClassId !== CLASS || inventory.deviceId !== deviceId
     || !ID.test(String(targetId || '')) || !ID.test(String(processEpoch || '')))
     return null;
   const candidates = (inventory.targets || []).filter((target) => target.targetId === targetId
-    && target.processEpoch === processEpoch && target.deviceId === deviceId);
+    && target.processEpoch === processEpoch && target.deviceId === deviceId
+    && (pid == null || target.pid === pid));
   return candidates.length === 1 ? candidates[0] : null;
 }
 module.exports = { CLASS, TYPES, ORIGINS, MAX_TARGETS, buildInventory, resolveExact };
