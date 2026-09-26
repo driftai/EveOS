@@ -70,7 +70,7 @@ test('bound online agent can rename and configure its room', () => {
     command: { action: 'configure_room', room: 'Research Room', maxTurns: 20, contextMessages: 10, autoRelay: false }
   }).ok, true);
   assert.equal(state.rooms[0].name, 'Research Room');
-  assert.deepEqual(state.rooms[0].settings, { autoRelay: false, maxTurns: 20, contextMessages: 10 });
+  assert.deepEqual(state.rooms[0].settings, { autoRelay: false, maxTurns: 20, contextMessages: 10, contextDefaultMessages: 10, budgetRevision: 1 });
 });
 
 test('bound online agent can rename, observe, and remove another participant', () => {

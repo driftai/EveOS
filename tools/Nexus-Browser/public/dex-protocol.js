@@ -12,7 +12,7 @@
   const PROVIDER_CONTROL_ACTIONS = new Set([
     'help', 'onboard', 'checkpoint', 'read_checkpoint', 'rooms', 'targets', 'create_room', 'use_room', 'status',
     'rename_room', 'configure_room', 'rename_self', 'set_self_relay', 'rename_agent', 'set_agent_relay', 'remove_agent',
-    'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
+    'stop_relay', 'continue_relay', 'room_budget', 'set_room_budget', 'room_log', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
     'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle'
   ]);
   const NESTED_RELAY_MARKER = /\[{1,2}DEX ROOM RELAY\]/i;
@@ -100,21 +100,37 @@
     if (providerCommand) text = cleanText(text.slice(0, providerCommand.index));
     const controls = new Set();
     let returnRequestId = null, headsUpTarget = null, headsUpCount = 0;
-    const trailingToken = /\s*(\[\[DEX:(?:[A-Z_]+|RETURN:dex-turn-[A-Za-z0-9-]{8,128}|HEADSUP:[^\]\[\r\n]{1,80})\]\])\s*$/;
+    let contextOverride = null, budgetIncrease = null, invalidFlag = false;
+    const trailingToken = /\s*(\[\[DEX:(?:[A-Z_]+|RETURN:dex-turn-[A-Za-z0-9-]{8,128}|HEADSUP:[^\]\[\r\n]{1,80}|CONTEXT:[0-9]{1,3}|BUDGET:\+[0-9]{1,3})\]\])\s*$/;
     let match = text.match(trailingToken);
     while (match) {
       const kind = CONTROL_BY_TOKEN[match[1]];
       const tagged = /^\[\[DEX:RETURN:(dex-turn-[A-Za-z0-9-]{8,128})\]\]$/.exec(match[1]);
       const headsUp = /^\[\[DEX:HEADSUP:([^\]\[\r\n]{1,80})\]\]$/.exec(match[1]);
-      if (!kind && !tagged && !headsUp) break;
+      const context = /^\[\[DEX:CONTEXT:([0-9]{1,3})\]\]$/.exec(match[1]);
+      const budget = /^\[\[DEX:BUDGET:\+([0-9]{1,3})\]\]$/.exec(match[1]);
+      if (!kind && !tagged && !headsUp && !context && !budget) break;
+      if (context) {
+        const n = Number(context[1]);
+        if (contextOverride != null || n < 1 || n > 40) invalidFlag = true;
+        else contextOverride = n;
+      }
+      if (budget) {
+        const n = Number(budget[1]);
+        if (budgetIncrease != null || n < 1 || n > MAX_RELAY_TURNS) invalidFlag = true;
+        else budgetIncrease = n;
+      }
       if (kind) controls.add(kind);
       if (tagged) returnRequestId = tagged[1];
       if (headsUp) { headsUpCount += 1; headsUpTarget = cleanText(headsUp[1]); }
       text = cleanText(text.slice(0, match.index));
       match = text.match(trailingToken);
     }
+    invalidFlag ||= /\[\[DEX:(?:CONTEXT|BUDGET):[^\]\r\n]*\]\]$/.test(text);
     return {
       text,
+      ...(contextOverride != null && !invalidFlag ? { contextOverride } : {}),
+      ...(budgetIncrease != null && !invalidFlag ? { budgetIncrease } : {}),
       done: controls.has('done'),
       needsUser: controls.has('user'),
       note: controls.has('note'),
@@ -122,7 +138,7 @@
       ...(headsUpCount === 1 && headsUpTarget ? { headsUpTarget } : {}),
       ...(headsUpCount > 1 || (headsUpCount === 1 && !headsUpTarget) ? { headsUpInvalid: true } : {}),
       ...(providerCommand ? { providerCommand: providerCommand.action, providerControlCommand: providerCommand.command } : {}),
-      ...(malformedCommand ? { malformedCommand: true } : {}),
+      ...(malformedCommand || invalidFlag ? { malformedCommand: true } : {}),
       ...(handoff ? { handoff: true } : {})
     };
   }
@@ -194,7 +210,7 @@
   }
 
   function boundedContext(messages, limit = 8, maxChars = DEFAULT_MAX_CONTEXT_CHARS) {
-    const messageLimit = clampInt(limit, 2, 20, 8);
+    const messageLimit = clampInt(limit, 1, 40, 8);
     const budget = Math.max(512, Number(maxChars) || DEFAULT_MAX_CONTEXT_CHARS);
     const perMessageChars = Math.max(256, Math.min(DEFAULT_MAX_MESSAGE_CHARS, budget - 128));
     const separator = '\n\n---\n\n';
@@ -215,12 +231,45 @@
     return newestFirst.reverse().join(separator);
   }
 
+  // Never leak messages posted AFTER an older queued source; retain only the
+  // most recent prior reply from each exact participant by default.
+  function selectRelayHistory(room, source, requested = null) {
+    const all = room?.messages || [];
+    const sourceIndex = all.findIndex((message) => message?.id === source?.id);
+    const earlier = (sourceIndex < 0 ? all : all.slice(0, sourceIndex))
+      .filter((m) => m && m.id !== source?.id
+        && (m.senderKind === 'agent' || m.senderKind === 'user'));
+    const members = (room?.members || []).filter((m) => !!m?.id);
+    const anchors = new Set();
+    for (const participant of members) {
+      for (let i = earlier.length - 1; i >= 0; i--) {
+        if (earlier[i].senderKind === 'agent' && earlier[i].senderId === participant.id) {
+          anchors.add(i); break;
+        }
+      }
+    }
+    const requestedCap = Number(requested ?? source?.contextOverride
+      ?? room?.settings?.contextDefaultMessages);
+    const explicit = Number.isInteger(requestedCap) && requestedCap > 0;
+    const cap = explicit ? Math.max(anchors.size, clampInt(requestedCap, 1, 40, 1))
+      : anchors.size;
+    // Elevated context keeps the member anchors, then fills from newest older
+    // messages. User messages are on-demand only, not extra default baggage.
+    if (cap > anchors.size) for (let i = earlier.length - 1; i >= 0 && anchors.size < cap; i--) anchors.add(i);
+    return earlier.filter((_entry, index) => anchors.has(index));
+  }
+
   function buildRelayPrompt({ room, recipient, member, sourceMessage, requestId, providerHealth = '' }) {
     const addressed = recipient || member;
     const participants = (room?.members || []).map((entry) => `- ${memberSummary(entry)}`).join('\n') || '- none';
-    const contextLimit = clampInt(room?.settings?.contextMessages, 2, 20, 8);
-    const history = (room?.messages || []).filter((message) => message.id !== sourceMessage?.id);
-    const context = boundedContext(history, contextLimit);
+    const history = selectRelayHistory(room, sourceMessage);
+    const context = boundedContext(history, Math.max(1, history.length),
+      sourceMessage?.contextOverride ? 24000 : DEFAULT_MAX_CONTEXT_CHARS);
+    const total = Number(room?.relay?.turnBudgetTotal);
+    const remaining = Math.max(0, Number(room?.relay?.remaining || 0));
+    const budget = Number.isInteger(total) && total >= 1
+      ? `Turn budget: ${total} allocated · ${Math.max(0, total - remaining)} scheduled · ${remaining} unscheduled remaining (this turn is already scheduled).`
+      : `Turn budget: ${remaining} unscheduled remaining · legacy allocation unknown.`;
     const doneSubscribers = (room?.doneWatches || []).filter((watch) => watch.watcherMemberId !== addressed?.id
       && (!watch.targetMemberId || watch.targetMemberId === addressed?.id)
       && Date.parse(watch.expiresAt || '') > Date.now()).length;
@@ -235,6 +284,8 @@
       `Recipient: ${cleanName(addressed?.name, 'Agent')}`,
       'Participants:',
       participants,
+      budget,
+      `Default future turn budget: ${clampInt(room?.settings?.maxTurns, 1, MAX_RELAY_TURNS, 8)} (limit ${MAX_RELAY_TURNS}).`,
       '',
       'Provider availability:',
       cleanText(providerHealth) || '- no blocking provider signals reported',
@@ -252,12 +303,15 @@
       `- End with ${USER_TOKEN} only when human input is required before work can continue.`,
       `- End with ${NOTE_TOKEN} only for an informational room note that should be recorded without triggering another agent turn.`,
       '- Control markers are interpreted only when they trail the reply.',
-      '- Recent room context is a compact projection; Current message is the authoritative unabridged source for this turn.',
+      '- Recent room context defaults to one latest prior message PER room agent, excluding the current source. Older room history stays durable; Current message is authoritative and unabridged.',
+      '- For THIS outgoing reply only, put [[DEX:CONTEXT:12]] BEFORE RETURN/DONE to attach up to 12 prior room messages to the next recipient; valid range 1–40. Read your own backlog without a new room message: [[DEX:CMD {"action":"room_log","limit":10}]] (a CMD pauses relay).',
+      '- To extend a still-running relay before it runs out, put [[DEX:BUDGET:+4]] BEFORE RETURN/DONE to add four more unscheduled turns (up to 500 allocated per run). To inspect/change the idle room budget, use [[DEX:CMD {"action":"room_budget"}]] or [[DEX:CMD {"action":"set_room_budget","turns":12,"resume":true}]]; CMD pauses the current relay.',
       '- Do not rewrite Room/Recipient routing in prose.',
       '- If you need Dex room/worker controls, end with [[DEX:CMD {"action":"onboard"}]] to receive the current self-service command set. A trailing provider-control command pauses this relay before the control action runs.',
       '- If this exact chat is also bound to another Dex room, an intentional transfer may end with [[DEX:CMD {"action":"handoff_room","room":"<authorized room id or exact name>","text":"<message>","turns":8}]]. Dex stops this room before starting the authorized target room.',
       '',
       'Recent room context (projected):',
+      `Context selection: ${history.length} earlier message(s), latest per agent unless explicitly expanded.`,
       context || '(no earlier room messages)',
       '',
       'Current message:',
@@ -316,6 +370,7 @@
     projectContextText,
     projectedMessageBlock,
     boundedContext,
+    selectRelayHistory,
     buildRelayPrompt,
     nextMemberIndex,
     isRepeatedReply

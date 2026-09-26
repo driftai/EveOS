@@ -236,6 +236,8 @@ function createDexServerScheduler({
     room.relay = room.relay || {};
     room.relay.active = true;
     room.relay.remaining = stateApi.safeBudget(budget ?? room.settings?.maxTurns, 8);
+    room.relay.turnBudgetTotal = room.relay.remaining;
+    room.relay.scheduledTurns = 0;
     room.relay.lastStopReason = 'Running';
     enqueueNext(room, source);
     save(snapshot);
@@ -321,17 +323,19 @@ function createDexServerScheduler({
     const member = stateApi.memberById(room, current.memberId);
     if (!room || !member) return false;
     const parsed = protocol.parseAgentReply(text);
+    if (parsed.returnRequestId && parsed.returnRequestId !== current.requestId) return false;
     const repeated = protocol.isRepeatedReply(room.messages, parsed.text);
     const sourceMessage = stateApi.messageById(room, current.sourceMessageId);
     const message = addMessage(room, {
       senderKind: 'agent', senderId: member.id,
-      senderName: member.name, text: parsed.text || '(No textual response.)'
+      senderName: member.name, text: parsed.text || '(No textual response.)',
+      contextOverride: parsed.contextOverride
     });
     if (parsed.providerControlCommand) controlReceiptApi.rememberIntent(room, { executorMember: member, sourceMessage, command: parsed.providerControlCommand, agentMessage: message, turnRequestId: current.requestId, at: now() });
     delete room.recovery;
     room.relay.waitingFor = null;
+    stateApi.extendBudget(room, parsed);
     const disposition = protocol.relayDisposition(parsed, member.name, repeated, room.relay);
-    if (parsed.returnRequestId && parsed.returnRequestId !== current.requestId) return false;
     if (parsed.done) doneWatchApi.consume(room, { completedMemberId: member.id, message, at: now() });
     if (parsed.headsUpTarget || parsed.headsUpInvalid) doneWatchApi.emitHeadsUp(room, { senderMemberId: member.id, targetRef: parsed.headsUpTarget, invalid: parsed.headsUpInvalid, done: parsed.done, message, at: now() });
     stateApi.rememberFinalReceipt(room, current.requestId, message.id, now());
@@ -343,7 +347,6 @@ function createDexServerScheduler({
     try { onTurnSettled(); } catch {}
     return true;
   }
-
   async function handleTransportEvent(msg = {}) {
     if (recovery.handleEvent(msg)) return true;
     if (msg.type === 'provider_health_update' && current) {
@@ -374,7 +377,6 @@ function createDexServerScheduler({
     if (msg.type === 'error') return handleTurnError(msg);
     return false;
   }
-
   async function maybeRestoreTarget(snapshot = load()) {
     if (current || recovery.hasWork(snapshot) || stateApi.pendingRooms(snapshot).length
         || (snapshot.rooms || []).some((room) => room.relay?.active)) return false;
@@ -392,9 +394,7 @@ function createDexServerScheduler({
       tabId: Number(target.id), providerId: target.providerId
     });
   }
-
   function onStateChanged() { if (!current) processSoon(0); }
-
   function parkCurrent(reason = 'Provider transport interrupted.') {
     if (!current) return false;
     const snapshot = load(), room = stateApi.roomById(snapshot, current.roomId);
@@ -410,11 +410,8 @@ function createDexServerScheduler({
     broadcastEvent({ type: 'dex_scheduler_event', event: 'parked', roomId: room?.id || null, reason });
     return true;
   }
-
   function transportLost() { recovery.transportLost(); return current ? parkCurrent('Provider transport disconnected.') : true; }
-
   function resume() { processSoon(0); }
-
   function diagnostics() {
     const snapshot = load();
     const activeRoom = current ? stateApi.roomById(snapshot, current.roomId) : null;
@@ -431,7 +428,6 @@ function createDexServerScheduler({
       recoveryRooms: (snapshot.rooms || []).filter((room) => !!room.recovery).map((room) => room.id),
       recovery: recovery.diagnostics() };
   }
-
   return {
     startRelay, stopRelay, continueRelay,
     handleTransportEvent, onStateChanged, transportLost, resume, process, resolvePassiveRecovery: (input) => recovery.resolvePassive(input), diagnostics

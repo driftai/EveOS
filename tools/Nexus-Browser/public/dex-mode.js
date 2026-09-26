@@ -48,7 +48,7 @@
       userName: 'User',
       members: [],
       messages: [],
-      settings: { autoRelay: true, maxTurns: 8, contextMessages: 8 },
+      settings: { autoRelay: true, maxTurns: 8, contextMessages: 8, contextDefaultMessages: null },
       relay: { active: false, remaining: 0, waitingFor: null, lastStopReason: 'Idle' },
       createdAt: now(),
       updatedAt: now()
@@ -326,9 +326,10 @@
     el.dexUserName.value = room.userName;
     el.dexAutoRelay.checked = !!room.settings.autoRelay;
     el.dexMaxTurns.value = room.settings.maxTurns;
+    const budgetLabel = ` · ${room.relay.scheduledTurns ?? '?'} / ${room.relay.turnBudgetTotal ?? '?'} scheduled · ${room.relay.remaining || 0} left`;
     el.dexRoomStatus.textContent = room.relay.active
-      ? `Relay running on localhost · ${room.relay.remaining} turn(s) left${room.relay.waitingFor ? ' · waiting for agent' : ''}${connectionSuffix}`
-      : `Relay stopped · ${room.relay.lastStopReason || 'Idle'}${connectionSuffix}`;
+      ? `Relay running on localhost${budgetLabel}${room.relay.waitingFor ? ' · waiting for agent' : ''}${connectionSuffix}`
+      : `Relay stopped · ${room.relay.lastStopReason || 'Idle'}${budgetLabel}${connectionSuffix}`;
     memberController.render(room);
     roomView.renderTranscript(room);
     const editing = memberController.isEditing();
@@ -363,7 +364,9 @@
     room.name = protocol.cleanName(el.dexRoomName.value, room.name);
     room.userName = protocol.cleanName(el.dexUserName.value, 'User');
     room.settings.autoRelay = el.dexAutoRelay.checked;
-    room.settings.maxTurns = protocol.clampInt(el.dexMaxTurns.value, 1, protocol.MAX_RELAY_TURNS, 8);
+    const nextBudget = protocol.clampInt(el.dexMaxTurns.value, 1, protocol.MAX_RELAY_TURNS, 8);
+    if (room.settings.maxTurns !== nextBudget) room.settings.budgetRevision = Number(room.settings.budgetRevision || 0) + 1;
+    room.settings.maxTurns = nextBudget;
     room.updatedAt = now();
     persist();
     renderAll();

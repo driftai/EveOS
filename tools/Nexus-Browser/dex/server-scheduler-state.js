@@ -12,10 +12,11 @@ function messageById(room, messageId) {
   return (room?.messages || []).find((message) => message.id === messageId) || null;
 }
 
-function addMessage(room, { id, senderKind, senderId, senderName, text, at }) {
+function addMessage(room, { id, senderKind, senderId, senderName, text, at, contextOverride }) {
   const message = {
     id, senderKind, senderId, senderName,
-    text: protocol.cleanText(text), at
+    text: protocol.cleanText(text), at,
+    ...(Number.isInteger(contextOverride) && contextOverride >= 1 && contextOverride <= 40 ? { contextOverride } : {})
   };
   room.messages = Array.isArray(room.messages) ? room.messages : [];
   room.messages.push(message);
@@ -89,6 +90,7 @@ function enqueueNext(room, sourceMessage, queuedAt) {
     return false;
   }
   room.relay.remaining = Math.max(0, Number(room.relay.remaining || 0) - 1);
+  room.relay.scheduledTurns = Math.max(0, Number(room.relay.scheduledTurns || 0)) + 1;
   queueTurn(room, member, sourceMessage, queuedAt, 0);
   return true;
 }
@@ -160,6 +162,19 @@ function priorReply(room, member, sourceMessageId) {
   ) || null;
 }
 
+function extendBudget(room, parsed = {}) {
+  if (!room?.relay?.active || !Number.isInteger(parsed.budgetIncrease)
+      || parsed.done || parsed.needsUser || parsed.note || parsed.providerCommand
+      || parsed.malformedCommand) return 0;
+  const relay = room.relay;
+  const used = Math.max(0, Number(relay.scheduledTurns || 0));
+  const total = Number(relay.turnBudgetTotal || used + Number(relay.remaining || 0));
+  const added = Math.min(parsed.budgetIncrease, Math.max(0, protocol.MAX_RELAY_TURNS - total));
+  relay.turnBudgetTotal = total + added;
+  relay.remaining = Math.max(0, Number(relay.remaining || 0)) + added;
+  relay.lastBudgetExtension = { requested: parsed.budgetIncrease, applied: added };
+  return added;
+}
 function safeBudget(value, fallback = 8) {
   const parsed = Number(value);
   return Math.max(1, Math.min(protocol.MAX_RELAY_TURNS, Number.isFinite(parsed) ? parsed : fallback));
@@ -176,6 +191,6 @@ function supportsOperation(providers, providerId, operation) {
 module.exports = {
   roomById, memberById, messageById, addMessage, rememberFinalReceipt, findFinalReceipt, requestStop, setStopped,
   validPending, queueTurn, enqueueNext, pendingRooms, duePendingRooms, nextPendingDelay,
-  createRecoveryJournal, resolveOnline, resolveLocal, priorReply, safeBudget,
+  createRecoveryJournal, resolveOnline, resolveLocal, priorReply, safeBudget, extendBudget,
   providerById, supportsOperation
 };

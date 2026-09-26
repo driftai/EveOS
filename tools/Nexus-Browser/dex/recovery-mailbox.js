@@ -40,6 +40,10 @@ function queueInterruptedSend(snapshot, { source, command, requestId, at = new D
   if (!text) return { snapshot, changed: false, result: {
     ok: false, code: 'DEX_CONTROL_EMPTY_MESSAGE', message: 'send requires non-empty text.'
   } };
+  if (command.contextMessages != null
+      && (!Number.isInteger(command.contextMessages) || command.contextMessages < 1 || command.contextMessages > 40))
+    return { snapshot, changed: false, result: { ok: false, code: 'DEX_CONTEXT_INVALID',
+      message: 'contextMessages must be 1–40 for this one queued send.' } };
   const queue = room.deferredRelays = Array.isArray(room.deferredRelays) ? room.deferredRelays : [];
   if (queue.length >= MAX_QUEUED) return { snapshot, changed: false, result: {
     ok: false, code: 'DEX_RECOVERY_MAILBOX_FULL',
@@ -47,7 +51,8 @@ function queueInterruptedSend(snapshot, { source, command, requestId, at = new D
   } };
   const member = matchingMember(room, source);
   const message = stateApi.addMessage(room, {
-    id: makeId(), at, senderKind: 'agent', senderId: member.id, senderName: member.name, text
+    id: makeId(), at, senderKind: 'agent', senderId: member.id, senderName: member.name, text,
+    contextOverride: Number(command.contextMessages)
   });
   queue.push({ requestId, messageId: message.id, queuedAt: at,
     budget: stateApi.safeBudget(command.turns ?? room.settings?.maxTurns, 8) });
@@ -78,6 +83,7 @@ function activateNext(snapshot, at = new Date().toISOString()) {
   }
   room.relay = room.relay || {};
   Object.assign(room.relay, { active: true, remaining: item.budget || 8,
+    turnBudgetTotal: item.budget || 8, scheduledTurns: 0,
     waitingFor: null, lastStopReason: 'Starting deferred send after recovery' });
   stateApi.enqueueNext(room, message, at);
   room.deferredSendReceipts = (room.deferredSendReceipts || []).map((r) =>

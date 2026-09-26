@@ -1,6 +1,7 @@
 const orchestrationPolicy = require('./provider-orchestration-policy'), controlReceiptApi = require('./provider-control-receipt');
 const { createAgentExtensionReload } = require('./agent-extension-reload');
 const recoveryMailbox = require('./recovery-mailbox');
+const roomTools = require('./room-tools');
 const POST_IDLE_ACTIONS = new Set(['arm_post_idle','post_idle_status','cancel_post_idle','report_post_idle']);
 const { runPostIdleCommand } = require('./post-idle-control');
 const doneWatchApi = require('../public/dex-done-watch');
@@ -8,7 +9,7 @@ const { randomUUID } = require('node:crypto');
 const MUTATING_ACTIONS = new Set([
   'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
   'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
-  'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
+  'stop_relay', 'continue_relay', 'set_room_budget', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
   'arm_post_idle', 'cancel_post_idle', 'report_post_idle'
 ]);
 const DEDUPE_TTL_MS = 120000, MAX_ORIGIN_WAIT_MS = 4 * 60 * 1000, ORIGIN_POLL_MS = 250;
@@ -32,7 +33,7 @@ function mutationKey(source, command = {}) {
 function createProviderControlRouting({
   uiSockets, safeSend, validateSource, ensureDexClient, getDexClient,
   getState, saveState, broadcastState, spawnTarget, closeTarget, recordIncident, getExtension,
-  getMaintenance = () => null, maintenanceBusy = () => false,
+  getMaintenance = () => null, maintenanceBusy = () => false, getScheduler = () => null,
   now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 }) {
@@ -159,6 +160,9 @@ function createProviderControlRouting({
       return true;
     }
     const origin = settledOrigin.origin;
+    if (roomTools.ACTIONS.has(action)) return roomTools.route(
+      { source, command, requestId, ws, origin },
+      { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt });
     if (POST_IDLE_ACTIONS.has(action)) {
       const result = runPostIdleCommand(getMaintenance(), action, source, command);
       const receipt = commitOriginReceipt(origin, result, requestId);

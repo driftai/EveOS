@@ -14,10 +14,10 @@
   const ACTIONS = new Set([
     'help', 'onboard', 'checkpoint', 'read_checkpoint', 'rooms', 'targets', 'create_room', 'use_room', 'status',
     'rename_self', 'set_self_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room',
-    'stop_relay', 'continue_relay', 'reload_extension', 'watch_done', 'unwatch_done',
+    'stop_relay', 'continue_relay', 'room_budget', 'set_room_budget', 'room_log', 'reload_extension', 'watch_done', 'unwatch_done',
     'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle', ...roomAdminApi.ACTIONS
   ]);
-  const MUTATING_ACTIONS = new Set(['checkpoint','create_room','rename_room','configure_room','add_agent','spawn_agent','despawn_agent','rename_agent','set_agent_relay','remove_agent','rename_self','set_self_relay','stop_relay','continue_relay','clear_chat','delete_room','send','handoff_room','reload_extension','watch_done','unwatch_done','arm_post_idle','cancel_post_idle','report_post_idle']);
+  const MUTATING_ACTIONS = new Set(['checkpoint','create_room','rename_room','configure_room','add_agent','spawn_agent','despawn_agent','rename_agent','set_agent_relay','remove_agent','rename_self','set_self_relay','stop_relay','continue_relay','set_room_budget','clear_chat','delete_room','send','handoff_room','reload_extension','watch_done','unwatch_done','arm_post_idle','cancel_post_idle','report_post_idle']);
   function clean(value, max = 16000) {
     return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, max);
   }
@@ -116,6 +116,7 @@
       recoveryRequestId: room.recovery?.requestId || null, recoveryPassiveAt: room.recovery?.passiveAt || null, deferredSends: (room.deferredRelays || []).length, archivedLateFinalWatches: (room.lateFinalWatches || []).length,
       recoveryMemberId: room.recovery?.memberId || null,
       recoveryMemberName: (room.members || []).find((entry) => entry.id === room.recovery?.memberId)?.name || null,
+      budget: { configuredTurns: room.settings?.maxTurns || 8, allocatedTurns: room.relay?.turnBudgetTotal || null, scheduledTurns: room.relay?.scheduledTurns ?? null, remainingTurns: room.relay?.remaining || 0 },
       messages: room.messages?.length || 0
     };
   }
@@ -142,7 +143,7 @@
         providerName: member?.binding?.providerName || null,
         relayEnabled: member?.relayEnabled !== false
       },
-      commands: ['rooms', 'targets', 'status', 'checkpoint', 'read_checkpoint', 'use_room', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done'],
+      commands: ['rooms', 'targets', 'status', 'room_budget', 'set_room_budget', 'room_log', 'checkpoint', 'read_checkpoint', 'use_room', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done'],
       spawnProviders: providers.filter((entry) => entry.orchestration?.spawnable).map((entry) => ({ providerId: entry.id, providerName: entry.name })),
       continuity: continuityApi.onboardingGuidance(room, member, provider),
       rules: [
@@ -193,8 +194,9 @@
             '[[DEX:CMD {"action":"create_room","name":"<room name>","disposable":true,"purpose":"managed-worker-proof"}]]',
             '[[DEX:CMD {"action":"use_room","room":"<room id or exact name>"}]]',
             '[[DEX:CMD {"action":"status"}]]',
+            '[[DEX:CMD {"action":"room_budget"}]]', '[[DEX:CMD {"action":"set_room_budget","turns":12,"resume":true}]]', '[[DEX:CMD {"action":"room_log","limit":10,"before":"<optional id>"}]]',
             '[[DEX:CMD {"action":"rename_room","room":"<room>","name":"<new name>"}]]',
-            '[[DEX:CMD {"action":"configure_room","room":"<room>","maxTurns":8,"contextMessages":8,"autoRelay":true}]]',
+            '[[DEX:CMD {"action":"configure_room","room":"<room>","maxTurns":8,"contextDefaultMessages":2,"autoRelay":true}]]',
             '[[DEX:CMD {"action":"rename_agent","room":"<room>","member":"<member id>","name":"<name>"}]]',
             '[[DEX:CMD {"action":"set_agent_relay","room":"<room>","member":"<member id>","enabled":false}]]',
             '[[DEX:CMD {"action":"remove_agent","room":"<room>","member":"<member id>"}]]',
@@ -207,7 +209,7 @@
             '[[DEX:CMD {"action":"add_agent","room":"<room>","targetClassId":"online-origin","targetId":"<target id>","name":"<agent name>"}]]',
             '[[DEX:CMD {"action":"spawn_agent","room":"<room>","providerId":"<spawnable provider id>","name":"<worker name>"}]]',
             '[[DEX:CMD {"action":"despawn_agent","room":"<room>","member":"<managed member id or name>"}]]',
-            '[[DEX:CMD {"action":"send","text":"<message>","relay":true,"notifyOnDone":true,"notifyMember":"<optional exact member name or id>"}]]',
+            '[[DEX:CMD {"action":"send","text":"<message>","contextMessages":6,"relay":true,"notifyOnDone":true,"notifyMember":"<optional exact member name or id>"}]]',
             '[[DEX:CMD {"action":"watch_done","room":"<room id>","member":"<optional exact member name or id>"}]]',
             '[[DEX:CMD {"action":"unwatch_done","room":"<room id>"}]]',
             '[[DEX:CMD {"action":"handoff_room","room":"<authorized room id or exact name>","text":"<message>","turns":8}]]',
@@ -224,7 +226,7 @@
       if (!ACTIONS.has(action)) return { ok: false, code: 'DEX_CONTROL_BAD_ACTION', message: `Unsupported Dex provider-control action: ${action || '(missing)'}` };
       if (!source.targetClassId || !source.providerId) return { ok: false, code: 'DEX_CONTROL_BAD_SOURCE', message: 'Provider-control source identity is incomplete.' };
       if (action === 'help') return help();
-      if (['reload_extension', 'watch_done', 'unwatch_done', 'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle'].includes(action)) return { ok: false, code: 'DEX_CONTROL_SERVER_ONLY', message: `${action} is owned by the localhost provider-control router.` };
+      if (['reload_extension', 'watch_done', 'unwatch_done', 'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle', 'room_budget', 'set_room_budget', 'room_log'].includes(action)) return { ok: false, code: 'DEX_CONTROL_SERVER_ONLY', message: `${action} is owned by the localhost provider-control router.` };
       if (action === 'create_room') {
         if (typeof createRoom !== 'function') {
           return { ok: false, code: 'DEX_CONTROL_CREATE_UNAVAILABLE', message: 'Dex room creation is unavailable in this runtime.' };
@@ -325,7 +327,7 @@
             return { ok: false, code: 'DEX_CONTROL_HANDOFF_STOP_FAILED', message: 'Could not stop the current Dex room before handoff.' };
           }
         }
-        const message = roomMessage(room, 'agent', member.id, member.name, text, false);
+        const message = roomMessage(room, 'agent', member.id, member.name, text, false); if (Number.isInteger(command.contextMessages) && command.contextMessages >= 1 && command.contextMessages <= 40) message.contextOverride = command.contextMessages;
         const turns = Math.max(1, Math.min(roomAdminApi.protocol?.MAX_RELAY_TURNS || 500, Number.parseInt(command.turns, 10) || room.settings?.maxTurns || 8));
         if (typeof startRelay !== 'function' || !startRelay(room, message, turns)) {
           if ((room.messages || []).at(-1) === message) room.messages.pop();
@@ -394,12 +396,12 @@
       });
       if (participantResult) return participantResult;
       const text = clean(command.text);
-      if (!text) return { ok: false, code: 'DEX_CONTROL_EMPTY_MESSAGE', message: 'send requires non-empty text.' };
+      if (!text) return { ok: false, code: 'DEX_CONTROL_EMPTY_MESSAGE', message: 'send requires non-empty text.' }; if (command.contextMessages != null && (!Number.isInteger(command.contextMessages) || command.contextMessages < 1 || command.contextMessages > 40)) return { ok: false, code: 'DEX_CONTEXT_INVALID', message: 'contextMessages must be 1–40.' };
       if (roomBusy(state, room)) return { ok: false, code: 'DEX_CONTROL_ROOM_BUSY', message: `Dex room ${room.name} is already relaying. Wait for it to stop before initiating an out-of-band provider message.` };
       const priorWatch = doneWatchApi.snapshot(room);
       const enrollment = doneWatchApi.armSend(room, member, command, uid);
       if (!enrollment.ok) return enrollment;
-      const message = roomMessage(room, 'agent', member.id, member.name, text, false);
+      const message = roomMessage(room, 'agent', member.id, member.name, text, false); if (command.contextMessages != null) message.contextOverride = command.contextMessages;
       if (command.relay === false) {
         persist();
         renderAll();

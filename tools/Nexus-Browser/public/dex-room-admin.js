@@ -42,12 +42,17 @@
     if (command.maxTurns != null) {
       const value = Number.parseInt(command.maxTurns, 10);
       if (!Number.isFinite(value)) return { ok: false, code: 'DEX_CONTROL_BAD_SETTING', message: 'maxTurns must be an integer.' };
-      settings.maxTurns = Math.max(1, Math.min(protocol.MAX_RELAY_TURNS, value)); changed += 1;
+      settings.maxTurns = Math.max(1, Math.min(protocol.MAX_RELAY_TURNS, value)); settings.budgetRevision = Number(settings.budgetRevision || 0) + 1; changed += 1;
     }
     if (command.contextMessages != null) {
       const value = Number.parseInt(command.contextMessages, 10);
       if (!Number.isFinite(value)) return { ok: false, code: 'DEX_CONTROL_BAD_SETTING', message: 'contextMessages must be an integer.' };
-      settings.contextMessages = Math.max(2, Math.min(20, value)); changed += 1;
+      settings.contextMessages = Math.max(2, Math.min(20, value)); settings.contextDefaultMessages = settings.contextMessages; changed += 1;
+    }
+    if (command.contextDefaultMessages != null) {
+      const n = Number(command.contextDefaultMessages);
+      if (!Number.isInteger(n) || n < 1 || n > 40) return { ok: false, code: 'DEX_CONTROL_BAD_SETTING', message: 'contextDefaultMessages must be an integer between 1 and 40.' };
+      settings.contextDefaultMessages = n; changed += 1;
     }
     if (command.userName != null) {
       const value = clean(command.userName, 48);
@@ -55,7 +60,7 @@
       room.userName = value; changed += 1;
     }
     if (!changed) {
-      return { ok: false, code: 'DEX_CONTROL_BAD_SETTING', message: 'configure_room requires autoRelay, maxTurns, contextMessages, or userName.' };
+      return { ok: false, code: 'DEX_CONTROL_BAD_SETTING', message: 'configure_room requires autoRelay, maxTurns, contextDefaultMessages, or userName.' };
     }
     touch(room);
     return { ok: true, message: `Updated settings for ${room.name}.` };

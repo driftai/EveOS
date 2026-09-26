@@ -37,12 +37,22 @@ function mergeDoneWatchFields(serverRoom = {}, clientRoom = {}) {
   };
 }
 
+function mergeSettings(serverRoom, clientRoom) {
+  const server = serverRoom.settings || {}, client = clientRoom.settings || {};
+  const merged = { ...server, ...client };
+  if (Number(server.budgetRevision || 0) > Number(client.budgetRevision || 0)) {
+    merged.maxTurns = server.maxTurns;
+    merged.contextDefaultMessages = server.contextDefaultMessages;
+    merged.budgetRevision = server.budgetRevision;
+  }
+  return merged;
+}
 function mergeIdleRoom(serverRoom, clientRoom) {
   const client = clientRoom && typeof clientRoom === 'object' ? clientRoom : {};
   const messages = Array.isArray(client.messages) && client.messages.length === 0
     ? []
     : mergeMessages(serverRoom.messages || [], client.messages || []);
-  const merged = { ...client, ...mergeDoneWatchFields(serverRoom, client), messages, finalReceipts: serverRoom.finalReceipts || [], lastHeadsUp: serverRoom.lastHeadsUp || null, deferredRelays: serverRoom.deferredRelays || [], deferredSendReceipts: serverRoom.deferredSendReceipts || [], lateFinalWatches: serverRoom.lateFinalWatches || [], relay: { ...(serverRoom.relay || {}) } };
+  const merged = { ...client, settings: mergeSettings(serverRoom, client), ...mergeDoneWatchFields(serverRoom, client), messages, finalReceipts: serverRoom.finalReceipts || [], lastHeadsUp: serverRoom.lastHeadsUp || null, deferredRelays: serverRoom.deferredRelays || [], deferredSendReceipts: serverRoom.deferredSendReceipts || [], lateFinalWatches: serverRoom.lateFinalWatches || [], relay: { ...(serverRoom.relay || {}) } };
   delete merged.pendingTurn;
   delete merged.recovery;
   return merged;
@@ -58,7 +68,7 @@ function mergeBusyRoom(serverRoom, clientRoom) {
     ...(client.name != null ? { name: client.name } : {}),
     ...(client.userName != null ? { userName: client.userName } : {}),
     ...(client.settings && typeof client.settings === 'object' ? {
-      settings: { ...(serverRoom.settings || {}), ...client.settings }
+      settings: mergeSettings(serverRoom, client)
     } : {}),
     agentCheckpoints: mergeCheckpoints(serverRoom.agentCheckpoints, client.agentCheckpoints),
     messages: mergeMessages(serverRoom.messages || [], client.messages || []),

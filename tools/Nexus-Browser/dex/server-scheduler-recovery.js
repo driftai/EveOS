@@ -233,7 +233,6 @@ function createServerSchedulerRecovery({
       processSoon(RETRY_MS);
       return false;
     }
-
     const parsed = protocol.parseAgentReply(observed.text || '');
     if (parsed.returnRequestId && parsed.returnRequestId !== recovery.requestId) return false;
     const body = protocol.cleanText(parsed.text);
@@ -244,7 +243,6 @@ function createServerSchedulerRecovery({
       processSoon(RETRY_MS);
       return false;
     }
-
     const hint = String(observed.completenessHint || '').toLowerCase();
     if (!local && !authoritative && hint === 'incomplete') {
       recovery.captureRequestId = null;
@@ -255,7 +253,6 @@ function createServerSchedulerRecovery({
       processSoon(RETRY_MS);
       return false;
     }
-
     const prior = stateApi.priorReply(room, member, recovery.sourceMessageId);
     if (prior && protocol.cleanText(prior.text) === body) {
       recovery.captureRequestId = null;
@@ -266,7 +263,6 @@ function createServerSchedulerRecovery({
       processSoon(RETRY_MS);
       return false;
     }
-
     if (!local && !authoritative) {
       const stamp = nowMs();
       const requiredStableMs = hint === 'complete' || hint === 'settled' ? STABLE_MS : UNCERTAIN_STABLE_MS;
@@ -287,7 +283,6 @@ function createServerSchedulerRecovery({
         return false;
       }
     }
-
     const repeated = protocol.isRepeatedReply(room.messages, body);
     const requestedStopReason = recovery.stopRequested
       ? (recovery.stopReason || room.relay?.lastStopReason || 'Stopped')
@@ -299,12 +294,13 @@ function createServerSchedulerRecovery({
     delete room.recovery;
     const message = addMessage(room, {
       senderKind: 'agent', senderId: member.id,
-      senderName: member.name, text: body
+      senderName: member.name, text: body, contextOverride: parsed.contextOverride
     });
     if (parsed.providerControlCommand) controlReceiptApi.rememberIntent(room, {
       executorMember: member, sourceMessage, command: parsed.providerControlCommand,
       agentMessage: message, turnRequestId: recovery.requestId, at: new Date(nowMs()).toISOString()
     });
+    if (!requestedStopReason) stateApi.extendBudget(room, parsed);
     const disposition = protocol.relayDisposition(parsed, member.name, repeated, room.relay);
     stateApi.rememberFinalReceipt(room, recovery.requestId, message.id, new Date(nowMs()).toISOString());
     try { onRecovered({ room, member, message, parsed }); } catch {}
@@ -317,7 +313,6 @@ function createServerSchedulerRecovery({
     try { onTurnSettled(); } catch {}
     return true;
   }
-
   async function resume(durability) {
     const snapshot = load();
     if (active) return liveness.check(active, snapshot);
@@ -334,14 +329,12 @@ function createServerSchedulerRecovery({
       save(snapshot);
       return false;
     }
-
     const ledger = durability.query(recovery.requestId);
     if (ledger.entry && failurePolicy.dispatchMayHaveOccurred(ledger.entry.state)) {
       recovery.dispatched = true;
       save(snapshot);
       return start(room, recovery);
     }
-
     if (ledger.reliable === true && !ledger.entry) {
       const member = stateApi.memberById(room, recovery.memberId);
       const source = stateApi.messageById(room, recovery.sourceMessageId);

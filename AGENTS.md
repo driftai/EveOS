@@ -1,3 +1,7 @@
+## Dex coordination: budget and transcript discipline
+
+Dex envelopes expose physical turn counters. A budget-complete stop is NOT a task-complete DONE. Do not dump entire room histories into every relay; default is last prior message per exact room agent, plus the current full source. Attach `[[DEX:CONTEXT:N]]` only when this specific handoff needs more context, or privately query `[[DEX:CMD {"action":"room_log","limit":10}]]` with exact room authorization and a cursor. For an in-flight reply nearing exhaustion use `[[DEX:BUDGET:+N]]` (max 500 allocated per run), or query/change an idle room via `room_budget` / `set_room_budget`. Provider CMD pauses its current relay; idle budget replacement can request `resume:true`. Never fabricate a delivery receipt, replay an uncertain turn, or confuse remote simulations with native/local headed proof.
+
 # EveOS Agent Rules
 
 These rules apply to development and verification across EveOS.
