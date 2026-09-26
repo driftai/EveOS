@@ -27,7 +27,7 @@ function createDexServerScheduler({
   const uid = (prefix = 'dex') => `${prefix}-${randomUUID()}`;
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const load = () => stateStore?.load?.() || { version: 1, rooms: [], activeRoomId: null, savedAt: now() };
-  const save = (snapshot) => { const value = stateStore.save(snapshot); broadcastState(clone(value)); return value; };
+  const save = (snapshot) => { const value = stateStore.save({ ...snapshot, savedAt: now() }); broadcastState(clone(value)); return value; };
   const addMessage = (room, input) => stateApi.addMessage(room, { id: uid('msg'), at: now(), ...input });
   const setStopped = (room, reason) => stateApi.setStopped(room, reason, now());
   const enqueueNext = (room, source) => stateApi.enqueueNext(room, source, now());

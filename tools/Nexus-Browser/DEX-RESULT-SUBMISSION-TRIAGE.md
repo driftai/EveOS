@@ -1,3 +1,39 @@
+## Interrupted-room recovery gate: queued sends and late-final archives
+
+Previous failure: Dex could report `relayActive:false` and `waitingFor:null` while
+`recoveryPending:true` still locked the room. Every new independent `send` then
+returned `DEX_CONTROL_ROOM_BUSY`, sometimes requiring repeated manual recovery.
+
+**Candidate fix on the existing diagnostic branch:**
+
+- An authenticated participant's independent send to an interrupted but otherwise
+  idle room is recorded by the **localhost recovery mailbox** even when Dex UI is
+  offline. The response explicitly says `deliveryState:"queued"`: it is not an
+  assertion of delivery. The queue holds at most eight requests, records durable
+  request-ID receipts and releases each accepted message for one relay only after
+  safe recovery. Active relays and unauthorized or ambiguous rooms remain blocked.
+  Existing source-turn correlation is mandatory; this change does not bypass it.
+- The existing 11-minute capture-only recovery deadline is followed by a bounded
+  two-minute passive grace. A journal with an existing committed final receipt
+  is reconciled immediately; otherwise, once the grace expires the old journal
+  is detached to a bounded 24-hour **exact-request-ID late-final watch**, freeing
+  the room for its queued messages. No uncertain original request is replayed.
+  A delayed original reply is stored as an inert transcript note and final
+  receipt, without executing a command, firing DONE or starting another relay.
+- The server owns the queue and watch. The state merge preserves server-dequeued
+  sends and late finals across stale-browser snapshots. Status exposes
+  `recoveryPassiveAt`, `deferredSends` and `archivedLateFinalWatches`.
+  Authoritative scheduler and mailbox writes advance `savedAt` for UI freshness.
+
+**Qualification:** ten new tests passed isolated remote V8 source-backed simulations
+(seven mailbox/lifecycle, two provider-routing and one scheduler integration
+using mocked transport). These are not a full Node test or a live browser proof.
+Astro must reconcile uncommitted local test edits, fast-forward the SAME branch,
+run focused files, full Nexus `npm test`, root `smoke:nexus-browser`, guardrails
+and AI-control. Verify the 440-line soft cap and zero-backlog smoke registry.
+Only after a clean global-idle and zero-unsent-draft check may Astro activate
+the revision. Then prove one queued handoff, one return and no duplicate.
+Do not submit, reset, replay or reload an uncertain existing ChatGPT draft.
 ## Revision 47 live diagnostic: READY without a submission gesture (September 26)
 
 Drift's **read-only service-worker probe of actual bound ChatGPT tab 116813186** returned `provider_adapter_revision_ping: 47`. The watchdog reported `ready:1`, `blocked:0`, `staleDrafts:0`, `safeReseeds:0`, `confirmed:0`, `uncertain:0`, and a **551,034ms old pending** `dex-turn-0d91fb6b-e29c-43e7-ae54-1b6f50cb8a09` at phase `ready` with `gesture:null`. The service-worker provider-control bridge showed zero result-delivery counters and no last submission, but those counters describe its own control-result deliveries and do not establish whether an unrelated regular Dex relay attempted input. This evidence proves watchdog preflight considered a local Send control/form ready but never recorded an attempted submission gesture; it **does not** prove ProseMirror desynchronization, a disabled button, or that anyone clicked. The original turn remains uncertain: **do not retry, force Enter or reload over an unsent draft**.

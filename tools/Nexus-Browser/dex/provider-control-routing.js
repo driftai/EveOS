@@ -248,6 +248,7 @@ function createProviderControlRouting({
       });
       if (queued) {
         if (queued.changed) {
+          queued.snapshot.savedAt = new Date(now()).toISOString();
           const saved = saveState(queued.snapshot);
           broadcastState?.(saved);
         }
