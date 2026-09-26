@@ -99,26 +99,9 @@
     selection.addRange(range);
 
     let inserted = false;
-    try {
-      const dt = typeof DataTransfer !== 'undefined' ? new DataTransfer() : null;
-      if (dt && typeof ClipboardEvent !== 'undefined') {
-        dt.setData('text/plain', text);
-        const pasteEvent = new ClipboardEvent('paste', {
-          bubbles: true,
-          cancelable: true,
-          clipboardData: dt
-        });
-        inserted = !composer.dispatchEvent(pasteEvent) || pasteEvent.defaultPrevented;
-      }
-    } catch {}
-    if (!inserted) {
-      try { inserted = document.execCommand('insertText', false, text); } catch {}
-    }
-    if (!inserted) {
-      composer.textContent = '';
-      const p = document.createElement('p');
-      p.textContent = text;
-      composer.appendChild(p);
+    try { inserted = document.execCommand('insertText', false, text); } catch {}
+    if (!inserted || !normalized(composerText(composer)).includes(normalized(text))) {
+      composer.textContent = text;
     }
     emitInput(composer, text);
   }
