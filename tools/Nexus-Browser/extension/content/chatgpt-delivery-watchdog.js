@@ -59,7 +59,7 @@
         if (!generating && (control || (form && typeof form.requestSubmit === 'function'))) {
           setPhase(entry, 'ready'); stats.ready++; return { composer, control };
         }
-        if (now() - seededAt >= staleAfterMs) {
+        if (!generating && !control && now() - seededAt >= staleAfterMs) {
           if (!entry.stale) { entry.stale = true; stats.staleDrafts++; }
           if (!generating && !control && entry.reseeds < maxReseeds
             && clean(input.composerText(composer)) === wanted && !isCommitted?.()) {
