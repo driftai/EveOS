@@ -194,7 +194,7 @@ public static class BridgeConsoleNative
         }
     }
 
-    private static INPUT_RECORD KeyRecord(char ch, ushort virtualKey, bool down)
+    private static INPUT_RECORD KeyRecord(char ch, ushort virtualKey, bool down, ushort scanCode = 0)
     {
         return new INPUT_RECORD
         {
@@ -204,7 +204,7 @@ public static class BridgeConsoleNative
                 bKeyDown = down,
                 wRepeatCount = 1,
                 wVirtualKeyCode = virtualKey,
-                wVirtualScanCode = 0,
+                wVirtualScanCode = scanCode,
                 UnicodeChar = ch,
                 dwControlKeyState = 0
             }
@@ -224,9 +224,10 @@ public static class BridgeConsoleNative
                 records.Add(KeyRecord(ch, 0, true));
                 records.Add(KeyRecord(ch, 0, false));
             }
-            records.Add(KeyRecord('\r', 0x0D, true));
-            records.Add(KeyRecord('\r', 0x0D, false));
-
+            // Text and Enter must not share a WriteConsoleInput batch: give
+            // Antigravity's TUI a bounded chance to process the newly typed
+            // text before delivering one VK_RETURN with the real 0x1C scan.
+            // A written console event is NOT proof that the app submitted.
             const int batchSize = 512;
             int totalWritten = 0;
             for (int offset = 0; offset < records.Count; offset += batchSize)
@@ -236,15 +237,25 @@ public static class BridgeConsoleNative
                 uint written;
                 if (!WriteConsoleInputW(input, array, (uint)array.Length, out written))
                 {
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), "WriteConsoleInput failed");
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "WriteConsoleInput text failed");
                 }
                 if (written != array.Length)
                 {
-                    throw new InvalidOperationException("WriteConsoleInput accepted only part of a prompt batch.");
+                    throw new InvalidOperationException("WriteConsoleInput accepted only part of a text batch.");
                 }
                 totalWritten += (int)written;
             }
-            return totalWritten;
+            if (records.Count > 0) System.Threading.Thread.Sleep(80);
+            var enter = new INPUT_RECORD[] {
+                KeyRecord('\r', 0x0D, true, 0x1C),
+                KeyRecord('\r', 0x0D, false, 0x1C)
+            };
+            uint enterWritten;
+            if (!WriteConsoleInputW(input, enter, (uint)enter.Length, out enterWritten))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "WriteConsoleInput Enter failed");
+            if (enterWritten != enter.Length)
+                throw new InvalidOperationException("WriteConsoleInput accepted only part of Enter; outcome unknown.");
+            return totalWritten + (int)enterWritten;
         }
         finally
         {

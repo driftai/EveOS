@@ -7,9 +7,21 @@ const screenLines = (text) => String(text || '').replace(/\r/g, '').split('\n').
 const compactScreenText = (value) => String(value || '').replace(/\s+/g, '').toLowerCase();
 
 function looksReadyForInput(text) {
-  const lines = screenLines(text).slice(-10);
+  const lines = screenLines(text).slice(-12);
   if (lines.some((line) => /esc to cancel/i.test(line))) return false;
-  return lines.some((line) => /^\s*>\s*[?|│`]?$/.test(line));
+  // A historical empty prompt in the visible terminal must never qualify a
+  // newer unfinished draft or a response still appearing beneath it.
+  let latestPrompt = -1;
+  for (let i = 0; i < lines.length; i += 1)
+    if (/^\s*>/.test(lines[i])) latestPrompt = i;
+  if (latestPrompt < 0 || !/^\s*>\s*[?|│`]?$/.test(lines[latestPrompt])) return false;
+  return lines.slice(latestPrompt + 1).every((line) => {
+    const value = String(line || '').trim();
+    return !value || /^\?\s+for shortcuts/i.test(value)
+      || /^[-─═_=~]{8,}/.test(value)
+      || /·\s*(low|medium|high)\s*[?|│`]?$/.test(value)
+      || /^●\s*\[\d{1,2}:\d{2}:\d{2}\]\s+/.test(value);
+  });
 }
 
 function isTerminalWidgetLine(line) {
