@@ -4,14 +4,14 @@
   const input = globalThis.BrowserAiBridgeChatGptInput
     || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-input.js') : null);
   const deliveryWatchdogApi = globalThis.BrowserAiBridgeChatGptDeliveryWatchdog
-    || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-delivery-watchdog.js') : null);
+    || (typeof require === 'function' && typeof module !== 'undefined' && module.exports ? require('./chatgpt-delivery-watchdog.js') : null);
   const answer = globalThis.BrowserAiBridgeChatGptAnswer
     || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-answer.js') : null);
   const deadline = globalThis.BrowserAiBridgeResponseDeadline
     || (typeof module !== 'undefined' && module.exports ? require('./response-deadline.js') : null);
   const pageState = globalThis.BrowserAiBridgeChatGptPageState
     || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-page-state.js') : null);
-  if (!input || !answer || !deadline || !pageState) throw new Error('ChatGPT bridge modules were not loaded in the expected order.');
+  if (!input || !answer || !deadline || !pageState || !deliveryWatchdogApi) throw new Error('ChatGPT bridge modules were not loaded in the expected order.');
   const { DEFAULT_RESPONSE_DEADLINES, nextResponseDeadline, minutes } = deadline;
   const deliveryGuard = deliveryWatchdogApi.createDeliveryWatchdog({ input });
   deliveryWatchdogApi.active = deliveryGuard;

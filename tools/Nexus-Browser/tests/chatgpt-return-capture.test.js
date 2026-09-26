@@ -26,6 +26,7 @@ function headed({ taggedId = ID, addNewTurn = true } = {}) {
   };
   const ctx = {
     module: { exports: {} }, BrowserAiBridgeChatGptInput: { generationLooksActive: () => false },
+    BrowserAiBridgeChatGptDeliveryWatchdog: require('../extension/content/chatgpt-delivery-watchdog'),
     BrowserAiBridgeChatGptAnswer: answer, BrowserAiBridgeChatGptReturn: returnApi,
     BrowserAiBridgeChatGptPageState: pageState,
     BrowserAiBridgeResponseDeadline: {

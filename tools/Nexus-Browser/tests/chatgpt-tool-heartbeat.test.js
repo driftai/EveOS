@@ -16,6 +16,7 @@ test('ChatGPT transient statuses emit bounded server-visible activity through lo
   const context = {
     module: { exports: {} },
     BrowserAiBridgeChatGptInput: { generationLooksActive: () => false },
+    BrowserAiBridgeChatGptDeliveryWatchdog: require('../extension/content/chatgpt-delivery-watchdog'),
     BrowserAiBridgeChatGptAnswer: {
       responseTextForUserPrompt: () => status,
       assistantNodes: () => [], userNodes: () => [],
