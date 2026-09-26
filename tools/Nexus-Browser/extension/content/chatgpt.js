@@ -16,12 +16,8 @@
   const deliveryGuard = deliveryWatchdogApi.createDeliveryWatchdog({ input });
   deliveryWatchdogApi.active = deliveryGuard;
   const active = new Map();
-  const RELIABLE_GENERATION_SETTLE_MS = 1500;
-  const STATUS_SIGNAL_SETTLE_MS = 3000;
-  const NO_SIGNAL_SETTLE_MS = 5000;
-  const INCOMPLETE_NO_SIGNAL_SETTLE_MS = 60000;
-  const SUBMIT_ATTEMPT_SETTLE_MS = 2400;
-  const SUBMIT_FINAL_SETTLE_MS = 1200;
+  const RELIABLE_GENERATION_SETTLE_MS = 1500, STATUS_SIGNAL_SETTLE_MS = 3000, NO_SIGNAL_SETTLE_MS = 5000;
+  const INCOMPLETE_NO_SIGNAL_SETTLE_MS = 60000, SUBMIT_ATTEMPT_SETTLE_MS = 2400, SUBMIT_FINAL_SETTLE_MS = 1200;
   const DEX_CONTROL_SEND_WAIT_MS = 12000, GENERATION_HEARTBEAT_MS = 15000;
   const { transientStatusLine, substantiveAssistantText } = pageState;
   const { looksCompleteAssistantText, obviouslyPartialAssistantText } = pageState;
@@ -314,7 +310,10 @@
     // modern browsers; use the scoped Send control first, then native form submit.
     const settleMs = requireCommit ? confirmTimeoutMs : SUBMIT_ATTEMPT_SETTLE_MS;
     if (sendControl) {
+      if (typeof window !== 'undefined') await new Promise((r) => setTimeout(r, 350));
+      const liveSend = () => input.findSendControl(composer) || sendControl;
       onGesture?.('click'); sendControl.click();
+      if (!exactOnce && typeof window !== 'undefined') { await new Promise((r) => setTimeout(r, 400)); if (!isCommitted?.() && !input.generationLooksActive?.()) liveSend().click(); }
       if (await waitForPromptDeparture(composer, text, settleMs, isCommitted, requireCommit)) return 'click';
       throw new Error('ChatGPT Send click unconfirmed; draft preserved; no automatic replay.');
     }
