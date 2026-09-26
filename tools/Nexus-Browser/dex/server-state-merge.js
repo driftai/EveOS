@@ -39,7 +39,10 @@ function mergeDoneWatchFields(serverRoom = {}, clientRoom = {}) {
 
 function mergeIdleRoom(serverRoom, clientRoom) {
   const client = clientRoom && typeof clientRoom === 'object' ? clientRoom : {};
-  const merged = { ...client, ...mergeDoneWatchFields(serverRoom, client), messages: mergeMessages(serverRoom.messages || [], client.messages || []), finalReceipts: serverRoom.finalReceipts || [], lastHeadsUp: serverRoom.lastHeadsUp || null, deferredRelays: serverRoom.deferredRelays || [], deferredSendReceipts: serverRoom.deferredSendReceipts || [], lateFinalWatches: serverRoom.lateFinalWatches || [], relay: { ...(serverRoom.relay || {}) } };
+  const messages = Array.isArray(client.messages) && client.messages.length === 0
+    ? []
+    : mergeMessages(serverRoom.messages || [], client.messages || []);
+  const merged = { ...client, ...mergeDoneWatchFields(serverRoom, client), messages, finalReceipts: serverRoom.finalReceipts || [], lastHeadsUp: serverRoom.lastHeadsUp || null, deferredRelays: serverRoom.deferredRelays || [], deferredSendReceipts: serverRoom.deferredSendReceipts || [], lateFinalWatches: serverRoom.lateFinalWatches || [], relay: { ...(serverRoom.relay || {}) } };
   delete merged.pendingTurn;
   delete merged.recovery;
   return merged;

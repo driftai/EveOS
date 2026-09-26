@@ -60,8 +60,17 @@
 
   function emitInput(element, text) {
     try {
+      element.dispatchEvent(new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertText',
+        data: text
+      }));
+    } catch {}
+    try {
       element.dispatchEvent(new InputEvent('input', {
         bubbles: true,
+        cancelable: true,
         inputType: 'insertText',
         data: text
       }));
@@ -90,8 +99,27 @@
     selection.addRange(range);
 
     let inserted = false;
-    try { inserted = document.execCommand('insertText', false, text); } catch {}
-    if (!inserted) composer.textContent = text;
+    try {
+      const dt = typeof DataTransfer !== 'undefined' ? new DataTransfer() : null;
+      if (dt && typeof ClipboardEvent !== 'undefined') {
+        dt.setData('text/plain', text);
+        const pasteEvent = new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: dt
+        });
+        inserted = !composer.dispatchEvent(pasteEvent) || pasteEvent.defaultPrevented;
+      }
+    } catch {}
+    if (!inserted) {
+      try { inserted = document.execCommand('insertText', false, text); } catch {}
+    }
+    if (!inserted) {
+      composer.textContent = '';
+      const p = document.createElement('p');
+      p.textContent = text;
+      composer.appendChild(p);
+    }
     emitInput(composer, text);
   }
 

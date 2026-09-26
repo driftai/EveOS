@@ -33,9 +33,9 @@ test('transient provider issues block premature finalization while they remain v
 test('ChatGPT prompt submission confirms departure or committed turn before escalating fallbacks', () => {
   assert.match(chatgpt, /async function waitForPromptDeparture/);
   assert.match(chatgpt, /isCommitted = null/);
-  assert.match(chatgpt, /sendControl\.click\(\);[\s\S]{0,220}waitForPromptDeparture\(composer, text, SUBMIT_ATTEMPT_SETTLE_MS, isCommitted\)/);
+  assert.match(chatgpt, /sendControl\.click\(\);[\s\S]{0,220}waitForPromptDeparture\(composer, text, settleMs, isCommitted, requireCommit\)/);
   assert.match(chatgpt, /form\.requestSubmit\(\)/);
-  assert.match(chatgpt, /requestComposerSubmit\(composer\)[\s\S]{0,220}waitForPromptDeparture\(composer, text, SUBMIT_ATTEMPT_SETTLE_MS, isCommitted\)/);
+  assert.match(chatgpt, /requestComposerSubmit\(composer\)[\s\S]{0,220}waitForPromptDeparture\(composer, text, settleMs, isCommitted, requireCommit\)/);
   assert.match(chatgpt, /dispatchComposerEnter\(composer\)/);
   assert.match(chatgpt, /ChatGPT Send click unconfirmed; draft preserved; no automatic replay/);
   assert.match(chatgpt, /ChatGPT form submit unconfirmed; draft preserved; no automatic replay/);
@@ -48,8 +48,8 @@ test('ChatGPT prompt submission confirms departure or committed turn before esca
 test('Dex control results wait longer and follow the hydrated ChatGPT composer', () => {
   assert.match(chatgpt, /DEX_CONTROL_SEND_WAIT_MS = 12000/);
   assert.match(chatgpt, /async function waitForReadyComposer/);
-  assert.match(chatgpt, /\['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion', 'dex-stream-nudge'\]\.includes\(delivery\?\.kind\) \? DEX_CONTROL_SEND_WAIT_MS : 5000/);
-  assert.match(chatgpt, /const ready = await waitForReadyComposer\(composer, text, sendWaitMs\)/);
+  assert.match(chatgpt, /\['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion', 'dex-stream-nudge'\]\.includes\(delivery\?\.kind\) \? 30000 : 5000/);
+  assert.match(chatgpt, /const ready = await waitForReadyComposer\(composer, text, sendWaitMs/);
   assert.match(chatgpt, /delivery: msg\.delivery \|\| null/);
 });
 

@@ -375,7 +375,7 @@ function createServerSchedulerRecovery({
     const terminalType = ['response', 'final'].join('_');
     if (msg?.type === terminalType) {
       const snapshot = load();
-      if (stateApi.findFinalReceipt(snapshot, msg.requestId)) return true;
+      if (stateApi.findFinalReceipt(snapshot, msg.requestId)) return false;
       if (passiveLife.acceptLateFinal(snapshot, msg, { stamp: nowMs(), addMessage })) {
         save(snapshot); processSoon(0); return true;
       }
