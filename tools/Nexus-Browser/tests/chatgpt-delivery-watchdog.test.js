@@ -92,3 +92,23 @@ test('extension registers watchdog before ChatGPT adapter in both script paths',
   assert.match(adapter, /deliveryGuard\.finish\(requestId, false/);
   assert.match(adapter, /30000 : 5000/);
 });
+
+test('Dex delivery never calls a cleared editor a successful submission without a user turn', async () => {
+  const chat = require('../extension/content/chatgpt.js');
+  let clicks = 0;
+  const composer = { tagName: 'TEXTAREA', value: 'Dex payload', closest: () => null };
+  await assert.rejects(chat.submitComposer(composer, 'Dex payload', {
+    click() { clicks++; composer.value = ''; }
+  }, { requireCommit: true, confirmTimeoutMs: 100, isCommitted: () => false }), /unconfirmed/);
+  assert.equal(clicks, 1, 'uncertain delivery cannot click again');
+});
+test('Dex delivery waits for a committed user turn after one successful click', async () => {
+  const chat = require('../extension/content/chatgpt.js');
+  let clicks = 0, committed = false;
+  const composer = { tagName: 'TEXTAREA', value: 'Dex payload', closest: () => null };
+  const mode = await chat.submitComposer(composer, 'Dex payload', {
+    click() { clicks++; composer.value = ''; setTimeout(() => { committed = true; }, 80); }
+  }, { requireCommit: true, confirmTimeoutMs: 400, isCommitted: () => committed });
+  assert.equal(mode, 'click');
+  assert.equal(clicks, 1);
+});
