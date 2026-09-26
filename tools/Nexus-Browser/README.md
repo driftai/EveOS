@@ -1,3 +1,7 @@
+### Revision 47: stalled Dex draft preflight and one-gesture delivery watchdog (local headed qualification pending)
+
+The ChatGPT adapter now observes a per-request read-only delivery state (readiness wait, stale exact draft, scoped Send availability, gesture attempted, confirmed or outcome unknown). While **no submission gesture has occurred**, it can wait up to 30 seconds for hydration or active generation to end and, at most twice, re-seed an **unchanged exact draft** to restore React's enabled Send button. A changed or unrelated user draft is never overwritten. After any Send click, form submit or Enter, an unconfirmed outcome is terminal for that request and **never auto-replayed**; the adapter exposes sanitized DevTools diagnostics via `dex_delivery_watchdog_status`. No content text is logged. This candidate requires a globally idle, draft-safe extension and exact-tab refresh plus live confirmation before promoting main.
+
 ### ChatGPT form-less Send recovery (adapter revision 46; headed qualification pending)
 
 The bound ChatGPT tab placed its real Send button in a sibling action bar outside the shallow composer search. Rev46 walks at most seven non-BODY ancestors, rejects other visible editors and unsafe/disabled controls, and fails closed rather than synthesizing untrusted Enter for a form-less Dex result. A positive submission ACK and a committed ChatGPT user turn are required before live acceptance; Astro must refresh the extension and exact draft-free bound tab after the global idle gate. No blind result replay.

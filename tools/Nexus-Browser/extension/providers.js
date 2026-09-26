@@ -215,6 +215,7 @@
             'content/response-deadline.js',
             'content/chatgpt-page-state.js',
             'content/chatgpt-input.js',
+            'content/chatgpt-delivery-watchdog.js',
             'content/chatgpt-answer.js',
             'content/chatgpt-return.js',
             'content/chatgpt.js',
@@ -223,12 +224,14 @@
           globals: [
             '__browserAiBridgeChatGptPageStateLoaded',
             '__browserAiBridgeChatGptInputLoaded',
+            '__browserAiBridgeChatGptDeliveryWatchdogLoaded',
             '__browserAiBridgeChatGptAnswerLoaded',
             '__browserAiBridgeChatGptLoaded',
             '__browserAiBridgeChatGptStreamNudgeLoaded',
             'BrowserAiBridgeResponseDeadline',
             'BrowserAiBridgeChatGptPageState',
             'BrowserAiBridgeChatGptInput',
+            'BrowserAiBridgeChatGptDeliveryWatchdog',
             'BrowserAiBridgeChatGptAnswer'
           ]
         }

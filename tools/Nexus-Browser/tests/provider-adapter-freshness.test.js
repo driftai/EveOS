@@ -68,6 +68,6 @@ test('older adapter revision is treated as stale', () => {
 });
 
 
-test('adapter revision advances for bounded form-less ChatGPT Send repair', () => {
-  assert.ok(freshness.ADAPTER_REVISION >= 46);
+test('adapter revision advances for safe pre-gesture ChatGPT draft recovery', () => {
+  assert.ok(freshness.ADAPTER_REVISION >= 47);
 });
