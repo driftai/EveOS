@@ -116,3 +116,16 @@ test('selectReadyReply applies expectedTurnId reconstruction to chosen output', 
   const chosen = selectReadyReply(wrapped, '', expected);
   assert.equal(chosen, 'Structured reply body.\n[[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-facdbdd25b31]] [[DEX:DONE]]');
 });
+
+test('wrapped return reconstruction rejects inline prose and fenced examples even with exact turn ID', () => {
+  const expected = 'dex-turn-315f54a5-7416-411e-b4a2-facdbdd25b31';
+  const inline = 'Example: [[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-\nfacdbdd25b31]]';
+  assert.equal(reconstructTerminalReturn(inline, expected), inline);
+  const fenced = 'Example:\n' + String.fromCharCode(96).repeat(3)
+    + '\n[[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-\nfacdbdd25b31]]';
+  assert.equal(reconstructTerminalReturn(fenced, expected), fenced);
+  const continuation = 'Finished.\n[[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-\nfacdbdd25b31]]\nAnd now more prose.';
+  assert.equal(reconstructTerminalReturn(continuation, expected), continuation);
+  const badSuffix = 'Finished.\n[[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-\nfacdbdd25b31]] do not execute';
+  assert.equal(reconstructTerminalReturn(badSuffix, expected), badSuffix);
+});

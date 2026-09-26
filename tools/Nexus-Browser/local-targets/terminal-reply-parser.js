@@ -325,25 +325,27 @@ function mergeVisibleReply(previousText, nextText) {
 }
 
 function reconstructTerminalReturn(text, expectedTurnId) {
-  if (!text || !expectedTurnId) return text;
+  if (!text || typeof expectedTurnId !== 'string'
+      || !/^dex-turn-[A-Za-z0-9-]{8,128}$/.test(expectedTurnId)) return text;
   const lines = text.split('\n');
   for (let i = 0; i < lines.length - 1; i += 1) {
-    const raw = lines[i];
-    const curr = raw.trim();
-    if (/^>/.test(curr)) continue;
-    const prefixMatch = curr.match(/\[\[DEX:RETURN:(dex-turn-[A-Za-z0-9-]*)$/i);
-    if (!prefixMatch) continue;
-    const partialId = prefixMatch[1];
-    if (!expectedTurnId.startsWith(partialId)) continue;
-    const remainder = expectedTurnId.slice(partialId.length);
+    const raw = lines[i], curr = raw.trim();
+    // Never upgrade a prose example or a partial marker within a code fence.
+    const prefixMatch = curr.match(/^\[\[DEX:RETURN:(dex-turn-[A-Za-z0-9-]{8,128})$/);
+    if (!prefixMatch || !expectedTurnId.startsWith(prefixMatch[1])) continue;
+    const prior = lines.slice(0, i).join('\n');
+    if ((prior.split(String.fromCharCode(96).repeat(3)).length - 1) % 2) continue;
+    const remainder = expectedTurnId.slice(prefixMatch[1].length);
     const nextLine = lines[i + 1].trim();
-    if (nextLine.startsWith(remainder + ']]')) {
-      const after = nextLine.slice((remainder + ']]').length).trim();
-      const indent = raw.slice(0, raw.indexOf(curr));
-      lines[i] = indent + curr + remainder + ']]' + (after ? ' ' + after : '');
-      lines.splice(i + 1, 1);
-      i -= 1;
-    }
+    if (!nextLine.startsWith(remainder + ']]')) continue;
+    const after = nextLine.slice((remainder + ']]').length).trim();
+    // A RETURN may precede other canonical trailing controls, never free prose.
+    const suffix = [after, ...lines.slice(i + 2)].join('\n').trim();
+    if (!/^(?:\[\[DEX:(?:DONE|NOTE|USER|RETURN:dex-turn-[A-Za-z0-9-]{8,128}|HEADSUP:[^\]\[\r\n]{1,80}|CONTEXT:[0-9]{1,3}|BUDGET:\+[0-9]{1,3})\]\]\s*)*$/.test(suffix)) continue;
+    const indent = raw.slice(0, raw.indexOf(curr));
+    lines[i] = indent + curr + remainder + ']]' + (after ? ' ' + after : '');
+    lines.splice(i + 1, 1);
+    i -= 1;
   }
   return lines.join('\n');
 }
