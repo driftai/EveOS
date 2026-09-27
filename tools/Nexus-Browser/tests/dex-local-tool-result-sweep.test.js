@@ -20,13 +20,16 @@ test('default-off scheduler never starts native delivery without a trusted enabl
 });
 test('one-shot sweep selects only exact-owner, idle queued receipts and enforces per-tick cap', async () => {
   const snapshot = state(), seen = [];
+  let clock = 1000;
   const worker = api.createLocalResultSweep({ load: () => snapshot, canWork: () => true,
     deliverOne: async ({ roomId, requestId }) => {
       seen.push([roomId, requestId]);
       snapshot.rooms[0].localToolResults.find(e => e.requestId === requestId).state = 'submitted-not-read';
       return { ok: true, state: 'submitted-not-read' };
-    }, maxPerSweep: 1, now: () => 1000 });
+    }, maxPerSweep: 1, cooldownMs: 5000, now: () => clock });
   assert.equal((await worker.once()).submitted, 1);
+  assert.equal((await worker.once()).attempts, 0);
+  clock += 5000;
   assert.equal((await worker.once()).submitted, 1);
   assert.deepEqual(seen, [['room-one', 'ctl-one'], ['room-one', 'ctl-two']]);
   assert.equal((await worker.once()).attempts, 0);

@@ -71,6 +71,8 @@ function createLocalResultSweep({
           try { onStatus({ roomId: room.id, requestId: entry.requestId,
             code: String(result?.code || 'DEX_LOCAL_RESULT_UNKNOWN').slice(0, 96),
             state: result?.state || null }); } catch {}
+          if (canWork() !== true) return { ok: false,
+            code: 'DEX_LOCAL_RESULT_SWEEP_LEASE_LOST', visited, attempts, submitted, unknown };
         }
         if (attempts >= maxPerSweep) break;
       }
