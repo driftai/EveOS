@@ -57,6 +57,7 @@ test('identity ambiguity and corrupted receipts never trigger a native delivery'
 });
 test('held in-flight sweep prevents concurrent duplicate scan and throttles transient failures', async () => {
   const snapshot = state(), observed = [];
+  snapshot.rooms[0].localToolResults = snapshot.rooms[0].localToolResults.slice(0, 1);
   let release;
   const blocked = new Promise(resolve => { release = resolve; });
   const worker = api.createLocalResultSweep({ load: () => snapshot, canWork: () => true,
