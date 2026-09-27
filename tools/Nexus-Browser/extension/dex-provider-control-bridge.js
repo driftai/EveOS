@@ -5,6 +5,7 @@
   const WS_URL = runtimeConfig.websocketUrl;
   const HEALTH_URL = runtimeConfig.healthUrl;
   const toolResults = globalThis.BrowserAiBridgeDexToolResult
+    || (typeof require === 'function' ? require('./dex-tool-result.js') : null)
     || (typeof module !== 'undefined' && module.exports ? require('./dex-tool-result.js') : null);
   const pending = new Map();
   const recentActions = new Map();
@@ -53,7 +54,8 @@
     };
   }
 
-  const formatResult = (result = {}, requestId = null) => toolResults.formatResult(result, requestId);
+  const formatResult = (result = {}, requestId = null) =>
+    (toolResults?.formatResult ? toolResults.formatResult(result, requestId) : JSON.stringify(result));
 
   async function injectResult(source, requestId, result) {
     if (!source?.targetId || !globalThis.chrome?.tabs?.sendMessage) throw new Error('DEX_RESULT_SUBMISSION_FAILED: exact target or tab messenger missing.');
