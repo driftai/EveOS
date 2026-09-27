@@ -16,6 +16,7 @@ Usage:
   node scripts/dexctl.js rename-room <name> --agy-pid 86660 --room <id-or-name>
   node scripts/dexctl.js configure-room --agy-pid 86660 --room <id-or-name> [--max-turns N] [--context-messages N] [--auto-relay true|false] [--user-name <name>]
   node scripts/dexctl.js status --agy-pid 86660 [--room <id-or-name>]
+  node scripts/dexctl.js tool-result-status --agy-pid 86660 [--room <id>] [--request-id <id>] [--tool-result]
   node scripts/dexctl.js checkpoint <note> --agy-pid 86660 [--room <id-or-name>]
   node scripts/dexctl.js read-checkpoint --agy-pid 86660 [--room <id-or-name>]
   node scripts/dexctl.js rename-self <name> --agy-pid 86660 [--room <id-or-name>]
@@ -118,6 +119,7 @@ function commandFrom(parsed) {
     return command;
   }
   if (commandName === 'status') return { action: 'status', ...(options.room ? { room: options.room } : {}) };
+  if (commandName === 'tool-result-status') return { action: 'tool_result_status', ...(options.room ? { room: options.room } : {}), ...(options.requestId || positionals[0] ? { requestId: options.requestId || positionals[0] } : {}) };
   if (commandName === 'checkpoint') {
     const note = positionals.join(' ').trim();
     if (!note) throw new Error('checkpoint requires note text.');

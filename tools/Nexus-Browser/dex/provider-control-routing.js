@@ -166,7 +166,7 @@ function createProviderControlRouting({
       return run.catch(() => (fail(ws, requestId, source, 'DEX_SEND_ADMISSION_UNCERTAIN',
         'Storage error: the outcome may be uncertain. Inspect the same request ID; do not create a new send.'), true));
     }
-    if (['room_budget', 'room_log'].includes(action)) return roomTools.route(
+    if (['room_budget', 'room_log', 'tool_result_status'].includes(action)) return roomTools.route(
       { source, command, requestId, ws, origin: null },
       { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt });
     const settledOrigin = await settleOrigin(source, command, requestId);

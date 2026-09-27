@@ -14,7 +14,7 @@
   const ACTIONS = new Set([
     'help', 'onboard', 'checkpoint', 'read_checkpoint', 'rooms', 'targets', 'create_room', 'use_room', 'status',
     'rename_self', 'set_self_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room',
-    'stop_relay', 'continue_relay', 'room_budget', 'set_room_budget', 'room_log', 'reload_extension', 'watch_done', 'unwatch_done',
+    'stop_relay', 'continue_relay', 'room_budget', 'set_room_budget', 'room_log', 'tool_result_status', 'reload_extension', 'watch_done', 'unwatch_done',
     'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle', ...roomAdminApi.ACTIONS
   ]);
   const MUTATING_ACTIONS = new Set(['checkpoint','create_room','rename_room','configure_room','add_agent','spawn_agent','despawn_agent','rename_agent','set_agent_relay','remove_agent','rename_self','set_self_relay','stop_relay','continue_relay','set_room_budget','clear_chat','delete_room','send','handoff_room','reload_extension','watch_done','unwatch_done','arm_post_idle','cancel_post_idle','report_post_idle']);
@@ -114,7 +114,7 @@
       recoveryMemberId: room.recovery?.memberId || null,
       recoveryMemberName: (room.members || []).find((entry) => entry.id === room.recovery?.memberId)?.name || null,
       recoveryHeldTurns: Math.max(0, Number(room.recovery?.relayRemaining || 0)), recoverySendState: room.recovery?.promptSendFailure?.classification || null, recoveryAttentionRequired: !!room.recovery?.promptSendFailure?.attentionAtMs,
-      localToolResults: (room.localToolResults || []).filter(e => e.memberId === member?.id).slice(-8).map(e => ({ requestId: e.requestId, state: e.state, at: e.at })), localToolResultFailure: room.localToolResultFailure ? { requestId: room.localToolResultFailure.requestId, code: room.localToolResultFailure.code } : null,
+      localToolResults: (room.localToolResults || []).filter(e => e.memberId === member?.id).slice(-8).map(e => ({ requestId: e.requestId, state: e.state, at: e.at })), localToolResultFailure: room.localToolResultFailure?.memberId === member?.id ? { requestId: room.localToolResultFailure.requestId, code: room.localToolResultFailure.code } : null,
       budget: { configuredTurns: room.settings?.maxTurns || 8, allocatedTurns: room.relay?.turnBudgetTotal || null, scheduledTurns: room.relay?.scheduledTurns ?? null, remainingTurns: room.relay?.remaining || 0 },
       messages: room.messages?.length || 0
     };
@@ -142,7 +142,7 @@
         providerName: member?.binding?.providerName || null,
         relayEnabled: member?.relayEnabled !== false
       },
-      commands: ['rooms', 'targets', 'status', 'room_budget', 'set_room_budget', 'room_log', 'checkpoint', 'read_checkpoint', 'use_room', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done'],
+      commands: ['rooms', 'targets', 'status', 'room_budget', 'set_room_budget', 'room_log', 'tool_result_status', 'checkpoint', 'read_checkpoint', 'use_room', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done'],
       spawnProviders: providers.filter((entry) => entry.orchestration?.spawnable).map((entry) => ({ providerId: entry.id, providerName: entry.name })),
       continuity: continuityApi.onboardingGuidance(room, member, provider),
       rules: [
@@ -225,7 +225,7 @@
       if (!ACTIONS.has(action)) return { ok: false, code: 'DEX_CONTROL_BAD_ACTION', message: `Unsupported Dex provider-control action: ${action || '(missing)'}` };
       if (!source.targetClassId || !source.providerId) return { ok: false, code: 'DEX_CONTROL_BAD_SOURCE', message: 'Provider-control source identity is incomplete.' };
       if (action === 'help') return help();
-      if (['reload_extension', 'watch_done', 'unwatch_done', 'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle', 'room_budget', 'set_room_budget', 'room_log'].includes(action)) return { ok: false, code: 'DEX_CONTROL_SERVER_ONLY', message: `${action} is owned by the localhost provider-control router.` };
+      if (['reload_extension', 'watch_done', 'unwatch_done', 'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle', 'room_budget', 'set_room_budget', 'room_log', 'tool_result_status'].includes(action)) return { ok: false, code: 'DEX_CONTROL_SERVER_ONLY', message: `${action} is owned by the localhost provider-control router.` };
       if (action === 'create_room') {
         if (typeof createRoom !== 'function') {
           return { ok: false, code: 'DEX_CONTROL_CREATE_UNAVAILABLE', message: 'Dex room creation is unavailable in this runtime.' };

@@ -4,7 +4,7 @@
 const protocol = require('../public/dex-protocol');
 const mailbox = require('./recovery-mailbox');
 const stateApi = require('./server-scheduler-state');
-const ACTIONS = new Set(['room_budget', 'set_room_budget', 'room_log']);
+const ACTIONS = new Set(['room_budget', 'set_room_budget', 'room_log', 'tool_result_status']);
 const MAX_PAGE = 25, MAX_PAGE_CHARS = 14000;
 function resolveRoom(snapshot, source, reference) {
   const rooms = (snapshot.rooms || []).filter((r) => mailbox.matchingMember(r, source));
@@ -77,6 +77,26 @@ function roomLog(room, command = {}) {
       ...(nextIndex === end && wanted.length > 0 ? { limitHint: 'Lower limit or request full:false to fit large entries.' } : {}) }
   };
 }
+function toolResultStatus(room, source, command = {}) {
+  const member = mailbox.matchingMember(room, source);
+  if (member?.binding?.targetClassId !== 'local-origin')
+    return { ok: false, code: 'DEX_LOCAL_RESULT_SOURCE_REQUIRED',
+      message: 'Use your exact bound local session.' };
+  const entries = (room.localToolResults || []).filter(e => e.memberId === member.id
+    && e.targetId === member.binding.targetId && e.providerId === member.binding.providerId);
+  const id = command.requestId == null ? null : String(command.requestId);
+  if (id != null && !/^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/.test(id))
+    return { ok: false, code: 'DEX_LOCAL_RESULT_BAD_ID', message: 'Use one exact control request ID.' };
+  const chosen = id == null ? entries.slice(-8) : entries.filter(e => e.requestId === id);
+  if (id != null && chosen.length !== 1)
+    return { ok: false, code: 'DEX_LOCAL_RESULT_NOT_FOUND',
+      message: 'No receipt is recorded for this exact request in your bound session.' };
+  return { ok: true, action: 'tool_result_status',
+    message: 'Read-only transport state; original command not replayed and no relay turn created.',
+    data: { roomId: room.id, memberId: member.id, receipts: chosen.map(e => ({
+      requestId: e.requestId, state: e.state, at: e.at || null, ackAt: e.ackAt || null
+    })), semantics: 'queued is not delivered; submitted-not-read is not model receipt; outcome-unknown requires inspection' } };
+}
 function execute(snapshot, { source, command, at = new Date().toISOString() } = {}) {
   const action = String(command?.action || '').toLowerCase();
   if (!ACTIONS.has(action)) return null;
@@ -88,6 +108,8 @@ function execute(snapshot, { source, command, at = new Date().toISOString() } = 
     ok: true, action, message: 'Current durable relay budget and room state.', data: budgetStatus(room) } };
   if (action === 'room_log') return { snapshot, changed: false,
     result: roomLog(room, command) };
+  if (action === 'tool_result_status') return { snapshot, changed: false,
+    result: toolResultStatus(room, source, command) };
   const turns = Number(command.turns);
   if (!Number.isInteger(turns) || turns < 1 || turns > protocol.MAX_RELAY_TURNS)
     return { snapshot, changed: false, result: { ok: false, code: 'DEX_BUDGET_INVALID',
@@ -131,4 +153,4 @@ async function route(request, deps) {
   sendResult({ sourceSocket: ws, requestId, source }, executed.result, receipt);
   return true;
 }
-module.exports = { ACTIONS, MAX_PAGE, resolveRoom, budgetStatus, roomLog, execute, route };
+module.exports = { ACTIONS, MAX_PAGE, resolveRoom, budgetStatus, roomLog, toolResultStatus, execute, route };
