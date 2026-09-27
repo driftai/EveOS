@@ -236,27 +236,21 @@ def state_transition_contract():
         FakePointerApi(2000, 1199), 1920, 1200),
         "pointer on another display must not release the primary edge cover")
 
-    class FakeClickApi:
-        def __init__(self, states):
-            self.states = states
-
-        def GetAsyncKeyState(self, key):
-            return self.states.get(key, 0)
-
-    assert_true(taskbar_control._mouse_button_pressed(FakeClickApi({0x01: 0x0001})),
-                "a short taskbar click between polls must be retained")
-    assert_true(taskbar_control._mouse_button_pressed(FakeClickApi({0x02: 0x8000})),
-                "a held taskbar mouse button must count as shell interaction")
-    assert_true(not taskbar_control._mouse_button_pressed(FakeClickApi({})),
-                "idle pointer state must not suppress hover-only focus cleanup")
-    restore_args = dict(edge_triggered=True, near_edge=False, in_open_tray=False,
-                        tray_owns_foreground=True)
-    assert_true(taskbar_control._should_restore_matrix_focus(
-        tray_interacted=False, **restore_args),
-        "hover-only taskbar reveal should restore Matrix keyboard focus")
-    assert_true(not taskbar_control._should_restore_matrix_focus(
-        tray_interacted=True, **restore_args),
-        "taskbar app click must not be stolen while Windows activates its target")
+    edge_args = dict(near_edge=False, in_open_tray=False,
+                     reveal_state=0, target_state=taskbar_control.ABS_AUTOHIDE)
+    state, revealed = taskbar_control._next_edge_taskbar_state(
+        edge_revealed=False, at_edge=True, **edge_args)
+    assert_true(state == 0 and revealed,
+                "bottom-edge hover must reveal taskbar without keyboard selection")
+    state, revealed = taskbar_control._next_edge_taskbar_state(
+        edge_revealed=True, at_edge=False, near_edge=False, in_open_tray=True,
+        reveal_state=0, target_state=taskbar_control.ABS_AUTOHIDE)
+    assert_true(state is None and revealed,
+                "pointer inside taskbar must keep the non-activating reveal")
+    state, revealed = taskbar_control._next_edge_taskbar_state(
+        edge_revealed=True, at_edge=False, **edge_args)
+    assert_true(state == taskbar_control.ABS_AUTOHIDE and not revealed,
+                "leaving taskbar must restore immersive auto-hide")
 
     stop = threading.Event()
     taskbar_control._SESSION.update({"token": "restore12", "originalState": 0,
@@ -290,6 +284,15 @@ def watchdog_contract():
                          side_effect=lambda state: writes.append(state)):
         taskbar_control._watchdog_main(0, 1)
     assert_true(writes == [0], "abrupt owner exit must restore prior taskbar state")
+    writes.clear()
+    with patch.object(taskbar_control.sys, "stdin", FakeStdin(b"")), \
+            patch.object(taskbar_control.os, "name", "nt"), \
+            patch.object(taskbar_control, "_taskbar_state", return_value=0), \
+            patch.object(taskbar_control, "_write_taskbar_state",
+                         side_effect=lambda state: writes.append(state)):
+        taskbar_control._watchdog_main(1, 1)
+    assert_true(writes == [1],
+                "abrupt exit during a temporary reveal must restore user auto-hide")
     writes.clear()
     with patch.object(taskbar_control.sys, "stdin", FakeStdin(b"cancel\n")), \
             patch.object(taskbar_control.os, "name", "nt"), \
