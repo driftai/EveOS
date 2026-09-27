@@ -236,6 +236,28 @@ def state_transition_contract():
         FakePointerApi(2000, 1199), 1920, 1200),
         "pointer on another display must not release the primary edge cover")
 
+    class FakeClickApi:
+        def __init__(self, states):
+            self.states = states
+
+        def GetAsyncKeyState(self, key):
+            return self.states.get(key, 0)
+
+    assert_true(taskbar_control._mouse_button_pressed(FakeClickApi({0x01: 0x0001})),
+                "a short taskbar click between polls must be retained")
+    assert_true(taskbar_control._mouse_button_pressed(FakeClickApi({0x02: 0x8000})),
+                "a held taskbar mouse button must count as shell interaction")
+    assert_true(not taskbar_control._mouse_button_pressed(FakeClickApi({})),
+                "idle pointer state must not suppress hover-only focus cleanup")
+    restore_args = dict(edge_triggered=True, near_edge=False, in_open_tray=False,
+                        tray_owns_foreground=True)
+    assert_true(taskbar_control._should_restore_matrix_focus(
+        tray_interacted=False, **restore_args),
+        "hover-only taskbar reveal should restore Matrix keyboard focus")
+    assert_true(not taskbar_control._should_restore_matrix_focus(
+        tray_interacted=True, **restore_args),
+        "taskbar app click must not be stolen while Windows activates its target")
+
     stop = threading.Event()
     taskbar_control._SESSION.update({"token": "restore12", "originalState": 0,
                                      "stop": stop, "watchdog": object()})

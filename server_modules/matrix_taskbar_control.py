@@ -28,6 +28,7 @@ SWP_NOACTIVATE = 0x0010
 SWP_SHOWWINDOW = 0x0040
 HWND_TOPMOST = -1
 PM_REMOVE = 0x0001
+MOUSE_BUTTON_KEYS = (0x01, 0x02, 0x04, 0x05, 0x06)
 _SESSION = {}
 _GUARD = threading.RLock()
 
@@ -79,6 +80,18 @@ def _pointer_at_bottom_edge(user32, width: int, height: int) -> bool:
     point = wintypes.POINT()
     return bool(user32.GetCursorPos(ctypes.byref(point))
                 and 0 <= point.x < width and height - 2 <= point.y < height)
+
+
+def _mouse_button_pressed(user32) -> bool:
+    """Include the transition bit so a short taskbar click is not missed between polls."""
+    return any(user32.GetAsyncKeyState(key) & 0x8001 for key in MOUSE_BUTTON_KEYS)
+
+
+def _should_restore_matrix_focus(*, edge_triggered: bool, tray_interacted: bool,
+                                 near_edge: bool, in_open_tray: bool,
+                                 tray_owns_foreground: bool) -> bool:
+    return bool(edge_triggered and not tray_interacted
+                and not (near_edge or in_open_tray) and tray_owns_foreground)
 
 
 def _edge_guard_loop(stop_event: threading.Event, matrix_hwnd: int) -> None:
@@ -138,6 +151,7 @@ def _edge_guard_loop(stop_event: threading.Event, matrix_hwnd: int) -> None:
     message = wintypes.MSG()
     shown = False
     edge_triggered = False
+    tray_interacted = False
     try:
         while not stop_event.wait(0.05):
             while user32.PeekMessageW(ctypes.byref(message), hwnd, 0, 0, PM_REMOVE):
@@ -160,6 +174,10 @@ def _edge_guard_loop(stop_event: threading.Event, matrix_hwnd: int) -> None:
                                 and tray_rect.left <= point.x < tray_rect.right
                                 and tray_rect.top <= point.y < tray_rect.bottom)
             foreground = user32.GetForegroundWindow()
+            if edge_triggered and _mouse_button_pressed(user32):
+                # A shell click can be committed before Windows foregrounds the
+                # selected app. Never let our focus cleanup race that handoff.
+                tray_interacted = True
             # Windows may suppress shell edge-hover while Edge owns fullscreen.
             # Win+T is the native taskbar reveal path; send it only once per
             # deliberate bottom-edge visit with this Matrix window focused.
@@ -169,12 +187,24 @@ def _edge_guard_loop(stop_event: threading.Event, matrix_hwnd: int) -> None:
                 for key, flags in ((0x5B, 0), (0x54, 0), (0x54, 2), (0x5B, 2)):
                     user32.keybd_event(key, 0, flags, 0)
                 edge_triggered = True
+                tray_interacted = False
             elif edge_triggered and not (near_edge or in_open_tray):
-                # Restore Matrix focus only if the taskbar still owns it. A
-                # taskbar click that opened another app must never be stolen.
-                if tray and (foreground == tray or user32.IsChild(tray, foreground)):
+                tray_owns_foreground = bool(
+                    tray and (foreground == tray or user32.IsChild(tray, foreground))
+                )
+                # Restore keyboard focus only after a hover-only reveal. A real
+                # taskbar click owns the activation even if Shell is still the
+                # foreground window during this polling frame.
+                if _should_restore_matrix_focus(
+                    edge_triggered=edge_triggered,
+                    tray_interacted=tray_interacted,
+                    near_edge=near_edge,
+                    in_open_tray=in_open_tray,
+                    tray_owns_foreground=tray_owns_foreground,
+                ):
                     user32.SetForegroundWindow(matrix_hwnd)
                 edge_triggered = False
+                tray_interacted = False
             should_show = not _tray_revealed(user32, width, height) and not near_edge
             if should_show != shown:
                 if should_show:
