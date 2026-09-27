@@ -1,3 +1,4 @@
+const localToolResults = require('./local-tool-result-journal');
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
   if (!value || typeof value !== 'object') return value;
@@ -128,6 +129,8 @@ function applyResult(snapshot, origin, result, requestId, at = new Date().toISOS
       originMessageId: origin.originMessageId || null
     }
   });
+  const local = localToolResults.queue(room, pending, result, requestId, at);
+  if (!local.ok) room.localToolResultFailure = { requestId, code: local.code, at };
   delete room.pendingProviderControlReceipt;
   room.updatedAt = at;
   return {
