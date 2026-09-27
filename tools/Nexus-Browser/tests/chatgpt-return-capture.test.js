@@ -9,13 +9,16 @@ const pageState = require('../extension/content/chatgpt-page-state');
 const source = fs.readFileSync(path.resolve(__dirname, '../extension/content/chatgpt.js'), 'utf8');
 const ID = 'dex-turn-9a8c763f-ec15-43b4-833d-da5aac447fb6';
 
-function headed({ taggedId = ID, addNewTurn = true } = {}) {
+function headed({ taggedId = ID, addNewTurn = true, splitNewTurn = false, commandOnly = false } = {}) {
   let now = 1000, tick, listener;
   const events = [];
   const old = { text: 'Old reply.', getAttribute: (name) =>
     name === 'data-chatgpt-selection-message-id' ? 'msg-old' : null };
   const fresh = { text: 'ASTRO_QUAL_ACK.\n[[DEX:RETURN:' + taggedId + ']]',
     getAttribute: (name) => name === 'data-chatgpt-selection-message-id' ? 'msg-new' : null };
+  const opener = { text: 'Dex report qualified.', getAttribute: (name) =>
+    name === 'data-chatgpt-selection-message-id' ? 'msg-new' : null };
+  if (commandOnly) fresh.text = '[[DEX:CMD {"action":"status","room":"room-eve"}]]';
   const nodes = [old];
   const answer = {
     assistantNodes: () => nodes,
@@ -49,7 +52,7 @@ function headed({ taggedId = ID, addNewTurn = true } = {}) {
     assistantBaseline: returnApi.baseline(nodes)
   });
   watcher.promptCommitted = true;
-  if (addNewTurn) nodes.push(fresh);
+  if (addNewTurn) nodes.push(...(splitNewTurn ? [opener, fresh] : [fresh]));
   return { ctx, events, nodes, answer, sample() { tick(); },
     advance(ms) { now += ms; }, capture(requestId) {
       let response = null;
@@ -73,6 +76,31 @@ test('RETURN finalizes the exact newly rendered DIL assistant turn without a dis
   assert.equal(h.ctx.BrowserAiBridgeChatGptRuntime.responsePending(), false);
   assert.match(h.capture(ID).text, /ASTRO_QUAL_ACK/);
   assert.equal(h.capture('dex-turn-wrong12345678').text, '');
+});
+
+test('split DIL RETURN finalizes this exact relay without a discoverable user turn', async () => {
+  const h = headed({ splitNewTurn: true });
+  h.sample();
+  h.advance(1600);
+  h.sample();
+  await Promise.resolve();
+  const finals = h.events.filter(e => e.type === 'response_final');
+  assert.equal(finals.length, 1);
+  assert.equal(finals[0].requestId, ID);
+  assert.equal(finals[0].detail.returnRequested, true);
+  assert.match(finals[0].text, /Dex report qualified\./);
+  assert.equal(h.ctx.BrowserAiBridgeChatGptRuntime.responsePending(), false);
+});
+test('split DIL command reply finalizes instead of leaving its CMD stuck behind origin timeout', async () => {
+  const h = headed({ splitNewTurn: true, commandOnly: true });
+  h.sample();
+  h.advance(5100);
+  h.sample();
+  await Promise.resolve();
+  const finals = h.events.filter(e => e.type === 'response_final');
+  assert.equal(finals.length, 1);
+  assert.match(finals[0].text, /\[\[DEX:CMD/);
+  assert.equal(h.ctx.BrowserAiBridgeChatGptRuntime.responsePending(), false);
 });
 
 test('wrong exact-turn return marker or unchanged historical reply never finalizes a new turn', () => {
