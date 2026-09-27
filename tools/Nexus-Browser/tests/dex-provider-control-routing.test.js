@@ -14,11 +14,18 @@ function admissionFor(ws, requestId = null) {
   const receipts = ws.sent.filter((entry) => entry.type === 'provider_control_received');
   return requestId ? receipts.find((entry) => entry.requestId === requestId) : receipts.at(-1);
 }
+function entryFixture() {
+  return { rooms: [{ id: 'room-1', name: 'Stress Room',
+    members: [{ id: 'eve', binding: { targetClassId: 'online-origin', targetId: 4,
+      providerId: 'chatgpt' } }, { id: 'astro', binding: { targetClassId: 'local-origin',
+      targetId: 'local:antigravity-existing:86660', providerId: 'local-antigravity-existing' } }] }] };
+}
 function harness(validateSource = async () => true, overrides = {}) {
   const dex = socket('ui', 'dex');
   const uiSockets = new Set([dex]);
   const safeSend = (ws, payload) => { ws.sent.push(payload); return true; };
-  const routing = createProviderControlRouting({ uiSockets, safeSend, validateSource, ...overrides });
+  const routing = createProviderControlRouting({ uiSockets, safeSend, validateSource,
+    getState: entryFixture, ...overrides });
   return { dex, uiSockets, safeSend, routing };
 }
 async function waitUntil(predicate, attempts = 25) {
@@ -65,7 +72,8 @@ test('provider-control request reports Dex UI offline instead of disappearing', 
   const uiSockets = new Set();
   const local = socket('ui', 'provider-control');
   const safeSend = (ws, payload) => { ws.sent.push(payload); return true; };
-  const routing = createProviderControlRouting({ uiSockets, safeSend, validateSource: async () => true });
+  const routing = createProviderControlRouting({ uiSockets, safeSend,
+    validateSource: async () => true, getState: entryFixture });
   assert.equal(await routing.handle(local, {
     type: 'provider_control_request',
     requestId: 'ctl-offline',
@@ -85,6 +93,7 @@ test('provider-control wakes a headed Dex client before declaring the UI offline
     uiSockets,
     safeSend,
     validateSource: async () => true,
+    getState: entryFixture,
     ensureDexClient: async () => {
       ensureCalls += 1;
       uiSockets.add(socket('ui', 'dex'));
@@ -299,7 +308,9 @@ test('duplicate spawn_agent requests coalesce before browser tab creation', asyn
 });
 
 test('managed browser spawning is rejected for Local-Origin callers', async () => {
-  const state = { rooms: [] };
+  const state = { rooms: [{ id: 'room-1', members: [{ id: 'local', binding: {
+    targetClassId: 'local-origin', targetId: 'local:x', providerId: 'local-antigravity-cli'
+  } }] }] };
   const { routing } = harness(async () => true, { getState: () => state, spawnTarget() { throw new Error('must not spawn'); } });
   const local = socket('ui', 'provider-control');
   await routing.handle(local, {

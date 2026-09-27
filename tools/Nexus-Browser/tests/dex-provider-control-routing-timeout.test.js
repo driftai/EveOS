@@ -71,6 +71,9 @@ test('timed-out mutating provider-control reports unknown commit state instead o
     uiSockets,
     safeSend,
     validateSource: async () => true,
+    getState: () => ({ rooms: [{ id: 'stress-room', name: 'Stress Room',
+      members: [{ id: 'parent', binding: { targetClassId: 'online-origin',
+        targetId: 4, providerId: 'chatgpt', url: 'https://chatgpt.com/c/stress' } }] }] }),
     setTimer(fn) { timers.push(fn); return timers.length; },
     clearTimer() {}
   });
