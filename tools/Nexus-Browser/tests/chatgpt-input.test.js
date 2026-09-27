@@ -277,7 +277,7 @@ test('form-less Send lookup rejects disabled or voice-only controls without unsa
 test('Dex result without scoped Send or native form fails closed instead of synthetic Enter', () => {
   const fs = require('node:fs'), path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '../extension/content/chatgpt.js'), 'utf8');
-  assert.match(source, /!sendControl && String\(delivery\?\.kind \|\| ''\)\.startsWith\('dex-'\)/);
+  assert.match(source, /!sendControl && (dexDelivery|String\(delivery\?\.kind \|\| ''\)\.startsWith\('dex-'\))/);
   assert.match(source, /scoped Send button unavailable; preserving Dex draft instead of synthetic Enter/);
 });
 

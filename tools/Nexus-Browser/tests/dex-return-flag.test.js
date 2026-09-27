@@ -56,6 +56,6 @@ test('baseline fallback captures exactly one new assistant turn, ignoring old DI
   assert.equal(returns.freshReply(api, before), fresh.text);
   assert.equal(returns.scopedResponse(api, 'unreadable DIL user turn', 0, before, false).text, '');
   assert.equal(returns.scopedResponse(api, 'unreadable DIL user turn', 0, before, true).text, fresh.text);
-  nodes.push({ ...fresh });
+  nodes.push({ getAttribute: () => 'msg-another-turn', text: 'Another reply.' });
   assert.equal(returns.freshReply(api, before), '', 'ambiguous multiple new turn surfaces fail closed');
 });

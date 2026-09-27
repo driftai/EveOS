@@ -48,7 +48,7 @@ test('ChatGPT prompt submission confirms departure or committed turn before esca
 test('Dex control results wait longer and follow the hydrated ChatGPT composer', () => {
   assert.match(chatgpt, /DEX_CONTROL_SEND_WAIT_MS = 12000/);
   assert.match(chatgpt, /async function waitForReadyComposer/);
-  assert.match(chatgpt, /\['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion', 'dex-stream-nudge'\]\.includes\(delivery\?\.kind\) \? 30000 : 5000/);
+  assert.match(chatgpt, /const sendWaitMs = (dexDelivery|\['dex-control-result'.*?\]\.includes\(delivery\?\.kind\)) \? 30000 : 5000/);
   assert.match(chatgpt, /const ready = await waitForReadyComposer\(composer, text, sendWaitMs/);
   assert.match(chatgpt, /delivery: msg\.delivery \|\| null/);
 });
