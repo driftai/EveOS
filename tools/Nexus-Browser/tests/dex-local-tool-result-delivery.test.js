@@ -67,8 +67,23 @@ test('unverified lease, active recovery, stale PID and active other room all fai
   const oldSave = s.callbacks.save;
   s.callbacks.save = state => { state.rooms[0].recovery = { requestId: 'live' };
     oldSave(state); };
-  assert.equal((await call(s)).code, 'DEX_LOCAL_RESULT_TARGET_NOT_SAFE');
+  assert.equal((await call(s)).state, 'outcome-unknown');
   assert.equal(s.sends, 0);
+  assert.equal((await call(s)).code, 'DEX_LOCAL_RESULT_ALREADY_CLAIMED');
+});
+test('stale session and occupied terminal arising after the durable claim suppress native send', async () => {
+  const s = fixture();
+  let probes = 0;
+  s.callbacks.attestNative = async () => ++probes === 1
+    ? s.proof : { ...s.proof, processEpoch: 'another-process' };
+  assert.equal((await call(s)).state, 'outcome-unknown');
+  assert.equal(s.sends, 0);
+  assert.equal(s.writes, 2);
+  const separate = fixture();
+  let inspections = 0;
+  separate.callbacks.inspectNativeIdle = async () => ++inspections === 1;
+  assert.equal((await call(separate)).state, 'outcome-unknown');
+  assert.equal(separate.sends, 0);
 });
 test('unknown native submission is marked durably and never retried automatically', async () => {
   const s = fixture();

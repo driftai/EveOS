@@ -76,11 +76,29 @@ function createDeliveryService({
     // Crash-safe boundary: if saving the claim fails, DO NOT touch native I/O.
     try { save(latest); }
     catch { return fail('DEX_LOCAL_RESULT_CLAIM_NOT_DURABLE'); }
-    let ack;
+    // Never trust an idle observation across awaited operations. A lease-losing
+    // race after the durable claim is UNKNOWN, not authority to retry later.
+    let ack = null;
     try {
-      if (exclusiveLeaseHeld() !== true || globallyQuiescent() !== true
+      const claimedState = load(), activeRoom = (claimedState?.rooms || [])
+        .filter(r => r?.id === roomId);
+      const activeEntry = (activeRoom[0]?.localToolResults || [])
+        .filter(e => e.requestId === requestId);
+      if (activeRoom.length !== 1 || activeEntry.length !== 1
+        || activeEntry[0].state !== 'claimed'
+        || activeEntry[0].deliveryAttemptId !== claimed.entry.deliveryAttemptId
+        || activeRoom[0].recovery || activeRoom[0].pendingTurn
+        || activeRoom[0].relay?.active || activeRoom[0].relay?.waitingFor
+        || targetBusyElsewhere(claimedState, roomId, entry.targetId)
+        || exclusiveLeaseHeld() !== true || globallyQuiescent() !== true
         || noActiveSignedJobs() !== true)
-        throw new Error('Lost native dispatch lease after durable claim.');
+        throw new Error('Native result claim was superseded or session became busy.');
+      const rechecked = await attestNative(request, enrolled);
+      if (!proofMatches(enrolled, rechecked, request, now())
+        || await inspectNativeIdle(request, rechecked) !== true
+        || exclusiveLeaseHeld() !== true || globallyQuiescent() !== true
+        || noActiveSignedJobs() !== true)
+        throw new Error('Native session changed after durable claim.');
       ack = await sendNative({ ...request, attemptId: claimed.entry.deliveryAttemptId,
         text: claimed.entry.text, pid: enrolled.pid, processEpoch: enrolled.processEpoch,
         notificationKind: 'dex-tool-result' });
