@@ -29,7 +29,7 @@ function createLocalResultSweep({
   if (!Number.isInteger(maxPerSweep) || maxPerSweep < 1 || maxPerSweep > MAX_PER_SWEEP
     || !Number.isSafeInteger(cooldownMs) || cooldownMs < MIN_COOLDOWN_MS)
     throw new TypeError('Receipt sweep must have bounded cadence and concurrency.');
-  const attempted = new Map();
+  const attempted = new Map(), recentTargets = new Map();
   let running = null;
   async function once() {
     if (canWork() !== true) return { ok: false, code: 'DEX_LOCAL_RESULT_SWEEP_DISABLED' };
@@ -40,8 +40,8 @@ function createLocalResultSweep({
       const snapshot = load(), rooms = snapshot?.rooms || [];
       if (!Array.isArray(rooms) || rooms.length > 128)
         return { ok: false, code: 'DEX_LOCAL_RESULT_SWEEP_BAD_STATE' };
-      for (const [key, at] of attempted) {
-        if (stamp - at >= cooldownMs * 2) attempted.delete(key);
+      for (const map of [attempted, recentTargets]) {
+        for (const [key, at] of map) if (stamp - at >= cooldownMs * 2) map.delete(key);
       }
       let visited = 0, attempts = 0, submitted = 0, unknown = 0;
       for (const room of rooms) {
@@ -51,13 +51,16 @@ function createLocalResultSweep({
           if (attempts >= maxPerSweep) break;
           if (!uniqueOwner(room, entry)) continue;
           const key = room.id + ':' + entry.requestId;
+          const targetKey = entry.providerId + ':' + entry.targetId;
           visited++;
-          if (stamp - (attempted.get(key) ?? -Infinity) < cooldownMs) continue;
+          if (stamp - (attempted.get(key) ?? -Infinity) < cooldownMs
+            || stamp - (recentTargets.get(targetKey) ?? -Infinity) < cooldownMs) continue;
           if (canWork() !== true) return { ok: false, code: 'DEX_LOCAL_RESULT_SWEEP_LEASE_LOST',
             visited, attempts, submitted, unknown };
           // The underlying delivery service reattests after each await, makes
           // the durable claim BEFORE console I/O and never retries a claimed ID.
           attempted.set(key, stamp);
+          recentTargets.set(targetKey, stamp);
           attempts++;
           let result;
           try { result = await deliverOne({ roomId: room.id, requestId: entry.requestId }); }

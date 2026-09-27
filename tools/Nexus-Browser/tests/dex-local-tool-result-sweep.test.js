@@ -88,3 +88,23 @@ test('invalid resource bounds are rejected before scheduler construction', () =>
   assert.throws(() => api.createLocalResultSweep({ load: state, deliverOne() {},
     cooldownMs: 0 }), /bounded/);
 });
+
+test('multiple queued results for the same native terminal are spaced by target cooldown', async () => {
+  const snapshot = state(), attempted = [];
+  let clock = 1000;
+  const worker = api.createLocalResultSweep({ load: () => snapshot,
+    canWork: () => true, now: () => clock, maxPerSweep: 2, cooldownMs: 5000,
+    deliverOne: async ({ requestId }) => {
+      attempted.push(requestId);
+      snapshot.rooms[0].localToolResults.find(e => e.requestId === requestId).state = 'submitted-not-read';
+      return { ok: true, state: 'submitted-not-read' };
+    } });
+  const first = await worker.once();
+  assert.equal(first.attempts, 1);
+  assert.deepEqual(attempted, ['ctl-one']);
+  clock += 4999;
+  assert.equal((await worker.once()).attempts, 0);
+  clock++;
+  assert.equal((await worker.once()).attempts, 1);
+  assert.deepEqual(attempted, ['ctl-one', 'ctl-two']);
+});
