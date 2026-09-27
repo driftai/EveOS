@@ -331,7 +331,7 @@ function reconstructTerminalReturn(text, expectedTurnId) {
   for (let i = 0; i < lines.length - 1; i += 1) {
     const raw = lines[i], curr = raw.trim();
     // Never upgrade a prose example or a partial marker within a code fence.
-    const prefixMatch = curr.match(/^\[\[DEX:RETURN:(dex-turn-[A-Za-z0-9-]{8,128})$/);
+    const prefixMatch = curr.match(/^(?:\[\[DEX:(?:BUDGET:\+[0-9]{1,3}|CONTEXT:[0-9]{1,3})\]\]\s+){0,2}\[\[DEX:RETURN:(dex-turn-[A-Za-z0-9-]{8,128})$/);
     if (!prefixMatch || !expectedTurnId.startsWith(prefixMatch[1])) continue;
     const prior = lines.slice(0, i).join('\n');
     if ((prior.split(String.fromCharCode(96).repeat(3)).length - 1) % 2) continue;

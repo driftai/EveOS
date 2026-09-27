@@ -129,3 +129,36 @@ test('wrapped return reconstruction rejects inline prose and fenced examples eve
   const badSuffix = 'Finished.\n[[DEX:RETURN:dex-turn-315f54a5-7416-411e-b4a2-\nfacdbdd25b31]] do not execute';
   assert.equal(reconstructTerminalReturn(badSuffix, expected), badSuffix);
 });
+
+test('console wraps an exact RETURN after preceding BUDGET or CONTEXT markers without losing budget', () => {
+  const protocol = require('../public/dex-protocol');
+  const expected = 'dex-turn-315f54a5-7416-411e-b4a2-facdbdd25b31';
+  const partial = 'dex-turn-315f54a5-7416-411e-b4a2-';
+  const wrapped = 'Work complete.\n[[DEX:BUDGET:+4]] [[DEX:RETURN:' + partial
+    + '\nfacdbdd25b31]]';
+  const fixed = reconstructTerminalReturn(wrapped, expected);
+  const parsed = protocol.parseAgentReply(fixed);
+  assert.equal(parsed.text, 'Work complete.');
+  assert.equal(parsed.budgetIncrease, 4);
+  assert.equal(parsed.returnRequestId, expected);
+  assert.equal(parsed.malformedCommand, undefined);
+  const two = 'Qualified.\n[[DEX:CONTEXT:12]] [[DEX:BUDGET:+4]] [[DEX:RETURN:'
+    + partial + '\nfacdbdd25b31]]';
+  const second = protocol.parseAgentReply(selectReadyReply(two, '', expected));
+  assert.equal(second.contextOverride, 12);
+  assert.equal(second.budgetIncrease, 4);
+  assert.equal(second.returnRequestId, expected);
+});
+test('preceding-control reflow still rejects blockquotes, fenced examples and inline prose', () => {
+  const expected = 'dex-turn-315f54a5-7416-411e-b4a2-facdbdd25b31';
+  const partial = 'dex-turn-315f54a5-7416-411e-b4a2-';
+  const candidates = [
+    'Example: [[DEX:BUDGET:+4]] [[DEX:RETURN:' + partial + '\nfacdbdd25b31]]',
+    'Quoted:\n> [[DEX:BUDGET:+4]] [[DEX:RETURN:' + partial + '\nfacdbdd25b31]]',
+    'Fenced:\n' + String.fromCharCode(96).repeat(3) + '\n[[DEX:BUDGET:+4]] [[DEX:RETURN:'
+      + partial + '\nfacdbdd25b31]]',
+    'Finished.\n[[DEX:BUDGET:+4]] [[DEX:RETURN:' + partial
+      + '\nfacdbdd25b31]] and more prose'
+  ];
+  for (const item of candidates) assert.equal(reconstructTerminalReturn(item, expected), item);
+});
