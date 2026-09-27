@@ -28,10 +28,17 @@
       const id = nodeIdentity(node);
       return !before.refs.has(node) && (!id || !before.ids.has(id));
     });
-    if (newNodes.length !== 1) return '';
-    const candidate = newNodes[0];
-    return String(answer.assistantText?.(candidate)
-      || answer.assistantTurnText?.(candidate) || '').trim();
+    if (newNodes.length === 1) {
+      const candidate = newNodes[0];
+      return String(answer.assistantText?.(candidate)
+        || answer.assistantTurnText?.(candidate) || '').trim();
+    }
+    // A single DIL assistant turn can render across several content blocks.
+    // Admit those only with ONE shared nonempty message ID, never across turns.
+    const id = newNodes.length ? nodeIdentity(newNodes[0]) : null;
+    if (!id || newNodes.some(node => nodeIdentity(node) !== id)) return '';
+    return newNodes.map(node => String(answer.assistantText?.(node) || '').trim())
+      .filter(Boolean).join('\n\n').trim();
   }
   function scopedResponse(answer, prompt, userBaselineCount, before, committed) {
     const anchored = answer?.responseTextForUserPrompt?.(prompt, userBaselineCount) || '';

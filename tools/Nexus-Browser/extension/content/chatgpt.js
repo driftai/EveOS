@@ -19,6 +19,7 @@
   const RELIABLE_GENERATION_SETTLE_MS = 1500, STATUS_SIGNAL_SETTLE_MS = 3000, NO_SIGNAL_SETTLE_MS = 5000;
   const INCOMPLETE_NO_SIGNAL_SETTLE_MS = 60000, SUBMIT_ATTEMPT_SETTLE_MS = 2400, SUBMIT_FINAL_SETTLE_MS = 1200;
   const DEX_CONTROL_SEND_WAIT_MS = 12000, GENERATION_HEARTBEAT_MS = 15000;
+  const isDexRelay = (id) => /^dex-turn-[A-Za-z0-9-]{8,128}$/.test(String(id || ''));
   const { transientStatusLine, substantiveAssistantText } = pageState;
   const { looksCompleteAssistantText, obviouslyPartialAssistantText } = pageState;
   const malformedDexControl = (text) => !!globalThis.BrowserAiBridgeDexProviderControlContent?.malformedTrailingCommand?.(text);
@@ -345,17 +346,21 @@
       deliveryOriginalRequestId: delivery?.originalRequestId || null, deliveryReason: delivery?.reason || null
     };
 
-    const sendWaitMs = ['dex-control-result', 'dex-done-watch', 'dex-heads-up', 'dex-control-nudge', 'dex-task-completion', 'dex-stream-nudge'].includes(delivery?.kind) ? 30000 : 5000;
+    // Server scheduler sends dex-turn-* without a delivery.kind. Its prompt
+    // must get the same pre-gesture readiness and commit checks as Dex results.
+    const dexDelivery = isDexRelay(requestId) || String(delivery?.kind || '').startsWith('dex-');
+    const sendWaitMs = dexDelivery ? 30000 : 5000;
     const committed = () => answer.normalizeText(answer.getTurnUserText(answer.userNodes(), userBaselineCount)).includes(answer.normalizeText(text));
     const ready = await waitForReadyComposer(composer, text, sendWaitMs, requestId, committed);
     let stage = 'post-ready';
     try {
       composer = ready.composer;
+      if (ready.timedOut) throw new Error('ChatGPT Dex composer pre-gesture readiness timed out; draft preserved; no submission attempted.');
       if (!ready.committed && (!composer || !input.composerContainsText(composer, text)))
         throw new Error('ChatGPT composer did not become ready with the prompt text after hydration/reseed.');
       stage = 'scoping-send'; deliveryGuard.checkpoint(requestId, stage);
       const sendControl = input.findSendControl(composer);
-      if (!ready.committed && !sendControl && String(delivery?.kind || '').startsWith('dex-') && !composer?.closest?.('form'))
+      if (!ready.committed && !sendControl && dexDelivery && !composer?.closest?.('form'))
         throw new Error('ChatGPT scoped Send button unavailable; preserving Dex draft instead of synthetic Enter.');
       if (sendControl && input.isUnsafeSendControl?.(sendControl))
         throw new Error('Refusing to click a ChatGPT voice/upload control as the send button.');
@@ -364,7 +369,7 @@
       if (ready.committed) { watcher.promptCommitted = true; return 'observed'; }
       stage = 'pre-gesture'; deliveryGuard.checkpoint(requestId, stage);
       const mode = await submitComposer(composer, text, sendControl, { exactOnce: qualification?.exactOnce === true,
-        isCommitted: committed, requireCommit: String(delivery?.kind || '').startsWith('dex-'),
+        isCommitted: committed, requireCommit: dexDelivery,
         onGesture: (kind) => deliveryGuard.gesture(requestId, kind) });
       deliveryGuard.finish(requestId, true, mode); watcher.promptCommitted = true; return mode;
     } catch (error) {
