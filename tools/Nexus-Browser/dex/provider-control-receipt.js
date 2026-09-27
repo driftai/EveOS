@@ -129,7 +129,9 @@ function applyResult(snapshot, origin, result, requestId, at = new Date().toISOS
       originMessageId: origin.originMessageId || null
     }
   });
-  const local = localToolResults.queue(room, pending, result, requestId, at);
+  // rememberIntent stores no roomId in pending; derive the exact correlated
+  // room here so captured local commands retain their result notification.
+  const local = localToolResults.queue(room, { ...pending, roomId: room.id }, result, requestId, at);
   if (!local.ok) room.localToolResultFailure = { requestId, code: local.code, at };
   delete room.pendingProviderControlReceipt;
   room.updatedAt = at;

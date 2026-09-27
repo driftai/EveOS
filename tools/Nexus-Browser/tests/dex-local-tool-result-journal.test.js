@@ -93,3 +93,24 @@ test('stale browser snapshot cannot erase or claim server-owned local feedback',
   assert.equal(snapshot.rooms[0].localToolResults.length, 1);
   assert.equal(snapshot.rooms[0].localToolResults[0].state, 'queued');
 });
+
+test('rememberIntent real local lifecycle enqueues its tool result in the correlated room', () => {
+  const { room } = fixture();
+  const command = { action: 'send', text: 'Status of test delivery.' };
+  const pending = receipt.rememberIntent(room, {
+    executorMember: room.members[0], sourceMessage: { id: 'human-one', senderKind: 'user' },
+    command, agentMessage: room.messages[0], turnRequestId: 'dex-turn-real-one'
+  });
+  assert.equal(Object.hasOwn(pending, 'roomId'), false);
+  const snapshot = { rooms: [room] };
+  const origin = receipt.findIntent(snapshot, binding, command);
+  assert.equal(origin.roomId, room.id);
+  const applied = receipt.applyResult(snapshot, origin, result, 'ctl-real-one');
+  assert.ok(applied.receipt);
+  assert.equal(room.localToolResultFailure, undefined);
+  assert.equal(room.localToolResults?.length, 1);
+  assert.equal(room.localToolResults[0].requestId, 'ctl-real-one');
+  assert.equal(room.localToolResults[0].roomId, room.id);
+  assert.equal(room.localToolResults[0].agentMessageId, room.messages[0].id);
+  assert.equal(room.pendingProviderControlReceipt, undefined);
+});
