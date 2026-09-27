@@ -48,3 +48,35 @@ test('protocol, headed provider and CLI all recognize the exact read-only action
     '--room', 'room-one', '--request-id', 'control-one']));
   assert.deepEqual(command, { action: 'tool_result_status', room: 'room-one', requestId: 'control-one' });
 });
+
+test('direct CLI send can be inspected by original request ID without replaying it', () => {
+  const state = snapshot(), room = state.rooms[0];
+  room.messages = [{ id: 'msg-one', clientRequestId: 'cli-one', senderId: 'astro',
+    senderKind: 'agent', text: 'private message' }];
+  room.deferredSendReceipts = [{ requestId: 'cli-one', senderId: 'astro',
+    messageId: 'msg-one', phase: 'queued', at: '2026-09-27T13:00:00Z' },
+    { requestId: 'cli-other', senderId: 'other', messageId: 'msg-two',
+      phase: 'batched' }];
+  const result = api.execute(state, { source: astro,
+    command: { action: 'tool_result_status', room: 'room-one', requestId: 'cli-one' } });
+  assert.equal(result.changed, false);
+  assert.equal(result.result.data.receipts[0].kind, 'direct-send');
+  assert.equal(result.result.data.receipts[0].commitState, 'committed');
+  assert.equal(result.result.data.receipts[0].state, 'queued');
+  assert.doesNotMatch(JSON.stringify(result.result), /private message|cli-other/);
+  assert.equal(api.execute(state, { source: other, command: {
+    action: 'tool_result_status', room: 'room-one', requestId: 'cli-one'
+  } }).result.code, 'DEX_LOCAL_RESULT_NOT_FOUND');
+});
+test('a captured send preserves both its tool result and direct FIFO receipt under one ID', () => {
+  const state = snapshot(), room = state.rooms[0];
+  room.localToolResults[0].requestId = 'cli-one';
+  room.messages = [{ id: 'msg-one', clientRequestId: 'cli-one', senderId: 'astro',
+    senderKind: 'agent' }];
+  room.deferredSendReceipts = [{ requestId: 'cli-one', senderId: 'astro',
+    messageId: 'msg-one', phase: 'queued', at: '2026-09-27T13:00:00Z' }];
+  const reply = api.execute(state, { source: astro, command: {
+    action: 'tool_result_status', room: 'room-one', requestId: 'cli-one'
+  } }).result;
+  assert.deepEqual(reply.data.receipts.map(x => x.kind), ['control-result', 'direct-send']);
+});

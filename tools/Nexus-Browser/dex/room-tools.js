@@ -87,15 +87,26 @@ function toolResultStatus(room, source, command = {}) {
   const id = command.requestId == null ? null : String(command.requestId);
   if (id != null && !/^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/.test(id))
     return { ok: false, code: 'DEX_LOCAL_RESULT_BAD_ID', message: 'Use one exact control request ID.' };
-  const chosen = id == null ? entries.slice(-8) : entries.filter(e => e.requestId === id);
-  if (id != null && chosen.length !== 1)
-    return { ok: false, code: 'DEX_LOCAL_RESULT_NOT_FOUND',
-      message: 'No receipt is recorded for this exact request in your bound session.' };
+  // A dexctl send can commit directly to the inbox without an originating
+  // captured agent turn. Its signed-in sender ID and immutable request ID are
+  // still recorded in the server-owned deferred-send receipt journal.
+  const sends = (room.deferredSendReceipts || []).filter(e => e.senderId === member.id
+    && (room.messages || []).some(m => m.id === e.messageId
+      && m.senderId === member.id && m.clientRequestId === e.requestId));
+  const records = [
+    ...entries.map(e => ({ requestId: e.requestId, kind: 'control-result',
+      state: e.state, at: e.at || null, ackAt: e.ackAt || null })),
+    ...sends.map(e => ({ requestId: e.requestId, kind: 'direct-send',
+      state: e.phase, commitState: e.phase === 'orphaned' ? 'unknown' : 'committed',
+      messageId: e.messageId, at: e.at || null }))
+  ];
+  const chosen = id == null ? records.slice(-8) : records.filter(e => e.requestId === id);
+  if (id != null && !chosen.length) return { ok: false, code: 'DEX_LOCAL_RESULT_NOT_FOUND',
+    message: 'No result is recorded for this exact request in your bound session.' };
   return { ok: true, action: 'tool_result_status',
-    message: 'Read-only transport state; original command not replayed and no relay turn created.',
-    data: { roomId: room.id, memberId: member.id, receipts: chosen.map(e => ({
-      requestId: e.requestId, state: e.state, at: e.at || null, ackAt: e.ackAt || null
-    })), semantics: 'queued is not delivered; submitted-not-read is not model receipt; outcome-unknown requires inspection' } };
+    message: 'Read-only transport status; no command replay and no agent turn scheduled.',
+    data: { roomId: room.id, memberId: member.id, receipts: chosen,
+      semantics: 'queued is not delivered; submitted-not-read is not model receipt; outcome-unknown requires inspection' } };
 }
 function execute(snapshot, { source, command, at = new Date().toISOString() } = {}) {
   const action = String(command?.action || '').toLowerCase();
