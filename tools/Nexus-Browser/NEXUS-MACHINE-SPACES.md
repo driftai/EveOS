@@ -118,17 +118,17 @@ Implementation/test ownership: Eve owns the pure shared receipt contract, persis
 
 ## Post-disconnection exact tool-result lookup (feature branch, not deployed)
 
-A captured Astro \`[[DEX:CMD ...]]\` can now persist a transport-owned \`[DEX TOOL RESULT]\` even if its native notification is unavailable or its terminal disconnects. The same read-only lookup also shows metadata for an authenticated direct \`dexctl send\`; it never re-executes the original command or creates a new relay.
+A captured Astro `[[DEX:CMD ...]]` can now persist a transport-owned `[DEX TOOL RESULT]` even if its native notification is unavailable or its terminal disconnects. The same read-only lookup also shows metadata for an authenticated direct `dexctl send`; it never re-executes the original command or creates a new relay.
 
-From \`tools/Nexus-Browser\`, with the **currently authorized** Antigravity PID and exact room/request IDs:
+From `tools/Nexus-Browser`, with the **currently authorized** Antigravity PID and exact room/request IDs:
 
-\`\`\`powershell
+```powershell
 node scripts/dexctl.js tool-result-status --agy-pid <CURRENT_AGY_PID> --room <ROOM_ID> --request-id <CONTROL_ID>
 node scripts/dexctl.js tool-result-status --agy-pid <CURRENT_AGY_PID> --room <ROOM_ID> --request-id <CONTROL_ID> --read-result
-\`\`\`
+```
 
-The default lookup reveals only the requesting member's bounded transport states. \`--read-result\` requires an exact control ID and returns that member's original formatted \`[DEX TOOL RESULT]\` when there is a captured-command receipt. A direct CLI \`send\` is instead reported from its original durable FIFO receipt; there may be no captured-command text to retrieve. Another bound member, even in the same room, cannot read the result. Duplicate local target ownership or duplicate stored receipt IDs fails closed.
+The default lookup reveals only the requesting member's bounded transport states. `--read-result` requires an exact control ID and returns that member's original formatted `[DEX TOOL RESULT]` when there is a captured-command receipt. A direct CLI `send` is instead reported from its original durable FIFO receipt; there may be no captured-command text to retrieve. Another bound member, even in the same room, cannot read the result. Duplicate local target ownership or duplicate stored receipt IDs fails closed.
 
-For scripts use \`--json\`; ordinary CLI outputs remain JSON by default. To print the shared human-readable formatter for a **new** command, use \`--tool-result\`. If a network disconnect occurs after a mutating command, \`dexctl\` returns \`DEX_CONTROL_OUTCOME_UNKNOWN\` and the *original* \`dexRequestId\`; it does not automatically retry the mutation. Inspect that same ID with \`tool-result-status\` instead of issuing a new send. Read-only queries alone may retry with their identical request ID.
+For scripts use `--json`; ordinary CLI outputs remain JSON by default. To print the shared human-readable formatter for a **new** command, use `--tool-result`. If a network disconnect occurs after a mutating command, `dexctl` returns `DEX_CONTROL_OUTCOME_UNKNOWN` and the *original* `dexRequestId`; it does not automatically retry the mutation. Inspect that same ID with `tool-result-status` instead of issuing a new send. Read-only queries alone may retry with their identical request ID.
 
-This is a **retrieval fallback**, not the requested automatic native delivery. The native one-shot notifier remains staged and unwired until Astro qualifies Windows lock-owner/process-epoch attestation, the private owner-enrollment ACL, exclusive dispatch lease, idle-console safety and exact-session native ACK. A queued result is not a delivered result; \`submitted-not-read\` is not a model-read acknowledgement. Do not touch the live bridge or promote \`main\` before the full local qualification matrix passes.
+This is a **retrieval fallback**, not the requested automatic native delivery. The native one-shot notifier remains staged and unwired until Astro qualifies Windows lock-owner/process-epoch attestation, the private owner-enrollment ACL, exclusive dispatch lease, idle-console safety and exact-session native ACK. A queued result is not a delivered result; `submitted-not-read` is not a model-read acknowledgement. Do not touch the live bridge or promote `main` before the full local qualification matrix passes.
