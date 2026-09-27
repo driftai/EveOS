@@ -5,17 +5,11 @@ const { randomUUID, createHash } = require('node:crypto');
 const { commandKey } = require('./provider-control-receipt');
 const stateApi = require('./server-scheduler-state');
 const protocol = require('../public/dex-protocol');
+const binding = require('../public/dex-members');
 const MAX_QUEUED = 8, MAX_RECEIPTS = 128;
 function matchingMember(room, source = {}) {
-  return (room?.members || []).find((member) => {
-    const b = member.binding || {};
-    if (b.targetClassId !== source.targetClassId || b.providerId !== source.providerId) return false;
-    if (b.targetClassId === 'local-origin')
-      return !!b.targetId && String(b.targetId) === String(source.targetId || '');
-    if (b.targetId != null && String(b.targetId) !== String(source.targetId ?? '')) return false;
-    if (b.url && b.url !== source.url) return false;
-    return b.targetId != null || !!b.url;
-  }) || null;
+  const matches = (room?.members || []).filter(member => binding.exactBinding(member.binding, source));
+  return matches.length === 1 ? matches[0] : null;
 }
 function eligibleRoom(snapshot, source, roomRef) {
   const authorized = (snapshot?.rooms || []).filter((room) => matchingMember(room, source));

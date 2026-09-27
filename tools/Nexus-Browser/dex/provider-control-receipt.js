@@ -1,4 +1,5 @@
 const localToolResults = require('./local-tool-result-journal');
+const binding = require('../public/dex-members');
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
   if (!value || typeof value !== 'object') return value;
@@ -10,14 +11,7 @@ function commandKey(command = {}) {
   return JSON.stringify(stableValue({ ...command, action }));
 }
 
-function bindingMatchesSource(binding = {}, source = {}) {
-  if (binding.targetClassId !== source.targetClassId || binding.providerId !== source.providerId) return false;
-  if (binding.targetClassId === 'online-origin') {
-    if (binding.targetId != null && source.targetId != null && String(binding.targetId) === String(source.targetId)) return true;
-    return !!binding.url && !!source.url && binding.url === source.url;
-  }
-  return !!binding.targetId && String(binding.targetId) === String(source.targetId || '');
-}
+const bindingMatchesSource = binding.exactBinding;
 
 function compactBinding(binding = null) {
   if (!binding) return null;

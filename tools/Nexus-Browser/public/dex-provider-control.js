@@ -27,14 +27,7 @@
     }
     return `online:${source.providerId || 'provider'}:${source.url || source.targetId || 'target'}`;
   }
-  function bindingMatchesSource(binding = {}, source = {}) {
-    if (binding.targetClassId !== source.targetClassId || binding.providerId !== source.providerId) return false;
-    if (source.targetClassId === 'local-origin')
-      return !!binding.targetId && String(binding.targetId) === String(source.targetId || '');
-    if (binding.targetId && source.targetId && String(binding.targetId) === String(source.targetId)) return true;
-    if (binding.url && source.url) return binding.url === source.url;
-    return String(binding.targetId || '') === String(source.targetId || '');
-  }
+  const bindingMatchesSource = membersApi.exactBinding;
   function memberForSource(room, source) {
     return (room?.members || []).find((member) => bindingMatchesSource(member.binding, source)) || null;
   }
@@ -249,7 +242,9 @@
         return { ok: true, action, message: `Created Dex room: ${room.name}`, data: roomSummary(room, room.members[0], true) };
       }
       const rooms = authorizedRooms(state.rooms, source);
-      if (!rooms.length) return { ok: false, code: 'DEX_CONTROL_NOT_BOUND', message: 'This exact provider chat/session is not a participant in any Dex room.' };
+      if (!rooms.length) return membersApi.staleRoomCount(state.rooms, source)
+        ? { ok: false, code: 'DEX_CONTROL_STALE_BINDING', message: 'The room has an outdated tab ID or chat URL. A human must rebind the existing participant in the Dex room editor; no command executed.' }
+        : { ok: false, code: 'DEX_CONTROL_NOT_BOUND', message: 'This exact provider chat/session is not a participant in any Dex room.' };
       if (action === 'rooms') {
         const selectedId = selections[sourceKey(source)] || (rooms.length === 1 ? rooms[0].id : null);
         if (rooms.length === 1 && !selections[sourceKey(source)]) setSelection(source, rooms[0]);

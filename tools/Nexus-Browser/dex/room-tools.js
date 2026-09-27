@@ -3,12 +3,15 @@
 // history query or silently replay an interrupted prompt.
 const protocol = require('../public/dex-protocol');
 const mailbox = require('./recovery-mailbox');
+const binding = require('../public/dex-members');
 const stateApi = require('./server-scheduler-state');
 const ACTIONS = new Set(['room_budget', 'set_room_budget', 'room_log', 'tool_result_status']);
 const MAX_PAGE = 25, MAX_PAGE_CHARS = 14000;
 function resolveRoom(snapshot, source, reference) {
   const rooms = (snapshot.rooms || []).filter((r) => mailbox.matchingMember(r, source));
-  if (!rooms.length) return { error: 'DEX_ROOM_NOT_BOUND', message: 'This exact participant is not bound to any Dex room.' };
+  if (!rooms.length) return binding.staleRoomCount(snapshot.rooms, source, reference)
+    ? { error: 'DEX_ROOM_STALE_BINDING', message: 'Outdated browser tab ID or chat URL; rebind the existing member explicitly in Dex. No command executed.' }
+    : { error: 'DEX_ROOM_NOT_BOUND', message: 'This exact participant is not bound to any Dex room.' };
   let eligible = rooms;
   if (reference) {
     const key = String(reference).trim().toLowerCase();

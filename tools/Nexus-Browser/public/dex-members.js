@@ -1,4 +1,32 @@
 (() => {
+  // One policy for browser UI, localhost commands, receipt correlation and
+  // terminal sources. Matching only an ID OR URL can select the wrong chat.
+  function exactBinding(binding = {}, source = {}) {
+    if (binding.targetClassId !== source.targetClassId
+      || binding.providerId !== source.providerId) return false;
+    if (binding.targetClassId === 'local-origin')
+      return !!binding.targetId && String(binding.targetId) === String(source.targetId ?? '');
+    if (binding.targetClassId !== 'online-origin') return false;
+    const hasId = binding.targetId != null && String(binding.targetId) !== '';
+    if (hasId && (source.targetId == null
+      || String(binding.targetId) !== String(source.targetId))) return false;
+    if (binding.url && binding.url !== source.url) return false;
+    return hasId || !!binding.url;
+  }
+  function staleBinding(binding = {}, source = {}) {
+    if (binding.targetClassId !== 'online-origin' || source.targetClassId !== 'online-origin'
+      || binding.providerId !== source.providerId || exactBinding(binding, source)) return false;
+    return (binding.targetId != null && source.targetId != null
+      && String(binding.targetId) === String(source.targetId))
+      || (!!binding.url && !!source.url && binding.url === source.url);
+  }
+  function staleRoomCount(rooms = [], source = {}, reference = null) {
+    const ref = reference == null ? '' : String(reference).trim().toLowerCase();
+    return (rooms || []).filter(room => (!ref || room?.id === reference
+      || String(room?.name || '').trim().toLowerCase() === ref)
+      && (room?.members || []).some(member => staleBinding(member.binding, source))).length;
+  }
+
   function memberFingerprint(binding = {}) {
     return binding.targetClassId === 'online-origin'
       ? `online:${binding.providerId}:${binding.url || binding.targetId}`
@@ -47,8 +75,8 @@
     if (binding.targetClassId === 'local-origin') {
       return String(localTargets.find((target) => target.id === binding.targetId)?.id || '');
     }
-    const target = tabs.find((tab) => String(tab.id) === String(binding.targetId) && tab.providerId === binding.providerId)
-      || tabs.find((tab) => tab.providerId === binding.providerId && binding.url && tab.url === binding.url);
+    const target = tabs.find(tab => exactBinding(binding, { targetClassId: 'online-origin',
+      targetId: tab.id, providerId: tab.providerId, url: tab.url }));
     return target ? String(target.id) : '';
   }
 
@@ -217,6 +245,7 @@
 
   const api = {
     memberFingerprint,
+    exactBinding, staleBinding, staleRoomCount,
     stableMemberId,
     bindingFromSource,
     memberTypeId,

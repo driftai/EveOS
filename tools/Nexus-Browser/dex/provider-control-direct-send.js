@@ -2,6 +2,7 @@
 // Route authenticated room SEND directly into localhost's durable FIFO. Never
 // wait for an older relay's final receipt just to admit a new message.
 const mailbox = require('./recovery-mailbox');
+const binding = require('../public/dex-members');
 function route({ source, command, requestId, ws }, {
   getState, saveState, broadcastState, getScheduler, now,
   sendResult, commitOriginReceipt, findOrigin
@@ -12,8 +13,11 @@ function route({ source, command, requestId, ws }, {
     source, command, requestId, at: new Date(now()).toISOString()
   });
   if (!queued) {
-    const result = { ok: false, code: 'DEX_ROOM_NOT_BOUND_OR_AMBIGUOUS',
-      message: 'Specify exactly one room bound to this authenticated source. No message was enqueued.' };
+    const stale = binding.staleRoomCount(snapshot.rooms, source, command.room) > 0;
+    const result = { ok: false,
+      code: stale ? 'DEX_ROOM_STALE_BINDING' : 'DEX_ROOM_NOT_BOUND_OR_AMBIGUOUS',
+      message: stale ? 'Outdated tab ID or chat URL; explicitly rebind Eve in the existing room. No message was enqueued.'
+        : 'Specify exactly one room bound to this authenticated source. No message was enqueued.' };
     const receipt = commitOriginReceipt(origin, result, requestId);
     sendResult({ sourceSocket: ws, requestId, source }, result, receipt);
     return true;

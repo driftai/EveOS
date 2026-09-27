@@ -23,7 +23,8 @@ function sourceFingerprint(source = {}) {
   return [
     source.targetClassId || '',
     source.providerId || '',
-    source.url || source.targetId || ''
+    source.targetId == null ? '' : String(source.targetId),
+    source.url || ''
   ].join('|');
 }
 function mutationKey(source, command = {}) {
