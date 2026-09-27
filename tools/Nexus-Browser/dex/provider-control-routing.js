@@ -2,7 +2,7 @@ const orchestrationPolicy = require('./provider-orchestration-policy'), controlR
 const { createAgentExtensionReload } = require('./agent-extension-reload');
 const directSend = require('./provider-control-direct-send');
 const { directRoomSend } = require('./direct-room-send-policy');
-const roomTools = require('./room-tools');
+const roomTools = require('./room-tools'), entryCheck = require('./provider-control-entry-check');
 const POST_IDLE_ACTIONS = new Set(['arm_post_idle','post_idle_status','cancel_post_idle','report_post_idle']);
 const { runPostIdleCommand } = require('./post-idle-control');
 const doneWatchApi = require('../public/dex-done-watch');
@@ -157,6 +157,10 @@ function createProviderControlRouting({
       return true;
     }
     safeSend(ws, { type: 'provider_control_received', requestId, clientActionId: msg.clientActionId || null });
+    let entryGate;
+    try { entryGate = entryCheck.authorize(getState?.(), source, command); }
+    catch { entryGate = { ok: false, code: 'DEX_ENTRY_STATE_UNAVAILABLE', message: 'Room state unavailable; no command executed.' }; }
+    if (!entryGate.ok) { fail(ws, requestId, source, entryGate.code, entryGate.message); return true; }
     // New authenticated room sends are admitted to the durable inbox without
     // waiting on a different agent's unfinished or NOTE-stopped relay.
     if (directRoomSend(command) && getState && saveState) {
@@ -283,7 +287,6 @@ function createProviderControlRouting({
       fail(ws, requestId, source, authorization.code, authorization.message, origin);
       return true;
     }
-
     const timer = setTimer(() => {
       finish(requestId, {
         result: key
@@ -291,14 +294,12 @@ function createProviderControlRouting({
           : { ok: false, code: 'DEX_CONTROL_TIMEOUT', message: 'Dex Mode did not answer the provider-control request in time.' }
       });
     }, action === 'spawn_agent' || action === 'despawn_agent' ? 45000 : 15000);
-
     const entry = {
       sourceSocket: ws, source, requestId, timer, key, waiters: [],
       action, origin, spawnedTarget: null, managedTarget: authorization?.target || null
     };
     pending.set(requestId, entry);
     if (key) pendingMutations.set(key, requestId);
-
     let routedCommand = command;
     if (action === 'spawn_agent') {
       if (typeof spawnTarget !== 'function') {
