@@ -30,7 +30,7 @@ test('freshReply rejects multiple assistant IDs and reflowed old IDs', () => {
   assert.equal(returnApi.freshReply({ assistantNodes: () => [
     prior, node(null, 'Anonymous fragment'), node(null, 'Anonymous fragment')], assistantText }, before), '');
 });
-function headed({ hasSend = false, commitAfterClick = false, clearWithoutCommit = false } = {}) {
+function headed({ hasSend = false, commitAfterClick = false, clearWithoutCommit = false, readyTimeout = false } = {}) {
   let clock = 0, clicks = 0, enters = 0, confirmation = false;
   const waits = [], gestures = [], finishes = [], userNodes = [];
   const field = { tagName: 'TEXTAREA', value: 'Astro qualified relay payload', isConnected: true,
@@ -48,7 +48,7 @@ function headed({ hasSend = false, commitAfterClick = false, clearWithoutCommit 
     isDisabledControl: () => false, isUnsafeSendControl: () => false
   };
   const guard = {
-    ready: async (_composer, _text, timeout) => { waits.push(timeout); return { composer: field, control: hasSend ? button : null }; },
+    ready: async (_composer, _text, timeout) => { waits.push(timeout); return { composer: field, control: hasSend ? button : null, timedOut: readyTimeout }; },
     checkpoint() {}, gesture: (_id, kind) => gestures.push(kind),
     finish: (_id, success, reason) => finishes.push({ success, reason }),
     diagnostics: () => ({ last: null })
@@ -98,6 +98,16 @@ test('bare dex-turn prompt without delivery.kind refuses unreliable synthetic En
   assert.equal(h.enters, 0);
   assert.equal(h.field.value, 'Astro qualified relay payload');
   assert.equal(h.finishes[0].success, false);
+});
+test('a Dex pre-gesture readiness timeout cannot click a stale Send control', async () => {
+  const h = headed({ hasSend: true, readyTimeout: true });
+  await assert.rejects(h.chat.submitPrompt(TURN, h.field.value),
+    /pre-gesture readiness timed out; draft preserved; no submission attempted/);
+  assert.equal(h.waits[0], 30000);
+  assert.equal(h.clicks, 0);
+  assert.equal(h.enters, 0);
+  assert.deepEqual(h.gestures, []);
+  assert.equal(h.field.value, 'Astro qualified relay payload');
 });
 test('bare dex-turn requires the actual committed user turn after exactly one Send click', async () => {
   const h = headed({ hasSend: true, commitAfterClick: true });
