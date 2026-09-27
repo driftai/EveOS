@@ -103,7 +103,7 @@ test('applying a result writes a transport-only system receipt and clears pendin
 
 test('provider-control routing returns one correlated receipt to the executor bridge and persists it in the origin room', async () => {
   let value = snapshot();
-  const command = { action: 'add_agent', room: 'stress-room', targetClassId: 'online-origin', targetId: 99, name: 'Eve Engineering 3' };
+  const command = { action: 'add_agent', room: 'coord', targetClassId: 'online-origin', targetId: 99, name: 'Eve Engineering 3' };
   remember(value, command);
   const dex = { role: 'ui', clientKind: 'dex', sent: [] };
   const executor = { role: 'provider-control-extension', clientKind: null, sent: [] };

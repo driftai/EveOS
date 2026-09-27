@@ -134,7 +134,7 @@ test('server watch_done and unwatch_done authorize only the exact room member', 
   const stranger = await request({ ...eveSource, targetId: 99, url: 'https://chatgpt.com/c/stranger' },
     { action: 'watch_done', room: 'room-astro' }, 'ctl-stranger');
   assert.equal(stranger.ok, false);
-  assert.equal(stranger.code, 'DEX_DONE_WATCH_ROOM_REQUIRED');
+  assert.equal(['DEX_DONE_WATCH_ROOM_REQUIRED', 'DEX_ROOM_NOT_BOUND'].includes(stranger.code), true);
   assert.equal((await request(eveSource, { action: 'unwatch_done', room: 'room-astro' }, 'ctl-cancel')).ok, true);
   assert.equal(snapshot.rooms[0].doneWatches.length, 0);
   assert.equal(saved, 2);

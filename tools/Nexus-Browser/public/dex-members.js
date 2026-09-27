@@ -76,7 +76,8 @@
       return String(localTargets.find((target) => target.id === binding.targetId)?.id || '');
     }
     const target = tabs.find(tab => exactBinding(binding, { targetClassId: 'online-origin',
-      targetId: tab.id, providerId: tab.providerId, url: tab.url }));
+      targetId: tab.id, providerId: tab.providerId, url: tab.url }))
+      || tabs.find(tab => tab.providerId === binding.providerId && binding.url && tab.url === binding.url);
     return target ? String(target.id) : '';
   }
 
