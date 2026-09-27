@@ -92,9 +92,11 @@ test('dexctl isolates local source identity when adding an online agent', () => 
 
 
 test('dexctl retries transient stale-Dex failures after a server restart', async () => {
-  assert.equal(shouldRetryResult({ code: 'DEX_UI_OFFLINE' }), true);
-  assert.equal(shouldRetryResult({ code: 'DEX_CONTROL_BAD_ACTION' }), true);
-  assert.equal(shouldRetryResult({ code: 'DEX_CONTROL_TARGET_NOT_FOUND' }), false);
+  assert.equal(shouldRetryResult({ code: 'DEX_UI_OFFLINE' }, { action: 'targets' }), true);
+  assert.equal(shouldRetryResult({ code: 'DEX_CONTROL_BAD_ACTION' }, { action: 'targets' }), true);
+  assert.equal(shouldRetryResult({ code: 'DEX_UI_OFFLINE' }, { action: 'send' }), false);
+  assert.equal(shouldRetryResult({ code: 'DEX_CONTROL_TIMEOUT' }, { action: 'send' }), false);
+  assert.equal(shouldRetryResult({ code: 'DEX_CONTROL_TARGET_NOT_FOUND' }, { action: 'targets' }), false);
 
   const results = [
     { ok: false, code: 'DEX_UI_OFFLINE' },

@@ -2,6 +2,7 @@
 const { WebSocket } = require('ws');
 const { urls } = require('../runtime-config');
 const toolResult = require('../extension/dex-tool-result');
+const retrySafety = require('./dexctl-retry-safety');
 
 const WS_URL = process.env.NEXUS_BROWSER_WS || process.env.BROWSER_AI_BRIDGE_WS || urls().websocket;
 
@@ -45,6 +46,7 @@ Source options:
   --provider-id <id>     Defaults to local-antigravity-existing
   --provider-name <name> Defaults to Antigravity CLI
   --tool-result          Print the shared [DEX TOOL RESULT] (default JSON unchanged)
+  --control-id <id>      Preserve a stable ID for exact outcome inspection
   --json                 Print machine-readable JSON (explicit)
 
 Dex provider commands can auto-wake the headed Dex UI; room state is durably mirrored on localhost.`);
@@ -200,13 +202,13 @@ function commandFrom(parsed) {
   throw new Error(`Unknown command: ${commandName}`);
 }
 
-function run({ source, command }) {
+function run({ source, command, requestId = retrySafety.newRequestId() }) {
   return new Promise((resolve, reject) => {
-    const requestId = `provider-control-cli-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const ws = new WebSocket(WS_URL);
     const timeout = setTimeout(() => {
       try { ws.close(); } catch {}
-      reject(new Error('Timed out waiting for Nexus Browser provider-control result.'));
+      reject(Object.assign(new Error('Timed out; control ID '+ requestId +' may already be committed. Inspect the SAME ID.'),
+        { code: 'DEX_CONTROL_OUTCOME_UNKNOWN', requestId }));
     }, 20000);
 
     ws.on('open', () => {
@@ -220,12 +222,12 @@ function run({ source, command }) {
       clearTimeout(timeout);
       ws.close();
       const result = msg.result || { ok: false, message: 'No provider-control result.' };
-      Object.defineProperty(result, 'dexRequestId', { value: requestId, enumerable: false });
+      Object.defineProperty(result, 'dexRequestId', { value: requestId, enumerable: true, configurable: true });
       resolve(result);
     });
     ws.on('error', (error) => {
       clearTimeout(timeout);
-      reject(error);
+      reject(Object.assign(error, { code: 'DEX_CONTROL_OUTCOME_UNKNOWN', requestId }));
     });
   });
 }
@@ -362,9 +364,7 @@ function runPassiveRecoveryResolution({ roomId, recoveryRequestId, reason = 'Ext
   });
 }
 
-function shouldRetryResult(result = {}) {
-  return new Set(['DEX_UI_OFFLINE', 'DEX_CONTROL_TIMEOUT', 'DEX_CONTROL_BAD_ACTION']).has(result.code);
-}
+function shouldRetryResult(result = {}, command = {}) { return retrySafety.shouldRetryResult(result, command); }
 
 function runTabReload(tabId) {
   const numericId = Number(tabId);
@@ -396,14 +396,8 @@ function runTabReload(tabId) {
   });
 }
 
-async function runWithRetry({ source, command, attempts = 4, delayMs = 1400, runImpl = run }) {
-  let result = null;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    result = await runImpl({ source, command });
-    if (result?.ok || !shouldRetryResult(result) || attempt === attempts - 1) return result;
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
-  return result;
+async function runWithRetry({ source, command, attempts = 4, delayMs = 1400, runImpl = run, requestId }) {
+  return retrySafety.runWithRetry({ source, command, attempts, delayMs, runImpl, requestId });
 }
 
 async function main(argv = process.argv.slice(2)) {
@@ -421,7 +415,7 @@ async function main(argv = process.argv.slice(2)) {
               recoveryRequestId: parsed.options.requestId,
               reason: parsed.options.reason || 'Externally reconciled'
             })
-          : await runWithRetry({ source: sourceFrom(parsed.options, parsed.commandName), command: commandFrom(parsed) });
+          : await runWithRetry({ source: sourceFrom(parsed.options, parsed.commandName), command: commandFrom(parsed), requestId: parsed.options.controlId });
   console.log(parsed.options.toolResult ? toolResult.formatResult(result) : JSON.stringify(result, null, 2));
   process.exitCode = result.ok ? 0 : 2;
 }
