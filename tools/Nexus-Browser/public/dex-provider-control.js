@@ -113,6 +113,7 @@
       recoveryRequestId: room.recovery?.requestId || null, recoveryPassiveAt: room.recovery?.passiveAt || null, deferredSends: (room.deferredRelays || []).length, archivedLateFinalWatches: (room.lateFinalWatches || []).length,
       recoveryMemberId: room.recovery?.memberId || null,
       recoveryMemberName: (room.members || []).find((entry) => entry.id === room.recovery?.memberId)?.name || null,
+      recoveryHeldTurns: Math.max(0, Number(room.recovery?.relayRemaining || 0)), recoverySendState: room.recovery?.promptSendFailure?.classification || null, recoveryAttentionRequired: !!room.recovery?.promptSendFailure?.attentionAtMs,
       budget: { configuredTurns: room.settings?.maxTurns || 8, allocatedTurns: room.relay?.turnBudgetTotal || null, scheduledTurns: room.relay?.scheduledTurns ?? null, remainingTurns: room.relay?.remaining || 0 },
       messages: room.messages?.length || 0
     };

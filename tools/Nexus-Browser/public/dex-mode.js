@@ -326,7 +326,7 @@
     el.dexUserName.value = room.userName;
     el.dexAutoRelay.checked = !!room.settings.autoRelay;
     el.dexMaxTurns.value = room.settings.maxTurns;
-    const budgetLabel = ` · ${room.relay.scheduledTurns ?? '?'} / ${room.relay.turnBudgetTotal ?? '?'} scheduled · ${room.relay.remaining || 0} left`;
+    const budgetLabel = ` · ${room.relay.scheduledTurns ?? '?'} / ${room.relay.turnBudgetTotal ?? '?'} scheduled · ${room.relay.remaining || 0} left${room.recovery ? ` · ${room.recovery.relayRemaining || 0} held in capture-only recovery${room.recovery.promptSendFailure?.attentionAtMs ? ' · inspect exact bound tab; do not resend' : ''}` : ''}`;
     el.dexRoomStatus.textContent = room.relay.active
       ? `Relay running on localhost${budgetLabel}${room.relay.waitingFor ? ' · waiting for agent' : ''}${connectionSuffix}`
       : `Relay stopped · ${room.relay.lastStopReason || 'Idle'}${budgetLabel}${connectionSuffix}`;

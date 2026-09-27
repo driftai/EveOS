@@ -400,7 +400,10 @@
           .then((submissionMode) => sendResponse({ ok: true, submissionMode }))
           .catch((error) => {
             stopWatcher(msg.requestId);
-            if (!['dex-control-nudge', 'dex-stream-nudge'].includes(msg.delivery?.kind)) emit({ type: 'adapter_error', requestId: msg.requestId, code: 'PROMPT_SEND_FAILED', message: error.message });
+            const last = deliveryGuard.diagnostics().last;
+            const evidence = last?.requestId === msg.requestId && ['blocked', 'uncertain'].includes(last.phase)
+              ? { requestId: msg.requestId, phase: last.phase, gestureAttempted: !!last.gesture } : null;
+            if (!['dex-control-nudge', 'dex-stream-nudge'].includes(msg.delivery?.kind)) emit({ type: 'adapter_error', requestId: msg.requestId, code: 'PROMPT_SEND_FAILED', message: error.message, detail: evidence ? { deliveryEvidence: evidence } : null });
             sendResponse({ ok: false, error: error.message });
           });
         return true;

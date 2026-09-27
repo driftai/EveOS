@@ -4,7 +4,7 @@ const healthApi = require('../public/dex-provider-health');
 const failurePolicy = require('../public/dex-failure-policy');
 const stateApi = require('./server-scheduler-state'), controlReceiptApi = require('./provider-control-receipt'), doneWatchApi = require('../public/dex-done-watch');
 const { createServerSchedulerRecovery } = require('./server-scheduler-recovery');
-const recoveryMailbox = require('./recovery-mailbox');
+const recoveryMailbox = require('./recovery-mailbox'), promptSend = require('./prompt-send-recovery');
 const { directRoomSend } = require('./direct-room-send-policy');
 const { TURN_TIMEOUT_MS, TURN_IDLE_TIMEOUT_MS, TURN_ABSOLUTE_TIMEOUT_MS,
   activityFromTransport, createServerTurnLease } = require('./server-turn-lease');
@@ -284,6 +284,7 @@ function createDexServerScheduler({
       save(snapshot); processSoon(delayMs); return true;
     }
     if (decision.action === 'recover') {
+      if (room.recovery && msg.code === 'PROMPT_SEND_FAILED') promptSend.noteFailure(room.recovery, msg, current.requestId, nowMs());
       if (room.recovery && ['CHATGPT_MESSAGE_STREAM_ERROR', 'CHATGPT_STREAM_CACHE_EXPIRED'].includes(msg.code)) {
         room.recovery.streamNudge = { reason: msg.code, requestedAt: now(),
           deadlineAt: new Date(nowMs() + 45000).toISOString() }; save(snapshot);

@@ -1,5 +1,5 @@
 const protocol = require('../public/dex-protocol');
-const failurePolicy = require('../public/dex-failure-policy');
+const failurePolicy = require('../public/dex-failure-policy'), promptSend = require('./prompt-send-recovery');
 const stateApi = require('./server-scheduler-state');
 const controlReceiptApi = require('./provider-control-receipt');
 const passiveLife = require('./passive-recovery-lifecycle');
@@ -111,7 +111,7 @@ function createServerSchedulerRecovery({
       sourceMessageId: recovery.sourceMessageId,
       requestId: recovery.requestId
     };
-    liveness.arm(recovery);
+    liveness.arm(recovery); promptSend.scheduleAttention(recovery, nowMs(), processSoon);
     return capture();
   }
   async function capture() {
@@ -316,6 +316,7 @@ function createServerSchedulerRecovery({
   }
   async function resume(durability) {
     const snapshot = load();
+    promptSend.flagAttention(snapshot, nowMs(), save, recordIncident);
     if (active) return liveness.check(active, snapshot);
     const room = (snapshot.rooms || []).find((entry) => entry.recovery && !entry.recovery.passiveAt);
     const recovery = room?.recovery;
@@ -367,6 +368,10 @@ function createServerSchedulerRecovery({
     return false;
   }
   function handleEvent(msg) {
+    if (msg?.type === 'error' && msg.code === 'PROMPT_SEND_FAILED') {
+      const state = load(), room = (state.rooms || []).find(r => r.recovery?.requestId === msg.requestId);
+      if (room && promptSend.noteFailure(room.recovery, msg, msg.requestId, nowMs())) save(state);
+    }
     const terminalType = ['response', 'final'].join('_');
     if (msg?.type === terminalType) {
       const snapshot = load();
