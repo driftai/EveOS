@@ -355,7 +355,7 @@
     let stage = 'post-ready';
     try {
       composer = ready.composer;
-      if (ready.timedOut) throw new Error('ChatGPT Dex composer pre-gesture readiness timed out; draft preserved; no submission attempted.');
+      if (ready.timedOut && dexDelivery) throw new Error('ChatGPT Dex composer pre-gesture readiness timed out; draft preserved; no submission attempted.');
       if (!ready.committed && (!composer || !input.composerContainsText(composer, text)))
         throw new Error('ChatGPT composer did not become ready with the prompt text after hydration/reseed.');
       stage = 'scoping-send'; deliveryGuard.checkpoint(requestId, stage);
