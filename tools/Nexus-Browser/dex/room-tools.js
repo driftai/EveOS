@@ -78,7 +78,12 @@ function roomLog(room, command = {}) {
   };
 }
 function toolResultStatus(room, source, command = {}) {
-  const member = mailbox.matchingMember(room, source);
+  const members = (room.members || []).filter(m => m.binding?.targetClassId === 'local-origin'
+    && m.binding?.targetId === source?.targetId && m.binding?.providerId === source?.providerId
+    && m.binding?.targetClassId === source?.targetClassId);
+  if (members.length > 1) return { ok: false, code: 'DEX_LOCAL_RESULT_AMBIGUOUS_BINDING',
+    message: 'Multiple members share this target; explicit owner reconciliation is required.' };
+  const member = members[0] || null;
   if (member?.binding?.targetClassId !== 'local-origin')
     return { ok: false, code: 'DEX_LOCAL_RESULT_SOURCE_REQUIRED',
       message: 'Use your exact bound local session.' };

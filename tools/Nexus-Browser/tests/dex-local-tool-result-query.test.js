@@ -80,3 +80,12 @@ test('a captured send preserves both its tool result and direct FIFO receipt und
   } }).result;
   assert.deepEqual(reply.data.receipts.map(x => x.kind), ['control-result', 'direct-send']);
 });
+test('duplicate local binding is ambiguous rather than selecting the first owner', () => {
+  const state = snapshot(), room = state.rooms[0];
+  room.members.push({ id: 'shadow', binding: { ...astro } });
+  const result = api.execute(state, { source: astro, command: {
+    action: 'tool_result_status', room: 'room-one'
+  } });
+  assert.equal(result.changed, false);
+  assert.equal(result.result.code, 'DEX_LOCAL_RESULT_AMBIGUOUS_BINDING');
+});
