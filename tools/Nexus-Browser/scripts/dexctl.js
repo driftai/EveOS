@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const { WebSocket } = require('ws');
 const { urls } = require('../runtime-config');
+const toolResult = require('../extension/dex-tool-result');
 
 const WS_URL = process.env.NEXUS_BROWSER_WS || process.env.BROWSER_AI_BRIDGE_WS || urls().websocket;
 
@@ -42,6 +43,8 @@ Source options:
   --target-id <id>       Exact Local-Origin target id
   --provider-id <id>     Defaults to local-antigravity-existing
   --provider-name <name> Defaults to Antigravity CLI
+  --tool-result          Print the shared [DEX TOOL RESULT] (default JSON unchanged)
+  --json                 Print machine-readable JSON (explicit)
 
 Dex provider commands can auto-wake the headed Dex UI; room state is durably mirrored on localhost.`);
   if (require.main === module) process.exit(exitCode);
@@ -56,6 +59,8 @@ function parseArgs(argv) {
   while (args.length) {
     const token = args.shift();
     if (token === '--no-relay') { options.relay = false; continue; }
+    if (token === '--tool-result') { options.toolResult = true; continue; }
+    if (token === '--json') { options.toolResult = false; continue; }
     if (token.startsWith('--')) {
       const key = token.slice(2).replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
       if (!args.length) throw new Error(`${token} requires a value.`);
@@ -212,7 +217,9 @@ function run({ source, command }) {
       if (msg.type !== 'provider_control_result' || msg.requestId !== requestId) return;
       clearTimeout(timeout);
       ws.close();
-      resolve(msg.result || { ok: false, message: 'No provider-control result.' });
+      const result = msg.result || { ok: false, message: 'No provider-control result.' };
+      Object.defineProperty(result, 'dexRequestId', { value: requestId, enumerable: false });
+      resolve(result);
     });
     ws.on('error', (error) => {
       clearTimeout(timeout);
@@ -413,7 +420,7 @@ async function main(argv = process.argv.slice(2)) {
               reason: parsed.options.reason || 'Externally reconciled'
             })
           : await runWithRetry({ source: sourceFrom(parsed.options, parsed.commandName), command: commandFrom(parsed) });
-  console.log(JSON.stringify(result, null, 2));
+  console.log(parsed.options.toolResult ? toolResult.formatResult(result) : JSON.stringify(result, null, 2));
   process.exitCode = result.ok ? 0 : 2;
 }
 

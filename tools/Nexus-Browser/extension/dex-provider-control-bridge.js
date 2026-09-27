@@ -4,6 +4,8 @@
   if (!runtimeConfig) throw new Error('Nexus Browser runtime configuration is unavailable.');
   const WS_URL = runtimeConfig.websocketUrl;
   const HEALTH_URL = runtimeConfig.healthUrl;
+  const toolResults = globalThis.BrowserAiBridgeDexToolResult
+    || (typeof module !== 'undefined' && module.exports ? require('./dex-tool-result.js') : null);
   const pending = new Map();
   const recentActions = new Map();
   const deliveredResults = new Map();
@@ -51,19 +53,7 @@
     };
   }
 
-  function formatResult(result = {}) {
-    const data = result.data == null ? '' : `\nData: ${JSON.stringify(result.data)}`;
-    const status = result.ok ? 'OK' : `ERROR ${result.code || 'DEX_CONTROL_FAILED'}`;
-    return [
-      '[DEX TOOL RESULT]',
-      `${status}: ${result.message || 'No message.'}${data}`,
-      '',
-      'If another Dex control action is needed, end your next reply with one trailing marker.',
-      'Use [[DEX:CMD {"action":"help"}]] for the full room-admin command set.',
-      'Common: [[DEX:CMD {"action":"status"}]] or [[DEX:CMD {"action":"send","text":"<message>","relay":true}]].',
-      'Otherwise do not emit a Dex command.'
-    ].join('\n');
-  }
+  const formatResult = (result = {}, requestId = null) => toolResults.formatResult(result, requestId);
 
   async function injectResult(source, requestId, result) {
     if (!source?.targetId || !globalThis.chrome?.tabs?.sendMessage) throw new Error('DEX_RESULT_SUBMISSION_FAILED: exact target or tab messenger missing.');
@@ -75,7 +65,7 @@
     const acknowledgement = await chrome.tabs.sendMessage(Number(source.targetId), {
       type: 'send_prompt',
       requestId: `dex-control-result-${requestId}`,
-      text: formatResult(result),
+      text: formatResult(result, requestId),
       delivery: { kind: 'dex-control-result' }
     });
     // chrome.tabs.sendMessage resolves even when the provider responds { ok:false }.
