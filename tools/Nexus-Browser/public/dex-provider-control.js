@@ -114,6 +114,7 @@
       recoveryMemberId: room.recovery?.memberId || null,
       recoveryMemberName: (room.members || []).find((entry) => entry.id === room.recovery?.memberId)?.name || null,
       recoveryHeldTurns: Math.max(0, Number(room.recovery?.relayRemaining || 0)), recoverySendState: room.recovery?.promptSendFailure?.classification || null, recoveryAttentionRequired: !!room.recovery?.promptSendFailure?.attentionAtMs,
+      localToolResults: (room.localToolResults || []).filter(e => e.memberId === member?.id).slice(-8).map(e => ({ requestId: e.requestId, state: e.state, at: e.at })), localToolResultFailure: room.localToolResultFailure ? { requestId: room.localToolResultFailure.requestId, code: room.localToolResultFailure.code } : null,
       budget: { configuredTurns: room.settings?.maxTurns || 8, allocatedTurns: room.relay?.turnBudgetTotal || null, scheduledTurns: room.relay?.scheduledTurns ?? null, remainingTurns: room.relay?.remaining || 0 },
       messages: room.messages?.length || 0
     };
