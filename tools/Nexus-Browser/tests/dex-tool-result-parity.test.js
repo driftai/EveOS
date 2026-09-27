@@ -38,3 +38,9 @@ test('CLI opts into human-readable parity without breaking legacy JSON output', 
   assert.equal(cli.parseArgs(['status', '--tool-result', '--json']).options.toolResult, false);
   assert.equal(cli.parseArgs(['status', '--json', '--tool-result']).options.toolResult, true);
 });
+test('CLI requires an exact request ID to retrieve the stored full tool result', () => {
+  const query = cli.commandFrom(cli.parseArgs(['tool-result-status', '--agy-pid', '25032',
+    '--room', 'room-one', '--request-id', 'control-one', '--read-result']));
+  assert.deepEqual(query, { action: 'tool_result_status', room: 'room-one',
+    requestId: 'control-one', includeText: true });
+});

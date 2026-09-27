@@ -89,3 +89,30 @@ test('duplicate local binding is ambiguous rather than selecting the first owner
   assert.equal(result.changed, false);
   assert.equal(result.result.code, 'DEX_LOCAL_RESULT_AMBIGUOUS_BINDING');
 });
+test('full result text requires an exact ID and stays private to the originating local target', () => {
+  const state = snapshot(), room = state.rooms[0];
+  const noId = api.execute(state, { source: astro, command: {
+    action: 'tool_result_status', room: 'room-one', includeText: true
+  } }).result;
+  assert.equal(noId.code, 'DEX_LOCAL_RESULT_EXACT_ID_REQUIRED');
+  room.localToolResults[0].text = '[DEX TOOL RESULT]\\nOK: Command committed; not delivered.';
+  const exact = api.execute(state, { source: astro, command: {
+    action: 'tool_result_status', room: 'room-one', requestId: 'control-one', includeText: true
+  } }).result;
+  assert.equal(exact.ok, true);
+  assert.match(exact.data.receipts[0].receiptText, /^\\[DEX TOOL RESULT\\]/);
+  assert.doesNotMatch(JSON.stringify(exact), /OTHER-PRIVATE/);
+  assert.equal(api.execute(state, { source: other, command: {
+    action: 'tool_result_status', room: 'room-one', requestId: 'control-one', includeText: true
+  } }).result.code, 'DEX_LOCAL_RESULT_NOT_FOUND');
+  assert.equal(api.execute(state, { source: astro, command: {
+    action: 'tool_result_status', room: 'room-one', requestId: 'control-one'
+  } }).result.data.receipts[0].receiptText, undefined);
+});
+test('corrupt duplicate receipt IDs fail closed on text retrieval', () => {
+  const state = snapshot(), room = state.rooms[0];
+  room.localToolResults.push({ ...room.localToolResults[0] });
+  assert.equal(api.execute(state, { source: astro, command: {
+    action: 'tool_result_status', room: 'room-one', requestId: 'control-one', includeText: true
+  } }).result.code, 'DEX_LOCAL_RESULT_DUPLICATE_ID');
+});

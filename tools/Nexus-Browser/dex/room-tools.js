@@ -92,6 +92,11 @@ function toolResultStatus(room, source, command = {}) {
   const id = command.requestId == null ? null : String(command.requestId);
   if (id != null && !/^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/.test(id))
     return { ok: false, code: 'DEX_LOCAL_RESULT_BAD_ID', message: 'Use one exact control request ID.' };
+  if (command.includeText === true && id == null) return { ok: false,
+    code: 'DEX_LOCAL_RESULT_EXACT_ID_REQUIRED',
+    message: 'Reading the full result requires one exact control request ID.' };
+  if (id != null && entries.filter(e => e.requestId === id).length > 1) return { ok: false,
+    code: 'DEX_LOCAL_RESULT_DUPLICATE_ID', message: 'Ambiguous stored result; no text released.' };
   // A dexctl send can commit directly to the inbox without an originating
   // captured agent turn. Its signed-in sender ID and immutable request ID are
   // still recorded in the server-owned deferred-send receipt journal.
@@ -100,7 +105,9 @@ function toolResultStatus(room, source, command = {}) {
       && m.senderId === member.id && m.clientRequestId === e.requestId));
   const records = [
     ...entries.map(e => ({ requestId: e.requestId, kind: 'control-result',
-      state: e.state, at: e.at || null, ackAt: e.ackAt || null })),
+      state: e.state, at: e.at || null, ackAt: e.ackAt || null,
+      ...(command.includeText === true && id === e.requestId
+        ? { receiptText: String(e.text || '').slice(0, 2200) } : {}) })),
     ...sends.map(e => ({ requestId: e.requestId, kind: 'direct-send',
       state: e.phase, commitState: e.phase === 'orphaned' ? 'unknown' : 'committed',
       messageId: e.messageId, at: e.at || null }))

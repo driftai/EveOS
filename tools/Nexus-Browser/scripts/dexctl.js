@@ -17,7 +17,7 @@ Usage:
   node scripts/dexctl.js rename-room <name> --agy-pid 86660 --room <id-or-name>
   node scripts/dexctl.js configure-room --agy-pid 86660 --room <id-or-name> [--max-turns N] [--context-messages N] [--auto-relay true|false] [--user-name <name>]
   node scripts/dexctl.js status --agy-pid 86660 [--room <id-or-name>]
-  node scripts/dexctl.js tool-result-status --agy-pid 86660 [--room <id>] [--request-id <id>] [--tool-result]
+  node scripts/dexctl.js tool-result-status --agy-pid 86660 [--room <id>] [--request-id <id>] [--read-result]
   node scripts/dexctl.js checkpoint <note> --agy-pid 86660 [--room <id-or-name>]
   node scripts/dexctl.js read-checkpoint --agy-pid 86660 [--room <id-or-name>]
   node scripts/dexctl.js rename-self <name> --agy-pid 86660 [--room <id-or-name>]
@@ -47,6 +47,7 @@ Source options:
   --provider-name <name> Defaults to Antigravity CLI
   --tool-result          Print the shared [DEX TOOL RESULT] (default JSON unchanged)
   --control-id <id>      Preserve a stable ID for exact outcome inspection
+  --read-result          Show the original [DEX TOOL RESULT] for your exact request ID
   --json                 Print machine-readable JSON (explicit)
 
 Dex provider commands can auto-wake the headed Dex UI; room state is durably mirrored on localhost.`);
@@ -63,6 +64,7 @@ function parseArgs(argv) {
     const token = args.shift();
     if (token === '--no-relay') { options.relay = false; continue; }
     if (token === '--tool-result') { options.toolResult = true; continue; }
+    if (token === '--read-result') { options.readResult = true; continue; }
     if (token === '--json') { options.toolResult = false; continue; }
     if (token.startsWith('--')) {
       const key = token.slice(2).replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
@@ -121,7 +123,7 @@ function commandFrom(parsed) {
     return command;
   }
   if (commandName === 'status') return { action: 'status', ...(options.room ? { room: options.room } : {}) };
-  if (commandName === 'tool-result-status') return { action: 'tool_result_status', ...(options.room ? { room: options.room } : {}), ...(options.requestId || positionals[0] ? { requestId: options.requestId || positionals[0] } : {}) };
+  if (commandName === 'tool-result-status') return { action: 'tool_result_status', ...(options.room ? { room: options.room } : {}), ...(options.requestId || positionals[0] ? { requestId: options.requestId || positionals[0] } : {}), ...(options.readResult ? { includeText: true } : {}) };
   if (commandName === 'checkpoint') {
     const note = positionals.join(' ').trim();
     if (!note) throw new Error('checkpoint requires note text.');
@@ -416,7 +418,11 @@ async function main(argv = process.argv.slice(2)) {
               reason: parsed.options.reason || 'Externally reconciled'
             })
           : await runWithRetry({ source: sourceFrom(parsed.options, parsed.commandName), command: commandFrom(parsed), requestId: parsed.options.controlId });
-  console.log(parsed.options.toolResult ? toolResult.formatResult(result) : JSON.stringify(result, null, 2));
+  const original = result?.ok && parsed.options.readResult
+    && result?.action === 'tool_result_status'
+    && result?.data?.receipts?.length === 1 ? result.data.receipts[0]?.receiptText : null;
+  console.log(typeof original === 'string' && original.startsWith('[DEX TOOL RESULT]') && original.length <= 2200
+    ? original : parsed.options.toolResult ? toolResult.formatResult(result) : JSON.stringify(result, null, 2));
   process.exitCode = result.ok ? 0 : 2;
 }
 
