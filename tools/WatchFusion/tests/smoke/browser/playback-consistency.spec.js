@@ -143,6 +143,48 @@ test('already-playing viewer does not reissue play or oscillate mute state', asy
   expect(result.unmute).toBe(1);
 });
 
+test('millisecond viewer drift keeps the authoritative playback rate', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(() => {
+    const rates = [];
+    const projectedAt = Date.now();
+    roomId = 'micro-drift-room';
+    session = { memberId: 'phone-member', publicId: 'phone-public' };
+    state = {
+      hostId: 'host-public',
+      revision: 2,
+      serverTime: projectedAt,
+      source: { type: 'youtube', videoId: 'M7lc1UVf-VE' },
+      playback: {
+        paused: false, ended: false, position: 10, rate: 1,
+        volume: 100, muted: false, updatedAt: projectedAt, projectedAt
+      }
+    };
+    userGesturePrimeUsed = true;
+    autoplayWasBlocked = false;
+    ytPlayerReady = true;
+    ytPlayer = {
+      getVideoData: () => ({ video_id: 'M7lc1UVf-VE' }),
+      getPlayerState: () => 1,
+      getCurrentTime: () => 9.90,
+      getPlaybackRate: () => 1,
+      setPlaybackRate: rate => { rates.push(rate); },
+      getVolume: () => 100,
+      setVolume: () => {},
+      isMuted: () => false,
+      mute: () => {},
+      unMute: () => {},
+      playVideo: () => {},
+      pauseVideo: () => {},
+      seekTo: () => {}
+    };
+    window.applyAdaptiveViewerSync(false);
+    return rates;
+  });
+  expect(result.at(-1)).toBe(1);
+  expect(result).not.toContain(1.25);
+});
+
 test('transient host mute flip is debounced instead of broadcast to viewers', async ({ page }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {
