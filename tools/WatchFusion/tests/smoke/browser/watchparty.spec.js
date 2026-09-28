@@ -42,6 +42,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await expect(page.locator('#roomPill')).toContainText('901');
     await expect(page.locator('#members')).toContainText('HostSmoke');
     await expect(page.locator('#members')).toContainText('★');
+    await expect(page.locator('#leaveRoomBtn')).toBeVisible();
   });
 
   test('Embedded room creation preserves EveOS mode and reveals the party UI', async ({ page }) => {
@@ -170,6 +171,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     });
     await hostPage.evaluate(() => {
       try { Object.defineProperty(window, 'ClipboardItem', { configurable: true, value: undefined }); } catch {}
+      document.execCommand = () => false;
     });
     await hostPage.locator('[data-copy-image]').click();
     await expect(hostPage.locator('[data-copy-image]')).toHaveText('Copied ✓');
@@ -193,6 +195,13 @@ test.describe('WatchFusion Multi-Client Suite', () => {
 
     // Verify UI transitions to "Video ready" (not the stale "Loading new video…")
     await expect(hostPage.locator('#syncStatus')).toHaveText('Video ready', { timeout: 5000 });
+
+    // Any member can leave without deleting the room. The remaining host keeps the room alive.
+    await expect(viewerPage.locator('#leaveRoomBtn')).toBeVisible();
+    await viewerPage.locator('#leaveRoomBtn').click();
+    await expect(viewerPage.locator('#roomPill')).toHaveText('Solo');
+    await expect(hostPage.locator('#members')).not.toContainText('ViewerBob');
+    await expect(hostPage.locator('#hostBadge')).toHaveText('YOU ARE HOST');
 
     await hostContext.close();
     await viewerContext.close();
