@@ -156,6 +156,17 @@ async function main() {
 
     // --- Frontend/Backend view + exposure (sounds now default exposed=false) ---
     const soundId = await page.evaluate(() => window.EveAudioflixState.getSnapshot().soundboard[0].id);
+    const soundDurationOk = await page.evaluate(async (id) => {
+        const item = window.EveAudioflixState.getSnapshot().soundboard.find((entry) => entry.id === id);
+        window.dispatchEvent(new CustomEvent('eve:audioflix-progress', {
+            detail: { item, currentTime: 0, duration: 2.75, paused: true }
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        const saved = window.EveAudioflixState.getSnapshot().soundboard.find((entry) => entry.id === id);
+        const card = document.querySelector(`[data-af-action="item-info"][data-af-id="${id}"]`)?.closest('.audioflix-item-card');
+        return Math.abs(Number(saved?.duration || 0) - 2.75) < 0.001
+            && card?.querySelector('.audioflix-time-duration')?.textContent === '0:02';
+    }, soundId);
     await page.click('[data-af-action="toggle-view-mode"]'); // -> frontend
     // Unexposed sound must be filtered out of the Frontend (performance) view.
     await page.waitForFunction(() => /No exposed sounds/.test(document.querySelector('.audioflix-content')?.textContent || ''), undefined, { timeout: 5000 });
@@ -216,6 +227,22 @@ async function main() {
     await page.waitForFunction(() => window.EveAudioflixState.getSnapshot().soundboardViewMode === 'backend', undefined, { timeout: 5000 });
     await page.click('[data-af-action="toggle-groups"]'); // close the manager for the rest of the run
 
+    // Settings must offer a true destructive delete, distinct from removing a group/folder tag.
+    const disposableSoundId = await page.evaluate(() => {
+        const S = window.EveAudioflixState;
+        const added = S.addItem('sound', { title: 'Delete Me Sound', url: 'data:audio/wav;base64,UklGRg==', category: 'Disposable' });
+        S.addSoundboardGroup('Disposable');
+        S.toggleSoundGroup(added.id, 'Disposable', true);
+        return added.id;
+    });
+    await page.waitForSelector(`[data-af-action="item-info"][data-af-id="${disposableSoundId}"]`, { timeout: 5000 });
+    await page.click(`[data-af-action="item-info"][data-af-id="${disposableSoundId}"]`);
+    await page.waitForSelector(`.audioflix-info-card [data-af-action="delete-item"][data-af-id="${disposableSoundId}"]`, { timeout: 5000 });
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.click(`.audioflix-info-card [data-af-action="delete-item"][data-af-id="${disposableSoundId}"]`);
+    await page.waitForFunction((id) => !window.EveAudioflixState.getSnapshot().soundboard.some((item) => item.id === id), disposableSoundId, { timeout: 5000 });
+    const soundDeleteOk = await page.evaluate((id) => !(id in (window.EveAudioflixState.getSnapshot().soundGroupMap || {})), disposableSoundId);
+
     await page.click('[data-af-action="tab"][data-af-tab="music"]');
     await page.click('[data-af-action="toggle-add"][data-af-type="music"]');
     await page.waitForSelector('form[data-af-form="music"]', { timeout: 5000 });
@@ -263,9 +290,25 @@ async function main() {
         window.EveAudioflixAudio.seek = originalSeek;
         const saved = window.EveAudioflixState.getSnapshot().music[0];
         return saved.volume === 0.42
+            && saved.duration === 120
             && progressRendered
             && window.__audioflixSeekValue === 45;
     });
+
+    const disposableMusicId = await page.evaluate(() => {
+        const S = window.EveAudioflixState;
+        const added = S.addItem('music', { title: 'Delete Me Track', url: 'https://example.com/delete-me.mp3', folder: 'Disposable' });
+        S.addMusicGroup('Disposable Music');
+        S.toggleMusicGroup(added.id, 'Disposable Music', true);
+        return added.id;
+    });
+    await page.waitForSelector(`[data-af-action="item-info"][data-af-id="${disposableMusicId}"]`, { timeout: 5000 });
+    await page.click(`[data-af-action="item-info"][data-af-id="${disposableMusicId}"]`);
+    await page.waitForSelector(`.audioflix-info-card [data-af-action="delete-item"][data-af-id="${disposableMusicId}"]`, { timeout: 5000 });
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.click(`.audioflix-info-card [data-af-action="delete-item"][data-af-id="${disposableMusicId}"]`);
+    await page.waitForFunction((id) => !window.EveAudioflixState.getSnapshot().music.some((item) => item.id === id), disposableMusicId, { timeout: 5000 });
+    const musicDeleteOk = await page.evaluate((id) => !(id in (window.EveAudioflixState.getSnapshot().musicGroupMap || {})), disposableMusicId);
 
     await page.click('[data-af-action="tab"][data-af-tab="soundlab"]');
     await page.waitForSelector('[data-audioflix-soundlab] [data-af-action="soundlab-control-view"]');
@@ -394,6 +437,9 @@ async function main() {
     if (!drawerInitiallyCollapsed) failures.push('routing drawer was not collapsed by default');
     if (!frontendHidesUnexposed) failures.push('Frontend view did not hide unexposed sound (default exposed=false)');
     if (!frontendShowsExposed) failures.push('Frontend view did not surface a sound after exposing it');
+    if (!soundDurationOk) failures.push('soundboard duration did not persist/render after metadata arrived');
+    if (!soundDeleteOk) failures.push('sound settings delete did not remove the item and its group membership');
+    if (!musicDeleteOk) failures.push('music settings delete did not remove the item and its group membership');
     if (!groupRendersInFrontend) failures.push('active group selector/grid/hotkey badge did not render in Frontend view');
     if (!hotkeyPlayed) failures.push('number hotkey did not play the active group sound');
     if (!result.hasOverlay) failures.push('overlay not visible');
