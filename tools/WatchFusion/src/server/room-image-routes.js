@@ -1,9 +1,12 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { MAX_CHAT_IMAGE_BYTES } from './config.js';
 import { json, readBody, readBytes } from './http-utils.js';
-import { isHostLocalRequest } from './local-request.js';
+import { isHostLocalRequest, socketIsLoopback } from './local-request.js';
+import { networkAddresses } from './network.js';
 import { appendImageChat, broadcastState, getRoomAttachment, publicState } from './room-store.js';
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -23,6 +26,101 @@ function imageName(value, type) {
   const extension = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' }[type];
   return clean || `watchfusion-image${extension}`;
 }
+
+function hostNameFromHeader(value) {
+  const raw = String(value || '').split(',')[0].trim();
+  if (!raw) return '';
+  try { return new URL(`http://${raw}`).hostname.toLowerCase(); } catch { return ''; }
+}
+
+function normalizedRemoteAddress(req) {
+  const raw = String(req.socket?.remoteAddress || '').toLowerCase().split('%')[0];
+  return raw.startsWith('::ffff:') ? raw.slice(7) : raw;
+}
+
+function hostMachineNames() {
+  const names = new Set(['localhost', '127.0.0.1', '::1', '127-0-0-1.sslip.io']);
+  for (const entry of networkAddresses()) {
+    names.add(String(entry.address || '').toLowerCase());
+    if (entry.address) names.add(`${entry.address.replaceAll('.', '-')}.sslip.io`.toLowerCase());
+  }
+  return names;
+}
+
+function isHostMachineClipboardRequest(req) {
+  if (req.headers?.['cf-ray'] || req.headers?.['cf-connecting-ip']) return false;
+  const names = hostMachineNames();
+  const remote = normalizedRemoteAddress(req);
+  const ownAddresses = new Set(networkAddresses().map(entry => String(entry.address || '').toLowerCase()));
+  if (!socketIsLoopback(req) && !ownAddresses.has(remote)) return false;
+  if (!names.has(hostNameFromHeader(req.headers?.host))) return false;
+  const origin = String(req.headers?.origin || '').trim();
+  if (!origin) return true;
+  if (origin === 'null') return socketIsLoopback(req);
+  try { return names.has(new URL(origin).hostname.toLowerCase()); } catch { return false; }
+}
+
+async function copyAttachmentToWindowsClipboard(attachment) {
+  if (process.platform !== 'win32') return false;
+  const extension = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' }[attachment.type] || '.img';
+  const tempPath = path.join(os.tmpdir(), `watchfusion-clipboard-${process.pid}-${Date.now()}${extension}`);
+  const script = `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$bytes = [System.IO.File]::ReadAllBytes($env:WATCHFUSION_CLIPBOARD_IMAGE)
+$stream = New-Object System.IO.MemoryStream(,$bytes)
+$source = $null
+$bitmap = $null
+try {
+  $source = [System.Drawing.Image]::FromStream($stream)
+  $bitmap = New-Object System.Drawing.Bitmap $source
+  for ($attempt = 0; $attempt -lt 6; $attempt++) {
+    try {
+      [System.Windows.Forms.Clipboard]::SetImage($bitmap)
+      exit 0
+    } catch {
+      Start-Sleep -Milliseconds 120
+    }
+  }
+  exit 2
+} finally {
+  if ($bitmap) { $bitmap.Dispose() }
+  if ($source) { $source.Dispose() }
+  $stream.Dispose()
+}
+`;
+  try {
+    await fs.promises.writeFile(tempPath, attachment.bytes);
+    const encoded = Buffer.from(script, 'utf16le').toString('base64');
+    const exitCode = await new Promise((resolve) => {
+      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-EncodedCommand', encoded], {
+        windowsHide: true,
+        env: { ...process.env, WATCHFUSION_CLIPBOARD_IMAGE: tempPath },
+        stdio: 'ignore'
+      });
+      const timer = setTimeout(() => { child.kill(); resolve(-1); }, 6000);
+      child.once('error', () => { clearTimeout(timer); resolve(-1); });
+      child.once('exit', code => { clearTimeout(timer); resolve(Number(code ?? -1)); });
+    });
+    return exitCode === 0;
+  } catch {
+    return false;
+  } finally {
+    await fs.promises.unlink(tempPath).catch(() => {});
+  }
+}
+
+async function copyImageToHostClipboard(req, res, room, attachmentId) {
+  if (!isHostMachineClipboardRequest(req)) return json(res, 403, { error: 'Host clipboard copy is available only on the computer running WatchFusion.' });
+  const attachment = getRoomAttachment(room, attachmentId);
+  if (!attachment) return json(res, 404, { error: 'image not found' });
+  if (process.platform !== 'win32') return json(res, 501, { error: 'Native image clipboard copy is currently available on Windows hosts.' });
+  const copied = await copyAttachmentToWindowsClipboard(attachment);
+  return copied
+    ? json(res, 200, { ok: true, copied: 'image' })
+    : json(res, 500, { error: 'Windows could not place the image on the clipboard.' });
+}
+
 
 async function uploadImage(req, res, room, member) {
   const declaredType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
@@ -87,6 +185,7 @@ export async function handleRoomImageRoute(req, res, parts, room, member) {
   if (parts[3] !== 'attachments') return false;
   if (req.method === 'POST' && !parts[4]) return uploadImage(req, res, room, member);
   if (req.method === 'POST' && parts[4] === 'path') return uploadImagePath(req, res, room, member);
-  if ((req.method === 'GET' || req.method === 'HEAD') && parts[4]) return sendImage(req, res, room, parts[4]);
+  if (req.method === 'POST' && parts[4] && parts[5] === 'copy-local') return copyImageToHostClipboard(req, res, room, parts[4]);
+  if ((req.method === 'GET' || req.method === 'HEAD') && parts[4] && !parts[5]) return sendImage(req, res, room, parts[4]);
   return json(res, 405, { error: 'method not allowed' });
 }
