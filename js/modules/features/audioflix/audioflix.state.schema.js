@@ -70,6 +70,7 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
                 missingLocal: source.missingLocal === true,
                 isPorted: source.isPorted === true,
                 isMusicPort: source.isMusicPort === true,
+                musicPortGroup: text(source.musicPortGroup, ''),
                 createdAt: Number(source.createdAt || 0) || Date.now(),
                 updatedAt: Number(source.updatedAt || 0) || 0,
                 lastPlayedAt: Number(source.lastPlayedAt || 0) || 0
