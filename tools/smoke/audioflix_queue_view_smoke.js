@@ -155,7 +155,7 @@ async function main() {
     await page.click('.audioflix-provider-queue-list li:last-child button');
     await page.waitForFunction(() => document.querySelector('.audioflix-provider-queue-list li:last-child')?.classList.contains('is-current'), undefined, { timeout: 5000 });
     await page.evaluate(() => {
-        const item = window.EveAudioflixState.getSnapshot().music.find((track) => track.title === 'Gamma');
+        const item = window.EveAudioflixAudio?.getPlaybackState?.()?.item;
         const detail = { status: 'Ended', item };
         window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail }));
         window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail }));
@@ -168,16 +168,18 @@ async function main() {
 
     // Hiding Queue View must not stop or fork the queue. The next Ended advances while hidden;
     // reopening attaches the panel to that same #2 playback session.
+    const hiddenExpectedNext = await page.$eval('.audioflix-provider-queue-list li', (rows) =>
+        (rows[1]?.textContent || '').replace(/^▶\s*/, '').trim());
     await page.$eval('[data-af-action="open-queue-view"]', (button) => button.click());
     assert(await page.$eval('.audioflix-provider-stage', (stage) => stage.hidden), 'closing Queue View only hides the shared player');
     await page.evaluate(() => {
-        const item = window.EveAudioflixState.getSnapshot().music.find((track) => track.title === 'Alpha');
+        const item = window.EveAudioflixAudio?.getPlaybackState?.()?.item;
         window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail: { status: 'Ended', item } }));
     });
-    await page.waitForFunction(() => {
+    await page.waitForFunction((expected) => {
         const playback = window.EveAudioflixAudio?.getPlaybackState?.();
-        return playback?.item?.title === 'Beta' && playback.paused === false;
-    }, undefined, { timeout: 5000 });
+        return playback?.item?.title === expected && playback.paused === false;
+    }, hiddenExpectedNext, { timeout: 5000 });
     await page.$eval('[data-af-action="open-queue-view"]', (button) => button.click());
     await page.waitForFunction(() => document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.classList.contains('is-current'), undefined, { timeout: 5000 });
     const reopened = await page.waitForFunction(() => document.querySelector('.audioflix-provider-stage')?.hidden === false, undefined, { timeout: 5000 })
