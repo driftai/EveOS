@@ -238,8 +238,9 @@ async function main() {
     await page.waitForSelector(`[data-af-action="item-info"][data-af-id="${disposableSoundId}"]`, { timeout: 5000 });
     await page.click(`[data-af-action="item-info"][data-af-id="${disposableSoundId}"]`);
     await page.waitForSelector(`.audioflix-info-card [data-af-action="delete-item"][data-af-id="${disposableSoundId}"]`, { timeout: 5000 });
-    page.once('dialog', (dialog) => dialog.accept());
     await page.click(`.audioflix-info-card [data-af-action="delete-item"][data-af-id="${disposableSoundId}"]`);
+    await page.waitForSelector(`.audioflix-delete-confirm [data-af-action="confirm-delete-item"][data-af-id="${disposableSoundId}"]`, { timeout: 5000 });
+    await page.click(`.audioflix-delete-confirm [data-af-action="confirm-delete-item"][data-af-id="${disposableSoundId}"]`);
     await page.waitForFunction((id) => !window.EveAudioflixState.getSnapshot().soundboard.some((item) => item.id === id), disposableSoundId, { timeout: 5000 });
     const soundDeleteOk = await page.evaluate((id) => !(id in (window.EveAudioflixState.getSnapshot().soundGroupMap || {})), disposableSoundId);
 
@@ -305,8 +306,9 @@ async function main() {
     await page.waitForSelector(`[data-af-action="item-info"][data-af-id="${disposableMusicId}"]`, { timeout: 5000 });
     await page.click(`[data-af-action="item-info"][data-af-id="${disposableMusicId}"]`);
     await page.waitForSelector(`.audioflix-info-card [data-af-action="delete-item"][data-af-id="${disposableMusicId}"]`, { timeout: 5000 });
-    page.once('dialog', (dialog) => dialog.accept());
     await page.click(`.audioflix-info-card [data-af-action="delete-item"][data-af-id="${disposableMusicId}"]`);
+    await page.waitForSelector(`.audioflix-delete-confirm [data-af-action="confirm-delete-item"][data-af-id="${disposableMusicId}"]`, { timeout: 5000 });
+    await page.click(`.audioflix-delete-confirm [data-af-action="confirm-delete-item"][data-af-id="${disposableMusicId}"]`);
     await page.waitForFunction((id) => !window.EveAudioflixState.getSnapshot().music.some((item) => item.id === id), disposableMusicId, { timeout: 5000 });
     const musicDeleteOk = await page.evaluate((id) => !(id in (window.EveAudioflixState.getSnapshot().musicGroupMap || {})), disposableMusicId);
 
