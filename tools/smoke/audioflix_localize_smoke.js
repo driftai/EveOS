@@ -383,6 +383,8 @@ function stub() {
         assert(rootTrack.classifiers.length === 0, 'root track gets no subfolder classifiers');
         assert((S.ensure().musicGroupMap[animeSong.id] || []).includes('Anime'), 'nearest subfolder also becomes the imported track group');
         assert((S.ensure().musicGroupMap[pianoTrack.id] || []).includes('Piano'), 'deepest nested subfolder becomes the track group');
+        assert(animeSong.musicPortGroup === 'Anime', 'automatic Anime port group persists on the item');
+        assert(pianoTrack.musicPortGroup === 'Piano', 'deepest automatic port group persists on the item');
         assert(!(S.ensure().musicGroupMap[rootTrack.id] || []).length, 'root-level port tracks do not get a synthetic group');
         assert(animeSong.localizations.some((entry) => entry.source === 'folder:Old-Song-Relocation'), 'imported track lacks durable folder localization');
         assert(S.ensure().musicPortConnections.some((entry) => entry.folder === 'Old-Song-Relocation' && entry.path === rootDir), 'Music Port connection was not retained');
