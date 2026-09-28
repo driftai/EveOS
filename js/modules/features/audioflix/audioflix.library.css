@@ -350,6 +350,31 @@
     filter: grayscale(0.4);
 }
 
+/* A local-only track whose expected file is verified missing stays visible but clearly unsecured.
+   Dual-source tracks keep normal styling because their online URL can still play; those get a badge. */
+.audioflix-item-card.is-local-missing {
+    opacity: 0.46;
+    filter: grayscale(1);
+    border-style: dashed;
+}
+.audioflix-item-card.is-local-missing:hover {
+    opacity: 0.82;
+    filter: grayscale(0.45);
+}
+.audioflix-local-missing-badge {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 1px 6px;
+    border: 1px solid rgba(248, 113, 113, 0.38);
+    border-radius: 7px;
+    background: rgba(127, 29, 29, 0.36);
+    color: #fecaca;
+    font-size: 0.68rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
 
 /* Long user-created group/folder/classifier labels must stay inside the library surface. */
 .audioflix-group-selector,
