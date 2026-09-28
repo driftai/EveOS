@@ -304,6 +304,8 @@ function leaveRoom(message='') {
   replaceRoomHistory();
   app.hidden=false;
   lobby.hidden=true;
+  document.documentElement.classList.remove('watchfusion-room-active');
+  if ($('partyPanel')) $('partyPanel').hidden = true;
   if ($('partyDetails')) $('partyDetails').hidden = true;
   if ($('soloPartyHint')) $('soloPartyHint').hidden = false;
   if ($('startPartyBtn')) $('startPartyBtn').hidden = false;

@@ -71,6 +71,9 @@ export async function runFastSmoke() {
     assert.match(render, /roomImageUrl/);
     assert.match(render, /data-copy-image/);
     assert.match(render, /legacyCopyRoomImage/);
+    assert.match(render, /isMobileImageClipboardClient/);
+    assert.match(render, /Press and hold the image/);
+    assert.match(render, /partyDetails'\)\)\$\('partyDetails'\)\.hidden=!inRoom/);
     assert.match(render, /fileName\.style\.display='none'/);
     assert.doesNotMatch(render, /Image link copied/);
     assert.doesNotMatch(render, />Save<\/a>/);
@@ -78,7 +81,11 @@ export async function runFastSmoke() {
     assert.match(core, /eveosShareMode !== 'local'/);
     assert.match(style, /eveos-embedded\.watchfusion-room-active/);
     assert.match(style, /eveos-embedded #partyDetails/);
+    assert.match(style, /watchfusion-room-active:not\(\.eveos-embedded\) #partyDetails/);
     assert.match(style, /scrollbar-gutter:\s*stable/);
+    assert.match(connection, /function resumeRoomSession/);
+    assert.match(connection, /syncResumedPlayback/);
+    assert.match(connection, /document\.addEventListener\('visibilitychange', resumeVisibleRoom\)/);
   });
 
   await check('FAST-02A:nuvio-browser-plugin-bridge-contract', () => {

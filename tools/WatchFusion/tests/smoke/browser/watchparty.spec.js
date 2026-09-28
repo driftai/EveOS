@@ -72,6 +72,37 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     expect(scrollState.scrollTop).toBe(0);
   });
 
+  test('Detached desktop chat stays bounded and owns its message scrolling', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/?eveosDetached=1');
+    await page.click('#headerToggleBtn');
+    await page.click('#startPartyBtn');
+    await page.fill('#nameInput', 'DetachedHost');
+    await page.fill('#roomInput', '907');
+    await page.click('#createBtn');
+    await page.fill('#chatInput', Array.from({ length: 400 }, (_, index) => `detached-line-${index}`).join('\n'));
+    await page.press('#chatInput', 'Enter');
+    await expect(page.locator('.msg')).toHaveCount(1);
+
+    const geometry = await page.locator('#partyPanel').evaluate(panel => {
+      const chat = panel.querySelector('#chat');
+      const form = panel.querySelector('#chatForm');
+      const panelRect = panel.getBoundingClientRect();
+      const formRect = form.getBoundingClientRect();
+      return {
+        panelBottom: panelRect.bottom,
+        formBottom: formRect.bottom,
+        viewportHeight: window.innerHeight,
+        chatOverflow: getComputedStyle(chat).overflowY,
+        chatScrollable: chat.scrollHeight > chat.clientHeight
+      };
+    });
+    expect(geometry.panelBottom).toBeLessThanOrEqual(geometry.viewportHeight);
+    expect(geometry.formBottom).toBeLessThanOrEqual(geometry.viewportHeight);
+    expect(geometry.chatOverflow).toBe('auto');
+    expect(geometry.chatScrollable).toBe(true);
+  });
+
   test('LAN share link uses the physical address and visible join code', async ({ browser }) => {
     const hostContext = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
     const hostPage = await hostContext.newPage();
@@ -187,6 +218,21 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await expect(hostPage.locator('.message-image')).toHaveCount(2);
     await expect(hostPage.locator('.message-file-name').last()).toHaveText('clipboard.png');
 
+    const mobileContext = await browser.newContext({ isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } });
+    await mobileContext.addInitScript(() => {
+      localStorage.setItem('wp-name', 'MobileCopyViewer');
+      try { Object.defineProperty(window, 'ClipboardItem', { configurable: true, value: undefined }); } catch {}
+      try { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }); } catch {}
+    });
+    const mobilePage = await mobileContext.newPage();
+    await mobilePage.goto(hostUrl);
+    await expect(mobilePage.locator('.message-image')).toHaveCount(2);
+    await mobilePage.locator('[data-copy-image]').first().click();
+    await expect(mobilePage.locator('.image-copy-assist')).toBeVisible();
+    await expect(mobilePage.locator('.image-copy-assist')).toContainText('Press and hold the image');
+    await expect(mobilePage.locator('[data-copy-image]').first()).toHaveText('Hold image');
+    await mobileContext.close();
+
     // 4. Source loading & ready state transition via Find Media
     const sampleVideoUrl = YOUTUBE_FIXTURES.valid[0].input;
     await hostPage.click('#resolveTabBtn');
@@ -203,6 +249,42 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await expect(hostPage.locator('#members')).not.toContainText('ViewerBob');
     await expect(hostPage.locator('#hostBadge')).toHaveText('YOU ARE HOST');
 
+    const roomToken = new URL(hostUrl).pathname.split('/').filter(Boolean).at(-1);
+    await viewerPage.click('#headerToggleBtn');
+    await viewerPage.click('#openRoomBtn');
+    await viewerPage.fill('#roomInput', roomToken);
+    await viewerPage.click('#joinBtn');
+    await expect(viewerPage.locator('#partyDetails')).toBeVisible();
+    await expect(viewerPage.locator('#chat')).toContainText('Welcome to the party!');
+    await expect(viewerPage.locator('#chatForm')).toBeVisible();
+
+    await hostContext.close();
+    await viewerContext.close();
+  });
+
+  test('Returning to a room immediately refreshes state missed in the background', async ({ browser }) => {
+    const hostContext = await browser.newContext();
+    const viewerContext = await browser.newContext();
+    await viewerContext.addInitScript(() => localStorage.setItem('wp-name', 'ResumeViewer'));
+    const hostPage = await hostContext.newPage();
+    const viewerPage = await viewerContext.newPage();
+
+    await hostPage.goto('/');
+    await hostPage.click('#headerToggleBtn');
+    await hostPage.click('#startPartyBtn');
+    await hostPage.fill('#nameInput', 'ResumeHost');
+    await hostPage.fill('#roomInput', '908');
+    await hostPage.click('#createBtn');
+    await viewerPage.goto(hostPage.url());
+    await expect(viewerPage.locator('#members')).toContainText('ResumeHost');
+
+    await viewerPage.evaluate(() => window.watchPartyRealtime.stop());
+    await hostPage.fill('#chatInput', 'Missed while backgrounded');
+    await hostPage.press('#chatInput', 'Enter');
+    await viewerPage.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+
+    await expect(viewerPage.locator('#chat')).toContainText('Missed while backgrounded');
+    await expect(viewerPage.locator('#partyDetails')).toBeVisible();
     await hostContext.close();
     await viewerContext.close();
   });

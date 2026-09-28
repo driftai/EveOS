@@ -125,4 +125,40 @@ function startPing() {
   pingServerClock();
   pingTimer = setInterval(pingServerClock, 10000);
 }
-window.addEventListener('pageshow', () => { if (roomId && session && state) hydrateRoomUi(); });
+let roomResumePromise = null;
+function syncResumedPlayback() {
+  if (state?.source?.kind === 'media') window.mediaPlayback?.sync?.({ force: true });
+  else syncPlayer({ force: true });
+}
+async function resumeRoomSession() {
+  if (!roomId || !session) return false;
+  if (roomResumePromise) return roomResumePromise;
+  const activeRoom = roomId;
+  const activeMember = session.memberId;
+  roomResumePromise = (async () => {
+    setStatus('Catching up…');
+    try {
+      const sentAt = Date.now();
+      const res = await fetch(apiUrl(`/api/rooms/${encodeURIComponent(activeRoom)}/join`), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:currentName(),accountId,memberId:activeMember,roomCode:roomCode||undefined}),cache:'no-store'});
+      const receivedAt = Date.now();
+      if (roomId !== activeRoom || session?.memberId !== activeMember) return false;
+      if (res.status === 410 || res.status === 404) { leaveRoom('Room is no longer active.'); return false; }
+      if (!res.ok) throw new Error('room resume failed');
+      const data = await res.json();
+      if (data.state?.serverTime) updateServerClock(data.state.serverTime, sentAt, receivedAt);
+      if (data.session?.memberId) { session=data.session;saveRoomSession(session,activeRoom,roomCode,joinCode); }
+      if (data.state) { applyIncomingRoomState(data.state);hydrateRoomUi(); }
+      connectEvents();
+      pingServerClock();
+      syncResumedPlayback();
+      const resumedMember=session?.memberId;
+      setTimeout(()=>{if(roomId===activeRoom&&session?.memberId===resumedMember)syncResumedPlayback();},250);
+      return true;
+    } catch { setStatus('Reconnecting…');return false; }
+  })().finally(()=>{roomResumePromise=null;});
+  return roomResumePromise;
+}
+function resumeVisibleRoom() { if (document.visibilityState === 'visible') resumeRoomSession(); }
+window.addEventListener('pageshow', resumeRoomSession);
+window.addEventListener('focus', resumeRoomSession);
+document.addEventListener('visibilitychange', resumeVisibleRoom);
