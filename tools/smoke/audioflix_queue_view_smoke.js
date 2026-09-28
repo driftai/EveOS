@@ -109,6 +109,46 @@ async function main() {
     assert(rateAfterStep.picker === 2, 'the picker still shows the chosen speed');
     console.log('speed OK — 2x applied and carried across a queue step');
 
+    // Physical regression: Play Group -> manually choose a different song -> Shuffle while
+    // Queue View is open. Old provider lifecycle events must not bounce the queue back, and the
+    // chosen song stays #1 until its ONE Ended transition advances to exactly #2.
+    const betaId = await page.evaluate(() =>
+        window.EveAudioflixState.getSnapshot().music.find((track) => track.title === 'Beta')?.id || '');
+    await page.click(`[data-af-action="play"][data-af-id="${betaId}"]`);
+    await page.waitForFunction(() => window.EveAudioflixAudio?.getPlaybackState?.()?.item?.title === 'Beta', undefined, { timeout: 5000 });
+    await page.click('[data-af-action="shuffle-music-group"]');
+    await page.waitForFunction(() => {
+        const first = document.querySelector('.audioflix-provider-queue-list li:first-child');
+        return first?.classList.contains('is-current') && /Beta/.test(first.textContent || '');
+    }, undefined, { timeout: 5000 });
+
+    await page.evaluate(() => {
+        const alpha = window.EveAudioflixState.getSnapshot().music.find((track) => track.title === 'Alpha');
+        for (const status of ['Paused', 'Stopped', 'Playing Alpha']) {
+            window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail: { status, item: alpha } }));
+        }
+    });
+    await page.waitForTimeout(150);
+    assert(await page.$eval('.audioflix-provider-queue-list li:first-child', (row) =>
+        row.classList.contains('is-current') && /Beta/.test(row.textContent || '')),
+        'stale lifecycle events from the old track cannot rewrite the rebased queue index');
+
+    await page.evaluate(() => {
+        const beta = window.EveAudioflixState.getSnapshot().music.find((track) => track.title === 'Beta');
+        window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail: { status: 'Ended', item: beta } }));
+    });
+    await page.waitForFunction(() => document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.classList.contains('is-current'), undefined, { timeout: 5000 });
+    await page.evaluate(() => {
+        const beta = window.EveAudioflixState.getSnapshot().music.find((track) => track.title === 'Beta');
+        window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail: { status: 'Ended', item: beta } }));
+    });
+    await page.waitForTimeout(250);
+    const afterStaleEnd = await page.$eval('.audioflix-provider-queue-list li', (rows) =>
+        rows.map((row) => row.classList.contains('is-current')));
+    assert(afterStaleEnd[1] === true && afterStaleEnd.filter(Boolean).length === 1,
+        'manual-select + shuffle advances exactly once; stale Ended cannot fork into another song');
+    console.log('manual select + shuffle queue ownership OK');
+
     // Regression: two listeners used to handle the same Ended event. At the loop boundary that
     // started #1 and then immediately #2. Repeating the terminal event must advance only once.
     await page.$eval('[data-af-action="loop-music-group"]', (button) => button.click());
