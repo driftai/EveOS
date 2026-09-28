@@ -88,7 +88,9 @@ function ensurePlayer(videoId) {
           onPlaybackRateChange: onYouTubeRateChange,
           onVolumeChange: onYouTubeVolumeChange,
           onAutoplayBlocked: () => {
-            if (roomId) {
+            const playingState = window.YT?.PlayerState?.PLAYING ?? 1;
+            const alreadyPlaying = ytPlayer?.getPlayerState?.() === playingState;
+            if (roomId && !userGesturePrimeUsed && !alreadyPlaying) {
               autoplayWasBlocked = true;
               installUserGesturePrime();
             }
@@ -281,26 +283,41 @@ function onYouTubeVolumeChange() {
 }
 function requestViewerPlayback() {
   if (!ytPlayer || !ytPlayerReady || !state?.playback || state.playback.paused || state.playback.ended) return;
-  const mutedRetry = autoplayWasBlocked;
+  const playingState = window.YT?.PlayerState?.PLAYING ?? 1;
+  const alreadyPlaying = ytPlayer.getPlayerState?.() === playingState;
+  if (alreadyPlaying) {
+    playerPrimed = true;
+    playerInitializing = false;
+    if (!autoplayWasBlocked || userGesturePrimeUsed) applyRoomAudioState(ytPlayer, userGesturePrimeUsed);
+    return;
+  }
+  const mutedRetry = autoplayWasBlocked && !userGesturePrimeUsed;
   try {
     if (mutedRetry) ytPlayer.mute?.();
-    else if (!applyRoomAudioState()) restorePlayerAudioPrefs();
+    else if (!applyRoomAudioState(ytPlayer, userGesturePrimeUsed)) restorePlayerAudioPrefs();
     ytPlayer.playVideo?.();
   } catch {}
   clearTimeout(requestViewerPlayback.checkTimer);
   requestViewerPlayback.checkTimer = setTimeout(() => {
     if (!ytPlayer || state?.playback?.paused || state?.playback?.ended) return;
-    const playingState = window.YT?.PlayerState?.PLAYING ?? 1;
     if (ytPlayer.getPlayerState?.() === playingState) {
       playerPrimed = true;
       playerInitializing = false;
-      if (mutedRetry) setStatus('Synchronized playback is muted · tap WatchFusion once for audio');
+      if (userGesturePrimeUsed) {
+        autoplayWasBlocked = false;
+        applyRoomAudioState(ytPlayer, true);
+      } else if (mutedRetry) {
+        setStatus('Synchronized playback is muted · tap WatchFusion once for audio');
+      }
       return;
     }
-    autoplayWasBlocked = true;
-    installUserGesturePrime();
-    try { ytPlayer.mute?.(); ytPlayer.playVideo?.(); } catch {}
-    setStatus('Starting synchronized playback muted · tap WatchFusion once for audio');
+    autoplayWasBlocked = !userGesturePrimeUsed;
+    if (autoplayWasBlocked) installUserGesturePrime();
+    try {
+      if (autoplayWasBlocked) ytPlayer.mute?.();
+      ytPlayer.playVideo?.();
+    } catch {}
+    if (autoplayWasBlocked) setStatus('Starting synchronized playback muted · tap WatchFusion once for audio');
   }, 320);
 }
 function syncPlayer(options = {}) {
