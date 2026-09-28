@@ -114,6 +114,9 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                 } else if (t.classList.contains('audioflix-marker-toggle')) {
                     window.EveAudioflixState?.update?.({ showPlaylistMarkersOnCard: t.checked }, 'audioflix-marker-visibility');
                     rerender();
+                } else if (t.classList.contains('audioflix-local-marker-toggle')) {
+                    window.EveAudioflixState?.update?.({ showLocalMissingMarkersOnCard: t.checked }, 'audioflix-local-marker-visibility');
+                    rerender();
                 } else if (t.classList.contains('audioflix-classifier-cb')) {
                     window.EveAudioflixClassifiers?.toggleOnTrack?.(t.dataset.afId, t.dataset.afClassifier, t.checked);
                     rerender();
