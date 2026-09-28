@@ -47,6 +47,7 @@ function render() {
   if($('openRoomBtn'))$('openRoomBtn').hidden=inRoom;
   $('roomPill').disabled=!inRoom;
   if($('hostBadge'))$('hostBadge').textContent=isHost()?(state.temporaryHost?'TEMP HOST':'YOU ARE HOST'):(state.temporaryHost?'TEMP HOST ACTIVE':'');
+  if($('leaveRoomBtn'))$('leaveRoomBtn').hidden=!inRoom;
   if($('deleteRoomBtn'))$('deleteRoomBtn').hidden=!isHost();
   if($('syncBtn'))$('syncBtn').hidden=!inRoom||isNuvio||isVoxelVision;
   if($('copyBtn'))$('copyBtn').hidden=!inRoom;
