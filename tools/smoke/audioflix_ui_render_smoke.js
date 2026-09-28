@@ -74,6 +74,14 @@ const render = W.EveAudioflixUiRender.create({
 });
 const track = W.EveAudioflixState.ensure().music[0];
 assert(isStr(render.renderItemCard(track, 'music')) && render.renderItemCard(track, 'music').includes('Night Drive'), 'renderItemCard');
+const localOnlyMissing = { ...track, id: 'missing-local', url: 'C:/Music/Missing.mp3', localPath: 'C:/Music/Missing.mp3', missingLocal: true };
+assert(render.renderItemCard(localOnlyMissing, 'music').includes('is-local-missing'), 'missing local-only track is visibly greyed');
+W.EveAudioflixState.update({ showLocalMissingMarkersOnCard: true }, 'missing-marker-smoke');
+const dualMissing = { ...track, id: 'missing-dual', url: 'https://example.test/missing.mp3', localPath: 'C:/Music/Missing.mp3', missingLocal: true };
+const dualHtml = render.renderItemCard(dualMissing, 'music');
+assert(dualHtml.includes('Local copy missing') && !dualHtml.includes('is-local-missing'), 'dual-source missing track keeps online styling but shows optional marker');
+W.EveAudioflixState.update({ browserFolders: [{ id: 'music-folder', nickname: 'Music', purpose: 'music' }] }, 'folder-purpose-smoke');
+assert(W.EveAudioflixState.ensure().browserFolders[0].purpose === 'music', 'music browser-folder purpose survives normalization');
 assert(isStr(render.renderItems(W.EveAudioflixState.ensure().music, 'music')), 'renderItems backend');
 const fa = render.frontendActiveGroup('music');
 assert(Array.isArray(fa.smart) && fa.smart.some(([k]) => k.startsWith('smart:artist:Kavinsky')), 'smart folders include shared artist');
