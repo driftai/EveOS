@@ -314,10 +314,10 @@ function syncMediaPlayer(options = {}) {
       }
 
       const absoluteDrift = Math.abs(drift);
-      if (absoluteDrift > 1.5 || options.force) {
+      if (absoluteDrift > 1.25 || options.force) {
         mediaVideo.currentTime = Math.max(0, target);
         mediaDriftCorrecting = false;
-      } else if (absoluteDrift >= 0.08 || (mediaDriftCorrecting && absoluteDrift > 0.04)) {
+      } else if (absoluteDrift >= 0.20 || (mediaDriftCorrecting && absoluteDrift > 0.12)) {
         mediaVideo.playbackRate = drift > 0 ? Math.min(2, baseRate + 0.25) : Math.max(0.5, baseRate - 0.25);
         mediaDriftCorrecting = true;
       } else mediaDriftCorrecting = false;
