@@ -12,7 +12,7 @@ async function join(id, name, roomCodeHint = null) {
 
   let saved = null, res = null, data = null;
   try {
-    saved = loadSavedSession(requestedId);
+    saved = loadSavedSession(requestedId) || loadSavedSession(roomCodeHint);
     const startedAt = Date.now();
     res = await fetch(apiUrl(`/api/rooms/${encodeURIComponent(requestedId)}/join`), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:currentName(),accountId,memberId:saved?.memberId||undefined,roomCode:roomCode||undefined}),cache:'no-store'});
     const receivedAt = Date.now();
@@ -33,7 +33,7 @@ async function join(id, name, roomCodeHint = null) {
   roomCode = data.state?.roomCode || session.roomCode || null;
   joinCode = data.state?.joinCode || session.joinCode || roomCode || roomId;
   replaceRoomHistory(joinCode || roomId);
-  saveSession(roomId, session);
+  saveRoomSession(session, requestedId, roomId, roomCode, joinCode);
   lobby.hidden = true; app.hidden = false;
   $('roomPill').textContent = displayRoomLabel();
   $('roomPill').title = `Copy join code: ${joinCode}`;
@@ -93,7 +93,7 @@ function startStatePolling() {
       if (!res.ok) throw new Error('room poll failed');
       const data = await res.json();
       if (data.state?.serverTime) updateServerClock(data.state.serverTime, sentAt, receivedAt);
-      if (data.session?.memberId) { session = data.session; saveSession(roomId, session); }
+      if (data.session?.memberId) { session = data.session; saveRoomSession(session, roomId, roomCode, joinCode); }
       if (data.state && applyIncomingRoomState(data.state)) { render(); syncPlayer(); }
       setStatus('Connected');
     } catch { setStatus('Reconnecting…'); }

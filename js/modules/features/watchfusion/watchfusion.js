@@ -165,9 +165,17 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         return url.href;
     }
     function detachedUrl() {
-        const url = runtimeUrl();
-        if (!url) return null;
+        const runtime = runtimeUrl();
+        if (!runtime) return null;
+        let url = runtime;
+        const heartbeat = sensor()?.heartbeatState?.();
+        const embeddedHref = heartbeat?.embedded ? heartbeat.embeddedUrl : '';
+        try {
+            const embedded = new URL(embeddedHref);
+            if (sensor()?.isCandidateOrigin?.(embedded.origin)) url = embedded;
+        } catch {}
         url.searchParams.delete('eveos');
+        url.searchParams.delete('_wfReload');
         url.searchParams.set('eveosDetached', '1');
         return url;
     }

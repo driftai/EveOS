@@ -42,6 +42,7 @@ function sourceContract() {
     const depthSession = read('tools/WatchFusion/voxelvision/public/js/depth-worker-session.js');
     const maskAssist = read('tools/WatchFusion/voxelvision/public/js/foreground-mask-assist.js');
     const sensing = read('js/modules/features/watchfusion/watchfusion.runtime-sensing.js');
+    const frameCapabilities = read('js/modules/features/watchfusion/watchfusion.frame-capabilities.js');
 
     check(!sensing.includes('127-0-0-1.sslip.io'), 'WF-SENSING-NO-SSLIP', 'watchfusion.runtime-sensing.js still includes sslip candidate origin');
     check(sensing.includes('http://127.0.0.1:'), 'WF-SENSING-LOOPBACK-CANONICAL', 'watchfusion.runtime-sensing.js missing literal loopback candidate origin');
@@ -82,6 +83,8 @@ function sourceContract() {
     check(css.includes('.watchfusion-shell-head') && css.includes('flex-direction: row;') && css.includes('flex-wrap: nowrap;'), 'WF-OUTER-HEADER-SIZING', 'outer WatchFusion header can stack vertically and consume media space');
     check(css.includes('grid-template-rows: auto auto auto minmax(0, 1fr);') && css.includes('align-content: stretch;'), 'WF-OUTER-CONTIGUOUS-ROWS', 'outer WatchFusion chrome can leave an empty strip between the header and service bar');
     check(css.includes('.watchfusion-frame {') && css.includes('position: absolute;') && css.includes('inset: 0;'), 'WF-OUTER-FRAME-FILL', 'outer WatchFusion iframe is not pinned to the full remaining stage');
+    check(css.includes('.watchfusion-frame-loading') && frameCapabilities.includes("setFrameState(frame, 'loading'") && frameCapabilities.includes("setFrameState(activeFrame, 'ready')"), 'WF-OUTER-FRAME-LOADING-COVER', 'embedded WatchFusion can expose a blank frame before readiness');
+    check(ui.includes('const heartbeat = sensor()?.heartbeatState?.()') && ui.includes('heartbeat?.embedded ? heartbeat.embeddedUrl') && ui.includes("url.searchParams.delete('_wfReload')"), 'WF-DETACH-ROOM-PATH', 'detached WatchFusion does not preserve the active embedded room path');
 
     check(setupRoutes.includes("parts[1] !== 'setup'") && setupRoutes.includes("parts[2] === 'install'"), 'WF-SETUP-API', 'WatchFusion setup API is not routed');
     check(setupRoutes.includes('isHostLocalRequest') && localRequest.includes("'cf-ray'") && localRequest.includes("'cf-connecting-ip'"), 'WF-SETUP-LOCAL-ONLY', 'install actions are not protected by the centralized host-local request boundary');

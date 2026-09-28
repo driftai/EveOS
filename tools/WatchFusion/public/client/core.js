@@ -128,6 +128,9 @@ function setName(value) { storage.set('wp-name', value); }
 function sessionKey(id) { return `wp-session-${String(id).toUpperCase()}`; }
 function loadSavedSession(id) { try { const raw=storage.get(sessionKey(id)); return raw ? JSON.parse(raw) : null; } catch { return null; } }
 function saveSession(id, value) { storage.set(sessionKey(id), JSON.stringify(value)); }
+function saveRoomSession(value, ...ids) {
+  for (const id of new Set(ids.filter(Boolean).map(item=>String(item).toUpperCase()))) saveSession(id, value);
+}
 function isHost() { return !!session && (state?.hostId === session.publicId || state?.hostId === session.memberId); }
 function setStatus(text) { $('syncStatus').textContent = text; }
 let lanBaseUrl = null;
@@ -177,12 +180,29 @@ function replaceRoomHistory(id = null) {
   url.pathname = id ? `/watch/${encodeURIComponent(id)}` : '/';
   url.hash = '';
   history.replaceState({}, '', `${url.pathname}${url.search}`);
+  queueMicrotask(()=>window.watchFusionEveBridge?.heartbeat?.());
 }
 function displayRoomLabel() { return !roomId ? 'No room' : roomCode ? `ROOM ${roomId} · ${roomCode}` : `ROOM ${roomId}`; }
 async function copyText(value) {
   const text=String(value||''); if(!text) return false;
   try { if(navigator.clipboard?.writeText){ await navigator.clipboard.writeText(text); return true; } } catch {}
   try { const area=document.createElement('textarea'); area.value=text; area.setAttribute('readonly',''); area.style.position='fixed'; area.style.opacity='0'; document.body.appendChild(area); area.select(); const copied=document.execCommand('copy'); area.remove(); return copied; } catch { return false; }
+}
+function setCopyButtonFeedback(button, copied, idleLabel='Copy') {
+  if(!button)return;
+  const previousTimer=Number(button.dataset.copyFeedbackTimer||0);
+  if(previousTimer)clearTimeout(previousTimer);
+  button.textContent=copied?'Copied ✓':'Copy failed';
+  button.classList.toggle('is-copied',copied);
+  button.classList.toggle('is-copy-failed',!copied);
+  button.setAttribute('aria-label',copied?'Copied to clipboard':'Copy failed');
+  const timer=setTimeout(()=>{
+    button.textContent=idleLabel;
+    button.classList.remove('is-copied','is-copy-failed');
+    button.setAttribute('aria-label',idleLabel);
+    delete button.dataset.copyFeedbackTimer;
+  },1800);
+  button.dataset.copyFeedbackTimer=String(timer);
 }
 async function copyJoinCode() { const code=joinCode||roomCode||roomId; if(!code)return; setStatus(await copyText(code)?`Join code ${code} copied`:`Join code: ${code}`); }
 function leaveRoom(message='') {

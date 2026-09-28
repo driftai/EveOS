@@ -14,6 +14,7 @@ const rooms = new Map();
 const roomAliases = new Map();
 const deletedRooms = new Map();
 const sessions = new Map();
+const pendingLeaves = new Map();
 
 export const id = () => crypto.randomUUID();
 
@@ -62,7 +63,8 @@ export function publicState(room) {
   const publicMembers = [...room.members.values()].map(member => ({
     id: member.publicId,
     name: member.name,
-    joinedAt: member.joinedAt
+    joinedAt: member.joinedAt,
+    isOwner: member.accountId === room.ownerAccountId
   }));
   return {
     roomId: room.id,
@@ -119,12 +121,15 @@ export function joinMember(room, { requestedMemberId = '', requestedAlias = null
     room.alias = requestedAlias;
     roomAliases.set(requestedAlias, room.id);
   }
-  const existing = requestedMemberId && room.members.get(requestedMemberId);
   const cleanAccountId = typeof accountId === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(accountId) ? accountId : id();
-  if (existing && existing.accountId !== cleanAccountId) {
+  const requestedMember = requestedMemberId && room.members.get(requestedMemberId);
+  if (requestedMember && requestedMember.accountId !== cleanAccountId) {
     return { error: 'session identity mismatch' };
   }
-  const memberId = existing ? requestedMemberId : id();
+  const accountMember = [...room.members.values()].find(member => member.accountId === cleanAccountId);
+  const existing = requestedMember || accountMember;
+  const memberId = existing?.id || id();
+  cancelPendingLeave(room, memberId);
   const cleanName = clampName(name || existing?.name);
   if (existing) {
     existing.name = cleanName;
@@ -169,6 +174,7 @@ export function getMember(room, memberId) {
 export function leaveMember(room, memberId) {
   const member = getMember(room, memberId);
   const internalId = member?.id || memberId;
+  cancelPendingLeave(room, internalId);
   room.members.delete(internalId);
   sessions.delete(internalId);
   if (room.hostId === internalId) {
@@ -179,7 +185,37 @@ export function leaveMember(room, memberId) {
   room.lastActivity = now();
 }
 
+function pendingLeaveKey(room, memberId) {
+  return `${room.id}:${memberId}`;
+}
+
+export function cancelPendingLeave(room, memberId) {
+  const key = pendingLeaveKey(room, memberId);
+  const timer = pendingLeaves.get(key);
+  if (!timer) return false;
+  clearTimeout(timer);
+  pendingLeaves.delete(key);
+  return true;
+}
+
+export function scheduleLeaveMember(room, memberId, delayMs = 5000) {
+  const member = getMember(room, memberId);
+  if (!member) return false;
+  const internalId = member.id;
+  cancelPendingLeave(room, internalId);
+  const key = pendingLeaveKey(room, internalId);
+  const timer = setTimeout(() => {
+    pendingLeaves.delete(key);
+    leaveMember(room, internalId);
+    broadcastState(room);
+  }, Math.max(1000, Number(delayMs) || 5000));
+  timer.unref?.();
+  pendingLeaves.set(key, timer);
+  return true;
+}
+
 export function deleteRoom(roomId, room) {
+  for (const memberId of room.members.keys()) cancelPendingLeave(room, memberId);
   for (const stream of room.streams) stream.end();
   room.streams.clear();
   rooms.delete(roomId);

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer } from '../helpers/server-harness.js';
@@ -143,6 +144,13 @@ export async function runNodeSmokes() {
       assert.ok(hostMemberId, 'Host receives memberId');
       assert.equal(hostJoin.json?.session?.isOwner, true, 'First joiner is owner');
       assert.equal(hostJoin.json?.state?.hostId, hostJoin.json?.session?.publicId || hostMemberId, 'First joiner is host');
+
+      const recoveredHost = await joinRoom(baseUrl, testRoomCode, {
+        name: 'AliceHost',
+        accountId: 'acc-alice'
+      });
+      assert.equal(recoveredHost.json?.session?.memberId, hostMemberId, 'Same account reclaims its member without a saved member ID');
+      assert.equal(recoveredHost.json?.state?.members?.length, 1, 'Room reload does not duplicate the owner');
 
       // Viewer joins using numeric roomCode
       const viewerJoin = await joinRoom(baseUrl, testRoomCode, {
@@ -297,6 +305,26 @@ export async function runNodeSmokes() {
         body: Buffer.from('not an image')
       });
       assert.equal(disguisedImage.status, 415, 'Invalid image bytes are rejected');
+
+      const localImagePath = path.join(os.tmpdir(), `watchfusion-path-${process.pid}.png`);
+      fs.writeFileSync(localImagePath, imageBytes);
+      try {
+        const pathImage = await request(baseUrl, `/api/rooms/${testRoomId}/attachments/path`, {
+          method: 'POST',
+          headers: { 'x-member-id': viewerMemberId },
+          body: { path: localImagePath }
+        });
+        assert.equal(pathImage.status, 201, 'Host-local absolute image path upload succeeds');
+        assert.equal(pathImage.json?.state?.messages?.at(-1)?.attachment?.name, path.basename(localImagePath));
+        const lanPathImage = await request(baseUrl, `/api/rooms/${testRoomId}/attachments/path`, {
+          method: 'POST',
+          headers: { host: `192.168.50.7:${PORT}`, 'x-member-id': viewerMemberId },
+          body: { path: localImagePath }
+        });
+        assert.equal(lanPathImage.status, 403, 'LAN clients cannot make the host read a local image path');
+      } finally {
+        fs.unlinkSync(localImagePath);
+      }
 
       // Empty chat error
       const emptyRes = await sendCommand(baseUrl, testRoomId, viewerMemberId, {

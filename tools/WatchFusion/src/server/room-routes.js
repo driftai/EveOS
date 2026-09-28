@@ -16,7 +16,8 @@ import {
   publicState,
   resolveRoomId,
   safeRoomAlias,
-  safeRoomId
+  safeRoomId,
+  scheduleLeaveMember
 } from './room-store.js';
 import { json, now, readBody } from './http-utils.js';
 import { parseYoutubeUrl, youtubeUrlFromId } from './youtube.js';
@@ -55,6 +56,10 @@ export async function handleRoomRoute(req, res, url, parts) {
   if (req.method === 'GET' && parts[3] === 'events') return openEvents(req, res, room);
   if (req.method === 'POST' && parts[3] === 'ping') return json(res, 200, { ok: true, serverTime: now() });
   if (req.method === 'POST' && parts[3] === 'leave') {
+    if (url.searchParams.get('defer') === '1') {
+      scheduleLeaveMember(room, memberId);
+      return json(res, 202, { ok: true, deferred: true });
+    }
     leaveMember(room, memberId);
     broadcastState(room);
     return json(res, 200, { ok: true });

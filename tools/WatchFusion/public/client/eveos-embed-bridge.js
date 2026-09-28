@@ -309,6 +309,7 @@
     capture: () => stateBridge?.captureSnapshot?.(),
     reattach: () => beginTransfer('embedded', { closeAfter: true })
   });
+  window.watchFusionEveBridge = Object.freeze({ heartbeat });
 
   ensureReattachButton();
   sampleStorageAccess().finally(heartbeat);

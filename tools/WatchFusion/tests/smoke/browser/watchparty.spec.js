@@ -72,7 +72,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
   });
 
   test('LAN share link uses the physical address and visible join code', async ({ browser }) => {
-    const hostContext = await browser.newContext();
+    const hostContext = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
     const hostPage = await hostContext.newPage();
     await hostPage.route('**/api/network-info', route => route.fulfill({
       status: 200,
@@ -110,7 +110,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
 
   test('Two-browser host and viewer synchronization, chat, and source load', async ({ browser }) => {
     // 1. Host creates room
-    const hostContext = await browser.newContext();
+    const hostContext = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
     const hostPage = await hostContext.newPage();
     await hostPage.goto('/');
     await hostPage.click('#headerToggleBtn');
@@ -124,7 +124,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     const hostUrl = hostPage.url();
 
     // 2. Viewer joins via direct room link with custom name
-    const viewerContext = await browser.newContext();
+    const viewerContext = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
     await viewerContext.addInitScript(() => {
       localStorage.setItem('wp-name', 'ViewerBob');
     });
@@ -146,6 +146,8 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await expect(viewerPage.locator('#chat')).toContainText('Welcome to the party!');
     await expect(viewerPage.locator('#chat')).toContainText('HostAlice');
     await expect(viewerPage.locator('[data-copy-message]')).toHaveCount(1);
+    await viewerPage.locator('[data-copy-message]').first().click();
+    await expect(viewerPage.locator('[data-copy-message]').first()).toHaveText('Copied ✓');
 
     // Viewer replies
     await viewerPage.fill('#chatInput', 'Thanks Alice!');
@@ -159,6 +161,15 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await expect(hostPage.locator('.message-image')).toHaveCount(1);
     await expect(hostPage.locator('.message-file-name')).toHaveText('relay.png');
     await expect(hostPage.locator('.message-download')).toHaveCount(1);
+
+    await viewerPage.evaluate(() => {
+      const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), char => char.charCodeAt(0));
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], 'clipboard.png', { type: 'image/png' }));
+      document.getElementById('chatInput').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
+    });
+    await expect(hostPage.locator('.message-image')).toHaveCount(2);
+    await expect(hostPage.locator('.message-file-name').last()).toHaveText('clipboard.png');
 
     // 4. Source loading & ready state transition via Find Media
     const sampleVideoUrl = YOUTUBE_FIXTURES.valid[0].input;
@@ -255,7 +266,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await page.click('#headerToggleBtn');
     await page.click('#startPartyBtn');
     await page.fill('#nameInput', 'ReloadHost');
-    await page.fill('#roomInput', 'RELOAD1');
+    await page.fill('#roomInput', '907');
     await page.click('#createBtn');
     await expect(page).toHaveURL(/\/watch\//, { timeout: 5000 });
 
@@ -268,6 +279,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await expect(page.locator('#partyPanel')).toBeVisible();
     await expect(page.locator('#roomPill')).toHaveText(initialPillText);
     await expect(page.locator('#hostBadge')).toHaveText('YOU ARE HOST');
+    await expect(page.locator('#members .member')).toHaveCount(1);
   });
 
 });

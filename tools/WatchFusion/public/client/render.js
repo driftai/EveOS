@@ -15,7 +15,7 @@ function renderChatMessages(){
     const image=attachment?`<a class="message-image-link" href="${escapeHtml(imageUrl)}" target="_blank" rel="noopener"><img class="message-image" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(attachment.name||'Shared room image')}" loading="lazy"></a><span class="message-file-name">${escapeHtml(attachment.name||'Shared image')}</span>`:'';
     return `<div class="msg" data-message-id="${escapeHtml(message.id)}"><div class="msg-head"><b>${escapeHtml(message.name)}</b>${actions}</div>${text?`<p>${escapeHtml(text)}</p>`:''}${image}</div>`;
   }).join('');
-  document.querySelectorAll('[data-copy-message]').forEach(button=>button.addEventListener('click',async()=>{const message=messages.find(item=>item.id===button.dataset.copyMessage);if(!message)return;setStatus(await copyText(message.text)?'Message copied':'Could not copy message');}));
+  document.querySelectorAll('[data-copy-message]').forEach(button=>button.addEventListener('click',async()=>{const message=messages.find(item=>item.id===button.dataset.copyMessage);if(!message)return;const copied=await copyText(message.text);setCopyButtonFeedback(button,copied);setStatus(copied?'Message copied':'Could not copy message');}));
   if(nearBottom)chat.scrollTop=chat.scrollHeight;else chat.scrollTop=Math.min(previousScrollTop,Math.max(0,chat.scrollHeight-chat.clientHeight));
   renderedChatSignature=signature;
 }
@@ -59,7 +59,7 @@ function render() {
     tab.classList.toggle('active',active);
   });
 
-  if($('members'))$('members').innerHTML=state.members.map(m=>{const host=m.id===state.hostId;const owner=m.accountId===state.ownerAccountId;const transfer=isHost()&&!host?`<button class="member-transfer" data-transfer-host="${m.id}" title="Make ${escapeHtml(m.name)} host">Make host</button>`:'';return `<div class="member-row"><span class="member ${host?'host':''}">${escapeHtml(m.name)}${host?' ★':''}${owner&&!host?' 👑':''}</span>${transfer}</div>`;}).join('');
+  if($('members'))$('members').innerHTML=state.members.map(m=>{const host=m.id===state.hostId;const owner=m.isOwner===true;const transfer=isHost()&&!host?`<button class="member-transfer" data-transfer-host="${m.id}" title="Make ${escapeHtml(m.name)} host">Make host</button>`:'';return `<div class="member-row"><span class="member ${host?'host':''}">${escapeHtml(m.name)}${host?' ★':''}${owner&&!host?' 👑':''}</span>${transfer}</div>`;}).join('');
   document.querySelectorAll('[data-transfer-host]').forEach(btn=>btn.addEventListener('click',async()=>{const targetMemberId=btn.getAttribute('data-transfer-host');if(!targetMemberId)return;btn.disabled=true;const ok=await command('transfer-host',{targetMemberId});if(!ok)btn.disabled=false;}));
   renderChatMessages();
 
