@@ -24,9 +24,13 @@ WS_POPUP = 0x80000000
 SS_BLACKRECT = 0x00000004
 SW_HIDE = 0
 SW_SHOWNOACTIVATE = 4
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
 SWP_NOACTIVATE = 0x0010
 SWP_SHOWWINDOW = 0x0040
+SWP_NOOWNERZORDER = 0x0200
 HWND_TOPMOST = -1
+HWND_NOTOPMOST = -2
 PM_REMOVE = 0x0001
 _SESSION = {}
 _GUARD = threading.RLock()
@@ -81,15 +85,15 @@ def _pointer_at_bottom_edge(user32, width: int, height: int) -> bool:
                 and 0 <= point.x < width and height - 2 <= point.y < height)
 
 
-def _next_edge_taskbar_state(*, edge_revealed: bool, at_edge: bool,
-                             near_edge: bool, in_open_tray: bool,
-                             reveal_state: int, target_state: int):
-    """Choose a state write without focusing or selecting a taskbar button."""
-    if at_edge and not edge_revealed:
-        return reveal_state, True
-    if edge_revealed and not (near_edge or in_open_tray):
-        return target_state, False
-    return None, edge_revealed
+def _next_edge_taskbar_z_order(*, taskbar_promoted: bool, at_edge: bool,
+                               near_edge: bool, in_open_tray: bool):
+    """Promote the auto-hidden tray without changing the Windows work area."""
+    wants_overlay = bool(at_edge or near_edge or in_open_tray)
+    if wants_overlay and not taskbar_promoted:
+        return True, True
+    if taskbar_promoted and not wants_overlay:
+        return False, False
+    return None, taskbar_promoted
 
 
 def _edge_guard_loop(stop_event: threading.Event, original_state: int,
@@ -140,8 +144,7 @@ def _edge_guard_loop(stop_event: threading.Event, original_state: int,
         return
     message = wintypes.MSG()
     shown = False
-    edge_revealed = False
-    reveal_state = int(original_state) & ~ABS_AUTOHIDE
+    taskbar_promoted = False
     try:
         while not stop_event.wait(0.05):
             while user32.PeekMessageW(ctypes.byref(message), hwnd, 0, 0, PM_REMOVE):
@@ -163,22 +166,20 @@ def _edge_guard_loop(stop_event: threading.Event, original_state: int,
                                 and tray_rect.top < height - 3
                                 and tray_rect.left <= point.x < tray_rect.right
                                 and tray_rect.top <= point.y < tray_rect.bottom)
-            desired_state, next_revealed = _next_edge_taskbar_state(
-                edge_revealed=edge_revealed,
+            z_action, next_promoted = _next_edge_taskbar_z_order(
+                taskbar_promoted=taskbar_promoted,
                 at_edge=at_edge,
                 near_edge=near_edge,
                 in_open_tray=in_open_tray,
-                reveal_state=reveal_state,
-                target_state=target_state,
             )
-            if desired_state is not None:
-                # Toggling auto-hide is the documented appbar path and does not
-                # focus the shell or keyboard-select an arbitrary taskbar app.
-                with _GUARD:
-                    if stop_event.is_set():
-                        break
-                    _write_taskbar_state(desired_state)
-                edge_revealed = next_revealed
+            if z_action is not None and tray:
+                # Keep ABS_AUTOHIDE enabled for the whole immersive session. Flipping it off
+                # changes the Windows work area and can resize a maximized foreground app.
+                # Instead, temporarily raise Explorer's tray above fullscreen/topmost windows.
+                insert_after = HWND_TOPMOST if z_action else HWND_NOTOPMOST
+                flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER
+                user32.SetWindowPos(tray, insert_after, 0, 0, 0, 0, flags)
+                taskbar_promoted = next_promoted
             should_show = not _tray_revealed(user32, width, height) and not near_edge
             if should_show != shown:
                 if should_show:
@@ -192,6 +193,13 @@ def _edge_guard_loop(stop_event: threading.Event, original_state: int,
                     user32.ShowWindow(hwnd, SW_HIDE)
                 shown = should_show
     finally:
+        if taskbar_promoted:
+            tray = user32.FindWindowW("Shell_TrayWnd", None)
+            if tray:
+                user32.SetWindowPos(
+                    tray, HWND_NOTOPMOST, 0, 0, 0, 0,
+                    SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+                )
         user32.DestroyWindow(hwnd)
 
 
