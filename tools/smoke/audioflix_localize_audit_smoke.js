@@ -51,7 +51,7 @@ function makeAudit(item, native, browserFolders) {
         });
         const result = await audit('folder', 'Test');
         assert(result.unverified === 1 && result.missing === 0, 'offline scan is unverified, not missing');
-        assert(item.missingLocal === false, 'stale false-missing flag is repaired');
+        assert(item.missingLocal === true, 'unverified transport preserves the last verified missing state');
     }
 
     {
@@ -70,8 +70,7 @@ function makeAudit(item, native, browserFolders) {
     {
         const item = { id: 'browser', title: 'poster boy', localPath, missingLocal: true };
         const audit = makeAudit(item, {}, {
-            folderStates: async () => [{ rootName: 'test-2', permission: 'granted' }],
-            fileUrlForPath: async (claim) => claim === localPath ? 'blob:poster-boy' : ''
+            verifyPath: async (claim) => ({ verified: claim === localPath, present: claim === localPath })
         });
         const result = await audit('folder', 'Test');
         assert(result.complete && result.verified === 1 && result.missing === 0, 'granted folder verifies file:// path');
@@ -86,6 +85,19 @@ function makeAudit(item, native, browserFolders) {
         const result = await audit('folder', 'Test');
         assert(result.complete && result.missing === 1, 'authoritative empty scan still detects deletion');
         assert(item.missingLocal === true, 'verified deletion sets missing flag');
+    }
+
+    {
+        const fsPath = 'fsport://music-root/Album/moved.mp3';
+        const item = { id: 'fs-moved', title: 'moved', localPath: fsPath, missingLocal: false, isMusicPort: true };
+        const audit = makeAudit(item, {
+            scanLocalized: async () => { throw new Error('localhost unavailable'); }
+        }, {
+            verifyPath: async (claim) => ({ verified: claim === fsPath, present: false })
+        });
+        const result = await audit('folder', 'Ported');
+        assert(result.complete && result.missing === 1, 'granted browser Music Port detects a moved file at its expected path');
+        assert(item.missingLocal === true, 'moved browser-port track becomes missingLocal');
     }
 
     console.log('AUDIOFLIX_LOCALIZE_AUDIT_SMOKE_OK');
