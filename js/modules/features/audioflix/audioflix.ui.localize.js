@@ -93,22 +93,55 @@ window.EveAudioflixUiLocalize = window.EveAudioflixUiLocalize || {};
 
         function renderMusicPortForm() {
             const lastDir = L()?.lastDir?.() || '';
+            const snapshot = window.EveAudioflixState?.ensure?.() || {};
+            const music = snapshot.music || [];
+            const connections = snapshot.musicPortConnections || [];
             const fsFolders = (deps.getFsPortFolders?.() || []).filter((f) => f.purpose === 'music');
             const closeBtn = deps.closeSvg || '✕';
-            const listRows = fsFolders.length
-                ? fsFolders.map((f) => {
-                    const granted = f.permission === 'granted';
-                    const statusText = granted ? 'Connected (browser access)' : 'Needs reconnect';
-                    const statusColor = granted ? '#7ee2a8' : '#f2b96b';
-                    return `<div class="audioflix-port-item"><div><strong>${esc(f.nickname)}</strong><code style="display: block; font-size: 0.8rem; color: ${statusColor};">${statusText}</code></div><button type="button" class="audioflix-add-toggle" data-af-action="regrant-music-folder" data-af-id="${esc(f.id)}" data-af-nickname="${esc(f.nickname)}" style="margin-right: 6px; flex: 0 0 auto;">${granted ? 'Re-grant' : 'Reconnect'}</button><button type="button" class="audioflix-icon-btn danger" data-af-action="remove-music-fsport" data-af-id="${esc(f.id)}">${closeBtn}</button></div>`;
-                }).join('')
-                : '<div class="audioflix-empty" style="margin-bottom:8px;">No standalone music folders granted yet. Grant a folder below or inside a folder/group localize panel.</div>';
+            const P = window.EveAudioflixPaths;
+            const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+            const trackClaims = (track) => [track.localPath, ...(track.localizations || []).map((entry) => entry.path)].filter(Boolean);
+            const coveredBy = (track, folder) => trackClaims(track).some((claim) => {
+                if (String(claim).startsWith(`fsport://${folder.id}/`)) return true;
+                const root = folder.rootName || folder.nickname || '';
+                return !!root && (P?.relativeAfterFolder?.(claim, root) || []).length > 0;
+            });
+            const stats = L()?.scopeStats?.('library', '') || { online: 0, notLocal: 0, alreadyLocal: 0, missingLocal: 0 };
+            const summary = `<div class="audioflix-port-health-summary"><strong>Music local health</strong><span>${stats.alreadyLocal} localized/ported · ${stats.missingLocal} missing · ${stats.notLocal} need a local copy</span><button type="button" class="audioflix-add-toggle" data-af-action="audit-scope-disk" data-af-scope="library" data-af-key="">Verify all local files</button></div>`;
 
-            return `<div class="audioflix-ports-mgr" style="margin-bottom:12px;"><h4>Music Browser Folders <span style="font-weight: normal; font-size: 0.78rem; color: #9aa8bd;">(offline access for tracks — no server needed)</span></h4>${listRows}</div><form class="audioflix-form" data-af-form="music-port-form">
+            const connectionRows = connections.map((conn) => {
+                const tracks = music.filter((track) => (
+                    same(track.folder || track.card, conn.folder)
+                    && (track.isMusicPort || (track.localizations || []).some((entry) => same(entry.source, `folder:${conn.folder}`)))
+                ));
+                const missing = tracks.filter((track) => track.missingLocal === true).length;
+                const local = tracks.filter((track) => !!track.localPath).length;
+                const browser = fsFolders.find((folder) => folder.id === conn.browserFolderId);
+                const connected = browser?.permission === 'granted';
+                const statusColor = missing ? '#f87171' : connected ? '#7ee2a8' : '#f2b96b';
+                const source = conn.path || conn.browserRootName || '(folder path unavailable)';
+                const browserAction = browser
+                    ? `<button type="button" class="audioflix-add-toggle" data-af-action="regrant-music-folder" data-af-id="${esc(browser.id)}" data-af-nickname="${esc(browser.nickname || conn.folder)}">${connected ? 'Re-grant' : 'Reconnect'}</button>`
+                    : `<button type="button" class="audioflix-add-toggle" data-af-action="grant-localize-folder" data-af-scope="folder" data-af-key="${esc(conn.folder)}" data-af-nickname="${esc(conn.browserRootName || conn.folder)}">Grant Folder</button>`;
+                return `<div class="audioflix-port-item audioflix-music-port-track-row"><div><strong>${esc(conn.folder || 'Music Port')}</strong><code style="display:block;font-size:0.78rem;color:#8ab4f8;word-break:break-all;">${esc(source)}</code><code style="display:block;font-size:0.78rem;color:${statusColor};">${tracks.length} tracked · ${local} local · ${missing} missing${connected ? ' · browser access live' : ''}</code></div><button type="button" class="audioflix-add-toggle" data-af-action="sync-music-port-folder" data-af-folder="${esc(conn.folder)}">Sync</button><button type="button" class="audioflix-add-toggle" data-af-action="audit-scope-disk" data-af-scope="folder" data-af-key="${esc(conn.folder)}">Verify</button>${browserAction}</div>`;
+            }).join('');
+
+            const connectedIds = new Set(connections.map((conn) => conn.browserFolderId).filter(Boolean));
+            const standaloneRows = fsFolders.filter((folder) => !connectedIds.has(folder.id)).map((folder) => {
+                const granted = folder.permission === 'granted';
+                const covered = music.filter((track) => coveredBy(track, folder));
+                const missing = covered.filter((track) => track.missingLocal === true).length;
+                return `<div class="audioflix-port-item"><div><strong>${esc(folder.nickname)}</strong><code style="display:block;font-size:0.8rem;color:${granted ? '#7ee2a8' : '#f2b96b'};">${granted ? 'Connected (browser access)' : 'Needs reconnect'} · ${covered.length} linked track${covered.length === 1 ? '' : 's'}${missing ? ` · ${missing} missing` : ''}</code></div><button type="button" class="audioflix-add-toggle" data-af-action="regrant-music-folder" data-af-id="${esc(folder.id)}" data-af-nickname="${esc(folder.nickname)}">${granted ? 'Re-grant' : 'Reconnect'}</button><button type="button" class="audioflix-icon-btn danger" data-af-action="remove-music-fsport" data-af-id="${esc(folder.id)}">${closeBtn}</button></div>`;
+            }).join('');
+            const trackerRows = connectionRows || standaloneRows
+                ? `${connectionRows}${standaloneRows}`
+                : '<div class="audioflix-empty" style="margin-bottom:8px;">No music folders tracked yet. Import a Music Port or grant a localization folder below.</div>';
+
+            return `<div class="audioflix-ports-mgr audioflix-music-port-tracker" style="margin-bottom:12px;"><h4>Music Port Tracker <span style="font-weight:normal;font-size:0.78rem;color:#9aa8bd;">(ported + localized folders, missing-file health, offline grants)</span></h4>${summary}${trackerRows}</div><form class="audioflix-form" data-af-form="music-port-form">
                 <label class="audioflix-wide-field"><span>Local Folder Path (optional when browsing)</span><input name="path" value="${esc(lastDir)}" placeholder="C:\\path\\to\\music\\folder"></label>
                 <label><span>Target Folder Tag Name</span><input name="folder" placeholder="Ported Music"></label>
                 <button type="submit" data-af-action="submit-form">Extract Music</button>
-                <p class="audioflix-settings-hint" style="grid-column:1/-1; margin:6px 0 0;">With localhost running, a typed path is scanned directly. With localhost off, leave the path blank and press Extract Music: Edge/Chrome opens a folder picker, recursively imports nested songs, and keeps the granted folder available for playback and sync.</p>
+                <p class="audioflix-settings-hint" style="grid-column:1/-1; margin:6px 0 0;">With localhost running, a typed path is scanned directly. With localhost off, leave the path blank and press Extract Music: Edge/Chrome opens a folder picker, recursively imports nested songs, and keeps that folder tied to Music Library health checks.</p>
             </form>`;
         }
 
