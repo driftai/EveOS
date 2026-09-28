@@ -212,6 +212,17 @@ export async function runNodeSmokes() {
         playback: { paused: false, ended: false, position: 12, rate: 1.5, updatedAt: 1000 }
       }, 1400);
       assert.equal(deterministicProjection, 12.6, 'Projection uses the supplied authoritative timestamp exactly');
+      // A host playback sample is timestamped in estimated server time. The room timeline
+      // advances it once for upload transit instead of making viewers catch up by running faster.
+      const compensatedPlay = await sendCommand(baseUrl, testRoomId, hostMemberId, {
+        type: 'play',
+        position: 20,
+        sampledServerAt: Date.now() - 100
+      });
+      assert.equal(compensatedPlay.status, 200);
+      assert.ok(compensatedPlay.json?.state?.playback?.position >= 20.06, 'Host sample includes measured command transit');
+      assert.ok(compensatedPlay.json?.state?.playback?.position < 20.5, 'Host sample transit compensation stays bounded');
+
       // Play
       const playRes = await sendCommand(baseUrl, testRoomId, hostMemberId, {
         type: 'play',
