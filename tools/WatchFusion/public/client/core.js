@@ -55,6 +55,7 @@ let playerAudioPrefs = loadPlayerAudioPrefs();
 let suppressAudioPersistence = false;
 let roomAudioGuardUntil = 0;
 let roomAudioCommandTimer = null;
+let roomAudioCandidateKey = '';
 
 const $ = (id) => document.getElementById(id);
 
@@ -90,10 +91,17 @@ function authoritativeRoomAudio() {
   const rawVolume = Number(state.playback.volume);
   return { volume: Number.isFinite(rawVolume) ? Math.min(100, Math.max(0, rawVolume)) : 100, muted: !!state.playback.muted };
 }
+function clearRoomAudioCandidate() {
+  if (roomAudioCommandTimer) clearTimeout(roomAudioCommandTimer);
+  roomAudioCommandTimer = null;
+  roomAudioCandidateKey = '';
+}
 function applyRoomAudioState(player = ytPlayer, forceUnmute = false) {
   const audio = authoritativeRoomAudio();
   if (!player || !audio) return false;
-  const targetMuted = audio.muted || (!forceUnmute && !isHost() && autoplayWasBlocked);
+  const autoplayGuard = !forceUnmute && !isHost() && autoplayWasBlocked && !userGesturePrimeUsed;
+  const targetMuted = audio.muted || autoplayGuard;
+  clearRoomAudioCandidate();
   roomAudioGuardUntil = performance.now() + 650;
   suppressAudioPersistence = true;
   try {
@@ -107,13 +115,40 @@ function applyRoomAudioState(player = ytPlayer, forceUnmute = false) {
 function publishRoomAudioState(volume, muted) {
   if (!roomId || !session || !isHost() || performance.now() < roomAudioGuardUntil) return;
   const nextVolume = Math.min(100, Math.max(0, Number(volume) || 0));
+  const nextMuted = !!muted;
   const current = authoritativeRoomAudio();
-  if (current && Math.abs(current.volume - nextVolume) <= 0.5 && current.muted === !!muted) return;
-  clearTimeout(roomAudioCommandTimer);
+  if (current && Math.abs(current.volume - nextVolume) <= 0.5 && current.muted === nextMuted) {
+    clearRoomAudioCandidate();
+    return;
+  }
+  const candidateKey = `${Math.round(nextVolume * 2) / 2}:${nextMuted ? 1 : 0}`;
+  if (roomAudioCandidateKey === candidateKey && roomAudioCommandTimer) return;
+  if (roomAudioCommandTimer) clearTimeout(roomAudioCommandTimer);
+  roomAudioCandidateKey = candidateKey;
   roomAudioCommandTimer = setTimeout(() => {
     roomAudioCommandTimer = null;
-    command('volume', { volume: nextVolume, muted: !!muted }).catch(() => setStatus('Room audio sync is reconnecting…'));
-  }, 100);
+    if (!roomId || !session || !isHost() || !ytPlayer || !ytPlayerReady || performance.now() < roomAudioGuardUntil) {
+      roomAudioCandidateKey = '';
+      return;
+    }
+    let actualVolume = nextVolume;
+    let actualMuted = nextMuted;
+    try {
+      const sampledVolume = Number(ytPlayer.getVolume?.());
+      if (Number.isFinite(sampledVolume)) actualVolume = Math.min(100, Math.max(0, sampledVolume));
+      actualMuted = !!ytPlayer.isMuted?.();
+    } catch {}
+    const actualKey = `${Math.round(actualVolume * 2) / 2}:${actualMuted ? 1 : 0}`;
+    if (actualKey !== roomAudioCandidateKey) {
+      roomAudioCandidateKey = '';
+      publishRoomAudioState(actualVolume, actualMuted);
+      return;
+    }
+    roomAudioCandidateKey = '';
+    const latest = authoritativeRoomAudio();
+    if (latest && Math.abs(latest.volume - actualVolume) <= 0.5 && latest.muted === actualMuted) return;
+    command('volume', { volume: actualVolume, muted: actualMuted }).catch(() => setStatus('Room audio sync is reconnecting…'));
+  }, 350);
 }
 function observeYouTubeAudio() {
   if (!ytPlayer || !ytPlayerReady || primingPlayer || playerInitializing) return;
@@ -261,7 +296,7 @@ function leaveRoom(message='') {
   window.watchPartyRealtime?.stop?.();
   if(remotePollTimer){clearInterval(remotePollTimer);remotePollTimer=null;}
   if(pingTimer){clearInterval(pingTimer);pingTimer=null;}
-  if(roomAudioCommandTimer){clearTimeout(roomAudioCommandTimer);roomAudioCommandTimer=null;}
+  clearRoomAudioCandidate();
   roomAudioGuardUntil=0;
   roomId=null; roomCode=null; joinCode=null; session=null; playerPrimed=false; playerInitializing=false; autoplayWasBlocked=false;
   renderedChatSignature='';
