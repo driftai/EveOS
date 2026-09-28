@@ -205,7 +205,7 @@ export async function runNodeSmokes() {
       assert.equal(badRes.status, 400, 'Invalid source returns 400');
     })();
 
-    // 10. Playback synchronization (play, seek, pause, rate)
+    // 10. Playback synchronization (play, seek, pause, rate, volume)
     await record('NODE-10:playback-commands-and-projection', async () => {
       // Play
       const playRes = await sendCommand(baseUrl, testRoomId, hostMemberId, {
@@ -236,6 +236,18 @@ export async function runNodeSmokes() {
       assert.equal(rateRes.status, 200);
       assert.equal(rateRes.json?.state?.playback?.rate, 1.5, 'Playback rate set to 1.5');
 
+      const forbiddenVolume = await sendCommand(baseUrl, testRoomId, viewerMemberId, {
+        type: 'volume', volume: 37, muted: true
+      });
+      assert.equal(forbiddenVolume.status, 403, 'Only the host controls room audio');
+
+      const volumeRes = await sendCommand(baseUrl, testRoomId, hostMemberId, {
+        type: 'volume', volume: 37, muted: true
+      });
+      assert.equal(volumeRes.status, 200);
+      assert.equal(volumeRes.json?.state?.playback?.volume, 37, 'Room volume is authoritative');
+      assert.equal(volumeRes.json?.state?.playback?.muted, true, 'Room mute state is authoritative');
+
       // Pause
       const pauseRes = await sendCommand(baseUrl, testRoomId, hostMemberId, {
         type: 'pause',
@@ -244,6 +256,12 @@ export async function runNodeSmokes() {
       assert.equal(pauseRes.status, 200);
       assert.equal(pauseRes.json?.state?.playback?.paused, true);
       assert.equal(pauseRes.json?.state?.playback?.position, 60);
+
+      const sourceWithAudio = await sendCommand(baseUrl, testRoomId, hostMemberId, {
+        type: 'source', input: YOUTUBE_FIXTURES.valid[0].input
+      });
+      assert.equal(sourceWithAudio.json?.state?.playback?.volume, 37, 'Source changes preserve room volume');
+      assert.equal(sourceWithAudio.json?.state?.playback?.muted, true, 'Source changes preserve room mute');
     })();
 
     // 11. Chat messaging

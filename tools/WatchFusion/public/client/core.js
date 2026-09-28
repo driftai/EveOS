@@ -43,9 +43,18 @@ let remotePollBusy = false;
 let serverClockOffsetMs = 0;
 let serverClockRttMs = Infinity;
 const isTryCloudflare = /(^|\.)trycloudflare\.com$/i.test(location.hostname);
+const eveosShareParams = new URLSearchParams(location.search);
+const eveosShareMode = ['lan', 'cloudflare'].includes(eveosShareParams.get('eveosShareMode')) ? eveosShareParams.get('eveosShareMode') : 'local';
+let eveosShareBaseUrl = null;
+try {
+  const candidate = new URL(eveosShareParams.get('eveosShareUrl') || '');
+  if (/^https?:$/.test(candidate.protocol)) eveosShareBaseUrl = candidate.origin;
+} catch {}
 const PLAYER_AUDIO_PREFS_KEY = 'wp-youtube-audio-prefs-v1';
 let playerAudioPrefs = loadPlayerAudioPrefs();
 let suppressAudioPersistence = false;
+let roomAudioGuardUntil = 0;
+let roomAudioCommandTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -75,6 +84,47 @@ function restorePlayerAudioPrefs(player = ytPlayer) {
   suppressAudioPersistence = true;
   try { player.setVolume?.(volume); muted ? player.mute?.() : player.unMute?.(); } catch {}
   setTimeout(() => { suppressAudioPersistence = false; }, 0);
+}
+function authoritativeRoomAudio() {
+  if (!roomId || !state?.playback) return null;
+  const rawVolume = Number(state.playback.volume);
+  return { volume: Number.isFinite(rawVolume) ? Math.min(100, Math.max(0, rawVolume)) : 100, muted: !!state.playback.muted };
+}
+function applyRoomAudioState(player = ytPlayer, forceUnmute = false) {
+  const audio = authoritativeRoomAudio();
+  if (!player || !audio) return false;
+  const targetMuted = audio.muted || (!forceUnmute && !isHost() && autoplayWasBlocked);
+  roomAudioGuardUntil = performance.now() + 650;
+  suppressAudioPersistence = true;
+  try {
+    const currentVolume = Number(player.getVolume?.());
+    if (!Number.isFinite(currentVolume) || Math.abs(currentVolume - audio.volume) > 0.5) player.setVolume?.(audio.volume);
+    if (!!player.isMuted?.() !== targetMuted) targetMuted ? player.mute?.() : player.unMute?.();
+  } catch {}
+  setTimeout(() => { suppressAudioPersistence = false; }, 0);
+  return true;
+}
+function publishRoomAudioState(volume, muted) {
+  if (!roomId || !session || !isHost() || performance.now() < roomAudioGuardUntil) return;
+  const nextVolume = Math.min(100, Math.max(0, Number(volume) || 0));
+  const current = authoritativeRoomAudio();
+  if (current && Math.abs(current.volume - nextVolume) <= 0.5 && current.muted === !!muted) return;
+  clearTimeout(roomAudioCommandTimer);
+  roomAudioCommandTimer = setTimeout(() => {
+    roomAudioCommandTimer = null;
+    command('volume', { volume: nextVolume, muted: !!muted }).catch(() => setStatus('Room audio sync is reconnecting…'));
+  }, 100);
+}
+function observeYouTubeAudio() {
+  if (!ytPlayer || !ytPlayerReady || primingPlayer || playerInitializing) return;
+  try {
+    const volume = Math.min(100, Math.max(0, Number(ytPlayer.getVolume?.()) || 0));
+    const muted = !!ytPlayer.isMuted?.();
+    const changed = Math.abs((Number(playerAudioPrefs?.volume) || 0) - volume) > 0.5 || !!playerAudioPrefs?.muted !== muted;
+    if (roomId) {
+      if (isHost()) { if (changed) savePlayerAudioPrefs(); publishRoomAudioState(volume, muted); }
+    } else if (changed) savePlayerAudioPrefs();
+  } catch {}
 }
 function updateServerClock(serverTime, sentAt, receivedAt) {
   const server = Number(serverTime);
@@ -169,6 +219,7 @@ function localRoomLink() { return roomLink(`http://127.0.0.1:${location.port||'9
 function shareRoomLink() {
   const token = shareRoomToken();
   if (!token) return null;
+  if (eveosShareBaseUrl && eveosShareMode !== 'local') return roomLink(eveosShareBaseUrl);
   if (isTryCloudflare) return roomLink(location.origin);
   if (serverLanMode && lanBaseUrl) return lanRoomLink();
   if (isReachableLanHost(location.hostname)) return roomLink(location.origin);
@@ -210,7 +261,10 @@ function leaveRoom(message='') {
   window.watchPartyRealtime?.stop?.();
   if(remotePollTimer){clearInterval(remotePollTimer);remotePollTimer=null;}
   if(pingTimer){clearInterval(pingTimer);pingTimer=null;}
+  if(roomAudioCommandTimer){clearTimeout(roomAudioCommandTimer);roomAudioCommandTimer=null;}
+  roomAudioGuardUntil=0;
   roomId=null; roomCode=null; joinCode=null; session=null; playerPrimed=false; playerInitializing=false; autoplayWasBlocked=false;
+  renderedChatSignature='';
   state = null;
   replaceRoomHistory();
   app.hidden=false;

@@ -46,6 +46,10 @@ function sourceContract() {
     const playbackSync = read('tools/WatchFusion/public/playback-sync.js');
     const playbackCommands = read('tools/WatchFusion/public/client/commands.js');
     const youtubePlayer = read('tools/WatchFusion/public/client/youtube-player.js');
+    const clientCore = read('tools/WatchFusion/public/client/core.js');
+    const clientBootstrap = read('tools/WatchFusion/public/client/bootstrap.js');
+    const clientRender = read('tools/WatchFusion/public/client/render.js');
+    const roomRoutes = read('tools/WatchFusion/src/server/room-routes.js');
 
     check(!sensing.includes('127-0-0-1.sslip.io'), 'WF-SENSING-NO-SSLIP', 'watchfusion.runtime-sensing.js still includes sslip candidate origin');
     check(sensing.includes('http://127.0.0.1:'), 'WF-SENSING-LOOPBACK-CANONICAL', 'watchfusion.runtime-sensing.js missing literal loopback candidate origin');
@@ -80,7 +84,8 @@ function sourceContract() {
     check(!ui.includes('if (status?.dependenciesReady) await setRunning(true)'), 'WF-SETUP-NO-AUTOSTART', 'core dependency setup still starts WatchFusion automatically');
     check(ui.includes("DETACHED_WINDOW_NAME = 'eveWatchFusionWindow'") && ui.includes('function detach()'), 'WF-DETACH', 'WatchFusion does not have Matrix-style named-window detach');
     check(ui.includes('data-wf-action="detach"') && !ui.includes('Open separate'), 'WF-DETACH-UI', 'WatchFusion header still uses the old separate-window action');
-    check(ui.includes("mode === 'lan' || mode === 'cloudflare'") && !ui.includes('function localEveSurface()'), 'WF-SELECTED-EXPOSURE-URL', 'embedded WatchFusion still overrides the selected LAN/Cloudflare URL with loopback');
+    check(ui.includes('snapshot?.localUrl || snapshot?.url') && ui.includes("url.searchParams.set('eveosShareMode'") && ui.includes("url.searchParams.set('eveosShareUrl'"), 'WF-HOST-LOOPBACK-SHARE-SCOPE', 'host WatchFusion does not keep loopback rendering separate from LAN/Cloudflare share metadata');
+    check(clientCore.includes("eveosShareMode !== 'local'") && clientCore.includes('return roomLink(eveosShareBaseUrl)'), 'WF-SHARE-SCOPE-LINK', 'loopback WatchFusion does not produce links from the selected LAN/Cloudflare share scope');
     check(/watchfusion-shell-head[\s\S]*data-wf-action="stop"[\s\S]*<\/header>/.test(ui) && css.includes('[data-state="running"] .watchfusion-service-bar { display: none; }'), 'WF-COMPACT-RUNNING-CHROME', 'running WatchFusion still renders a redundant lifecycle status strip');
     check(ui.includes('/api/watchfusion/setup') && ui.includes('Install WatchFusion Core'), 'WF-CORE-UI', 'outer workspace cannot repair a fresh clone');
     check(ui.includes('data-wf-components') && ui.includes('renderComponents'), 'WF-OFFLINE-HEALTH-UI', 'stopped WatchFusion does not expose setup health in EveOS');
@@ -92,6 +97,10 @@ function sourceContract() {
     check(css.includes('.watchfusion-frame {') && css.includes('position: absolute;') && css.includes('inset: 0;'), 'WF-OUTER-FRAME-FILL', 'outer WatchFusion iframe is not pinned to the full remaining stage');
     check(css.includes('.watchfusion-frame-loading') && ui.includes('data-frame-state="idle"') && ui.includes('watchfusion-frame-loading') && frameCapabilities.includes("setFrameState(frame, 'loading'") && frameCapabilities.includes("setFrameState(activeFrame, 'ready')"), 'WF-OUTER-FRAME-LOADING-COVER', 'embedded WatchFusion can expose a blank frame before readiness');
     check(ui.includes('const heartbeat = sensor()?.heartbeatState?.()') && ui.includes('heartbeat?.embedded ? heartbeat.embeddedUrl') && ui.includes('embedded.origin === runtime.origin') && ui.includes("url.searchParams.delete('_wfReload')"), 'WF-DETACH-ROOM-PATH', 'detached WatchFusion does not preserve the active room path on the selected exposure origin');
+    check(roomRoutes.includes("type === 'volume'") && roomRoutes.includes('room.playback.muted = !!body.muted'), 'WF-ROOM-AUDIO-SERVER', 'room volume and mute are not authoritative server state');
+    check(playbackCommands.includes('observeYouTubeAudio') && playbackSync.includes('applyRoomAudioState()'), 'WF-ROOM-AUDIO-CLIENT', 'YouTube host/viewer volume synchronization is incomplete');
+    check(clientBootstrap.includes('data.state&&applyIncomingRoomState(data.state)') && clientBootstrap.includes('render()'), 'WF-COMMAND-STATE-HYDRATION', 'room commands still depend entirely on an already-connected event stream to update UI');
+    check(clientRender.includes('data-copy-image') && clientRender.includes("new ClipboardItem({'image/png':png})") && !clientRender.includes('>Save</a>'), 'WF-CHAT-IMAGE-COPY', 'chat images still download instead of copying to the clipboard');
 
     check(setupRoutes.includes("parts[1] !== 'setup'") && setupRoutes.includes("parts[2] === 'install'"), 'WF-SETUP-API', 'WatchFusion setup API is not routed');
     check(setupRoutes.includes('isHostLocalRequest') && localRequest.includes("'cf-ray'") && localRequest.includes("'cf-connecting-ip'"), 'WF-SETUP-LOCAL-ONLY', 'install actions are not protected by the centralized host-local request boundary');

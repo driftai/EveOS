@@ -68,6 +68,10 @@ export async function runFastSmoke() {
     assert.match(render, /watchfusion-room-active/);
     assert.match(render, /renderedChatSignature/);
     assert.match(render, /roomImageUrl/);
+    assert.match(render, /data-copy-image/);
+    assert.doesNotMatch(render, />Save<\/a>/);
+    assert.match(core, /eveosShareBaseUrl/);
+    assert.match(core, /eveosShareMode !== 'local'/);
     assert.match(style, /eveos-embedded\.watchfusion-room-active/);
     assert.match(style, /eveos-embedded #partyDetails/);
     assert.match(style, /scrollbar-gutter:\s*stable/);

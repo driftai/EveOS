@@ -39,8 +39,17 @@ async function join(id, name, roomCodeHint = null) {
   $('roomPill').title = `Copy join code: ${joinCode}`;
   window.watchPartyRealtime?.resetRevision?.(state?.revision);
   if (state?.serverTime) updateServerClock(state.serverTime, Date.now(), Date.now());
+  renderedChatSignature = '';
   render(); connectEvents(); startPing();
+  const joinedMemberId = session.memberId;
+  requestAnimationFrame(() => { if (session?.memberId === joinedMemberId) hydrateRoomUi(); });
   if (state?.source?.videoId) { setStatus('Joining current playback…'); ensurePlayer(state.source.videoId); }
+}
+
+function hydrateRoomUi() {
+  if (!state) return;
+  renderedChatSignature = '';
+  render();
 }
 
 function connectEvents() {
@@ -116,3 +125,4 @@ function startPing() {
   pingServerClock();
   pingTimer = setInterval(pingServerClock, 10000);
 }
+window.addEventListener('pageshow', () => { if (roomId && session && state) hydrateRoomUi(); });

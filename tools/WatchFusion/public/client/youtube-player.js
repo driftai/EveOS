@@ -20,7 +20,7 @@ function installUserGesturePrime() {
         ytPlayer.pauseVideo?.();
         ytPlayer.seekTo?.(Number(state?.playback?.position) || 0, true);
       }
-      restorePlayerAudioPrefs();
+      if (!applyRoomAudioState(ytPlayer, true)) restorePlayerAudioPrefs();
       playerPrimed = true;
       autoplayWasBlocked = false;
       userGesturePrimeUsed = true;

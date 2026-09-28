@@ -1,5 +1,8 @@
 let renderedChatSignature='';
 function roomImageUrl(attachment){const base=apiUrl(attachment?.url||'');const separator=base.includes('?')?'&':'?';return `${base}${separator}memberId=${encodeURIComponent(session?.memberId||'')}`;}
+async function imageBlobAsPng(blob){if(blob.type==='image/png')return blob;const bitmap=await createImageBitmap(blob);const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;canvas.getContext('2d').drawImage(bitmap,0,0);bitmap.close?.();return new Promise((resolve,reject)=>canvas.toBlob(result=>result?resolve(result):reject(new Error('Image conversion failed')),'image/png'));}
+function legacyCopyImage(button){const image=button?.closest('.msg')?.querySelector('.message-image');if(!image)return false;const selection=getSelection();const saved=[];for(let index=0;index<(selection?.rangeCount||0);index++)saved.push(selection.getRangeAt(index));try{const range=document.createRange();range.selectNode(image);selection.removeAllRanges();selection.addRange(range);return document.execCommand('copy');}catch{return false;}finally{selection?.removeAllRanges();saved.forEach(range=>selection?.addRange(range));}}
+async function copyRoomImage(attachment,button){const imageUrl=roomImageUrl(attachment);try{if(!navigator.clipboard?.write||typeof ClipboardItem==='undefined')throw new Error('Image clipboard unavailable');const png=fetch(imageUrl,{cache:'no-store'}).then(response=>{if(!response.ok)throw new Error('Image fetch failed');return response.blob();}).then(imageBlobAsPng);await navigator.clipboard.write([new ClipboardItem({'image/png':png})]);return'image';}catch{if(legacyCopyImage(button))return'image';return await copyText(new URL(imageUrl,location.href).href)?'link':false;}}
 function renderChatMessages(){
   const chat=$('chat');if(!chat)return;
   const messages=Array.isArray(state?.messages)?state.messages:[];
@@ -11,11 +14,12 @@ function renderChatMessages(){
     const text=String(message.text||'');
     const attachment=message.attachment;
     const imageUrl=attachment?roomImageUrl(attachment):'';
-    const actions=`<span class="msg-actions">${text?`<button type="button" class="message-copy" data-copy-message="${escapeHtml(message.id)}">Copy</button>`:''}${attachment?`<a class="message-download" href="${escapeHtml(imageUrl)}" download="${escapeHtml(attachment.name||'watchfusion-image')}" target="_blank" rel="noopener">Save</a>`:''}</span>`;
+    const actions=`<span class="msg-actions">${text?`<button type="button" class="message-copy" data-copy-message="${escapeHtml(message.id)}">Copy</button>`:''}${attachment?`<button type="button" class="message-copy message-image-copy" data-copy-image="${escapeHtml(message.id)}">Copy</button>`:''}</span>`;
     const image=attachment?`<a class="message-image-link" href="${escapeHtml(imageUrl)}" target="_blank" rel="noopener"><img class="message-image" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(attachment.name||'Shared room image')}" loading="lazy"></a><span class="message-file-name">${escapeHtml(attachment.name||'Shared image')}</span>`:'';
     return `<div class="msg" data-message-id="${escapeHtml(message.id)}"><div class="msg-head"><b>${escapeHtml(message.name)}</b>${actions}</div>${text?`<p>${escapeHtml(text)}</p>`:''}${image}</div>`;
   }).join('');
   document.querySelectorAll('[data-copy-message]').forEach(button=>button.addEventListener('click',async()=>{const message=messages.find(item=>item.id===button.dataset.copyMessage);if(!message)return;const copied=await copyText(message.text);setCopyButtonFeedback(button,copied);setStatus(copied?'Message copied':'Could not copy message');}));
+  document.querySelectorAll('[data-copy-image]').forEach(button=>button.addEventListener('click',async()=>{const message=messages.find(item=>item.id===button.dataset.copyImage);if(!message?.attachment)return;const copied=await copyRoomImage(message.attachment,button);setCopyButtonFeedback(button,!!copied);setStatus(copied==='image'?'Image copied':copied==='link'?'Image link copied (browser blocked direct image clipboard)':'Could not copy image');}));
   if(nearBottom)chat.scrollTop=chat.scrollHeight;else chat.scrollTop=Math.min(previousScrollTop,Math.max(0,chat.scrollHeight-chat.clientHeight));
   renderedChatSignature=signature;
 }

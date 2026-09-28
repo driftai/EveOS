@@ -160,7 +160,8 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await viewerPage.locator('#chatImageInput').setInputFiles({ name: 'relay.png', mimeType: 'image/png', buffer: pixelPng });
     await expect(hostPage.locator('.message-image')).toHaveCount(1);
     await expect(hostPage.locator('.message-file-name')).toHaveText('relay.png');
-    await expect(hostPage.locator('.message-download')).toHaveCount(1);
+    await expect(hostPage.locator('[data-copy-image]')).toHaveCount(1);
+    await expect(hostPage.locator('[data-copy-image]')).toHaveText('Copy');
 
     await viewerPage.evaluate(() => {
       const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), char => char.charCodeAt(0));

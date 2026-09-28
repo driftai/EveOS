@@ -142,11 +142,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         }
     }
     function runtimeUrl(snapshot = status) {
-        const mode = String(snapshot?.exposureMode || 'local').toLowerCase();
-        const exposed = mode === 'lan' || mode === 'cloudflare';
-        const raw = String(exposed
-            ? (snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl || '')
-            : (snapshot?.localUrl || snapshot?.url || snapshot?.publicUrl || '')).trim();
+        const raw = String(snapshot?.localUrl || snapshot?.url || snapshot?.publicUrl || '').trim();
         if (!raw) return null;
         try {
             const parsed = new URL(raw);
@@ -155,12 +151,20 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             return null;
         }
     }
+    function applyShareContext(url, snapshot = status) {
+        const mode = String(snapshot?.exposureMode || 'local').toLowerCase();
+        const shareUrl = String(snapshot?.publicUrl || '').trim();
+        url.searchParams.set('eveosShareMode', ['lan', 'cloudflare'].includes(mode) ? mode : 'local');
+        if (shareUrl) url.searchParams.set('eveosShareUrl', shareUrl);
+        else url.searchParams.delete('eveosShareUrl');
+        return url;
+    }
     function embeddedUrl() {
         const url = runtimeUrl();
         if (!url) return 'about:blank';
         url.searchParams.set('eveos', '1');
         url.searchParams.delete('eveosDetached');
-        return url.href;
+        return applyShareContext(url).href;
     }
     function detachedUrl() {
         const runtime = runtimeUrl();
@@ -175,7 +179,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         url.searchParams.delete('eveos');
         url.searchParams.delete('_wfReload');
         url.searchParams.set('eveosDetached', '1');
-        return url;
+        return applyShareContext(url);
     }
     function detachedFeatures() {
         const availableWidth = Math.max(900, Number(window.screen?.availWidth) || 1440);

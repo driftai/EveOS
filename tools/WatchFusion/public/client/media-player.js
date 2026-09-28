@@ -35,6 +35,7 @@ function ensureMediaElement() {
   mediaVideo.addEventListener('seeking', () => {});
   mediaVideo.addEventListener('seeked', onMediaSeeked);
   mediaVideo.addEventListener('ratechange', onMediaRate);
+  mediaVideo.addEventListener('volumechange', onMediaVolume);
   mediaVideo.addEventListener('ended', onMediaEnded);
   mediaVideo.addEventListener('error', () => setStatus('Media playback error'));
   return mediaVideo;
@@ -210,7 +211,7 @@ async function ensureMediaSource(source) {
     await waitForMediaReady(video);
     mediaPlayerReady = true;
     refreshMediaAnchor(true);
-    restoreMediaAudioPrefs();
+    if (!applyRoomMediaAudio()) restoreMediaAudioPrefs();
     if (roomId && !isHost()) syncMediaPlayer();
     setStatus(source.title ? `Ready · ${source.title}` : 'Media ready');
     return true;
@@ -225,6 +226,23 @@ function currentMediaPosition() { return Number(mediaVideo?.currentTime) || 0; }
 function mediaDuration() { return Number(mediaVideo?.duration) || 0; }
 function mediaPlaybackState() { return { position: currentMediaPosition(), rate: Number(mediaVideo?.playbackRate) || 1, paused: !!mediaVideo?.paused, ended: !!mediaVideo?.ended }; }
 function restoreMediaAudioPrefs() { if (!mediaVideo) return; mediaVideo.volume = Math.max(0, Math.min(1, Number(playerAudioPrefs?.volume ?? 100) / 100)); mediaVideo.muted = !!playerAudioPrefs?.muted; }
+function applyRoomMediaAudio() {
+  const audio = authoritativeRoomAudio();
+  if (!mediaVideo || !audio) return false;
+  roomAudioGuardUntil = performance.now() + 650;
+  try {
+    const volume = audio.volume / 100;
+    if (Math.abs(mediaVideo.volume - volume) > 0.005) mediaVideo.volume = volume;
+    if (mediaVideo.muted !== audio.muted) mediaVideo.muted = audio.muted;
+  } catch {}
+  return true;
+}
+function onMediaVolume() {
+  if (!mediaVideo || performance.now() < roomAudioGuardUntil) return;
+  playerAudioPrefs = { volume: Math.round(mediaVideo.volume * 100), muted: !!mediaVideo.muted };
+  storage.set(PLAYER_AUDIO_PREFS_KEY, JSON.stringify(playerAudioPrefs));
+  if (roomId && isHost()) publishRoomAudioState(playerAudioPrefs.volume, playerAudioPrefs.muted);
+}
 
 function withMediaGuard(fn) {
   mediaEventGuard += 1;
@@ -273,6 +291,7 @@ function syncMediaPlayer(options = {}) {
 
   try {
     withMediaGuard(() => {
+      applyRoomMediaAudio();
       mediaVideo.playbackRate = baseRate;
       if (playback.ended) {
         const terminal = Number.isFinite(mediaVideo.duration) ? Math.min(target, mediaVideo.duration || target) : target;

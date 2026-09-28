@@ -5,6 +5,7 @@ import {
   clampName,
   createRoom,
   deleteRoom,
+  freshPlayback,
   getMember,
   getRoom,
   hasRoom,
@@ -109,7 +110,7 @@ function openEvents(req, res, room) {
 async function commandRoute(req, res, room, roomId, memberId, member) {
   const body = await readBody(req, { maxBytes: MAX_ROOM_COMMAND_BODY_BYTES });
   const isHost = member.id === room.hostId || memberId === room.hostId;
-  if (['play', 'pause', 'seek', 'rate', 'source', 'transfer-host'].includes(body.type) && !isHost) {
+  if (['play', 'pause', 'seek', 'rate', 'volume', 'source', 'transfer-host'].includes(body.type) && !isHost) {
     return json(res, 403, { error: 'only the current host controls this action' });
   }
   const type = body.type;
@@ -131,7 +132,7 @@ async function commandRoute(req, res, room, roomId, memberId, member) {
       if (!videoId) return json(res, 400, { error: 'enter a valid YouTube URL or video ID' });
       room.source = { type: 'youtube', videoId, originalUrl: youtubeUrlFromId(videoId) };
     }
-    room.playback = { paused: true, ended: false, position: 0, rate: 1, updatedAt: now() };
+    room.playback = freshPlayback(room.playback);
   } else if (type === 'play') {
     const replayingEnded = !!room.playback.ended;
     room.playback.position = replayingEnded ? 0 : (Number(body.position) || 0);
@@ -152,6 +153,13 @@ async function commandRoute(req, res, room, roomId, memberId, member) {
     room.playback.position = projectedPosition(room);
     room.playback.rate = Math.min(2, Math.max(0.25, Number(body.rate) || 1));
     room.playback.ended = false;
+    room.playback.updatedAt = now();
+  } else if (type === 'volume') {
+    const volume = Number(body.volume);
+    if (!Number.isFinite(volume)) return json(res, 400, { error: 'invalid volume' });
+    room.playback.position = projectedPosition(room);
+    room.playback.volume = Math.min(100, Math.max(0, volume));
+    room.playback.muted = !!body.muted;
     room.playback.updatedAt = now();
   } else if (type === 'chat') {
     const text = String(body.text || '').trim();

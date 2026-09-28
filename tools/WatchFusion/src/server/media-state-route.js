@@ -1,4 +1,4 @@
-import { getMember, getRoom, hasRoom, publicState, resolveRoomId, broadcastState } from './room-store.js';
+import { broadcastState, freshPlayback, getMember, getRoom, hasRoom, publicState, resolveRoomId } from './room-store.js';
 import { json, now, readBody } from './http-utils.js';
 import { classifyMediaUrl } from './media-resolver.js';
 import { assertPublicHttpUrl } from './public-url.js';
@@ -29,7 +29,7 @@ export async function handleMediaStateRoute(req, res, parts) {
         originalUrl: 'voxelvision://home',
         provider: 'voxelvision'
       };
-      room.playback = { paused: true, ended: false, position: 0, rate: 1, updatedAt: now() };
+      room.playback = freshPlayback(room.playback);
       room.lastActivity = now();
       broadcastState(room);
       return json(res, 200, { ok: true, state: publicState(room) });
@@ -48,7 +48,7 @@ export async function handleMediaStateRoute(req, res, parts) {
         provider: 'nuvio',
         metadata: media.metadata || {}
       };
-      room.playback = { paused: true, ended: false, position: 0, rate: 1, updatedAt: now() };
+      room.playback = freshPlayback(room.playback);
       room.lastActivity = now();
       broadcastState(room);
       return json(res, 200, { ok: true, state: publicState(room) });
@@ -74,7 +74,7 @@ export async function handleMediaStateRoute(req, res, parts) {
       audio: ['sub', 'dub'].includes(media.audio) ? media.audio : null,
       subtitles: Array.isArray(media.subtitles) ? media.subtitles.slice(0, 12).map(item => ({ file: String(item.file || ''), label: String(item.label || 'English').slice(0, 80) })).filter(item => item.file) : []
     };
-    room.playback = { paused: true, ended: false, position: 0, rate: 1, updatedAt: now() };
+    room.playback = freshPlayback(room.playback);
     room.lastActivity = now();
     broadcastState(room);
     return json(res, 200, { ok: true, state: publicState(room) });

@@ -176,7 +176,7 @@ function primeYouTubePlayer(force = false) {
         installUserGesturePrime();
       }
       primingPlayer = false;
-      restorePlayerAudioPrefs();
+      if (!applyRoomAudioState()) restorePlayerAudioPrefs();
       applyingRemote = wasApplyingRemote;
       setTimeout(() => { suppressAudioPersistence = false; }, 0);
       resolve();
@@ -263,7 +263,6 @@ function onYouTubeStateChange(event) {
       try { ytPlayer.seekTo?.(0, true); } catch {}
     }
 
-    if (!primingPlayer) ytPlayer.unMute?.();
     command('play', { position: playPosition });
     return;
   }
@@ -278,14 +277,14 @@ function onYouTubeRateChange() {
   command('rate', { rate: ytPlayer?.getPlaybackRate?.() || 1 });
 }
 function onYouTubeVolumeChange() {
-  savePlayerAudioPrefs();
+  observeYouTubeAudio();
 }
 function requestViewerPlayback() {
   if (!ytPlayer || !ytPlayerReady || !state?.playback || state.playback.paused || state.playback.ended) return;
   const mutedRetry = autoplayWasBlocked;
   try {
     if (mutedRetry) ytPlayer.mute?.();
-    else restorePlayerAudioPrefs();
+    else if (!applyRoomAudioState()) restorePlayerAudioPrefs();
     ytPlayer.playVideo?.();
   } catch {}
   clearTimeout(requestViewerPlayback.checkTimer);
@@ -321,6 +320,7 @@ function syncPlayer(options = {}) {
   const target = Number(state.playback.position) || 0;
   applyingRemote = true;
   try {
+    applyRoomAudioState();
     const current = ytPlayer.getCurrentTime?.() || 0;
     if (Math.abs(current - target) > 0.8) ytPlayer.seekTo(target, true);
     if (ytPlayer.setPlaybackRate && Math.abs((ytPlayer.getPlaybackRate?.() || 1) - state.playback.rate) > 0.01) {
@@ -329,10 +329,10 @@ function syncPlayer(options = {}) {
     if (state.playback.paused) {
       ytPlayer.pauseVideo();
     } else {
-      restorePlayerAudioPrefs();
       ytPlayer.playVideo();
     }
   } finally {
     setTimeout(() => { applyingRemote = false; }, 250);
   }
 }
+setInterval(observeYouTubeAudio, 250);

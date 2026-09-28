@@ -35,6 +35,15 @@ export function clampName(value) {
 export function makeInternalRoomId() { return crypto.randomBytes(4).toString('hex').slice(0, 6).toUpperCase(); }
 export function resolveRoomId(raw) { const requested = safeRoomId(raw); return requested ? (roomAliases.get(requested) || requested) : null; }
 export function hasRoom(roomId) { return rooms.has(roomId); }
+export function freshPlayback(previous = {}) {
+  const rawVolume = Number(previous.volume);
+  return {
+    paused: true, ended: false, position: 0, rate: 1,
+    volume: Number.isFinite(rawVolume) ? Math.min(100, Math.max(0, rawVolume)) : 100,
+    muted: !!previous.muted,
+    updatedAt: now()
+  };
+}
 
 export function getRoom(roomId) {
   let room = rooms.get(roomId);
@@ -43,7 +52,7 @@ export function getRoom(roomId) {
       id: roomId, alias: null, createdAt: now(), lastActivity: now(), hostId: null,
       ownerAccountId: null, ownerMemberId: null, temporaryHost: false, revision: 0,
       source: { type: 'youtube', videoId: null, originalUrl: null },
-      playback: { paused: true, ended: false, position: 0, rate: 1, updatedAt: now() },
+      playback: freshPlayback(),
       members: new Map(), messages: [], attachments: new Map(), streams: new Set()
     };
     rooms.set(roomId, room);

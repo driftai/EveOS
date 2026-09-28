@@ -2,12 +2,12 @@ import { test, expect } from '@playwright/test';
 
 async function setupViewer(page, paused, ended = false) {
   return page.evaluate(({ paused, ended }) => {
-    const calls = { play: 0, pause: 0 };
+    const calls = { play: 0, pause: 0, volume: null, mute: 0 };
     roomId = 'test-room';
     state = {
       hostId: 'host-member',
       source: { type: 'youtube', videoId: 'M7lc1UVf-VE', originalUrl: 'https://www.youtube.com/watch?v=M7lc1UVf-VE' },
-      playback: { paused, ended, position: ended ? 100 : 10, rate: 1, updatedAt: Date.now(), projectedAt: Date.now() },
+      playback: { paused, ended, position: ended ? 100 : 10, rate: 1, volume: 37, muted: true, updatedAt: Date.now(), projectedAt: Date.now() },
       members: [], messages: []
     };
     session = { memberId: 'viewer-member' };
@@ -20,9 +20,10 @@ async function setupViewer(page, paused, ended = false) {
       seekTo: () => {},
       playVideo: () => { calls.play += 1; },
       pauseVideo: () => { calls.pause += 1; },
-      setVolume: () => {},
+      getVolume: () => 100,
+      setVolume: value => { calls.volume = value; },
       isMuted: () => false,
-      mute: () => {},
+      mute: () => { calls.mute += 1; },
       unMute: () => {}
     };
     syncPlayer();
@@ -40,6 +41,8 @@ test('authoritative paused state stops an already-playing viewer', async ({ page
   await page.goto('/');
   const calls = await setupViewer(page, true);
   expect(calls.pause).toBeGreaterThan(0);
+  expect(calls.volume).toBe(37);
+  expect(calls.mute).toBeGreaterThan(0);
 });
 
 test('a phone viewer retries blocked synchronized playback muted', async ({ page }) => {
