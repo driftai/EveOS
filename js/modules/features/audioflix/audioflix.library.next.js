@@ -291,14 +291,10 @@ window.EveAudioflixLibraryNext = window.EveAudioflixLibraryNext || {};
         observer.observe(document.body, { childList: true, subtree: true });
         document.addEventListener('eve:audioflix-playback', () => {}, true);
         window.addEventListener?.('eve:audioflix-playback', (event) => {
-            if (event.detail?.status !== 'Ended' || !window.__eveAudioflixQueueRebase) return;
-            const q = window.__eveAudioflixQueueRebase; const nextPos = Number(q.position || 0) + 1;
-            setTimeout(() => {
-                const cards = [...document.querySelectorAll('.audioflix-item-card')];
-                const target = cards.find((card) => card.closest('.audioflix-item-grid') === q.group && card.querySelector('.audioflix-queue-badge')?.textContent?.match(new RegExp('^#' + nextPos + '\\b')));
-                if (target) target.querySelector('[data-af-action="play"]')?.click?.();
-                window.__eveAudioflixQueueRebase = target ? { ...q, position: nextPos } : null;
-            }, 0);
+            // Queue progression has one owner: audioflix.ui.js -> playQueueIndex().
+            // This compatibility marker may follow manual clicks, but it must never click the next
+            // card on Ended or it races the real queue and can start two different songs.
+            if (event.detail?.status === 'Ended') window.__eveAudioflixQueueRebase = null;
         }, true);
     }
 
