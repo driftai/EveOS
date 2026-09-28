@@ -33,6 +33,7 @@ export async function runFastSmoke() {
     assert.match(html, /id="chatInput"[^>]+maxlength="262144"/);
     assert.match(html, /<textarea id="chatInput"/);
     assert.match(html, /id="chatImageInput"[^>]+accept="image\/jpeg,image\/png,image\/webp,image\/gif"/);
+    assert.match(html, /id="leaveRoomBtn"[^>]*>Leave room<\/button>/);
   });
 
   await check('FAST-02:source-switch-wiring', () => {
@@ -69,6 +70,9 @@ export async function runFastSmoke() {
     assert.match(render, /renderedChatSignature/);
     assert.match(render, /roomImageUrl/);
     assert.match(render, /data-copy-image/);
+    assert.match(render, /legacyCopyRoomImage/);
+    assert.match(render, /fileName\.style\.display='none'/);
+    assert.doesNotMatch(render, /Image link copied/);
     assert.doesNotMatch(render, />Save<\/a>/);
     assert.match(core, /eveosShareBaseUrl/);
     assert.match(core, /eveosShareMode !== 'local'/);
