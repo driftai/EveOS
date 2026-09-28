@@ -65,8 +65,10 @@ function loadContext() {
     const nested = stored.music.find((item) => item.title === 'Nested Offline');
     assert.match(nested.localPath, /^fsport:\/\/music-grant\//);
     assert.ok((stored.musicGroupMap[nested.id] || []).includes('Album'));
+    assert.equal(nested.musicPortGroup, 'Album', 'automatic nested-folder group survives state normalization');
     const connection = stored.musicPortConnections.find((entry) => entry.folder === 'Picked Music');
     assert.equal(connection?.browserFolderId, 'music-grant');
+    assert.equal(connection?.browserRootName, 'Picked Music', 'browser Music Port reconnect metadata survives normalization');
     console.log('AUDIOFLIX_BROWSER_MUSIC_PORT_OK');
 })().catch((error) => {
     console.error(error);
