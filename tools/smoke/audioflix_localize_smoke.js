@@ -381,11 +381,43 @@ function stub() {
         assert(animeSong.classifiers.includes('Anime'), 'subfolder "Anime" attached as manual classifier');
         assert(pianoTrack.classifiers.includes('Instrumental') && pianoTrack.classifiers.includes('Piano'), 'nested subfolders "Instrumental" and "Piano" attached as manual classifiers');
         assert(rootTrack.classifiers.length === 0, 'root track gets no subfolder classifiers');
+        assert((S.ensure().musicGroupMap[animeSong.id] || []).includes('Anime'), 'nearest subfolder also becomes the imported track group');
+        assert((S.ensure().musicGroupMap[pianoTrack.id] || []).includes('Piano'), 'deepest nested subfolder becomes the track group');
+        assert(!(S.ensure().musicGroupMap[rootTrack.id] || []).length, 'root-level port tracks do not get a synthetic group');
         assert(animeSong.localizations.some((entry) => entry.source === 'folder:Old-Song-Relocation'), 'imported track lacks durable folder localization');
         assert(S.ensure().musicPortConnections.some((entry) => entry.folder === 'Old-Song-Relocation' && entry.path === rootDir), 'Music Port connection was not retained');
 
         assert(C.manualNames().includes('Anime') && C.manualNames().includes('Instrumental') && C.manualNames().includes('Piano'), 'subfolder names registered in state.musicClassifiers');
         console.log('importMusicPort subfolder classifier extraction OK');
+    }
+
+    // --- 12b. Browser-granted Music Port works with localhost/native scan unavailable. ---
+    {
+        const ctx = makeCtx({}, undefined);
+        ctx.window.EveAudioflixFsPorts = {
+            supported: () => true,
+            scanMusicFolder: async () => ({
+                ok: true,
+                dir: 'fsport://music-grant/',
+                browserFolderId: 'music-grant',
+                rootName: 'Picked Music',
+                files: [
+                    { name: 'Nested Offline.mp3', path: 'fsport://music-grant/Album/Nested%20Offline.mp3', subfolders: ['Album'] },
+                    { name: 'Root Offline.mp3', path: 'fsport://music-grant/Root%20Offline.mp3', subfolders: [] }
+                ]
+            })
+        };
+        const { S, L } = loadAll(ctx);
+        const result = await L.importMusicPort('', '');
+        assert(result.ok && result.added === 2 && result.folder === 'Picked Music',
+            `browser Music Port should import without localhost (got ${JSON.stringify(result)})`);
+        const stored = S.ensure();
+        const nested = stored.music.find((item) => item.title === 'Nested Offline');
+        assert(nested && nested.localPath.startsWith('fsport://music-grant/'), 'browser-port track keeps a handle-backed local path');
+        assert((stored.musicGroupMap[nested.id] || []).includes('Album'), 'browser recursive import preserves its subfolder group');
+        const connection = stored.musicPortConnections.find((entry) => entry.folder === 'Picked Music');
+        assert(connection?.browserFolderId === 'music-grant', 'browser folder id is retained for serverless sync');
+        console.log('browser-granted Music Port OK (no localhost)');
     }
 
     // --- 13. Sync restores moved roots without marking unrelated URL-only tracks missing. ---
