@@ -266,6 +266,38 @@ export async function runNodeSmokes() {
       assert.equal(oversizedRes.status, 413, 'Oversized prompt is rejected explicitly instead of being truncated');
       assert.equal(oversizedRes.json?.maxChars, MAX_CHAT_MESSAGE_CHARS);
 
+      const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x57, 0x46]);
+      const imageRes = await request(baseUrl, `/api/rooms/${testRoomId}/attachments`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/png',
+          'x-member-id': viewerMemberId,
+          'x-file-name': encodeURIComponent('phone screenshot.png')
+        },
+        body: imageBytes
+      });
+      assert.equal(imageRes.status, 201, 'Room image upload succeeds');
+      const imageMessage = imageRes.json?.state?.messages?.at(-1);
+      assert.equal(imageMessage?.attachment?.name, 'phone screenshot.png');
+      assert.equal(imageMessage?.attachment?.type, 'image/png');
+      assert.equal(imageMessage?.attachment?.size, imageBytes.length);
+      assert.ok(!imageMessage?.attachment?.bytes, 'Room state never embeds image bytes');
+
+      const imageGet = await request(baseUrl, `${imageMessage.attachment.url}?memberId=${encodeURIComponent(viewerMemberId)}`);
+      assert.equal(imageGet.status, 200, 'Room member can retrieve image');
+      assert.equal(imageGet.headers['content-type'], 'image/png');
+      assert.deepEqual(imageGet.buffer, imageBytes, 'Image bytes round-trip exactly');
+
+      const unauthorizedImage = await request(baseUrl, imageMessage.attachment.url);
+      assert.equal(unauthorizedImage.status, 401, 'Image retrieval requires room membership');
+
+      const disguisedImage = await request(baseUrl, `/api/rooms/${testRoomId}/attachments`, {
+        method: 'POST',
+        headers: { 'content-type': 'image/png', 'x-member-id': viewerMemberId },
+        body: Buffer.from('not an image')
+      });
+      assert.equal(disguisedImage.status, 415, 'Invalid image bytes are rejected');
+
       // Empty chat error
       const emptyRes = await sendCommand(baseUrl, testRoomId, viewerMemberId, {
         type: 'chat',

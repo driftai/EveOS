@@ -142,8 +142,13 @@
             <hr>
             <h2>Chat</h2>
             <div id="chat" class="chat"></div>
-            <form id="chatForm" class="chatform"><textarea id="chatInput" maxlength="262144" rows="3" placeholder="Paste a message or large prompt…"></textarea><button type="submit">Send</button></form>
-            <p class="chat-hint">Up to 256K characters · Enter sends · Shift+Enter adds a line</p>
+            <form id="chatForm" class="chatform">
+              <button id="chatImageBtn" class="secondary" type="button" title="Send an image">Image</button>
+              <input id="chatImageInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
+              <textarea id="chatInput" maxlength="262144" rows="3" placeholder="Paste a message or large prompt…"></textarea>
+              <button type="submit">Send</button>
+            </form>
+            <p class="chat-hint">Messages up to 256K · Images up to 12 MB · Enter sends · Shift+Enter adds a line</p>
           </div>
         </aside>
       </div>

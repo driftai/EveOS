@@ -32,6 +32,7 @@ export async function runFastSmoke() {
     assert.match(html, /id="nuvioCloseBtn"/);
     assert.match(html, /id="chatInput"[^>]+maxlength="262144"/);
     assert.match(html, /<textarea id="chatInput"/);
+    assert.match(html, /id="chatImageInput"[^>]+accept="image\/jpeg,image\/png,image\/webp,image\/gif"/);
   });
 
   await check('FAST-02:source-switch-wiring', () => {
@@ -65,7 +66,11 @@ export async function runFastSmoke() {
     assert.match(core, /function shareRoomToken\(\) \{ return joinCode \|\| roomCode \|\| roomId; \}/);
     assert.match(connection, /replaceRoomHistory\(joinCode \|\| roomId\)/);
     assert.match(render, /watchfusion-room-active/);
+    assert.match(render, /renderedChatSignature/);
+    assert.match(render, /roomImageUrl/);
     assert.match(style, /eveos-embedded\.watchfusion-room-active/);
+    assert.match(style, /eveos-embedded #partyDetails/);
+    assert.match(style, /scrollbar-gutter:\s*stable/);
   });
 
   await check('FAST-02A:nuvio-browser-plugin-bridge-contract', () => {

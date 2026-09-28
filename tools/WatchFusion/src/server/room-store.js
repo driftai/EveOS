@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
 import {
   MAX_CHAT_HISTORY_CHARS,
+  MAX_CHAT_IMAGE_BYTES,
   MAX_CHAT_MESSAGE_CHARS,
   MAX_MESSAGES,
+  MAX_ROOM_IMAGE_BYTES,
   MEMBER_STALE_MS,
   ROOM_TTL_MS
 } from './config.js';
@@ -41,7 +43,7 @@ export function getRoom(roomId) {
       ownerAccountId: null, ownerMemberId: null, temporaryHost: false, revision: 0,
       source: { type: 'youtube', videoId: null, originalUrl: null },
       playback: { paused: true, ended: false, position: 0, rate: 1, updatedAt: now() },
-      members: new Map(), messages: [], streams: new Set()
+      members: new Map(), messages: [], attachments: new Map(), streams: new Set()
     };
     rooms.set(roomId, room);
   }
@@ -73,11 +75,18 @@ export function publicState(room) {
     playback: { ...room.playback, position: projectedPosition(room), updatedAt: room.playback.updatedAt, projectedAt: serverTime },
     members: publicMembers,
     temporaryHost: !!room.temporaryHost,
-    messages: room.messages.map(({ id: msgId, memberId, name, text, at }) => ({
+    messages: room.messages.map(({ id: msgId, memberId, name, text, attachment, at }) => ({
       id: msgId,
       memberId: room.members.get(memberId)?.publicId || null,
       name,
       text,
+      attachment: attachment ? {
+        id: attachment.id,
+        name: attachment.name,
+        type: attachment.type,
+        size: attachment.size,
+        url: `/api/rooms/${encodeURIComponent(room.id)}/attachments/${encodeURIComponent(attachment.id)}`
+      } : null,
       at
     }))
   };
@@ -206,10 +215,39 @@ export function appendChat(room, member, text) {
   const clean = String(text || '').trim();
   if (!clean || clean.length > MAX_CHAT_MESSAGE_CHARS) return false;
   room.messages.push({ id: id(), memberId: member.id, name: member.name, text: clean, at: now() });
-  if (room.messages.length > MAX_MESSAGES) room.messages.splice(0, room.messages.length - MAX_MESSAGES);
+  pruneMessageHistory(room);
+  return true;
+}
+
+function removeMessage(room, index = 0) {
+  const [removed] = room.messages.splice(index, 1);
+  if (removed?.attachment?.id) room.attachments.delete(removed.attachment.id);
+  return removed;
+}
+
+function pruneMessageHistory(room) {
+  while (room.messages.length > MAX_MESSAGES) removeMessage(room);
   let historyChars = room.messages.reduce((total, message) => total + message.text.length, 0);
   while (historyChars > MAX_CHAT_HISTORY_CHARS && room.messages.length > 1) {
-    historyChars -= room.messages.shift().text.length;
+    historyChars -= removeMessage(room).text.length;
   }
-  return true;
+  let imageBytes = [...room.attachments.values()].reduce((total, attachment) => total + attachment.size, 0);
+  while (imageBytes > MAX_ROOM_IMAGE_BYTES && room.messages.length > 1) {
+    const index = room.messages.findIndex(message => message.attachment);
+    if (index < 0) break;
+    imageBytes -= removeMessage(room, index).attachment.size;
+  }
+}
+
+export function appendImageChat(room, member, { bytes, name, type }) {
+  if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > MAX_CHAT_IMAGE_BYTES) return null;
+  const attachment = { id: id(), bytes, name, type, size: bytes.length };
+  room.attachments.set(attachment.id, attachment);
+  room.messages.push({ id: id(), memberId: member.id, name: member.name, text: '', attachment, at: now() });
+  pruneMessageHistory(room);
+  return attachment;
+}
+
+export function getRoomAttachment(room, attachmentId) {
+  return room.attachments.get(String(attachmentId || '')) || null;
 }

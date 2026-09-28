@@ -161,7 +161,12 @@ button.secondary:hover { background: var(--btn-secondary-hover); border-color: v
 .msg b { font-size: 12px; color: var(--accent); }
 .msg p { margin: 3px 0 0; white-space: pre-wrap; word-break: break-word; color: var(--text-main); }
 .msg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.message-copy { padding: 2px 7px; font-size: 11px; background: var(--btn-secondary-bg); border-color: var(--border-subtle); }
+.msg-actions { display: flex; align-items: center; gap: 5px; }
+.message-copy,
+.message-download { padding: 2px 7px; font-size: 11px; background: var(--btn-secondary-bg); border: 1px solid var(--border-subtle); border-radius: 7px; color: var(--text-main); font-weight: 700; text-decoration: none; }
+.message-image-link { display: block; margin-top: 8px; border-radius: 8px; overflow: hidden; background: #080b0f; }
+.message-image { display: block; width: 100%; max-height: 340px; object-fit: contain; }
+.message-file-name { display: block; margin-top: 5px; color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
 .danger { border: 1px solid var(--danger-border); color: #ff8585; background: var(--danger-bg); }
 .danger:hover { background: rgba(255,77,77,.16); }
 hr { border: 0; border-top: 1px solid var(--border-card); width: 100%; margin: 16px 0; }

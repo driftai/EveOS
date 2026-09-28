@@ -57,6 +57,18 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await expect(page.locator('#partyPanel')).toBeVisible();
     const columns = await page.locator('.grid').evaluate(element => getComputedStyle(element).gridTemplateColumns);
     expect(columns.trim().split(/\s+/)).toHaveLength(2);
+
+    await page.fill('#chatInput', Array.from({ length: 400 }, (_, index) => `scroll-line-${index}`).join('\n'));
+    await page.press('#chatInput', 'Enter');
+    await expect(page.locator('.msg')).toHaveCount(1);
+    const scrollState = await page.locator('#chat').evaluate(chat => {
+      const scrollable = chat.scrollHeight > chat.clientHeight;
+      chat.scrollTop = 0;
+      window.render();
+      return { scrollable, scrollTop: chat.scrollTop };
+    });
+    expect(scrollState.scrollable).toBe(true);
+    expect(scrollState.scrollTop).toBe(0);
   });
 
   test('LAN share link uses the physical address and visible join code', async ({ browser }) => {
@@ -141,6 +153,12 @@ test.describe('WatchFusion Multi-Client Suite', () => {
 
     await expect(hostPage.locator('#chat')).toContainText('Thanks Alice!');
     await expect(hostPage.locator('#chat')).toContainText('ViewerBob');
+
+    const pixelPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+    await viewerPage.locator('#chatImageInput').setInputFiles({ name: 'relay.png', mimeType: 'image/png', buffer: pixelPng });
+    await expect(hostPage.locator('.message-image')).toHaveCount(1);
+    await expect(hostPage.locator('.message-file-name')).toHaveText('relay.png');
+    await expect(hostPage.locator('.message-download')).toHaveCount(1);
 
     // 4. Source loading & ready state transition via Find Media
     const sampleVideoUrl = YOUTUBE_FIXTURES.valid[0].input;

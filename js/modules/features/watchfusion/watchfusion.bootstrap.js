@@ -75,7 +75,7 @@
             styleReadyPromise = Promise.all([
                 stylesheetReady(
                     'link[data-eve-watchfusion-style]',
-                    'css/modules/watchfusion.css?v=5468012d9c0a',
+                    'css/modules/watchfusion.css?v=46a405bb8427',
                     'eveWatchfusionStyle'
                 ),
                 stylesheetReady(

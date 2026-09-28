@@ -11,8 +11,10 @@
     width: 100%;
     height: 100%;
     margin: 0;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    align-content: stretch;
+    gap: 0;
     min-width: 0;
     min-height: 0;
     overflow: hidden;
@@ -34,6 +36,7 @@
 .watchfusion-shell button:hover { background: var(--btn-primary-bg-hover); }
 .watchfusion-shell button:disabled { opacity: .45; cursor: default; }
 .watchfusion-shell-head {
+    margin: 0;
     min-height: 46px;
     display: flex;
     flex-direction: row;
@@ -109,6 +112,7 @@
 .watchfusion-overlay[data-state="blocked"] .watchfusion-status { color: var(--danger); }
 .watchfusion-close { min-width: 34px; font-size: 18px !important; line-height: 1; }
 .watchfusion-service-bar {
+    margin: 0;
     min-height: 32px;
     justify-content: space-between;
     gap: 10px;
@@ -136,8 +140,7 @@
 .watchfusion-frame-wrap {
     position: relative;
     width: 100%;
-    height: 100%;
-    flex: 1 1 0%;
+    height: auto;
     min-width: 0;
     min-height: 0;
     overflow: hidden;

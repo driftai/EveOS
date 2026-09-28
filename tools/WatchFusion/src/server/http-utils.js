@@ -64,7 +64,7 @@ export function applyApiCors(req, res) {
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Member-Id, Accept');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Member-Id, X-File-Name, Accept');
   res.setHeader('Access-Control-Max-Age', '600');
   if (String(req.headers?.['access-control-request-private-network'] || '').toLowerCase() === 'true') {
     res.setHeader('Access-Control-Allow-Private-Network', 'true');
@@ -81,7 +81,7 @@ export function json(res, code, body) {
   res.end(data);
 }
 
-export async function readBody(req, { maxBytes = 256 * 1024 } = {}) {
+export async function readBytes(req, { maxBytes = 256 * 1024 } = {}) {
   const chunks = [];
   let receivedBytes = 0;
   for await (const chunk of req) {
@@ -94,6 +94,10 @@ export async function readBody(req, { maxBytes = 256 * 1024 } = {}) {
     }
     chunks.push(buffer);
   }
-  const body = Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks);
+}
+
+export async function readBody(req, { maxBytes = 256 * 1024 } = {}) {
+  const body = (await readBytes(req, { maxBytes })).toString('utf8');
   return body ? JSON.parse(body) : {};
 }

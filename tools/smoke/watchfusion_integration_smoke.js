@@ -30,6 +30,7 @@ function sourceContract() {
     const ui = read('js/modules/features/watchfusion/watchfusion.js');
     const css = read('css/modules/watchfusion.css');
     const setupRoutes = read('tools/WatchFusion/src/server/setup-routes.js');
+    const roomImageRoutes = read('tools/WatchFusion/src/server/room-image-routes.js');
     const localRequest = read('tools/WatchFusion/src/server/local-request.js');
     const httpUtils = read('tools/WatchFusion/src/server/http-utils.js');
     const setupClient = read('tools/WatchFusion/public/client/setup-health.js');
@@ -79,6 +80,7 @@ function sourceContract() {
     check(css.includes('var(--accent)') && css.includes('var(--bg-secondary)'), 'WF-THEME', 'WatchFusion shell does not consume EveOS theme tokens');
     check(css.includes('.watchfusion-components') && css.includes('width: 100%'), 'WF-WORKSPACE-SHELL', 'WatchFusion outer shell does not expose the full EveOS workspace/setup surface');
     check(css.includes('.watchfusion-shell-head') && css.includes('flex-direction: row;') && css.includes('flex-wrap: nowrap;'), 'WF-OUTER-HEADER-SIZING', 'outer WatchFusion header can stack vertically and consume media space');
+    check(css.includes('grid-template-rows: auto auto auto minmax(0, 1fr);') && css.includes('align-content: stretch;'), 'WF-OUTER-CONTIGUOUS-ROWS', 'outer WatchFusion chrome can leave an empty strip between the header and service bar');
     check(css.includes('.watchfusion-frame {') && css.includes('position: absolute;') && css.includes('inset: 0;'), 'WF-OUTER-FRAME-FILL', 'outer WatchFusion iframe is not pinned to the full remaining stage');
 
     check(setupRoutes.includes("parts[1] !== 'setup'") && setupRoutes.includes("parts[2] === 'install'"), 'WF-SETUP-API', 'WatchFusion setup API is not routed');
@@ -95,6 +97,8 @@ function sourceContract() {
     check(!innerCss.includes('html.eveos-embedded main,\nhtml.eveos-embedded #app { height: calc(100% - 48px)'), 'WF-NO-DOUBLE-HEADER-SUBTRACT', 'embedded WatchFusion still subtracts its inner header twice');
     check(innerCss.includes('grid-template-rows: minmax(0, 1fr) auto;'), 'WF-MEDIA-TOOLBAR-GRID', 'embedded media player still consumes 100% height before its toolbar is laid out');
     check(innerCss.includes('html.eveos-embedded .source-badge { display: none; }'), 'WF-EMBEDDED-TABS-WIDTH', 'redundant source badge still steals horizontal space from embedded tabs');
+    check(innerCss.includes('html.eveos-embedded #partyDetails') && innerCss.includes('scrollbar-gutter: stable'), 'WF-EMBEDDED-CHAT-SCROLL', 'embedded WatchParty chat does not preserve a bounded scroll surface');
+    check(roomImageRoutes.includes('MAX_CHAT_IMAGE_BYTES') && roomImageRoutes.includes('detectedImageType') && roomImageRoutes.includes('getRoomAttachment'), 'WF-ROOM-IMAGES', 'room image transfer is missing its size, content, or retrieval boundary');
     check(staticFiles.includes("'client/setup-health.js'") && staticFiles.includes("'client/voxelvision-adapter.js'") && staticFiles.includes("'client/media-player.js'"), 'WF-CLIENT-BUNDLE', 'Setup Health or core media adapters are missing from the integrated bundle');
     check(staticFiles.includes('resolveContainedFile') && staticFiles.includes('fs.promises.realpath'), 'WF-STATIC-REALPATH-CONTAINMENT', 'main WatchFusion static serving does not realpath-check filesystem containment');
     check(setupClient.includes("'/api/setup/status'") && setupClient.includes("'/api/setup/install'"), 'WF-SETUP-CLIENT', 'Setup Health UI is not connected to setup API');

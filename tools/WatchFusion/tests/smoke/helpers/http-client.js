@@ -17,10 +17,11 @@ export function request(baseUrl, pathname, options = {}) {
       method: options.method || 'GET',
       headers
     }, res => {
-      let resBody = '';
-      res.setEncoding('utf8');
-      res.on('data', chunk => { resBody += chunk; });
+      const chunks = [];
+      res.on('data', chunk => { chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); });
       res.on('end', () => {
+        const buffer = Buffer.concat(chunks);
+        const resBody = buffer.toString('utf8');
         let json = null;
         try {
           json = JSON.parse(resBody);
@@ -29,6 +30,7 @@ export function request(baseUrl, pathname, options = {}) {
           status: res.statusCode,
           headers: res.headers,
           body: resBody,
+          buffer,
           json
         });
       });

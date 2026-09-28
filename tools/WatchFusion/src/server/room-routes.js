@@ -21,6 +21,7 @@ import {
 import { json, now, readBody } from './http-utils.js';
 import { parseYoutubeUrl, youtubeUrlFromId } from './youtube.js';
 import { MAX_CHAT_MESSAGE_CHARS, MAX_ROOM_COMMAND_BODY_BYTES } from './config.js';
+import { handleRoomImageRoute } from './room-image-routes.js';
 
 function validAccountId(value) {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(value);
@@ -49,6 +50,8 @@ export async function handleRoomRoute(req, res, url, parts) {
   const memberId = String(req.headers['x-member-id'] || url.searchParams.get('memberId') || '');
   const member = getMember(room, memberId);
   if (!member) return json(res, 401, { error: 'join the room first' });
+  const imageHandled = await handleRoomImageRoute(req, res, parts, room, member);
+  if (imageHandled !== false) return imageHandled;
   if (req.method === 'GET' && parts[3] === 'events') return openEvents(req, res, room);
   if (req.method === 'POST' && parts[3] === 'ping') return json(res, 200, { ok: true, serverTime: now() });
   if (req.method === 'POST' && parts[3] === 'leave') {

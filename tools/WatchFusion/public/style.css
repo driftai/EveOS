@@ -81,9 +81,10 @@
 .members { display: flex; flex-wrap: wrap; gap: 7px; }
 .member-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0; }
 .member-transfer { font: inherit; font-size: 0.72rem; padding: 4px 7px; }
-.chat { flex: 1; overflow: auto; min-height: 260px; display: flex; flex-direction: column; gap: 8px; padding: 8px 2px; }
+.chat { flex: 1 1 auto; overflow-y: auto; min-height: 260px; display: flex; flex-direction: column; gap: 8px; padding: 8px 2px; overscroll-behavior: contain; touch-action: pan-y; scrollbar-gutter: stable; }
 .chatform { display: flex; align-items: flex-end; gap: 8px; margin-top: 10px; }
-.chatform textarea { min-width: 0; min-height: 64px; max-height: 180px; resize: vertical; }
+.chatform textarea { min-width: 0; min-height: 64px; max-height: 180px; resize: vertical; overflow-y: auto; scrollbar-gutter: stable; }
+.chatform #chatImageBtn { flex: 0 0 auto; padding-inline: 9px; }
 .chatform button { padding-inline: 12px; }
 .chat-hint { margin: 6px 0 0; color: var(--text-faint); font-size: 11px; }
 
@@ -223,12 +224,21 @@ html.eveos-embedded .side {
   min-width: 0;
   min-height: 0;
   height: auto;
+  overflow: hidden;
   padding: 10px;
   border-radius: 0;
   border-top: 0;
   border-right: 0;
   border-bottom: 0;
 }
+html.eveos-embedded #partyDetails {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+html.eveos-embedded .chat { min-height: 0; }
 
 @media (min-width: 901px) {
   html.watchfusion-room-active .grid,
@@ -244,9 +254,12 @@ html.eveos-embedded .side {
   html.eveos-embedded .side {
     height: auto;
     min-height: 360px;
+    overflow: visible;
     border-left: 0;
     border-top: 1px solid var(--border-subtle);
   }
+  html.eveos-embedded #partyDetails { overflow: visible; }
+  html.eveos-embedded .chat { min-height: 260px; }
 }
 @media (max-width: 650px) {
   .topbar { min-height: 54px; padding: 8px 12px; }

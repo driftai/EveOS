@@ -1,3 +1,25 @@
+let renderedChatSignature='';
+function roomImageUrl(attachment){const base=apiUrl(attachment?.url||'');const separator=base.includes('?')?'&':'?';return `${base}${separator}memberId=${encodeURIComponent(session?.memberId||'')}`;}
+function renderChatMessages(){
+  const chat=$('chat');if(!chat)return;
+  const messages=Array.isArray(state?.messages)?state.messages:[];
+  const signature=`${roomId||''}:${session?.memberId||''}:`+messages.map(message=>`${message.id}:${message.text?.length||0}:${message.attachment?.id||''}`).join('|');
+  if(signature===renderedChatSignature)return;
+  const nearBottom=!renderedChatSignature||(chat.scrollHeight-chat.scrollTop-chat.clientHeight)<48;
+  const previousScrollTop=chat.scrollTop;
+  chat.innerHTML=messages.map(message=>{
+    const text=String(message.text||'');
+    const attachment=message.attachment;
+    const imageUrl=attachment?roomImageUrl(attachment):'';
+    const actions=`<span class="msg-actions">${text?`<button type="button" class="message-copy" data-copy-message="${escapeHtml(message.id)}">Copy</button>`:''}${attachment?`<a class="message-download" href="${escapeHtml(imageUrl)}" download="${escapeHtml(attachment.name||'watchfusion-image')}" target="_blank" rel="noopener">Save</a>`:''}</span>`;
+    const image=attachment?`<a class="message-image-link" href="${escapeHtml(imageUrl)}" target="_blank" rel="noopener"><img class="message-image" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(attachment.name||'Shared room image')}" loading="lazy"></a><span class="message-file-name">${escapeHtml(attachment.name||'Shared image')}</span>`:'';
+    return `<div class="msg" data-message-id="${escapeHtml(message.id)}"><div class="msg-head"><b>${escapeHtml(message.name)}</b>${actions}</div>${text?`<p>${escapeHtml(text)}</p>`:''}${image}</div>`;
+  }).join('');
+  document.querySelectorAll('[data-copy-message]').forEach(button=>button.addEventListener('click',async()=>{const message=messages.find(item=>item.id===button.dataset.copyMessage);if(!message)return;setStatus(await copyText(message.text)?'Message copied':'Could not copy message');}));
+  if(nearBottom)chat.scrollTop=chat.scrollHeight;else chat.scrollTop=Math.min(previousScrollTop,Math.max(0,chat.scrollHeight-chat.clientHeight));
+  renderedChatSignature=signature;
+}
+
 function render() {
   if (!state) return;
   const inRoom=!!roomId&&!!session;
@@ -39,7 +61,7 @@ function render() {
 
   if($('members'))$('members').innerHTML=state.members.map(m=>{const host=m.id===state.hostId;const owner=m.accountId===state.ownerAccountId;const transfer=isHost()&&!host?`<button class="member-transfer" data-transfer-host="${m.id}" title="Make ${escapeHtml(m.name)} host">Make host</button>`:'';return `<div class="member-row"><span class="member ${host?'host':''}">${escapeHtml(m.name)}${host?' ★':''}${owner&&!host?' 👑':''}</span>${transfer}</div>`;}).join('');
   document.querySelectorAll('[data-transfer-host]').forEach(btn=>btn.addEventListener('click',async()=>{const targetMemberId=btn.getAttribute('data-transfer-host');if(!targetMemberId)return;btn.disabled=true;const ok=await command('transfer-host',{targetMemberId});if(!ok)btn.disabled=false;}));
-  if($('chat')){$('chat').innerHTML=state.messages.map(m=>`<div class="msg" data-message-id="${escapeHtml(m.id)}"><div class="msg-head"><b>${escapeHtml(m.name)}</b><button type="button" class="message-copy" data-copy-message="${escapeHtml(m.id)}">Copy</button></div><p>${escapeHtml(m.text)}</p></div>`).join('');document.querySelectorAll('[data-copy-message]').forEach(button=>button.addEventListener('click',async()=>{const message=state.messages.find(item=>item.id===button.dataset.copyMessage);if(!message)return;setStatus(await copyText(message.text)?'Message copied':'Could not copy message');}));$('chat').scrollTop=$('chat').scrollHeight;}
+  renderChatMessages();
 
   if(!sourceInputDirty&&$('sourceInput')){
     if(source.kind==='media')$('sourceInput').value=source.url||source.originalUrl||'';
