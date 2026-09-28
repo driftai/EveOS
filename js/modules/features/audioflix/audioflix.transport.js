@@ -14,6 +14,62 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
         return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${tail}` : `${minutes}:${tail}`;
     }
 
+    function persistDuration(item, duration, type) {
+        const seconds = Number(duration || 0);
+        if (!item?.id || !Number.isFinite(seconds) || seconds <= 0) return 0;
+        const itemType = type || item.type || 'music';
+        const key = itemType === 'music' ? 'music' : 'soundboard';
+        const stored = (window.EveAudioflixState?.ensure?.()[key] || []).find((entry) => entry.id === item.id);
+        if (Number(stored?.duration || item.duration || 0) > 0) return Number(stored?.duration || item.duration);
+        item.duration = seconds;
+        window.EveAudioflixState?.updateItem?.(itemType, item.id, { duration: seconds });
+        return seconds;
+    }
+
+    function readMetadataDuration(url, timeoutMs = 6000) {
+        return new Promise((resolve) => {
+            if (!url) return resolve(0);
+            const audio = new Audio();
+            audio.preload = 'metadata';
+            let settled = false;
+            const finish = (value) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                audio.removeAttribute('src');
+                try { audio.load(); } catch {}
+                resolve(Number.isFinite(value) && value > 0 ? value : 0);
+            };
+            const timer = setTimeout(() => finish(0), timeoutMs);
+            audio.onloadedmetadata = () => finish(Number(audio.duration || 0));
+            audio.onerror = () => finish(0);
+            audio.src = url;
+        });
+    }
+
+    async function probeItem(item, type, options = {}) {
+        if (!item || Number(item.duration || 0) > 0) return Number(item?.duration || 0);
+        const itemType = type || item.type || 'music';
+        const local = item.localPath || (!/^https?:\/\//i.test(String(item.url || '')) ? item.url : '');
+        let probeUrl = '';
+        if (local) {
+            try { probeUrl = await window.EveAudioflixFsPorts?.fileUrlForPath?.(local) || ''; } catch {}
+            if (!probeUrl) probeUrl = window.EveAudioflixNative?.getLocalFileUrl?.(local) || '';
+        } else {
+            const needsResolution = window.EveAudioflixAudioSource?.needsResolution?.(item.url) === true;
+            if (!needsResolution && /^https?:\/\//i.test(String(item.url || ''))) probeUrl = item.url;
+            if (!probeUrl && options.resolveProvider && needsResolution) {
+                try {
+                    const resolved = await window.EveAudioflixNative?.resolveUrl?.(item.url);
+                    const duration = Number(resolved?.duration || 0);
+                    if (duration > 0) return persistDuration(item, duration, itemType);
+                } catch {}
+            }
+        }
+        const duration = await readMetadataDuration(probeUrl);
+        return duration > 0 ? persistDuration(item, duration, itemType) : 0;
+    }
+
     function render(item, type, escapeHtml) {
         const esc = escapeHtml || ((value) => String(value || ''));
         const volume = window.EveAudioflixState.normalizeVolume(item?.volume, 1);
@@ -40,6 +96,7 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
             : (window.EveAudioflixAudio?.getPlaybackState?.() || {});
         const activeId = String(playback.item?.id || '');
         const duration = Math.max(0, Number(playback.duration || 0) || 0);
+        if (duration > 0 && playback.item) persistDuration(playback.item, duration, playback.item.type);
         const current = Math.max(0, Math.min(duration || Infinity, Number(playback.currentTime || 0) || 0));
 
         root.querySelectorAll('[data-af-transport-id]').forEach((transport) => {
@@ -65,5 +122,5 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
         if (slider) delete slider.dataset.afSeeking;
     }
 
-    Object.assign(ns, { ready: true, render, preview, sync, finishSeek, formatTime });
+    Object.assign(ns, { ready: true, render, preview, sync, finishSeek, formatTime, persistDuration, probeItem });
 })();
