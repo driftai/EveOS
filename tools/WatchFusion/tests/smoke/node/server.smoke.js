@@ -17,6 +17,7 @@ import {
 import { YOUTUBE_FIXTURES } from '../fixtures/youtube.js';
 import { MAX_CHAT_MESSAGE_CHARS } from '../../../src/server/config.js';
 import { networkAddresses } from '../../../src/server/network.js';
+import { projectedPosition } from '../../../src/server/room-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 19185;
@@ -207,6 +208,10 @@ export async function runNodeSmokes() {
 
     // 10. Playback synchronization (play, seek, pause, rate, volume)
     await record('NODE-10:playback-commands-and-projection', async () => {
+      const deterministicProjection = projectedPosition({
+        playback: { paused: false, ended: false, position: 12, rate: 1.5, updatedAt: 1000 }
+      }, 1400);
+      assert.equal(deterministicProjection, 12.6, 'Projection uses the supplied authoritative timestamp exactly');
       // Play
       const playRes = await sendCommand(baseUrl, testRoomId, hostMemberId, {
         type: 'play',
@@ -214,6 +219,13 @@ export async function runNodeSmokes() {
       });
       assert.equal(playRes.status, 200);
       assert.equal(playRes.json?.state?.playback?.paused, false);
+      const playState = playRes.json?.state;
+      const expectedAtPublishedTime = 10
+        + ((playState.serverTime - playState.playback.updatedAt) / 1000) * playState.playback.rate;
+      assert.ok(
+        Math.abs(playState.playback.position - expectedAtPublishedTime) < 1e-9,
+        'Published playback.position and projectedAt/serverTime must describe the same instant'
+      );
 
       // Wait a moment and check projected position
       await new Promise(r => setTimeout(r, 200));
