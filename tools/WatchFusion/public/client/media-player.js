@@ -6,7 +6,8 @@ let mediaLoadedUrl = '';
 let mediaEventGuard = 0;
 let mediaAnchorKey = '';
 let mediaAnchorPosition = 0;
-let mediaAnchorLocalTime = 0;
+let mediaAnchorServerTime = 0;
+let mediaDriftCorrecting = false;
 let mediaReplayKey = '';
 let hlsNetworkRecoveryAttempts = 0;
 let hlsMediaRecoveryAttempts = 0;
@@ -46,7 +47,8 @@ function clearMediaPlayer() {
   hlsNetworkRecoveryAttempts = 0;
   hlsMediaRecoveryAttempts = 0;
   mediaAnchorKey = '';
-  mediaAnchorLocalTime = 0;
+  mediaAnchorServerTime = 0;
+  mediaDriftCorrecting = false;
   if (hlsInstance) { try { hlsInstance.destroy(); } catch {} hlsInstance = null; }
   if (mediaVideo) {
     withMediaGuard(() => { try { mediaVideo.pause(); mediaVideo.removeAttribute('src'); mediaVideo.load(); } catch {} });
@@ -104,15 +106,15 @@ function refreshMediaAnchor(force = false) {
   if (!force && key && key === mediaAnchorKey) return;
   mediaAnchorKey = key;
   mediaAnchorPosition = Number(state.playback.position) || 0;
-  mediaAnchorLocalTime = performance.now();
+  mediaAnchorServerTime = Number(state.playback.projectedAt) || Number(state.serverTime) || estimatedServerNow();
 }
 
 function projectedMediaTarget() {
   const playback = state?.playback;
   if (!playback) return 0;
   if (playback.paused || playback.ended) return Number(playback.position) || 0;
-  if (!mediaAnchorLocalTime) refreshMediaAnchor(true);
-  const elapsed = Math.max(0, (performance.now() - mediaAnchorLocalTime) / 1000);
+  if (!mediaAnchorServerTime) refreshMediaAnchor(true);
+  const elapsed = Math.max(0, (estimatedServerNow() - mediaAnchorServerTime) / 1000);
   return Math.max(0, mediaAnchorPosition + elapsed * (Number(playback.rate) || 1));
 }
 
@@ -311,13 +313,19 @@ function syncMediaPlayer(options = {}) {
         return;
       }
 
-      if (Math.abs(drift) > 2.5 || options.force) mediaVideo.currentTime = Math.max(0, target);
-      else if (Math.abs(drift) > 0.75) mediaVideo.playbackRate = drift > 0 ? Math.min(2, baseRate + 0.25) : Math.max(0.5, baseRate - 0.25);
+      const absoluteDrift = Math.abs(drift);
+      if (absoluteDrift > 1.5 || options.force) {
+        mediaVideo.currentTime = Math.max(0, target);
+        mediaDriftCorrecting = false;
+      } else if (absoluteDrift >= 0.08 || (mediaDriftCorrecting && absoluteDrift > 0.04)) {
+        mediaVideo.playbackRate = drift > 0 ? Math.min(2, baseRate + 0.25) : Math.max(0.5, baseRate - 0.25);
+        mediaDriftCorrecting = true;
+      } else mediaDriftCorrecting = false;
       mediaVideo.play()?.catch?.(() => setStatus('Tap the video once to allow playback.'));
     });
   } catch (error) { setStatus(error?.message || 'Media synchronization error.'); }
 }
 
 window.mediaPlayback = { ensureSource: ensureMediaSource, sync: syncMediaPlayer, position: currentMediaPosition, state: mediaPlaybackState, clear: clearMediaPlayer };
-setInterval(() => { try { if (roomId && isMediaSource() && !isHost() && mediaPlayerReady) syncMediaPlayer(); } catch {} }, 500);
+setInterval(() => { try { if (roomId && isMediaSource() && !isHost() && mediaPlayerReady) syncMediaPlayer(); } catch {} }, 250);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && roomId && isMediaSource() && !isHost()) { refreshMediaAnchor(true); syncMediaPlayer(); } });

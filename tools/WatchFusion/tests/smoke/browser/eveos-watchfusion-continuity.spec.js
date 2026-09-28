@@ -147,6 +147,7 @@ test.describe('WatchFusion EveOS Detach & Reattach Continuity', () => {
         <script>
           let embeddedWin = null;
           let detachedWin = null;
+          let droppedFirstReattachHandoff = false;
           const sessionId = 'continuity-test-session';
 
           function postTo(target, payload) {
@@ -175,6 +176,10 @@ test.describe('WatchFusion EveOS Detach & Reattach Continuity', () => {
             } else if (data.type === 'watchfusion:continuity-request') {
               postTo(embeddedWin, data);
             } else if (data.type === 'watchfusion:continuity-handoff') {
+              if (data.targetRole === 'embedded' && !droppedFirstReattachHandoff) {
+                droppedFirstReattachHandoff = true;
+                return;
+              }
               const target = data.targetRole === 'detached' ? detachedWin : embeddedWin;
               postTo(target, data);
             } else if (data.type === 'watchfusion:continuity-applied') {
@@ -227,5 +232,6 @@ test.describe('WatchFusion EveOS Detach & Reattach Continuity', () => {
 
     // Detached should close itself after transfer ACK
     await expect.poll(async () => detachedPage.isClosed(), { timeout: 10000 }).toBe(true);
+    expect(await page.evaluate(() => droppedFirstReattachHandoff)).toBe(true);
   });
 });

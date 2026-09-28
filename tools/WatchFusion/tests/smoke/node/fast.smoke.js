@@ -61,6 +61,10 @@ export async function runFastSmoke() {
     const core = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'core.js'), 'utf8');
     const connection = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'room-connection.js'), 'utf8');
     const render = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'render.js'), 'utf8');
+    const bootstrap = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'bootstrap.js'), 'utf8');
+    const mediaPlayer = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'media-player.js'), 'utf8');
+    const playbackSync = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'playback-sync.js'), 'utf8');
+    const continuityBridge = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'eveos-embed-bridge.js'), 'utf8');
     const style = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'style.css'), 'utf8');
     assert.match(core, /serverLanMode && lanBaseUrl/);
     assert.ok(core.indexOf('preferredLanHost') < core.indexOf('preferredLanAddress'));
@@ -88,6 +92,14 @@ export async function runFastSmoke() {
     assert.match(connection, /function resumeRoomSession/);
     assert.match(connection, /syncResumedPlayback/);
     assert.match(connection, /document\.addEventListener\('visibilitychange', resumeVisibleRoom\)/);
+    assert.doesNotMatch(connection, /updateServerClock\(nextState\.serverTime, Date\.now\(\), Date\.now\(\)\)/);
+    assert.match(bootstrap, /updateServerClock\(data\.state\.serverTime,sentAt,receivedAt\)/);
+    assert.match(playbackSync, /SOFT_DRIFT_SEC=0\.08/);
+    assert.match(playbackSync, /SYNC_TOLERANCE_SEC=0\.04/);
+    assert.match(mediaPlayer, /mediaAnchorServerTime/);
+    assert.match(mediaPlayer, /mediaDriftCorrecting && absoluteDrift > 0\.04/);
+    assert.match(continuityBridge, /transfer\.retryTimer = setInterval/);
+    assert.match(continuityBridge, /completedTransferIds\.has\(data\.requestId\)/);
   });
 
   await check('FAST-02A:nuvio-browser-plugin-bridge-contract', () => {

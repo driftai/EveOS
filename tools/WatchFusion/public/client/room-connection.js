@@ -38,7 +38,6 @@ async function join(id, name, roomCodeHint = null) {
   $('roomPill').textContent = displayRoomLabel();
   $('roomPill').title = `Copy join code: ${joinCode}`;
   window.watchPartyRealtime?.resetRevision?.(state?.revision);
-  if (state?.serverTime) updateServerClock(state.serverTime, Date.now(), Date.now());
   renderedChatSignature = '';
   render(); connectEvents(); startPing();
   const joinedMemberId = session.memberId;
@@ -70,7 +69,6 @@ function applyIncomingRoomState(nextState) {
   const revision = Number(nextState?.revision);
   const current = Number(state?.revision);
   if (Number.isFinite(revision) && Number.isFinite(current) && revision < current) return false;
-  if (nextState?.serverTime) updateServerClock(nextState.serverTime, Date.now(), Date.now());
   state = nextState;
   return true;
 }

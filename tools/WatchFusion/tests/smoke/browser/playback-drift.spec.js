@@ -47,16 +47,24 @@ test.describe('Adaptive playback drift regression', () => {
 
   test('small viewer drift does not introduce an aggressive correction', async ({ page }) => {
     await page.goto('/');
-    const calls = await configureViewer(page, { current: 99.7, target: 100 });
+    const calls = await configureViewer(page, { current: 99.97, target: 100 });
 
     expect(calls.seek).toEqual([]);
     expect(calls.rates).not.toContain(1.25);
   });
 
+  test('audible fractional drift is corrected automatically without a hard seek', async ({ page }) => {
+    await page.goto('/');
+    const calls = await configureViewer(page, { current: 99.82, target: 100 });
+
+    expect(calls.seek).toEqual([]);
+    expect(calls.rates).toContain(1.25);
+  });
+
   test('catch-up notice returns to Connected after drift settles', async ({ page }) => {
     await page.goto('/');
     const statuses = await page.evaluate(() => {
-      let current = 99.9;
+      let current = 99.97;
       roomId = 'drift-room';
       state = {
         hostId: 'host-member',
@@ -83,7 +91,7 @@ test.describe('Adaptive playback drift regression', () => {
       current = 99;
       syncPlayer();
       const catching = document.querySelector('#syncStatus').textContent;
-      current = 99.9;
+      current = 99.97;
       syncPlayer();
       const settled = document.querySelector('#syncStatus').textContent;
       setStatus('Catching up…');
@@ -95,6 +103,24 @@ test.describe('Adaptive playback drift regression', () => {
     expect(statuses.catching).toContain('Catching up');
     expect(statuses.settled).toMatch(/^Connected/);
     expect(statuses.paused).toMatch(/^Connected/);
+  });
+
+  test('unsolicited room snapshots preserve measured server clock latency', async ({ page }) => {
+    await page.goto('/');
+    const result = await page.evaluate(() => {
+      const midpoint = Date.now();
+      updateServerClock(midpoint, midpoint - 10, midpoint + 10);
+      state = { revision: 1, source: {}, playback: {}, members: [], messages: [] };
+      applyIncomingRoomState({
+        revision: 2,
+        serverTime: midpoint - 1000,
+        source: {}, playback: {}, members: [], messages: []
+      });
+      return { rtt: window.watchPartyClock.rttMs(), offset: window.watchPartyClock.offsetMs() };
+    });
+
+    expect(result.rtt).toBe(20);
+    expect(Math.abs(result.offset)).toBeLessThanOrEqual(1);
   });
 
   test('large viewer drift uses one corrective seek instead of a repeated seek loop', async ({ page }) => {

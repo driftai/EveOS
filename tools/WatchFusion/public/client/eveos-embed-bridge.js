@@ -21,6 +21,9 @@
   let closingAfterTransfer = false;
   let manualReturnStarted = false;
   let requestAttempts = 0;
+  let reattachPromise = null;
+  let incomingTransferId = '';
+  const completedTransferIds = new Set();
 
   function makeId() {
     try {
@@ -55,6 +58,36 @@
     if (message) setStatus?.(message);
   }
 
+  function setReattachBusy(busy) {
+    const button = document.getElementById('reattachEveOSBtn');
+    if (!button) return;
+    button.disabled = !!busy;
+    button.textContent = busy ? '↙ Reattaching…' : '↙ Reattach to EveOS';
+  }
+
+  function clearPendingTransfer() {
+    const transfer = pendingTransfer;
+    if (!transfer) return null;
+    clearTimeout(transfer.timer);
+    clearInterval(transfer.retryTimer);
+    pendingTransfer = null;
+    return transfer;
+  }
+
+  function sendTransfer(transfer) {
+    if (!transfer) return;
+    if (transfer.closeAfter) post('watchfusion:reattach-request', {
+      requestId: transfer.requestId,
+      targetRole: transfer.targetRole
+    });
+    post('watchfusion:continuity-handoff', {
+      requestId: transfer.requestId,
+      sourceRole: role,
+      targetRole: transfer.targetRole,
+      snapshot: transfer.snapshot
+    });
+  }
+
   async function beginTransfer(targetRole, {
     requestId = makeId(),
     closeAfter = false,
@@ -68,16 +101,18 @@
     try {
       const snapshot = await stateBridge.captureSnapshot({ includeBlob });
       stateBridge.parkCurrentOwner();
-      pendingTransfer = {
+      const transfer = {
         requestId,
         targetRole,
         snapshot,
         closeAfter,
+        retryTimer: 0,
         timer: setTimeout(() => {
           const stalled = pendingTransfer;
           if (!stalled || stalled.requestId !== requestId) return;
-          pendingTransfer = null;
+          clearPendingTransfer();
           closingAfterTransfer = false;
+          setReattachBusy(false);
           post('watchfusion:continuity-failed', {
             requestId,
             sourceRole: role,
@@ -87,16 +122,14 @@
           recoverSource(stalled.snapshot, `${role === 'detached' ? 'Reattach' : 'Detach'} handoff timed out; playback stayed in this window.`);
         }, TRANSFER_TIMEOUT_MS)
       };
+      pendingTransfer = transfer;
       if (closeAfter) {
         closingAfterTransfer = true;
-        post('watchfusion:reattach-request', { requestId, targetRole });
       }
-      post('watchfusion:continuity-handoff', {
-        requestId,
-        sourceRole: role,
-        targetRole,
-        snapshot
-      });
+      sendTransfer(transfer);
+      transfer.retryTimer = setInterval(() => {
+        if (pendingTransfer?.requestId === requestId) sendTransfer(transfer);
+      }, 750);
       return true;
     } catch (error) {
       setStatus?.(`Could not transfer WatchFusion state: ${error?.message || error}`);
@@ -144,8 +177,7 @@
     if (data.type === 'watchfusion:continuity-request') {
       if (role !== 'embedded' || data.targetRole === role) return;
       if (pendingTransfer && pendingTransfer.requestId !== data.requestId) {
-        clearTimeout(pendingTransfer.timer);
-        pendingTransfer = null;
+        clearPendingTransfer();
       }
       await beginTransfer(data.targetRole, { requestId: data.requestId });
       return;
@@ -153,17 +185,28 @@
 
     if (data.type === 'watchfusion:continuity-handoff') {
       if (data.targetRole !== role || !data.snapshot) return;
+      if (completedTransferIds.has(data.requestId)) {
+        post('watchfusion:continuity-applied', {
+          requestId: data.requestId,
+          sourceRole: data.sourceRole,
+          targetRole: role
+        });
+        return;
+      }
+      if (incomingTransferId === data.requestId) return;
       if (initialRequestTimer) clearInterval(initialRequestTimer);
       initialRequestTimer = null;
       initialRequestId = '';
       if (pendingTransfer) {
-        clearTimeout(pendingTransfer.timer);
-        pendingTransfer = null;
+        clearPendingTransfer();
       }
+      incomingTransferId = data.requestId;
       applying = true;
       try {
         await stateBridge?.applySnapshot?.(data.snapshot, role);
         active = true;
+        completedTransferIds.add(data.requestId);
+        if (completedTransferIds.size > 8) completedTransferIds.delete(completedTransferIds.values().next().value);
         post('watchfusion:continuity-applied', {
           requestId: data.requestId,
           sourceRole: data.sourceRole,
@@ -177,6 +220,7 @@
           error: String(error?.message || error || 'state restore failed')
         });
       } finally {
+        incomingTransferId = '';
         applying = false;
       }
       return;
@@ -184,9 +228,7 @@
 
     if (data.type === 'watchfusion:continuity-applied') {
       if (!pendingTransfer || data.requestId !== pendingTransfer.requestId) return;
-      clearTimeout(pendingTransfer.timer);
-      const closeAfter = pendingTransfer.closeAfter;
-      pendingTransfer = null;
+      const closeAfter = clearPendingTransfer()?.closeAfter;
       active = false;
       window.__watchFusionContinuityApplying = true;
       if (closeAfter && role === 'detached') {
@@ -201,15 +243,49 @@
 
     if (data.type === 'watchfusion:continuity-failed') {
       if (!pendingTransfer || data.requestId !== pendingTransfer.requestId) return;
-      clearTimeout(pendingTransfer.timer);
-      const snapshot = pendingTransfer.snapshot;
-      pendingTransfer = null;
+      const snapshot = clearPendingTransfer()?.snapshot;
       closingAfterTransfer = false;
+      setReattachBusy(false);
       await recoverSource(
         snapshot,
         `State transfer failed; playback stayed here. ${data.error || ''}`.trim()
       );
     }
+  }
+
+  function waitForTransferReady(timeoutMs = 12000) {
+    const ready = () => active && !applying && !pendingTransfer && !!sessionId && !!stateBridge;
+    if (ready()) return Promise.resolve(true);
+    return new Promise(resolve => {
+      const started = performance.now();
+      const timer = setInterval(() => {
+        if (ready() || performance.now() - started >= timeoutMs) {
+          clearInterval(timer);
+          resolve(ready());
+        }
+      }, 100);
+    });
+  }
+
+  function reattachToEveOS() {
+    if (reattachPromise) return reattachPromise;
+    if (!window.opener || window.opener.closed) {
+      setStatus?.('EveOS is no longer open. Keep this WatchFusion window open or reopen EveOS first.');
+      return Promise.resolve(false);
+    }
+    setReattachBusy(true);
+    setStatus?.('Preparing WatchFusion to reattach…');
+    reattachPromise = (async () => {
+      if (!(await waitForTransferReady())) {
+        setStatus?.('WatchFusion is still loading. Reattach was not started; playback remains here.');
+        return false;
+      }
+      return beginTransfer('embedded', { closeAfter: true });
+    })().finally(() => {
+      reattachPromise = null;
+      if (!pendingTransfer && !closingAfterTransfer) setReattachBusy(false);
+    });
+    return reattachPromise;
   }
 
   function ensureReattachButton() {
@@ -223,13 +299,7 @@
     button.type = 'button';
     button.textContent = '↙ Reattach to EveOS';
     button.title = 'Move the current WatchFusion state back into EveOS';
-    button.addEventListener('click', () => {
-      if (!window.opener || window.opener.closed) {
-        setStatus?.('EveOS is no longer open. Keep this WatchFusion window open or reopen EveOS first.');
-        return;
-      }
-      beginTransfer('embedded', { closeAfter: true });
-    });
+    button.addEventListener('click', reattachToEveOS);
     header.insertBefore(button, toggle || null);
   }
 
@@ -307,7 +377,7 @@
       sessionId && (!active || applying || pendingTransfer || closingAfterTransfer || manualReturnStarted)
     ),
     capture: () => stateBridge?.captureSnapshot?.(),
-    reattach: () => beginTransfer('embedded', { closeAfter: true })
+    reattach: reattachToEveOS
   });
   window.watchFusionEveBridge = Object.freeze({ heartbeat });
 
