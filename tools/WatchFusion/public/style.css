@@ -243,10 +243,37 @@ html.eveos-embedded .chat { min-height: 0; }
 @media (min-width: 901px) {
   html.watchfusion-room-active .grid,
   .grid:has(#partyPanel:not([hidden])) { grid-template-columns: minmax(0, 1fr) 340px; }
+  html.watchfusion-room-active:not(.eveos-embedded) .grid {
+    min-height: calc(100dvh - 102px);
+    align-items: stretch;
+  }
+  html.watchfusion-room-active:not(.eveos-embedded) .maincol {
+    display: flex;
+    min-height: 0;
+  }
+  html.watchfusion-room-active:not(.eveos-embedded) .watch-shell {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    min-height: 0;
+  }
+  html.watchfusion-room-active:not(.eveos-embedded) #mediaStage.player-wrap:not(.media-stage-empty) {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  html.watchfusion-room-active:not(.eveos-embedded) .player-wrap .player {
+    aspect-ratio: auto;
+    height: 100%;
+    min-height: 0;
+  }
   html.watchfusion-room-active:not(.eveos-embedded) .side {
-    height: calc(100dvh - 102px);
-    min-height: min(500px, calc(100dvh - 102px));
-    max-height: calc(100dvh - 102px);
+    align-self: stretch;
+    height: auto;
+    min-height: 0;
+    max-height: none;
     overflow: hidden;
   }
   html.watchfusion-room-active:not(.eveos-embedded) #partyDetails {

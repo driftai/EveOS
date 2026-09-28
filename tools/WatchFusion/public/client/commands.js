@@ -75,8 +75,11 @@ function ensurePlayer(videoId) {
             }
             if (roomId) {
               await primeYouTubePlayer();
+              // Priming may legitimately finish without autoplay permission.
+              // The player is still initialized at that point, so a later
+              // manual host Play event must be allowed to become room state.
+              playerInitializing = false;
               syncPlayer();
-              if (playerPrimed) playerInitializing = false;
             } else {
               restorePlayerAudioPrefs();
               playerPrimed = true;
@@ -116,7 +119,7 @@ function ensurePlayer(videoId) {
       waitForPlayerCued(pendingVideoId).then(async () => {
         await primeYouTubePlayer(true);
         applyingRemote = false;
-        if (playerPrimed) playerInitializing = false;
+        playerInitializing = false;
         syncPlayer();
       }).catch(() => {
         applyingRemote = false;
@@ -125,7 +128,10 @@ function ensurePlayer(videoId) {
       });
     } else {
       if (roomId) {
-        primeYouTubePlayer().then(() => { syncPlayer(); });
+        primeYouTubePlayer().then(() => {
+          playerInitializing = false;
+          syncPlayer();
+        });
       } else {
         playerPrimed = true;
         playerInitializing = false;

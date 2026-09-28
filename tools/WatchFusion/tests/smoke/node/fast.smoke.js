@@ -82,6 +82,8 @@ export async function runFastSmoke() {
     assert.match(style, /eveos-embedded\.watchfusion-room-active/);
     assert.match(style, /eveos-embedded #partyDetails/);
     assert.match(style, /watchfusion-room-active:not\(\.eveos-embedded\) #partyDetails/);
+    assert.match(style, /watchfusion-room-active:not\(\.eveos-embedded\) #mediaStage\.player-wrap:not\(\.media-stage-empty\)/);
+    assert.match(style, /align-self:\s*stretch/);
     assert.match(style, /scrollbar-gutter:\s*stable/);
     assert.match(connection, /function resumeRoomSession/);
     assert.match(connection, /syncResumedPlayback/);

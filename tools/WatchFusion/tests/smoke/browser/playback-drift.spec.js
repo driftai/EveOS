@@ -53,6 +53,50 @@ test.describe('Adaptive playback drift regression', () => {
     expect(calls.rates).not.toContain(1.25);
   });
 
+  test('catch-up notice returns to Connected after drift settles', async ({ page }) => {
+    await page.goto('/');
+    const statuses = await page.evaluate(() => {
+      let current = 99.9;
+      roomId = 'drift-room';
+      state = {
+        hostId: 'host-member',
+        source: { type: 'youtube', videoId: 'M7lc1UVf-VE' },
+        playback: { paused: false, position: 100, rate: 1, updatedAt: Date.now(), projectedAt: Date.now() },
+        members: [], messages: []
+      };
+      session = { memberId: 'viewer-member' };
+      ytPlayerReady = true;
+      ytPlayer = {
+        getVideoData: () => ({ video_id: 'M7lc1UVf-VE' }),
+        getCurrentTime: () => current,
+        getPlaybackRate: () => 1,
+        setPlaybackRate: () => {},
+        seekTo: () => {},
+        playVideo: () => {},
+        pauseVideo: () => {},
+        setVolume: () => {},
+        isMuted: () => false,
+        mute: () => {},
+        unMute: () => {}
+      };
+      syncPlayer();
+      current = 99;
+      syncPlayer();
+      const catching = document.querySelector('#syncStatus').textContent;
+      current = 99.9;
+      syncPlayer();
+      const settled = document.querySelector('#syncStatus').textContent;
+      setStatus('Catching up…');
+      state.playback.paused = true;
+      syncPlayer({ force: true });
+      return { catching, settled, paused: document.querySelector('#syncStatus').textContent };
+    });
+
+    expect(statuses.catching).toContain('Catching up');
+    expect(statuses.settled).toMatch(/^Connected/);
+    expect(statuses.paused).toMatch(/^Connected/);
+  });
+
   test('large viewer drift uses one corrective seek instead of a repeated seek loop', async ({ page }) => {
     await page.goto('/');
     const calls = await configureViewer(page, { current: 97, target: 100 });

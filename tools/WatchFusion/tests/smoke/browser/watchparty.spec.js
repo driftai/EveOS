@@ -72,7 +72,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     expect(scrollState.scrollTop).toBe(0);
   });
 
-  test('Detached desktop chat stays bounded and owns its message scrolling', async ({ page }) => {
+  test('Detached desktop media and chat share one dynamic row height', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/?eveosDetached=1');
     await page.click('#headerToggleBtn');
@@ -88,17 +88,18 @@ test.describe('WatchFusion Multi-Client Suite', () => {
       const chat = panel.querySelector('#chat');
       const form = panel.querySelector('#chatForm');
       const panelRect = panel.getBoundingClientRect();
+      const mainRect = document.querySelector('.maincol').getBoundingClientRect();
       const formRect = form.getBoundingClientRect();
       return {
-        panelBottom: panelRect.bottom,
-        formBottom: formRect.bottom,
-        viewportHeight: window.innerHeight,
+        panelHeight: panelRect.height,
+        mainHeight: mainRect.height,
+        formInsidePanel: formRect.bottom <= panelRect.bottom,
         chatOverflow: getComputedStyle(chat).overflowY,
         chatScrollable: chat.scrollHeight > chat.clientHeight
       };
     });
-    expect(geometry.panelBottom).toBeLessThanOrEqual(geometry.viewportHeight);
-    expect(geometry.formBottom).toBeLessThanOrEqual(geometry.viewportHeight);
+    expect(Math.abs(geometry.panelHeight - geometry.mainHeight)).toBeLessThanOrEqual(1);
+    expect(geometry.formInsidePanel).toBe(true);
     expect(geometry.chatOverflow).toBe('auto');
     expect(geometry.chatScrollable).toBe(true);
   });
