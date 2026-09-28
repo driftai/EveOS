@@ -315,12 +315,15 @@ window.EveAudioflixState = window.EveAudioflixState || {};
 
     function removeItem(type, itemId) {
         const state = ensure();
-        const key = type === 'music' ? 'music' : 'soundboard';
+        const isMusic = type === 'music';
+        const key = isMusic ? 'music' : 'soundboard';
         state[key] = (state[key] || []).filter((item) => item.id !== itemId);
+        const mapKey = isMusic ? 'musicGroupMap' : 'soundGroupMap';
+        if (state[mapKey] && typeof state[mapKey] === 'object') delete state[mapKey][itemId];
         state.scopeBindings = (state.scopeBindings || []).filter((binding) => !(
-            binding.audioId === itemId
-            && binding.audioType === (type === 'music' ? 'music' : 'sound')
+            binding.audioId === itemId && binding.audioType === (isMusic ? 'music' : 'sound')
         ));
+        state.dupDismissedPairs = (state.dupDismissedPairs || []).filter((pair) => !String(pair).split('|').includes(itemId));
         syncRootOrFallback(state);
         scheduleSave(`audioflix-remove-${type}`);
         return ensure();
