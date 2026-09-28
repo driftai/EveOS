@@ -55,25 +55,10 @@ window.EveAudioflixLocalizeAudit = window.EveAudioflixLocalizeAudit || {};
                 ? await scanDir(targetDir)
                 : { verified: false, files: indexFiles([]) };
 
-            let grantedRoots = [];
-            try {
-                if (typeof FS?.folderStates === 'function') {
-                    grantedRoots = (await FS.folderStates()).filter((folder) => (
-                        folder?.permission === 'granted' && text(folder.rootName)
-                    ));
-                }
-            } catch { /* IndexedDB or permission errors leave this source unverified */ }
             const browserCheck = async (claim) => {
-                if (typeof FS?.fileUrlForPath !== 'function') return { verified: false, present: false };
-                const covered = grantedRoots.some((folder) => (
-                    (paths?.relativeAfterFolder?.(claim, folder.rootName) || []).length > 0
-                ));
-                if (!covered) return { verified: false, present: false };
-                try {
-                    return { verified: true, present: !!(await FS.fileUrlForPath(claim)) };
-                } catch {
-                    return { verified: false, present: false };
-                }
+                if (typeof FS?.verifyPath !== 'function') return { verified: false, present: false };
+                try { return await FS.verifyPath(claim); }
+                catch { return { verified: false, present: false }; }
             };
 
             let checked = 0;
@@ -120,8 +105,8 @@ window.EveAudioflixLocalizeAudit = window.EveAudioflixLocalizeAudit || {};
                     missing += 1;
                     if (!item.missingLocal) S()?.updateItem?.('music', item.id, { missingLocal: true });
                 } else {
-                    // Older audits persisted a false deletion whenever localhost was unavailable.
-                    if (item.missingLocal) S()?.updateItem?.('music', item.id, { missingLocal: false });
+                    // Unavailable localhost / revoked browser permission proves nothing. Preserve the
+                    // last verified health state until one of the real folder sensors can read it.
                     unverified += 1;
                 }
             }
