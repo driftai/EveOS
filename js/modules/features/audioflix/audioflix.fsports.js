@@ -17,7 +17,7 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
     if (ns.ready) return;
 
     // Mirror the server-side port filter (audioflix_bridge_ports.py AUDIO_EXTENSIONS).
-    const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac']);
+    const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac', '.mp4', '.webm']);
     const registry = window.EveAudioflixFsPortsRegistry;
     if (!registry?.ready) throw new Error('Audioflix folder registry loaded out of order.');
     const {
@@ -65,6 +65,94 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
         return directory.getFileHandle(segments[segments.length - 1]);
     }
 
+    function browserMusicPath(recordId, segments = []) {
+        const tail = segments.map((segment) => encodeURIComponent(String(segment))).join('/');
+        return `fsport://${encodeURIComponent(recordId)}/${tail}`;
+    }
+
+    function parseBrowserMusicPath(value) {
+        const match = String(value || '').match(/^fsport:\/\/([^/]+)\/(.*)$/i);
+        if (!match) return null;
+        try {
+            return {
+                id: decodeURIComponent(match[1]),
+                segments: match[2].split('/').filter(Boolean).map(decodeURIComponent)
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    async function grantedRecord(id) {
+        const record = (await allRecords()).find((entry) => entry.id === id);
+        if (!record?.handle) return null;
+        let permission = await permissionOf(record.handle);
+        if (permission === 'prompt' && typeof record.handle.requestPermission === 'function') {
+            try { permission = await record.handle.requestPermission({ mode: 'read' }); } catch {}
+        }
+        return permission === 'granted' ? record : null;
+    }
+
+    async function scanMusicRecord(record) {
+        if (!record?.handle) return { ok: false, reason: 'Music folder needs reconnect.' };
+        const files = [];
+        const queue = [{ handle: record.handle, segments: [], depth: 0 }];
+        let visited = 0;
+        const maxEntries = 12000, maxDepth = 32;
+        while (queue.length && visited < maxEntries) {
+            const current = queue.shift();
+            for await (const [name, entry] of current.handle.entries()) {
+                visited += 1;
+                if (entry.kind === 'directory' && current.depth < maxDepth) {
+                    queue.push({ handle: entry, segments: [...current.segments, name], depth: current.depth + 1 });
+                } else if (entry.kind === 'file') {
+                    const dot = name.lastIndexOf('.');
+                    if (dot >= 0 && AUDIO_EXTENSIONS.has(name.slice(dot).toLowerCase())) {
+                        const segments = [...current.segments, name];
+                        files.push({
+                            name,
+                            path: browserMusicPath(record.id, segments),
+                            relativePath: segments.join('/'),
+                            subfolders: current.segments.slice()
+                        });
+                    }
+                }
+                if (visited >= maxEntries) break;
+            }
+        }
+        files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+        return {
+            ok: true,
+            files,
+            dir: browserMusicPath(record.id),
+            browserFolderId: record.id,
+            rootName: record.handle.name || record.nickname || 'Music',
+            truncated: visited >= maxEntries
+        };
+    }
+
+    async function scanMusicFolder(options = {}) {
+        if (!supported()) return { ok: false, reason: 'Browser folder access needs Edge or Chrome.' };
+        let record = options.id ? await grantedRecord(options.id) : null;
+        if (!record) {
+            const picked = await addFolder({
+                id: options.id,
+                nickname: options.nickname || 'Ported Music',
+                purpose: 'music'
+            });
+            record = await grantedRecord(picked.id);
+        }
+        if (!record) return { ok: false, reason: 'Music folder access was not granted.' };
+        return scanMusicRecord(record);
+    }
+
+    async function scanMusicFolderById(id) {
+        if (!supported() || !id) return { ok: false, reason: 'Browser folder access is unavailable.' };
+        const record = await grantedRecord(id);
+        if (!record) return { ok: false, reason: 'Music folder needs reconnect.' };
+        return scanMusicRecord(record);
+    }
+
     // Repair stale absolute paths by searching only a bounded portion of a granted tree.
     async function findFileInTree(root, fileName, maxEntries = 1600, maxDepth = 12) {
         const wanted = String(fileName || '').toLowerCase();
@@ -93,6 +181,20 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
         const cacheKey = paths?.key?.(localPath) || String(localPath);
         const cached = pathBlobCache.get(cacheKey);
         if (cached) return cached;
+        const browserPath = parseBrowserMusicPath(localPath);
+        if (browserPath?.segments?.length) {
+            const record = await grantedRecord(browserPath.id);
+            if (!record) return '';
+            try {
+                const handle = await openRelativeFile(record.handle, browserPath.segments);
+                const url = URL.createObjectURL(await handle.getFile());
+                pathObjectUrls.push(url);
+                pathBlobCache.set(cacheKey, url);
+                return url;
+            } catch {
+                return '';
+            }
+        }
         const file = paths?.basename?.(localPath) || '';
         const dir = paths?.basename?.(paths?.dirname?.(localPath)) || '';
         if (!file) return '';
@@ -301,6 +403,8 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
         ready: true,
         supported,
         fileUrlForPath,
+        scanMusicFolder,
+        scanMusicFolderById,
         clearPathCache,
         addFolder,
         removeFolder,
