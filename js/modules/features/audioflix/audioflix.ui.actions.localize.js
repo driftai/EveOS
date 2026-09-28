@@ -11,6 +11,20 @@ window.EveAudioflixUiActionsLocalize = window.EveAudioflixUiActionsLocalize || {
     if (ns.ready) return;
 
     ns.create = function create(ctx) {
+        const tieMusicFolderGrant = (folderName, granted) => {
+            const S = window.EveAudioflixState;
+            const snapshot = S?.ensure?.() || {};
+            const wanted = String(folderName || '').trim().toLowerCase();
+            if (!wanted || !granted?.id) return;
+            const connections = (snapshot.musicPortConnections || []).map((entry) => (
+                String(entry.folder || '').trim().toLowerCase() === wanted
+                    ? { ...entry, browserFolderId: granted.id, browserRootName: granted.nickname || entry.browserRootName || entry.folder }
+                    : entry
+            ));
+            if (connections.some((entry) => entry.browserFolderId === granted.id)) {
+                S?.update?.({ musicPortConnections: connections }, 'audioflix-music-port-browser-link');
+            }
+        };
         return async function handleLocalizeAction(actionTarget, action) {
         // Grant the music folder right here, while the user is already choosing it. A browser can
         // only read a directory it has been handed a handle for, so without this the tracks import
@@ -28,7 +42,10 @@ window.EveAudioflixUiActionsLocalize = window.EveAudioflixUiActionsLocalize || {
                     nickname: actionTarget.dataset.afNickname || '',
                     purpose: 'music'
                 });
+                tieMusicFolderGrant(actionTarget.dataset.afFolder || actionTarget.dataset.afKey || '', granted);
+                await FS.reconcile?.();
                 FS.clearPathCache?.();
+                await window.EveAudioflixLocalize?.auditScopeDiskStatus?.('library', '');
                 ctx.playbackStatus = `Granted "${granted.nickname}" — its tracks now play without the EveOS server.`;
             } catch (err) {
                 ctx.playbackStatus = err?.name === 'AbortError' ? 'Folder access cancelled.' : (err?.message || 'Could not grant that folder.');
@@ -53,6 +70,7 @@ window.EveAudioflixUiActionsLocalize = window.EveAudioflixUiActionsLocalize || {
                 });
                 await FS.reconcile?.();
                 FS.clearPathCache?.();
+                await window.EveAudioflixLocalize?.auditScopeDiskStatus?.('library', '');
                 ctx.playbackStatus = `Re-granted music folder "${granted.nickname}".`;
             } catch (err) {
                 if (err?.name !== 'AbortError') ctx.playbackStatus = err?.message || 'Folder re-grant failed';
@@ -90,6 +108,8 @@ window.EveAudioflixUiActionsLocalize = window.EveAudioflixUiActionsLocalize || {
                     nickname: actionTarget.dataset.afNickname || key || 'Audioflix Music',
                     purpose: 'music'
                 });
+                if (scope === 'folder') tieMusicFolderGrant(key, granted);
+                await FS.reconcile?.();
                 FS.clearPathCache?.();
                 const audit = await window.EveAudioflixLocalize?.auditScopeDiskStatus?.(scope, key);
                 ctx.playbackStatus = audit?.unverified
