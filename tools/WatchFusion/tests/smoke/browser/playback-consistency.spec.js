@@ -143,10 +143,11 @@ test('already-playing viewer does not reissue play or oscillate mute state', asy
   expect(result.unmute).toBe(1);
 });
 
-test('millisecond viewer drift keeps the authoritative playback rate', async ({ page }) => {
+test('millisecond viewer drift never speeds the phone up', async ({ page }) => {
   await page.goto('/');
-  const result = await page.evaluate(() => {
+  const result = await page.evaluate(async () => {
     const rates = [];
+    const seeks = [];
     const projectedAt = Date.now();
     roomId = 'micro-drift-room';
     session = { memberId: 'phone-member', publicId: 'phone-public' };
@@ -166,7 +167,7 @@ test('millisecond viewer drift keeps the authoritative playback rate', async ({ 
     ytPlayer = {
       getVideoData: () => ({ video_id: 'M7lc1UVf-VE' }),
       getPlayerState: () => 1,
-      getCurrentTime: () => 9.90,
+      getCurrentTime: () => 9.60,
       getPlaybackRate: () => 1,
       setPlaybackRate: rate => { rates.push(rate); },
       getVolume: () => 100,
@@ -176,13 +177,34 @@ test('millisecond viewer drift keeps the authoritative playback rate', async ({ 
       unMute: () => {},
       playVideo: () => {},
       pauseVideo: () => {},
-      seekTo: () => {}
+      seekTo: value => { seeks.push(value); }
     };
-    window.applyAdaptiveViewerSync(false);
-    return rates;
+    for (let i = 0; i < 6; i += 1) {
+      window.applyAdaptiveViewerSync(false);
+      await new Promise(resolve => setTimeout(resolve, 190));
+    }
+    return { rates, seeks, diagnostics: window.watchFusionSyncDiagnostics?.() };
   });
-  expect(result.at(-1)).toBe(1);
-  expect(result).not.toContain(1.25);
+  expect(result.rates.every(rate => rate === 1)).toBe(true);
+  expect(result.rates).not.toContain(1.25);
+  expect(result.seeks).toHaveLength(0);
+  expect(result.diagnostics?.filteredDriftSec).toBeGreaterThan(0.2);
+  expect(result.diagnostics?.action).toBe('steady');
+});
+
+test('server clock sensor replaces one bad sample with low-latency median', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(() => {
+    const clock = window.watchPartyClock;
+    clock.update(2050, 1000, 1100); // +1000 ms offset, 100 ms RTT outlier
+    clock.update(2015, 2000, 2010); // +10 ms offset, 10 ms RTT
+    clock.update(3018, 3000, 3012); // +12 ms offset, 12 ms RTT
+    clock.update(4017, 4000, 4010); // +12 ms offset, 10 ms RTT
+    return { offset: clock.offsetMs(), rtt: clock.rttMs(), samples: clock.sampleCount() };
+  });
+  expect(result.samples).toBeGreaterThanOrEqual(4);
+  expect(result.rtt).toBeLessThanOrEqual(12);
+  expect(Math.abs(result.offset - 12)).toBeLessThan(5);
 });
 
 test('transient host mute flip is debounced instead of broadcast to viewers', async ({ page }) => {
