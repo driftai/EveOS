@@ -61,10 +61,10 @@ export function getRoom(roomId) {
   return room;
 }
 
-export function projectedPosition(room) {
+export function projectedPosition(room, atTime = now()) {
   const playback = room.playback;
   if (playback.paused || playback.ended) return playback.position;
-  return Math.max(0, playback.position + ((now() - playback.updatedAt) / 1000) * playback.rate);
+  return Math.max(0, playback.position + ((atTime - playback.updatedAt) / 1000) * playback.rate);
 }
 
 export function publicState(room) {
@@ -83,7 +83,10 @@ export function publicState(room) {
     revision: room.revision || 0,
     serverTime,
     source: room.source,
-    playback: { ...room.playback, position: projectedPosition(room), updatedAt: room.playback.updatedAt, projectedAt: serverTime },
+    // Project the position to the exact same server timestamp we publish.
+    // Using a second now() here makes the position a few milliseconds newer than projectedAt,
+    // then viewers legitimately advance from projectedAt again and double-count that tiny lead.
+    playback: { ...room.playback, position: projectedPosition(room, serverTime), updatedAt: room.playback.updatedAt, projectedAt: serverTime },
     members: publicMembers,
     temporaryHost: !!room.temporaryHost,
     messages: room.messages.map(({ id: msgId, memberId, name, text, attachment, at }) => ({
