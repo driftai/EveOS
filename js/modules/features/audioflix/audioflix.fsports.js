@@ -235,6 +235,36 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
         return '';
     }
 
+    // Health checks must inspect the CURRENT folder tree, never a cached blob URL. That lets
+    // Music Library detect a file that was moved/deleted after it was first played.
+    async function verifyPath(localPath) {
+        if (!supported() || !localPath) return { verified: false, present: false };
+        const browserPath = parseBrowserMusicPath(localPath);
+        if (browserPath?.segments?.length) {
+            const record = (await allRecords()).find((entry) => entry.id === browserPath.id);
+            if (!record?.handle || (await permissionOf(record.handle)) !== 'granted') return { verified: false, present: false, reason: 'needs-reconnect' };
+            try {
+                await openRelativeFile(record.handle, browserPath.segments);
+                return { verified: true, present: true, id: record.id, rootName: record.handle.name || record.nickname || '' };
+            } catch {
+                return { verified: true, present: false, id: record.id, rootName: record.handle.name || record.nickname || '' };
+            }
+        }
+        const records = await allRecords();
+        let covered = false;
+        for (const record of records) {
+            if (!record?.handle || (await permissionOf(record.handle)) !== 'granted') continue;
+            const relative = paths?.relativeAfterFolder?.(localPath, record.handle.name) || [];
+            if (!relative.length) continue;
+            covered = true;
+            try {
+                await openRelativeFile(record.handle, relative);
+                return { verified: true, present: true, id: record.id, rootName: record.handle.name || record.nickname || '' };
+            } catch {}
+        }
+        return covered ? { verified: true, present: false } : { verified: false, present: false };
+    }
+
     // Drop cached track blobs so the next lookup re-resolves (used after a new folder is granted).
     function clearPathCache() {
         pathObjectUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) { } });
@@ -403,6 +433,7 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
         ready: true,
         supported,
         fileUrlForPath,
+        verifyPath,
         scanMusicFolder,
         scanMusicFolderById,
         clearPathCache,
