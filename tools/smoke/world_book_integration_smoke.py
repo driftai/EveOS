@@ -62,6 +62,10 @@ def assert_static_contract() -> None:
     assert "Start via Launcher" not in overlay
     assert "Connect local control and stop this standalone World Book server" in overlay
     assert "ns.detach" in overlay
+    assert "syncViewButtons" in overlay
+    assert "becameOnline" in overlay
+    assert "frame.dataset.worldBookTarget" in overlay
+    assert "requestAnimationFrame" in overlay
     assert "eveWorldBookWindow" in detached
     assert "window.open" in detached
 
