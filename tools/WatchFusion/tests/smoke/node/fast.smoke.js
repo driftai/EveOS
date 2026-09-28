@@ -62,7 +62,7 @@ export async function runFastSmoke() {
     const render = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'render.js'), 'utf8');
     const style = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'style.css'), 'utf8');
     assert.match(core, /serverLanMode && lanBaseUrl/);
-    assert.ok(core.indexOf('preferredLanAddress') < core.indexOf('preferredLanHost'));
+    assert.ok(core.indexOf('preferredLanHost') < core.indexOf('preferredLanAddress'));
     assert.match(core, /function shareRoomToken\(\) \{ return joinCode \|\| roomCode \|\| roomId; \}/);
     assert.match(connection, /replaceRoomHistory\(joinCode \|\| roomId\)/);
     assert.match(render, /watchfusion-room-active/);
