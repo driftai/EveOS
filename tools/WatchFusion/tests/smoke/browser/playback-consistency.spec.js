@@ -102,6 +102,74 @@ test('a tap restores audio even after the phone player was already primed', asyn
   expect(result.playerInitializing).toBe(false);
 });
 
+test('already-playing viewer does not reissue play or oscillate mute state', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(() => {
+    const calls = { play: 0, mute: 0, unmute: 0 };
+    roomId = 'phone-room';
+    pendingVideoId = 'M7lc1UVf-VE';
+    session = { memberId: 'phone-member' };
+    state = {
+      hostId: 'host-member',
+      source: { type: 'youtube', videoId: pendingVideoId },
+      playback: { paused: false, ended: false, position: 10, rate: 1, volume: 100, muted: false, updatedAt: Date.now(), projectedAt: Date.now() }
+    };
+    autoplayWasBlocked = false;
+    userGesturePrimeUsed = true;
+    playerPrimed = true;
+    playerInitializing = false;
+    window.YT = { PlayerState: { PLAYING: 1 } };
+    ytPlayerReady = true;
+    ytPlayer = {
+      getVideoData: () => ({ video_id: pendingVideoId }),
+      getPlayerState: () => 1,
+      getCurrentTime: () => 10,
+      getPlaybackRate: () => 1,
+      setPlaybackRate: () => {},
+      getVolume: () => 100,
+      setVolume: () => {},
+      isMuted: () => true,
+      mute: () => { calls.mute += 1; },
+      unMute: () => { calls.unmute += 1; },
+      playVideo: () => { calls.play += 1; },
+      pauseVideo: () => {},
+      seekTo: () => {}
+    };
+    requestViewerPlayback();
+    return calls;
+  });
+  expect(result.play).toBe(0);
+  expect(result.mute).toBe(0);
+  expect(result.unmute).toBe(1);
+});
+
+test('transient host mute flip is debounced instead of broadcast to viewers', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const sent = [];
+    let muted = true;
+    roomId = 'audio-room';
+    session = { memberId: 'host-member', publicId: 'host-public' };
+    state = {
+      hostId: 'host-public',
+      playback: { paused: false, ended: false, position: 1, rate: 1, volume: 100, muted: false, updatedAt: Date.now() }
+    };
+    ytPlayerReady = true;
+    ytPlayer = {
+      getVolume: () => 100,
+      isMuted: () => muted
+    };
+    command = async (type, extra) => { sent.push({ type, extra }); return true; };
+    publishRoomAudioState(100, true);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    muted = false;
+    publishRoomAudioState(100, false);
+    await new Promise(resolve => setTimeout(resolve, 450));
+    return sent;
+  });
+  expect(result).toHaveLength(0);
+});
+
 test('natural ended host state issues exactly one authoritative end pause command', async ({ page }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {
