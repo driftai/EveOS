@@ -52,7 +52,7 @@ window.EveAudioflixUiShared = window.EveAudioflixUiShared || {};
         document.head.appendChild(script);
     };
     if (!window.EveAudioflixLibraryNext) {
-        load('audioflix.library.next.js?v=4349dc649460', () => {
+        load('audioflix.library.next.js?v=2917d9764737', () => {
             window.EveAudioflixLibraryNext?.boot?.();
             load('audioflix.library.next.ui.js?v=c7e58e7f8529', () => window.EveAudioflixLibraryNextUi?.boot?.());
         });

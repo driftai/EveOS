@@ -23,6 +23,7 @@ function read(relative) {
 function sourceContract() {
     const helper = read('server_modules/eveos_control_helper.py');
     const control = read('server_modules/watchfusion_control.py');
+    const exposureControl = read('server_modules/watchfusion_exposure.py');
     const prefs = read('server_modules/eveos_console_prefs.py');
     const registry = JSON.parse(read('config/eveos-ports.json'));
     const manifest = read('js/config/manifest/scripts.parts/03-feature-modules.js');
@@ -76,7 +77,7 @@ function sourceContract() {
     check(control.includes('"onDemand": True') && control.includes('is never restored at EveOS boot'), 'WF-ON-DEMAND-LIFECYCLE', 'WatchFusion can still auto-restore a prior runtime session');
     check(control.includes('def start_server(*, persist: bool = False)') && control.includes('def stop_server(*, persist: bool = False)'), 'WF-NO-PERSIST-DEFAULT', 'ordinary WatchFusion start/stop still persists surprise boot state');
     check(control.includes('"components": components'), 'WF-OFFLINE-SETUP-STATUS', 'outer workspace cannot inspect components while WatchFusion is stopped');
-    check(control.includes('_runtime_json("/api/network-info")') && control.includes('network.get("localOnly") is False') && control.includes('network.get("canonicalLanHost")') && control.includes('exposureMode="lan"'), 'WF-LIVE-LAN-EXPOSURE', 'WatchFusion control does not recover the selected LAN surface from the live runtime when exposure metadata is stale');
+    check(control.includes('_runtime_json("/api/network-info")') && control.includes('watchfusion_exposure.reconcile_status') && exposureControl.includes('network.get("localOnly") is False') && exposureControl.includes('network.get("canonicalLanHost")') && exposureControl.includes('exposureMode="lan"'), 'WF-LIVE-LAN-EXPOSURE', 'WatchFusion control does not recover the selected LAN surface from the live runtime when exposure metadata is stale');
     check(control.includes('eveos_console_prefs.headless_for("watchFusion")'), 'WF-CONSOLE', 'WatchFusion does not use its independent console preference');
     check(prefs.includes('"watchFusion"'), 'WF-CONSOLE-REGISTRY', 'WatchFusion is not registered in console preferences');
 
@@ -107,7 +108,7 @@ function sourceContract() {
     check(playbackCommands.includes('const alreadyPlaying = ytPlayer.getPlayerState?.() === playingState') && playbackCommands.includes('if (alreadyPlaying)') && playbackCommands.includes('!userGesturePrimeUsed && !alreadyPlaying'), 'WF-VIEWER-AUDIO-STABILITY', 'viewer playback still reissues play/mute transitions while already playing');
     check(clientBootstrap.includes('data.state&&applyIncomingRoomState(data.state)') && clientBootstrap.includes('render()'), 'WF-COMMAND-STATE-HYDRATION', 'room commands still depend entirely on an already-connected event stream to update UI');
     check(clientRender.includes('data-copy-image') && clientRender.includes("new ClipboardItem({'image/png':png})") && clientRender.includes('legacyCopyRoomImage') && clientRender.includes("fileName.style.display='none'") && clientRender.includes('copyRoomImageViaHost') && !clientRender.includes('Image link copied') && !clientRender.includes('>Save</a>'), 'WF-CHAT-IMAGE-COPY', 'chat images do not keep a clean bitmap clipboard path before the host-native fallback');
-    check(setupHtml.includes('id="leaveRoomBtn"') && clientBootstrap.includes("'/leave'") && clientBootstrap.includes("leaveRoom('Left room.')"), 'WF-ROOM-LEAVE', 'hosts and guests do not have a non-destructive leave-room path');
+    check(setupHtml.includes('id="leaveRoomBtn"') && /\/leave`\),\{method:'POST'/.test(clientBootstrap) && clientBootstrap.includes("leaveRoom('Left room.')"), 'WF-ROOM-LEAVE', 'hosts and guests do not have a non-destructive leave-room path');
     check(roomImageRoutes.includes('copyImageToHostClipboard') && roomImageRoutes.includes('isHostMachineClipboardRequest') && roomImageRoutes.includes('System.Windows.Forms.Clipboard') && roomImageRoutes.includes("parts[5] === 'copy-local'"), 'WF-HOST-IMAGE-CLIPBOARD', 'Windows host clipboard fallback for LAN/HTTP image copying is missing');
 
     check(setupRoutes.includes("parts[1] !== 'setup'") && setupRoutes.includes("parts[2] === 'install'"), 'WF-SETUP-API', 'WatchFusion setup API is not routed');
@@ -126,7 +127,7 @@ function sourceContract() {
     check(innerCss.includes('grid-template-rows: minmax(0, 1fr) auto;'), 'WF-MEDIA-TOOLBAR-GRID', 'embedded media player still consumes 100% height before its toolbar is laid out');
     check(innerCss.includes('html.eveos-embedded .source-badge { display: none; }'), 'WF-EMBEDDED-TABS-WIDTH', 'redundant source badge still steals horizontal space from embedded tabs');
     check(innerCss.includes('html.eveos-embedded #partyDetails') && innerCss.includes('scrollbar-gutter: stable'), 'WF-EMBEDDED-CHAT-SCROLL', 'embedded WatchParty chat does not preserve a bounded scroll surface');
-    check(playbackCommands.includes('function requestViewerPlayback()') && playbackCommands.includes('ytPlayer.mute?.(); ytPlayer.playVideo?.();'), 'WF-MOBILE-AUTOPLAY-RETRY', 'phone viewers do not retry blocked synchronized playback muted');
+    check(playbackCommands.includes('function requestViewerPlayback()') && playbackCommands.includes('if (autoplayWasBlocked) ytPlayer.mute?.();') && playbackCommands.includes('ytPlayer.playVideo?.();'), 'WF-MOBILE-AUTOPLAY-RETRY', 'phone viewers do not retry blocked synchronized playback muted');
     check(playbackSync.includes('requestViewerPlayback()') && !youtubePlayer.includes('playerPrimed || !ytPlayer'), 'WF-MOBILE-AUTOPLAY-GESTURE', 'mobile autoplay recovery still rejects the post-prime user gesture');
     check(roomImageRoutes.includes('MAX_CHAT_IMAGE_BYTES') && roomImageRoutes.includes('detectedImageType') && roomImageRoutes.includes('getRoomAttachment'), 'WF-ROOM-IMAGES', 'room image transfer is missing its size, content, or retrieval boundary');
     check(staticFiles.includes("'client/setup-health.js'") && staticFiles.includes("'client/voxelvision-adapter.js'") && staticFiles.includes("'client/media-player.js'"), 'WF-CLIENT-BUNDLE', 'Setup Health or core media adapters are missing from the integrated bundle');

@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import eveos_console_prefs, eveos_exposure, eveos_ports
+from . import eveos_console_prefs, eveos_exposure, eveos_ports, watchfusion_exposure
 
 
 WATCHFUSION_PORT = eveos_ports.service_port("WATCHFUSION_PORT")
@@ -294,24 +294,8 @@ def _status(message: str = "") -> dict:
     decorated = eveos_exposure.decorate_status(payload, "watchfusion", local_url)
     remote_url = _remote_tunnel_url() if running else ""
     network = _runtime_json("/api/network-info") if running else None
-
-    # The live WatchFusion binding is authoritative. Exposure metadata can be
-    # cleared or stale if the launcher/control paths overlap, so recover LAN
-    # directly from the running server before the browser chooses its origin.
-    if remote_url:
-        decorated.update(exposureMode="cloudflare", publicUrl=remote_url, url=remote_url)
-    elif network and network.get("localOnly") is False:
-        lan_url = str(
-            network.get("canonicalLanHost")
-            or network.get("preferredLanHost")
-            or network.get("preferredLanAddress")
-            or ""
-        ).strip()
-        if lan_url:
-            decorated.update(exposureMode="lan", publicUrl=lan_url, url=lan_url)
-    elif network and network.get("localOnly") is True:
-        decorated.update(exposureMode="local", publicUrl="", url=local_url)
-    return decorated
+    return watchfusion_exposure.reconcile_status(
+        decorated, local_url=local_url, remote_url=remote_url, network=network)
 
 
 def get_status() -> dict:

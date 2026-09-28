@@ -28,6 +28,7 @@ from server_modules import (  # noqa: E402
     nexus_browser_control,
     piano_player_control,
     watchfusion_control,
+    watchfusion_exposure,
     world_book_control,
 )
 
@@ -363,6 +364,22 @@ def validate(matrix):
                             "Piano needsSetup did not expose missing setup components")
 
 
+def validate_watchfusion_exposure():
+    local_url = "http://127.0.0.1:9087/"
+    base = {"exposureMode": "local", "publicUrl": "", "url": local_url}
+    lan = watchfusion_exposure.reconcile_status(
+        dict(base), local_url=local_url,
+        network={"localOnly": False, "canonicalLanHost": "http://192-168-1-209.sslip.io:9087/"},
+    )
+    require(lan["exposureMode"] == "lan" and "sslip.io" in lan["url"],
+            "WatchFusion live LAN exposure did not select its canonical sslip.io host")
+    remote = watchfusion_exposure.reconcile_status(
+        dict(base), local_url=local_url, remote_url="https://watchfusion.trycloudflare.com/",
+    )
+    require(remote["exposureMode"] == "cloudflare" and remote["url"].startswith("https://"),
+            "WatchFusion remote exposure did not take priority over LAN metadata")
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="eveos-state-matrix-") as temp_dir:
         root = Path(temp_dir)
@@ -377,6 +394,7 @@ def main():
             "nexusBrowser": nexus_matrix(root),
         }
     validate(matrix)
+    validate_watchfusion_exposure()
 
     result = {
         "tools": matrix,
