@@ -143,6 +143,8 @@ window.EveAudioflixState = window.EveAudioflixState || {};
                     id: text(entry?.id, ''),
                     path: text(entry?.path, ''),
                     folder: text(entry?.folder, ''),
+                    browserFolderId: text(entry?.browserFolderId, ''),
+                    browserRootName: text(entry?.browserRootName, ''),
                     lastSyncedAt: Number(entry?.lastSyncedAt || 0) || 0,
                     trackCount: Number(entry?.trackCount || 0) || 0
                 }))
