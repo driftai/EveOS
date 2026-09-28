@@ -105,11 +105,10 @@ window.EveAudioflixUiLocalize = window.EveAudioflixUiLocalize || {};
                 : '<div class="audioflix-empty" style="margin-bottom:8px;">No standalone music folders granted yet. Grant a folder below or inside a folder/group localize panel.</div>';
 
             return `<div class="audioflix-ports-mgr" style="margin-bottom:12px;"><h4>Music Browser Folders <span style="font-weight: normal; font-size: 0.78rem; color: #9aa8bd;">(offline access for tracks — no server needed)</span></h4>${listRows}</div><form class="audioflix-form" data-af-form="music-port-form">
-                <label class="audioflix-wide-field"><span>Local Folder Path (Extract Music)</span><input name="path" required value="${esc(lastDir)}" placeholder="C:\\path\\to\\music\\folder"></label>
+                <label class="audioflix-wide-field"><span>Local Folder Path (optional when browsing)</span><input name="path" value="${esc(lastDir)}" placeholder="C:\\path\\to\\music\\folder"></label>
                 <label><span>Target Folder Tag Name</span><input name="folder" placeholder="Ported Music"></label>
-                <button type="submit" data-af-action="submit-form">Extract to Folder Tag</button>
-                <button type="button" class="audioflix-add-toggle" data-af-action="grant-music-folder" style="margin-left:8px;" title="Grant this folder to EveOS once so its tracks play with the server off">🔓 Grant Offline Access</button>
-                <p class="audioflix-settings-hint" style="flex-basis:100%; margin:6px 0 0;">Importing records the paths; granting the folder lets the browser read those files offline on <code>file://</code> without a local server.</p>
+                <button type="submit" data-af-action="submit-form">Extract Music</button>
+                <p class="audioflix-settings-hint" style="grid-column:1/-1; margin:6px 0 0;">With localhost running, a typed path is scanned directly. With localhost off, leave the path blank and press Extract Music: Edge/Chrome opens a folder picker, recursively imports nested songs, and keeps the granted folder available for playback and sync.</p>
             </form>`;
         }
 
