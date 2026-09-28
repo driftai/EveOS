@@ -83,11 +83,11 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
         }
     }
 
-    async function grantedRecord(id) {
+    async function grantedRecord(id, request = false) {
         const record = (await allRecords()).find((entry) => entry.id === id);
         if (!record?.handle) return null;
         let permission = await permissionOf(record.handle);
-        if (permission === 'prompt' && typeof record.handle.requestPermission === 'function') {
+        if (request && permission === 'prompt' && typeof record.handle.requestPermission === 'function') {
             try { permission = await record.handle.requestPermission({ mode: 'read' }); } catch {}
         }
         return permission === 'granted' ? record : null;
@@ -133,14 +133,14 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
 
     async function scanMusicFolder(options = {}) {
         if (!supported()) return { ok: false, reason: 'Browser folder access needs Edge or Chrome.' };
-        let record = options.id ? await grantedRecord(options.id) : null;
+        let record = options.id ? await grantedRecord(options.id, true) : null;
         if (!record) {
             const picked = await addFolder({
                 id: options.id,
                 nickname: options.nickname || 'Ported Music',
                 purpose: 'music'
             });
-            record = await grantedRecord(picked.id);
+            record = await grantedRecord(picked.id, true);
         }
         if (!record) return { ok: false, reason: 'Music folder access was not granted.' };
         return scanMusicRecord(record);
@@ -148,7 +148,7 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
 
     async function scanMusicFolderById(id) {
         if (!supported() || !id) return { ok: false, reason: 'Browser folder access is unavailable.' };
-        const record = await grantedRecord(id);
+        const record = await grantedRecord(id, true);
         if (!record) return { ok: false, reason: 'Music folder needs reconnect.' };
         return scanMusicRecord(record);
     }
