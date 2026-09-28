@@ -24,17 +24,22 @@ set "LAN_IP="
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$c = (Get-NetIPConfiguration); foreach ($a in $c) { if ($a.NetAdapter.Status -eq 'Up' -and $a.IPv4DefaultGateway -and $a.IPv4Address) { foreach ($ip in $a.IPv4Address.IPAddress) { if ($ip -and $ip -notlike '169.254*') { $ip; exit } } } }"`) do if not defined LAN_IP set "LAN_IP=%%I"
 
 set "LAN_URL="
-if defined LAN_IP set "LAN_URL=http://!LAN_IP!:%WATCHFUSION_PORT%/"
-if defined LAN_URL (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%EVEOS_ROOT%\tools\batch\set-exposure-state.ps1" -Service watchfusion -Mode lan -PublicUrl "!LAN_URL!" -OriginUrl "http://127.0.0.1:%WATCHFUSION_PORT%" >nul 2>nul
+set "LAN_HOST_URL="
+if defined LAN_IP (
+  set "LAN_URL=http://!LAN_IP!:%WATCHFUSION_PORT%/"
+  set "LAN_HOST_URL=http://!LAN_IP:.=-!.sslip.io:%WATCHFUSION_PORT%/"
+)
+if defined LAN_HOST_URL (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%EVEOS_ROOT%\tools\batch\set-exposure-state.ps1" -Service watchfusion -Mode lan -PublicUrl "!LAN_HOST_URL!" -OriginUrl "http://127.0.0.1:%WATCHFUSION_PORT%" >nul 2>nul
 ) else (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%EVEOS_ROOT%\tools\batch\set-exposure-state.ps1" -Service watchfusion -Mode lan -OriginUrl "http://127.0.0.1:%WATCHFUSION_PORT%" >nul 2>nul
 )
 
 echo.
 echo [WARN] LAN mode exposes WatchFusion to devices on this trusted local network.
-if defined LAN_URL (
-  echo [READY] !LAN_URL!
+if defined LAN_HOST_URL (
+  echo [READY] !LAN_HOST_URL!
+  echo [FALLBACK] Direct LAN IP: !LAN_URL!
 ) else (
   echo [READY] WatchFusion will bind to all interfaces on port %WATCHFUSION_PORT%.
   echo [WARN] A preferred LAN IPv4 address could not be resolved automatically.
