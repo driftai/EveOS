@@ -15,10 +15,8 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
             window.EveAudioflixInstagramUi?.createActions?.(ctx)
         ].filter(Boolean);
         const stopItemPlayback = (id, preserveProvider = false) => Promise.allSettled([window.EveAudioflixAudio?.stopItemLayers?.(id, preserveProvider), window.EveAudioflixNative?.clearVoices?.(id), window.EveAudioflixNative?.clearVoices?.('hk:' + id)]);
-        async function deleteStoredItem(item, type, id, ask = true) {
+        async function deleteStoredItem(item, type, id) {
             if (!item) return false;
-            const label = type === 'music' ? 'track' : 'sound';
-            if (ask && !window.confirm(`Delete "${item.title || label}" from Audioflix? This removes the library entry, not the source file on disk.`)) return false;
             ctx.stopRepeater(id);
             const q = ctx.activeMusicQueue || {};
             const queueIndex = type === 'music' ? (q.items || []).indexOf(id) : -1;
@@ -61,15 +59,17 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
             if (action === 'item-info') {
                 // Modal-only swap: nothing outside the settings panel changes, so do not rebuild
                 // every card (that stall is what made a playing song hitch on open).
-                if (!item) return; ctx.activeInfoItem = item; ctx.activeInfoType = type; ctx.rerenderModal();
+                if (!item) return; ctx.activeInfoItem = item; ctx.activeInfoType = type; ctx.deleteConfirmId = ''; ctx.rerenderModal();
                 if (Number(item.duration || 0) <= 0) {
                     const duration = await window.EveAudioflixTransport?.probeItem?.(item, type || item.type, { resolveProvider: true }).catch?.(() => 0);
                     if (duration > 0 && ctx.activeInfoItem?.id === item.id) ctx.rerenderModal();
                 }
                 return;
             }
-            if (action === 'delete-item') { await deleteStoredItem(item, type, id, true); return; }
-            if (action === 'close-info') { ctx.activeInfoItem = ctx.activeInfoType = null; ctx.rerenderModal(); return; }
+            if (action === 'delete-item') { if (item) { ctx.deleteConfirmId = id; ctx.rerenderModal(); } return; }
+            if (action === 'cancel-delete-item') { ctx.deleteConfirmId = ''; ctx.rerenderModal(); return; }
+            if (action === 'confirm-delete-item') { await deleteStoredItem(item, type, id); ctx.deleteConfirmId = ''; return; }
+            if (action === 'close-info') { ctx.activeInfoItem = ctx.activeInfoType = null; ctx.deleteConfirmId = ''; ctx.rerenderModal(); return; }
             if (action === 'copy-url') {
                 try {
                     await navigator.clipboard.writeText(actionTarget.dataset.afUrl || '');
@@ -406,7 +406,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 await stopItemPlayback(id, active?.browserOnly === true && String(active.item?.id || active.item?.url || '') === String(id || ''));
                 await window.EveAudioflixAudio?.playItem?.({ ...item, type: type || item.type });
             } catch (err) { ctx.playbackStatus = err.message || 'Playback failed'; ctx.rerender(); } return; }
-            if (action === 'remove') { await deleteStoredItem(item, type, id, true); return; }
+            if (action === 'remove') { if (item) { ctx.activeInfoItem = item; ctx.activeInfoType = type; ctx.deleteConfirmId = id; ctx.rerenderModal(); } return; }
             if (action === 'select-output') { try { await window.EveAudioflixAudio?.selectOutput?.(); } catch (err) { ctx.playbackStatus = err.message || 'Output selection failed'; } ctx.rerender(); return; }
             if (action === 'unlock-output-names') {
                 try { const ok = await window.EveAudioflixAudio?.unlockDeviceLabels?.(); ctx.playbackStatus = ok ? 'Output access granted.' : 'Output access still blocked here.'; }
