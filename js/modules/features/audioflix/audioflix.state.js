@@ -325,6 +325,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         state.scopeBindings = (state.scopeBindings || []).filter((binding) => !(
             binding.audioId === itemId && binding.audioType === (isMusic ? 'music' : 'sound')
         ));
+        if (state.localizeScopeDirs && typeof state.localizeScopeDirs === 'object') delete state.localizeScopeDirs[`song:${itemId}`];
         state.dupDismissedPairs = (state.dupDismissedPairs || []).filter((pair) => !String(pair).split('|').includes(itemId));
         syncRootOrFallback(state);
         scheduleSave(`audioflix-remove-${type}`);
