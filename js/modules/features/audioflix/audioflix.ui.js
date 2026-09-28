@@ -3,7 +3,7 @@ window.EveAudioflix = window.EveAudioflix || {};
     'use strict';
     const ns = window.EveAudioflix;
     if (ns.ready) return;
-    let overlay = null, activeTab = 'soundboard', lastTab = 'soundboard', playbackStatus = 'Idle', routingOpen = false, fullscreenOn = false, settingsOpen = false, addFormOpen = { sound: false, music: false }, portsOpen = false, groupsOpen = { sound: false, music: false }, foldersOpen = { music: false }, portedSounds = [], fsPortFolders = [], deadServerPorts = new Set(), collapsedGroups = {}, activeRepeaters = {}, activeInfoItem = null, activeInfoType = null;
+    let overlay = null, activeTab = 'soundboard', lastTab = 'soundboard', playbackStatus = 'Idle', routingOpen = false, fullscreenOn = false, settingsOpen = false, addFormOpen = { sound: false, music: false }, portsOpen = false, groupsOpen = { sound: false, music: false }, foldersOpen = { music: false }, portedSounds = [], fsPortFolders = [], deadServerPorts = new Set(), collapsedGroups = {}, activeRepeaters = {}, activeInfoItem = null, activeInfoType = null, deleteConfirmId = '';
     let activeMusicQueue = { groupName: '', items: [], currentIndex: -1, isPlaying: false, shuffle: false, loop: false };
     let queueTransition = Promise.resolve(), queueAdvanceKey = '', queueRunId = 0;
     const shared = window.EveAudioflixUiShared;
@@ -72,7 +72,8 @@ window.EveAudioflix = window.EveAudioflix || {};
         findItem: (t, id) => findItem(t, id),
         renderLocalizeForm: () => renderLocalizeForm(),
         getActiveRepeaters: () => activeRepeaters,
-        getLocalizeFormOpen: () => localizeFormOpen
+        getLocalizeFormOpen: () => localizeFormOpen,
+        getDeleteConfirmId: () => deleteConfirmId
     });
     const renderInfoModal = (item, type) => uiModal.renderInfoModal(item, type);
     const renderGroupAssign = (item, type) => uiModal.renderGroupAssign(item, type);
@@ -323,6 +324,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         get playbackStatus() { return playbackStatus; }, set playbackStatus(v) { playbackStatus = v; },
         get activeInfoItem() { return activeInfoItem; }, set activeInfoItem(v) { activeInfoItem = v; },
         get activeInfoType() { return activeInfoType; }, set activeInfoType(v) { activeInfoType = v; },
+        get deleteConfirmId() { return deleteConfirmId; }, set deleteConfirmId(v) { deleteConfirmId = v; },
         get activeTab() { return activeTab; }, set activeTab(v) { activeTab = v; },
         get routingOpen() { return routingOpen; }, set routingOpen(v) { routingOpen = v; },
         get settingsOpen() { return settingsOpen; }, set settingsOpen(v) { settingsOpen = v; },
@@ -352,7 +354,7 @@ window.EveAudioflix = window.EveAudioflix || {};
     const { handleAction, handleForm } = window.EveAudioflixUiActions.create(uiCtx);
     const { startHotkeyFeedbackPoll, stopHotkeyFeedbackPoll, handleHotkey } = window.EveAudioflixUiHotkeys.create(uiCtx);
 
-    const open = () => { ensureOverlay(); overlay.hidden = false; overlay.classList.toggle('is-fullscreen', fullscreenOn); setButtonExpanded(true); loadPortedSounds(); startHotkeyFeedbackPoll(); };
+    const open = () => { ensureOverlay(); overlay.hidden = false; overlay.classList.toggle('is-fullscreen', fullscreenOn); setButtonExpanded(true); loadPortedSounds().then(() => window.EveAudioflixLocalize?.auditScopeDiskStatus?.('library', '')).then(() => rerender()).catch(() => {}); startHotkeyFeedbackPoll(); };
     const close = () => { if (overlay) overlay.hidden = true; window.EveAudioflixSoundLabUi?.setVisible?.(false); window.EveAudioflixPianoUi?.setVisible?.(false); window.EveAudioflixAudio?.attachWaveform?.(null); window.EveAudioflixLinks?.clearPendingScope?.(); setButtonExpanded(false); stopHotkeyFeedbackPoll(); pushHotkeysToBridge(); };
     const openNexus = (type = 'music') => {
         activeTab = type === 'sound' ? 'soundboard' : 'music';
