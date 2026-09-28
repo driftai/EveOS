@@ -93,13 +93,13 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
     }
 
     function sync(root, playbackState) {
-        if (!root) return;
         const playback = playbackState?.item
             ? playbackState
             : (window.EveAudioflixAudio?.getPlaybackState?.() || {});
         const activeId = String(playback.item?.id || '');
         const duration = Math.max(0, Number(playback.duration || 0) || 0);
         if (duration > 0 && playback.item) persistDuration(playback.item, duration, playback.item.type);
+        if (!root) return;
         const current = Math.max(0, Math.min(duration || Infinity, Number(playback.currentTime || 0) || 0));
 
         root.querySelectorAll('[data-af-transport-id]').forEach((transport) => {
