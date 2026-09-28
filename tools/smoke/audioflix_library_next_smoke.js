@@ -30,7 +30,10 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(featurePath, 'utf8'), sandbox, { filename: featurePath });
 const api = sandbox.window.EveAudioflixLibraryNext;
+const featureSource = fs.readFileSync(featurePath, 'utf8');
 assert.equal(api.ready, true);
+assert.match(featureSource, /Queue progression has one owner/);
+assert.doesNotMatch(featureSource, /status !== 'Ended'[\s\S]{0,900}querySelector\('\[data-af-action="play"\]'\)\?\.click/);
 assert.equal(api.earliest([
     { id: 'new', createdAt: 3000 },
     { id: 'old', createdAt: 1000 },
