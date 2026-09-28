@@ -50,6 +50,7 @@ function sourceContract() {
     const clientBootstrap = read('tools/WatchFusion/public/client/bootstrap.js');
     const clientRender = read('tools/WatchFusion/public/client/render.js');
     const roomRoutes = read('tools/WatchFusion/src/server/room-routes.js');
+    const lanLauncher = read('tools/WatchFusion/scripts/START-WATCHFUSION-LAN.bat');
 
     check(!sensing.includes('127-0-0-1.sslip.io'), 'WF-SENSING-NO-SSLIP', 'watchfusion.runtime-sensing.js still includes sslip candidate origin');
     check(sensing.includes('http://127.0.0.1:'), 'WF-SENSING-LOOPBACK-CANONICAL', 'watchfusion.runtime-sensing.js missing literal loopback candidate origin');
@@ -86,6 +87,8 @@ function sourceContract() {
     check(ui.includes('data-wf-action="detach"') && !ui.includes('Open separate'), 'WF-DETACH-UI', 'WatchFusion header still uses the old separate-window action');
     check(ui.includes("mode === 'lan' || mode === 'cloudflare'") && ui.includes('snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl'), 'WF-SELECTED-EXPOSURE-URL', 'embedded and detached WatchFusion do not follow the selected Local/LAN/Cloudflare launch path');
     check(clientCore.includes("eveosShareMode !== 'local'") && clientCore.includes('return roomLink(eveosShareBaseUrl)'), 'WF-SHARE-SCOPE-LINK', 'WatchFusion does not preserve the selected LAN/Cloudflare room-sharing scope');
+    check(lanLauncher.includes('LAN_HOST_URL=http://!LAN_IP:.=-!.sslip.io:') && lanLauncher.includes('-PublicUrl "!LAN_HOST_URL!"') && lanLauncher.includes('[FALLBACK] Direct LAN IP:'), 'WF-LAN-SSLIP-EXPOSURE', 'LAN launcher does not publish sslip.io as the canonical exposure URL while retaining the raw IP fallback');
+    check(clientCore.indexOf('preferredLanHost') < clientCore.indexOf('preferredLanAddress'), 'WF-LAN-SSLIP-SHARE-LINK', 'copied LAN room links do not prefer the sslip.io host over the raw LAN IP');
     check(/watchfusion-shell-head[\s\S]*data-wf-action="stop"[\s\S]*<\/header>/.test(ui) && css.includes('[data-state="running"] .watchfusion-service-bar { display: none; }'), 'WF-COMPACT-RUNNING-CHROME', 'running WatchFusion still renders a redundant lifecycle status strip');
     check(ui.includes('/api/watchfusion/setup') && ui.includes('Install WatchFusion Core'), 'WF-CORE-UI', 'outer workspace cannot repair a fresh clone');
     check(ui.includes('data-wf-components') && ui.includes('renderComponents'), 'WF-OFFLINE-HEALTH-UI', 'stopped WatchFusion does not expose setup health in EveOS');
