@@ -15,6 +15,29 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
             window.EveAudioflixInstagramUi?.createActions?.(ctx)
         ].filter(Boolean);
         const stopItemPlayback = (id, preserveProvider = false) => Promise.allSettled([window.EveAudioflixAudio?.stopItemLayers?.(id, preserveProvider), window.EveAudioflixNative?.clearVoices?.(id), window.EveAudioflixNative?.clearVoices?.('hk:' + id)]);
+        async function deleteStoredItem(item, type, id, ask = true) {
+            if (!item) return false;
+            const label = type === 'music' ? 'track' : 'sound';
+            if (ask && !window.confirm(`Delete "${item.title || label}" from Audioflix? This removes the library entry, not the source file on disk.`)) return false;
+            ctx.stopRepeater(id);
+            const q = ctx.activeMusicQueue || {};
+            const queueIndex = type === 'music' ? (q.items || []).indexOf(id) : -1;
+            const wasCurrent = queueIndex >= 0 && q.currentIndex === queueIndex;
+            const isActive = String(window.EveAudioflixAudio?.getPlaybackState?.()?.item?.id || '') === String(id || '');
+            if (wasCurrent || isActive) await stopItemPlayback(id);
+            if (queueIndex >= 0) {
+                ctx.invalidateQueueRun?.();
+                const nextItems = q.items.filter((entryId) => entryId !== id);
+                const nextIndex = nextItems.length ? Math.min(queueIndex, nextItems.length - 1) : -1;
+                ctx.activeMusicQueue = { ...q, items: nextItems, currentIndex: nextIndex, isPlaying: q.isPlaying && nextItems.length > 0 };
+            }
+            window.EveAudioflixState?.removeItem?.(type, id);
+            if (ctx.activeInfoItem?.id === id) ctx.activeInfoItem = ctx.activeInfoType = null;
+            if (wasCurrent && ctx.activeMusicQueue?.isPlaying) await ctx.playQueueIndex(ctx.activeMusicQueue.currentIndex);
+            window.EveAudioflixAudio?.syncQueueView?.();
+            ctx.rerender();
+            return true;
+        }
         async function handleAction(actionTarget, e) {
             const action = actionTarget.dataset.afAction, id = actionTarget.dataset.afId, type = actionTarget.dataset.afType;
             if (action?.startsWith('piano-')) return window.EveAudioflixPianoUi?.handleAction?.(actionTarget, e);
@@ -45,30 +68,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 }
                 return;
             }
-            if (action === 'delete-item') {
-                if (!item) return;
-                const label = type === 'music' ? 'track' : 'sound';
-                if (!window.confirm(`Delete "${item.title || label}" from Audioflix? This removes the library entry, not the source file on disk.`)) return;
-                ctx.stopRepeater(id);
-                const q = ctx.activeMusicQueue || {};
-                const queueIndex = type === 'music' ? (q.items || []).indexOf(id) : -1;
-                const wasCurrent = queueIndex >= 0 && q.currentIndex === queueIndex;
-                if (wasCurrent || String(window.EveAudioflixAudio?.getPlaybackState?.()?.item?.id || '') === String(id || '')) {
-                    await stopItemPlayback(id);
-                }
-                if (queueIndex >= 0) {
-                    ctx.invalidateQueueRun?.();
-                    const nextItems = q.items.filter((entryId) => entryId !== id);
-                    const nextIndex = nextItems.length ? Math.min(queueIndex, nextItems.length - 1) : -1;
-                    ctx.activeMusicQueue = { ...q, items: nextItems, currentIndex: nextIndex, isPlaying: q.isPlaying && nextItems.length > 0 };
-                }
-                window.EveAudioflixState?.removeItem?.(type, id);
-                ctx.activeInfoItem = ctx.activeInfoType = null;
-                if (wasCurrent && ctx.activeMusicQueue?.isPlaying) await ctx.playQueueIndex(ctx.activeMusicQueue.currentIndex);
-                window.EveAudioflixAudio?.syncQueueView?.();
-                ctx.rerender();
-                return;
-            }
+            if (action === 'delete-item') { await deleteStoredItem(item, type, id, true); return; }
             if (action === 'close-info') { ctx.activeInfoItem = ctx.activeInfoType = null; ctx.rerenderModal(); return; }
             if (action === 'copy-url') {
                 try {
@@ -406,7 +406,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 await stopItemPlayback(id, active?.browserOnly === true && String(active.item?.id || active.item?.url || '') === String(id || ''));
                 await window.EveAudioflixAudio?.playItem?.({ ...item, type: type || item.type });
             } catch (err) { ctx.playbackStatus = err.message || 'Playback failed'; ctx.rerender(); } return; }
-            if (action === 'remove') { window.EveAudioflixState?.removeItem?.(type, id); ctx.rerender(); return; }
+            if (action === 'remove') { await deleteStoredItem(item, type, id, true); return; }
             if (action === 'select-output') { try { await window.EveAudioflixAudio?.selectOutput?.(); } catch (err) { ctx.playbackStatus = err.message || 'Output selection failed'; } ctx.rerender(); return; }
             if (action === 'unlock-output-names') {
                 try { const ok = await window.EveAudioflixAudio?.unlockDeviceLabels?.(); ctx.playbackStatus = ok ? 'Output access granted.' : 'Output access still blocked here.'; }
