@@ -53,6 +53,7 @@ function sourceContract() {
     const mediaPlayer = read('tools/WatchFusion/public/client/media-player.js');
     const roomConnection = read('tools/WatchFusion/public/client/room-connection.js');
     const continuityBridge = read('tools/WatchFusion/public/client/eveos-embed-bridge.js');
+    const roomStore = read('tools/WatchFusion/src/server/room-store.js');
     const roomRoutes = read('tools/WatchFusion/src/server/room-routes.js');
     const lanLauncher = read('tools/WatchFusion/scripts/START-WATCHFUSION-LAN.bat');
 
