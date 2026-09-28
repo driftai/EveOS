@@ -30,6 +30,8 @@ export async function runFastSmoke() {
     assert.match(html, /id="nuvioReloadBtn"/);
     assert.match(html, /id="nuvioFullBtn"/);
     assert.match(html, /id="nuvioCloseBtn"/);
+    assert.match(html, /id="chatInput"[^>]+maxlength="262144"/);
+    assert.match(html, /<textarea id="chatInput"/);
   });
 
   await check('FAST-02:source-switch-wiring', () => {
@@ -51,6 +53,19 @@ export async function runFastSmoke() {
     assert.match(toolbarLayout, /z-index:\s*70/);
     assert.match(toolbarLayout, /min-height:\s*38px/);
     assert.match(toolbarLayout, /flex-wrap:\s*nowrap/);
+  });
+
+  await check('FAST-02B:lan-room-share-and-embedded-layout-contract', () => {
+    const core = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'core.js'), 'utf8');
+    const connection = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'room-connection.js'), 'utf8');
+    const render = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'render.js'), 'utf8');
+    const style = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'style.css'), 'utf8');
+    assert.match(core, /serverLanMode && lanBaseUrl/);
+    assert.ok(core.indexOf('preferredLanAddress') < core.indexOf('preferredLanHost'));
+    assert.match(core, /function shareRoomToken\(\) \{ return joinCode \|\| roomCode \|\| roomId; \}/);
+    assert.match(connection, /replaceRoomHistory\(joinCode \|\| roomId\)/);
+    assert.match(render, /watchfusion-room-active/);
+    assert.match(style, /eveos-embedded\.watchfusion-room-active/);
   });
 
   await check('FAST-02A:nuvio-browser-plugin-bridge-contract', () => {

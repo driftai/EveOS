@@ -44,6 +44,58 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await expect(page.locator('#members')).toContainText('★');
   });
 
+  test('Embedded room creation preserves EveOS mode and reveals the party UI', async ({ page }) => {
+    await page.goto('/?eveos=1');
+    await page.click('#headerToggleBtn');
+    await page.click('#startPartyBtn');
+    await page.fill('#nameInput', 'EmbeddedHost');
+    await page.fill('#roomInput', '905');
+    await page.click('#createBtn');
+
+    await expect(page).toHaveURL(/\/watch\/905\?eveos=1$/);
+    await expect(page.locator('html')).toHaveClass(/watchfusion-room-active/);
+    await expect(page.locator('#partyPanel')).toBeVisible();
+    const columns = await page.locator('.grid').evaluate(element => getComputedStyle(element).gridTemplateColumns);
+    expect(columns.trim().split(/\s+/)).toHaveLength(2);
+  });
+
+  test('LAN share link uses the physical address and visible join code', async ({ browser }) => {
+    const hostContext = await browser.newContext();
+    const hostPage = await hostContext.newPage();
+    await hostPage.route('**/api/network-info', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        localMode: false,
+        localOnly: false,
+        requestIsVirtual: false,
+        preferredLanAddress: 'http://192.168.50.7:9087',
+        lanAddresses: ['http://192.168.50.7:9087'],
+        preferredLanHost: 'http://192-168-50-7.sslip.io:9087'
+      })
+    }));
+    await hostPage.goto('/?eveos=1');
+    await hostPage.click('#headerToggleBtn');
+    await hostPage.click('#startPartyBtn');
+    await hostPage.fill('#nameInput', 'LanHost');
+    await hostPage.fill('#roomInput', '906');
+    await hostPage.click('#createBtn');
+
+    const shareLink = await hostPage.evaluate(() => shareRoomLink());
+    expect(shareLink).toBe('http://192.168.50.7:9087/watch/906');
+
+    const viewerContext = await browser.newContext();
+    await viewerContext.addInitScript(() => localStorage.setItem('wp-name', 'LanViewer'));
+    const viewerPage = await viewerContext.newPage();
+    await viewerPage.goto('/watch/906');
+    await expect(viewerPage.locator('#partyPanel')).toBeVisible();
+    await expect(viewerPage.locator('#members')).toContainText('LanHost');
+    await expect(viewerPage.locator('#members')).toContainText('LanViewer');
+    await hostContext.close();
+    await viewerContext.close();
+  });
+
   test('Two-browser host and viewer synchronization, chat, and source load', async ({ browser }) => {
     // 1. Host creates room
     const hostContext = await browser.newContext();
@@ -81,6 +133,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
 
     await expect(viewerPage.locator('#chat')).toContainText('Welcome to the party!');
     await expect(viewerPage.locator('#chat')).toContainText('HostAlice');
+    await expect(viewerPage.locator('[data-copy-message]')).toHaveCount(1);
 
     // Viewer replies
     await viewerPage.fill('#chatInput', 'Thanks Alice!');

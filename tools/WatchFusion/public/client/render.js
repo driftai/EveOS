@@ -1,6 +1,7 @@
 function render() {
   if (!state) return;
   const inRoom=!!roomId&&!!session;
+  document.documentElement.classList.toggle('watchfusion-room-active',inRoom);
   const source=state.source||{};
   const isNuvio=source.kind==='nuvio';
   const isVoxelVision=source.kind==='voxelvision';
@@ -38,7 +39,7 @@ function render() {
 
   if($('members'))$('members').innerHTML=state.members.map(m=>{const host=m.id===state.hostId;const owner=m.accountId===state.ownerAccountId;const transfer=isHost()&&!host?`<button class="member-transfer" data-transfer-host="${m.id}" title="Make ${escapeHtml(m.name)} host">Make host</button>`:'';return `<div class="member-row"><span class="member ${host?'host':''}">${escapeHtml(m.name)}${host?' ★':''}${owner&&!host?' 👑':''}</span>${transfer}</div>`;}).join('');
   document.querySelectorAll('[data-transfer-host]').forEach(btn=>btn.addEventListener('click',async()=>{const targetMemberId=btn.getAttribute('data-transfer-host');if(!targetMemberId)return;btn.disabled=true;const ok=await command('transfer-host',{targetMemberId});if(!ok)btn.disabled=false;}));
-  if($('chat')){$('chat').innerHTML=state.messages.map(m=>`<div class="msg"><b>${escapeHtml(m.name)}</b><p>${escapeHtml(m.text)}</p></div>`).join('');$('chat').scrollTop=$('chat').scrollHeight;}
+  if($('chat')){$('chat').innerHTML=state.messages.map(m=>`<div class="msg" data-message-id="${escapeHtml(m.id)}"><div class="msg-head"><b>${escapeHtml(m.name)}</b><button type="button" class="message-copy" data-copy-message="${escapeHtml(m.id)}">Copy</button></div><p>${escapeHtml(m.text)}</p></div>`).join('');document.querySelectorAll('[data-copy-message]').forEach(button=>button.addEventListener('click',async()=>{const message=state.messages.find(item=>item.id===button.dataset.copyMessage);if(!message)return;setStatus(await copyText(message.text)?'Message copied':'Could not copy message');}));$('chat').scrollTop=$('chat').scrollHeight;}
 
   if(!sourceInputDirty&&$('sourceInput')){
     if(source.kind==='media')$('sourceInput').value=source.url||source.originalUrl||'';

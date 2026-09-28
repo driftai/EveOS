@@ -81,11 +81,19 @@ export function json(res, code, body) {
   res.end(data);
 }
 
-export async function readBody(req) {
-  let body = '';
+export async function readBody(req, { maxBytes = 256 * 1024 } = {}) {
+  const chunks = [];
+  let receivedBytes = 0;
   for await (const chunk of req) {
-    body += chunk;
-    if (body.length > 256 * 1024) throw new Error('payload too large');
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    receivedBytes += buffer.length;
+    if (receivedBytes > maxBytes) {
+      const error = new Error(`payload too large (maximum ${maxBytes} bytes)`);
+      error.code = 'PAYLOAD_TOO_LARGE';
+      throw error;
+    }
+    chunks.push(buffer);
   }
+  const body = Buffer.concat(chunks).toString('utf8');
   return body ? JSON.parse(body) : {};
 }

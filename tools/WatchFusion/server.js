@@ -75,6 +75,7 @@ export function createServer() {
       if (req.method === 'GET' || req.method === 'HEAD') return sendFile(req, res);
       return json(res, 404, { error: 'not found' });
     } catch (error) {
+      if (error?.code === 'PAYLOAD_TOO_LARGE') return json(res, 413, { error: error.message });
       console.error(error);
       return json(res, 500, { error: 'server error' });
     }

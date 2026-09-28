@@ -131,8 +131,8 @@ function saveSession(id, value) { storage.set(sessionKey(id), JSON.stringify(val
 function isHost() { return !!session && (state?.hostId === session.publicId || state?.hostId === session.memberId); }
 function setStatus(text) { $('syncStatus').textContent = text; }
 let lanBaseUrl = null;
-let lanHostBaseUrl = null;
 let lanNetworkInfo = null;
+let serverLanMode = false;
 let transportBaseUrl = '';
 let networkInfoReady = Promise.resolve();
 function apiUrl(path) { const value=String(path||''); return transportBaseUrl ? `${transportBaseUrl}${value.startsWith('/')?value:`/${value}`}` : value; }
@@ -146,24 +146,37 @@ async function loadNetworkInfo() {
     lanNetworkInfo = data;
     transportBaseUrl = data?.requestIsVirtual ? (data?.transportBridge || '') : '';
     if (transportBaseUrl) setStatus(`Virtual adapter bridged via ${transportBaseUrl}`);
-    const isLocalMode = data?.localMode === true || /^(localhost|127\.0\.0\.1|127-0-0-1\.sslip\.io)$/i.test(location.hostname);
-    if (isLocalMode) { lanBaseUrl=null; lanHostBaseUrl=null; $('copyLanBtn').hidden=true; return; }
-    lanBaseUrl = data?.preferredLanHost || data?.lanHosts?.[0] || null;
-    lanHostBaseUrl = lanBaseUrl;
+    serverLanMode = data?.localOnly === false || data?.localMode === false;
+    if (!serverLanMode) { lanBaseUrl=null; $('copyLanBtn').hidden=true; return; }
+    lanBaseUrl = data?.preferredLanAddress || data?.lanAddresses?.[0]
+      || data?.preferredLanHost || data?.lanHosts?.[0] || null;
     $('copyLanBtn').hidden = !lanBaseUrl;
   } catch {
-    if (isReachableLanHost(location.hostname)) { lanBaseUrl=location.origin; $('copyLanBtn').hidden=false; }
+    if (isReachableLanHost(location.hostname)) { serverLanMode=true; lanBaseUrl=location.origin; $('copyLanBtn').hidden=false; }
   }
 }
 function isReachableLanHost(hostname) { return /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname) || /(?:^|\.)sslip\.io$/i.test(hostname); }
-function lanRoomLink() { return lanBaseUrl && roomId ? `${lanBaseUrl}/watch/${roomId}` : null; }
-function localRoomLink() { return roomId ? `http://127.0.0.1:${location.port||'9087'}/watch/${roomId}` : null; }
+function shareRoomToken() { return joinCode || roomCode || roomId; }
+function roomLink(baseUrl) {
+  const token = shareRoomToken();
+  return baseUrl && token ? `${String(baseUrl).replace(/\/$/, '')}/watch/${encodeURIComponent(token)}` : null;
+}
+function lanRoomLink() { return roomLink(lanBaseUrl); }
+function localRoomLink() { return roomLink(`http://127.0.0.1:${location.port||'9087'}`); }
 function shareRoomLink() {
-  if (!roomId) return null;
-  if (isTryCloudflare) return `${location.origin}/watch/${roomId}`;
-  if (/^(localhost|127\.0\.0\.1|127-0-0-1\.sslip\.io)$/i.test(location.hostname)) return localRoomLink() || `${location.origin}/watch/${roomId}`;
-  if (isReachableLanHost(location.hostname)) return lanRoomLink() || `${location.origin}/watch/${roomId}`;
-  return `${location.origin}/watch/${roomId}`;
+  const token = shareRoomToken();
+  if (!token) return null;
+  if (isTryCloudflare) return roomLink(location.origin);
+  if (serverLanMode && lanBaseUrl) return lanRoomLink();
+  if (isReachableLanHost(location.hostname)) return roomLink(location.origin);
+  if (/^(localhost|127\.0\.0\.1|127-0-0-1\.sslip\.io)$/i.test(location.hostname)) return localRoomLink() || roomLink(location.origin);
+  return roomLink(location.origin);
+}
+function replaceRoomHistory(id = null) {
+  const url = new URL(location.href);
+  url.pathname = id ? `/watch/${encodeURIComponent(id)}` : '/';
+  url.hash = '';
+  history.replaceState({}, '', `${url.pathname}${url.search}`);
 }
 function displayRoomLabel() { return !roomId ? 'No room' : roomCode ? `ROOM ${roomId} · ${roomCode}` : `ROOM ${roomId}`; }
 async function copyText(value) {
@@ -179,7 +192,7 @@ function leaveRoom(message='') {
   if(pingTimer){clearInterval(pingTimer);pingTimer=null;}
   roomId=null; roomCode=null; joinCode=null; session=null; playerPrimed=false; playerInitializing=false; autoplayWasBlocked=false;
   state = null;
-  history.replaceState({},'','/');
+  replaceRoomHistory();
   app.hidden=false;
   lobby.hidden=true;
   if ($('partyDetails')) $('partyDetails').hidden = true;

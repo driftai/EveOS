@@ -42,7 +42,7 @@ body {
   background: var(--bg-primary);
   color: var(--text-main);
 }
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button {
   border: 1px solid color-mix(in srgb, var(--accent) 52%, rgba(255,255,255,.16) 48%);
   border-radius: 8px;
@@ -59,7 +59,8 @@ button:hover {
 }
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 68%, transparent);
   outline-offset: 2px;
 }
@@ -119,6 +120,7 @@ button.secondary:hover { background: var(--btn-secondary-hover); border-color: v
 .lobby input,
 .find-media-panel input,
 .chatform input,
+.chatform textarea,
 .media-result-row select {
   width: 100%;
   border: 1px solid var(--border-subtle);
@@ -132,6 +134,7 @@ button.secondary:hover { background: var(--btn-secondary-hover); border-color: v
 .lobby input:focus,
 .find-media-panel input:focus,
 .chatform input:focus,
+.chatform textarea:focus,
 .media-result-row select:focus {
   border-color: var(--accent-border);
   box-shadow: 0 0 0 2px var(--accent-glow);
@@ -157,6 +160,8 @@ button.secondary:hover { background: var(--btn-secondary-hover); border-color: v
 }
 .msg b { font-size: 12px; color: var(--accent); }
 .msg p { margin: 3px 0 0; white-space: pre-wrap; word-break: break-word; color: var(--text-main); }
+.msg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.message-copy { padding: 2px 7px; font-size: 11px; background: var(--btn-secondary-bg); border-color: var(--border-subtle); }
 .danger { border: 1px solid var(--danger-border); color: #ff8585; background: var(--danger-bg); }
 .danger:hover { background: rgba(255,77,77,.16); }
 hr { border: 0; border-top: 1px solid var(--border-card); width: 100%; margin: 16px 0; }

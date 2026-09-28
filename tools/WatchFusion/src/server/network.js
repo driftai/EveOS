@@ -6,7 +6,10 @@ const PRIVATE_LAN = /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/;
 export function networkAddresses() {
   const seen = new Set();
   const candidates = [];
-  for (const [name, entries] of Object.entries(os.networkInterfaces())) {
+  let interfaces = {};
+  try { interfaces = os.networkInterfaces() || {}; }
+  catch { interfaces = {}; }
+  for (const [name, entries] of Object.entries(interfaces)) {
     for (const entry of entries || []) {
       if (entry.family !== 'IPv4' || entry.internal || !entry.address || seen.has(entry.address)) continue;
       if (/^(127\.|169\.254\.)/.test(entry.address)) continue;

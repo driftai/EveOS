@@ -1,5 +1,11 @@
 import crypto from 'node:crypto';
-import { MAX_MESSAGES, MEMBER_STALE_MS, ROOM_TTL_MS } from './config.js';
+import {
+  MAX_CHAT_HISTORY_CHARS,
+  MAX_CHAT_MESSAGE_CHARS,
+  MAX_MESSAGES,
+  MEMBER_STALE_MS,
+  ROOM_TTL_MS
+} from './config.js';
 import { now } from './http-utils.js';
 
 const rooms = new Map();
@@ -197,9 +203,13 @@ export function pruneRooms() {
 }
 
 export function appendChat(room, member, text) {
-  const clean = String(text || '').trim().slice(0, 500);
-  if (!clean) return false;
+  const clean = String(text || '').trim();
+  if (!clean || clean.length > MAX_CHAT_MESSAGE_CHARS) return false;
   room.messages.push({ id: id(), memberId: member.id, name: member.name, text: clean, at: now() });
   if (room.messages.length > MAX_MESSAGES) room.messages.splice(0, room.messages.length - MAX_MESSAGES);
+  let historyChars = room.messages.reduce((total, message) => total + message.text.length, 0);
+  while (historyChars > MAX_CHAT_HISTORY_CHARS && room.messages.length > 1) {
+    historyChars -= room.messages.shift().text.length;
+  }
   return true;
 }

@@ -42,5 +42,8 @@ export const VOXELVISION_ROOT = path.join(PROJECT_ROOT, 'voxelvision');
 export const VOXELVISION_PUBLIC = path.join(VOXELVISION_ROOT, 'public');
 
 export const MAX_MESSAGES = 100;
+export const MAX_CHAT_MESSAGE_CHARS = 256 * 1024;
+export const MAX_CHAT_HISTORY_CHARS = 1024 * 1024;
+export const MAX_ROOM_COMMAND_BODY_BYTES = 2 * 1024 * 1024;
 export const ROOM_TTL_MS = 24 * 60 * 60 * 1000;
 export const MEMBER_STALE_MS = 120 * 1000;

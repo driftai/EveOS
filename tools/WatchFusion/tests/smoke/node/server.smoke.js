@@ -14,6 +14,8 @@ import {
   openSseStream
 } from '../helpers/http-client.js';
 import { YOUTUBE_FIXTURES } from '../fixtures/youtube.js';
+import { MAX_CHAT_MESSAGE_CHARS } from '../../../src/server/config.js';
+import { networkAddresses } from '../../../src/server/network.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 19185;
@@ -84,6 +86,7 @@ export async function runNodeSmokes() {
       assert.ok(res.json?.localAddress, 'Reports localAddress');
       assert.ok(res.json?.localHost, 'Reports localHost');
       assert.equal(res.json?.localMode, true, 'Local mode is active by default');
+      assert.doesNotThrow(() => networkAddresses(), 'Network inventory degrades safely when the host API is restricted');
     })();
 
     // 5. CORS headers on API requests
@@ -246,6 +249,22 @@ export async function runNodeSmokes() {
       assert.ok(messages?.length >= 1);
       assert.equal(messages[messages.length - 1].text, 'Hello from viewer!');
       assert.equal(messages[messages.length - 1].name, 'BobViewer');
+
+      const largePrompt = `PROMPT_START\n${'large-prompt-line\n'.repeat(8192)}PROMPT_END`;
+      assert.ok(largePrompt.length > 100000, 'Large prompt fixture exceeds the old chat limit by a wide margin');
+      const largeRes = await sendCommand(baseUrl, testRoomId, viewerMemberId, {
+        type: 'chat',
+        text: largePrompt
+      });
+      assert.equal(largeRes.status, 200, 'Large multiline prompt is accepted');
+      assert.equal(largeRes.json?.state?.messages?.at(-1)?.text, largePrompt, 'Large prompt round-trips without truncation');
+
+      const oversizedRes = await sendCommand(baseUrl, testRoomId, viewerMemberId, {
+        type: 'chat',
+        text: 'x'.repeat(MAX_CHAT_MESSAGE_CHARS + 1)
+      });
+      assert.equal(oversizedRes.status, 413, 'Oversized prompt is rejected explicitly instead of being truncated');
+      assert.equal(oversizedRes.json?.maxChars, MAX_CHAT_MESSAGE_CHARS);
 
       // Empty chat error
       const emptyRes = await sendCommand(baseUrl, testRoomId, viewerMemberId, {

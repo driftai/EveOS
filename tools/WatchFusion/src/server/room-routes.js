@@ -20,6 +20,7 @@ import {
 } from './room-store.js';
 import { json, now, readBody } from './http-utils.js';
 import { parseYoutubeUrl, youtubeUrlFromId } from './youtube.js';
+import { MAX_CHAT_MESSAGE_CHARS, MAX_ROOM_COMMAND_BODY_BYTES } from './config.js';
 
 function validAccountId(value) {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(value);
@@ -98,7 +99,7 @@ function openEvents(req, res, room) {
 }
 
 async function commandRoute(req, res, room, roomId, memberId, member) {
-  const body = await readBody(req);
+  const body = await readBody(req, { maxBytes: MAX_ROOM_COMMAND_BODY_BYTES });
   const isHost = member.id === room.hostId || memberId === room.hostId;
   if (['play', 'pause', 'seek', 'rate', 'source', 'transfer-host'].includes(body.type) && !isHost) {
     return json(res, 403, { error: 'only the current host controls this action' });
@@ -145,7 +146,12 @@ async function commandRoute(req, res, room, roomId, memberId, member) {
     room.playback.ended = false;
     room.playback.updatedAt = now();
   } else if (type === 'chat') {
-    if (!appendChat(room, member, body.text)) return json(res, 400, { error: 'empty message' });
+    const text = String(body.text || '').trim();
+    if (!text) return json(res, 400, { error: 'empty message' });
+    if (text.length > MAX_CHAT_MESSAGE_CHARS) {
+      return json(res, 413, { error: `message exceeds ${MAX_CHAT_MESSAGE_CHARS} characters`, maxChars: MAX_CHAT_MESSAGE_CHARS });
+    }
+    if (!appendChat(room, member, text)) return json(res, 400, { error: 'message rejected' });
   } else return json(res, 400, { error: 'unknown command' });
 
   room.lastActivity = now();

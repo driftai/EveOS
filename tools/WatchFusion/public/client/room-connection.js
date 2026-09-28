@@ -4,7 +4,7 @@ async function join(id, name, roomCodeHint = null) {
   if (!/^[A-Z0-9_-]{3,32}$/.test(requestedId)) return alert('Enter a valid room code');
   roomId = requestedId;
   roomCode = roomCodeHint || (/^[0-9]{1,12}$/.test(requestedId) ? requestedId : null);
-  history.replaceState({}, '', `/watch/${requestedId}`);
+  replaceRoomHistory(requestedId);
   setName(name || currentName());
   eventSource?.close(); eventSource = null;
   window.watchPartyRealtime?.stop?.();
@@ -32,7 +32,7 @@ async function join(id, name, roomCodeHint = null) {
   roomId = session.roomId || data.state?.roomId || requestedId;
   roomCode = data.state?.roomCode || session.roomCode || null;
   joinCode = data.state?.joinCode || session.joinCode || roomCode || roomId;
-  history.replaceState({}, '', `/watch/${roomId}`);
+  replaceRoomHistory(joinCode || roomId);
   saveSession(roomId, session);
   lobby.hidden = true; app.hidden = false;
   $('roomPill').textContent = displayRoomLabel();
