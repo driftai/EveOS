@@ -244,6 +244,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 const rest = ctx.shuffleQueue(q.items.filter(id => id !== currentId));
                 ctx.activeMusicQueue = { ...q, items: [currentId, ...rest], currentIndex: 0, shuffle: true };
                 ctx.playbackStatus = `Shuffled — now playing #1 of ${rest.length + 1}.`;
+                window.EveAudioflixAudio?.syncQueueView?.();
                 ctx.rerender();
                 return;
             }
