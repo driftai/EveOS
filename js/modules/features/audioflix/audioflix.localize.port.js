@@ -63,22 +63,34 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
         async function scanMusicSource(folderPath, folderName, browserFolderId = '') {
             const cleanPath = paths?.stripQuotes?.(folderPath) || text(folderPath);
             const N = window.EveAudioflixNative;
-            if (cleanPath && N?.scanLocalized) {
-                const scan = await N.scanLocalized(cleanPath);
-                return scan?.ok ? scan : { ok: false, reason: scan?.message || 'Could not scan that folder.' };
-            }
             const FS = window.EveAudioflixFsPorts;
+            if (browserFolderId && FS?.supported?.()) {
+                try {
+                    const browserScan = await FS.scanMusicFolderById(browserFolderId);
+                    if (browserScan?.ok) return browserScan;
+                } catch {}
+            }
+            let nativeReason = '';
+            if (cleanPath && N?.scanLocalized) {
+                try {
+                    const scan = await N.scanLocalized(cleanPath);
+                    if (scan?.ok) return scan;
+                    nativeReason = scan?.message || 'Could not scan that folder.';
+                } catch (error) {
+                    nativeReason = error?.message || 'Local folder scan is unavailable.';
+                }
+            }
             if (!FS?.supported?.()) {
-                return { ok: false, reason: cleanPath
+                return { ok: false, reason: nativeReason || (cleanPath
                     ? 'That path needs the EveOS localhost server, or Edge/Chrome folder access.'
-                    : 'Music Port needs Edge/Chrome folder access when localhost is off.' };
+                    : 'Music Port needs Edge/Chrome folder access when localhost is off.') };
             }
             try {
-                return browserFolderId
-                    ? await FS.scanMusicFolderById(browserFolderId)
-                    : await FS.scanMusicFolder({ nickname: text(folderName) || 'Ported Music' });
+                return await FS.scanMusicFolder({ nickname: text(folderName) || 'Ported Music' });
             } catch (error) {
-                return { ok: false, reason: error?.name === 'AbortError' ? 'Folder selection cancelled.' : (error?.message || 'Could not read that folder.') };
+                return { ok: false, reason: error?.name === 'AbortError'
+                    ? 'Folder selection cancelled.'
+                    : (error?.message || nativeReason || 'Could not read that folder.') };
             }
         }
 
