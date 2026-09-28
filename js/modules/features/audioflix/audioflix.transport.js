@@ -75,7 +75,8 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
         const volume = window.EveAudioflixState.normalizeVolume(item?.volume, 1);
         const id = esc(item?.id || '');
         const safeType = esc(type || 'sound');
-        return `<div class="audioflix-item-transport" data-af-transport-id="${id}"><span class="audioflix-time-current">0:00</span><input type="range" class="audioflix-seek-slider" min="0" max="1" step="0.05" value="0" data-af-id="${id}" aria-label="Seek ${esc(item?.title || 'audio')}" disabled><span class="audioflix-time-duration">--:--</span></div><div class="audioflix-item-volume-wrapper" title="Volume"><input type="range" class="audioflix-volume-slider" min="0" max="1" step="0.01" value="${volume}" data-af-type="${safeType}" data-af-id="${id}" style="--vol: ${volume * 100}%"><span class="audioflix-volume-label">${Math.round(volume * 100)}%</span></div>`;
+        const knownDuration = Math.max(0, Number(item?.duration || 0) || 0);
+        return `<div class="audioflix-item-transport" data-af-transport-id="${id}" data-af-duration="${knownDuration}"><span class="audioflix-time-current">0:00</span><input type="range" class="audioflix-seek-slider" min="0" max="${knownDuration || 1}" step="0.05" value="0" data-af-id="${id}" aria-label="Seek ${esc(item?.title || 'audio')}" disabled><span class="audioflix-time-duration">${knownDuration > 0 ? formatTime(knownDuration) : '--:--'}</span></div><div class="audioflix-item-volume-wrapper" title="Volume"><input type="range" class="audioflix-volume-slider" min="0" max="1" step="0.01" value="${volume}" data-af-type="${safeType}" data-af-id="${id}" style="--vol: ${volume * 100}%"><span class="audioflix-volume-label">${Math.round(volume * 100)}%</span></div>`;
     }
 
     function preview(slider) {
@@ -114,7 +115,9 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
                 if (currentLabel) currentLabel.textContent = formatTime(isCurrent ? current : 0);
             }
             const durationLabel = transport.querySelector('.audioflix-time-duration');
-            if (durationLabel) durationLabel.textContent = isCurrent && duration > 0 ? formatTime(duration) : '--:--';
+            const knownDuration = Math.max(0, Number(transport.dataset.afDuration || 0) || 0);
+            if (durationLabel) durationLabel.textContent = isCurrent && duration > 0
+                ? formatTime(duration) : (knownDuration > 0 ? formatTime(knownDuration) : '--:--');
         });
     }
 
