@@ -239,7 +239,7 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
             const allNewClassifiers = new Set();
 
             files.forEach((f) => {
-                const subFolders = extractSubfolders(f.path, rootDir);
+                const subFolders = subfoldersFor(f, rootDir);
                 fileClassifiersMap.set(f.path, subFolders);
                 subFolders.forEach((cls) => allNewClassifiers.add(cls));
             });
