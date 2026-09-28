@@ -134,17 +134,22 @@ window.EveAudioflixUiForms = window.EveAudioflixUiForms || {};
                     }
                 }
                 else if (fName === 'music-port-form') {
-                    const path = data.get('path');
+                    const path = String(data.get('path') || '').trim();
                     const folder = data.get('folder');
                     const L = window.EveAudioflixLocalize;
-                    if (L && path) {
-                        ctx.playbackStatus = 'Scanning local folder for music extraction...'; ctx.rerender();
-                        L.importMusicPort(path, folder).then(res => {
+                    if (L) {
+                        ctx.playbackStatus = path
+                            ? 'Scanning local folder for music extraction...'
+                            : 'Choose a music folder to import recursively...';
+                        ctx.rerender();
+                        L.importMusicPort(path, folder).then(async res => {
                             ctx.playbackStatus = res.ok
                                 ? (res.reason || `Extracted ${res.added} track(s) into folder tag "${res.folder}".`)
                                 : (res.reason || 'Music Port failed.');
                             if (res.ok) {
                                 ctx.musicPortFormOpen = false;
+                                await ctx.loadPortedSounds?.();
+                                window.EveAudioflixState?.flush?.('audioflix-music-port-complete');
                             }
                             ctx.rerender();
                         });
