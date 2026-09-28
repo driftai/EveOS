@@ -42,6 +42,63 @@ test('authoritative paused state stops an already-playing viewer', async ({ page
   expect(calls.pause).toBeGreaterThan(0);
 });
 
+test('a phone viewer retries blocked synchronized playback muted', async ({ page }) => {
+  await page.goto('/');
+  const calls = await page.evaluate(() => {
+    const calls = { mute: 0, play: 0 };
+    roomId = 'phone-room';
+    pendingVideoId = 'M7lc1UVf-VE';
+    session = { memberId: 'phone-member' };
+    state = {
+      hostId: 'host-member',
+      source: { type: 'youtube', videoId: pendingVideoId },
+      playback: { paused: false, ended: false, position: 10, rate: 1, updatedAt: Date.now(), projectedAt: Date.now() }
+    };
+    autoplayWasBlocked = true;
+    userGesturePrimeUsed = false;
+    ytPlayerReady = true;
+    ytPlayer = {
+      getVideoData: () => ({ video_id: pendingVideoId }), getCurrentTime: () => 10,
+      getPlayerState: () => -1, getPlaybackRate: () => 1, setPlaybackRate: () => {},
+      seekTo: () => {}, pauseVideo: () => {}, setVolume: () => {}, isMuted: () => true,
+      mute: () => { calls.mute += 1; }, unMute: () => {}, playVideo: () => { calls.play += 1; }
+    };
+    syncPlayer();
+    return calls;
+  });
+  expect(calls.mute).toBeGreaterThan(0);
+  expect(calls.play).toBeGreaterThan(0);
+});
+
+test('a tap restores audio even after the phone player was already primed', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    let unmuted = 0;
+    roomId = 'phone-room';
+    pendingVideoId = 'M7lc1UVf-VE';
+    state = { playback: { paused: false, ended: false, position: 10 } };
+    playerPrimed = true;
+    playerInitializing = true;
+    autoplayWasBlocked = true;
+    userGesturePrimeUsed = false;
+    userGesturePrimeInstalled = false;
+    window.YT = { PlayerState: { PLAYING: 1 } };
+    ytPlayerReady = true;
+    ytPlayer = {
+      getPlayerState: () => 1, playVideo: () => {}, pauseVideo: () => {}, seekTo: () => {},
+      setVolume: () => {}, isMuted: () => true, mute: () => {}, unMute: () => { unmuted += 1; }
+    };
+    installUserGesturePrime();
+    window.dispatchEvent(new Event('pointerdown'));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    return { unmuted, autoplayWasBlocked, userGesturePrimeUsed, playerInitializing };
+  });
+  expect(result.unmuted).toBeGreaterThan(0);
+  expect(result.autoplayWasBlocked).toBe(false);
+  expect(result.userGesturePrimeUsed).toBe(true);
+  expect(result.playerInitializing).toBe(false);
+});
+
 test('natural ended host state issues exactly one authoritative end pause command', async ({ page }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {

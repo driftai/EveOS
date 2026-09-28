@@ -10,6 +10,7 @@
     let embeddedSeenAt = 0;
     let embeddedUrl = '';
     let embeddedStorageAccess = null;
+    let exposureOrigin = '';
 
     function port() {
         return Number(window.EveOSPortRegistry?.get?.('WATCHFUSION_PORT')) || 0;
@@ -27,8 +28,8 @@
 
     function candidateOrigins() {
         const targetPort = port();
-        if (!targetPort) return [];
-        const values = [];
+        const values = exposureOrigin ? [exposureOrigin] : [];
+        if (!targetPort) return values;
         const pageIsLoopback = /^(127\.0\.0\.1|localhost)$/i.test(location.hostname || '');
         if (/^https?:$/.test(location.protocol) && location.hostname && !pageIsLoopback) {
             values.push(`http://${location.hostname}:${targetPort}`);
@@ -46,12 +47,25 @@
     function isCandidateOrigin(origin) {
         try {
             const parsed = new URL(origin);
+            if (exposureOrigin && parsed.origin === exposureOrigin) return true;
             return parsed.protocol === 'http:'
                 && Number(parsed.port) === port()
-                && candidateOrigins().some((value) => new URL(value).hostname === parsed.hostname);
+                && candidateOrigins().some((value) => new URL(value).origin === parsed.origin);
         } catch {
             return false;
         }
+    }
+
+    function configureExposure(snapshot) {
+        const mode = String(snapshot?.exposureMode || 'local').toLowerCase();
+        const raw = mode === 'lan' || mode === 'cloudflare' ? String(snapshot?.publicUrl || '') : '';
+        try {
+            const parsed = new URL(raw);
+            exposureOrigin = /^https?:$/.test(parsed.protocol) ? parsed.origin : '';
+        } catch {
+            exposureOrigin = '';
+        }
+        return exposureOrigin;
     }
 
     async function probeOrigin(origin, timeoutMs = 900) {
@@ -76,7 +90,7 @@
         if (preferredUrl) {
             try {
                 const parsed = new URL(preferredUrl);
-                if (Number(parsed.port) === port() && isCandidateOrigin(parsed.origin)) {
+                if (isCandidateOrigin(parsed.origin)) {
                     preferredOrigin = parsed.origin;
                 }
             } catch {}
@@ -135,6 +149,7 @@
     window.EveWatchFusionRuntimeSensor = Object.freeze({
         port,
         matchesControlStatus,
+        configureExposure,
         candidateOrigins,
         probe,
         probeOrigin,

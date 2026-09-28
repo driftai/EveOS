@@ -141,14 +141,12 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             root.append(card);
         }
     }
-    function localEveSurface() {
-        return location.protocol === 'file:' || /^(127\.0\.0\.1|localhost)$/i.test(location.hostname || '');
-    }
-    function runtimeUrl() {
-        // The host machine keeps using WatchFusion's loopback origin even when the
-        // same runtime is shared over LAN/Cloudflare. This preserves Nuvio's browser
-        // session and avoids routing local embedded traffic through an external URL.
-        const raw = String(localEveSurface() ? (status?.localUrl || status?.url || '') : (status?.url || status?.publicUrl || '')).trim();
+    function runtimeUrl(snapshot = status) {
+        const mode = String(snapshot?.exposureMode || 'local').toLowerCase();
+        const exposed = mode === 'lan' || mode === 'cloudflare';
+        const raw = String(exposed
+            ? (snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl || '')
+            : (snapshot?.localUrl || snapshot?.url || snapshot?.publicUrl || '')).trim();
         if (!raw) return null;
         try {
             const parsed = new URL(raw);
@@ -172,7 +170,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         const embeddedHref = heartbeat?.embedded ? heartbeat.embeddedUrl : '';
         try {
             const embedded = new URL(embeddedHref);
-            if (sensor()?.isCandidateOrigin?.(embedded.origin)) url = embedded;
+            if (embedded.origin === runtime.origin && sensor()?.isCandidateOrigin?.(embedded.origin)) url = embedded;
         } catch {}
         url.searchParams.delete('eveos');
         url.searchParams.delete('_wfReload');
@@ -258,8 +256,8 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         overlay.hidden = true;
         overlay.innerHTML = `
             <div class="watchfusion-shell" role="dialog" aria-modal="true" aria-labelledby="watchfusion-title">
-                <header class="watchfusion-shell-head"><div class="watchfusion-brand"><span class="watchfusion-brand-mark">◉</span><div><strong id="watchfusion-title">WatchFusion</strong><span>Media, VoxelVision, Nuvio, and WatchParty inside EveOS</span></div></div><div class="watchfusion-head-actions"><span class="watchfusion-status" data-wf-status>Checking…</span><button type="button" data-wf-action="refresh">Refresh</button><button type="button" data-wf-action="detach" title="Detach WatchFusion into its own window">↗ Detach</button><button type="button" data-wf-action="close" class="watchfusion-close" aria-label="Close WatchFusion">×</button></div></header>
-                <div class="watchfusion-service-bar"><span data-wf-message>Checking WatchFusion…</span><div><button type="button" data-wf-action="start">Start WatchFusion</button><button type="button" data-wf-action="stop" hidden>Stop</button></div></div>
+                <header class="watchfusion-shell-head"><div class="watchfusion-brand"><span class="watchfusion-brand-mark">◉</span><div><strong id="watchfusion-title">WatchFusion</strong><span>Media, VoxelVision, Nuvio, and WatchParty inside EveOS</span></div></div><div class="watchfusion-head-actions"><span class="watchfusion-status" data-wf-status>Checking…</span><button type="button" data-wf-action="refresh">Refresh</button><button type="button" data-wf-action="detach" title="Detach WatchFusion into its own window">↗ Detach</button><button type="button" data-wf-action="stop" hidden>Stop</button><button type="button" data-wf-action="close" class="watchfusion-close" aria-label="Close WatchFusion">×</button></div></header>
+                <div class="watchfusion-service-bar"><span data-wf-message>Checking WatchFusion…</span><div><button type="button" data-wf-action="start">Start WatchFusion</button></div></div>
                 <div class="watchfusion-setup" data-wf-setup hidden></div>
                 <div class="watchfusion-frame-wrap" data-frame-state="idle"><iframe class="watchfusion-frame" title="WatchFusion" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; web-share" allowfullscreen hidden></iframe><div class="watchfusion-idle"><div class="watchfusion-idle-copy"><div class="watchfusion-idle-orb">WF</div><div><strong>WatchFusion workspace</strong><span>The workspace stays available without starting its Node runtime. Browse readiness below, then start only when live media features are needed.</span></div></div><div class="watchfusion-components" data-wf-components></div><div class="watchfusion-idle-actions"><button type="button" data-wf-action="refresh">Refresh setup</button><button type="button" data-wf-action="start">Start WatchFusion</button></div></div><div class="watchfusion-frame-loading" role="status" aria-live="polite"><span class="watchfusion-frame-loading-mark">WF</span><strong>Loading WatchFusion…</strong><span data-wf-frame-detail>Waiting for the embedded workspace to finish loading.</span><button type="button" data-wf-frame-retry hidden>Retry</button></div></div>
             </div>`;
@@ -284,13 +282,12 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             controlled = await request('/api/watchfusion/status');
             controllerAvailable = true;
             controlPortCurrent = sensor()?.matchesControlStatus?.(controlled) !== false;
+            sensor()?.configureExposure?.(controlled);
         } catch {
             controllerAvailable = false;
             controlPortCurrent = null;
         }
-        const preferredRuntime = localEveSurface()
-            ? (controlled?.localUrl || controlled?.url || status?.localUrl || status?.url)
-            : (controlled?.url || controlled?.publicUrl || status?.url);
+        const preferredRuntime = runtimeUrl(controlled || status)?.href;
         const direct = await sensor()?.probe?.(controlPortCurrent === false ? null : preferredRuntime);
         if (direct) {
             const controlWasStale = controllerAvailable && (controlPortCurrent === false || controlled?.running !== true);
@@ -319,6 +316,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                 message: 'Local control is off. You can still browse WatchFusion feature areas; enable control only when you need live runtime actions.'
             };
         }
+        sensor()?.configureExposure?.(status);
         renderStatus();
         window.dispatchEvent(new CustomEvent('eve:watchfusion-status', { detail: { ...status } }));
         return status;

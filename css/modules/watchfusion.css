@@ -126,6 +126,7 @@
 }
 .watchfusion-service-bar > div { gap: 7px; }
 .watchfusion-service-bar button { padding: 5px 9px; }
+.watchfusion-overlay[data-state="running"] .watchfusion-service-bar { display: none; }
 .watchfusion-setup {
     grid-row: 3;
     display: flex;

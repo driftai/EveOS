@@ -280,6 +280,30 @@ function onYouTubeRateChange() {
 function onYouTubeVolumeChange() {
   savePlayerAudioPrefs();
 }
+function requestViewerPlayback() {
+  if (!ytPlayer || !ytPlayerReady || !state?.playback || state.playback.paused || state.playback.ended) return;
+  const mutedRetry = autoplayWasBlocked;
+  try {
+    if (mutedRetry) ytPlayer.mute?.();
+    else restorePlayerAudioPrefs();
+    ytPlayer.playVideo?.();
+  } catch {}
+  clearTimeout(requestViewerPlayback.checkTimer);
+  requestViewerPlayback.checkTimer = setTimeout(() => {
+    if (!ytPlayer || state?.playback?.paused || state?.playback?.ended) return;
+    const playingState = window.YT?.PlayerState?.PLAYING ?? 1;
+    if (ytPlayer.getPlayerState?.() === playingState) {
+      playerPrimed = true;
+      playerInitializing = false;
+      if (mutedRetry) setStatus('Synchronized playback is muted · tap WatchFusion once for audio');
+      return;
+    }
+    autoplayWasBlocked = true;
+    installUserGesturePrime();
+    try { ytPlayer.mute?.(); ytPlayer.playVideo?.(); } catch {}
+    setStatus('Starting synchronized playback muted · tap WatchFusion once for audio');
+  }, 320);
+}
 function syncPlayer(options = {}) {
   if (!roomId || !state?.source?.videoId || !ytPlayer || !ytPlayerReady) return;
   const loadedId = ytPlayer.getVideoData?.()?.video_id;

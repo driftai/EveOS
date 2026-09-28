@@ -43,9 +43,13 @@ function sourceContract() {
     const maskAssist = read('tools/WatchFusion/voxelvision/public/js/foreground-mask-assist.js');
     const sensing = read('js/modules/features/watchfusion/watchfusion.runtime-sensing.js');
     const frameCapabilities = read('js/modules/features/watchfusion/watchfusion.frame-capabilities.js');
+    const playbackSync = read('tools/WatchFusion/public/playback-sync.js');
+    const playbackCommands = read('tools/WatchFusion/public/client/commands.js');
+    const youtubePlayer = read('tools/WatchFusion/public/client/youtube-player.js');
 
     check(!sensing.includes('127-0-0-1.sslip.io'), 'WF-SENSING-NO-SSLIP', 'watchfusion.runtime-sensing.js still includes sslip candidate origin');
     check(sensing.includes('http://127.0.0.1:'), 'WF-SENSING-LOOPBACK-CANONICAL', 'watchfusion.runtime-sensing.js missing literal loopback candidate origin');
+    check(sensing.includes('function configureExposure(snapshot)') && sensing.includes('parsed.origin === exposureOrigin'), 'WF-SENSING-EXPOSURE-ORIGIN', 'LAN/Cloudflare iframe heartbeats are not restricted to the selected exposure origin');
 
     check(/^from \. import .*\bwatchfusion_control\b/m.test(helper), 'WF-CONTROL-IMPORT', 'control plane does not import WatchFusion lifecycle');
     check(helper.includes('"/api/watchfusion/status"'), 'WF-CONTROL-STATUS', 'WatchFusion status route is missing');
@@ -76,6 +80,8 @@ function sourceContract() {
     check(!ui.includes('if (status?.dependenciesReady) await setRunning(true)'), 'WF-SETUP-NO-AUTOSTART', 'core dependency setup still starts WatchFusion automatically');
     check(ui.includes("DETACHED_WINDOW_NAME = 'eveWatchFusionWindow'") && ui.includes('function detach()'), 'WF-DETACH', 'WatchFusion does not have Matrix-style named-window detach');
     check(ui.includes('data-wf-action="detach"') && !ui.includes('Open separate'), 'WF-DETACH-UI', 'WatchFusion header still uses the old separate-window action');
+    check(ui.includes("mode === 'lan' || mode === 'cloudflare'") && !ui.includes('function localEveSurface()'), 'WF-SELECTED-EXPOSURE-URL', 'embedded WatchFusion still overrides the selected LAN/Cloudflare URL with loopback');
+    check(/watchfusion-shell-head[\s\S]*data-wf-action="stop"[\s\S]*<\/header>/.test(ui) && css.includes('[data-state="running"] .watchfusion-service-bar { display: none; }'), 'WF-COMPACT-RUNNING-CHROME', 'running WatchFusion still renders a redundant lifecycle status strip');
     check(ui.includes('/api/watchfusion/setup') && ui.includes('Install WatchFusion Core'), 'WF-CORE-UI', 'outer workspace cannot repair a fresh clone');
     check(ui.includes('data-wf-components') && ui.includes('renderComponents'), 'WF-OFFLINE-HEALTH-UI', 'stopped WatchFusion does not expose setup health in EveOS');
     check(css.includes('var(--accent)') && css.includes('var(--bg-secondary)'), 'WF-THEME', 'WatchFusion shell does not consume EveOS theme tokens');
@@ -85,7 +91,7 @@ function sourceContract() {
     check(/\.watchfusion-frame-wrap\s*\{[\s\S]*?grid-row:\s*4;[\s\S]*?height:\s*100%;/.test(css), 'WF-OUTER-FRAME-GRID-ROW', 'hidden setup banner can collapse the embedded WatchFusion frame into an auto-sized grid row');
     check(css.includes('.watchfusion-frame {') && css.includes('position: absolute;') && css.includes('inset: 0;'), 'WF-OUTER-FRAME-FILL', 'outer WatchFusion iframe is not pinned to the full remaining stage');
     check(css.includes('.watchfusion-frame-loading') && ui.includes('data-frame-state="idle"') && ui.includes('watchfusion-frame-loading') && frameCapabilities.includes("setFrameState(frame, 'loading'") && frameCapabilities.includes("setFrameState(activeFrame, 'ready')"), 'WF-OUTER-FRAME-LOADING-COVER', 'embedded WatchFusion can expose a blank frame before readiness');
-    check(ui.includes('const heartbeat = sensor()?.heartbeatState?.()') && ui.includes('heartbeat?.embedded ? heartbeat.embeddedUrl') && ui.includes("url.searchParams.delete('_wfReload')"), 'WF-DETACH-ROOM-PATH', 'detached WatchFusion does not preserve the active embedded room path');
+    check(ui.includes('const heartbeat = sensor()?.heartbeatState?.()') && ui.includes('heartbeat?.embedded ? heartbeat.embeddedUrl') && ui.includes('embedded.origin === runtime.origin') && ui.includes("url.searchParams.delete('_wfReload')"), 'WF-DETACH-ROOM-PATH', 'detached WatchFusion does not preserve the active room path on the selected exposure origin');
 
     check(setupRoutes.includes("parts[1] !== 'setup'") && setupRoutes.includes("parts[2] === 'install'"), 'WF-SETUP-API', 'WatchFusion setup API is not routed');
     check(setupRoutes.includes('isHostLocalRequest') && localRequest.includes("'cf-ray'") && localRequest.includes("'cf-connecting-ip'"), 'WF-SETUP-LOCAL-ONLY', 'install actions are not protected by the centralized host-local request boundary');
@@ -103,6 +109,8 @@ function sourceContract() {
     check(innerCss.includes('grid-template-rows: minmax(0, 1fr) auto;'), 'WF-MEDIA-TOOLBAR-GRID', 'embedded media player still consumes 100% height before its toolbar is laid out');
     check(innerCss.includes('html.eveos-embedded .source-badge { display: none; }'), 'WF-EMBEDDED-TABS-WIDTH', 'redundant source badge still steals horizontal space from embedded tabs');
     check(innerCss.includes('html.eveos-embedded #partyDetails') && innerCss.includes('scrollbar-gutter: stable'), 'WF-EMBEDDED-CHAT-SCROLL', 'embedded WatchParty chat does not preserve a bounded scroll surface');
+    check(playbackCommands.includes('function requestViewerPlayback()') && playbackCommands.includes('ytPlayer.mute?.(); ytPlayer.playVideo?.();'), 'WF-MOBILE-AUTOPLAY-RETRY', 'phone viewers do not retry blocked synchronized playback muted');
+    check(playbackSync.includes('requestViewerPlayback()') && !youtubePlayer.includes('playerPrimed || !ytPlayer'), 'WF-MOBILE-AUTOPLAY-GESTURE', 'mobile autoplay recovery still rejects the post-prime user gesture');
     check(roomImageRoutes.includes('MAX_CHAT_IMAGE_BYTES') && roomImageRoutes.includes('detectedImageType') && roomImageRoutes.includes('getRoomAttachment'), 'WF-ROOM-IMAGES', 'room image transfer is missing its size, content, or retrieval boundary');
     check(staticFiles.includes("'client/setup-health.js'") && staticFiles.includes("'client/voxelvision-adapter.js'") && staticFiles.includes("'client/media-player.js'"), 'WF-CLIENT-BUNDLE', 'Setup Health or core media adapters are missing from the integrated bundle');
     check(staticFiles.includes('resolveContainedFile') && staticFiles.includes('fs.promises.realpath'), 'WF-STATIC-REALPATH-CONTAINMENT', 'main WatchFusion static serving does not realpath-check filesystem containment');

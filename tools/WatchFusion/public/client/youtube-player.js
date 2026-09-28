@@ -2,7 +2,7 @@ function installUserGesturePrime() {
   if (!roomId || userGesturePrimeInstalled) return;
   userGesturePrimeInstalled = true;
   const handler = async () => {
-    if (!roomId || playerPrimed || !ytPlayer || !ytPlayerReady || !pendingVideoId || !autoplayWasBlocked) return;
+    if (!roomId || !ytPlayer || !ytPlayerReady || !pendingVideoId || !autoplayWasBlocked) return;
     const wasApplyingRemote = applyingRemote;
     suppressAudioPersistence = true;
     applyingRemote = true;
@@ -25,6 +25,7 @@ function installUserGesturePrime() {
       autoplayWasBlocked = false;
       userGesturePrimeUsed = true;
       playerInitializing = false;
+      setStatus('Synchronized playback audio enabled');
     } catch {}
     finally {
       applyingRemote = wasApplyingRemote;
