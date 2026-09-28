@@ -42,6 +42,7 @@ let remotePollTimer = null;
 let remotePollBusy = false;
 let serverClockOffsetMs = 0;
 let serverClockRttMs = Infinity;
+let serverClockSamples = [];
 const isTryCloudflare = /(^|\.)trycloudflare\.com$/i.test(location.hostname);
 const eveosShareParams = new URLSearchParams(location.search);
 const eveosShareMode = ['lan', 'cloudflare'].includes(eveosShareParams.get('eveosShareMode')) ? eveosShareParams.get('eveosShareMode') : 'local';
@@ -161,20 +162,38 @@ function observeYouTubeAudio() {
     } else if (changed) savePlayerAudioPrefs();
   } catch {}
 }
+function medianNumber(values) {
+  if (!values.length) return 0;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
 function updateServerClock(serverTime, sentAt, receivedAt) {
   const server = Number(serverTime);
   if (!Number.isFinite(server)) return;
   const t0 = Number(sentAt), t1 = Number(receivedAt);
   if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 < t0) return;
   const rtt = t1 - t0;
-  if (rtt > serverClockRttMs) return;
-  serverClockRttMs = rtt;
-  serverClockOffsetMs = server - (t0 + rtt / 2);
+  if (!Number.isFinite(rtt) || rtt > 5000) return;
+  const offset = server - (t0 + rtt / 2);
+  serverClockSamples.push({ rtt, offset, at: t1 });
+  if (serverClockSamples.length > 12) serverClockSamples.shift();
+
+  // Do not freeze forever on the first lucky RTT. Keep a rolling set, take the
+  // lowest-latency samples, then use their median offset so one asymmetric LAN
+  // request cannot bias the viewer timeline for the whole room session.
+  const lowLatency = serverClockSamples
+    .slice()
+    .sort((a, b) => a.rtt - b.rtt)
+    .slice(0, Math.min(5, serverClockSamples.length));
+  serverClockRttMs = lowLatency.length ? lowLatency[0].rtt : rtt;
+  serverClockOffsetMs = medianNumber(lowLatency.map(sample => sample.offset));
 }
 function estimatedServerNow() { return Date.now() + serverClockOffsetMs; }
 window.watchPartyClock = {
   offsetMs: () => serverClockOffsetMs,
   rttMs: () => Number.isFinite(serverClockRttMs) ? serverClockRttMs : null,
+  sampleCount: () => serverClockSamples.length,
   now: estimatedServerNow,
   update: updateServerClock
 };
