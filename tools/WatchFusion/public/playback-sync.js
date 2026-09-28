@@ -3,7 +3,10 @@
  * Lifecycle ownership stays in commands.js; this service only converges viewers.
  */
 (() => {
-  const SUPPORTED_RATES=[0.25,0.5,0.75,1,1.25,1.5,2],SOFT_DRIFT_SEC=0.08,HARD_DRIFT_SEC=1.5,SYNC_TOLERANCE_SEC=0.04,SEEK_COOLDOWN_MS=2500,TICK_MS=250;
+  // YouTube only exposes coarse playback-rate steps. Do not speed a phone up for
+  // sub-frame / network-jitter-sized offsets; that creates the visible "phone is faster"
+  // effect we are trying to remove. Correct only sustained drift outside this deadband.
+  const SUPPORTED_RATES=[0.25,0.5,0.75,1,1.25,1.5,2],SOFT_DRIFT_SEC=0.20,HARD_DRIFT_SEC=1.25,SYNC_TOLERANCE_SEC=0.12,SEEK_COOLDOWN_MS=2500,TICK_MS=250;
   let anchorKey='',anchorPosition=0,anchorServerTime=0,seekCooldownUntil=0,lastStatus='',viewerSawEnded=false,replayKey='';
   const nearestHigherRate=base=>SUPPORTED_RATES.find(rate=>rate>base+0.001)||base;
   const nearestLowerRate=base=>{for(let i=SUPPORTED_RATES.length-1;i>=0;i--)if(SUPPORTED_RATES[i]<base-0.001)return SUPPORTED_RATES[i];return base;};
