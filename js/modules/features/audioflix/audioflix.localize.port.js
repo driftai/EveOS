@@ -1,7 +1,7 @@
 // Music Port: bring a folder tree of audio files into the library as tracks, and keep that folder
 // CONNECTED so it can be re-synced later (the same relationship an imported playlist has with its
-// source). Sub-folder names under the port root become manual classifiers on the tracks they hold,
-// so "Main/Anime/song.mp3" arrives tagged "Anime". Split out of audioflix.localize.js to keep that
+// source). Sub-folder names under the port root become manual classifiers and the containing
+// sub-folder becomes the track's music group, so "Main/Anime/song.mp3" arrives grouped as "Anime".
 // module under the project line cap.
 window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
 
@@ -60,25 +60,57 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
             return matched.length === 1 ? matched[0] : null;
         }
 
+        async function scanMusicSource(folderPath, folderName, browserFolderId = '') {
+            const cleanPath = paths?.stripQuotes?.(folderPath) || text(folderPath);
+            const N = window.EveAudioflixNative;
+            if (cleanPath && N?.scanLocalized) {
+                const scan = await N.scanLocalized(cleanPath);
+                return scan?.ok ? scan : { ok: false, reason: scan?.message || 'Could not scan that folder.' };
+            }
+            const FS = window.EveAudioflixFsPorts;
+            if (!FS?.supported?.()) {
+                return { ok: false, reason: cleanPath
+                    ? 'That path needs the EveOS localhost server, or Edge/Chrome folder access.'
+                    : 'Music Port needs Edge/Chrome folder access when localhost is off.' };
+            }
+            try {
+                return browserFolderId
+                    ? await FS.scanMusicFolderById(browserFolderId)
+                    : await FS.scanMusicFolder({ nickname: text(folderName) || 'Ported Music' });
+            } catch (error) {
+                return { ok: false, reason: error?.name === 'AbortError' ? 'Folder selection cancelled.' : (error?.message || 'Could not read that folder.') };
+            }
+        }
+
+        function subfoldersFor(file, rootDir) {
+            return Array.isArray(file?.subfolders) ? file.subfolders.map(text).filter(Boolean) : extractSubfolders(file?.path, rootDir);
+        }
+
+        function applyPortGroup(itemId, previousGroup, subFolders) {
+            const nextGroup = text(subFolders?.[subFolders.length - 1]);
+            if (previousGroup && previousGroup !== nextGroup) S()?.toggleMusicGroup?.(itemId, previousGroup, false);
+            if (nextGroup) {
+                S()?.addMusicGroup?.(nextGroup);
+                S()?.toggleMusicGroup?.(itemId, nextGroup, true);
+            }
+            return nextGroup;
+        }
+
         // Music port: scan a folder and extract all audio files into EveOS as music tracks tagged with a FOLDER (not group).
         // Physical subfolders inside the main folder path automatically become manual classifiers attached to the imported songs.
         async function importMusicPort(folderPath, folderName) {
-            const N = window.EveAudioflixNative;
-            if (!N?.scanLocalized) return { ok: false, reason: 'Music Port needs the EveOS localhost server running.' };
             const cleanPath = paths?.stripQuotes?.(folderPath) || text(folderPath);
-            if (!cleanPath) return { ok: false, reason: 'Please specify a valid folder path.' };
-            
-            const scan = await N.scanLocalized(cleanPath);
-            if (!scan?.ok) return { ok: false, reason: scan?.message || 'Could not scan that folder.' };
-            
+            const scan = await scanMusicSource(cleanPath, folderName);
+            if (!scan?.ok) return { ok: false, reason: scan?.reason || scan?.message || 'Could not scan that folder.' };
+
             const rootDir = scan.dir || cleanPath;
-            const defaultFolderName = paths?.basename?.(rootDir) || 'Ported Music';
+            const defaultFolderName = scan.rootName || paths?.basename?.(rootDir) || 'Ported Music';
             const targetFolder = text(folderName) || defaultFolderName;
             
             const files = scan.files || [];
             if (!files.length) return { ok: false, reason: 'No supported audio files found in that folder.' };
             
-            rememberDir(rootDir, 'folder', targetFolder);
+            if (!scan.browserFolderId) rememberDir(rootDir, 'folder', targetFolder);
             const C = window.EveAudioflixClassifiers;
             const allItems = musicItems();
             const usedIds = new Set();
@@ -90,7 +122,7 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
             const allNewClassifiers = new Set();
 
             files.forEach((f) => {
-                const subFolders = extractSubfolders(f.path, rootDir);
+                const subFolders = subfoldersFor(f, rootDir);
                 fileClassifiersMap.set(f.path, subFolders);
                 subFolders.forEach((cls) => allNewClassifiers.add(cls));
             });
@@ -118,9 +150,11 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
                 if (existing) {
                     usedIds.add(existing.id);
                     const mergedClassifiers = [...new Set([...(existing.classifiers || []).map(text), ...subClassifiers])].filter(Boolean);
-                    S()?.updateItem?.('music', existing.id, localizationPatch(
-                        existing, f, targetFolder, mergedClassifiers
-                    ));
+                    const portGroup = applyPortGroup(existing.id, text(existing.musicPortGroup), subClassifiers);
+                    S()?.updateItem?.('music', existing.id, {
+                        ...localizationPatch(existing, f, targetFolder, mergedClassifiers),
+                        musicPortGroup: portGroup
+                    });
                     updatedCount += 1;
                 } else {
                     const added = S()?.addItem?.('music', {
@@ -132,9 +166,12 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
                         card: targetFolder,
                         isPorted: true,
                         isMusicPort: true,
-                        classifiers: subClassifiers
+                        classifiers: subClassifiers,
+                        musicPortGroup: ''
                     });
                     if (added?.id) {
+                        const portGroup = applyPortGroup(added.id, '', subClassifiers);
+                        if (portGroup) S()?.updateItem?.('music', added.id, { musicPortGroup: portGroup });
                         usedIds.add(added.id);
                         addedCount += 1;
                     }
@@ -154,6 +191,8 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
                 id: existingConnection?.id || `port_${Date.now()}`,
                 path: rootDir,
                 folder: targetFolder,
+                browserFolderId: scan.browserFolderId || existingConnection?.browserFolderId || '',
+                browserRootName: scan.rootName || existingConnection?.browserRootName || '',
                 lastSyncedAt: Date.now(),
                 trackCount: totalProcessed
             });
@@ -171,9 +210,6 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
 
         // Re-scan a Music Ported folder path on disk, adding new tracks & flagging missing ones
         async function syncMusicPortFolder(folderName) {
-            const N = window.EveAudioflixNative;
-            if (!N?.scanLocalized) return { ok: false, reason: 'Folder sync needs the EveOS localhost server running.' };
-
             const targetFolder = text(folderName);
             if (!targetFolder) return { ok: false, reason: 'Specify a folder tag to sync.' };
 
@@ -190,14 +226,14 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
                 || text(getScopeDir?.('folder', targetFolder))
                 || text(paths?.dirname?.(firstLocal));
 
-            if (!diskPath) return { ok: false, reason: `No disk path registered for folder "${targetFolder}".` };
+            if (!diskPath && !conn?.browserFolderId) return { ok: false, reason: `No disk path or browser folder registered for "${targetFolder}".` };
 
-            const scan = await N.scanLocalized(diskPath);
-            if (!scan?.ok) return { ok: false, reason: scan?.message || 'Could not scan folder path.' };
+            const scan = await scanMusicSource(diskPath, targetFolder, conn?.browserFolderId || '');
+            if (!scan?.ok) return { ok: false, reason: scan?.reason || scan?.message || 'Could not scan folder.' };
 
             const rootDir = scan.dir || diskPath;
             const files = scan.files || [];
-            rememberDir(rootDir, 'folder', targetFolder);
+            if (!scan.browserFolderId) rememberDir(rootDir, 'folder', targetFolder);
 
             const fileClassifiersMap = new Map();
             const allNewClassifiers = new Set();
@@ -225,10 +261,9 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
                 if (existing) {
                     matchedIds.add(existing.id);
                     const mergedClassifiers = [...new Set([...(existing.classifiers || []).map(text), ...subClassifiers])].filter(Boolean);
-                    const patch = localizationPatch(existing, f, targetFolder, mergedClassifiers);
-                    if (existing.missingLocal) {
-                        restoredCount += 1;
-                    }
+                    const portGroup = applyPortGroup(existing.id, text(existing.musicPortGroup), subClassifiers);
+                    const patch = { ...localizationPatch(existing, f, targetFolder, mergedClassifiers), musicPortGroup: portGroup };
+                    if (existing.missingLocal) restoredCount += 1;
                     S()?.updateItem?.('music', existing.id, patch);
                 } else {
                     const added = S()?.addItem?.('music', {
@@ -240,9 +275,12 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
                         card: targetFolder,
                         isPorted: true,
                         isMusicPort: true,
-                        classifiers: subClassifiers
+                        classifiers: subClassifiers,
+                        musicPortGroup: ''
                     });
                     if (added?.id) {
+                        const portGroup = applyPortGroup(added.id, '', subClassifiers);
+                        if (portGroup) S()?.updateItem?.('music', added.id, { musicPortGroup: portGroup });
                         matchedIds.add(added.id);
                         addedCount += 1;
                     }
@@ -263,6 +301,8 @@ window.EveAudioflixLocalizePort = window.EveAudioflixLocalizePort || {};
                 id: conn?.id || `port_${Date.now()}`,
                 path: rootDir,
                 folder: targetFolder,
+                browserFolderId: scan.browserFolderId || conn?.browserFolderId || '',
+                browserRootName: scan.rootName || conn?.browserRootName || '',
                 lastSyncedAt: Date.now(),
                 trackCount: files.length
             });
