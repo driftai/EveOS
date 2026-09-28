@@ -76,6 +76,7 @@ function sourceContract() {
     check(control.includes('"onDemand": True') && control.includes('is never restored at EveOS boot'), 'WF-ON-DEMAND-LIFECYCLE', 'WatchFusion can still auto-restore a prior runtime session');
     check(control.includes('def start_server(*, persist: bool = False)') && control.includes('def stop_server(*, persist: bool = False)'), 'WF-NO-PERSIST-DEFAULT', 'ordinary WatchFusion start/stop still persists surprise boot state');
     check(control.includes('"components": components'), 'WF-OFFLINE-SETUP-STATUS', 'outer workspace cannot inspect components while WatchFusion is stopped');
+    check(control.includes('_runtime_json("/api/network-info")') && control.includes('network.get("localOnly") is False') && control.includes('network.get("canonicalLanHost")') && control.includes('exposureMode="lan"'), 'WF-LIVE-LAN-EXPOSURE', 'WatchFusion control does not recover the selected LAN surface from the live runtime when exposure metadata is stale');
     check(control.includes('eveos_console_prefs.headless_for("watchFusion")'), 'WF-CONSOLE', 'WatchFusion does not use its independent console preference');
     check(prefs.includes('"watchFusion"'), 'WF-CONSOLE-REGISTRY', 'WatchFusion is not registered in console preferences');
 
