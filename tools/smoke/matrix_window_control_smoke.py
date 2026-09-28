@@ -236,21 +236,19 @@ def state_transition_contract():
         FakePointerApi(2000, 1199), 1920, 1200),
         "pointer on another display must not release the primary edge cover")
 
-    edge_args = dict(near_edge=False, in_open_tray=False,
-                     reveal_state=0, target_state=taskbar_control.ABS_AUTOHIDE)
-    state, revealed = taskbar_control._next_edge_taskbar_state(
-        edge_revealed=False, at_edge=True, **edge_args)
-    assert_true(state == 0 and revealed,
-                "bottom-edge hover must reveal taskbar without keyboard selection")
-    state, revealed = taskbar_control._next_edge_taskbar_state(
-        edge_revealed=True, at_edge=False, near_edge=False, in_open_tray=True,
-        reveal_state=0, target_state=taskbar_control.ABS_AUTOHIDE)
-    assert_true(state is None and revealed,
-                "pointer inside taskbar must keep the non-activating reveal")
-    state, revealed = taskbar_control._next_edge_taskbar_state(
-        edge_revealed=True, at_edge=False, **edge_args)
-    assert_true(state == taskbar_control.ABS_AUTOHIDE and not revealed,
-                "leaving taskbar must restore immersive auto-hide")
+    edge_args = dict(near_edge=False, in_open_tray=False)
+    promote, promoted = taskbar_control._next_edge_taskbar_z_order(
+        taskbar_promoted=False, at_edge=True, **edge_args)
+    assert_true(promote is True and promoted,
+                "bottom-edge hover must raise the taskbar without changing its auto-hide state")
+    promote, promoted = taskbar_control._next_edge_taskbar_z_order(
+        taskbar_promoted=True, at_edge=False, near_edge=False, in_open_tray=True)
+    assert_true(promote is None and promoted,
+                "pointer inside taskbar must keep the non-activating overlay")
+    promote, promoted = taskbar_control._next_edge_taskbar_z_order(
+        taskbar_promoted=True, at_edge=False, **edge_args)
+    assert_true(promote is False and not promoted,
+                "leaving taskbar must return Explorer to ordinary z-order")
 
     stop = threading.Event()
     taskbar_control._SESSION.update({"token": "restore12", "originalState": 0,
