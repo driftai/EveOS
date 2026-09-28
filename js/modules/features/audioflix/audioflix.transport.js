@@ -50,12 +50,14 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
     async function probeItem(item, type, options = {}) {
         if (!item || Number(item.duration || 0) > 0) return Number(item?.duration || 0);
         const itemType = type || item.type || 'music';
-        const local = item.localPath || (!/^https?:\/\//i.test(String(item.url || '')) ? item.url : '');
-        let probeUrl = '';
+        const rawUrl = String(item.url || '');
+        const inlineBrowserUrl = /^(?:data:|blob:)/i.test(rawUrl);
+        const local = item.localPath || (!/^https?:\/\//i.test(rawUrl) && !inlineBrowserUrl ? rawUrl : '');
+        let probeUrl = inlineBrowserUrl ? rawUrl : '';
         if (local) {
             try { probeUrl = await window.EveAudioflixFsPorts?.fileUrlForPath?.(local) || ''; } catch {}
             if (!probeUrl) probeUrl = window.EveAudioflixNative?.getLocalFileUrl?.(local) || '';
-        } else {
+        } else if (!probeUrl) {
             const needsResolution = window.EveAudioflixAudioSource?.needsResolution?.(item.url) === true;
             if (!needsResolution && /^https?:\/\//i.test(String(item.url || ''))) probeUrl = item.url;
             if (!probeUrl && options.resolveProvider && needsResolution) {
