@@ -240,7 +240,9 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         }
         renderComponents();
         if (frame) {
+            const wrap = frame.closest('.watchfusion-frame-wrap');
             frame.hidden = !running;
+            if (wrap) wrap.dataset.frameState = running ? (wrap.dataset.frameState === 'ready' ? 'ready' : 'loading') : 'idle';
             if (running && frame.dataset.loaded !== '1') {
                 const nextUrl = embeddedUrl();
                 frame.dataset.loaded = nextUrl === 'about:blank' ? '' : '1';
@@ -259,7 +261,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                 <header class="watchfusion-shell-head"><div class="watchfusion-brand"><span class="watchfusion-brand-mark">◉</span><div><strong id="watchfusion-title">WatchFusion</strong><span>Media, VoxelVision, Nuvio, and WatchParty inside EveOS</span></div></div><div class="watchfusion-head-actions"><span class="watchfusion-status" data-wf-status>Checking…</span><button type="button" data-wf-action="refresh">Refresh</button><button type="button" data-wf-action="detach" title="Detach WatchFusion into its own window">↗ Detach</button><button type="button" data-wf-action="close" class="watchfusion-close" aria-label="Close WatchFusion">×</button></div></header>
                 <div class="watchfusion-service-bar"><span data-wf-message>Checking WatchFusion…</span><div><button type="button" data-wf-action="start">Start WatchFusion</button><button type="button" data-wf-action="stop" hidden>Stop</button></div></div>
                 <div class="watchfusion-setup" data-wf-setup hidden></div>
-                <div class="watchfusion-frame-wrap"><iframe class="watchfusion-frame" title="WatchFusion" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; web-share" allowfullscreen hidden></iframe><div class="watchfusion-idle"><div class="watchfusion-idle-copy"><div class="watchfusion-idle-orb">WF</div><div><strong>WatchFusion workspace</strong><span>The workspace stays available without starting its Node runtime. Browse readiness below, then start only when live media features are needed.</span></div></div><div class="watchfusion-components" data-wf-components></div><div class="watchfusion-idle-actions"><button type="button" data-wf-action="refresh">Refresh setup</button><button type="button" data-wf-action="start">Start WatchFusion</button></div></div></div>
+                <div class="watchfusion-frame-wrap" data-frame-state="idle"><iframe class="watchfusion-frame" title="WatchFusion" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; web-share" allowfullscreen hidden></iframe><div class="watchfusion-idle"><div class="watchfusion-idle-copy"><div class="watchfusion-idle-orb">WF</div><div><strong>WatchFusion workspace</strong><span>The workspace stays available without starting its Node runtime. Browse readiness below, then start only when live media features are needed.</span></div></div><div class="watchfusion-components" data-wf-components></div><div class="watchfusion-idle-actions"><button type="button" data-wf-action="refresh">Refresh setup</button><button type="button" data-wf-action="start">Start WatchFusion</button></div></div><div class="watchfusion-frame-loading" role="status" aria-live="polite"><span class="watchfusion-frame-loading-mark">WF</span><strong>Loading WatchFusion…</strong><span data-wf-frame-detail>Waiting for the embedded workspace to finish loading.</span><button type="button" data-wf-frame-retry hidden>Retry</button></div></div>
             </div>`;
         document.body.appendChild(overlay);
         frame = overlay.querySelector('.watchfusion-frame');

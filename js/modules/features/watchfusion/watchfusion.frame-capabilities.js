@@ -21,8 +21,11 @@
             surface.setAttribute('role', 'status');
             surface.setAttribute('aria-live', 'polite');
             surface.innerHTML = '<span class="watchfusion-frame-loading-mark">WF</span><strong>Loading WatchFusion…</strong><span data-wf-frame-detail>Waiting for the embedded workspace to finish loading.</span><button type="button" data-wf-frame-retry>Retry</button>';
-            surface.querySelector('[data-wf-frame-retry]')?.addEventListener('click', () => reloadFrame(frame, true));
             wrap.append(surface);
+        }
+        if (surface.dataset.retryBound !== '1') {
+            surface.querySelector('[data-wf-frame-retry]')?.addEventListener('click', () => reloadFrame(frame, true));
+            surface.dataset.retryBound = '1';
         }
         return surface;
     }

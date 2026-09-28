@@ -51,7 +51,7 @@
         if (!companionsReadyPromise) {
             companionsReadyPromise = Promise.all([
                 companionReady(
-                    'js/modules/features/watchfusion/watchfusion.frame-capabilities.js?v=b27ee4b002bd',
+                    'js/modules/features/watchfusion/watchfusion.frame-capabilities.js?v=a9c9a4d8a966',
                     'data-eve-watchfusion-frame-capabilities',
                     '__eveWatchFusionFrameCapabilitiesReady'
                 ),
@@ -75,7 +75,7 @@
             styleReadyPromise = Promise.all([
                 stylesheetReady(
                     'link[data-eve-watchfusion-style]',
-                    'css/modules/watchfusion.css?v=a74c9ce30a3a',
+                    'css/modules/watchfusion.css?v=5a1f39d32f78',
                     'eveWatchfusionStyle'
                 ),
                 stylesheetReady(

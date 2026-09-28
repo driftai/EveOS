@@ -82,8 +82,9 @@ function sourceContract() {
     check(css.includes('.watchfusion-components') && css.includes('width: 100%'), 'WF-WORKSPACE-SHELL', 'WatchFusion outer shell does not expose the full EveOS workspace/setup surface');
     check(css.includes('.watchfusion-shell-head') && css.includes('flex-direction: row;') && css.includes('flex-wrap: nowrap;'), 'WF-OUTER-HEADER-SIZING', 'outer WatchFusion header can stack vertically and consume media space');
     check(css.includes('grid-template-rows: auto auto auto minmax(0, 1fr);') && css.includes('align-content: stretch;'), 'WF-OUTER-CONTIGUOUS-ROWS', 'outer WatchFusion chrome can leave an empty strip between the header and service bar');
+    check(/\.watchfusion-frame-wrap\s*\{[\s\S]*?grid-row:\s*4;[\s\S]*?height:\s*100%;/.test(css), 'WF-OUTER-FRAME-GRID-ROW', 'hidden setup banner can collapse the embedded WatchFusion frame into an auto-sized grid row');
     check(css.includes('.watchfusion-frame {') && css.includes('position: absolute;') && css.includes('inset: 0;'), 'WF-OUTER-FRAME-FILL', 'outer WatchFusion iframe is not pinned to the full remaining stage');
-    check(css.includes('.watchfusion-frame-loading') && frameCapabilities.includes("setFrameState(frame, 'loading'") && frameCapabilities.includes("setFrameState(activeFrame, 'ready')"), 'WF-OUTER-FRAME-LOADING-COVER', 'embedded WatchFusion can expose a blank frame before readiness');
+    check(css.includes('.watchfusion-frame-loading') && ui.includes('data-frame-state="idle"') && ui.includes('watchfusion-frame-loading') && frameCapabilities.includes("setFrameState(frame, 'loading'") && frameCapabilities.includes("setFrameState(activeFrame, 'ready')"), 'WF-OUTER-FRAME-LOADING-COVER', 'embedded WatchFusion can expose a blank frame before readiness');
     check(ui.includes('const heartbeat = sensor()?.heartbeatState?.()') && ui.includes('heartbeat?.embedded ? heartbeat.embeddedUrl') && ui.includes("url.searchParams.delete('_wfReload')"), 'WF-DETACH-ROOM-PATH', 'detached WatchFusion does not preserve the active embedded room path');
 
     check(setupRoutes.includes("parts[1] !== 'setup'") && setupRoutes.includes("parts[2] === 'install'"), 'WF-SETUP-API', 'WatchFusion setup API is not routed');
@@ -94,6 +95,7 @@ function sourceContract() {
     check(setupRoutes.includes('BritishWerewolf/IS-Net-Anime'), 'WF-MODEL-ID', 'Setup Health does not report the actual anime mask model');
     check(setupHtml.includes('id="setupHealthBtn"') && setupHtml.includes('id="setupHealthGrid"'), 'WF-SETUP-HTML', 'Setup Health panel is missing from WatchFusion');
     check(setupHtml.includes("get('eveos') === '1'") && setupHtml.includes("classList.add('eveos-embedded')"), 'WF-EMBEDDED-MODE', 'embedded WatchFusion cannot opt into EveOS-native layout geometry');
+    check(setupHtml.includes('id="watchfusion-boot-theme"') && setupHtml.includes('background: #121212'), 'WF-EMBEDDED-DARK-BOOT', 'WatchFusion can flash a white document before its external theme loads');
     check(setupHtml.includes('id="resolveTabBtn"') && setupHtml.includes('id="shortcutVoxelVisionBtn"') && setupHtml.includes('id="shortcutNuvioBtn"'), 'WF-MEDIA-TABS', 'Find Media/Nuvio/VoxelVision tabs were lost in the merger');
     check(innerCss.includes('html.eveos-embedded .grid') && innerCss.includes('max-width: none') && innerCss.includes('aspect-ratio: auto'), 'WF-EMBEDDED-SIZING', 'embedded WatchFusion still uses standalone max-width/aspect constraints');
     check(innerCss.includes('html.eveos-embedded body {\n  display: flex;') && innerCss.includes('html.eveos-embedded main {\n  flex: 1 1 auto;'), 'WF-EMBEDDED-FLEX-FILL', 'embedded WatchFusion does not flex through the full EveOS stage');
