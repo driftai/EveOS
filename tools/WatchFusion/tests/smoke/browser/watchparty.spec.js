@@ -95,7 +95,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await hostPage.click('#createBtn');
 
     const shareLink = await hostPage.evaluate(() => shareRoomLink());
-    expect(shareLink).toBe('http://192.168.50.7:9087/watch/906');
+    expect(shareLink).toBe('http://192-168-50-7.sslip.io:9087/watch/906');
 
     const viewerContext = await browser.newContext();
     await viewerContext.addInitScript(() => localStorage.setItem('wp-name', 'LanViewer'));
@@ -162,6 +162,19 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await expect(hostPage.locator('.message-file-name')).toHaveText('relay.png');
     await expect(hostPage.locator('[data-copy-image]')).toHaveCount(1);
     await expect(hostPage.locator('[data-copy-image]')).toHaveText('Copy');
+
+    let nativeClipboardRequests = 0;
+    await hostPage.route('**/attachments/*/copy-local', route => {
+      nativeClipboardRequests += 1;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, copied: 'image' }) });
+    });
+    await hostPage.evaluate(() => {
+      try { Object.defineProperty(window, 'ClipboardItem', { configurable: true, value: undefined }); } catch {}
+    });
+    await hostPage.locator('[data-copy-image]').click();
+    await expect(hostPage.locator('[data-copy-image]')).toHaveText('Copied ✓');
+    await expect(hostPage.locator('#syncStatus')).toHaveText('Image copied');
+    expect(nativeClipboardRequests).toBe(1);
 
     await viewerPage.evaluate(() => {
       const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), char => char.charCodeAt(0));
