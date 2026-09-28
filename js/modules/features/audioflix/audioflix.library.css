@@ -73,6 +73,10 @@
 .audioflix-group {
     margin-bottom: 20px;
     padding: 16px;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
     border-radius: 16px;
     background: rgba(255, 255, 255, 0.012);
     border: 1px solid rgba(255, 255, 255, 0.045);
@@ -100,6 +104,12 @@
     cursor: pointer;
     font-family: inherit;
     width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    text-align: left;
     transition: color 0.15s ease;
 }
 
@@ -132,6 +142,7 @@
 }
 
 .audioflix-group-title .audioflix-group-count {
+    flex: 0 0 auto;
     color: rgba(234, 242, 246, 0.55);
     font-size: 0.74rem;
     letter-spacing: 0.04em;
@@ -337,4 +348,28 @@
 .audioflix-item-card.is-upstream-missing:hover {
     opacity: 0.85;
     filter: grayscale(0.4);
+}
+
+
+/* Long user-created group/folder/classifier labels must stay inside the library surface. */
+.audioflix-group-selector,
+.audioflix-folder-scope-selector,
+.audioflix-smart-selector,
+.audioflix-frontend-subhead {
+    min-width: 0;
+    max-width: 100%;
+}
+.audioflix-group-pill,
+.audioflix-scope-pill,
+.audioflix-group-tag {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
+}
+.audioflix-item-title-row,
+.audioflix-item-title-row strong {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
 }
