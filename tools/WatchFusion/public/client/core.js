@@ -311,6 +311,7 @@ function leaveRoom(message='') {
   if ($('syncBtn')) $('syncBtn').hidden = true;
   if ($('copyBtn')) $('copyBtn').hidden = true;
   if ($('copyLanBtn')) $('copyLanBtn').hidden = true;
+  if ($('leaveRoomBtn')) $('leaveRoomBtn').hidden = true;
   if ($('deleteRoomBtn')) $('deleteRoomBtn').hidden = true;
   $('roomPill').textContent = 'Solo';
   $('roomPill').disabled = true;
