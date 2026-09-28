@@ -201,8 +201,8 @@ async function loadNetworkInfo() {
     if (transportBaseUrl) setStatus(`Virtual adapter bridged via ${transportBaseUrl}`);
     serverLanMode = data?.localOnly === false || data?.localMode === false;
     if (!serverLanMode) { lanBaseUrl=null; $('copyLanBtn').hidden=true; return; }
-    lanBaseUrl = data?.preferredLanAddress || data?.lanAddresses?.[0]
-      || data?.preferredLanHost || data?.lanHosts?.[0] || null;
+    lanBaseUrl = data?.preferredLanHost || data?.lanHosts?.[0]
+      || data?.preferredLanAddress || data?.lanAddresses?.[0] || null;
     $('copyLanBtn').hidden = !lanBaseUrl;
   } catch {
     if (isReachableLanHost(location.hostname)) { serverLanMode=true; lanBaseUrl=location.origin; $('copyLanBtn').hidden=false; }
