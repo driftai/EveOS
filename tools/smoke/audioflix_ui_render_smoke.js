@@ -106,6 +106,19 @@ const form = loc.renderLocalizeForm();
 assert(isStr(form) && form.includes('name="mode"'), 'group localize form has the class-mode selector');
 ['value="link"', 'value="smart"', 'value="dup"'].forEach((v) => assert(form.includes(v), `mode selector offers ${v}`));
 assert(isStr(loc.renderMusicPortForm()), 'renderMusicPortForm');
+W.EveAudioflixState.updateItem('music', 'a', { isMusicPort: true, localPath: 'D:/Synthwave/Night Drive.mp3', missingLocal: true });
+W.EveAudioflixState.update({
+    musicPortConnections: [{ id: 'port-synth', path: 'D:/Synthwave', folder: 'Synthwave', browserFolderId: 'music-folder', browserRootName: 'Synthwave', trackCount: 1 }]
+}, 'port-tracker-smoke');
+const trackerLoc = W.EveAudioflixUiLocalize.create({
+    esc, closeSvg: noSvg, findItem: (t, id) => W.EveAudioflixState.ensure().music.find((m) => m.id === id) || null,
+    getLocalizeFormOpen: () => ({ open: false, scope: 'library', key: '' }),
+    getMissingListOpen: () => ({ open: false, scope: '', key: '' }),
+    getGroupPathsOpen: () => ({ open: false, key: '' }),
+    getFsPortFolders: () => [{ id: 'music-folder', nickname: 'Synthwave', rootName: 'Synthwave', purpose: 'music', permission: 'granted' }]
+});
+const trackerHtml = trackerLoc.renderMusicPortForm();
+assert(trackerHtml.includes('Music Port Tracker') && trackerHtml.includes('1 missing') && trackerHtml.includes('browser access live'), 'music port tracker reports connected folder health');
 const paths = loc.renderGroupPaths('Fav');
 assert(isStr(paths) && paths.includes('1st class'), 'group paths popover lists 1st-class folder files');
 const songLoc = loc.renderSongLocalizations(track);
