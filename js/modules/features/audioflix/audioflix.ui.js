@@ -395,14 +395,11 @@ window.EveAudioflix = window.EveAudioflix || {};
                         && activeMusicQueue.items[expectedIndex] === currentQueueId) return playQueueIndex(expectedIndex + 1);
                 }).finally(() => { if (queueAdvanceKey === advanceKey) queueAdvanceKey = ''; });
             }
-        } else if (/^(?:Playing\b|Native route playing\b)/i.test(status) && eventItemId && activeMusicQueue?.items?.length) {
-            const foundIdx = activeMusicQueue.items.indexOf(eventItemId);
-            if (foundIdx !== -1 && activeMusicQueue.currentIndex !== foundIdx) {
-                invalidateQueueRun();
-                activeMusicQueue.currentIndex = foundIdx;
-                window.EveAudioflixAudio?.syncQueueView?.();
-            }
         }
+        // Queue position is owned only by queue actions/playQueueIndex. Player lifecycle events
+        // (Paused/Stopped/late Playing from the previous provider) are observations, not commands;
+        // letting them rewrite currentIndex is what made Queue View jump and fork after a manual
+        // selection + shuffle transition.
         updateStatusDOM();
         window.EveAudioflixTransport?.sync?.(overlay);
         if (nexusState?.open) rerender();
