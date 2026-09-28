@@ -11,6 +11,7 @@ window.EveWorldBook = window.EveWorldBook || {};
     let previousBodyOverflow = '';
     let statusTimer = 0;
     let notesSaveTimer = 0;
+    let lastRunningState = false;
 
     function readPreference(key, fallback) {
         try {
@@ -87,13 +88,31 @@ window.EveWorldBook = window.EveWorldBook || {};
         }
     }
 
-    function navigateFrame(frame, source) {
-        if (!frame || frame.src === source) return;
+    function navigateFrame(frame, source, force) {
+        if (!frame) return;
+        const targetSource = String(source || 'about:blank');
+        if (!force && frame.dataset.worldBookTarget === targetSource) return;
+        frame.dataset.worldBookTarget = targetSource;
         const target = frame.contentWindow;
         if (target) {
             window.dispatchEvent(new CustomEvent('eve:world-book-frame-loading', { detail: { target } }));
         }
-        frame.src = source;
+        if (force && targetSource !== 'about:blank') {
+            frame.src = 'about:blank';
+            window.requestAnimationFrame(() => {
+                if (frame.dataset.worldBookTarget === targetSource) frame.src = targetSource;
+            });
+            return;
+        }
+        frame.src = targetSource;
+    }
+
+    function syncViewButtons(overlay, view) {
+        overlay?.querySelectorAll('[data-world-book-view]').forEach(function (button) {
+            const active = button.dataset.worldBookView === view;
+            button.classList.toggle('is-active', active);
+            button.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
     }
 
     function renderStatus(snapshot) {
@@ -144,13 +163,15 @@ window.EveWorldBook = window.EveWorldBook || {};
         }
         messages.forEach((message) => { message.textContent = snapshot.message || ''; });
 
-        if (!['world', 'portal'].includes(currentView())) return;
+        const becameOnline = running && !lastRunningState;
+        lastRunningState = running;
         overlay.classList.toggle('is-world-online', running);
+        if (!['world', 'portal'].includes(currentView())) return;
         if (running) {
             const portalUrl = `${String(snapshot.url || '').replace(/\/$/, '')}/?view=world-portal&embedded=1`;
             const active = currentView();
-            navigateFrame(worldFrame, active === 'world' ? snapshot.url : 'about:blank');
-            navigateFrame(portalFrame, active === 'portal' ? portalUrl : 'about:blank');
+            navigateFrame(worldFrame, active === 'world' ? snapshot.url : 'about:blank', becameOnline && active === 'world');
+            navigateFrame(portalFrame, active === 'portal' ? portalUrl : 'about:blank', becameOnline && active === 'portal');
         } else {
             navigateFrame(worldFrame, 'about:blank');
             navigateFrame(portalFrame, 'about:blank');
@@ -168,11 +189,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         const next = ['world', 'portal'].includes(view) ? view : 'notes';
         overlay.dataset.view = next;
         writePreference(VIEW_KEY, next);
-        overlay.querySelectorAll('[data-world-book-view]').forEach(function (button) {
-            const active = button.dataset.worldBookView === next;
-            button.classList.toggle('is-active', active);
-            button.setAttribute('aria-selected', active ? 'true' : 'false');
-        });
+        syncViewButtons(overlay, next);
         if (next === 'notes') {
             await hydrateNotes();
             requestAnimationFrame(() => overlay.querySelector('[data-world-book-notes]')?.focus());
@@ -283,6 +300,7 @@ window.EveWorldBook = window.EveWorldBook || {};
             persistNotes(event.currentTarget.value);
         });
         document.body.appendChild(overlay);
+        syncViewButtons(overlay, overlay.dataset.view || 'notes');
         setHeaderHidden(readPreference(HEADER_KEY, '0') === '1');
         return overlay;
     }
