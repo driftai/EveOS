@@ -142,7 +142,11 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         }
     }
     function runtimeUrl(snapshot = status) {
-        const raw = String(snapshot?.localUrl || snapshot?.url || snapshot?.publicUrl || '').trim();
+        const mode = String(snapshot?.exposureMode || 'local').toLowerCase();
+        const exposed = mode === 'lan' || mode === 'cloudflare';
+        const raw = String(exposed
+            ? (snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl || '')
+            : (snapshot?.localUrl || snapshot?.url || snapshot?.publicUrl || '')).trim();
         if (!raw) return null;
         try {
             const parsed = new URL(raw);
