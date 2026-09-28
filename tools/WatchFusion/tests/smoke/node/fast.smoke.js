@@ -87,6 +87,8 @@ export async function runFastSmoke() {
     assert.match(style, /eveos-embedded #partyDetails/);
     assert.match(style, /watchfusion-room-active:not\(\.eveos-embedded\) #partyDetails/);
     assert.match(style, /watchfusion-room-active:not\(\.eveos-embedded\) #mediaStage\.player-wrap:not\(\.media-stage-empty\)/);
+    assert.match(style, /height:\s*clamp\(540px, calc\(100dvh - 112px\), 760px\)/);
+    assert.match(style, /max-height:\s*min\(48dvh, 460px\)/);
     assert.match(style, /align-self:\s*stretch/);
     assert.match(style, /scrollbar-gutter:\s*stable/);
     assert.match(connection, /function resumeRoomSession/);
@@ -94,8 +96,10 @@ export async function runFastSmoke() {
     assert.match(connection, /document\.addEventListener\('visibilitychange', resumeVisibleRoom\)/);
     assert.doesNotMatch(connection, /updateServerClock\(nextState\.serverTime, Date\.now\(\), Date\.now\(\)\)/);
     assert.match(bootstrap, /updateServerClock\(data\.state\.serverTime,sentAt,receivedAt\)/);
-    assert.match(playbackSync, /SOFT_DRIFT_SEC=0\.08/);
-    assert.match(playbackSync, /SYNC_TOLERANCE_SEC=0\.04/);
+    assert.match(playbackSync, /SYNC_TOLERANCE_SEC = 0\.15/);
+    assert.match(playbackSync, /SEEK_DRIFT_SEC = 0\.65/);
+    assert.match(playbackSync, /SENSOR_MIN_SAMPLES = 5/);
+    assert.doesNotMatch(playbackSync, /nearestHigherRate|nearestLowerRate/);
     assert.match(mediaPlayer, /mediaAnchorServerTime/);
     assert.match(mediaPlayer, /mediaDriftCorrecting && absoluteDrift > 0\.04/);
     assert.match(continuityBridge, /transfer\.retryTimer = setInterval/);
