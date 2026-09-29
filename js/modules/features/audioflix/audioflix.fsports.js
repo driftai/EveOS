@@ -235,8 +235,7 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
         return '';
     }
 
-    // Health checks must inspect the CURRENT folder tree, never a cached blob URL. That lets
-    // Music Library detect a file that was moved/deleted after it was first played.
+    // Health checks inspect the CURRENT tree, never a cached blob URL, so moved files are visible.
     async function verifyPath(localPath) {
         if (!supported() || !localPath) return { verified: false, present: false };
         const browserPath = parseBrowserMusicPath(localPath);
