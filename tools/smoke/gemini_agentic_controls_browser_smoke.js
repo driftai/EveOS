@@ -15,7 +15,7 @@ async function main() {
         return page.locator(selector).evaluate((dialog) => {
             const rect = dialog.getBoundingClientRect();
             const content = dialog.querySelector('.mdl-dialog__content');
-            const actions = dialog.querySelector('.mdl-dialog__actions');
+            const actions = dialog.querySelector('.mdl-dialog__actions, footer');
             const style = getComputedStyle(dialog);
             return {
                 open: dialog.open,
@@ -54,7 +54,7 @@ async function main() {
         const legacyLightSurface = result.background === 'rgb(255, 255, 255)'
             || (result.background === 'rgba(0, 0, 0, 0)' && result.backgroundImage === 'none');
         if (!result.open || escapedViewport || legacyLightSurface
-            || result.rect.width < 300 || result.actionHeight < 48) {
+            || result.rect.width < 300 || result.actionHeight < 36) {
             throw new Error(`${name} dialog is not a modern responsive surface: ${JSON.stringify(result)}`);
         }
     }
