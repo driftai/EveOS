@@ -110,10 +110,20 @@
       imports = importsPayload.imports.map(record => ({ ...record, open: false, tree: null }));
       els.workspacePath.value = config.rootPath || "";
       document.title = `${state.project.title} - World Book`;
-      await loadPhysicalRoot();
+
+      // Paint the complete application shell immediately. Workspace enumeration can be
+      // noticeably slower on large folders and should not hold the whole UI hostage.
       setView("files");
       updateFocusDock();
-      setStatus("Ready");
+      setStatus(config.rootPath ? "Loading workspace…" : "Ready");
+      if (config.rootPath) {
+        void loadPhysicalRoot().then(() => setStatus("Ready")).catch(error => {
+          console.error(error);
+          setStatus("Workspace load failed");
+        });
+      } else {
+        loadPhysicalRoot();
+      }
     } catch (error) {
       console.error(error);
       setStatus("Startup failed");
