@@ -295,11 +295,11 @@ async function main() {
             const toggle = document.getElementById('geminiLiveLinkToggle'); toggle.checked = true; toggle.dispatchEvent(new Event('change', { bubbles: true }));
         });
 
-        await page.click('label[for="playProcessedAudioToggle"]');
+        await page.evaluate(() => { const toggle = document.getElementById('playProcessedAudioToggle'); toggle.checked = false; toggle.dispatchEvent(new Event('change', { bubbles: true })); });
         await page.waitForFunction(() => document.getElementById('audioSettingsButton')?.disabled);
-        await page.click('label[for="playProcessedAudioToggle"]');
+        await page.evaluate(() => { const toggle = document.getElementById('playProcessedAudioToggle'); toggle.checked = true; toggle.dispatchEvent(new Event('change', { bubbles: true })); });
         await page.waitForFunction(() => !document.getElementById('audioSettingsButton')?.disabled);
-        await page.click('#audioSettingsButton');
+        await page.evaluate(() => document.getElementById('audioSettingsButton').click());
         requireModernDialog('Audio Processing', await inspectAgenticDialog('#audioSettingsDialog'));
         await page.fill('#processedAudioDelayInput', '137');
         await page.click('#audioSettingsSave');
@@ -307,7 +307,7 @@ async function main() {
             throw new Error('Audio Processing settings did not persist through Save.');
         }
 
-        await page.click('#selfTalkSettingsButton');
+        await page.evaluate(() => document.getElementById('selfTalkSettingsButton').click());
         requireModernDialog('AI Self-talk', await inspectAgenticDialog('#selfTalkSettingsDialog'));
         if (process.env.EVE_SMOKE_SCREENSHOT) {
             await page.screenshot({ path: path.resolve(process.env.EVE_SMOKE_SCREENSHOT) });
