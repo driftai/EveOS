@@ -74,6 +74,7 @@ class WorldBookHandler(SimpleHTTPRequestHandler):
                     "ok": True,
                     "service": "world-book",
                     "appVersion": APP_VERSION,
+                    "instanceId": SERVER_INSTANCE_ID,
                 })
 
             if handle_recovery_get(self, parsed):
