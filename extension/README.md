@@ -1,22 +1,24 @@
-# EveOS Official Extension
+# EveOS Bridge
 
-One install includes Nexus Browser/Dex and WatchFusion Media Link. Each tool also remains independently installable from its own extension directory.
+One popup includes Nexus Browser/Dex, WatchFusion Media Link, and Tab URLs. Each tool also remains independently installable from its own extension directory.
 
 ## Install locally
 
 Run `npm run build:eveos-extension` in EveOS. In `chrome://extensions` or `edge://extensions`, enable Developer mode and load this root `extension` directory. After an update, rebuild and press Reload on the extension card. Refresh existing provider tabs once so they receive the new content scripts. Once Nexus shows connected and WatchFusion links through EveOS, separate companions may be disabled or removed.
 
-Click the EveOS toolbar button on the playing source tab to connect WatchFusion with its private pairing link. Nexus/Dex runs through the included Nexus transport. **Extension Hub** opens the side panel. This click grants Chrome's required active-tab capture authority to EveOS itself; another extension is unnecessary. Optional embedded-player access enables probing cross-origin frames. Protected media and inaccessible/custom players still depend on the site's browser interfaces.
+Click the EveOS Bridge toolbar button for the popup, then choose **Tools**, **WatchFusion**, or **Tab URLs**. No side panel or side-panel permission is used. WatchFusion's private pairing controls stay inside the popup; Nexus/Dex runs through the included Nexus transport. Opening Bridge on the playing source tab grants Chrome's required active-tab capture authority to EveOS itself; another extension is unnecessary. Optional embedded-player access enables probing cross-origin frames. Protected media and inaccessible/custom players still depend on the site's browser interfaces.
+
+**Tab URLs** collects only the originating browser window when you press Collect. It preserves tab order and duplicates, supports Copy and `.txt` export, and clears on popup close. That module makes no AI calls, uploads, history writes, or remote-font requests. Bridge's separate Nexus/WatchFusion modules retain their own intentional transport behavior.
 
 ## One source, two packages
 
 WatchFusion's **Open EveOS extension folder** action prepares the shared package automatically. The build command is also available for manual setup and updates; no companion installation is needed for the official package.
 
-`modules.json` declares canonical tool sources and worker entries. `manifest.base.json` owns the official identity and shell. `tools/extensions/assemble.cjs` composes manifest permissions/content scripts and assembles unchanged assets into ignored `extension/modules/`. These are packaging artifacts, never another maintained implementation. A tool fix applies to both packages on the next build. The assembler verifies every declared content asset and rejects unsafe paths or duplicate module IDs.
+`modules.json` declares canonical tool sources, worker entries, and optional popup pages/labels. `manifest.base.json` owns the stable Bridge identity and shell. `tools/extensions/assemble.cjs` composes manifest permissions/content scripts and assembles unchanged assets into ignored `extension/modules/`. These are packaging artifacts, never another maintained implementation. A tool fix applies to both packages on the next build. The assembler verifies every declared content/popup asset and rejects unsafe paths or duplicate module IDs. Declared tool popup pages automatically appear as tabs; included tools open there rather than launching another panel.
 
 `npm run audit:eveos-extension` checks the composed manifest. Add `-- --assets` to verify local assembled files against their sources. New first-party tools add a module declaration and narrow connector rather than tool-specific logic in the hub.
 
-Standalone directories: `tools/Nexus-Browser/extension` and `tools/WatchFusion/browser-extension`.
+Standalone directories: `tools/Nexus-Browser/extension`, `tools/WatchFusion/browser-extension`, and `tools/Tab-Collector/extension`.
 
 ## Connector protocol
 

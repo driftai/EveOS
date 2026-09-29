@@ -1,7 +1,7 @@
 :root { color-scheme: dark; font: 14px/1.45 Inter, Segoe UI, sans-serif; background: #071014; color: #d7f7ff; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 300px; background: radial-gradient(circle at 90% 0, #0c3441, transparent 42%), #071014; }
-header { padding: 22px 18px 14px; border-bottom: 1px solid #174754; }
+header { padding: 12px 18px; border-bottom: 1px solid #174754; }
 header span, h2 { color: #37defd; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
 h1 { margin: 3px 0; font-size: 23px; }
 header p, .privacy { margin: 0; color: #94b7c0; }

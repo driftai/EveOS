@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "EveOS Tab Collector",
+  "version": "1.0.0",
+  "description": "Collect and copy the URLs in your current browser window. Local, manual, and AI-free.",
+  "minimum_chrome_version": "116",
+  "permissions": ["tabs"],
+  "background": {"service_worker": "worker.js"},
+  "action": {"default_title": "EveOS Tab Collector", "default_popup": "popup.html"},
+  "externally_connectable": {"ids": ["doioapjnmiknkdigmdoapoahlhcaikag"]}
+}

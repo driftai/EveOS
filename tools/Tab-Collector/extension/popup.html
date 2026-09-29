@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>EveOS Tab Collector</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <h1>Tab URLs</h1>
+  <p>Collect every tab in this window, in tab order.</p>
+  <button id="collect" type="button">Collect this window</button>
+  <label for="urls">Collected URLs</label>
+  <textarea id="urls" readonly placeholder="Press Collect to get this window’s URLs."></textarea>
+  <nav><button id="copy" type="button" disabled>Copy URLs</button><button id="export" type="button" disabled>Save .txt</button><button id="clear" type="button" disabled>Clear</button></nav>
+  <p id="status" role="status" aria-live="polite">Not collected yet.</p>
+  <small>No AI, uploads, tracking, or saved history. Copy/export only when you choose.</small>
+  <script src="collector.js"></script><script src="popup.js"></script>
+</body></html>

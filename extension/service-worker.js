@@ -4,14 +4,6 @@ const protocol = globalThis.EveOSExtensionProtocol;
 const catalog = globalThis.EveOSExtensionCatalog;
 const discovery = globalThis.EveOSExtensionDiscovery.create({ chromeApi: chrome, fetchImpl: fetch });
 
-async function enablePanel() {
-  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
-}
-
-chrome.runtime.onInstalled.addListener(enablePanel);
-chrome.runtime.onStartup.addListener(enablePanel);
-void enablePanel();
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id || message?.channel !== protocol.UI_CHANNEL) return;
   (async () => {
@@ -34,6 +26,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .find(item => item.extensionId === message.extensionId && (!message.id || item.id === message.id));
       if (!connector) return { ok: false, code: 'UNKNOWN_CONNECTOR' };
       const invoke = message.type === 'invoke-connector';
+      if (!invoke && connector.integration === 'included'
+          && globalThis.EveOSExtensionModuleEntries.some(item => item.id === connector.moduleId && item.popup)) {
+        return { ok: true, detail: { uiModule: connector.moduleId } };
+      }
       if (invoke && !(connector.actions || []).some(action => action.id === message.action)) {
         return { ok: false, code: 'UNKNOWN_CONNECTOR_ACTION' };
       }

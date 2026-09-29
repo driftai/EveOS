@@ -48,7 +48,11 @@ function plan(root = ROOT) {
       files.set(prefix + relative, fs.readFileSync(full));
     }
     if (!files.has(prefix + module.entry)) throw new Error(`Missing module entry: ${module.id}`);
-    roots[module.id] = prefix; entries.push({ id: module.id, entry: module.entry });
+    if (module.popup && (!/^[a-z0-9/-]+\.html$/i.test(module.popup) || !files.has(prefix + module.popup))) {
+      throw new Error(`Missing/invalid module popup: ${module.id}`);
+    }
+    roots[module.id] = prefix; entries.push({ id: module.id, entry: module.entry,
+      ...(module.popup ? { popup: prefix + module.popup, label: module.label || module.id } : {}) });
   }
   for (const group of manifest.content_scripts || []) {
     for (const file of [...(group.js || []), ...(group.css || [])]) {

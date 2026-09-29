@@ -6,6 +6,7 @@ const http = require('node:http');
 const { chromium } = require('playwright');
 const { WebSocketServer } = require('ws');
 const { audit, build } = require('./assemble.cjs');
+const { qualifyTabPopup } = require('./tab-collector-browser.cjs');
 const ROOT = path.resolve(__dirname, '../..');
 
 const mediaHtml = iframe => `<!doctype html><html><body style="margin:0;height:2200px;background:#802050">
@@ -34,7 +35,8 @@ async function qualifyBrowser() {
   const variants = [
     { id: 'official', source: 'extension', media: 'modules/watchfusion/', nexus: 'modules/nexus-browser/' },
     { id: 'watchfusion-standalone', source: 'tools/WatchFusion/browser-extension', media: '', nexus: null },
-    { id: 'nexus-standalone', source: 'tools/Nexus-Browser/extension', media: null, nexus: '' }
+    { id: 'nexus-standalone', source: 'tools/Nexus-Browser/extension', media: null, nexus: '' },
+    { id: 'collector-standalone', source: 'tools/Tab-Collector/extension', media: null, nexus: null }
   ];
   try {
     for (const variant of variants) {
@@ -61,20 +63,23 @@ async function qualifyBrowser() {
         await worker.evaluate(() => new Promise(resolve => setTimeout(resolve, 300)));
         if (variant.id === 'official') {
           const descriptors = await worker.evaluate(() => EveOSExtensionModules.describe());
-          assert.deepEqual(descriptors.map(value => value.id).sort(), ['nexus-browser', 'watchfusion']);
+          assert.deepEqual(descriptors.map(value => value.id).sort(), ['nexus-browser', 'tab-collector', 'watchfusion']);
           assert(descriptors.every(value => value.integration === 'included'));
           const hub = await context.newPage();
-          await hub.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+          await hub.goto(`chrome-extension://${extensionId}/hub.html`);
           await hub.getByText('INCLUDED', { exact: true }).first().waitFor();
-          assert.equal(await hub.getByText('INCLUDED', { exact: true }).count(), 2);
+          assert.equal(await hub.getByText('INCLUDED', { exact: true }).count(), 3);
           await hub.locator('[data-open-connector][data-connector-id="watchfusion"]').evaluate(el => {
             const r = el.getBoundingClientRect(); if (!r.width || !r.height) throw new Error('Hidden tool action');
           });
           await hub.close(); pass += 2;
           const popup = await context.newPage();
           await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-          await popup.frameLocator('iframe').locator('#connect').waitFor();
-          assert.equal(await popup.locator('iframe').getAttribute('src'), 'modules/watchfusion/popup.html');
+          await popup.getByRole('tab', { name: 'WatchFusion', exact: true }).click();
+          await popup.frameLocator('#view-watchfusion').locator('#connect').waitFor();
+          assert((await popup.locator('#view-watchfusion').getAttribute('src')).startsWith('modules/watchfusion/popup.html?windowId='));
+          assert.equal(await popup.locator('body').evaluate(el => el.getBoundingClientRect().height), 570);
+          await popup.screenshot({ path: path.join(resultDir, 'bridge-popup.png') });
           await popup.close(); pass++;
         }
         if (variant.nexus != null) {
@@ -129,6 +134,11 @@ async function qualifyBrowser() {
           assert.equal(await frame.locator('video').getAttribute('style'), 'width:600px;height:420px');
           assert.equal(await page.locator('iframe').getAttribute('style'), 'width:600px;height:420px');
           await page.close(); pass += 4;
+        }
+        if (variant.id === 'official' || variant.id === 'collector-standalone') {
+          pass += await qualifyTabPopup(context, worker, { extensionId,
+            prefix: variant.id === 'official' ? 'modules/tab-collector/' : '',
+            base: `http://127.0.0.1:${port}`, main: variant.id === 'official' });
         }
       } catch (error) {
         if (page && !page.isClosed()) await page.screenshot({ path: path.join(resultDir, `${variant.id}-failure.png`) }).catch(() => {});

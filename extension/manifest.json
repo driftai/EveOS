@@ -1,12 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "EveOS Official Extension",
-  "version": "0.2.0",
-  "description": "EveOS browser tools in one extension: Nexus, Dex, WatchFusion, and compatible companions.",
+  "name": "EveOS Bridge",
+  "version": "0.3.0",
+  "description": "Nexus, Dex, WatchFusion, and local tab collection in one EveOS browser popup.",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage",
-    "sidePanel",
     "tabs",
     "scripting",
     "activeTab",
@@ -32,11 +31,8 @@
     "service_worker": "service-worker-entry.js"
   },
   "action": {
-    "default_title": "EveOS browser tools",
+    "default_title": "EveOS Bridge",
     "default_popup": "popup.html"
-  },
-  "side_panel": {
-    "default_path": "sidepanel.html"
   },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzOat9lk4CsVQa3/pbnVj6c4YBvTgr9ppCQnjKqU+X/Zi+A2PNtg7SjiyaoCEY0PAMExaWe1kT6dPNwG2oMkRluPWS+lI4EPH9ZbTNJKQnDDJkryz7kDo4Kvrjvr86avJZtsmvugUViwA7iCGVDe7n1zIi0p4FKY2abrMd8+C/lVCL6MrHYy0jYAftyxKhiec/D1MLbnnw3dwgS7ngIXfvw3DdeEOhLBFaiaxlRIqYfM5ln4e5JasKEQ3cLh1O4s4xYB72z5ksTp5etYgk4jTMikljC/fCFexIY9Ss1EGSlkb4M83e/TxBFhwjPiRSlyv8cwag9XVqFjVJ+6AEVW8HwIDAQAB",
   "content_scripts": [

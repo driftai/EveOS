@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>EveOS</title><link rel="stylesheet" href="popup.css"></head>
+<html lang="en"><head><meta charset="utf-8"><title>EveOS Bridge</title><link rel="stylesheet" href="popup.css"></head>
 <body>
-  <header><strong>EveOS</strong><span>All your browser tools</span></header>
-  <nav><button id="openHub">Extension Hub</button><button id="openNexus">Nexus / Dex</button><button id="openEveOS">EveOS</button></nav>
-  <iframe src="modules/watchfusion/popup.html" title="WatchFusion Media Link"></iframe>
+  <header><strong>EveOS Bridge</strong><span>Your browser tools</span></header>
+  <nav aria-label="Browser tools" role="tablist"></nav>
+  <main id="views"></main>
   <p id="popupStatus" role="status"></p>
-  <script src="core/catalog.js"></script><script src="popup.js"></script>
+  <script src="modules/config.js"></script><script src="popup.js"></script>
 </body></html>

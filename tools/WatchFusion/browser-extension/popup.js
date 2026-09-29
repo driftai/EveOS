@@ -70,7 +70,7 @@ async function restorePreparedLink() {
       return;
     }
   } catch {}
-  status('Prepared by EveOS Hub. Press Connect once to approve this WatchFusion server.');
+  status('Prepared by EveOS Bridge. Press Connect once to approve this WatchFusion server.');
 }
 
 void chrome.runtime.sendMessage({ to: 'worker', type: 'status' }).then(result => {

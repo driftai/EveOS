@@ -39,7 +39,7 @@ async function send(type, detail = {}) {
 async function refresh(type = 'refresh') {
   status.textContent = type === 'scan' ? 'Discovering EveOS companions...' : 'Refreshing EveOS...';
   const result = await send(type);
-  if (!result?.ok) throw new Error(result?.message || result?.code || 'Extension Hub request failed.');
+  if (!result?.ok) throw new Error(result?.message || result?.code || 'EveOS Bridge request failed.');
   render(result.snapshot);
 }
 
@@ -57,6 +57,7 @@ document.addEventListener('click', async event => {
     } else if (target.dataset.openConnector) {
       const result = await send('open-connector', { extensionId: target.dataset.openConnector, id: target.dataset.connectorId });
       if (!result?.ok) throw new Error(result?.message || result?.code || 'Companion could not be opened.');
+      if (result.detail?.uiModule) parent.postMessage({ channel: 'eveos.bridge.navigate.v1', moduleId: result.detail.uiModule }, location.origin);
     } else if (target.dataset.invokeConnector) {
       const extensionId = target.dataset.invokeConnector;
       const action = target.dataset.actionId;

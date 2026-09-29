@@ -11,7 +11,10 @@ const json = (...parts) => JSON.parse(read(...parts));
 async function main() {
   const manifest = json('extension', 'manifest.json');
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.side_panel.default_path, 'sidepanel.html');
+  assert.equal(manifest.name, 'EveOS Bridge');
+  assert.equal(manifest.action.default_popup, 'popup.html');
+  assert.equal(manifest.side_panel, undefined);
+  assert(!manifest.permissions.includes('sidePanel'));
   assert.equal(typeof manifest.key, 'string');
   assert(manifest.key.length > 100, 'official hub must have a stable unpacked-extension ID');
   assert(manifest.optional_permissions.includes('management'));
@@ -19,9 +22,10 @@ async function main() {
   assert(!JSON.stringify(manifest).includes('<all_urls>'));
   assert(manifest.permissions.includes('tabCapture') && manifest.permissions.includes('scripting'));
   const assembly = require('../extensions/assemble.cjs').audit();
-  assert.equal(assembly.registry.length, 2);
+  assert.equal(assembly.registry.length, 3);
   assert(assembly.files.has('modules/nexus-browser/content/chatgpt.js'));
   assert(assembly.files.has('modules/watchfusion/offscreen.html'));
+  assert(assembly.files.has('modules/tab-collector/popup.html'));
   assert(manifest.content_scripts.every(group => group.js.every(file => file.startsWith('modules/nexus-browser/'))));
   for (const [file, bytes] of assembly.files) {
     if (file === 'modules/config.js') continue;
@@ -102,9 +106,10 @@ async function main() {
     assert(!/(cookie|history|conversation|prompt)/i.test(source));
   }
 
-  const panel = read('extension', 'sidepanel.html');
+  const panel = read('extension', 'hub.html');
   const docs = read('extension', 'README.md');
-  assert(panel.includes('Nexus, Dex, and WatchFusion are included'));
+  assert(panel.includes('Nexus, Dex, WatchFusion, and Tab URLs are included'));
+  assert(!read('extension', 'popup.js').includes('sidePanel'));
   assert(docs.includes('versioned `eveos.extension.v1`'));
   assert(docs.includes('Standalone + hub rule'));
   assert(docs.includes('never another maintained implementation'));
@@ -112,8 +117,9 @@ async function main() {
   assert.equal(descriptor.moduleId, 'watchfusion');
   assert.equal(descriptor.integration, 'included');
   const media = await require('../extensions/media-regression.cjs').qualifyMediaWorker();
+  const tabs = await require('../extensions/tab-collector-regression.cjs').qualifyTabCollector();
   const browser = process.argv.includes('--browser') ? await require('../extensions/qualify-browser.cjs').qualifyBrowser() : 0;
-  console.log(`EVEOS_EXTENSION_HUB_SMOKE_OK media=${media} browser=${browser}`);
+  console.log(`EVEOS_EXTENSION_HUB_SMOKE_OK media=${media} tabs=${tabs} browser=${browser}`);
 }
 
 main().catch(error => {
