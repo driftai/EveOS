@@ -51,7 +51,9 @@ def assert_static_contract() -> None:
     assert "world-book.client.js" in html
     assert "world-book.offline.js" in html
     assert "world-book.offline.css" in html
+    assert "world-book.overlay.template.js" in html
     assert "world-book.overlay.js" in html
+    assert html.index("world-book.overlay.template.js") < html.index("world-book.overlay.js")
     assert "world-book.narration.clips.js" in html
     assert html.index("world-book.narration.clips.js") < html.index("world-book.narration.runtime.js")
     client = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.client.js").read_text(encoding="utf-8")
