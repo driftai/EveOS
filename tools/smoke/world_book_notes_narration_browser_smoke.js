@@ -130,24 +130,27 @@ async function main() {
 
             localStorage.removeItem('eveWorldBookNarrationClipRecipesV1');
             const clipApi = window.EveWorldBookNarrationClips;
+            const clipOne = `${'Alpha '.repeat(55).trim()}.`;
+            const clipTwo = `${'Beta '.repeat(65).trim()}.`;
+            const clipTwoChanged = `${clipTwo} Changed.`;
             clipApi.load({
                 id: 'eveos:scratchpad',
                 title: 'EveOS Scratchpad',
-                text: 'First clip. Second clip.',
+                text: `${clipOne} ${clipTwo}`,
                 kind: 'scratchpad',
                 locator: 'EveOS / Notes / Scratchpad'
             }, { engine: 'browser', browserVoice: 'Voice A', geminiVoice: 'Aoede' });
             clipApi.markRendered(0, { engine: 'browser', browserVoice: 'Voice A', geminiVoice: 'Aoede' });
             clipApi.choose(1, { engine: 'gemini', geminiVoice: 'Kore' });
             clipApi.markRendered(1, { engine: 'gemini', geminiVoice: 'Kore', browserVoice: 'Voice A' });
-            const changedPlan = clipApi.preview('First clip. Second clip changed.', {
+            const changedPlan = clipApi.preview(`${clipOne} ${clipTwoChanged}`, {
                 engine: 'browser', browserVoice: 'Voice A', geminiVoice: 'Aoede'
             });
             const changedBeforeReload = changedPlan.map(item => ({
                 dirty: item.dirty, engine: item.engine, browserVoice: item.browserVoice,
                 geminiVoice: item.geminiVoice, storedKind: item.storedKind
             }));
-            clipApi.setProvider(() => ({ text: 'First clip. Second clip changed.' }));
+            clipApi.setProvider(() => ({ text: `${clipOne} ${clipTwoChanged}` }));
             const changedAfterReload = clipApi.reload({ engine: 'browser', browserVoice: 'Voice A', geminiVoice: 'Aoede' })
                 .map(item => ({ dirty: item.dirty, engine: item.engine, geminiVoice: item.geminiVoice }));
 
