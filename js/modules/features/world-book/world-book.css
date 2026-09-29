@@ -147,9 +147,34 @@
 }
 
 .notes-world-book-actions [data-world-book-fullscreen],
-.notes-world-book-actions [data-world-book-header-toggle] {
+.notes-world-book-actions [data-world-book-header-toggle],
+.notes-world-book-actions [data-world-book-reload] {
     width: 36px;
     padding: 0;
+}
+
+.notes-world-book-detach-state {
+    min-width: 58px;
+    padding: 5px 8px;
+    border: 1px solid rgba(114, 152, 158, 0.3);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-size: 0.66rem;
+    text-align: center;
+}
+.notes-world-book-detach-state[data-state="detached"] {
+    border-color: rgba(93, 220, 233, 0.5);
+    background: rgba(17, 94, 103, 0.28);
+    color: #9cf6fb;
+}
+.notes-world-book-detach.is-detached {
+    border-color: rgba(93, 220, 233, 0.5);
+    box-shadow: 0 0 14px rgba(93, 220, 233, 0.1);
+}
+
+.notes-world-book-overlay[data-view="notes"] [data-world-book-reload],
+.notes-world-book-overlay[data-view="notes"] .notes-world-book-detach-state {
+    display: none;
 }
 
 .notes-world-book-detach {
@@ -205,13 +230,18 @@
 }
 
 .notes-world-book-notes-view,
-.notes-world-book-world-view {
+.notes-world-book-world-view,
+.notes-world-book-portal-view {
     position: absolute;
     inset: 0;
 }
 
 .notes-world-book-overlay[data-view="notes"] .notes-world-book-world-view,
-.notes-world-book-overlay[data-view="world"] .notes-world-book-notes-view {
+.notes-world-book-overlay[data-view="notes"] .notes-world-book-portal-view,
+.notes-world-book-overlay[data-view="world"] .notes-world-book-notes-view,
+.notes-world-book-overlay[data-view="world"] .notes-world-book-portal-view,
+.notes-world-book-overlay[data-view="portal"] .notes-world-book-notes-view,
+.notes-world-book-overlay[data-view="portal"] .notes-world-book-world-view {
     display: none;
 }
 
@@ -264,11 +294,13 @@
     box-shadow: 0 0 0 3px rgba(49, 208, 219, 0.07), inset 0 0 40px rgba(0, 0, 0, 0.24);
 }
 
-.notes-world-book-world-view {
+.notes-world-book-world-view,
+.notes-world-book-portal-view {
     background: #071013;
 }
 
-[data-world-book-frame] {
+[data-world-book-frame],
+[data-world-portal-frame] {
     position: absolute;
     inset: 0;
     width: 100%;
