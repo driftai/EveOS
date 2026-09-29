@@ -19,6 +19,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         instanceId: '',
         message: 'Checking World Book...'
     };
+    let refreshPromise = null;
 
     function worldBookUrl() {
         const configured = Number(window.config?.bridges?.worldBookPort) || 8766;
@@ -109,22 +110,22 @@ window.EveWorldBook = window.EveWorldBook || {};
         const bases = state.baseUrl
             ? [state.baseUrl, ...candidateBases().filter((base) => base !== state.baseUrl)]
             : candidateBases();
-        for (const baseUrl of bases) {
+        const attempts = await Promise.all(bases.map(async function (baseUrl, index) {
             try {
-                const timeout = baseUrl === window.location.origin ? 5000 : 3500;
+                const timeout = baseUrl === window.location.origin ? 1200 : 900;
                 const payload = await fetchJson(`${baseUrl}${STATUS_PATH}`, null, timeout);
-                return { baseUrl, payload };
+                return { baseUrl, payload, index };
             } catch (error) {
-                // Try the next local EveOS server.
+                return null;
             }
-        }
-        return null;
+        }));
+        return attempts.filter(Boolean).sort((a, b) => a.index - b.index)[0] || null;
     }
 
     async function findDirectServer() {
         const url = worldBookUrl();
         try {
-            const payload = await fetchJson(`${url}${HEALTH_PATH}`, null, 1400);
+            const payload = await fetchJson(`${url}${HEALTH_PATH}`, null, 650);
             if (payload.ok !== true || payload.service !== 'world-book' || !payload.appVersion) {
                 return null;
             }
@@ -134,24 +135,34 @@ window.EveWorldBook = window.EveWorldBook || {};
         }
     }
 
-    async function refresh() {
-        const [found, direct] = await Promise.all([findController(), findDirectServer()]);
-        if (found) {
-            applyStatus(found.payload, found.baseUrl, false);
-            if (direct) {
-                state.directAvailable = true;
-                state.running = true;
-                state.serverState = 'running';
-                state.source = 'managed';
-                state.url = worldBookUrl();
-                state.appVersion = String(direct.appVersion || state.appVersion || '');
-                state.instanceId = String(direct.instanceId || found.payload.instanceId || state.instanceId || '');
-                state.message = found.payload.message || 'World Book is online.';
-            }
-            publish();
-            return { ...state };
+    function mergeManagedDirect(found, direct) {
+        applyStatus(found.payload, found.baseUrl, false);
+        if (direct) {
+            state.directAvailable = true;
+            state.running = true;
+            state.serverState = 'running';
+            state.source = 'managed';
+            state.url = worldBookUrl();
+            state.appVersion = String(direct.appVersion || state.appVersion || '');
+            state.instanceId = String(direct.instanceId || found.payload.instanceId || state.instanceId || '');
+            state.message = found.payload.message || 'World Book is online.';
         }
-        if (direct) return applyDirectStatus(direct);
+        publish();
+        return { ...state };
+    }
+
+    async function runRefresh() {
+        const controllerPromise = findController();
+        const direct = await findDirectServer();
+        if (direct) {
+            const immediate = applyDirectStatus(direct);
+            void controllerPromise.then(function (found) {
+                if (found) mergeManagedDirect(found, direct);
+            });
+            return immediate;
+        }
+        const found = await controllerPromise;
+        if (found) return mergeManagedDirect(found, null);
         state.baseUrl = '';
         state.controllerAvailable = false;
         state.directAvailable = false;
@@ -162,6 +173,14 @@ window.EveWorldBook = window.EveWorldBook || {};
         state.message = 'World Book is stopped. Start it here when you need it.';
         publish();
         return { ...state };
+    }
+
+    function refresh() {
+        if (refreshPromise) return refreshPromise;
+        refreshPromise = runRefresh().finally(function () {
+            refreshPromise = null;
+        });
+        return refreshPromise;
     }
 
     async function ensureController() {
@@ -238,4 +257,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         start: () => setRunning(true),
         stop: () => setRunning(false)
     });
+
+    // Prime status during EveOS boot so opening Notes & World Books does not pay discovery latency.
+    window.setTimeout(() => { void refresh(); }, 0);
 })(window.EveWorldBook);
