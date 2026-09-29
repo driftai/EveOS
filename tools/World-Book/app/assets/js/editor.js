@@ -144,6 +144,7 @@
         this.el.fileContent.readOnly = !contentPayload.editable;
         this.el.saveFile.hidden = !contentPayload.editable;
       }
+      this.callbacks.onEntryRendered?.();
     },
 
     showVirtual(node, path, taxonomyState, tagInfo) {
@@ -162,6 +163,7 @@
       this.el.moveVirtual.hidden = node.id === "root";
       this.el.exportZipToLive.hidden = false;
       this.el.deleteVirtual.hidden = node.id === "root";
+      this.callbacks.onEntryRendered?.();
     },
 
     showSnapshot(node, record, taxonomyState) {
@@ -194,6 +196,7 @@
         this.el.fileContent.value = node.content || "";
         this.el.fileContent.readOnly = true;
       }
+      this.callbacks.onEntryRendered?.();
     }
   };
 })();
