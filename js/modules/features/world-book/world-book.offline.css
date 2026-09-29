@@ -4,6 +4,14 @@
     margin: 0 !important;
     padding: 0 !important;
 }
+
+/* EveOS has broad section styling elsewhere. These panels are absolute stage
+   surfaces, so any section margin physically shifts the whole surface down and
+   exposes the shell behind it as a false "gap". Keep their margin box pinned
+   to the stage edge instead of only trimming their internal padding. */
+.notes-world-book-stage > [data-world-book-panel] {
+    margin: 0 !important;
+}
 .notes-world-book-overlay[data-view="notes"] .notes-world-book-notes-view {
     padding: 2px clamp(14px, 2vw, 28px) clamp(14px, 2vw, 28px) !important;
 }
