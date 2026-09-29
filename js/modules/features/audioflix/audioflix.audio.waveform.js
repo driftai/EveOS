@@ -21,6 +21,7 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
         let canvas = null;
         let canvasContext = null;
         let animationFrame = 0;
+        const speakerMuteOwners = new Set();
         // Which players already have our transport listeners. A WeakSet instead of a data-*
         // attribute so this works for anything event-capable, not just DOM elements — attachPlayer
         // sits on the playItem path, where a throw costs the user all audio, not just the drawing.
@@ -64,11 +65,30 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
         }
 
         // Silence the browser speakers without pausing playback (native route owns the sound).
-        function setSpeakerMuted(muted) {
+        function applySpeakerMute() {
             const ctx = safeGraph();
             if (!ctx || !outputGain) return false;
-            outputGain.gain.value = muted ? 0 : 1;
+            outputGain.gain.value = speakerMuteOwners.size ? 0 : 1;
             return true;
+        }
+
+        function setSpeakerMuted(muted) {
+            if (muted) speakerMuteOwners.add('legacy-route');
+            else speakerMuteOwners.delete('legacy-route');
+            return applySpeakerMute();
+        }
+
+        function acquireSpeakerMute(owner) {
+            const key = String(owner || 'anonymous-route');
+            speakerMuteOwners.add(key);
+            applySpeakerMute();
+            let released = false;
+            return () => {
+                if (released) return;
+                released = true;
+                speakerMuteOwners.delete(key);
+                applySpeakerMute();
+            };
         }
 
         function teardownTap() {
@@ -330,7 +350,9 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
             attachPlayer(player);
         }
 
-        return { attach, attachPlayer, playBufferWaveform, start, stop, getContext: ensureGraph, ensureGraph, setSpeakerMuted, setFrameTap, createLiveTap, getActivePlayer: () => activePlayer || ensureAudio() };
+        return { attach, attachPlayer, playBufferWaveform, start, stop, getContext: ensureGraph, ensureGraph,
+            setSpeakerMuted, acquireSpeakerMute, setFrameTap, createLiveTap,
+            getActivePlayer: () => activePlayer || ensureAudio() };
     }
 
     Object.assign(ns, { ready: true, createController });

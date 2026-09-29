@@ -2,7 +2,7 @@
     'use strict';
     if (window.__eveWatchFusionAudioflixLinkReady) return;
     window.__eveWatchFusionAudioflixLinkReady = true;
-    let publisher = null, tap = null, timer = null, activeId = '', peerLoader = null;
+    let publisher = null, tap = null, timer = null, activeId = '', peerLoader = null, releaseMonitorMute = null;
     const pending = new Map();
     const audio = () => window.EveAudioflixAudio;
     const queue = () => window.EveAudioflix?.queueConnection;
@@ -66,11 +66,13 @@
     function stop() {
         clearInterval(timer); timer = null; publisher?.stop(); publisher = null;
         tap?.release?.(); tap = null; activeId = '';
+        releaseMonitorMute?.(); releaseMonitorMute = null;
     }
     async function start(config) {
         if (activeId === config.id && publisher) return;
         playable(); await loadPeer(); stop();
         tap = await audio().getWaveformController().createLiveTap();
+        releaseMonitorMute = audio().getWaveformController().acquireSpeakerMute?.('watchfusion-live') || null;
         activeId = config.id;
         publisher = new window.WatchFusionLivePeer({ ...config, stream: tap.stream, onReady: publish, onControl: control,
             onStatus: status => { if (/stopped|expired|denied|replaced/i.test(status)) stop(); }
