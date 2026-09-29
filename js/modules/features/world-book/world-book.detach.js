@@ -165,6 +165,13 @@ window.EveWorldBook = window.EveWorldBook || {};
     }
 
     window.setInterval(() => emitState(false), 1000);
+    document.addEventListener('click', (event) => {
+        const button = event.target.closest?.('.topbar-notes-world-book-btn');
+        if (!button || !state().open) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        try { detachedWindow.focus(); } catch {}
+    }, true);
 
     ns.detached = Object.freeze({
         open,
