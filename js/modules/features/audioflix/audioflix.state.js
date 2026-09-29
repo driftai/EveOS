@@ -169,8 +169,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
             musicClassifiers: Array.isArray(source.musicClassifiers)
                 ? [...new Set(source.musicClassifiers.map((c) => text(c, '')).filter(Boolean))].slice(0, 200)
                 : [],
-            // Playlist/local-file health markers live in track settings by default and can
-            // independently be mirrored onto song cards.
+            // Playlist/local-file health markers can independently mirror onto song cards.
             showPlaylistMarkersOnCard: source.showPlaylistMarkersOnCard === true,
             showLocalMissingMarkersOnCard: source.showLocalMissingMarkersOnCard === true,
             localizeDir: text(source.localizeDir, ''), // last folder used to save localized mp3s (reused as the prompt default)
