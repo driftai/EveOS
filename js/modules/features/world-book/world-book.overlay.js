@@ -12,6 +12,7 @@ window.EveWorldBook = window.EveWorldBook || {};
     let statusTimer = 0;
     let notesSaveTimer = 0;
     let lastRunningState = false;
+    let lastInstanceId = '';
 
     function readPreference(key, fallback) {
         try {
@@ -91,8 +92,11 @@ window.EveWorldBook = window.EveWorldBook || {};
     function navigateFrame(frame, source, force) {
         if (!frame) return;
         const targetSource = String(source || 'about:blank');
-        if (!force && frame.dataset.worldBookTarget === targetSource) return;
+        const sameTarget = frame.dataset.worldBookTarget === targetSource;
+        const ready = frame.dataset.worldBookFrameState === 'ready';
+        if (!force && sameTarget && ready) return;
         frame.dataset.worldBookTarget = targetSource;
+        frame.dataset.worldBookFrameState = targetSource === 'about:blank' ? 'idle' : 'loading';
         const target = frame.contentWindow;
         if (target) {
             window.dispatchEvent(new CustomEvent('eve:world-book-frame-loading', { detail: { target } }));
@@ -105,6 +109,42 @@ window.EveWorldBook = window.EveWorldBook || {};
             return;
         }
         frame.src = targetSource;
+    }
+
+    function activeFrameUrl(snapshot, view) {
+        const base = String(snapshot?.url || '').replace(/\/$/, '');
+        if (!base) return 'about:blank';
+        return view === 'portal'
+            ? `${base}/?view=world-portal&embedded=1`
+            : `${base}/?embedded=eveos`;
+    }
+
+    async function reloadActiveFrame() {
+        const overlay = ensureOverlay();
+        const view = currentView();
+        if (!['world', 'portal'].includes(view)) return;
+        const snapshot = await ns.client.refresh();
+        renderStatus(snapshot);
+        if (!snapshot.running) return;
+        const frame = overlay.querySelector(view === 'portal' ? '[data-world-portal-frame]' : '[data-world-book-frame]');
+        navigateFrame(frame, activeFrameUrl(snapshot, view), true);
+        setOverlayStatus(`Reloading ${view === 'portal' ? 'World Portal' : 'World Book'}...`);
+    }
+
+    function renderDetachState(detail) {
+        const overlay = document.getElementById(OVERLAY_ID);
+        if (!overlay) return;
+        const open = detail?.open === true;
+        const sensor = overlay.querySelector('[data-world-book-detach-state]');
+        const button = overlay.querySelector('[data-world-book-detach]');
+        if (sensor) {
+            sensor.dataset.state = open ? 'detached' : 'attached';
+            sensor.textContent = open ? 'Detached' : 'Attached';
+        }
+        if (button) {
+            button.classList.toggle('is-detached', open);
+            button.title = open ? 'Focus the detached World Book window' : 'Detach the active view into a window';
+        }
     }
 
     function syncViewButtons(overlay, view) {
@@ -164,14 +204,18 @@ window.EveWorldBook = window.EveWorldBook || {};
         messages.forEach((message) => { message.textContent = snapshot.message || ''; });
 
         const becameOnline = running && !lastRunningState;
+        const instanceId = String(snapshot.instanceId || '');
+        const serverReplaced = running && !!instanceId && !!lastInstanceId && instanceId !== lastInstanceId;
         lastRunningState = running;
+        if (instanceId) lastInstanceId = instanceId;
         overlay.classList.toggle('is-world-online', running);
         if (!['world', 'portal'].includes(currentView())) return;
         if (running) {
-            const portalUrl = `${String(snapshot.url || '').replace(/\/$/, '')}/?view=world-portal&embedded=1`;
             const active = currentView();
-            navigateFrame(worldFrame, active === 'world' ? snapshot.url : 'about:blank', becameOnline && active === 'world');
-            navigateFrame(portalFrame, active === 'portal' ? portalUrl : 'about:blank', becameOnline && active === 'portal');
+            const force = becameOnline || serverReplaced;
+            navigateFrame(worldFrame, active === 'world' ? activeFrameUrl(snapshot, 'world') : 'about:blank', force && active === 'world');
+            navigateFrame(portalFrame, active === 'portal' ? activeFrameUrl(snapshot, 'portal') : 'about:blank', force && active === 'portal');
+            if (serverReplaced) setOverlayStatus('World Book restarted — refreshing the embedded view...');
         } else {
             navigateFrame(worldFrame, 'about:blank');
             navigateFrame(portalFrame, 'about:blank');
@@ -231,6 +275,8 @@ window.EveWorldBook = window.EveWorldBook || {};
                         <span class="notes-world-book-status-pill" data-world-book-status-pill data-state="checking">Checking</span>
                         <button type="button" data-world-book-server-toggle>Start World Book</button>
                         <button type="button" data-world-book-reader-controls title="Open compact Reader controls">Reader controls</button>
+                        <button type="button" data-world-book-reload title="Reload the active World Book view">&#8635;</button>
+                        <span class="notes-world-book-detach-state" data-world-book-detach-state data-state="attached">Attached</span>
                         <button type="button" class="notes-world-book-detach"
                             data-world-book-detach aria-label="Detach the active view into a window"
                             title="Detach the active view into a window">
@@ -287,7 +333,17 @@ window.EveWorldBook = window.EveWorldBook || {};
         overlay.querySelector('[data-world-book-reader-controls]').addEventListener('click', () => {
             window.EveWorldBookNarrationBridge?.openCompanion?.();
         });
+        overlay.querySelector('[data-world-book-reload]').addEventListener('click', () => void reloadActiveFrame());
         overlay.querySelector('[data-world-book-detach]').addEventListener('click', ns.detach);
+        overlay.querySelectorAll('[data-world-book-frame], [data-world-portal-frame]').forEach(frame => {
+            frame.addEventListener('load', () => {
+                frame.dataset.worldBookFrameState = frame.getAttribute('src') === 'about:blank' ? 'idle' : 'ready';
+            });
+            frame.addEventListener('error', () => {
+                frame.dataset.worldBookFrameState = 'error';
+                setOverlayStatus('Embedded view failed to load. Use Reload to retry.');
+            });
+        });
         overlay.querySelector('[data-world-book-header-toggle]').addEventListener('click', () => setHeaderHidden(true));
         overlay.querySelector('[data-world-book-header-restore]').addEventListener('click', () => setHeaderHidden(false));
         overlay.querySelector('[data-world-book-fullscreen]').addEventListener('click', function () {
@@ -320,6 +376,7 @@ window.EveWorldBook = window.EveWorldBook || {};
             overlay.setAttribute('aria-hidden', 'false');
             document.querySelector('.topbar-notes-world-book-btn')?.setAttribute('aria-expanded', 'true');
         }
+        renderDetachState(ns.detached?.state?.() || { open: false });
         await setView(view || overlay.dataset.view);
         await refreshStatus();
         window.clearInterval(statusTimer);
@@ -364,6 +421,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         if (editor && editor !== document.activeElement) editor.value = event.target.value;
     });
     window.addEventListener('eve:world-book-status', (event) => renderStatus(event.detail));
+    window.addEventListener('eve:world-book-detached-state', (event) => renderDetachState(event.detail));
     window.addEventListener('keydown', function (event) {
         if (event.key !== 'Escape' || !isOpen()) return;
         event.preventDefault();
