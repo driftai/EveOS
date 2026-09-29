@@ -7,6 +7,7 @@ window.EveWorldBook = window.EveWorldBook || {};
     let detachedWindow = null;
     let detachedReady = false;
     let detachedView = '';
+    let lastOpenState = false;
 
     function getWindowFeatures() {
         const availableWidth = Math.max(760, Number(window.screen?.availWidth) || 1280);
@@ -28,6 +29,26 @@ window.EveWorldBook = window.EveWorldBook || {};
 
     function notify(callback, value) {
         if (typeof callback === 'function') callback(value);
+    }
+
+    function state() {
+        return {
+            open: !!(detachedWindow && !detachedWindow.closed),
+            ready: detachedReady === true,
+            view: detachedView || ''
+        };
+    }
+
+    function emitState(force) {
+        const next = state();
+        if (!force && next.open === lastOpenState) return next;
+        lastOpenState = next.open;
+        if (!next.open) {
+            detachedReady = false;
+            detachedView = '';
+        }
+        window.dispatchEvent(new CustomEvent('eve:world-book-detached-state', { detail: next }));
+        return next;
     }
 
     function markLoading(target) {
@@ -98,6 +119,7 @@ window.EveWorldBook = window.EveWorldBook || {};
 
         detachedReady = true;
         detachedView = options.view || 'world';
+        emitState(true);
         markLoading(target);
         const baseUrl = snapshot.url || ns.client.state.url;
         target.location.href = detachedView === 'portal'
@@ -123,6 +145,7 @@ window.EveWorldBook = window.EveWorldBook || {};
                 DETACHED_WINDOW_NAME,
                 getWindowFeatures()
             );
+            emitState(true);
         }
 
         if (!detachedWindow) {
@@ -141,8 +164,12 @@ window.EveWorldBook = window.EveWorldBook || {};
         return detachedWindow;
     }
 
+    window.setInterval(() => emitState(false), 1000);
+
     ns.detached = Object.freeze({
         open,
+        state,
+        isOpen: () => state().open,
         getWindow: () => detachedWindow
     });
 })(window.EveWorldBook);
