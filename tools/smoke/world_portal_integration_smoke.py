@@ -65,6 +65,8 @@ def assert_static_contract() -> None:
     world_view = (WORLD_BOOK / "app" / "assets" / "js" / "world-portal-view.js").read_text(encoding="utf-8")
     responsive = (WORLD_BOOK / "app" / "assets" / "css" / "layers" / "73-header-responsive.css").read_text(encoding="utf-8")
     overlay = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.overlay.js").read_text(encoding="utf-8")
+    overlay_template = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.overlay.template.js").read_text(encoding="utf-8")
+    overlay_surface = overlay + "\n" + overlay_template
     detached = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.detach.js").read_text(encoding="utf-8")
     state = (ROOT / "js" / "modules" / "core" / "state.js").read_text(encoding="utf-8")
 
@@ -79,7 +81,7 @@ def assert_static_contract() -> None:
     assert "embeddedInWorldBook ? 1.35 : 2" in portal_scene and "1000 / 45" in portal_scene
     assert "if (globePoleCap > 0.001)" in earth_shader and "polarRingAverage(vUv.y)" in earth_shader
     assert "grid-column: 1 / -1" in responsive and "repeat(2, minmax(0, 1fr))" in responsive
-    assert 'data-world-book-view="portal"' in overlay and "data-world-portal-frame" in overlay
+    assert 'data-world-book-view="portal"' in overlay_surface and "data-world-portal-frame" in overlay_surface
     assert "view=world-portal&embedded=1" in detached
     assert "worldPortalPort: 8770" in state
 
