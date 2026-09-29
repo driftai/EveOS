@@ -398,3 +398,28 @@
     max-width: 100%;
     overflow-wrap: anywhere;
 }
+
+.audioflix-port-health-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 0 0 9px;
+    padding: 8px 10px;
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.48);
+}
+.audioflix-port-health-summary strong {
+    color: #bae6fd;
+}
+.audioflix-port-health-summary span {
+    flex: 1 1 260px;
+    color: #94a3b8;
+    font-size: 0.78rem;
+}
+.audioflix-music-port-track-row > div {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
