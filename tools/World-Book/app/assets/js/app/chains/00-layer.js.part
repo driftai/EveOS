@@ -278,10 +278,53 @@
     state.ui.lastPhysicalFolderPath = String(state.ui.lastPhysicalFolderPath || "");
     state.ui.lastVirtualFolderId = String(state.ui.lastVirtualFolderId || "root");
     state.ui.linksCollapsed = Boolean(state.ui.linksCollapsed);
+    state.ui.entrySections = state.ui.entrySections && typeof state.ui.entrySections === "object" && !Array.isArray(state.ui.entrySections)
+      ? state.ui.entrySections
+      : {};
     state.ui.linkDirection = ["all", "outgoing", "incoming"].includes(state.ui.linkDirection)
       ? state.ui.linkDirection
       : "all";
     WB.Theme.normalizeState(state);
+  }
+
+  function selectedSectionKey() {
+    if (!selected) return "";
+    if (selected.source === "physical") return `physical:${selected.node.relativePath || "(root)"}`;
+    if (selected.source === "virtual") return `virtual:${selected.node.id || "root"}`;
+    if (selected.source === "snapshot") return `snapshot:${selected.record?.id || "import"}:${selected.node.relativePath || selected.node.name || "entry"}`;
+    return "";
+  }
+
+  function entrySectionCollapsed(name) {
+    ensureUIState();
+    const key = selectedSectionKey();
+    if (!key) return false;
+    return state.ui.entrySections?.[key]?.[name] === true;
+  }
+
+  function applyEntrySectionState() {
+    const key = selectedSectionKey();
+    if (!key) return;
+    document.querySelectorAll("#editor-panel [data-entry-section]").forEach(section => {
+      const name = section.dataset.entrySection;
+      const collapsed = entrySectionCollapsed(name);
+      section.classList.toggle("is-collapsed", collapsed);
+      const button = section.querySelector(`[data-entry-section-toggle="${name}"]`);
+      if (button) {
+        button.textContent = collapsed ? "Expand" : "Collapse";
+        button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      }
+    });
+  }
+
+  function setEntrySectionCollapsed(name, collapsed) {
+    ensureUIState();
+    const key = selectedSectionKey();
+    if (!key || !name) return;
+    state.ui.entrySections[key] = state.ui.entrySections[key] || {};
+    state.ui.entrySections[key][name] = Boolean(collapsed);
+    applyEntrySectionState();
+    scheduleStateSave();
   }
 
   function normalizeTaxonomy() {
