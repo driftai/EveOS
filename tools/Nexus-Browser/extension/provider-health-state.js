@@ -44,7 +44,8 @@
     try { reply = await chromeApi?.tabs?.sendMessage?.(id, { type: 'provider_health_snapshot' }); } catch {}
     if (!reply?.ok) {
       try {
-        await chromeApi?.scripting?.executeScript?.({ target: { tabId: id }, files: ['content/provider-health.js'] });
+        const file = globalThis.BrowserAiBridgeExtensionAssets?.path('content/provider-health.js') || 'content/provider-health.js';
+        await chromeApi?.scripting?.executeScript?.({ target: { tabId: id }, files: [file] });
         reply = await chromeApi?.tabs?.sendMessage?.(id, { type: 'provider_health_snapshot' });
       } catch {}
     }

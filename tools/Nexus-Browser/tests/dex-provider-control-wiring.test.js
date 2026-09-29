@@ -73,7 +73,8 @@ test('extension boot helper backfills provider-control into already-open headed 
   assert.match(boot, /chrome\.runtime\.getManifest\(\)/);
   assert.match(boot, /chrome\.tabs\.query\(\{ url: patterns \}\)/);
   assert.match(boot, /chrome\.scripting\.executeScript/);
-  assert.match(boot, /files: \[CONTROL_SCRIPT\]/);
+  assert.match(boot, /BrowserAiBridgeExtensionAssets\?\.path\(CONTROL_SCRIPT\) \|\| CONTROL_SCRIPT/);
+  assert.match(boot, /files: \[file\]/);
   assert.match(boot, /ensureOpenProviderTabs\(\)\.catch/);
 });
 

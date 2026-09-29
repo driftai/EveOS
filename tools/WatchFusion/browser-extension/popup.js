@@ -47,7 +47,8 @@ $('siteAccess').onclick = async () => {
 
 $('openFolder').onclick = async () => {
   try {
-    const response = await fetch('http://127.0.0.1:9087/api/setup/open-extension-folder', { method: 'POST', cache: 'no-store' });
+    const packageName = location.pathname.includes('/modules/') ? 'official' : 'watchfusion';
+    const response = await fetch(`http://127.0.0.1:9087/api/setup/open-extension-folder?package=${packageName}`, { method: 'POST', cache: 'no-store' });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || 'Could not open the extension folder.');
     status(result.message || 'Extension folder opened.');

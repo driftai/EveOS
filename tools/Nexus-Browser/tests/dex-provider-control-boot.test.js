@@ -16,6 +16,17 @@ test('providerPatterns derives only manifests that contain the Dex watcher', () 
   assert.deepEqual(boot.providerPatterns(manifest), ['https://chatgpt.com/*', 'https://muse.ai/*']);
 });
 
+test('official package discovers Dex watchers only in its own namespaced module', () => {
+  const previous = globalThis.BrowserAiBridgeExtensionAssets;
+  globalThis.BrowserAiBridgeExtensionAssets = { path: value => 'modules/nexus-browser/' + value };
+  try {
+    assert.deepEqual(boot.providerPatterns({ content_scripts: [
+      { matches: ['https://chatgpt.com/*'], js: ['modules/nexus-browser/content/dex-provider-control.js'] },
+      { matches: ['https://example.com/*'], js: ['modules/unrelated/content/dex-provider-control.js'] }
+    ] }), ['https://chatgpt.com/*']);
+  } finally { globalThis.BrowserAiBridgeExtensionAssets = previous; }
+});
+
 
 test('provider-control boot self-heals the active stale provider tab after extension reload', () => {
   assert.match(source, /BrowserAiBridgeProviderAdapterFreshness/);

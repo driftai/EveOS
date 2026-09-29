@@ -17,10 +17,18 @@ async function main() {
   assert(manifest.optional_permissions.includes('management'));
   assert(!manifest.permissions.includes('management'));
   assert(!JSON.stringify(manifest).includes('<all_urls>'));
-  assert(manifest.host_permissions.every(value => /^http:\/\/(127\.0\.0\.1|localhost)\//.test(value)));
-  assert(!manifest.content_scripts, 'the hub must not inject into provider pages');
-  assert(!manifest.permissions.includes('tabCapture') && !manifest.permissions.includes('scripting'),
-    'the hub must delegate privileged companion work instead of duplicating specialized extension permissions');
+  assert(manifest.permissions.includes('tabCapture') && manifest.permissions.includes('scripting'));
+  const assembly = require('../extensions/assemble.cjs').audit();
+  assert.equal(assembly.registry.length, 2);
+  assert(assembly.files.has('modules/nexus-browser/content/chatgpt.js'));
+  assert(assembly.files.has('modules/watchfusion/offscreen.html'));
+  assert(manifest.content_scripts.every(group => group.js.every(file => file.startsWith('modules/nexus-browser/'))));
+  for (const [file, bytes] of assembly.files) {
+    if (file === 'modules/config.js') continue;
+    const item = assembly.registry.find(module => file.startsWith(`modules/${module.id}/`));
+    const original = fs.readFileSync(path.join(ROOT, item.source, file.slice(`modules/${item.id}/`.length)));
+    assert(bytes.equals(original), `${file} must share canonical tool code`);
+  }
 
   const protocol = require(path.join(ROOT, 'extension', 'core', 'protocol.js'));
   const catalog = require(path.join(ROOT, 'extension', 'core', 'catalog.js'));
@@ -96,11 +104,16 @@ async function main() {
 
   const panel = read('extension', 'sidepanel.html');
   const docs = read('extension', 'README.md');
-  assert(panel.includes('does not copy their privileged implementation'));
+  assert(panel.includes('Nexus, Dex, and WatchFusion are included'));
   assert(docs.includes('versioned `eveos.extension.v1`'));
   assert(docs.includes('Standalone + hub rule'));
-  assert(docs.includes('does not vendor or duplicate'));
-  console.log('EVEOS_EXTENSION_HUB_SMOKE_OK');
+  assert(docs.includes('never another maintained implementation'));
+  const descriptor = catalog.descriptor({ id: 'watchfusion' }, { id: 'hub', moduleId: 'watchfusion', integration: 'included' });
+  assert.equal(descriptor.moduleId, 'watchfusion');
+  assert.equal(descriptor.integration, 'included');
+  const media = await require('../extensions/media-regression.cjs').qualifyMediaWorker();
+  const browser = process.argv.includes('--browser') ? await require('../extensions/qualify-browser.cjs').qualifyBrowser() : 0;
+  console.log(`EVEOS_EXTENSION_HUB_SMOKE_OK media=${media} browser=${browser}`);
 }
 
 main().catch(error => {

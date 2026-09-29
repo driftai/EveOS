@@ -1,0 +1,82 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+async function qualifyMediaWorker() {
+  const state = {}, listeners = [], sent = [], injected = [], offscreen = [];
+  let rejectCapture = false;
+  const context = vm.createContext({ console, URL, Date, Map, Set, Promise, importScripts() {},
+    EveOSExtensionModuleRoots: { watchfusion: 'modules/watchfusion/' } });
+  context.chrome = {
+    runtime: {
+      id: 'official', getURL: value => `chrome-extension://official/${value}`,
+      getContexts: async () => [], onMessage: { addListener: fn => listeners.push(fn) },
+      sendMessage: async message => { sent.push(message); return { ok: true }; }
+    },
+    storage: { session: {
+      get: async () => ({ ...state }), set: async value => Object.assign(state, value),
+      remove: async key => { delete state[key]; }
+    } },
+    tabs: { query: async () => [{ id: 7 }], sendMessage: async (...args) => { sent.push(args); return { ok: true }; },
+      onUpdated: { addListener() {} }, onRemoved: { addListener() {} } },
+    tabCapture: { getMediaStreamId: async () => { if (rejectCapture) throw new Error('Capture denied'); return 'fixture-stream'; } },
+    offscreen: { createDocument: async details => { offscreen.push(details); } },
+    scripting: { executeScript: async details => {
+      injected.push(details);
+      // The real probe can report before executeScript resolves. Keep that sample.
+      vm.runInContext(`combinedSample(1, {topFrame:false,hasMedia:true,score:3,rect:{x:.1,y:.2,width:.8,height:.6},metadata:{title:'frame'}})`, context);
+      return [{ frameId: 0 }, { frameId: 1 }];
+    } }
+  };
+  vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../tools/WatchFusion/browser-extension/worker.js'), 'utf8'), context);
+  const link = 'http://localhost:19193/#live=12345678-1234-1234-1234-123456789abc.' + 'a'.repeat(48);
+  await context.WatchFusionMediaLink.startCurrentTab(link);
+  assert.equal(state.sourceTab, 7);
+  assert.equal(injected[0].files[0], 'modules/watchfusion/source-probe.js');
+  assert.equal(offscreen[0].url, 'modules/watchfusion/offscreen.html');
+  assert.equal(vm.runInContext('frameSamples.get(1).metadata.title', context), 'frame');
+  vm.runInContext(`combinedSample(0, {topFrame:true,hasMedia:false,rect:{x:.2,y:.1,width:.5,height:.8}})`, context);
+  const crop = vm.runInContext(`combinedSample(1, {topFrame:false,hasMedia:true,score:3,rect:{x:.1,y:.2,width:.8,height:.6}}).rect`, context);
+  assert.equal(crop.x, .25); assert.equal(crop.width, .4);
+  assert(Math.abs(crop.y - .26) < 1e-9); assert.equal(crop.height, .48);
+  await new Promise(resolve => listeners[0]({ to: 'worker', type: 'control', action: 'pause' },
+    { id: 'official', url: 'chrome-extension://official/modules/watchfusion/offscreen.html' }, resolve));
+  assert(sent.some(value => Array.isArray(value) && value[2]?.frameId === 1 && value[1].type === 'source-control'));
+  rejectCapture = true;
+  await assert.rejects(context.WatchFusionMediaLink.startCurrentTab(link), /Capture denied/);
+  assert.equal(state.sourceTab, undefined);
+  assert.equal((await context.WatchFusionMediaLink.status()).linked, false);
+  await qualifyAudioflixFailure();
+  return 9;
+}
+
+async function qualifyAudioflixFailure() {
+  const listeners = {}, replies = [];
+  let tapReleased = 0, muteReleased = 0;
+  const source = { postMessage: message => replies.push(message) };
+  const controller = {
+    getActivePlayer: () => ({}),
+    createLiveTap: async () => ({ stream: {}, release: () => { tapReleased += 1; } }),
+    acquireSpeakerMute: () => () => { muteReleased += 1; }
+  };
+  const window = {
+    EveAudioflixAudio: { getPlaybackState: () => ({ item: {} }), getWaveformController: () => controller },
+    EveWatchFusionRuntimeSensor: { isCandidateOrigin: () => true },
+    WatchFusionLivePeer: class { constructor() { throw new Error('fixture publisher refused'); } },
+    addEventListener: (type, callback) => { listeners[type] = callback; }
+  };
+  const sandbox = vm.createContext({ window, document: { querySelector: () => ({ contentWindow: source }) },
+    Map, URL, Date, setTimeout() {}, clearInterval() {}, setInterval() {} });
+  vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../js/modules/features/watchfusion/watchfusion.audioflix-link.js'), 'utf8'), sandbox);
+  const event = { source, origin: 'http://localhost:19193' };
+  await listeners.message({ ...event, data: { type: 'watchfusion:audioflix-probe', requestId: 'fixture' } });
+  await listeners.message({ ...event, data: { type: 'watchfusion:audioflix-start', requestId: 'fixture',
+    config: { id: 'fixture', base: event.origin } } });
+  assert.equal(tapReleased, 1, 'failed publisher must release its capture tap');
+  assert.equal(muteReleased, 1, 'failed publisher must restore host speaker monitoring');
+  assert.equal(window.EveWatchFusionAudioflixLink.active(), false);
+  assert.match(replies.at(-1).error, /publisher refused/);
+}
+module.exports = { qualifyMediaWorker };

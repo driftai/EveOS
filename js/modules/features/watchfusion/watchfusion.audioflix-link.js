@@ -71,13 +71,15 @@
     async function start(config) {
         if (activeId === config.id && publisher) return;
         playable(); await loadPeer(); stop();
-        tap = await audio().getWaveformController().createLiveTap();
-        releaseMonitorMute = audio().getWaveformController().acquireSpeakerMute?.('watchfusion-live') || null;
-        activeId = config.id;
-        publisher = new window.WatchFusionLivePeer({ ...config, stream: tap.stream, onReady: publish, onControl: control,
-            onStatus: status => { if (/stopped|expired|denied|replaced/i.test(status)) stop(); }
-        });
-        timer = setInterval(publish, 500);
+        try {
+            tap = await audio().getWaveformController().createLiveTap();
+            releaseMonitorMute = audio().getWaveformController().acquireSpeakerMute?.('watchfusion-live') || null;
+            activeId = config.id;
+            publisher = new window.WatchFusionLivePeer({ ...config, stream: tap.stream, onReady: publish, onControl: control,
+                onStatus: status => { if (/stopped|expired|denied|replaced/i.test(status)) stop(); }
+            });
+            timer = setInterval(publish, 500);
+        } catch (error) { stop(); throw error; }
     }
     window.addEventListener('message', async event => {
         const data = event.data;

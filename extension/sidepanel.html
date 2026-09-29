@@ -7,15 +7,15 @@
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
-  <header><span>EVEOS OFFICIAL</span><h1>Extension Hub</h1><p>One control surface. Specialized companions keep their own permissions and can still run standalone.</p></header>
+  <header><span>EVEOS OFFICIAL</span><h1>Extension Hub</h1><p>Nexus, Dex, and WatchFusion are included. Individual tool extensions also work standalone.</p></header>
   <nav>
     <button type="button" data-action="refresh">Refresh</button>
     <button type="button" class="primary" data-action="discover">Discover companions</button>
   </nav>
-  <p class="privacy">Discovery is optional. The hub only discovers EveOS companions and forwards their versioned connector commands; it does not copy their privileged implementation.</p>
+  <p class="privacy">Additional companion discovery is optional. Included tools use the same source as their standalone versions.</p>
   <main>
     <section><h2>Local services</h2><div class="cards" data-services></div></section>
-    <section><h2>Companion extensions</h2><div class="cards" data-connectors></div></section>
+    <section><h2>Browser tools</h2><div class="cards" data-connectors></div></section>
   </main>
   <p role="status" data-status>Checking EveOS...</p>
   <script src="core/protocol.js"></script>

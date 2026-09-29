@@ -15,11 +15,11 @@ import {
   openSseStream
 } from '../helpers/http-client.js';
 import { YOUTUBE_FIXTURES } from '../fixtures/youtube.js';
-import { MAX_CHAT_MESSAGE_CHARS } from '../../../src/server/config.js';
+import { MAX_CHAT_MESSAGE_CHARS, MEMBER_STALE_MS } from '../../../src/server/config.js';
 import { networkAddresses } from '../../../src/server/network.js';
 import { projectedPosition } from '../../../src/server/room-store.js';
+import { reportSmokeResults } from '../helpers/report.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 19185;
 
 export async function runNodeSmokes() {
@@ -421,13 +421,7 @@ export async function runNodeSmokes() {
 
     // 15. Stale member grace period configuration regression check
     await record('NODE-15:stale-member-grace-window', async () => {
-      const configPath = path.resolve(__dirname, '../../../src/server/config.js');
-      const serverPath = path.resolve(__dirname, '../../../server.js');
-      const source = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : fs.readFileSync(serverPath, 'utf8');
-      assert.ok(
-        /MEMBER_STALE_MS\s*=\s*120\s*\*\s*1000/.test(source),
-        'MEMBER_STALE_MS must be 120 seconds (120 * 1000)'
-      );
+      assert.equal(MEMBER_STALE_MS, 120 * 1000, 'Effective stale-member grace period must be 120 seconds');
     })();
 
   } finally {
@@ -438,17 +432,6 @@ export async function runNodeSmokes() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runNodeSmokes().then(results => {
-    const passed = results.filter(r => r.status === 'PASS').length;
-    const failed = results.filter(r => r.status === 'FAIL').length;
-    if (failed > 0) {
-      console.error(`NODE SMOKE FAILED: ${passed} passed, ${failed} failed.`);
-      for (const r of results.filter(r => r.status === 'FAIL')) {
-        console.error(`  - ${r.id}: ${r.error}`);
-      }
-      process.exit(1);
-    } else {
-      console.log(`NODE SMOKE PASSED: ${passed}/${results.length} tests passed.`);
-    }
-  });
+  runNodeSmokes().then(results => reportSmokeResults(results, 'NODE'))
+    .catch(error => { console.error(error.message); process.exitCode = 1; });
 }

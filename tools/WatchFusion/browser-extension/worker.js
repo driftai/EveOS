@@ -2,6 +2,7 @@ importScripts('eveos-hub-connector.js');
 
 let sourceTab = null, controlFrameId = 0;
 const frameSamples = new Map();
+const asset = value => (globalThis.EveOSExtensionModuleRoots?.watchfusion || '') + value;
 
 function pairing(value) {
   let url;
@@ -13,10 +14,10 @@ function pairing(value) {
 }
 
 async function offscreen() {
-  const url = chrome.runtime.getURL('offscreen.html');
+  const url = chrome.runtime.getURL(asset('offscreen.html'));
   if (!(await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [url] })).length) {
     await chrome.offscreen.createDocument({
-      url: 'offscreen.html',
+      url: asset('offscreen.html'),
       reasons: ['USER_MEDIA', 'AUDIO_PLAYBACK'],
       justification: 'Relay only the selected tab media area and audio to WatchFusion.'
     });
@@ -34,11 +35,11 @@ async function inject(tabId) {
   frameSamples.clear(); controlFrameId = 0;
   let results;
   try {
-    results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['source-probe.js'] });
+    results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [asset('source-probe.js')] });
   } catch {
-    results = await chrome.scripting.executeScript({ target: { tabId }, files: ['source-probe.js'] });
+    results = await chrome.scripting.executeScript({ target: { tabId }, files: [asset('source-probe.js')] });
   }
-  results.forEach(result => frameSamples.set(result.frameId, null));
+  results.forEach(result => { if (!frameSamples.has(result.frameId)) frameSamples.set(result.frameId, null); });
   await messageFrames(tabId, { type: 'probe-start' });
 }
 
@@ -48,7 +49,11 @@ function combinedSample(frameId, message) {
   const media = fresh.filter(value => value.hasMedia).sort((a, b) => b.score - a.score)[0];
   const top = fresh.find(value => value.topFrame);
   if (media) controlFrameId = media.frameId;
-  const rect = media?.topFrame ? media.rect : media ? (top?.rect || null) : (top?.rect || null);
+  const outer = top?.rect, inner = media?.rect;
+  const rect = media?.topFrame ? inner : outer && inner ? {
+    x: outer.x + inner.x * outer.width, y: outer.y + inner.y * outer.height,
+    width: inner.width * outer.width, height: inner.height * outer.height
+  } : outer || null;
   return { rect, metadata: media?.metadata || top?.metadata || message.metadata || {} };
 }
 
@@ -68,14 +73,16 @@ async function startCurrentTab(value, options = {}) {
   const tabId = options.tabId ?? active?.id;
   if (!Number.isInteger(tabId) || active?.id !== tabId) throw new Error('Return to the source tab before linking it.');
   await stop();
-  await inject(tabId);
-  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
-  await offscreen();
-  sourceTab = tabId;
-  await chrome.storage.session.set({ sourceTab });
-  const result = await chrome.runtime.sendMessage({ to: 'offscreen', type: 'start', streamId, ...config });
-  if (result?.error) { await stop(); throw new Error(result.error); }
-  return { ok: true, message: 'Current tab linked to WatchFusion.' };
+  try {
+    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    await offscreen();
+    sourceTab = tabId;
+    await chrome.storage.session.set({ sourceTab });
+    const result = await chrome.runtime.sendMessage({ to: 'offscreen', type: 'start', streamId, ...config });
+    if (result?.error) throw new Error(result.error);
+    await inject(tabId);
+    return { ok: true, message: 'Current tab linked to WatchFusion.' };
+  } catch (error) { await stop(); throw error; }
 }
 
 globalThis.WatchFusionMediaLink = Object.freeze({
@@ -99,7 +106,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (message.type === 'sample' && sender.tab?.id === tabId) {
       return chrome.runtime.sendMessage({ to: 'offscreen', type: 'sample', ...combinedSample(sender.frameId || 0, message) });
     }
-    if (message.type === 'control' && sender.url === chrome.runtime.getURL('offscreen.html') && tabId != null) {
+    if (message.type === 'control' && sender.url === chrome.runtime.getURL(asset('offscreen.html')) && tabId != null) {
       return chrome.tabs.sendMessage(tabId, { type: 'source-control', action: message.action, value: message.value }, { frameId: controlFrameId });
     }
     return { error: 'No selected media tab.' };

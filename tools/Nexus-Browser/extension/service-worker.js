@@ -116,6 +116,7 @@ async function probeScript(tabId, pingType, expectedAdapter, timeoutMs = 1500) {
 }
 async function safeExecuteScript(details, timeoutMs = 10000) {
   const fileDesc = details.files?.join?.(',') || 'func';
+  if (details.files) details = { ...details, files: details.files.map(file => globalThis.BrowserAiBridgeExtensionAssets?.path(file) || file) };
   const run = chrome.scripting.executeScript(details);
   return Promise.race([run, new Promise((_, r) => setTimeout(() => r(new Error(`executeScript timeout for ${fileDesc}`)), timeoutMs))]);
 }

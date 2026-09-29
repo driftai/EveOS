@@ -68,7 +68,10 @@
 
     async function snapshot(connectors) {
       const services = await Promise.all(catalog.services.map(health));
-      return { generatedAt: Date.now(), services, connectors };
+      const included = await globalThis.EveOSExtensionModules?.describe?.() || [];
+      const includedIds = new Set(included.map(item => item.id));
+      return { generatedAt: Date.now(), services,
+        connectors: [...included, ...connectors.filter(item => !includedIds.has(item.id))] };
     }
 
     return Object.freeze({ scan, refresh, probeExtension, health });

@@ -4,6 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { PROJECT_ROOT, NUVIO_ROOT, NUVIO_DIST, VOXELVISION_ROOT } from './config.js';
 import { json, readBody } from './http-utils.js';
 import { isHostLocalRequest } from './local-request.js';
+import { trustedExtensionIds } from './extension-identity.js';
 import { isNuvioBuilt, mergedNuvioConfig } from './nuvio-config.js';
 
 const MODEL_PROFILES = Object.freeze([
@@ -175,14 +176,24 @@ async function performInstall(component) {
 }
 
 function handleOpenExtensionFolder(req, res) {
-  if (!isHostLocalRequest(req)) {
+  if (!isHostLocalRequest(req, { allowedExtensionIds: trustedExtensionIds() })) {
     json(res, 403, { ok: false, error: 'The companion folder can be opened only from the host-local WatchFusion URL.' });
     return true;
   }
-  const folder = path.join(PROJECT_ROOT, 'browser-extension');
+  const official = new URL(req.url, 'http://localhost').searchParams.get('package') === 'official';
+  const folder = official ? path.resolve(PROJECT_ROOT, '../../extension') : path.join(PROJECT_ROOT, 'browser-extension');
   if (!exists(folder)) {
-    json(res, 404, { ok: false, error: 'WatchFusion companion folder is missing.' });
+    json(res, 404, { ok: false, error: 'Browser extension folder is missing.' });
     return true;
+  }
+  if (official) {
+    const assembled = spawnSync(process.execPath, [path.resolve(PROJECT_ROOT, '../extensions/assemble.cjs'), '--write'], {
+      cwd: path.resolve(PROJECT_ROOT, '../..'), encoding: 'utf8', windowsHide: true, timeout: 10000
+    });
+    if (assembled.status !== 0) {
+      json(res, 500, { ok: false, error: 'Could not prepare the EveOS extension. Run npm run build:eveos-extension and retry.' });
+      return true;
+    }
   }
   if (process.platform !== 'win32') {
     json(res, 200, { ok: true, path: folder, message: 'Companion folder path is ready.' });
@@ -190,8 +201,11 @@ function handleOpenExtensionFolder(req, res) {
   }
   try {
     const child = spawn('explorer.exe', [folder], { detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
-    json(res, 200, { ok: true, path: folder, message: 'WatchFusion companion folder opened.' });
+    child.once('error', error => { if (!res.headersSent) json(res, 500, { ok: false, error: error.message }); });
+    child.once('spawn', () => {
+      child.unref();
+      json(res, 200, { ok: true, path: folder, message: official ? 'EveOS extension folder opened.' : 'WatchFusion companion folder opened.' });
+    });
   } catch (error) {
     json(res, 500, { ok: false, error: error?.message || 'Could not open the companion folder.' });
   }

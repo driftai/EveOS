@@ -14,6 +14,21 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const FILE_URL = 'file:///' + path.join(REPO_ROOT, 'EveOS.html').replace(/\\/g, '/');
 
 function assert(cond, msg) { if (!cond) throw new Error('ASSERT FAILED: ' + msg); }
+const progress = (...args) => { if (process.argv.includes('--verbose')) console.log(...args); };
+
+async function clickLibraryAction(page, selector) {
+    const player = page.locator('.audioflix-provider-stage');
+    if (await player.isVisible() && !(await player.evaluate(element => element.classList.contains('is-collapsed')))) {
+        await page.click('[data-url-player-action="collapse"]');
+    }
+    if (await player.isVisible()) {
+        assert(!(await page.locator('.audioflix-provider-queue').isVisible()), 'Minimize hides the queue without stopping playback');
+    }
+    await page.click(selector);
+    if (await player.isVisible() && await player.evaluate(element => element.classList.contains('is-collapsed'))) {
+        await page.click('[data-url-player-action="collapse"]');
+    }
+}
 
 function silentWav() {
     // Long enough that a track does not end (and hide the stage) mid-test.
@@ -89,7 +104,7 @@ async function main() {
 
     await page.click('[data-url-player-action="prev"]');
     await page.waitForFunction(() => /^▶/.test(document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.textContent.trim() || ''), undefined, { timeout: 5000 });
-    console.log('queue view OK — lists the group queue and steps both directions');
+    progress('queue view OK — lists the group queue and steps both directions');
 
     // Jumping straight to an entry works too.
     await page.click('.audioflix-provider-queue-list li:first-child button');
@@ -107,16 +122,18 @@ async function main() {
     }));
     assert(rateAfterStep.controller === 2, 'speed survives moving to the next queue track');
     assert(rateAfterStep.picker === 2, 'the picker still shows the chosen speed');
-    console.log('speed OK — 2x applied and carried across a queue step');
+    progress('speed OK — 2x applied and carried across a queue step');
 
     // Physical regression: Play Group -> manually choose a different song -> Shuffle while
     // Queue View is open. Old provider lifecycle events must not bounce the queue back, and the
     // chosen song stays #1 until its ONE Ended transition advances to exactly #2.
     const betaId = await page.evaluate(() =>
         window.EveAudioflixState.getSnapshot().music.find((track) => track.title === 'Beta')?.id || '');
-    await page.click(`[data-af-action="play"][data-af-id="${betaId}"]`);
+    // The expanded floating player intentionally covers library cards. Use its real
+    // Minimize/Expand controls rather than forcing clicks through that foreground window.
+    await clickLibraryAction(page, `[data-af-action="play"][data-af-id="${betaId}"]`);
     await page.waitForFunction(() => window.EveAudioflixAudio?.getPlaybackState?.()?.item?.title === 'Beta', undefined, { timeout: 5000 });
-    await page.click('[data-af-action="shuffle-music-group"]');
+    await clickLibraryAction(page, '[data-af-action="shuffle-music-group"]');
     await page.waitForFunction(() => {
         const first = document.querySelector('.audioflix-provider-queue-list li:first-child');
         return first?.classList.contains('is-current') && /Beta/.test(first.textContent || '');
@@ -143,15 +160,15 @@ async function main() {
         window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail: { status: 'Ended', item: beta } }));
     });
     await page.waitForTimeout(250);
-    const afterStaleEnd = await page.$eval('.audioflix-provider-queue-list li', (rows) =>
+    const afterStaleEnd = await page.$$eval('.audioflix-provider-queue-list li', (rows) =>
         rows.map((row) => row.classList.contains('is-current')));
     assert(afterStaleEnd[1] === true && afterStaleEnd.filter(Boolean).length === 1,
         'manual-select + shuffle advances exactly once; stale Ended cannot fork into another song');
-    console.log('manual select + shuffle queue ownership OK');
+    progress('manual select + shuffle queue ownership OK');
 
     // Regression: two listeners used to handle the same Ended event. At the loop boundary that
     // started #1 and then immediately #2. Repeating the terminal event must advance only once.
-    await page.$eval('[data-af-action="loop-music-group"]', (button) => button.click());
+    await clickLibraryAction(page, '[data-af-action="loop-music-group"]');
     await page.click('.audioflix-provider-queue-list li:last-child button');
     await page.waitForFunction(() => document.querySelector('.audioflix-provider-queue-list li:last-child')?.classList.contains('is-current'), undefined, { timeout: 5000 });
     await page.evaluate(() => {
@@ -168,9 +185,9 @@ async function main() {
 
     // Hiding Queue View must not stop or fork the queue. The next Ended advances while hidden;
     // reopening attaches the panel to that same #2 playback session.
-    const hiddenExpectedNext = await page.$eval('.audioflix-provider-queue-list li', (rows) =>
+    const hiddenExpectedNext = await page.$$eval('.audioflix-provider-queue-list li', (rows) =>
         (rows[1]?.textContent || '').replace(/^▶\s*/, '').trim());
-    await page.$eval('[data-af-action="open-queue-view"]', (button) => button.click());
+    await clickLibraryAction(page, '[data-af-action="open-queue-view"]');
     assert(await page.$eval('.audioflix-provider-stage', (stage) => stage.hidden), 'closing Queue View only hides the shared player');
     await page.evaluate(() => {
         const item = window.EveAudioflixAudio?.getPlaybackState?.()?.item;
@@ -180,7 +197,7 @@ async function main() {
         const playback = window.EveAudioflixAudio?.getPlaybackState?.();
         return playback?.item?.title === expected && playback.paused === false;
     }, hiddenExpectedNext, { timeout: 5000 });
-    await page.$eval('[data-af-action="open-queue-view"]', (button) => button.click());
+    await clickLibraryAction(page, '[data-af-action="open-queue-view"]');
     await page.waitForFunction(() => document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.classList.contains('is-current'), undefined, { timeout: 5000 });
     const reopened = await page.waitForFunction(() => document.querySelector('.audioflix-provider-stage')?.hidden === false, undefined, { timeout: 5000 })
         .then(() => true, () => false);
@@ -195,7 +212,7 @@ async function main() {
         })));
     }
     assert(reopened, 'reopening Queue View attaches to the live queue');
-    console.log('queue ownership OK - loop wrap advances once and hidden/internal views stay synchronized');
+    progress('queue ownership OK - loop wrap advances once and hidden/internal views stay synchronized');
 
     assert(pageErrors.length === 0, 'no uncaught page errors: ' + pageErrors.join(' | '));
     await browser.close();

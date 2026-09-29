@@ -191,6 +191,7 @@ async function main() {
     actionWindow.EveAudioflixNative = { clearVoices: (id) => { actionVoiceClears.push(id); return hotkeyClear.promise; } };
     const actionSandbox = { window: actionWindow, document: {}, Promise, console };
     vm.createContext(actionSandbox);
+    vm.runInContext(fs.readFileSync(path.join(path.dirname(ACTIONS), 'audioflix.ui.actions.routing.js'), 'utf8'), actionSandbox);
     vm.runInContext(fs.readFileSync(ACTIONS, 'utf8'), actionSandbox, { filename: ACTIONS });
     const actionHandler = actionWindow.EveAudioflixUiActions.create({
         findItem: () => ({ id: 'file-sound', url: 'clip.wav' }),

@@ -181,10 +181,12 @@ def assert_static_contract() -> None:
     handler = (tool / "worldbook_runtime" / "layers" / "80_http_handler.py").read_text(encoding="utf-8")
     assert 'parsed.path == "/api/health"' in handler
     assert '"instanceId": SERVER_INSTANCE_ID' in handler
-    assert "Access-Control-Allow-Origin" in handler
-    assert '"public, max-age=31536000, immutable"' in handler
-    assert '"no-cache"' in handler
-    assert 'parsed_request.path.startswith("/api/")' in handler
+    assert "WorldBookResponseMixin, SimpleHTTPRequestHandler" in handler
+    response = (tool / "worldbook_runtime" / "layers" / "75_http_response.py").read_text(encoding="utf-8")
+    assert "Access-Control-Allow-Origin" in response
+    assert '"public, max-age=31536000, immutable"' in response
+    assert '"no-cache"' in response
+    assert 'parsed_request.path.startswith("/api/")' in response
 
     launch_batch = (tool / "launch.bat").read_text(encoding="utf-8")
     assert 'launch.ps1" %*' in launch_batch

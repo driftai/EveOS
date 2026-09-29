@@ -165,6 +165,7 @@ async function main() {
         });
         await page.addScriptTag({ path: asset('assets', 'js', 'narration', 'cache-ui.js') });
         await page.addScriptTag({ path: asset('assets', 'js', 'narration', 'layout.js') });
+        await page.addScriptTag({ path: asset('assets', 'js', 'narration', 'presentation.js') });
         await page.addScriptTag({ path: asset('assets', 'js', 'narration', 'ui.js') });
         const highlight = await page.evaluate(() => {
             const passage = 'First sentence. Second bright word here.';

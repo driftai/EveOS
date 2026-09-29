@@ -190,7 +190,8 @@
 
 .audioflix-provider-stage.is-collapsed .audioflix-provider-frame,
 .audioflix-provider-stage.is-collapsed .audioflix-provider-status,
-.audioflix-provider-stage.is-collapsed .audioflix-provider-transport {
+.audioflix-provider-stage.is-collapsed .audioflix-provider-transport,
+.audioflix-provider-stage.is-collapsed .audioflix-provider-queue {
     display: none;
 }
 

@@ -3,16 +3,13 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
     'use strict';
     if (runtime.ready) return;
     const SETTINGS_KEY = 'eveWorldBookNarrationSettings';
-    const defaults = {
-        enabled: true, engine: 'browser', browserVoice: '', geminiVoice: 'Aoede',
-        rate: 1, pitch: 1, volume: 1, strictVerbatim: true, backgroundPrefetch: true,
-        preferNativeOutput: true, routeToAudioflix: false, cacheMb: 192, cacheDays: 30
-    };
+    const defaults = window.EveWorldBookNarrationClips.defaults;
     let passages = [];
     let state = emptyState();
     let runToken = 0;
     let pendingStartRatio = 0;
     let pausedFrom = '';
+    let pendingStop = Promise.resolve();
     const audio = () => window.EveWorldBookNarrationAudio;
     const cache = () => window.EveWorldBookNarrationCache;
     const clips = () => window.EveWorldBookNarrationClips;
@@ -77,7 +74,7 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
     function applyPlan(plan) {
         passages = (plan || []).map(item => item.text);
         if (!passages.length) {
-            outputs()?.stopAll?.('Narration source cleared.');
+            stop();
             state = { ...state, status: 'idle', index: 0, passageRatio: 0, passageDuration: 0 };
         } else {
             state.index = Math.min(state.index, passages.length - 1);
@@ -224,6 +221,8 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
         }, startRatio);
     }
     async function playPassage(index, baseConfig, token, primePromise, forceRegenerate = false) {
+        await pendingStop;
+        if (token !== runToken) return;
         const passage = passages[index];
         const startedHash = clips()?.get?.(index)?.hash || '', markRendered = used => { if ((clips()?.get?.(index)?.hash || '') === startedHash) clips()?.markRendered?.(index, used); };
         const config = clips()?.config?.(index, baseConfig) || { ...baseConfig };
@@ -238,6 +237,7 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
             } catch (error) {
                 if (token !== runToken) return;
                 await outputs()?.stopAll?.('Switching narration output.');
+                if (token !== runToken) return;
                 if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
                     const fallback = { ...config, engine: 'browser' };
                     state.error = 'Gemini unavailable - using browser speech.';
@@ -334,7 +334,7 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
     }
     function stop() {
         runToken += 1;
-        outputs()?.stopAll?.('Narration stopped.');
+        pendingStop = Promise.all([pendingStop, Promise.resolve(outputs()?.stopAll?.('Narration stopped.'))]);
         pausedFrom = '';
         state.status = passages.length ? 'ready' : 'idle';
         state.passageRatio = 0;

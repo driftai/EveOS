@@ -29,10 +29,12 @@ export function requestHostIsLocal(req) {
   return true;
 }
 
-export function browserOriginIsLocal(req, { allowNullOrigin = false } = {}) {
+export function browserOriginIsLocal(req, { allowNullOrigin = false, allowedExtensionIds = [] } = {}) {
+  const origin = String(req.headers?.origin || '').trim();
+  if (/^chrome-extension:\/\/[a-p]{32}$/.test(origin)
+      && allowedExtensionIds.includes(origin.slice('chrome-extension://'.length))) return true;
   const site = String(req.headers?.['sec-fetch-site'] || '').trim().toLowerCase();
   if (site === 'cross-site') return false;
-  const origin = String(req.headers?.origin || '').trim();
   if (!origin) return true;
   if (origin === 'null') return allowNullOrigin;
   try {

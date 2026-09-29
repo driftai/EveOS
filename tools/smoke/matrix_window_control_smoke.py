@@ -9,6 +9,7 @@ import json
 import socket
 import sys
 import threading
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -34,6 +35,19 @@ def free_port():
 
 
 def post_json(port, body, origin="null"):
+    # Rejected-origin POSTs never execute an action. Match the existing control-plane
+    # probe's bounded Windows socket-reset recovery without replaying valid controls.
+    for attempt in range(3 if origin == "https://example.com" else 1):
+        try:
+            return post_json_once(port, body, origin)
+        except (ConnectionResetError, ConnectionAbortedError):
+            if origin != "https://example.com" or attempt == 2:
+                raise
+            print("Matrix denied-origin probe: transient socket reset; retrying", file=sys.stderr)
+            time.sleep(0.05)
+
+
+def post_json_once(port, body, origin):
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
     try:
         encoded = json.dumps(body).encode("utf-8")
@@ -163,6 +177,7 @@ def route_contract():
             port, body, origin="https://example.com"
         )
         assert_true(forbidden_status == 403, "non-local origin was allowed to control Matrix window")
+        assert_true(calls == [body], "forbidden Matrix requests must never execute an action")
     finally:
         server.shutdown()
         server.server_close()

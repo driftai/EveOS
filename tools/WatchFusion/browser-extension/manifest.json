@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "WatchFusion Media Link",
   "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzjIC4qyXvKopWiCXYOzIk2On3Mvc8sWWsuem9DoI7XkNLsBIcbiAiz1IWvH8HxSAkxdbcQrgJcNbt82/gY7+4tr6efkCODWCJmwtOJx74u5WQaiaN8ElBVmLkGU1oifVL0AiiB/+1HGGZcLojaUNknNP/7szQ3YrWYHiWbLEqI+OHBSoE25hpK39XC6wWP4OW6KvhOHjynxG4kouOvoHnSyVXVoN+DMhohwsg4U3yhUJcUhSFN34Q6R976TfeezFjqzd+b7Lpow88oAfr+fFIU9f7hd7ygNxodtzJX0vQD2cv17AYsqAvCrrnPja4D2THo9RlvwFA6D9bEFrYc8eFwIDAQAB",
   "minimum_chrome_version": "116",
   "description": "Link the playing media area and audio of a tab you choose to WatchFusion.",
   "permissions": [

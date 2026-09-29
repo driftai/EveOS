@@ -6,6 +6,11 @@ window.EveWorldBookNarrationClips = window.EveWorldBookNarrationClips || {};
 
     const STORE_KEY = 'eveWorldBookNarrationClipRecipesV1';
     const MAX_RECIPES = 400;
+    const defaults = Object.freeze({
+        enabled: true, engine: 'browser', browserVoice: '', geminiVoice: 'Aoede',
+        rate: 1, pitch: 1, volume: 1, strictVerbatim: true, backgroundPrefetch: true,
+        preferNativeOutput: true, routeToAudioflix: false, cacheMb: 192, cacheDays: 30
+    });
     let source = null;
     let values = [];
     let provider = null;
@@ -207,6 +212,7 @@ window.EveWorldBookNarrationClips = window.EveWorldBookNarrationClips || {};
 
     Object.assign(clips, {
         ready: true,
+        defaults,
         split,
         hash: narrationHash,
         load,

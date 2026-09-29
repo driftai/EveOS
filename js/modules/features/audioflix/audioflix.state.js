@@ -16,6 +16,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
     let cachedState = null;
     let fallbackState = null;
     let revision = 0;
+    const pendingSaveReasons = new Set();
 
     function getConfigRoot() {
         if (window.eveState?.config && typeof window.eveState.config === 'object') return window.eveState.config;
@@ -40,24 +41,9 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         return guard.write(STORAGE_KEY, state, options);
     }
 
-    function text(value, fallback) {
-        const normalized = String(value ?? '').trim();
-        return normalized || String(fallback ?? '').trim();
-    }
+    const { text, normalizeVolume, id, bool } = window.EveAudioflixStateSchema;
 
-    function bool(value) {
-        return value === true;
-    }
 
-    function normalizeVolume(value, fallback = 1) {
-        if (value === '' || value == null) return fallback;
-        const numeric = Number(value);
-        return Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : fallback;
-    }
-
-    function id(prefix) {
-        return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    }
 
     // Per-item cleaners live in a sibling module (audioflix.state.schema.js) so this store stays
     // under the line cap; they run against the same coerce/clamp/id primitives.
@@ -231,12 +217,14 @@ window.EveAudioflixState = window.EveAudioflixState || {};
                 meta: { skipEditHistory: true }
             });
         }
-        window.dispatchEvent(new CustomEvent('eve:audioflix-state-changed', { detail: { reason } }));
+        const reasons = [...pendingSaveReasons]; pendingSaveReasons.clear();
+        window.dispatchEvent(new CustomEvent('eve:audioflix-state-changed', { detail: { reason, reasons: reasons.length ? reasons : [reason] } }));
         return state;
     }
 
     function scheduleSave(reason) {
         revision += 1;
+        pendingSaveReasons.add(reason);
         if (saveTimer) window.clearTimeout(saveTimer);
         saveTimer = window.setTimeout(() => persistNow(reason), SAVE_DELAY_MS);
     }

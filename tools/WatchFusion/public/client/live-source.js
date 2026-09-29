@@ -2,6 +2,7 @@
 (() => {
   let receiver = null, currentId = '', currentMember = '', busy = false, lastMetadata = {};
   const owners = new Map();
+  const listenPreferences = new Map();
   const ownerKey = id => `watchfusion.live.${id}`;
   function owner(id) {
     if (owners.has(id)) return owners.get(id);
@@ -64,7 +65,7 @@
     receiver?.stop(); currentId = source.streamId; currentMember = membership;
     const saved = owner(currentId);
     const video = $('liveVideo');
-    setListen(video, source.mode === 'audioflix');
+    setListen(video, listenPreferences.get(currentId) ?? source.mode === 'audioflix');
     controls({}); status('Connecting live media…');
     receiver = new window.WatchFusionLivePeer({ base: location.origin, id: currentId,
       token: saved?.publisherToken || source.viewerToken, roomId, memberId: session?.memberId,
@@ -154,8 +155,17 @@
       status(result.message || 'Companion folder opened.');
     } catch (error) { status(error.message); }
   };
+  $('livePairOfficialFolder').onclick = async () => {
+    try {
+      const response = await fetch(apiUrl('/api/setup/open-extension-folder?package=official'), { method: 'POST', cache: 'no-store' });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not open the EveOS extension folder.');
+      status(result.message || 'EveOS extension folder opened.');
+    } catch (error) { status(error.message); }
+  };
   $('liveListen').onclick = async () => {
     const video = $('liveVideo'); setListen(video, video.muted);
+    listenPreferences.set(currentId, !video.muted);
     try { await video.play(); } catch { setListen(video, false); status('Browser blocked playback. Try Listen here again.'); }
   };
   $('liveRetry').onclick = () => { const source = state?.source; if (source?.kind === 'live') { receiver?.stop(); receiver = null; load(source); } };

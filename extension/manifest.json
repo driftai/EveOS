@@ -1,29 +1,147 @@
 {
   "manifest_version": 3,
   "name": "EveOS Official Extension",
-  "version": "0.1.0",
-  "description": "The official EveOS browser hub for local services and companion extensions.",
+  "version": "0.2.0",
+  "description": "EveOS browser tools in one extension: Nexus, Dex, WatchFusion, and compatible companions.",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage",
     "sidePanel",
-    "tabs"
+    "tabs",
+    "scripting",
+    "activeTab",
+    "tabCapture",
+    "offscreen"
   ],
   "optional_permissions": [
     "management"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "https://chat.deepseek.com/*",
+    "https://grok.com/*",
+    "https://x.com/i/grok*",
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "https://gemini.google.com/*",
+    "https://aistudio.google.com/*",
+    "https://muse.ai/*"
   ],
   "background": {
     "service_worker": "service-worker-entry.js"
   },
   "action": {
-    "default_title": "Open EveOS Extension Hub"
+    "default_title": "EveOS browser tools",
+    "default_popup": "popup.html"
   },
   "side_panel": {
     "default_path": "sidepanel.html"
   },
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzOat9lk4CsVQa3/pbnVj6c4YBvTgr9ppCQnjKqU+X/Zi+A2PNtg7SjiyaoCEY0PAMExaWe1kT6dPNwG2oMkRluPWS+lI4EPH9ZbTNJKQnDDJkryz7kDo4Kvrjvr86avJZtsmvugUViwA7iCGVDe7n1zIi0p4FKY2abrMd8+C/lVCL6MrHYy0jYAftyxKhiec/D1MLbnnw3dwgS7ngIXfvw3DdeEOhLBFaiaxlRIqYfM5ln4e5JasKEQ3cLh1O4s4xYB72z5ksTp5etYgk4jTMikljC/fCFexIY9Ss1EGSlkb4M83e/TxBFhwjPiRSlyv8cwag9XVqFjVJ+6AEVW8HwIDAQAB"
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzOat9lk4CsVQa3/pbnVj6c4YBvTgr9ppCQnjKqU+X/Zi+A2PNtg7SjiyaoCEY0PAMExaWe1kT6dPNwG2oMkRluPWS+lI4EPH9ZbTNJKQnDDJkryz7kDo4Kvrjvr86avJZtsmvugUViwA7iCGVDe7n1zIi0p4FKY2abrMd8+C/lVCL6MrHYy0jYAftyxKhiec/D1MLbnnw3dwgS7ngIXfvw3DdeEOhLBFaiaxlRIqYfM5ln4e5JasKEQ3cLh1O4s4xYB72z5ksTp5etYgk4jTMikljC/fCFexIY9Ss1EGSlkb4M83e/TxBFhwjPiRSlyv8cwag9XVqFjVJ+6AEVW8HwIDAQAB",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.deepseek.com/*"
+      ],
+      "js": [
+        "modules/nexus-browser/content/provider-adapter-revision.js",
+        "modules/nexus-browser/content/deepseek-input.js",
+        "modules/nexus-browser/content/deepseek-answer.js",
+        "modules/nexus-browser/content/deepseek.js",
+        "modules/nexus-browser/content/activity-search.js",
+        "modules/nexus-browser/content/activity.js",
+        "modules/nexus-browser/content/search-recovery.js",
+        "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/provider-health.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://grok.com/*",
+        "https://x.com/i/grok*"
+      ],
+      "js": [
+        "modules/nexus-browser/content/provider-adapter-revision.js",
+        "modules/nexus-browser/content/grok-input.js",
+        "modules/nexus-browser/content/grok-answer.js",
+        "modules/nexus-browser/content/grok.js",
+        "modules/nexus-browser/content/grok-activity.js",
+        "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/provider-health.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://claude.ai/*"
+      ],
+      "js": [
+        "modules/nexus-browser/content/provider-adapter-revision.js",
+        "modules/nexus-browser/content/claude-input.js",
+        "modules/nexus-browser/content/claude-answer.js",
+        "modules/nexus-browser/content/claude.js",
+        "modules/nexus-browser/content/claude-activity-search.js",
+        "modules/nexus-browser/content/claude-activity-command.js",
+        "modules/nexus-browser/content/claude-activity.js",
+        "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/provider-health.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "modules/nexus-browser/content/provider-adapter-revision.js",
+        "modules/nexus-browser/content/response-deadline.js",
+        "modules/nexus-browser/content/chatgpt-page-state.js",
+        "modules/nexus-browser/content/chatgpt-input.js",
+        "modules/nexus-browser/content/chatgpt-delivery-watchdog.js",
+        "modules/nexus-browser/content/chatgpt-answer.js",
+        "modules/nexus-browser/content/chatgpt-return.js",
+        "modules/nexus-browser/content/chatgpt.js",
+        "modules/nexus-browser/content/chatgpt-stream-nudge.js",
+        "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/provider-health.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://gemini.google.com/*",
+        "https://aistudio.google.com/*"
+      ],
+      "js": [
+        "modules/nexus-browser/content/provider-adapter-revision.js",
+        "modules/nexus-browser/content/gemini-input.js",
+        "modules/nexus-browser/content/gemini-answer.js",
+        "modules/nexus-browser/content/gemini.js",
+        "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/provider-health.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://muse.ai/*"
+      ],
+      "js": [
+        "modules/nexus-browser/content/provider-adapter-revision.js",
+        "modules/nexus-browser/content/prompt-delivery.js",
+        "modules/nexus-browser/content/muse-input.js",
+        "modules/nexus-browser/content/muse-answer.js",
+        "modules/nexus-browser/content/muse.js",
+        "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/provider-health.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
 }

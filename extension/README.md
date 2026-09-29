@@ -1,14 +1,26 @@
 # EveOS Official Extension
 
-This root-level Manifest V3 extension is the browser-wide EveOS hub. It does not replace specialized companions such as Nexus Browser or WatchFusion Media Link. It discovers those companions through the versioned `eveos.extension.v1` message contract, summarizes their safe capabilities, checks registered EveOS localhost services, and opens each tool from one persistent side panel.
+One install includes Nexus Browser/Dex and WatchFusion Media Link. Each tool also remains independently installable from its own extension directory.
 
 ## Install locally
 
-Open `chrome://extensions` or `edge://extensions`, enable Developer mode, choose **Load unpacked**, and select this `extension` directory. Clicking the toolbar action opens the EveOS Extension Hub side panel.
+Run `npm run build:eveos-extension` in EveOS. In `chrome://extensions` or `edge://extensions`, enable Developer mode and load this root `extension` directory. After an update, rebuild and press Reload on the extension card. Refresh existing provider tabs once so they receive the new content scripts. Once Nexus shows connected and WatchFusion links through EveOS, separate companions may be disabled or removed.
 
-Companion discovery is optional. Chrome/Edge asks before granting the `management` permission, which the hub uses only to enumerate installed extension names and IDs and probe the EveOS connector contract. The hub does not read browsing history, page contents, provider conversations, cookies, or credentials.
+Click the EveOS toolbar button on the playing source tab to connect WatchFusion with its private pairing link. Nexus/Dex runs through the included Nexus transport. **Extension Hub** opens the side panel. This click grants Chrome's required active-tab capture authority to EveOS itself; another extension is unnecessary. Optional embedded-player access enables probing cross-origin frames. Protected media and inaccessible/custom players still depend on the site's browser interfaces.
+
+## One source, two packages
+
+WatchFusion's **Open EveOS extension folder** action prepares the shared package automatically. The build command is also available for manual setup and updates; no companion installation is needed for the official package.
+
+`modules.json` declares canonical tool sources and worker entries. `manifest.base.json` owns the official identity and shell. `tools/extensions/assemble.cjs` composes manifest permissions/content scripts and assembles unchanged assets into ignored `extension/modules/`. These are packaging artifacts, never another maintained implementation. A tool fix applies to both packages on the next build. The assembler verifies every declared content asset and rejects unsafe paths or duplicate module IDs.
+
+`npm run audit:eveos-extension` checks the composed manifest. Add `-- --assets` to verify local assembled files against their sources. New first-party tools add a module declaration and narrow connector rather than tool-specific logic in the hub.
+
+Standalone directories: `tools/Nexus-Browser/extension` and `tools/WatchFusion/browser-extension`.
 
 ## Connector protocol
+
+Included modules and additional companions use the versioned `eveos.extension.v1` contract.
 
 A future EveOS companion should listen on `chrome.runtime.onMessageExternal` for `{ channel: "eveos.extension.v1", version: 1 }` and support:
 
@@ -17,9 +29,11 @@ A future EveOS companion should listen on `chrome.runtime.onMessageExternal` for
 - `open`: open its own local dashboard or extension-owned UI.
 - `invoke`: run an optional declarative companion action exposed by `describe.actions`. The hub renders those actions generically and forwards them; the companion still owns the implementation and permissions.
 
-Companions remain responsible for their own permissions, content scripts, authenticated sessions, and lifecycle. The hub deliberately does not absorb those privileges.
+Included tools register the same handler in-process. Standalone tools expose it through `chrome.runtime.onMessageExternal`, allowlisted to the stable official extension ID. Each module has its own ID even when several share the official extension identity.
 
 
 ## Standalone + hub rule
 
-Every specialized companion remains a complete standalone extension. The official hub does not vendor or duplicate Nexus Browser, WatchFusion, or future companion code. The hub manifest carries a stable public extension key so companions can allowlist the official hub ID instead of accepting messages from every installed extension. It speaks the connector protocol and renders declarative actions supplied by each installed companion. Privileged operations remain inside the specialized extension that owns the required browser permissions. If a browser permission requires direct interaction with that companion, the hub reports that boundary instead of absorbing the permission into the hub.
+Every specialized companion remains a complete standalone extension. Included tools need no discovery permission. Additional companion discovery asks for optional `management` permission. Nexus owns authenticated provider transport and WatchFusion owns explicit media capture. Pairing tokens, selected targets, and browser state stay in local extension storage rather than the repository.
+
+Automated package/browser checks cover worker boot, included tools, adapter registration, capture routing/cropping, room unload, and standalone behavior. Real account dispatch, browser-authorized capture clicks, physical speakers, protected third-party media, and a second physical LAN device require live evidence. A synthetic fixture never proves a particular third-party site works.

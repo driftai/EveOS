@@ -198,6 +198,7 @@ chat_history.json
 server_modules/audioflix_allowed_dirs.json
 
 # World Book: application code is public; every runtime/user-data artifact stays local.
+extension/modules/
 tools/World-Book/data/**
 !tools/World-Book/data/README.txt
 

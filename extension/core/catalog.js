@@ -21,6 +21,8 @@
     return {
       id,
       extensionId: String(extension.id || value.extensionId || ''),
+      integration: extension.integration === 'included' ? 'included' : 'standalone',
+      moduleId: String(extension.moduleId || ''),
       name: String(value.name || extension.name || id),
       description: String(value.description || ''),
       version: String(value.version || extension.version || ''),

@@ -66,7 +66,8 @@
           return;
         }
         if (currentRevision && !currentControl) {
-          await chromeApi.scripting.executeScript({ target: { tabId }, files: ['content/dex-provider-control.js'] });
+          const file = globalThis.BrowserAiBridgeExtensionAssets?.path('content/dex-provider-control.js') || 'content/dex-provider-control.js';
+          await chromeApi.scripting.executeScript({ target: { tabId }, files: [file] });
           metrics.softRepairs++;
           const ready = await ping(tabId, 'dex_provider_control_ping');
           if (ready?.ok === true && Number(ready.revision || 0) === expectedRevision) {

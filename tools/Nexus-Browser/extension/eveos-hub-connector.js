@@ -34,22 +34,23 @@
     };
   }
 
+  async function handle(message) {
+    const status = await serviceStatus();
+    if (message.type === 'describe') return response('describe', description(status));
+    if (message.type === 'status') return response('status', status);
+    if (message.type === 'open' || (message.type === 'invoke' && message.detail?.action === 'open-dashboard')) {
+      await chrome.tabs.create({ url: dashboardUrl });
+      return response(message.type, { message: 'Nexus Browser opened.', opened: true });
+    }
+    return { channel: CHANNEL, version: VERSION, type: message.type, ok: false, code: 'UNKNOWN_ACTION' };
+  }
+  if (globalThis.EveOSExtensionModules) {
+    globalThis.EveOSExtensionModules.register('nexus-browser', handle);
+    return;
+  }
   chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
     if (message?.channel !== CHANNEL || Number(message.version) !== VERSION) return;
-    (async () => {
-      const status = await serviceStatus();
-      if (message.type === 'describe') return response('describe', description(status));
-      if (message.type === 'status') return response('status', status);
-      if (message.type === 'open') {
-        await chrome.tabs.create({ url: dashboardUrl });
-        return response('open', { opened: true });
-      }
-      if (message.type === 'invoke' && message.detail?.action === 'open-dashboard') {
-        await chrome.tabs.create({ url: dashboardUrl });
-        return response('invoke', { message: 'Nexus Browser opened.' });
-      }
-      return { channel: CHANNEL, version: VERSION, type: message.type, ok: false, code: 'UNKNOWN_ACTION' };
-    })().then(sendResponse, () => sendResponse({ channel: CHANNEL, version: VERSION, ok: false }));
+    handle(message).then(sendResponse, () => sendResponse({ channel: CHANNEL, version: VERSION, ok: false }));
     return true;
   });
 })();

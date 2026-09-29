@@ -2,7 +2,7 @@
 // Split out of audioflix.state.js to keep that store under the project line cap. These normalize an
 // untrusted item/port into the exact shape the app relies on; unknown fields are dropped, so any new
 // field must be declared here or it is lost on the next normalize(). The host store passes its own
-// primitives (text coerce, volume clamp, id generator) so there's a single source of truth.
+// primitives from this module (text coerce, volume clamp, id generator), keeping one source of truth.
 window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
 
 (function () {
@@ -10,6 +10,22 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
 
     const ns = window.EveAudioflixStateSchema;
     if (ns.ready) return;
+
+    function text(value, fallback) {
+        const normalized = String(value ?? '').trim();
+        return normalized || String(fallback ?? '').trim();
+    }
+    function normalizeVolume(value, fallback = 1) {
+        if (value === '' || value == null) return fallback;
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : fallback;
+    }
+
+    function id(prefix) {
+        return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    }
+    const bool = value => value === true;
+    Object.assign(ns, { text, normalizeVolume, id, bool });
 
     ns.create = function create(deps) {
         const text = deps.text;

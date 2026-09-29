@@ -1,0 +1,6 @@
+{
+  "modules": [
+    { "id": "nexus-browser", "source": "tools/Nexus-Browser/extension", "entry": "service-worker-entry.js" },
+    { "id": "watchfusion", "source": "tools/WatchFusion/browser-extension", "entry": "worker.js" }
+  ]
+}

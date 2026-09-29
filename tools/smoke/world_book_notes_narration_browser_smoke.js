@@ -168,6 +168,22 @@ async function main() {
             await new Promise(resolve => setTimeout(resolve, 30));
             const blockedState = runtime.getState();
 
+            const outputs = window.EveWorldBookNarrationOutputs;
+            const originalStop = outputs.stopAll, originalBrowser = outputs.browser;
+            let releaseStop, browserStarts = 0;
+            const delayedStop = new Promise(resolve => { releaseStop = resolve; });
+            outputs.stopAll = () => delayedStop;
+            outputs.browser = async () => { browserStarts += 1; return true; };
+            clipApi.choose(0, { engine: 'browser', browserVoice: 'Voice A' });
+            const regenerate = runtime.regenerateClip(0);
+            await new Promise(resolve => setTimeout(resolve, 25));
+            const startsBeforeStop = browserStarts;
+            releaseStop();
+            await regenerate;
+            const startsAfterStop = browserStarts;
+            outputs.stopAll = originalStop; outputs.browser = originalBrowser;
+            runtime.stop();
+
             const paddedPcm = new Int16Array(900);
             paddedPcm[450] = 1500;
             paddedPcm[451] = -1500;
@@ -184,6 +200,8 @@ async function main() {
                 blockedState,
                 changedBeforeReload,
                 changedAfterReload,
+                startsBeforeStop,
+                startsAfterStop,
                 trimmedBytes: trimmed.byteLength,
                 paddedPcmBytes: paddedPcm.byteLength
             };
@@ -212,6 +230,8 @@ async function main() {
             `Reload cleared the edited-clip warning before regeneration: ${JSON.stringify(result.changedAfterReload)}`);
         expect(result.trimmedBytes > 0 && result.trimmedBytes < result.paddedPcmBytes,
             `leading/trailing digital silence was not trimmed: ${JSON.stringify(result)}`);
+        expect(result.startsBeforeStop === 0 && result.startsAfterStop === 1,
+            'clip regeneration overlapped an asynchronous previous output stop');
         console.log('WORLD_BOOK_NOTES_NARRATION_BROWSER_SMOKE_OK');
     } finally {
         await context.close();

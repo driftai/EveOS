@@ -10,6 +10,8 @@ import { handleVoxelVisionRoute } from '../../../src/server/voxelvision-routes.j
 import { applyApiCors } from '../../../src/server/http-utils.js';
 import { isContainedPath, resolveContainedFile } from '../../../src/server/static-files.js';
 import { assertPublicHttpUrl } from '../../../src/server/public-url.js';
+import { isHostLocalRequest } from '../../../src/server/local-request.js';
+import { trustedExtensionIds } from '../../../src/server/extension-identity.js';
 
 function mockResponse() {
   return {
@@ -119,6 +121,26 @@ export async function runSecuritySmokes() {
       assert.equal(handled, true);
       assert.equal(res.statusCode, 403, `installer must reject non-local browser context ${JSON.stringify(headers)}`);
       assert.match(res.body, /host-local/);
+    }
+  });
+
+  await check('SEC-EXTENSION-FOLDER-IDENTITY-BOUNDARY', async () => {
+    const ids = trustedExtensionIds();
+    assert.equal(new Set(ids).size, 2, 'both canonical packages need stable, distinct public identities');
+    const options = { allowedExtensionIds: ids };
+    for (const id of ids) {
+      const req = localRequest({ method: 'POST', url: '/api/setup/open-extension-folder',
+        headers: { origin: `chrome-extension://${id}`, 'sec-fetch-site': 'cross-site' } });
+      assert.equal(isHostLocalRequest(req, options), true);
+      assert.equal(isHostLocalRequest(req), false, 'extension permission must not widen unrelated local routes');
+      const res = mockResponse();
+      await handleSetupRoute({ ...req, url: '/api/setup/install' }, res, ['api', 'setup', 'install']);
+      assert.equal(res.statusCode, 403);
+      assert.equal(isHostLocalRequest({ ...req, socket: { remoteAddress: '192.168.1.25' } }, options), false);
+      assert.equal(isHostLocalRequest({ ...req, headers: { ...req.headers, 'x-forwarded-host': 'evil.example' } }, options), false);
+    }
+    for (const origin of ['chrome-extension://' + 'p'.repeat(32), `https://${ids[0]}`, 'null']) {
+      assert.equal(isHostLocalRequest(localRequest({ headers: { origin } }), options), false);
     }
   });
 

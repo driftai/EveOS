@@ -19,6 +19,29 @@ window.EveAudioflixUiActionsNexus = window.EveAudioflixUiActionsNexus || {};
         }
 
         return async function handleNexusAction(actionTarget, action) {
+            if (action === 'toggle-sync-playlist-form') {
+                const group = actionTarget.dataset.afGroup || '';
+                const curr = ctx.syncPlaylistFormOpen || {};
+                if (curr.open && curr.group === group) {
+                    ctx.syncPlaylistFormOpen = { open: false, group: '' };
+                } else {
+                    ctx.syncPlaylistFormOpen = { open: true, group };
+                }
+                ctx.rerender();
+                return true;
+            }
+            if (action === 'toggle-playlist-link-form') {
+                const group = actionTarget.dataset.afGroup || '';
+                const curr = ctx.playlistLinkFormOpen || {};
+                ctx.playlistLinkFormOpen = (curr.open && curr.group === group) ? { open: false, group: '' } : { open: true, group };
+                ctx.rerender();
+                return true;
+            }
+            if (action === 'cancel-sync-form') {
+                ctx.syncPlaylistFormOpen = { open: false, group: '' };
+                ctx.rerender();
+                return true;
+            }
             const view = ctx.nexusState || {};
             if (action === 'nexus-select-all') {
                 ctx.nexusState = Object.assign({}, view, {

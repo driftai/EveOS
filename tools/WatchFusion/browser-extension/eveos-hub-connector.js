@@ -39,7 +39,7 @@
         {
           id: 'prepare-tab-link',
           label: 'Prepare tab link',
-          description: 'Then click WatchFusion Media Link once on the source tab; Chrome requires that companion click before tab capture.',
+          description: 'Then open the extension on the playing source tab to start capture.',
           input: { kind: 'text', placeholder: 'Paste private pairing link' }
         },
         { id: 'stop-sharing', label: 'Stop sharing', description: 'Stops the companion-owned tab capture.' },
@@ -56,7 +56,8 @@
       return response('invoke', { message: 'WatchFusion sharing stopped.' });
     }
     if (action === 'open-extension-folder') {
-      const result = await fetch('http://127.0.0.1:9087/api/setup/open-extension-folder', { method: 'POST', cache: 'no-store' });
+      const packageName = globalThis.EveOSExtensionModules ? 'official' : 'watchfusion';
+      const result = await fetch(`http://127.0.0.1:9087/api/setup/open-extension-folder?package=${packageName}`, { method: 'POST', cache: 'no-store' });
       const payload = await result.json().catch(() => ({}));
       return result.ok
         ? response('invoke', { message: payload.message || 'Companion folder opened.' })
@@ -79,19 +80,24 @@
     return failure('invoke', 'UNKNOWN_ACTION', 'Unknown WatchFusion companion action.');
   }
 
+  async function handle(message) {
+    const status = await serviceStatus();
+    if (message.type === 'describe') return response('describe', description(status));
+    if (message.type === 'status') return response('status', status);
+    if (message.type === 'open') {
+      await chrome.tabs.create({ url: dashboardUrl });
+      return response('open', { opened: true });
+    }
+    if (message.type === 'invoke') return invoke(message.detail);
+    return failure(message.type, 'UNKNOWN_REQUEST', 'Unknown EveOS hub request.');
+  }
+  if (globalThis.EveOSExtensionModules) {
+    globalThis.EveOSExtensionModules.register('watchfusion', handle);
+    return;
+  }
   chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
     if (message?.channel !== CHANNEL || Number(message.version) !== VERSION) return;
-    (async () => {
-      const status = await serviceStatus();
-      if (message.type === 'describe') return response('describe', description(status));
-      if (message.type === 'status') return response('status', status);
-      if (message.type === 'open') {
-        await chrome.tabs.create({ url: dashboardUrl });
-        return response('open', { opened: true });
-      }
-      if (message.type === 'invoke') return invoke(message.detail);
-      return failure(message.type, 'UNKNOWN_REQUEST', 'Unknown EveOS hub request.');
-    })().then(sendResponse, error => sendResponse(failure(message.type, 'CONNECTOR_ERROR', error?.message || String(error))));
+    handle(message).then(sendResponse, error => sendResponse(failure(message.type, 'CONNECTOR_ERROR', error?.message || String(error))));
     return true;
   });
 })();

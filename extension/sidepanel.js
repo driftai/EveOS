@@ -18,11 +18,11 @@ function connectorCard(item) {
   const capabilities = item.capabilities.length ? item.capabilities.join(' · ') : 'Connector protocol ready';
   const actions = (item.actions || []).map(action => {
     const input = action.input?.kind === 'text'
-      ? `<input data-connector-input="${escapeHtml(item.extensionId)}:${escapeHtml(action.id)}" placeholder="${escapeHtml(action.input.placeholder || '')}" aria-label="${escapeHtml(action.label)} input">`
+      ? `<input data-connector-input="${escapeHtml(item.extensionId)}:${escapeHtml(item.id)}:${escapeHtml(action.id)}" placeholder="${escapeHtml(action.input.placeholder || '')}" aria-label="${escapeHtml(action.label)} input">`
       : '';
-    return `<div class="connector-action">${input}<button type="button" data-invoke-connector="${escapeHtml(item.extensionId)}" data-action-id="${escapeHtml(action.id)}">${escapeHtml(action.label)}</button>${action.description ? `<small>${escapeHtml(action.description)}</small>` : ''}</div>`;
+    return `<div class="connector-action">${input}<button type="button" data-invoke-connector="${escapeHtml(item.extensionId)}" data-connector-id="${escapeHtml(item.id)}" data-action-id="${escapeHtml(action.id)}">${escapeHtml(action.label)}</button>${action.description ? `<small>${escapeHtml(action.description)}</small>` : ''}</div>`;
   }).join('');
-  return `<article class="card connector-card"><strong>${escapeHtml(item.name)}</strong><span class="badge online">CONNECTED</span><small>${escapeHtml(capabilities)}</small><button type="button" data-open-connector="${escapeHtml(item.extensionId)}">Open companion</button>${actions ? `<div class="connector-actions">${actions}</div>` : ''}</article>`;
+  return `<article class="card connector-card"><strong>${escapeHtml(item.name)}</strong><span class="badge online">${item.integration === 'included' ? 'INCLUDED' : 'CONNECTED'}</span><small>${escapeHtml(capabilities)}</small><button type="button" data-open-connector="${escapeHtml(item.extensionId)}" data-connector-id="${escapeHtml(item.id)}">Open tool</button>${actions ? `<div class="connector-actions">${actions}</div>` : ''}</article>`;
 }
 
 function render(snapshot) {
@@ -55,14 +55,15 @@ document.addEventListener('click', async event => {
     } else if (target.dataset.openService) {
       await send('open-service', { id: target.dataset.openService });
     } else if (target.dataset.openConnector) {
-      const result = await send('open-connector', { extensionId: target.dataset.openConnector });
+      const result = await send('open-connector', { extensionId: target.dataset.openConnector, id: target.dataset.connectorId });
       if (!result?.ok) throw new Error(result?.message || result?.code || 'Companion could not be opened.');
     } else if (target.dataset.invokeConnector) {
       const extensionId = target.dataset.invokeConnector;
       const action = target.dataset.actionId;
-      const selector = `[data-connector-input="${CSS.escape(extensionId)}:${CSS.escape(action)}"]`;
+      const id = target.dataset.connectorId;
+      const selector = `[data-connector-input="${CSS.escape(extensionId)}:${CSS.escape(id)}:${CSS.escape(action)}"]`;
       const input = document.querySelector(selector);
-      const result = await send('invoke-connector', { extensionId, action, value: input?.value || '' });
+      const result = await send('invoke-connector', { extensionId, id, action, value: input?.value || '' });
       if (!result?.ok) throw new Error(result?.message || result?.code || 'Companion action failed.');
       status.textContent = result.detail?.message || 'Companion action completed.';
     }

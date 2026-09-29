@@ -5,8 +5,9 @@
 
   function providerPatterns(manifest = chrome.runtime.getManifest()) {
     const patterns = [];
+    const file = globalThis.BrowserAiBridgeExtensionAssets?.path(CONTROL_SCRIPT) || CONTROL_SCRIPT;
     for (const entry of manifest?.content_scripts || []) {
-      if (!(entry.js || []).includes(CONTROL_SCRIPT)) continue;
+      if (!(entry.js || []).includes(file)) continue;
       patterns.push(...(entry.matches || []));
     }
     return [...new Set(patterns)];
@@ -45,7 +46,8 @@
 
     if (await ping(tabId)) return true;
     try {
-      const inject = chrome.scripting.executeScript({ target: { tabId }, files: [CONTROL_SCRIPT] });
+      const file = globalThis.BrowserAiBridgeExtensionAssets?.path(CONTROL_SCRIPT) || CONTROL_SCRIPT;
+      const inject = chrome.scripting.executeScript({ target: { tabId }, files: [file] });
       await Promise.race([inject, new Promise((_, reject) => setTimeout(() => reject(new Error('provider-control injection timeout')), 2500))]);
     } catch {
       return false;
