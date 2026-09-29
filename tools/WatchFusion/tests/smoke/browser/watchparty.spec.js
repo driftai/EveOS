@@ -126,6 +126,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await hostPage.fill('#nameInput', 'LanHost');
     await hostPage.fill('#roomInput', '906');
     await hostPage.click('#createBtn');
+    await expect(hostPage).toHaveURL(/\/watch\//, { timeout: 5000 });
 
     const shareLink = await hostPage.evaluate(() => shareRoomLink());
     expect(shareLink).toBe('http://192-168-50-7.sslip.io:9087/watch/906');
@@ -276,6 +277,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await hostPage.fill('#nameInput', 'ResumeHost');
     await hostPage.fill('#roomInput', '908');
     await hostPage.click('#createBtn');
+    await expect(hostPage).toHaveURL(/\/watch\//, { timeout: 5000 });
     await viewerPage.goto(hostPage.url());
     await expect(viewerPage.locator('#members')).toContainText('ResumeHost');
 
@@ -372,7 +374,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await page.click('#headerToggleBtn');
     await page.click('#startPartyBtn');
     await page.fill('#nameInput', 'ReloadHost');
-    await page.fill('#roomInput', '907');
+    await page.fill('#roomInput', '910');
     await page.click('#createBtn');
     await expect(page).toHaveURL(/\/watch\//, { timeout: 5000 });
 
@@ -402,6 +404,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await hostPage.fill('#nameInput', 'UnloadHost');
     await hostPage.fill('#roomInput', '909');
     await hostPage.click('#createBtn');
+    await expect(hostPage).toHaveURL(/\/watch\//, { timeout: 5000 });
     await viewerPage.goto(hostPage.url());
     await expect(viewerPage.locator('#members')).toContainText('UnloadHost');
 
