@@ -1,0 +1,80 @@
+/* EveOS-hosted Gemini sizing hardening.
+   Loaded directly by EveOS so embedded Search Monitor controls remain reachable
+   even when the Gemini workspace's own stylesheet bundle is cached. */
+
+#loadingIndicator #gemini-ui-root .gemini-command-action-row {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)) !important;
+    gap: 10px !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+#loadingIndicator #gemini-ui-root .gemini-command-action-row > div,
+#loadingIndicator #gemini-ui-root .gemini-agentic-shell,
+#loadingIndicator #gemini-ui-root .gemini-agentic-grid,
+#loadingIndicator #gemini-ui-root .gemini-agentic-card,
+#loadingIndicator #gemini-ui-root .gemini-agentic-card-head,
+#loadingIndicator #gemini-ui-root .gemini-agentic-card-actions {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+#loadingIndicator #gemini-ui-root .gemini-command-action-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 8px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    min-height: 40px !important;
+    padding: 8px 12px !important;
+}
+
+#loadingIndicator #gemini-ui-root .gemini-command-action-label {
+    min-width: 0 !important;
+    line-height: 1.25 !important;
+    overflow-wrap: anywhere !important;
+    white-space: normal !important;
+    text-align: left !important;
+}
+
+#loadingIndicator #gemini-ui-root .gemini-agentic-grid > div {
+    min-width: min(100%, 220px) !important;
+    max-width: 100% !important;
+}
+
+#loadingIndicator #gemini-ui-root .gemini-agentic-card-head,
+#loadingIndicator #gemini-ui-root .gemini-agentic-card-actions {
+    flex-wrap: wrap !important;
+}
+
+#loadingIndicator #gemini-ui-root .gemini-agentic-secondary-btn {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+
+#loadingIndicator .gemini-narration-settings-card,
+#loadingIndicator .gemini-narration-settings-grid,
+#loadingIndicator .gemini-narration-settings-grid label {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+@media (max-width: 520px) {
+    #loadingIndicator #gemini-ui-root .gemini-command-action-row {
+        grid-template-columns: 1fr !important;
+    }
+
+    #loadingIndicator #gemini-ui-root .gemini-agentic-grid > div {
+        flex-basis: 100% !important;
+    }
+
+    #loadingIndicator #gemini-ui-root .gemini-agentic-card-actions {
+        justify-content: flex-start !important;
+    }
+}

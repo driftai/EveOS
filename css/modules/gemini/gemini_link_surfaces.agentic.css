@@ -427,19 +427,3 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     color: #d8f7ff;
 }
-
-/* Keep embedded Agentic Functions inside the Search Monitor viewport at narrow sizes. */
-#gemini-ui-root .gemini-agentic-shell,#gemini-ui-root .gemini-agentic-grid,#gemini-ui-root .gemini-agentic-card,
-#gemini-ui-root .gemini-agentic-card-head,#gemini-ui-root .gemini-agentic-card-actions {
-    min-width:0;max-width:100%;box-sizing:border-box;
-}
-#gemini-ui-root .gemini-agentic-grid>div { min-width:min(100%,220px);max-width:100%; }
-#gemini-ui-root .gemini-agentic-card-head,#gemini-ui-root .gemini-agentic-card-actions { flex-wrap:wrap; }
-#gemini-ui-root .gemini-agentic-secondary-btn { white-space:normal;overflow-wrap:anywhere; }
-.gemini-narration-settings-card,.gemini-narration-settings-grid,.gemini-narration-settings-grid label {
-    min-width:0;max-width:100%;box-sizing:border-box;
-}
-@media(max-width:520px){
-    #gemini-ui-root .gemini-agentic-grid>div{flex-basis:100%}
-    #gemini-ui-root .gemini-agentic-card-actions{justify-content:flex-start}
-}
