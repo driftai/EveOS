@@ -24,6 +24,9 @@
   "background": {
     "service_worker": "service-worker-entry.js"
   },
+  "externally_connectable": {
+    "ids": ["*"]
+  },
   "content_scripts": [
     {
       "matches": [

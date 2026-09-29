@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "EveOS Official Extension",
+  "version": "0.1.0",
+  "description": "The official EveOS browser hub for local services and companion extensions.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "sidePanel", "tabs"],
+  "optional_permissions": ["management"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "background": { "service_worker": "service-worker-entry.js" },
+  "action": { "default_title": "Open EveOS Extension Hub" },
+  "side_panel": { "default_path": "sidepanel.html" }
+}

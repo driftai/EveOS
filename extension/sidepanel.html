@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>EveOS Extension Hub</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header><span>EVEOS OFFICIAL</span><h1>Extension Hub</h1><p>One control surface for EveOS browser companions.</p></header>
+  <nav>
+    <button type="button" data-action="refresh">Refresh</button>
+    <button type="button" class="primary" data-action="discover">Discover companions</button>
+  </nav>
+  <p class="privacy">Discovery is optional. It reads installed extension names and IDs only after you approve the browser prompt.</p>
+  <main>
+    <section><h2>Local services</h2><div class="cards" data-services></div></section>
+    <section><h2>Companion extensions</h2><div class="cards" data-connectors></div></section>
+  </main>
+  <p role="status" data-status>Checking EveOS...</p>
+  <script src="core/protocol.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

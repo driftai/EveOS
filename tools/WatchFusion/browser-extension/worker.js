@@ -1,3 +1,5 @@
+importScripts('eveos-hub-connector.js');
+
 let sourceTab = null;
 async function offscreen() {
   const url = chrome.runtime.getURL('offscreen.html');

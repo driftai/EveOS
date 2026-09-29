@@ -1,5 +1,6 @@
 if (typeof importScripts === 'function') {
   importScripts('runtime-config.js');
+  importScripts('eveos-hub-connector.js');
   importScripts('dex-ui-refresh.js');
   importScripts('content/provider-adapter-revision.js');
   importScripts('provider-adapter-freshness.js');
