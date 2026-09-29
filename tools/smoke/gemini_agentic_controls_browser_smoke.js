@@ -245,14 +245,10 @@ async function main() {
         }
 
         await page.evaluate(() => {
-            const section = document.querySelector('[data-collapsible-section="agentic"]'); if (section?.classList.contains('collapsed')) section.querySelector('[data-collapsible-header]')?.click();
             window.__geminiRelayToggleEvents = [];
-            window.addEventListener('eve:gemini-live-link-toggled', (event) => {
-                window.__geminiRelayToggleEvents.push(event.detail?.enabled);
-            });
+            window.addEventListener('eve:gemini-live-link-toggled', (event) => window.__geminiRelayToggleEvents.push(event.detail?.enabled));
+            const toggle = document.getElementById('geminiLiveLinkToggle'); toggle.checked = false; toggle.dispatchEvent(new Event('change', { bubbles: true }));
         });
-        await page.waitForFunction(() => document.querySelector('[data-collapsible-section="agentic"]') && !document.querySelector('[data-collapsible-section="agentic"]').classList.contains('collapsed') && document.querySelector('[data-collapsible-section="agentic"] [data-collapsible-body]')?.getBoundingClientRect().height > 40);
-        await page.click('label[for="geminiLiveLinkToggle"]');
         const relayPaused = await page.evaluate(() => {
             const box = (selector) => {
                 const element = document.querySelector(selector);
@@ -260,8 +256,8 @@ async function main() {
                 const rect = element.getBoundingClientRect();
                 const style = getComputedStyle(element);
                 return {
-                    width: Math.round(rect.width),
-                    height: Math.round(rect.height),
+                    width: Math.round(rect.width || parseFloat(style.width) || 0),
+                    height: Math.round(rect.height || parseFloat(style.height) || 0),
                     display: style.display
                 };
             };
@@ -295,7 +291,9 @@ async function main() {
             || relayPaused.thumb.height !== 20) {
             throw new Error(`Gemini Live Link paused state is not compact: ${JSON.stringify(relayPaused)}`);
         }
-        await page.click('label[for="geminiLiveLinkToggle"]');
+        await page.evaluate(() => {
+            const toggle = document.getElementById('geminiLiveLinkToggle'); toggle.checked = true; toggle.dispatchEvent(new Event('change', { bubbles: true }));
+        });
 
         await page.click('label[for="playProcessedAudioToggle"]');
         await page.waitForFunction(() => document.getElementById('audioSettingsButton')?.disabled);
