@@ -105,7 +105,7 @@ def assert_static_contract() -> None:
     assert "inset: 0 !important" in offline_css
     assert "transform: none !important" in offline_css
     assert ".notes-world-book-notes-view" in offline_css
-    assert "padding: 2px clamp(14px, 2vw, 28px)" in offline_css
+    assert "padding: 10px clamp(14px, 2vw, 28px)" in offline_css
 
     app_index = (tool / "app" / "index.html").read_text(encoding="utf-8")
     assert 'data-entry-section="metadata"' in app_index

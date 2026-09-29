@@ -28,7 +28,7 @@
     box-sizing: border-box !important;
 }
 .notes-world-book-overlay[data-view="notes"] .notes-world-book-notes-view {
-    padding: 2px clamp(14px, 2vw, 28px) clamp(14px, 2vw, 28px) !important;
+    padding: 10px clamp(14px, 2vw, 28px) clamp(14px, 2vw, 28px) !important;
 }
 
 .notes-world-book-notes-heading > div:first-child {
