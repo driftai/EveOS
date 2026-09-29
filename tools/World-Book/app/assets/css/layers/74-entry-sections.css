@@ -95,3 +95,19 @@ body.focus-mode:not(.focus-details-open) .entry-section.focus-secondary {
     grid-template-columns: 1fr;
   }
 }
+
+.link-provenance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 4px 0 12px;
+}
+.link-provenance-grid .field {
+  margin-bottom: 0;
+}
+@media (max-width: 620px) {
+  .link-provenance-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
