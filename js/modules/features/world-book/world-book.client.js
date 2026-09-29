@@ -16,6 +16,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         source: 'none',
         busy: false,
         url: 'http://127.0.0.1:8766/',
+        instanceId: '',
         message: 'Checking World Book...'
     };
 
@@ -75,6 +76,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         state.desiredRunning = payload.desiredRunning === true;
         state.serverState = String(payload.state || (state.running ? 'running' : 'stopped'));
         state.url = String(payload.url || state.url);
+        state.instanceId = String(payload.instanceId || state.instanceId || '');
         state.source = state.running ? 'managed' : 'none';
         state.message = String(payload.message || '');
         if (shouldPublish !== false) publish();
@@ -91,6 +93,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         state.source = 'standalone';
         state.url = worldBookUrl();
         state.appVersion = String(payload.appVersion || '');
+        state.instanceId = String(payload.instanceId || '');
         state.message = 'World Book is online through its standalone launcher.';
         publish();
         return { ...state };
@@ -142,6 +145,7 @@ window.EveWorldBook = window.EveWorldBook || {};
                 state.source = 'managed';
                 state.url = worldBookUrl();
                 state.appVersion = String(direct.appVersion || state.appVersion || '');
+                state.instanceId = String(direct.instanceId || found.payload.instanceId || state.instanceId || '');
                 state.message = found.payload.message || 'World Book is online.';
             }
             publish();
