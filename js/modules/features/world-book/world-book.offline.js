@@ -67,11 +67,21 @@ window.EveWorldBook = window.EveWorldBook || {};
     async function copyNotes(overlay) {
         const editor = overlay?.querySelector('[data-world-book-notes]');
         if (!editor) return;
+        let copied = false;
         try {
             await navigator.clipboard.writeText(editor.value || '');
-            const meta = overlay.querySelector('[data-world-book-notes-meta]');
-            if (meta) meta.textContent = 'Copied to clipboard';
-        } catch {}
+            copied = true;
+        } catch {
+            const start = editor.selectionStart, end = editor.selectionEnd;
+            try {
+                editor.focus({ preventScroll: true });
+                editor.select();
+                copied = document.execCommand?.('copy') === true;
+            } catch {}
+            try { editor.setSelectionRange(start, end); } catch {}
+        }
+        const meta = overlay.querySelector('[data-world-book-notes-meta]');
+        if (meta) meta.textContent = copied ? 'Copied to clipboard' : 'Clipboard unavailable — use Download .txt';
     }
 
     function downloadNotes(overlay) {
