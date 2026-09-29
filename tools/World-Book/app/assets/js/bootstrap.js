@@ -2,14 +2,31 @@
   const params = new URLSearchParams(window.location.search);
   document.documentElement.classList.toggle("embedded-eveos", params.has("embedded"));
 
-  const fragmentBase = "fragments/";
-  const names = await fetch(`${fragmentBase}manifest.json`, { cache: "no-store" }).then(r => r.json());
-  const host = document.getElementById("dialog-host");
-  for (const name of names) {
-    const response = await fetch(`${fragmentBase}${name}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Could not load interface fragment: ${name}`);
-    host.insertAdjacentHTML("beforeend", await response.text());
+  async function fetchText(url, label) {
+    const response = await fetch(url, { cache: "no-cache" });
+    if (!response.ok) throw new Error(`Could not load ${label || url}`);
+    return response.text();
   }
+
+  async function loadScriptsOrdered(sources) {
+    const loads = sources.map(source => new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.async = false;
+      script.src = source;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error(`Could not load ${source}`));
+      document.body.appendChild(script);
+    }));
+    await Promise.all(loads);
+  }
+
+  const fragmentBase = "fragments/";
+  const names = await fetch(`${fragmentBase}manifest.json`, { cache: "no-cache" }).then(r => r.json());
+  const host = document.getElementById("dialog-host");
+  const fragments = await Promise.all(names.map(name =>
+    fetchText(`${fragmentBase}${name}`, `interface fragment: ${name}`)
+  ));
+  fragments.forEach(html => host.insertAdjacentHTML("beforeend", html));
 
   const scripts = [
     "assets/js/api.js?v=3c076f85c4ba",
@@ -41,15 +58,7 @@
     "assets/js/narration/ui.js?v=f44318a26f2c"
   ];
 
-  for (const source of scripts) {
-    await new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = source;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error(`Could not load ${source}`));
-      document.body.appendChild(script);
-    });
-  }
+  await loadScriptsOrdered(scripts);
   await window.WorldBookAppReady;
   const controllers = [
     "assets/js/world-portal-view.js?v=3be0ff740abf",
@@ -60,15 +69,7 @@
     "assets/js/integration/ui.js?v=f0dc092b3071",
     "assets/js/recovery.js?v=b7c01b39f15b"
   ];
-  for (const source of controllers) {
-    await new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = source;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error(`Could not load ${source}.`));
-      document.body.appendChild(script);
-    });
-  }
+  await loadScriptsOrdered(controllers);
 })().catch(error => {
   console.error(error);
   document.body.innerHTML = `<main class="bootstrap-error"><h1>Eve OS World Book could not start</h1><p>${String(error.message || error)}</p></main>`;
