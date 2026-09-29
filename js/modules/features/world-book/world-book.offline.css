@@ -225,3 +225,10 @@
         border-bottom: 1px solid rgba(82, 161, 169, .16);
     }
 }
+
+/* Give World Book / World Portal offline titles breathing room without
+   reintroducing the old header-to-stage gap. */
+.notes-world-book-world-view .notes-world-book-offline-shell,
+.notes-world-book-portal-view .notes-world-book-offline-shell {
+    padding-top: 12px !important;
+}

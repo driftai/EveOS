@@ -45,8 +45,8 @@
     "assets/js/taxonomy/picker.js?v=ec4e25a6b2b7",
     "assets/js/taxonomy/dashboard.js?v=d3cbd3159bf9",
     "assets/js/tree.js?v=c5e92e28868e",
-    "assets/js/editor.js?v=6e8c61c58e54",
-    "assets/js/app-loader.js?v=3a5a6ba8a42e",
+    "assets/js/editor.js?v=656182d921ea",
+    "assets/js/app-loader.js?v=f06cf9644819",
     "assets/js/narration/text.js?v=5ded239401a5",
     "assets/js/narration/integrity.js?v=6de25b744f4a",
     "assets/js/narration/store.js?v=94f85c510474",
@@ -55,7 +55,7 @@
     "assets/js/narration/controller.js?v=b4cf2264a243",
     "assets/js/narration/cache-ui.js?v=7a1761c09e2b",
     "assets/js/narration/layout.js?v=24dd98d5a8e9",
-    "assets/js/narration/ui.js?v=b72bc4e1381f"
+    "assets/js/narration/ui.js?v=2a0459a7cb46"
   ];
 
   await loadScriptsOrdered(scripts);
