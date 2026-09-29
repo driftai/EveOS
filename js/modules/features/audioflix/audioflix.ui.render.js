@@ -276,7 +276,15 @@ window.EveAudioflixUiRender = window.EveAudioflixUiRender || {};
             if (isF) return type === 'music' ? renderFrontendMusicActive() : renderFrontendActive();
             const collapsed = ctx.getCollapsedGroups(), groups = new Map();
             filtered.forEach((it) => { const key = ctx.groupKey(it, type); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(it); });
-            return [...groups.entries()].map(([name, members]) => `<section class="audioflix-group ${collapsed[name] ? 'is-collapsed' : ''}" data-af-group="${esc(name)}"><button type="button" class="audioflix-group-title" data-af-action="toggle-group" data-af-group="${esc(name)}" aria-expanded="${collapsed[name] ? 'false' : 'true'}">${esc(name)}<span class="audioflix-group-count">${members.length} item${members.length === 1 ? '' : 's'}</span></button><div class="audioflix-item-grid">${members.map((it) => renderItemCard(it, type)).join('')}</div></section>`).join('');
+            return [...groups.entries()].map(([name, members]) => {
+                const isUngrouped = name === 'Ungrouped';
+                const storedIds = new Set(((type === 'music' ? state().music : state().soundboard) || []).map((item) => item.id));
+                const clearableCount = isUngrouped ? members.filter((item) => storedIds.has(item.id)).length : 0;
+                const menuAttrs = isUngrouped && clearableCount
+                    ? ` data-af-context="ungrouped" data-af-type="${esc(type)}" data-af-clear-count="${clearableCount}" title="Right-click to clear Ungrouped"`
+                    : ` data-af-type="${esc(type)}"`;
+                return `<section class="audioflix-group ${collapsed[name] ? 'is-collapsed' : ''}" data-af-group="${esc(name)}"><button type="button" class="audioflix-group-title${isUngrouped && clearableCount ? ' has-context-menu' : ''}" data-af-action="toggle-group" data-af-group="${esc(name)}"${menuAttrs} aria-expanded="${collapsed[name] ? 'false' : 'true'}">${esc(name)}<span class="audioflix-group-count">${members.length} item${members.length === 1 ? '' : 's'}</span></button><div class="audioflix-item-grid">${members.map((it) => renderItemCard(it, type)).join('')}</div></section>`;
+            }).join('');
         }
 
         return { frontendMusicItems, frontendMusicSmartEntries, frontendGroupEntries, frontendActiveGroup, renderItemCard, renderItems, renderFrontendActive, renderFrontendMusicActive };
