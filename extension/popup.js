@@ -18,6 +18,16 @@ async function select(id) {
     frame = document.createElement('iframe');
     frame.id = `view-${id}`; frame.title = entry.label; frame.setAttribute('role', 'tabpanel');
     frame.setAttribute('aria-labelledby', `tab-${id}`);
+    frame.addEventListener('load', () => {
+      // Theme only our same-origin tool UI; canonical standalone assets stay unchanged.
+      const document = frame.contentDocument;
+      if (!document || document.getElementById('bridge-surface-theme')) return;
+      document.documentElement.dataset.bridgeView = id;
+      const theme = document.createElement('link');
+      theme.id = 'bridge-surface-theme'; theme.rel = 'stylesheet';
+      theme.href = chrome.runtime.getURL('bridge-surfaces.css');
+      document.head.append(theme);
+    });
     frame.src = `${entry.popup}?windowId=${window.id}`;
     frames.set(id, frame); views.append(frame);
   }

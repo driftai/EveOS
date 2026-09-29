@@ -16,6 +16,8 @@ WatchFusion's **Open EveOS extension folder** action prepares the shared package
 
 `modules.json` declares canonical tool sources, worker entries, and optional popup pages/labels. `manifest.base.json` owns the stable Bridge identity and shell. `tools/extensions/assemble.cjs` composes manifest permissions/content scripts and assembles unchanged assets into ignored `extension/modules/`. These are packaging artifacts, never another maintained implementation. A tool fix applies to both packages on the next build. The assembler verifies every declared content/popup asset and rejects unsafe paths or duplicate module IDs. Declared tool popup pages automatically appear as tabs; included tools open there rather than launching another panel.
 
+`bridge-surfaces.css` supplies a shared presentation layer to same-origin included panels: rounded controls, compact spacing, keyboard focus, and slim themed scrollbars. It changes neither canonical standalone assets nor website content, permissions, or tool behavior. The browser still owns the popup's toolbar anchor and outer native frame.
+
 `npm run audit:eveos-extension` checks the composed manifest. Add `-- --assets` to verify local assembled files against their sources. New first-party tools add a module declaration and narrow connector rather than tool-specific logic in the hub.
 
 Standalone directories: `tools/Nexus-Browser/extension`, `tools/WatchFusion/browser-extension`, and `tools/Tab-Collector/extension`.

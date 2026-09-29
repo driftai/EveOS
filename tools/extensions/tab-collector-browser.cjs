@@ -34,6 +34,8 @@ async function qualifyTabPopup(context, worker, { extensionId, prefix, base, mai
     await ui.locator('#status').filter({ hasText: `Collected ${expected.length} of ${expected.length}` }).waitFor();
     assert.equal(await ui.locator('#urls').inputValue(), expected.join('\n'));
     assert(!expected.some(url => url.includes('other-window')));
+    if (!main) assert.equal(await ui.locator('#bridge-surface-theme').count(), 0,
+      'standalone collector must retain its independent presentation');
     const bounds = await ui.locator('#copy').boundingBox();
     assert(bounds && bounds.width > 0 && bounds.y + bounds.height <= 570, 'copy must fit within the popup');
     const scope = main ? page.frames().find(frame => frame.url().includes('modules/tab-collector/popup.html')) : page;

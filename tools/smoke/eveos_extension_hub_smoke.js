@@ -110,6 +110,10 @@ async function main() {
   const docs = read('extension', 'README.md');
   assert(panel.includes('Nexus, Dex, WatchFusion, and Tab URLs are included'));
   assert(!read('extension', 'popup.js').includes('sidePanel'));
+  const theme = read('extension', 'bridge-surfaces.css');
+  assert(theme.includes('scrollbar-width:thin') && theme.includes('prefers-reduced-motion'));
+  assert(!/@import|https?:\/\//.test(theme), 'Bridge styling must use local assets only');
+  assert(read('extension', 'popup.js').includes("chrome.runtime.getURL('bridge-surfaces.css')"));
   assert(docs.includes('versioned `eveos.extension.v1`'));
   assert(docs.includes('Standalone + hub rule'));
   assert(docs.includes('never another maintained implementation'));

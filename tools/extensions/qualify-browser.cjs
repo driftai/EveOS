@@ -7,6 +7,7 @@ const { chromium } = require('playwright');
 const { WebSocketServer } = require('ws');
 const { audit, build } = require('./assemble.cjs');
 const { qualifyTabPopup } = require('./tab-collector-browser.cjs');
+const { qualifyPopupLayout } = require('./bridge-popup-layout.cjs');
 const ROOT = path.resolve(__dirname, '../..');
 
 const mediaHtml = iframe => `<!doctype html><html><body style="margin:0;height:2200px;background:#802050">
@@ -80,6 +81,7 @@ async function qualifyBrowser() {
           assert((await popup.locator('#view-watchfusion').getAttribute('src')).startsWith('modules/watchfusion/popup.html?windowId='));
           assert.equal(await popup.locator('body').evaluate(el => el.getBoundingClientRect().height), 570);
           await popup.screenshot({ path: path.join(resultDir, 'bridge-popup.png') });
+          pass += await qualifyPopupLayout(popup, resultDir);
           await popup.close(); pass++;
         }
         if (variant.nexus != null) {
