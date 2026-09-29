@@ -81,7 +81,9 @@ expect(gemini.includes('ws://127.0.0.1:9085') && gemini.includes('world_book_nar
     'World Book narration is not using the canonical isolated Gemini lane');
 expect(localGemini.includes("ws://127.0.0.1:9085") && localGemini.includes("sessionRole: 'world_book_narration'"),
     'EveOS Notes narration does not share the canonical isolated Gemini lane');
-expect(localAudio.includes('beginStream') && localAudio.includes('trimPcm') && localAudio.includes("context.state === 'running'"),
+expect(localAudio.includes('beginStream') && localAudio.includes('trimPcm')
+    && /(?:ctx|context)\.state === 'running'/.test(localAudio)
+    && localAudio.includes("context.state !== 'running'"),
     'EveOS narration audio lacks streaming, silence trimming, or running-context checks');
 expect(localCache.includes("const DB_NAME = 'eve-world-book-narration'") && localCache.includes('cacheMb') && localCache.includes('cacheDays'),
     'EveOS narration cache does not preserve the World Book cache policy');

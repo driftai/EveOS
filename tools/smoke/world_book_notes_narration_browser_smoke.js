@@ -117,6 +117,7 @@ async function main() {
             }
             window.AudioContext = BlockedAudioContext;
             const blocked = await audio.prime();
+            const blockedResumeCallsAfterDirectPrime = blockedResumeCalls;
 
             localStorage.setItem('eveWorldBookNarrationSettings', JSON.stringify({ engine: 'gemini' }));
             const runtime = window.EveWorldBookNarrationRuntime;
@@ -132,7 +133,10 @@ async function main() {
             await new Promise(resolve => setTimeout(resolve, 30));
             const blockedState = runtime.getState();
 
-            const trimmed = audio.trimPcm(new Int16Array([0, 0, 0, 1500, -1500, 0, 0, 0]).buffer);
+            const paddedPcm = new Int16Array(900);
+            paddedPcm[450] = 1500;
+            paddedPcm[451] = -1500;
+            const trimmed = audio.trimPcm(paddedPcm.buffer);
             return {
                 resumeCallsBeforeAwait,
                 primed,
@@ -140,9 +144,11 @@ async function main() {
                 startsAfterSecond,
                 streamResult,
                 blockedResumeCalls,
+                blockedResumeCallsAfterDirectPrime,
                 blocked,
                 blockedState,
-                trimmedBytes: trimmed.byteLength
+                trimmedBytes: trimmed.byteLength,
+                paddedPcmBytes: paddedPcm.byteLength
             };
         });
 
@@ -152,12 +158,14 @@ async function main() {
             `priming did not establish a running context: ${JSON.stringify(result.primed)}`);
         expect(result.startsAfterFirst === 0 && result.startsAfterSecond >= 1 && result.streamResult.started,
             `PCM chunks were not scheduled sequentially as they arrived: ${JSON.stringify(result)}`);
-        expect(result.blockedResumeCalls === 1 && result.blocked.ok === false,
-            'a suspended AudioContext was reported as playable');
+        expect(result.blockedResumeCallsAfterDirectPrime === 1 && result.blocked.ok === false,
+            `a suspended AudioContext was reported as playable: ${JSON.stringify(result)}`);
+        expect(result.blockedResumeCalls >= 2,
+            `the runtime did not retry AudioContext activation from the playback path: ${JSON.stringify(result)}`);
         expect(result.blockedState.status === 'blocked' && /Tap Play/i.test(result.blockedState.error || ''),
             `blocked playback produced a false playing state: ${JSON.stringify(result.blockedState)}`);
-        expect(result.trimmedBytes > 0 && result.trimmedBytes < 16,
-            `leading/trailing digital silence was not trimmed: ${result.trimmedBytes}`);
+        expect(result.trimmedBytes > 0 && result.trimmedBytes < result.paddedPcmBytes,
+            `leading/trailing digital silence was not trimmed: ${JSON.stringify(result)}`);
         console.log('WORLD_BOOK_NOTES_NARRATION_BROWSER_SMOKE_OK');
     } finally {
         await context.close();
