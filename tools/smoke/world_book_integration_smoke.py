@@ -49,6 +49,8 @@ def assert_static_contract() -> None:
     assert "Notes &amp; World Books" in html
     assert "eveos-local-control.js" in html
     assert "world-book.client.js" in html
+    assert "world-book.offline.js" in html
+    assert "world-book.offline.css" in html
     assert "world-book.overlay.js" in html
     client = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.client.js").read_text(encoding="utf-8")
     assert "api/health" in client
@@ -70,6 +72,12 @@ def assert_static_contract() -> None:
     assert "data-world-book-detach-state" in overlay
     assert "frame.dataset.worldBookTarget" in overlay
     assert "worldBookFrameState" in overlay
+    assert "ns.offline?.shell?.('world')" in overlay
+    assert "ns.offline?.shell?.('portal')" in overlay
+    assert "data-world-book-notes-copy" in overlay
+    assert "data-world-book-notes-download" in overlay
+    assert "data-world-book-needs-server" in overlay
+    assert "targetView = 'notes'" in overlay
     assert "requestAnimationFrame" in overlay
     assert "eveWorldBookWindow" in detached
     assert "window.open" in detached
@@ -78,6 +86,41 @@ def assert_static_contract() -> None:
     world_css = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.css").read_text(encoding="utf-8")
     assert ".notes-world-book-portal-view" in world_css
     assert "[data-world-portal-frame]" in world_css
+    offline_js = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.offline.js").read_text(encoding="utf-8")
+    offline_css = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.offline.css").read_text(encoding="utf-8")
+    assert "Offline shell" in offline_js
+    assert "Open Scratchpad" in offline_js
+    assert "setServerState" in offline_js
+    assert ".notes-world-book-offline-shell" in offline_css
+
+    app_index = (tool / "app" / "index.html").read_text(encoding="utf-8")
+    assert 'data-entry-section="metadata"' in app_index
+    assert 'data-entry-section="notes"' in app_index
+    assert 'data-entry-section="links"' in app_index
+    assert 'data-entry-section="content"' in app_index
+    assert 'data-entry-section="provenance"' in app_index
+    assert 'data-entry-section="details"' in app_index
+    assert 'id="save-entry-provenance-btn"' in app_index
+    app_state_chain = (tool / "app" / "assets" / "js" / "app" / "chains" / "00-layer.js.part").read_text(encoding="utf-8")
+    app_bindings_chain = (tool / "app" / "assets" / "js" / "app" / "chains" / "05-layer.js.part").read_text(encoding="utf-8")
+    app_advanced_chain = (tool / "app" / "assets" / "js" / "app" / "chains" / "06-advanced.js.part").read_text(encoding="utf-8")
+    app_link_chain = (tool / "app" / "assets" / "js" / "app" / "chains" / "01-layer.js.part").read_text(encoding="utf-8")
+    app_bootstrap = (tool / "app" / "assets" / "js" / "bootstrap.js").read_text(encoding="utf-8")
+    app_header_css = (tool / "app" / "assets" / "css" / "layers" / "73-header-responsive.css").read_text(encoding="utf-8")
+    app_sections_css = (tool / "app" / "assets" / "css" / "layers" / "74-entry-sections.css").read_text(encoding="utf-8")
+    link_dialog = (tool / "app" / "fragments" / "dialogs-01.html").read_text(encoding="utf-8")
+    assert "state.ui.entrySections" in app_state_chain
+    assert "selectedSectionKey" in app_state_chain
+    assert 'getLinksCollapsed: () => entrySectionCollapsed("links")' in app_bindings_chain
+    assert "onEntryRendered: applyEntrySectionState" in app_bindings_chain
+    assert "function saveProvenance()" in app_advanced_chain
+    assert "existing.provenance = provenance" in app_link_chain
+    assert "ref.provenance = { ...provenance }" in app_link_chain
+    assert 'id="link-provenance-source"' in link_dialog
+    assert 'document.documentElement.classList.toggle("embedded-eveos"' in app_bootstrap
+    assert "html.embedded-eveos .topbar" in app_header_css
+    assert ".entry-section.is-collapsed" in app_sections_css
+    assert ".link-provenance-grid" in app_sections_css
 
     server = (ROOT / "server" / "python-server.py").read_text(encoding="utf-8")
     assert "world_book_control.handle_get_request" in server
