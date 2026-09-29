@@ -245,11 +245,13 @@ async function main() {
         }
 
         await page.evaluate(() => {
+            const section = document.querySelector('[data-collapsible-section="agentic"]'); if (section?.classList.contains('collapsed')) section.querySelector('[data-collapsible-header]')?.click();
             window.__geminiRelayToggleEvents = [];
             window.addEventListener('eve:gemini-live-link-toggled', (event) => {
                 window.__geminiRelayToggleEvents.push(event.detail?.enabled);
             });
         });
+        await page.waitForFunction(() => document.querySelector('[data-collapsible-section="agentic"]') && !document.querySelector('[data-collapsible-section="agentic"]').classList.contains('collapsed') && document.querySelector('[data-collapsible-section="agentic"] [data-collapsible-body]')?.getBoundingClientRect().height > 40);
         await page.click('label[for="geminiLiveLinkToggle"]');
         const relayPaused = await page.evaluate(() => {
             const box = (selector) => {
