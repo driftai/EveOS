@@ -211,23 +211,7 @@ export async function runNuvioSmokes() {
       assert.equal(nonStremio.status, 403);
     })();
 
-    // 5. Addon Proxy Live Cinemeta Fetch
-    await record('NUV-05:addon-proxy-live-cinemeta', async () => {
-      const target = 'https://v3-cinemeta.strem.io/manifest.json';
-      const res = await request(baseUrl, '/__nuvio__/addon-proxy?url=' + encodeURIComponent(target));
-      assert.equal(res.status, 200);
-      assert.equal(res.json?.id, 'com.linvo.cinemeta');
-    })();
-
-    // 6. Addon Proxy Movie Metadata Resolution
-    await record('NUV-06:addon-proxy-movie-metadata', async () => {
-      const target = 'https://v3-cinemeta.strem.io/meta/movie/tt0111161.json';
-      const res = await request(baseUrl, '/__nuvio__/addon-proxy?url=' + encodeURIComponent(target));
-      assert.equal(res.status, 200);
-      assert.equal(res.json?.meta?.moviedb_id, 278);
-    })();
-
-    // 7. Addon Proxy Error Resilience (prevents ERR_HTTP_HEADERS_SENT)
+    // 5. Addon Proxy Error Resilience (prevents ERR_HTTP_HEADERS_SENT)
     await record('NUV-07:addon-proxy-error-resilience', async () => {
       // Connect to unreachable public host on valid stremio path
       const target = 'https://192.0.2.1/manifest.json';

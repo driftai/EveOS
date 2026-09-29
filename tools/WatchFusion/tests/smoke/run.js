@@ -19,6 +19,7 @@ import { runMergerIndependenceSmokes } from './node/merger-independence.smoke.js
 import { runLanSmoke } from './integration/lan.smoke.js';
 import { runCloudflareSmoke } from './integration/cloudflare.smoke.js';
 import { runYouTubeSmoke } from './integration/youtube-live.smoke.js';
+import { runNuvioLiveSmoke } from './integration/nuvio-live.smoke.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const RESULTS = path.join(ROOT, 'test-results');
@@ -143,7 +144,6 @@ async function main() {
     results.push(...await runNodeSmokes());
     results.push(...await runPlaybackStateSmokes());
     results.push(...await runMediaSmokes());
-    results.push(...await runMediaResolverSmokes());
     results.push(...await runRealtimeSmokes());
     results.push(...await runNuvioSmokes());
     results.push(...await runVoxelVisionSmokes());
@@ -155,12 +155,13 @@ async function main() {
   if (security) results.push(...await runSecuritySmokes());
 
   if (integration) {
-    for (const [id, run] of [['INT-LAN', runLanSmoke], ['INT-CF', runCloudflareSmoke], ['INT-YT', runYouTubeSmoke]]) {
+    for (const [id, run] of [['INT-LAN', runLanSmoke], ['INT-CF', runCloudflareSmoke], ['INT-YT', runYouTubeSmoke], ['INT-NUVIO', runNuvioLiveSmoke]]) {
       try { results.push(...await run()); } catch (error) { results.push({ id, status: 'FAIL', error: error.message }); }
     }
   }
 
   if (browser) {
+    results.push(...await runMediaResolverSmokes());
     try {
       execSync('npx playwright test', { cwd: ROOT, stdio: quiet ? 'pipe' : 'inherit', encoding: 'utf8' });
       results.push({ id: 'BROWSER:playwright-suite', status: 'PASS' });
