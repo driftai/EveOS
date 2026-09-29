@@ -134,8 +134,8 @@ expect(companion.includes('documentPictureInPicture.requestWindow') && companion
 expect(companion.includes("command('seek-progress'") && companion.includes('open-reader-companion')
     && companion.includes('Audioflix native output'),
     'detached Reader controls are not linked to progress navigation and Audioflix routing');
-expect(companion.includes('data-clip-engine') && companion.includes('data-clip-voice')
-    && companion.includes('data-clip-regen') && companion.includes('Changed · regenerate')
+expect(companion.includes('dataset.clipEngine') && companion.includes('dataset.clipVoice')
+    && companion.includes('dataset.clipRegen') && companion.includes('Changed · regenerate')
     && companion.includes('reload-source'),
     'Reader companion lacks per-clip engine/voice, regenerate, or changed-text controls');
 expect(eveHtml.indexOf('world-book.narration.companion.js')
