@@ -112,36 +112,51 @@
             </div>
           </div>
 
-          <div class="field-grid focus-secondary">
-            <label class="field">
-              <span class="field-title-row"><span>Status</span><button id="manage-statuses-inline-btn" type="button" class="mini-link">Manage</button></span>
-              <select id="entry-status"></select>
-            </label>
+          <section class="entry-section focus-secondary" data-entry-section="metadata">
+            <div class="entry-section-heading">
+              <div><h3>Status, kind &amp; tags</h3><p>Classification and reusable metadata for this entry.</p></div>
+              <button type="button" class="button button-small" data-entry-section-toggle="metadata" aria-expanded="true">Collapse</button>
+            </div>
+            <div class="entry-section-body">
+              <div class="field-grid">
+                <label class="field">
+                  <span class="field-title-row"><span>Status</span><button id="manage-statuses-inline-btn" type="button" class="mini-link">Manage</button></span>
+                  <select id="entry-status"></select>
+                </label>
 
-            <label class="field">
-              <span>Semantic kind</span>
-              <select id="entry-semantic-kind"></select>
-            </label>
+                <label class="field">
+                  <span>Semantic kind</span>
+                  <select id="entry-semantic-kind"></select>
+                </label>
 
-            <div class="field">
-              <span class="field-title-row"><span>Tags</span><button id="manage-tags-inline-btn" type="button" class="mini-link">Manage</button></span>
-              <div class="tag-picker">
-                <div id="entry-tag-chips" class="tag-chip-list"></div>
-                <div class="tag-inline-bottomline">
-                  <input id="entry-tag-input" autocomplete="off" placeholder="Add a manual tag">
-                  <small id="entry-tag-summary">0 shown · 0 effective</small>
+                <div class="field">
+                  <span class="field-title-row"><span>Tags</span><button id="manage-tags-inline-btn" type="button" class="mini-link">Manage</button></span>
+                  <div class="tag-picker">
+                    <div id="entry-tag-chips" class="tag-chip-list"></div>
+                    <div class="tag-inline-bottomline">
+                      <input id="entry-tag-input" autocomplete="off" placeholder="Add a manual tag">
+                      <small id="entry-tag-summary">0 shown · 0 effective</small>
+                    </div>
+                    <div id="entry-tag-suggestions" class="tag-suggestions" hidden></div>
+                  </div>
                 </div>
-                <div id="entry-tag-suggestions" class="tag-suggestions" hidden></div>
               </div>
             </div>
-          </div>
+          </section>
 
-          <label class="field">
-            <span>Connected notes</span>
-            <textarea id="entry-notes" class="notes-textarea" placeholder="Relationships, responsibilities, governed land, unresolved questions..."></textarea>
-          </label>
+          <section class="entry-section" data-entry-section="notes">
+            <div class="entry-section-heading">
+              <div><h3>Connected notes</h3><p>Relationships, responsibilities, governed land, unresolved questions, and working context.</p></div>
+              <button type="button" class="button button-small" data-entry-section-toggle="notes" aria-expanded="true">Collapse</button>
+            </div>
+            <div class="entry-section-body">
+              <label class="field entry-notes-field">
+                <textarea id="entry-notes" class="notes-textarea" placeholder="Relationships, responsibilities, governed land, unresolved questions..."></textarea>
+              </label>
+            </div>
+          </section>
 
-          <section id="entry-links-section" class="links-card">
+          <section id="entry-links-section" class="links-card" data-entry-section="links">
             <div class="section-heading links-heading">
               <div>
                 <h3>Links</h3>
@@ -164,34 +179,56 @@
             <div id="entry-link-list" class="link-list"></div>
           </section>
 
-          <section id="file-content-section" class="content-card" hidden>
+          <section id="file-content-section" class="content-card entry-section" data-entry-section="content" hidden>
             <div class="section-heading">
               <div>
                 <h3 id="content-title">File content</h3>
                 <p id="content-help"></p>
               </div>
-              <span id="content-format" class="pill"></span>
+              <div class="entry-section-heading-actions">
+                <span id="content-format" class="pill"></span>
+                <button type="button" class="button button-small" data-entry-section-toggle="content" aria-expanded="true">Collapse</button>
+              </div>
             </div>
-            <textarea id="file-content" class="file-content" spellcheck="true"></textarea>
-          </section>
-
-          <section id="entry-provenance-section" class="details-card focus-secondary" hidden>
-            <h3>Provenance & knowledge boundary</h3>
-            <div class="details-grid">
-              <div><span>Source</span><strong id="entry-provenance-source">—</strong></div>
-              <div><span>Known as of</span><strong id="entry-provenance-known">—</strong></div>
-              <div><span>Confidence</span><strong id="entry-provenance-confidence">—</strong></div>
-              <div><span>Created by</span><strong id="entry-provenance-created-by">—</strong></div>
+            <div class="entry-section-body">
+              <textarea id="file-content" class="file-content" spellcheck="true"></textarea>
             </div>
           </section>
 
-          <section class="details-card focus-secondary">
-            <h3>Entry details</h3>
-            <div class="details-grid">
-              <div><span>File modified</span><strong id="modified-at">—</strong></div>
-              <div><span>Metadata updated</span><strong id="meta-updated-at">—</strong></div>
-              <div><span>Size</span><strong id="entry-size">—</strong></div>
-              <div><span>Source</span><strong id="entry-source">—</strong></div>
+          <section id="entry-provenance-section" class="details-card focus-secondary entry-section" data-entry-section="provenance" hidden>
+            <div class="entry-section-heading">
+              <div><h3>Provenance &amp; knowledge boundary</h3><p>Source, timing, confidence, and authorship used by integrity and Eve Injection.</p></div>
+              <button type="button" class="button button-small" data-entry-section-toggle="provenance" aria-expanded="true">Collapse</button>
+            </div>
+            <div class="entry-section-body">
+              <div class="details-grid">
+                <div><span>Source</span><strong id="entry-provenance-source">—</strong></div>
+                <div><span>Known as of</span><strong id="entry-provenance-known">—</strong></div>
+                <div><span>Confidence</span><strong id="entry-provenance-confidence">—</strong></div>
+                <div><span>Created by</span><strong id="entry-provenance-created-by">—</strong></div>
+              </div>
+              <div class="provenance-editor">
+                <label><span>Source</span><input id="entry-provenance-source-input" placeholder="manuscript, notes, imported lore..."></label>
+                <label><span>Known as of</span><input id="entry-provenance-known-input" placeholder="chapter, date, revision..."></label>
+                <label><span>Confidence</span><input id="entry-provenance-confidence-input" placeholder="confirmed, likely, uncertain..."></label>
+                <label><span>Created by</span><input id="entry-provenance-created-by-input" placeholder="manual, Eve, import..."></label>
+                <button id="save-entry-provenance-btn" type="button" class="button button-small button-primary">Save provenance</button>
+              </div>
+            </div>
+          </section>
+
+          <section id="entry-details-section" class="details-card focus-secondary entry-section" data-entry-section="details">
+            <div class="entry-section-heading">
+              <div><h3>Entry details</h3><p>File timestamps, metadata update time, size, and source.</p></div>
+              <button type="button" class="button button-small" data-entry-section-toggle="details" aria-expanded="true">Collapse</button>
+            </div>
+            <div class="entry-section-body">
+              <div class="details-grid">
+                <div><span>File modified</span><strong id="modified-at">—</strong></div>
+                <div><span>Metadata updated</span><strong id="meta-updated-at">—</strong></div>
+                <div><span>Size</span><strong id="entry-size">—</strong></div>
+                <div><span>Source</span><strong id="entry-source">—</strong></div>
+              </div>
             </div>
           </section>
         </article>
