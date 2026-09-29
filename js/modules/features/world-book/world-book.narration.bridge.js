@@ -37,6 +37,11 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
         return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
     }
 
+    function sharedBrowserVoice() {
+        try { return String(localStorage.getItem(BROWSER_TTS_VOICE_KEY) || ''); }
+        catch (_error) { return ''; }
+    }
+
     function normalize(value = {}) {
         return {
             ...defaults,
@@ -44,7 +49,7 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
             enabled: value.enabled !== false,
             engine: value.engine === 'gemini' ? 'gemini' : 'browser',
             browserVoice: value.browserVoice !== undefined
-                ? String(value.browserVoice || '') : String(localStorage.getItem(BROWSER_TTS_VOICE_KEY) || ''),
+                ? String(value.browserVoice || '') : sharedBrowserVoice(),
             rate: clamp(value.rate, 0.5, 2, 1),
             pitch: clamp(value.pitch, 0, 2, 1),
             volume: clamp(value.volume, 0, 1, 1),
