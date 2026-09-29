@@ -178,6 +178,7 @@ def _status(message: str = "") -> dict:
         "desiredRunning": _read_desired_state(),
         "port": WORLD_BOOK_PORT,
         "appVersion": health.get("appVersion", "") if health else "",
+        "instanceId": health.get("instanceId", "") if health else "",
         "pids": _listener_pids() if running else [],
         "message": message or (
             "World Book is online." if running
