@@ -361,7 +361,7 @@
     onOpenLink: openWorldBookLink,
     onLinkBack: navigateBackFromLink,
     getLinkBackLabel,
-    getLinksCollapsed: () => Boolean(state.ui?.linksCollapsed),
+    getLinksCollapsed: () => entrySectionCollapsed("links"),
     getLinkDirection: () => state.ui?.linkDirection || "all",
     onLinkDirectionChange(direction) {
       ensureUIState();
@@ -374,21 +374,28 @@
       scheduleStateSave();
     },
     onToggleLinks() {
-      ensureUIState();
-      state.ui.linksCollapsed = !state.ui.linksCollapsed;
+      const collapsed = !entrySectionCollapsed("links");
+      setEntrySectionCollapsed("links", collapsed);
       if (selected?.source === "snapshot") {
         WB.Editor.refreshLinks(state, selected.node.links || [], true);
       } else if (selected) {
         refreshSelectedLinks();
       }
-      scheduleStateSave();
     },
+    onEntryRendered: applyEntrySectionState,
     onCopyToWorldBook: openCopyToWorldBookDialog,
     onExportZipToLive: openExportZipDialog,
     onSaveFile: savePhysicalFile,
     onOpen: openSelected,
     onReveal: revealSelected,
     onDeleteVirtual: deleteVirtual
+  });
+
+  document.querySelectorAll("#editor-panel [data-entry-section-toggle]").forEach(button => {
+    button.addEventListener("click", () => {
+      const name = button.dataset.entrySectionToggle;
+      setEntrySectionCollapsed(name, !entrySectionCollapsed(name));
+    });
   });
 
   els.setWorkspace.addEventListener("click", setWorkspace);
