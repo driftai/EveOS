@@ -44,11 +44,12 @@ window.EveWorldBook = window.EveWorldBook || {};
     }
 
     async function readNotes() {
+        if (window.EveCoreStorage?.loadText) {
+            const stored = await window.EveCoreStorage.loadText(NOTES_KEY, '', { localFallbackKey: NOTES_KEY });
+            if (stored != null) return String(stored);
+        }
         const original = document.getElementById('notes-area');
         if (original) return original.value;
-        if (window.EveCoreStorage?.loadText) {
-            return window.EveCoreStorage.loadText(NOTES_KEY, '', { localFallbackKey: NOTES_KEY });
-        }
         return readPreference(NOTES_KEY, '');
     }
 
@@ -69,6 +70,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         const editor = document.querySelector(`#${OVERLAY_ID} [data-world-book-notes]`);
         if (!editor || editor === document.activeElement) return;
         editor.value = await readNotes() || '';
+        ns.offline?.updateNotesMeta?.(document.getElementById(OVERLAY_ID), editor.value);
     }
 
     function setHeaderHidden(hidden) {
@@ -202,6 +204,7 @@ window.EveWorldBook = window.EveWorldBook || {};
                 : 'Start local control and World Book';
         }
         messages.forEach((message) => { message.textContent = snapshot.message || ''; });
+        ns.offline?.setServerState?.(overlay, running);
 
         const becameOnline = running && !lastRunningState;
         const instanceId = String(snapshot.instanceId || '');
@@ -274,11 +277,11 @@ window.EveWorldBook = window.EveWorldBook || {};
                     <div class="notes-world-book-actions">
                         <span class="notes-world-book-status-pill" data-world-book-status-pill data-state="checking">Checking</span>
                         <button type="button" data-world-book-server-toggle>Start World Book</button>
-                        <button type="button" data-world-book-reader-controls title="Open compact Reader controls">Reader controls</button>
-                        <button type="button" data-world-book-reload title="Reload the active World Book view">&#8635;</button>
+                        <button type="button" data-world-book-reader-controls data-world-book-needs-server title="Open compact Reader controls">Reader controls</button>
+                        <button type="button" data-world-book-reload data-world-book-needs-server title="Reload the active World Book view">&#8635;</button>
                         <span class="notes-world-book-detach-state" data-world-book-detach-state data-state="attached">Attached</span>
                         <button type="button" class="notes-world-book-detach"
-                            data-world-book-detach aria-label="Detach the active view into a window"
+                            data-world-book-detach data-world-book-needs-server aria-label="Detach the active view into a window"
                             title="Detach the active view into a window">
                             <span aria-hidden="true">&#8599;</span>
                             <span class="notes-world-book-detach-label">Detach</span>
@@ -293,30 +296,27 @@ window.EveWorldBook = window.EveWorldBook || {};
                         data-world-book-header-restore title="Show header">&#9660;</button>
                     <section class="notes-world-book-notes-view" data-world-book-panel="notes">
                         <div class="notes-world-book-notes-heading">
-                            <span>Scratchpad</span>
-                            <small>Saved with the existing EveOS notes store</small>
+                            <div><span>Scratchpad</span><small data-world-book-notes-meta>Offline-ready</small></div>
+                            <div class="notes-world-book-notes-tools">
+                                <button type="button" data-world-book-notes-copy>Copy</button>
+                                <button type="button" data-world-book-notes-download>Download .txt</button>
+                            </div>
                         </div>
                         <textarea data-world-book-notes spellcheck="true"
-                            placeholder="Write notes, fragments, reminders, and working context here..."></textarea>
+                            placeholder="Write notes, fragments, reminders, and working context here. This scratchpad works without localhost."></textarea>
                     </section>
                     <section class="notes-world-book-world-view" data-world-book-panel="world">
                         <iframe data-world-book-frame src="about:blank"
                             title="World Book" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
                         <div class="notes-world-book-offline">
-                            <span aria-hidden="true">&#9671;</span>
-                            <strong>World Book is resting</strong>
-                            <p data-world-book-offline-message>Start its local server when you need it.</p>
-                            <button type="button" data-world-book-offline-start>Start World Book</button>
+                            ${ns.offline?.shell?.('world') || '<button type="button" data-world-book-offline-start>Start World Book</button>'}
                         </div>
                     </section>
                     <section class="notes-world-book-portal-view" data-world-book-panel="portal">
                         <iframe data-world-portal-frame src="about:blank"
                             title="World Portal" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
                         <div class="notes-world-book-offline">
-                            <span aria-hidden="true">&#9671;</span>
-                            <strong>World Portal is resting</strong>
-                            <p data-world-book-offline-message>Start World Book first, then its Portal can be managed here.</p>
-                            <button type="button" data-world-book-offline-start>Start World Book</button>
+                            ${ns.offline?.shell?.('portal') || '<button type="button" data-world-book-offline-start>Start World Book</button>'}
                         </div>
                     </section>
                 </main>
@@ -354,7 +354,9 @@ window.EveWorldBook = window.EveWorldBook || {};
         });
         overlay.querySelector('[data-world-book-notes]').addEventListener('input', function (event) {
             persistNotes(event.currentTarget.value);
+            ns.offline?.updateNotesMeta?.(overlay, event.currentTarget.value);
         });
+        ns.offline?.bind?.(overlay, { onNotes: () => void setView('notes') });
         document.body.appendChild(overlay);
         syncViewButtons(overlay, overlay.dataset.view || 'notes');
         setHeaderHidden(readPreference(HEADER_KEY, '0') === '1');
@@ -377,8 +379,11 @@ window.EveWorldBook = window.EveWorldBook || {};
             document.querySelector('.topbar-notes-world-book-btn')?.setAttribute('aria-expanded', 'true');
         }
         renderDetachState(ns.detached?.state?.() || { open: false });
-        await setView(view || overlay.dataset.view);
-        await refreshStatus();
+        const snapshot = await ns.client.refresh();
+        renderStatus(snapshot);
+        let targetView = view || overlay.dataset.view;
+        if (!view && !snapshot.running && ['world', 'portal'].includes(targetView)) targetView = 'notes';
+        await setView(targetView);
         window.clearInterval(statusTimer);
         statusTimer = window.setInterval(refreshStatus, 5000);
     };
