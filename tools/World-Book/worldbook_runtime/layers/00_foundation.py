@@ -28,6 +28,7 @@ from xml.etree import ElementTree
 
 APP_VERSION = "0.16.0"
 SCHEMA_VERSION = 10
+SERVER_INSTANCE_ID = uuid.uuid4().hex
 BASE_DIR = Path(__file__).resolve().parent
 APP_DIR = BASE_DIR / "app"
 DATA_DIR = BASE_DIR / "data"
