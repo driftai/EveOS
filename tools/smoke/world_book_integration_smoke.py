@@ -66,6 +66,8 @@ def assert_static_contract() -> None:
     assert "findDirectServer" in client and "650" in client
     assert "window.setTimeout(() => { void refresh(); }, 0)" in client
     overlay = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.overlay.js").read_text(encoding="utf-8")
+    overlay_template = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.overlay.template.js").read_text(encoding="utf-8")
+    overlay_surface = overlay + "\n" + overlay_template
     detached = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.detach.js").read_text(encoding="utf-8")
     assert "world-book.detach.js" in html
     assert 'data-world-book-detach' in overlay
@@ -76,15 +78,15 @@ def assert_static_contract() -> None:
     assert "becameOnline" in overlay
     assert "serverReplaced" in overlay
     assert "reloadActiveFrame" in overlay
-    assert "data-world-book-reload" in overlay
-    assert "data-world-book-detach-state" in overlay
+    assert "data-world-book-reload" in overlay_surface
+    assert "data-world-book-detach-state" in overlay_surface
     assert "frame.dataset.worldBookTarget" in overlay
     assert "worldBookFrameState" in overlay
-    assert "ns.offline?.shell?.('world')" in overlay
-    assert "ns.offline?.shell?.('portal')" in overlay
-    assert "data-world-book-notes-copy" in overlay
-    assert "data-world-book-notes-download" in overlay
-    assert "data-world-book-notes-read" in overlay
+    assert "ns.offline?.shell?.('world')" in overlay_surface
+    assert "ns.offline?.shell?.('portal')" in overlay_surface
+    assert "data-world-book-notes-copy" in overlay_surface
+    assert "data-world-book-notes-download" in overlay_surface
+    assert "data-world-book-notes-read" in overlay_surface
     assert "notesNarration?.readAloud" in overlay
     assert "notesNarration?.notifyChanged" in overlay
     assert "ensureNarrationTarget" not in overlay
@@ -95,7 +97,7 @@ def assert_static_contract() -> None:
     assert "local: true" in read_aloud
     assert "setSourceProvider" in notes_narration
     assert "notifyChanged" in notes_narration
-    assert "data-world-book-needs-server" in overlay
+    assert "data-world-book-needs-server" in overlay_surface
     assert "targetView = 'notes'" in overlay
     assert "requestAnimationFrame" in overlay
     assert "eveWorldBookWindow" in detached
