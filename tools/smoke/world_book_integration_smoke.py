@@ -70,7 +70,7 @@ def assert_static_contract() -> None:
     overlay_surface = overlay + "\n" + overlay_template
     detached = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.detach.js").read_text(encoding="utf-8")
     assert "world-book.detach.js" in html
-    assert 'data-world-book-detach' in overlay
+    assert 'data-world-book-detach' in overlay_surface
     assert "Start via Launcher" not in overlay
     assert "Connect local control and stop this standalone World Book server" in overlay
     assert "ns.detach" in overlay
