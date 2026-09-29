@@ -47,21 +47,35 @@
     try { ytPlayer?.pauseVideo?.(); } catch {}
     for (const id of ['player', 'nuvioFrame', 'voxelVisionFrame']) { const el = $(id); if (el) { el.hidden = true; el.style.display = 'none'; } }
   }
+  function setListen(video, enabled) {
+    video.muted = !enabled;
+    $('liveListen').textContent = enabled ? 'Mute here' : 'Listen here';
+    $('liveListen').setAttribute('aria-pressed', String(enabled));
+  }
   function disconnect() {
     receiver?.stop(); receiver = null; currentId = ''; currentMember = '';
-    $('liveVideo').srcObject = null; $('liveVideo').hidden = true; $('liveControls').hidden = true;
+    const video = $('liveVideo'); video.srcObject = null; setListen(video, false);
+    video.hidden = true; $('liveControls').hidden = true;
   }
   function load(source) {
     hideOtherPlayers(); $('liveVideo').hidden = false; $('liveControls').hidden = false;
     const membership = `${roomId || ''}:${session?.memberId || ''}`;
     if (source.streamId === currentId && membership === currentMember && receiver) { controls(lastMetadata); return; }
     receiver?.stop(); currentId = source.streamId; currentMember = membership;
-    const saved = owner(currentId); $('liveVideo').muted = true; $('liveListen').textContent = 'Listen here';
+    const saved = owner(currentId);
+    const video = $('liveVideo');
+    setListen(video, source.mode === 'audioflix');
     controls({}); status('Connecting live media…');
     receiver = new window.WatchFusionLivePeer({ base: location.origin, id: currentId,
       token: saved?.publisherToken || source.viewerToken, roomId, memberId: session?.memberId,
       onStatus: status, onMetadata: controls,
-      onStream: stream => { $('liveVideo').srcObject = stream; $('liveVideo').play().catch(() => status('Press Listen here to start playback.')); }
+      onStream: stream => {
+        video.srcObject = stream;
+        video.play().catch(() => {
+          setListen(video, false);
+          status('Playback is ready · press Listen here once to enable audio.');
+        });
+      }
     });
   }
   async function share(source) {
@@ -76,6 +90,12 @@
     await post(`/api/live/${id}/stop`, saved).catch(() => {});
     owners.delete(id);
     try { localStorage.removeItem(ownerKey(id)); } catch {}
+  }
+  async function unload() {
+    const id = currentId || (state?.source?.kind === 'live' ? state.source.streamId : '');
+    if (id && owner(id)) await stopOwned(id);
+    disconnect();
+    $('livePairHelp').hidden = true;
   }
   function askAudioflix(config) {
     return new Promise((resolve, reject) => {
@@ -125,15 +145,29 @@
   }
   $('linkTabBtn').onclick = () => start('tab'); $('linkAudioflixBtn').onclick = () => start('audioflix');
   $('liveCopyPair').onclick = async event => { const ok = await copyText($('livePairLink').value); setCopyButtonFeedback(event.currentTarget, ok); };
-  $('liveListen').onclick = async () => { const video = $('liveVideo'); video.muted = !video.muted; try { await video.play(); $('liveListen').textContent = video.muted ? 'Listen here' : 'Mute here'; } catch { status('Browser blocked playback. Try Listen here again.'); } };
+  $('livePairClose').onclick = () => { $('livePairHelp').hidden = true; };
+  $('livePairFolder').onclick = async () => {
+    try {
+      const response = await fetch(apiUrl('/api/setup/open-extension-folder'), { method: 'POST', cache: 'no-store' });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not open the companion folder.');
+      status(result.message || 'Companion folder opened.');
+    } catch (error) { status(error.message); }
+  };
+  $('liveListen').onclick = async () => {
+    const video = $('liveVideo'); setListen(video, video.muted);
+    try { await video.play(); } catch { setListen(video, false); status('Browser blocked playback. Try Listen here again.'); }
+  };
   $('liveRetry').onclick = () => { const source = state?.source; if (source?.kind === 'live') { receiver?.stop(); receiver = null; load(source); } };
   $('liveStop').onclick = async () => {
-    try { await stopOwned(currentId); disconnect(); $('livePairHelp').hidden = true; setStatus('Live source stopped'); }
-    catch (error) { status(error.message); }
+    try {
+      if (window.unloadWatchFusionMedia) await window.unloadWatchFusionMedia();
+      else { await unload(); setStatus('Live source stopped'); }
+    } catch (error) { status(error.message); }
   };
   $('liveControls').addEventListener('click', event => { const button = event.target.closest('[data-live-action]'); if (button && canControl()) receiver?.control(button.dataset.liveAction, Number(button.dataset.value)); });
   for (const [id, action] of [['liveSeek', 'seek'], ['liveRate', 'rate'], ['liveVolume', 'volume']]) $(id).onchange = () => { if (canControl()) receiver?.control(action, Number($(id).value)); };
-  window.watchFusionLive = { load, disconnect, share };
+  window.watchFusionLive = { load, disconnect, share, unload };
   window.watchPartyProviders.register({ id: 'live', supports: source => source?.kind === 'live', load: async source => load(source), unload });
   window.addEventListener('beforeunload', () => receiver?.stop());
 })();
