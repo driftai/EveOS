@@ -29,7 +29,12 @@
     provenanceSource: document.getElementById("entry-provenance-source"),
     provenanceKnown: document.getElementById("entry-provenance-known"),
     provenanceConfidence: document.getElementById("entry-provenance-confidence"),
-    provenanceCreatedBy: document.getElementById("entry-provenance-created-by")
+    provenanceCreatedBy: document.getElementById("entry-provenance-created-by"),
+    provenanceSourceInput: document.getElementById("entry-provenance-source-input"),
+    provenanceKnownInput: document.getElementById("entry-provenance-known-input"),
+    provenanceConfidenceInput: document.getElementById("entry-provenance-confidence-input"),
+    provenanceCreatedByInput: document.getElementById("entry-provenance-created-by-input"),
+    saveProvenance: document.getElementById("save-entry-provenance-btn")
   };
 
   let smartEditingId = "";
@@ -58,11 +63,15 @@
     advanced.semanticKind.parentElement.hidden = !virtual;
     advanced.editSmart.hidden = !virtual || node.nodeRole !== "smart-collection";
     const provenance = virtual && node.provenance && typeof node.provenance === "object" ? node.provenance : {};
-    advanced.provenanceSection.hidden = !virtual || !Object.keys(provenance).length;
+    advanced.provenanceSection.hidden = !virtual;
     advanced.provenanceSource.textContent = provenance.source || "—";
     advanced.provenanceKnown.textContent = provenance.knownAsOf || "—";
     advanced.provenanceConfidence.textContent = provenance.confidence || "—";
     advanced.provenanceCreatedBy.textContent = provenance.createdBy || "—";
+    advanced.provenanceSourceInput.value = provenance.source || "";
+    advanced.provenanceKnownInput.value = provenance.knownAsOf || "";
+    advanced.provenanceConfidenceInput.value = provenance.confidence || "";
+    advanced.provenanceCreatedByInput.value = provenance.createdBy || "";
     if (!virtual) return;
     semanticKindOptions(node.semanticKind);
     advanced.semanticKind.value = node.semanticKind || (node.type === "folder" ? "container" : "document");
@@ -78,6 +87,22 @@
     renderTree();
     scheduleStateSave();
     setStatus(`Semantic kind → ${node.semanticKind}`);
+  }
+
+  function saveProvenance() {
+    const node = selectedVirtualNode();
+    if (!node || node.nodeRole === "reference") return;
+    const next = {
+      source: advanced.provenanceSourceInput.value.trim(),
+      knownAsOf: advanced.provenanceKnownInput.value.trim(),
+      confidence: advanced.provenanceConfidenceInput.value.trim(),
+      createdBy: advanced.provenanceCreatedByInput.value.trim()
+    };
+    node.provenance = Object.fromEntries(Object.entries(next).filter(([, value]) => value));
+    node.updatedAt = WB.nowISO();
+    refreshAdvancedEntryControls(node);
+    scheduleStateSave();
+    setStatus(Object.keys(node.provenance).length ? "Provenance saved" : "Provenance cleared");
   }
 
   function smartPath(node) {
@@ -337,6 +362,7 @@
   }
 
   advanced.semanticKind.addEventListener("change", updateSemanticKind);
+  advanced.saveProvenance.addEventListener("click", saveProvenance);
   advanced.createSmart.addEventListener("click", () => openSmartCollectionDialog(null));
   advanced.editSmart.addEventListener("click", () => {
     const node = selectedVirtualNode();
