@@ -21,13 +21,37 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
             if (V.overlay) return V.overlay;
             V.overlay = Object.assign(document.createElement('div'), { id: 'audioflix-overlay', className: 'audioflix-overlay', hidden: true });
             document.body.appendChild(V.overlay);
+            const removeUngroupedMenu = () => V.overlay?.querySelector('.audioflix-context-menu')?.remove();
             V.overlay.addEventListener('click', e => {
                 const t = e.target, act = t.closest('[data-af-action]');
+                if (!t.closest('.audioflix-context-menu')) removeUngroupedMenu();
                 if (act) {
                     if (act.classList.contains('audioflix-info-modal') && t.closest('.audioflix-info-card')) return;
                     e.preventDefault();
                     if (act.dataset.afAction === 'close') close(); else handleAction(act, e);
                 } else if (t === V.overlay) close();
+            });
+            V.overlay.addEventListener('contextmenu', e => {
+                const header = e.target.closest('.audioflix-group-title[data-af-context="ungrouped"]');
+                if (!header) return;
+                e.preventDefault();
+                removeUngroupedMenu();
+                const type = header.dataset.afType === 'music' ? 'music' : 'sound';
+                const count = Math.max(0, Number(header.dataset.afClearCount || 0) || 0);
+                if (!count) return;
+                const menu = document.createElement('div');
+                menu.className = 'audioflix-context-menu';
+                menu.setAttribute('role', 'menu');
+                menu.innerHTML = `<strong>Ungrouped</strong><span>${count} ${type === 'music' ? 'track' : 'sound'}${count === 1 ? '' : 's'}</span><button type="button" role="menuitem" data-af-action="clear-ungrouped" data-af-type="${type}">Clear Ungrouped</button><small>Removes these entries from Audioflix. Source files on disk are kept.</small>`;
+                menu.style.left = `${Math.max(8, e.clientX)}px`;
+                menu.style.top = `${Math.max(8, e.clientY)}px`;
+                V.overlay.appendChild(menu);
+                requestAnimationFrame(() => {
+                    const box = menu.getBoundingClientRect();
+                    if (box.right > window.innerWidth - 8) menu.style.left = `${Math.max(8, window.innerWidth - box.width - 8)}px`;
+                    if (box.bottom > window.innerHeight - 8) menu.style.top = `${Math.max(8, window.innerHeight - box.height - 8)}px`;
+                    menu.querySelector('button')?.focus({ preventScroll: true });
+                });
             });
             V.overlay.addEventListener('submit', e => { e.preventDefault(); const f = e.target.closest('form[data-af-form]'); if (f) handleForm(f); });
             V.overlay.addEventListener('input', e => {
