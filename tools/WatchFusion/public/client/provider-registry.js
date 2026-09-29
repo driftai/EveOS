@@ -14,11 +14,17 @@ function findMediaProvider(source) {
 registerMediaProvider({
   id: 'external-media',
   supports: source => source?.kind === 'media' && !!source.url,
-  load: source => window.mediaPlayback?.ensureSource?.(source)
+  load: source => window.mediaPlayback?.ensureSource?.(source),
+  unload: () => window.mediaPlayback?.clear?.()
 });
 
+async function unloadMediaProvider(source) {
+  const provider = findMediaProvider(source);
+  if (typeof provider?.unload === 'function') await provider.unload(source);
+}
 window.watchPartyProviders = {
   register: registerMediaProvider,
   find: findMediaProvider,
+  unload: unloadMediaProvider,
   list: () => [...mediaProviders.keys()]
 };

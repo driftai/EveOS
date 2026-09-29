@@ -134,6 +134,6 @@
   $('liveControls').addEventListener('click', event => { const button = event.target.closest('[data-live-action]'); if (button && canControl()) receiver?.control(button.dataset.liveAction, Number(button.dataset.value)); });
   for (const [id, action] of [['liveSeek', 'seek'], ['liveRate', 'rate'], ['liveVolume', 'volume']]) $(id).onchange = () => { if (canControl()) receiver?.control(action, Number($(id).value)); };
   window.watchFusionLive = { load, disconnect, share };
-  window.watchPartyProviders.register({ id: 'live', supports: source => source?.kind === 'live', load: async source => load(source) });
+  window.watchPartyProviders.register({ id: 'live', supports: source => source?.kind === 'live', load: async source => load(source), unload });
   window.addEventListener('beforeunload', () => receiver?.stop());
 })();

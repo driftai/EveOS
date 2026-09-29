@@ -12,8 +12,7 @@
   ]);
 
   function candidate(info, selfId = '') {
-    if (!info || info.id === selfId || info.enabled === false || info.type !== 'extension') return false;
-    return /(?:eveos|nexus browser|watchfusion)/i.test(`${info.name || ''} ${info.description || ''}`);
+    return !!info && info.id !== selfId && info.enabled !== false && info.type === 'extension';
   }
 
   function descriptor(value = {}, extension = {}) {
@@ -26,6 +25,19 @@
       description: String(value.description || ''),
       version: String(value.version || extension.version || ''),
       capabilities: Array.isArray(value.capabilities) ? value.capabilities.map(String).slice(0, 24) : [],
+      actions: Array.isArray(value.actions) ? value.actions.map(action => {
+        const id = String(action?.id || '').trim();
+        if (!id) return null;
+        const input = action?.input && typeof action.input === 'object'
+          ? { kind: action.input.kind === 'text' ? 'text' : '', placeholder: String(action.input.placeholder || '').slice(0, 120) }
+          : null;
+        return {
+          id,
+          label: String(action.label || id).slice(0, 80),
+          description: String(action.description || '').slice(0, 160),
+          input: input?.kind ? input : null
+        };
+      }).filter(Boolean).slice(0, 16) : [],
       dashboardUrl: /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\//.test(value.dashboardUrl || '')
         ? String(value.dashboardUrl) : '',
       status: value.status && typeof value.status === 'object' ? value.status : {}

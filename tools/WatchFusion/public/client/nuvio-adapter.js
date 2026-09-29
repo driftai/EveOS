@@ -179,7 +179,7 @@ function initNuvioProvider() {
     }
   }
   registerProvider(); wireToolbar();
-  function registerProvider(){window.watchPartyProviders.register({id:'nuvio',supports:source=>source&&(source.kind==='nuvio'||source.type==='nuvio'),load:async source=>{loadFrame(source);}});}
+  function registerProvider(){window.watchPartyProviders.register({id:'nuvio',supports:source=>source&&(source.kind==='nuvio'||source.type==='nuvio'),load:async source=>{loadFrame(source);},unload:()=>closeNuvioView()});}
 }
 function openNuvioBrowserMode(){
   const source={kind:'nuvio',type:'nuvio',url:'nuvio://home',entryUrl:'/nuvio/dist/index.html',title:'Nuvio',originalUrl:'nuvio://home'};

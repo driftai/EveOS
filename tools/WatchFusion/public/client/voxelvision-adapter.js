@@ -142,7 +142,8 @@ function initVoxelVisionProvider() {
   window.watchPartyProviders.register({
     id: 'voxelvision',
     supports: source => source && (source.kind === 'voxelvision' || source.type === 'voxelvision'),
-    load: source => loadFrame(source)
+    load: source => loadFrame(source),
+    unload: () => closeView()
   });
 }
 

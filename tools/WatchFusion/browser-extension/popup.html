@@ -1,1 +1,23 @@
-<!doctype html><html><head><meta charset="utf-8"><title>WatchFusion Media Link</title><link rel="stylesheet" href="popup.css"></head><body><h1>WatchFusion Media Link</h1><p>Link the playing media in this tab. Its playlist and source controls keep working.</p><label>Private pairing link<input id="pairing" type="text" placeholder="Paste from Find Media"></label><button id="connect">Connect this tab</button><button id="stop">Stop sharing</button><p id="status" role="status"></p><script src="popup.js"></script></body></html>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>WatchFusion Media Link</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>WatchFusion Media Link</h1>
+  <p>Paste the private pairing link from Find Media, then link this playing tab.</p>
+  <label>Private pairing link<input id="pairing" type="text" placeholder="Paste pairing link"></label>
+  <button id="connect">Connect this tab</button>
+  <button id="stop">Stop sharing</button>
+  <details>
+    <summary>Setup & embedded players</summary>
+    <p>Load this folder as an unpacked extension once. Optional site access improves cross-origin iframe players and lets the EveOS hub reuse this companion.</p>
+    <button id="siteAccess" class="secondary">Enable embedded-player access</button>
+    <button id="openFolder" class="secondary">Open extension folder</button>
+  </details>
+  <p id="status" role="status"></p>
+  <script src="popup.js"></script>
+</body>
+</html>

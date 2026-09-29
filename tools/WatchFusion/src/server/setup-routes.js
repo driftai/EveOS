@@ -174,6 +174,30 @@ async function performInstall(component) {
   throw new Error(`Unknown setup component: ${component}`);
 }
 
+function handleOpenExtensionFolder(req, res) {
+  if (!isHostLocalRequest(req)) {
+    json(res, 403, { ok: false, error: 'The companion folder can be opened only from the host-local WatchFusion URL.' });
+    return true;
+  }
+  const folder = path.join(PROJECT_ROOT, 'browser-extension');
+  if (!exists(folder)) {
+    json(res, 404, { ok: false, error: 'WatchFusion companion folder is missing.' });
+    return true;
+  }
+  if (process.platform !== 'win32') {
+    json(res, 200, { ok: true, path: folder, message: 'Companion folder path is ready.' });
+    return true;
+  }
+  try {
+    const child = spawn('explorer.exe', [folder], { detached: true, stdio: 'ignore', windowsHide: true });
+    child.unref();
+    json(res, 200, { ok: true, path: folder, message: 'WatchFusion companion folder opened.' });
+  } catch (error) {
+    json(res, 500, { ok: false, error: error?.message || 'Could not open the companion folder.' });
+  }
+  return true;
+}
+
 async function handleInstall(req, res) {
   if (!isHostLocalRequest(req)) {
     json(res, 403, { ok: false, error: 'Install actions are available only from the host-local WatchFusion URL.' });
@@ -216,6 +240,7 @@ export async function handleSetupRoute(req, res, parts) {
     json(res, 200, await setupStatus(req));
     return true;
   }
+  if (req.method === 'POST' && parts[2] === 'open-extension-folder') return handleOpenExtensionFolder(req, res);
   if (req.method === 'POST' && parts[2] === 'install') return handleInstall(req, res);
   json(res, 404, { ok: false, error: 'setup route not found' });
   return true;

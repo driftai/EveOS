@@ -11,7 +11,8 @@
   const REQUESTS = Object.freeze({
     DESCRIBE: 'describe',
     STATUS: 'status',
-    OPEN: 'open'
+    OPEN: 'open',
+    INVOKE: 'invoke'
   });
 
   function request(type, detail = {}) {

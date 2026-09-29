@@ -61,11 +61,12 @@ function render() {
   if(playerHost)playerHost.classList.toggle('voxelvision-active',isVoxelVision);
   const hasActiveMedia=isLive||isNuvio||isVoxelVision||isYoutube||source.kind==='media';
   if($('mediaStage'))$('mediaStage').classList.toggle('media-stage-empty',!hasActiveMedia);
+  if($('unloadMediaBtn'))$('unloadMediaBtn').hidden=!hasActiveMedia||(inRoom&&!isHost());
   if(nuvioFrame){nuvioFrame.hidden=!isNuvio;nuvioFrame.style.display=isNuvio?'block':'none';}
   if(nuvioToolbar)nuvioToolbar.hidden=!isNuvio;
   if(voxelVisionFrame){voxelVisionFrame.hidden=!isVoxelVision;voxelVisionFrame.style.display=isVoxelVision?'block':'none';}
   if(voxelVisionToolbar)voxelVisionToolbar.hidden=!isVoxelVision;
-  const ytFrame=$('player');if(ytFrame){const hiddenByTool=isLive||isNuvio||isVoxelVision;ytFrame.hidden=hiddenByTool;ytFrame.style.display=hiddenByTool?'none':'block';}
+  const ytFrame=$('player');if(ytFrame){const hideYouTube=isLive||isNuvio||isVoxelVision||!isYoutube;ytFrame.hidden=hideYouTube;ytFrame.style.display=hideYouTube?'none':'block';}
   document.querySelectorAll('.source-tab').forEach(tab=>{
     const active=(isNuvio&&tab.id==='shortcutNuvioBtn')||(isVoxelVision&&tab.id==='shortcutVoxelVisionBtn')||(!isNuvio&&!isVoxelVision&&tab.id==='resolveTabBtn');
     tab.classList.toggle('active',active);

@@ -15,5 +15,11 @@ A future EveOS companion should listen on `chrome.runtime.onMessageExternal` for
 - `describe`: return its stable connector ID, display name, safe capability labels, dashboard URL, and non-sensitive status.
 - `status`: return current non-sensitive availability.
 - `open`: open its own local dashboard or extension-owned UI.
+- `invoke`: run an optional declarative companion action exposed by `describe.actions`. The hub renders those actions generically and forwards them; the companion still owns the implementation and permissions.
 
 Companions remain responsible for their own permissions, content scripts, authenticated sessions, and lifecycle. The hub deliberately does not absorb those privileges.
+
+
+## Standalone + hub rule
+
+Every specialized companion remains a complete standalone extension. The official hub does not vendor or duplicate Nexus Browser, WatchFusion, or future companion code. It speaks the connector protocol and renders declarative actions supplied by each installed companion. Privileged operations remain inside the specialized extension that owns the required browser permissions. If a browser permission requires direct interaction with that companion, the hub reports that boundary instead of absorbing the permission into the hub.

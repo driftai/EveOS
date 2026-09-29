@@ -15,3 +15,11 @@
 #liveQueue button:hover, .live-controls [aria-pressed="true"] { background:rgba(0,212,255,.15); }
 .live-controls button:disabled { opacity:.5; cursor:default; }
 [hidden] { display:none!important; }
+
+.live-pair-head, .live-pair-actions { display:flex; align-items:center; gap:8px; }
+.live-pair-head { justify-content:space-between; }
+.live-pair-head button { width:auto; }
+.live-pair-actions { flex-wrap:wrap; }
+.live-pair-actions button { flex:1 1 150px; }
+.live-pair-note { font-size:12px; }
+#liveListen[aria-pressed="true"] { background:rgba(0,212,255,.15); }

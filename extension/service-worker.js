@@ -27,16 +27,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       await chrome.tabs.create({ url: service.url });
       return { ok: true };
     }
-    if (message.type === 'open-connector') {
+    if (message.type === 'open-connector' || message.type === 'invoke-connector') {
       const saved = await chrome.storage.local.get(globalThis.EveOSExtensionDiscovery.STORAGE_KEY);
       const connector = (saved[globalThis.EveOSExtensionDiscovery.STORAGE_KEY] || [])
         .find(item => item.extensionId === message.extensionId);
       if (!connector) return { ok: false, code: 'UNKNOWN_CONNECTOR' };
+      const invoke = message.type === 'invoke-connector';
+      if (invoke && !(connector.actions || []).some(action => action.id === message.action)) {
+        return { ok: false, code: 'UNKNOWN_CONNECTOR_ACTION' };
+      }
       const result = await chrome.runtime.sendMessage(
         connector.extensionId,
-        protocol.request(protocol.REQUESTS.OPEN)
+        protocol.request(invoke ? protocol.REQUESTS.INVOKE : protocol.REQUESTS.OPEN, invoke ? {
+          action: message.action,
+          value: String(message.value || '')
+        } : {})
       );
-      return { ok: protocol.isResponse(result) };
+      if (!protocol.isResponse(result)) {
+        return { ok: false, code: result?.code || 'CONNECTOR_ACTION_FAILED', message: result?.message || 'Companion action failed.' };
+      }
+      return { ok: true, detail: result.detail || {} };
     }
     return { ok: false, code: 'UNKNOWN_COMMAND' };
   })().then(sendResponse, error => sendResponse({ ok: false, code: 'HUB_ERROR', message: error.message }));

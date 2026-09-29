@@ -43,7 +43,24 @@ $('resolveTabBtn').__watchFusionHostInputBound=true;
 // normal WatchFusion DOM event system for all other interactive elements.
 window.openNuvioBrowserMode = openNuvioBrowserMode;
 window.openVoxelVisionMode = openVoxelVisionMode;
+async function unloadWatchFusionMedia(){
+  const source=state?.source;if(!source||source.kind==='ready')return true;
+  if(roomId&&!isHost()){setStatus('Only the host can unload the room media.');return false;}
+  try{
+    await window.watchPartyProviders?.unload?.(source);
+    window.mediaPlayback?.clear?.();
+    if(source.videoId||source.kind==='youtube'||source.type==='youtube'){try{ytPlayer?.stopVideo?.();}catch{}pendingVideoId=null;playerInitializing=false;}
+    const ready={kind:'ready',type:'ready',title:'Ready'};
+    if(roomId){const ok=await command('source',{source:ready});if(!ok)return false;}
+    else applySoloSource(ready);
+    sourceInputDirty=false;if($('sourceInput'))$('sourceInput').value='';
+    if($('livePairHelp'))$('livePairHelp').hidden=true;
+    setStatus('Media unloaded');render();return true;
+  }catch(error){setStatus(error?.message||'Could not unload media.');return false;}
+}
+window.unloadWatchFusionMedia=unloadWatchFusionMedia;
 $('closeFindMediaBtn').onclick=()=>{if($('findMediaPanel'))$('findMediaPanel').hidden=true;};
+$('unloadMediaBtn').onclick=()=>{void unloadWatchFusionMedia();};
 $('syncBtn').onclick=()=>{if(!roomId)return;if(state?.source?.kind==='media')window.mediaPlayback?.sync?.({force:true});else syncPlayer({force:true});};$('copyBtn').onclick=async()=>{const link=shareRoomLink();if(!link)return;const copied=await copyText(link);setCopyButtonFeedback($('copyBtn'),copied,'Copy room link');setStatus(copied?'Shareable room link copied':link);};$('roomPill').onclick=copyJoinCode;$('copyLanBtn').onclick=async()=>{const link=lanRoomLink();if(!link)return setStatus('LAN address not available');const copied=await copyText(link);setCopyButtonFeedback($('copyLanBtn'),copied,'Copy LAN link');setStatus(copied?'LAN room link copied (physical LAN IP)':link);};$('leaveRoomBtn').onclick=async()=>{if(!roomId||!session)return;const leavingRoom=roomId,memberId=session.memberId;try{await fetch(apiUrl(`/api/rooms/${encodeURIComponent(leavingRoom)}/leave`),{method:'POST',headers:{'x-member-id':memberId},cache:'no-store'});}catch{}leaveRoom('Left room.');};$('deleteRoomBtn').onclick=async()=>{if(!isHost())return;if(!confirm('Delete this room for everyone?'))return;const ok=await command('delete-room');if(ok)leaveRoom('Room deleted.');};
 async function sendChatMessage(){const input=$('chatInput');const submit=$('chatForm')?.querySelector('button[type="submit"],button:not([type])');const text=input?.value.trim();if(!text||!roomId||!session)return;if(submit)submit.disabled=true;try{const ok=await command('chat',{text});if(ok){input.value='';setStatus(text.length>500?`Prompt sent · ${text.length.toLocaleString()} characters`:'Message sent');}}catch{setStatus('Connection failed · message kept for retry');}finally{if(submit)submit.disabled=false;input?.focus();}}
 function imageTypeForFile(file){if(['image/jpeg','image/png','image/webp','image/gif'].includes(file?.type))return file.type;const extension=String(file?.name||'').toLowerCase().match(/\.(jpe?g|png|webp|gif)$/)?.[1];return extension==='jpg'||extension==='jpeg'?'image/jpeg':extension?`image/${extension}`:'';}

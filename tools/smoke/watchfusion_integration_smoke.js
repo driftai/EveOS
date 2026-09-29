@@ -50,6 +50,12 @@ function sourceContract() {
     const clientCore = read('tools/WatchFusion/public/client/core.js');
     const clientBootstrap = read('tools/WatchFusion/public/client/bootstrap.js');
     const clientRender = read('tools/WatchFusion/public/client/render.js');
+    const liveSource = read('tools/WatchFusion/public/client/live-source.js');
+    const providerRegistry = read('tools/WatchFusion/public/client/provider-registry.js');
+    const audioflixLink = read('js/modules/features/watchfusion/watchfusion.audioflix-link.js');
+    const sourceProbe = read('tools/WatchFusion/browser-extension/source-probe.js');
+    const sourceWorker = read('tools/WatchFusion/browser-extension/worker.js');
+    const offscreenRelay = read('tools/WatchFusion/browser-extension/offscreen.js');
     const mediaPlayer = read('tools/WatchFusion/public/client/media-player.js');
     const roomConnection = read('tools/WatchFusion/public/client/room-connection.js');
     const continuityBridge = read('tools/WatchFusion/public/client/eveos-embed-bridge.js');
@@ -145,6 +151,13 @@ function sourceContract() {
     check(continuityBridge.includes('function waitForTransferReady') && continuityBridge.includes('transfer.retryTimer = setInterval') && continuityBridge.includes('completedTransferIds.has(data.requestId)') && continuityBridge.includes('button.addEventListener(\'click\', reattachToEveOS)'), 'WF-REATTACH-ONE-CLICK', 'reattach can drop an early or in-flight handoff and require a second click');
     check(innerCss.includes('height: clamp(540px, calc(100dvh - 112px), 760px);') && innerCss.includes('max-height: min(48dvh, 460px);') && innerCss.includes('watchfusion-room-active:not(.eveos-embedded) #mediaStage.player-wrap:not(.media-stage-empty)') && innerCss.includes('align-self: stretch;'), 'WF-DETACHED-BOUNDED-WORKSPACE', 'detached chat history can still grow the shared media/party row beyond its viewport cap');
     check(roomImageRoutes.includes('MAX_CHAT_IMAGE_BYTES') && roomImageRoutes.includes('detectedImageType') && roomImageRoutes.includes('getRoomAttachment'), 'WF-ROOM-IMAGES', 'room image transfer is missing its size, content, or retrieval boundary');
+    check(clientBootstrap.includes('unloadWatchFusionMedia') && clientBootstrap.includes("command('source',{source:ready})") && clientRender.includes("unloadMediaBtn"), 'WF-MEDIA-UNLOAD', 'Find Media does not expose one authoritative unload path for solo and room media');
+    check(providerRegistry.includes('unloadMediaProvider') && providerRegistry.includes('unload: () => window.mediaPlayback?.clear?.()'), 'WF-PROVIDER-UNLOAD', 'media providers do not participate in the generic unload lifecycle');
+    check(setupHtml.includes('id="livePairClose"') && setupHtml.includes('id="livePairFolder"') && !setupHtml.includes('live-help.html'), 'WF-PAIRING-INLINE-SETUP', 'tab-pairing setup still depends on an external help page or lacks its own close/folder controls');
+    check(setupRoutes.includes("parts[2] === 'open-extension-folder'") && setupRoutes.includes('isHostLocalRequest(req)') && setupRoutes.includes("spawn('explorer.exe'"), 'WF-EXTENSION-FOLDER-LOCAL', 'the companion folder shortcut is missing or not host-local protected');
+    check(liveSource.includes("setListen(video, source.mode === 'audioflix')") && audioflixLink.includes("acquireSpeakerMute?.('watchfusion-live')"), 'WF-AUDIOFLIX-LISTEN-HERE', 'Audioflix room streaming does not default to WatchFusion monitoring while suppressing duplicate host speakers');
+    check(sourceWorker.includes('allFrames: true') && sourceWorker.includes('controlFrameId') && sourceProbe.includes("pointerEvents: 'none'"), 'WF-GENERIC-TAB-MEDIA', 'generic tab media does not keep a stable media-only surface or route controls to the selected frame');
+    check(offscreenRelay.includes('maxWidth: 2560') && offscreenRelay.includes('1920 / sw') && offscreenRelay.includes('canvas.captureStream(0)') && offscreenRelay.includes('requestFrame'), 'WF-LIVE-CAPTURE-QUALITY', 'live tab capture is still fixed-resolution or does not render on-demand at a high-quality media aspect ratio');
     check(staticFiles.includes("'client/setup-health.js'") && staticFiles.includes("'client/voxelvision-adapter.js'") && staticFiles.includes("'client/media-player.js'"), 'WF-CLIENT-BUNDLE', 'Setup Health or core media adapters are missing from the integrated bundle');
     check(staticFiles.includes('resolveContainedFile') && staticFiles.includes('fs.promises.realpath'), 'WF-STATIC-REALPATH-CONTAINMENT', 'main WatchFusion static serving does not realpath-check filesystem containment');
     check(setupClient.includes("'/api/setup/status'") && setupClient.includes("'/api/setup/install'"), 'WF-SETUP-CLIENT', 'Setup Health UI is not connected to setup API');

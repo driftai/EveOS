@@ -65,7 +65,10 @@ export async function runLiveSmokes() {
       assert.equal(bad.status, 403);
       const bundle = await request(base, '/app.js'); assert.equal(bundle.status, 200); new Function(bundle.body);
       const helper = await request(base, '/live-peer.js'); assert.equal(helper.status, 200); new Function(helper.body);
-      const html = await request(base, '/'); assert.match(html.body, /id="linkTabBtn"/); assert.match(html.body, /id="linkAudioflixBtn"/);
+      const html = await request(base, '/');
+      assert.match(html.body, /id="linkTabBtn"/); assert.match(html.body, /id="linkAudioflixBtn"/);
+      assert.match(html.body, /id="unloadMediaBtn"/); assert.match(html.body, /id="livePairClose"/);
+      assert.match(html.body, /id="livePairFolder"/); assert.doesNotMatch(html.body, /live-help\.html/);
     });
   } finally { for (const c of clients) c.socket.close(); await server.stop(); }
   return results;

@@ -6,9 +6,13 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT = path.resolve(__dirname, '../../../public/client');
 const SRC_SERVER = path.resolve(__dirname, '../../../src/server');
+const EXTENSION = path.resolve(__dirname, '../../../browser-extension');
 
 function readClient(name) {
   return fs.readFileSync(path.join(CLIENT, name), 'utf8');
+}
+function readExtension(name) {
+  return fs.readFileSync(path.join(EXTENSION, name), 'utf8');
 }
 
 export async function runSourceTabSmokes() {
@@ -27,6 +31,10 @@ export async function runSourceTabSmokes() {
   const playerFix = readClient('nuvio-player-input-fix.js');
   const voxelVisionAdapter = readClient('voxelvision-adapter.js');
   const staticFiles = fs.readFileSync(path.join(SRC_SERVER, 'static-files.js'), 'utf8');
+  const worker = readExtension('worker.js');
+  const probe = readExtension('source-probe.js');
+  const offscreen = readExtension('offscreen.js');
+  const popup = readExtension('popup.js');
 
   await record('ST-01:bootstrap-no-global-window-pointerdown-for-nuvio-tab', async () => {
     const hasGlobalCapture = /window\.addEventListener\s*\(\s*['"]pointerdown['"]/.test(bootstrap) && /closest.*shortcut(?:Nuvio|VoxelVision)Btn/.test(bootstrap);
@@ -84,6 +92,27 @@ export async function runSourceTabSmokes() {
   await record('ST-09:nuvio-player-fix-remains-scoped-to-nuvio-frame', async () => {
     assert.match(playerFix, /frame\.id !== 'nuvioFrame'/);
     assert.match(playerFix, /#nuvioFrame/);
+  })();
+
+  await record('ST-10:extension-keeps-one-companion-owned-capture-runtime', async () => {
+    assert.match(worker, /globalThis\.WatchFusionMediaLink = Object\.freeze/);
+    assert.match(worker, /startCurrentTab/);
+    assert.match(worker, /allFrames: true/);
+    assert.match(worker, /controlFrameId/);
+    assert.match(popup, /type: 'start-pairing'/);
+    assert.doesNotMatch(popup, /tabCapture|getMediaStreamId|source-probe\.js/);
+  })();
+
+  await record('ST-11:media-only-crop-is-dynamic-and-scroll-stable', async () => {
+    assert.match(probe, /position: 'fixed'/);
+    assert.match(probe, /pointerEvents: 'none'/);
+    assert.match(probe, /frameFallback/);
+    assert.match(probe, /\[aria-label\*="Next" i\]/);
+    assert.match(offscreen, /maxWidth: 2560/);
+    assert.match(offscreen, /1920 \/ sw/);
+    assert.match(offscreen, /canvas\.captureStream\(0\)/);
+    assert.match(offscreen, /requestFrame/);
+    assert.match(offscreen, /rect = message\.rect \|\| null/);
   })();
 
   return results;

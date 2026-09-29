@@ -29,6 +29,7 @@
       version: chrome.runtime.getManifest().version,
       dashboardUrl,
       capabilities: ['Provider routing', 'Dex rooms', 'Local agents'],
+      actions: [{ id: 'open-dashboard', label: 'Open Nexus', description: 'Opens the standalone Nexus Browser control surface.' }],
       status
     };
   }
@@ -43,7 +44,11 @@
         await chrome.tabs.create({ url: dashboardUrl });
         return response('open', { opened: true });
       }
-      return { channel: CHANNEL, version: VERSION, type: message.type, ok: false };
+      if (message.type === 'invoke' && message.detail?.action === 'open-dashboard') {
+        await chrome.tabs.create({ url: dashboardUrl });
+        return response('invoke', { message: 'Nexus Browser opened.' });
+      }
+      return { channel: CHANNEL, version: VERSION, type: message.type, ok: false, code: 'UNKNOWN_ACTION' };
     })().then(sendResponse, () => sendResponse({ channel: CHANNEL, version: VERSION, ok: false }));
     return true;
   });
