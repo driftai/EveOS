@@ -29,6 +29,7 @@ const localGemini = read('js', 'modules', 'features', 'world-book', 'world-book.
 const localRuntime = read('js', 'modules', 'features', 'world-book', 'world-book.narration.runtime.js');
 const eveHtml = read('EveOS.html');
 const overlaySource = read('js', 'modules', 'features', 'world-book', 'world-book.overlay.js');
+const notesNarrationSource = read('js', 'modules', 'features', 'world-book', 'world-book.notes.narration.js');
 const manager = read('js', 'modules', 'gemini', 'html_loaders', 'agentic', 'narration',
     'worldBookNarrationManagerUILoader.js');
 const agenticConfig = read('js', 'modules', 'gemini', 'html_loaders', 'agentic', 'core',
@@ -120,6 +121,11 @@ expect(eveHtml.indexOf('world-book.narration.companion.js')
 expect(overlaySource.includes('data-world-book-reader-controls')
     && overlaySource.includes('openCompanion'),
     'the EveOS World Book header cannot open the detached Reader companion directly');
+expect(overlaySource.includes('notesNarration?.readAloud')
+    && notesNarrationSource.includes('primeAudio')
+    && notesNarrationSource.includes('local: true')
+    && !notesNarrationSource.includes('ns.client.start'),
+    'Notes narration is not decoupled from the World Book server');
 expect(companion.includes("document.querySelector('[data-world-book-reader-companion]')")
     && !overlaySource.includes('data-world-book-reader-companion'),
     'the in-page companion fallback collides with the World Book header control');

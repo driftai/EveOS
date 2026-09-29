@@ -11,11 +11,11 @@ const expect = (condition, message) => {
     if (!condition) throw new Error(message);
 };
 
-const overlay = read('js', 'modules', 'features', 'world-book', 'world-book.overlay.js');
+const notesNarration = read('js', 'modules', 'features', 'world-book', 'world-book.notes.narration.js');
 const gemini = read('js', 'modules', 'features', 'world-book', 'world-book.narration.gemini.js');
-const readBlock = overlay.slice(
-    overlay.indexOf('async function readNotesAloud'),
-    overlay.indexOf('function renderDetachState')
+const readBlock = notesNarration.slice(
+    notesNarration.indexOf('async function readAloud'),
+    notesNarration.indexOf('ns.notesNarration')
 );
 expect(readBlock.includes('primeAudio') && readBlock.indexOf('primeAudio') < readBlock.indexOf('await '),
     'Notes narration does not prime WebAudio before its first await');

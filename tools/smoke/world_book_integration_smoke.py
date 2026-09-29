@@ -81,9 +81,10 @@ def assert_static_contract() -> None:
     assert "data-world-book-notes-copy" in overlay
     assert "data-world-book-notes-download" in overlay
     assert "data-world-book-notes-read" in overlay
-    assert "readNotesAloud" in overlay
+    assert "notesNarration?.readAloud" in overlay
     assert "ensureNarrationTarget" not in overlay
-    read_aloud = overlay[overlay.index("async function readNotesAloud"):overlay.index("function renderDetachState")]
+    notes_narration = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.notes.narration.js").read_text(encoding="utf-8")
+    read_aloud = notes_narration[notes_narration.index("async function readAloud"):notes_narration.index("ns.notesNarration")]
     assert "ns.client.start" not in read_aloud
     assert "primeAudio" in read_aloud and read_aloud.index("primeAudio") < read_aloud.index("await ")
     assert "local: true" in read_aloud
