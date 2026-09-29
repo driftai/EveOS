@@ -36,6 +36,7 @@ function worldStatus() {
         desiredRunning: worldRunning,
         state: worldRunning ? 'running' : 'stopped',
         url: 'http://127.0.0.1:8766/',
+        instanceId: worldRunning ? 'managed-instance' : '',
         message: worldRunning ? 'World Book is online.' : 'World Book is stopped.'
     };
 }
@@ -77,7 +78,7 @@ async function fetchMock(url, options) {
     }
     if (url.endsWith('/api/health')) {
         if (!worldRunning) throw new Error('World Book offline');
-        return response({ ok: true, service: 'world-book', appVersion: 'smoke' });
+        return response({ ok: true, service: 'world-book', appVersion: 'smoke', instanceId: 'direct-instance' });
     }
     throw new Error(`Unexpected URL: ${url}`);
 }
@@ -152,6 +153,9 @@ vm.runInNewContext(source, context, { filename: 'world-book.client.js' });
     }
     if (standalone.source !== 'standalone' || !standalone.message.includes('standalone launcher')) {
         throw new Error(`standalone source was not surfaced: ${JSON.stringify(standalone)}`);
+    }
+    if (standalone.instanceId !== 'direct-instance') {
+        throw new Error(`standalone instance identity missing: ${JSON.stringify(standalone)}`);
     }
 
     controllerOnline = true;
