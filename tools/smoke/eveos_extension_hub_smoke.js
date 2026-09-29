@@ -12,6 +12,8 @@ async function main() {
   const manifest = json('extension', 'manifest.json');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.side_panel.default_path, 'sidepanel.html');
+  assert.equal(typeof manifest.key, 'string');
+  assert(manifest.key.length > 100, 'official hub must have a stable unpacked-extension ID');
   assert(manifest.optional_permissions.includes('management'));
   assert(!manifest.permissions.includes('management'));
   assert(!JSON.stringify(manifest).includes('<all_urls>'));
@@ -72,8 +74,10 @@ async function main() {
 
   const nexusManifest = json('tools', 'Nexus-Browser', 'extension', 'manifest.json');
   const watchManifest = json('tools', 'WatchFusion', 'browser-extension', 'manifest.json');
-  assert.deepEqual(nexusManifest.externally_connectable.ids, ['*']);
-  assert.deepEqual(watchManifest.externally_connectable.ids, ['*']);
+  assert.deepEqual(nexusManifest.externally_connectable.ids, ['doioapjnmiknkdigmdoapoahlhcaikag']);
+  assert.deepEqual(watchManifest.externally_connectable.ids, ['doioapjnmiknkdigmdoapoahlhcaikag']);
+  assert.notDeepEqual(nexusManifest.externally_connectable.ids, ['*']);
+  assert.notDeepEqual(watchManifest.externally_connectable.ids, ['*']);
   const nexusEntry = read('tools', 'Nexus-Browser', 'extension', 'service-worker-entry.js');
   const watchWorker = read('tools', 'WatchFusion', 'browser-extension', 'worker.js');
   assert(nexusEntry.includes("importScripts('eveos-hub-connector.js')"));

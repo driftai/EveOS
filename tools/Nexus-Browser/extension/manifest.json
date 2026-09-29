@@ -25,7 +25,9 @@
     "service_worker": "service-worker-entry.js"
   },
   "externally_connectable": {
-    "ids": ["*"]
+    "ids": [
+      "doioapjnmiknkdigmdoapoahlhcaikag"
+    ]
   },
   "content_scripts": [
     {

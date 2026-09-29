@@ -48,9 +48,22 @@
 
   function normalizedRect(element) {
     if (!visible(element)) return null;
-    const box = element.getBoundingClientRect();
-    const x = Math.max(0, box.x), y = Math.max(0, box.y);
-    const right = Math.min(innerWidth, box.right), bottom = Math.min(innerHeight, box.bottom);
+    const outer = element.getBoundingClientRect();
+    let left = outer.left, top = outer.top, width = outer.width, height = outer.height;
+    if (element.tagName === 'VIDEO' && element.videoWidth > 0 && element.videoHeight > 0
+        && getComputedStyle(element).objectFit === 'contain') {
+      const mediaRatio = element.videoWidth / element.videoHeight;
+      const boxRatio = width / height;
+      if (boxRatio > mediaRatio) {
+        const fitted = height * mediaRatio;
+        left += (width - fitted) / 2; width = fitted;
+      } else if (boxRatio < mediaRatio) {
+        const fitted = width / mediaRatio;
+        top += (height - fitted) / 2; height = fitted;
+      }
+    }
+    const x = Math.max(0, left), y = Math.max(0, top);
+    const right = Math.min(innerWidth, left + width), bottom = Math.min(innerHeight, top + height);
     if (right <= x || bottom <= y) return null;
     return {
       x: x / innerWidth, y: y / innerHeight,

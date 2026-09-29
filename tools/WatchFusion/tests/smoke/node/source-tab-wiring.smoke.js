@@ -107,6 +107,8 @@ export async function runSourceTabSmokes() {
     assert.match(probe, /position: 'fixed'/);
     assert.match(probe, /pointerEvents: 'none'/);
     assert.match(probe, /frameFallback/);
+    assert.match(probe, /mediaRatio/);
+    assert.match(probe, /objectFit === 'contain'/);
     assert.match(probe, /\[aria-label\*="Next" i\]/);
     assert.match(offscreen, /maxWidth: 2560/);
     assert.match(offscreen, /1920 \/ sw/);
