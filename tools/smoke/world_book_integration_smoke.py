@@ -92,6 +92,9 @@ def assert_static_contract() -> None:
     assert "Open Scratchpad" in offline_js
     assert "setServerState" in offline_js
     assert ".notes-world-book-offline-shell" in offline_css
+    assert "place-content: start stretch" in offline_css
+    assert "margin: 0 auto" in offline_css
+    assert ".notes-world-book-notes-view" in offline_css
 
     app_index = (tool / "app" / "index.html").read_text(encoding="utf-8")
     assert 'data-entry-section="metadata"' in app_index
