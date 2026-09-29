@@ -40,26 +40,7 @@ const MIME_TYPES = Object.freeze({
 
 let youtubeImportBusy = false;
 
-function requestHostname(req) {
-  const raw = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-  try { return new URL(`http://${raw}`).hostname; } catch { return ''; }
-}
-
-function frameAncestors(req) {
-  const values = new Set([
-    "'self'",
-    'http://127.0.0.1:*',
-    'http://localhost:*'
-  ]);
-  const hostname = requestHostname(req);
-  if (hostname && /^[A-Za-z0-9.:-]+$/.test(hostname)) {
-    values.add(`http://${hostname}:*`);
-    values.add(`https://${hostname}:*`);
-  }
-  return [...values].join(' ');
-}
-
-function buildContentSecurityPolicy(req) {
+function buildContentSecurityPolicy() {
   const directives = [
     "default-src 'self'",
     "base-uri 'none'",
@@ -73,20 +54,16 @@ function buildContentSecurityPolicy(req) {
     "connect-src 'self' blob: https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co"
   ];
 
-  // EveOS still supports a file:// host shell. A file document has an opaque
-  // ancestor origin, so no frame-ancestors allow-list can name it reliably.
-  // Only omit frame-ancestors when the request is proven host-local by the
-  // centralized socket/host/browser boundary. LAN and Cloudflare requests keep
-  // the clickjacking boundary below.
-  if (!isHostLocalRequest(req)) {
-    directives.splice(3, 0, `frame-ancestors ${frameAncestors(req)}`);
-  }
+  // EveOS can be a file:// top-level document. That origin is opaque, so a
+  // frame-ancestors allow-list blocks this public shell whenever WatchFusion is
+  // reached over LAN or a tunnel. Sensitive VoxelVision APIs retain their
+  // same-origin and host-local checks below; this CSP covers static UI only.
   return directives.join('; ');
 }
 
 function securityHeaders(req) {
   return {
-    'Content-Security-Policy': buildContentSecurityPolicy(req),
+    'Content-Security-Policy': buildContentSecurityPolicy(),
     'Cross-Origin-Resource-Policy': 'same-origin',
     'Permissions-Policy': 'camera=(), geolocation=(), microphone=()',
     'Referrer-Policy': 'no-referrer',

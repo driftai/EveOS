@@ -36,11 +36,9 @@ export async function runVoxelVisionSmokes() {
       assert.equal(entry.json?.ok, true);
       assert.equal(entry.json?.path, '/voxelvision/');
 
-      // Host-local WatchFusion may itself be nested under EveOS loaded from
-      // file://. That top ancestor has an opaque origin, so a frame-ancestors
-      // allow-list would block VoxelVision even though the immediate parent is
-      // trusted local WatchFusion. The host-local response therefore omits only
-      // that navigation directive while preserving the rest of VoxelVision CSP.
+      // EveOS may itself be file://, whose opaque ancestor cannot be named in
+      // CSP. The public VoxelVision shell is embeddable in every WatchFusion
+      // transport; sensitive APIs enforce their own origin/local boundaries.
       const shell = await request(baseUrl, '/voxelvision/');
       assert.equal(shell.status, 200);
       assert.match(shell.body, /VOXELVISION/);
@@ -48,9 +46,8 @@ export async function runVoxelVisionSmokes() {
       assert.equal(shell.headers['x-frame-options'], undefined);
       assert.match(shell.headers['content-security-policy'] || '', /default-src 'self'/);
 
-      // LAN/Cloudflare-style traffic is not host-local and must retain the
-      // clickjacking boundary. cf-ray is enough to model the tunnel boundary
-      // even though the test harness itself connects over loopback.
+      // LAN/Cloudflare-style traffic must remain embeddable under the same
+      // file:// EveOS shell.
       const remoteShell = await request(baseUrl, '/voxelvision/', {
         headers: {
           host: `room.trycloudflare.com:${PORT}`,
@@ -61,7 +58,10 @@ export async function runVoxelVisionSmokes() {
         }
       });
       assert.equal(remoteShell.status, 200);
-      assert.match(remoteShell.headers['content-security-policy'] || '', /frame-ancestors 'self'/);
+      assert.doesNotMatch(remoteShell.headers['content-security-policy'] || '', /frame-ancestors/i);
+      const bridge = await request(baseUrl, '/voxelvision/js/watchfusion-embed.js');
+      assert.equal(bridge.status, 200);
+      assert.match(bridge.body, /watchfusion:voxelvision-ready/);
     });
 
     await record('VOX-02:mounted-assets-and-byte-ranges', async () => {
