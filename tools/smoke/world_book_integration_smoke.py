@@ -64,10 +64,20 @@ def assert_static_contract() -> None:
     assert "ns.detach" in overlay
     assert "syncViewButtons" in overlay
     assert "becameOnline" in overlay
+    assert "serverReplaced" in overlay
+    assert "reloadActiveFrame" in overlay
+    assert "data-world-book-reload" in overlay
+    assert "data-world-book-detach-state" in overlay
     assert "frame.dataset.worldBookTarget" in overlay
+    assert "worldBookFrameState" in overlay
     assert "requestAnimationFrame" in overlay
     assert "eveWorldBookWindow" in detached
     assert "window.open" in detached
+    assert "eve:world-book-detached-state" in detached
+    assert "isOpen:" in detached
+    world_css = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.css").read_text(encoding="utf-8")
+    assert ".notes-world-book-portal-view" in world_css
+    assert "[data-world-portal-frame]" in world_css
 
     server = (ROOT / "server" / "python-server.py").read_text(encoding="utf-8")
     assert "world_book_control.handle_get_request" in server
@@ -80,6 +90,7 @@ def assert_static_contract() -> None:
 
     handler = (tool / "worldbook_runtime" / "layers" / "80_http_handler.py").read_text(encoding="utf-8")
     assert 'parsed.path == "/api/health"' in handler
+    assert '"instanceId": SERVER_INSTANCE_ID' in handler
     assert "Access-Control-Allow-Origin" in handler
 
     launch_batch = (tool / "launch.bat").read_text(encoding="utf-8")
