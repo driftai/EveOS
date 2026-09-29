@@ -312,6 +312,22 @@ async function main() {
     await page.waitForFunction((id) => !window.EveAudioflixState.getSnapshot().music.some((item) => item.id === id), disposableMusicId, { timeout: 5000 });
     const musicDeleteOk = await page.evaluate((id) => !(id in (window.EveAudioflixState.getSnapshot().musicGroupMap || {})), disposableMusicId);
 
+    // Backend Ungrouped has a site-native right-click Clear action. It removes only persistent
+    // Audioflix entries in that bucket and never opens a browser confirmation dialog.
+    const ungroupedIds = await page.evaluate(() => {
+        const S = window.EveAudioflixState;
+        return [
+            S.addItem('music', { title: 'Ungrouped Clear A', url: 'https://example.com/ungrouped-a.mp3' }).id,
+            S.addItem('music', { title: 'Ungrouped Clear B', url: 'https://example.com/ungrouped-b.mp3' }).id
+        ];
+    });
+    await page.waitForSelector('.audioflix-group[data-af-group="Ungrouped"] .audioflix-group-title[data-af-context="ungrouped"]', { timeout: 5000 });
+    await page.click('.audioflix-group[data-af-group="Ungrouped"] .audioflix-group-title', { button: 'right' });
+    await page.waitForSelector('.audioflix-context-menu [data-af-action="clear-ungrouped"][data-af-type="music"]', { timeout: 5000 });
+    await page.click('.audioflix-context-menu [data-af-action="clear-ungrouped"]');
+    await page.waitForFunction((ids) => ids.every((id) => !window.EveAudioflixState.getSnapshot().music.some((item) => item.id === id)), ungroupedIds, { timeout: 5000 });
+    const ungroupedClearOk = await page.evaluate(() => !window.EveAudioflixState.getSnapshot().music.some((item) => !String(item.folder || item.card || '').trim()));
+
     await page.click('[data-af-action="tab"][data-af-tab="soundlab"]');
     await page.waitForSelector('[data-audioflix-soundlab] [data-af-action="soundlab-control-view"]');
     await page.click('[data-af-action="soundlab-control-view"][data-sf-view="knobs"]');
@@ -442,6 +458,7 @@ async function main() {
     if (!soundDurationOk) failures.push('soundboard duration did not persist/render after metadata arrived');
     if (!soundDeleteOk) failures.push('sound settings delete did not remove the item and its group membership');
     if (!musicDeleteOk) failures.push('music settings delete did not remove the item and its group membership');
+    if (!ungroupedClearOk) failures.push('Ungrouped right-click Clear did not delete every persistent ungrouped track');
     if (!groupRendersInFrontend) failures.push('active group selector/grid/hotkey badge did not render in Frontend view');
     if (!hotkeyPlayed) failures.push('number hotkey did not play the active group sound');
     if (!result.hasOverlay) failures.push('overlay not visible');
