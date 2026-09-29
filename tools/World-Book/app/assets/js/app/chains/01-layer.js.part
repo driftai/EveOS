@@ -52,6 +52,11 @@
     els.linkCustomLabel.value = link?.label || "";
     els.linkRelationshipType.innerHTML = (state.relationshipDefinitions || []).map(def => `<option value="${WB.escapeHTML(def.id)}">${WB.escapeHTML(def.name)} ↔ ${WB.escapeHTML(def.inverse || def.name)}</option>`).join("");
     els.linkRelationshipType.value = link?.relationshipType || "related-to";
+    const provenance = link?.provenance && typeof link.provenance === "object" ? link.provenance : {};
+    els.linkProvenanceSource.value = provenance.source || "";
+    els.linkProvenanceKnown.value = provenance.knownAsOf || "";
+    els.linkProvenanceConfidence.value = provenance.confidence || "";
+    els.linkProvenanceCreatedBy.value = provenance.createdBy || "";
     els.linkMountShortcut.checked = false;
     els.linkMountShortcut.disabled = selected.source !== "virtual" || selected.node.type !== "folder" || Boolean(link);
 
@@ -74,6 +79,14 @@
     const links = selectedLinks();
     const timestamp = WB.nowISO();
     const customLabel = els.linkCustomLabel.value.trim();
+    const prior = linkDialogEditingId ? links.find(link => link.id === linkDialogEditingId) : null;
+    const provenance = Object.fromEntries(Object.entries({
+      source: els.linkProvenanceSource.value.trim(),
+      knownAsOf: els.linkProvenanceKnown.value.trim(),
+      confidence: els.linkProvenanceConfidence.value.trim(),
+      createdBy: els.linkProvenanceCreatedBy.value.trim() || prior?.provenance?.createdBy || "manual",
+      createdAt: prior?.provenance?.createdAt || timestamp
+    }).filter(([, value]) => value));
 
     if (linkDialogEditingId) {
       const existing = links.find(link => link.id === linkDialogEditingId);
@@ -82,6 +95,7 @@
       existing.targetId = linkDialogTargetId;
       existing.label = customLabel;
       existing.relationshipType = els.linkRelationshipType.value || "related-to";
+      existing.provenance = provenance;
       existing.updatedAt = timestamp;
     } else {
       links.push({
@@ -90,7 +104,7 @@
         targetId: linkDialogTargetId,
         label: customLabel,
         relationshipType: els.linkRelationshipType.value || "related-to",
-        provenance: { createdBy: "manual", createdAt: timestamp },
+        provenance,
         createdAt: timestamp,
         updatedAt: timestamp
       });
@@ -102,6 +116,7 @@
         const ref = WB.Canon.createReference(target, customLabel || target.name, "manual-link");
         ref.referenceAlias = customLabel || "";
         ref.relationshipType = els.linkRelationshipType.value || "related-to";
+        ref.provenance = { ...provenance };
         selected.node.children.push(ref);
         selected.node.open = true;
       }
