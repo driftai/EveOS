@@ -1,4 +1,7 @@
 (async function () {
+  const params = new URLSearchParams(window.location.search);
+  document.documentElement.classList.toggle("embedded-eveos", params.has("embedded"));
+
   const fragmentBase = "fragments/";
   const names = await fetch(`${fragmentBase}manifest.json`, { cache: "no-store" }).then(r => r.json());
   const host = document.getElementById("dialog-host");
