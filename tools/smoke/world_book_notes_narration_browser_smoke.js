@@ -12,6 +12,8 @@ const expect = (condition, message) => {
 };
 
 const notesNarration = read('js', 'modules', 'features', 'world-book', 'world-book.notes.narration.js');
+const clips = read('js', 'modules', 'features', 'world-book', 'world-book.narration.clips.js');
+const runtimeSource = read('js', 'modules', 'features', 'world-book', 'world-book.narration.runtime.js');
 const gemini = read('js', 'modules', 'features', 'world-book', 'world-book.narration.gemini.js');
 const readBlock = notesNarration.slice(
     notesNarration.indexOf('async function readAloud'),
@@ -28,6 +30,10 @@ expect(gemini.includes("const WS_URL = 'ws://127.0.0.1:9085'")
     'local Notes narration is not using the canonical isolated Gemini lane');
 expect(gemini.includes("if (pendingTurn) throw new Error"),
     'local narration can create overlapping Gemini turns on one session');
+expect(clips.includes('cleanHash') && clips.includes('markRendered') && clips.includes('setProvider'),
+    'Notes narration lacks persistent per-clip recipes or source reload tracking');
+expect(runtimeSource.includes("stopAll?.('Switching narration output.')"),
+    'Gemini fallback does not stop active audio before starting browser TTS');
 
 async function listen(server) {
     await new Promise((resolve, reject) => {
@@ -54,6 +60,7 @@ async function main() {
             'world-book.narration.outputs.js',
             'world-book.narration.cache.js',
             'world-book.narration.gemini.js',
+            'world-book.narration.clips.js',
             'world-book.narration.runtime.js',
         ]) {
             await page.addScriptTag({ path: path.join(ROOT, 'js', 'modules', 'features', 'world-book', file) });
@@ -121,6 +128,29 @@ async function main() {
             const blocked = await audio.prime();
             const blockedResumeCallsAfterDirectPrime = blockedResumeCalls;
 
+            localStorage.removeItem('eveWorldBookNarrationClipRecipesV1');
+            const clipApi = window.EveWorldBookNarrationClips;
+            clipApi.load({
+                id: 'eveos:scratchpad',
+                title: 'EveOS Scratchpad',
+                text: 'First clip. Second clip.',
+                kind: 'scratchpad',
+                locator: 'EveOS / Notes / Scratchpad'
+            }, { engine: 'browser', browserVoice: 'Voice A', geminiVoice: 'Aoede' });
+            clipApi.markRendered(0, { engine: 'browser', browserVoice: 'Voice A', geminiVoice: 'Aoede' });
+            clipApi.choose(1, { engine: 'gemini', geminiVoice: 'Kore' });
+            clipApi.markRendered(1, { engine: 'gemini', geminiVoice: 'Kore', browserVoice: 'Voice A' });
+            const changedPlan = clipApi.preview('First clip. Second clip changed.', {
+                engine: 'browser', browserVoice: 'Voice A', geminiVoice: 'Aoede'
+            });
+            const changedBeforeReload = changedPlan.map(item => ({
+                dirty: item.dirty, engine: item.engine, browserVoice: item.browserVoice,
+                geminiVoice: item.geminiVoice, storedKind: item.storedKind
+            }));
+            clipApi.setProvider(() => ({ text: 'First clip. Second clip changed.' }));
+            const changedAfterReload = clipApi.reload({ engine: 'browser', browserVoice: 'Voice A', geminiVoice: 'Aoede' })
+                .map(item => ({ dirty: item.dirty, engine: item.engine, geminiVoice: item.geminiVoice }));
+
             localStorage.setItem('eveWorldBookNarrationSettings', JSON.stringify({ engine: 'gemini' }));
             const runtime = window.EveWorldBookNarrationRuntime;
             runtime.load({
@@ -149,6 +179,8 @@ async function main() {
                 blockedResumeCallsAfterDirectPrime,
                 blocked,
                 blockedState,
+                changedBeforeReload,
+                changedAfterReload,
                 trimmedBytes: trimmed.byteLength,
                 paddedPcmBytes: paddedPcm.byteLength
             };
@@ -166,6 +198,15 @@ async function main() {
             `the runtime did not retry AudioContext activation from the playback path: ${JSON.stringify(result)}`);
         expect(result.blockedState.status === 'blocked' && /Tap Play/i.test(result.blockedState.error || ''),
             `blocked playback produced a false playing state: ${JSON.stringify(result.blockedState)}`);
+        expect(result.changedBeforeReload[0].dirty === false && result.changedBeforeReload[1].dirty === true,
+            `only the edited clip should be marked changed: ${JSON.stringify(result.changedBeforeReload)}`);
+        expect(result.changedBeforeReload[0].storedKind === 'browser-tts'
+            && result.changedBeforeReload[0].browserVoice === 'Voice A',
+            `browser TTS clips did not persist their replay recipe: ${JSON.stringify(result.changedBeforeReload)}`);
+        expect(result.changedBeforeReload[1].engine === 'gemini' && result.changedBeforeReload[1].geminiVoice === 'Kore',
+            `edited clips did not retain their stored engine/voice recipe: ${JSON.stringify(result.changedBeforeReload)}`);
+        expect(result.changedAfterReload[1].dirty === true,
+            `Reload cleared the edited-clip warning before regeneration: ${JSON.stringify(result.changedAfterReload)}`);
         expect(result.trimmedBytes > 0 && result.trimmedBytes < result.paddedPcmBytes,
             `leading/trailing digital silence was not trimmed: ${JSON.stringify(result)}`);
         console.log('WORLD_BOOK_NOTES_NARRATION_BROWSER_SMOKE_OK');

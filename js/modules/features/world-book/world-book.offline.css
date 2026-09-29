@@ -29,6 +29,15 @@
 }
 .notes-world-book-overlay[data-view="notes"] .notes-world-book-notes-view {
     padding: 10px clamp(14px, 2vw, 28px) clamp(14px, 2vw, 28px) !important;
+    min-height: 0 !important;
+    grid-template-rows: auto minmax(min(220px, 45vh), 1fr) !important;
+}
+.notes-world-book-overlay[data-view="notes"] [data-world-book-notes] {
+    height: 100% !important;
+    min-height: min(220px, 45vh) !important;
+    overflow: auto !important;
+    resize: vertical !important;
+    align-self: stretch;
 }
 
 .notes-world-book-notes-heading > div:first-child {

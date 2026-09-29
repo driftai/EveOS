@@ -176,6 +176,43 @@ async function main() {
             throw new Error(`Agentic controls are not fully wired: ${JSON.stringify(controls)}`);
         }
 
+        const commandLayout = await page.evaluate(() => {
+            const ids = ['sendHistoryButton', 'clearChatButton', 'clearSystemLogButton', 'togglePastChatsButton'];
+            return ids.map(id => {
+                const element = document.getElementById(id);
+                if (!element) return { id, missing: true };
+                const box = element.getBoundingClientRect();
+                return {
+                    id, missing: false, left: box.left, right: box.right, width: box.width,
+                    viewportWidth: innerWidth, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth
+                };
+            });
+        });
+        if (commandLayout.some(item => item.missing || item.left < -1
+            || item.right > item.viewportWidth + 1 || item.scrollWidth > item.clientWidth + 2)) {
+            throw new Error(`Gemini command buttons overflow at narrow width: ${JSON.stringify(commandLayout)}`);
+        }
+
+        await page.waitForSelector('[data-world-book-narration-settings]', { timeout: 10000 });
+        await page.click('[data-world-book-narration-settings]');
+        requireModernDialog('World Book Narration', await inspectAgenticDialog('#world-book-narration-settings-dialog'));
+        const narrationVoice = await page.evaluate(() => {
+            const select = document.querySelector('[data-narration-browser-voice]');
+            const card = document.querySelector('.gemini-narration-settings-card');
+            const rect = card?.getBoundingClientRect();
+            return {
+                exists: !!select,
+                fieldKey: select?.dataset.narrationField || '',
+                cardRight: rect?.right || 0,
+                viewportWidth: innerWidth
+            };
+        });
+        if (!narrationVoice.exists || narrationVoice.fieldKey !== 'browserVoice'
+            || narrationVoice.cardRight > narrationVoice.viewportWidth + 1) {
+            throw new Error(`Narration shared Browser TTS voice UI is missing or overflowing: ${JSON.stringify(narrationVoice)}`);
+        }
+        await page.click('[data-narration-cancel]');
+
         const coreToggleState = await page.evaluate(() => {
             const exerciseToggle = (id, storageKey, getter) => {
                 const toggle = document.getElementById(id);

@@ -16,6 +16,13 @@ window.EveWorldBook = window.EveWorldBook || {};
 
         // Prime WebAudio synchronously from the user's click before any network/generation await.
         const runtime = window.EveWorldBookNarrationRuntime;
+        runtime?.setSourceProvider?.(() => ({
+            id: 'eveos:scratchpad',
+            title: 'EveOS Scratchpad',
+            text: String(editor?.value || ''),
+            kind: 'scratchpad',
+            locator: 'EveOS / Notes / Scratchpad'
+        }));
         const primePromise = runtime?.primeAudio?.();
         const priorLabel = button?.textContent || 'Read aloud';
         if (button) {
@@ -53,6 +60,13 @@ window.EveWorldBook = window.EveWorldBook || {};
         }
     }
 
+    function notifyChanged(text) {
+        const runtime = window.EveWorldBookNarrationRuntime;
+        const state = runtime?.getState?.();
+        if (state?.source?.id !== 'eveos:scratchpad') return;
+        runtime.previewSource?.(String(text || ''));
+    }
+
     window.addEventListener('eve:world-book-narration-state', event => {
         const state = event.detail;
         if (state?.source?.id !== 'eveos:scratchpad') return;
@@ -68,5 +82,5 @@ window.EveWorldBook = window.EveWorldBook || {};
         else if (state.status === 'error') meta.textContent = `Reader error · ${state.error || 'playback failed'}`;
     });
 
-    ns.notesNarration = Object.freeze({ readAloud });
+    ns.notesNarration = Object.freeze({ readAloud, notifyChanged });
 })(window.EveWorldBook);

@@ -76,6 +76,10 @@ window.EveWorldBookNarrationCache = window.EveWorldBookNarrationCache || {};
         return record;
     }
 
+    async function remove(source, passage, index, config) {
+        return transact('readwrite', store => store.delete(key(source, passage, index, config)));
+    }
+
     async function put(source, passage, index, passageCount, config, record) {
         const value = {
             key: key(source, passage, index, config),
@@ -125,6 +129,7 @@ window.EveWorldBookNarrationCache = window.EveWorldBookNarrationCache || {};
         ready: true,
         key,
         get,
+        remove,
         put,
         prune,
         hash

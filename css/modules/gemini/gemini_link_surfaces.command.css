@@ -12,12 +12,24 @@
         0 18px 34px rgba(0, 0, 0, 0.16);
 }
 
-#gemini-ui-root .gemini-command-icon-row,
-#gemini-ui-root .gemini-command-action-row {
+#gemini-ui-root .gemini-command-icon-row {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
     align-items: center;
+}
+
+#gemini-ui-root .gemini-command-action-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
+    gap: 10px;
+    align-items: stretch;
+    width: 100%;
+    min-width: 0;
+}
+
+#gemini-ui-root .gemini-command-action-row > div {
+    min-width: 0;
 }
 
 #gemini-ui-root .gemini-command-icon-btn {
@@ -59,9 +71,13 @@
 #gemini-ui-root .gemini-command-action-btn {
     display: inline-flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 8px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     min-height: 40px;
-    padding: 0 14px;
+    padding: 8px 12px;
     border-radius: 14px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: linear-gradient(145deg, rgba(27, 34, 49, 0.96), rgba(15, 20, 29, 0.94));
@@ -74,9 +90,14 @@
 }
 
 #gemini-ui-root .gemini-command-action-label {
+    min-width: 0;
     font-size: 0.78rem;
     font-weight: 700;
+    line-height: 1.25;
     letter-spacing: 0.01em;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    text-align: left;
 }
 
 #gemini-ui-root .gemini-command-action-btn--history {
@@ -380,4 +401,9 @@
 
 #gemini-ui-root .gemini-text-input::placeholder {
     color: rgba(232, 247, 255, 0.46);
+}
+
+@media (max-width: 520px) {
+    #gemini-ui-root .gemini-command-action-row { grid-template-columns: 1fr; }
+    #gemini-ui-root .gemini-command-action-btn { justify-content: flex-start; }
 }

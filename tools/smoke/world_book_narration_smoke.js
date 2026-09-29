@@ -28,7 +28,9 @@ const localNative = read('js', 'modules', 'features', 'world-book', 'world-book.
 const localOutputs = read('js', 'modules', 'features', 'world-book', 'world-book.narration.outputs.js');
 const localCache = read('js', 'modules', 'features', 'world-book', 'world-book.narration.cache.js');
 const localGemini = read('js', 'modules', 'features', 'world-book', 'world-book.narration.gemini.js');
+const localClips = read('js', 'modules', 'features', 'world-book', 'world-book.narration.clips.js');
 const localRuntime = read('js', 'modules', 'features', 'world-book', 'world-book.narration.runtime.js');
+const localAgentic = read('js', 'modules', 'features', 'world-book', 'world-book.narration.agentic.js');
 const eveHtml = read('EveOS.html');
 const overlaySource = read('js', 'modules', 'features', 'world-book', 'world-book.overlay.js');
 const notesNarrationSource = read('js', 'modules', 'features', 'world-book', 'world-book.notes.narration.js');
@@ -99,6 +101,12 @@ expect(localCache.includes("const DB_NAME = 'eve-world-book-narration'") && loca
 expect(localRuntime.includes('primeAudio') && localRuntime.includes("state.status = 'blocked'")
     && localRuntime.includes("Gemini unavailable - using browser speech."),
     'EveOS narration runtime lacks user-activation gating or browser fallback');
+expect(localClips.includes('eveWorldBookNarrationClipRecipesV1') && localClips.includes('cleanHash')
+    && localClips.includes('markRendered') && localRuntime.includes("'regenerate-clip'")
+    && localRuntime.includes("'reload-source'"),
+    'Notes narration lacks changed-clip tracking, per-clip recipes, or regeneration');
+expect(localOutputs.includes('stopAll') && localRuntime.includes("stopAll?.('Switching narration output.')"),
+    'Gemini fallback can overlap Browser TTS instead of switching outputs atomically');
 expect(gemini.includes('outputTranscriptionEnabled: true') && gemini.includes('spokenText')
     && gemini.includes('startRatio') && gemini.includes('session_ready'),
     'Gemini narration lacks transcript capture, model provenance, or offset playback');
@@ -126,19 +134,29 @@ expect(companion.includes('documentPictureInPicture.requestWindow') && companion
 expect(companion.includes("command('seek-progress'") && companion.includes('open-reader-companion')
     && companion.includes('Audioflix native output'),
     'detached Reader controls are not linked to progress navigation and Audioflix routing');
+expect(companion.includes('data-clip-engine') && companion.includes('data-clip-voice')
+    && companion.includes('data-clip-regen') && companion.includes('Changed · regenerate')
+    && companion.includes('reload-source'),
+    'Reader companion lacks per-clip engine/voice, regenerate, or changed-text controls');
 expect(eveHtml.indexOf('world-book.narration.companion.js')
     < eveHtml.indexOf('world-book.narration.bridge.js'),
     'the Reader companion does not load before its host bridge');
 expect(eveHtml.indexOf('world-book.narration.native.js')
     < eveHtml.indexOf('world-book.narration.outputs.js')
     && eveHtml.indexOf('world-book.narration.outputs.js')
-    < eveHtml.indexOf('world-book.narration.runtime.js'),
-    'the Reader output adapters do not load before the narration runtime');
+    < eveHtml.indexOf('world-book.narration.clips.js')
+    && eveHtml.indexOf('world-book.narration.clips.js')
+    < eveHtml.indexOf('world-book.narration.runtime.js')
+    && eveHtml.indexOf('world-book.narration.bridge.js')
+    < eveHtml.indexOf('world-book.narration.agentic.js'),
+    'the Reader output/clip modules do not load before the narration runtime');
 expect(overlaySource.includes('data-world-book-reader-controls')
     && overlaySource.includes('openCompanion'),
     'the EveOS World Book header cannot open the detached Reader companion directly');
 expect(overlaySource.includes('notesNarration?.readAloud')
+    && overlaySource.includes('notesNarration?.notifyChanged')
     && notesNarrationSource.includes('primeAudio')
+    && notesNarrationSource.includes('setSourceProvider')
     && notesNarrationSource.includes('local: true')
     && !notesNarrationSource.includes('ns.client.start'),
     'Notes narration is not decoupled from the World Book server');
@@ -153,6 +171,10 @@ expect(manager.includes('clearCacheArmedUntil') && manager.includes("button.text
     'Narration Manager cache deletion is not confirmation guarded');
 expect(manager.includes('preferNativeOutput') && manager.includes('Prefer audible Windows output'),
     'Narration Manager does not expose the reliable Windows output preference');
+expect(localAgentic.includes('Browser TTS voice (shared)')
+    && localAgentic.includes("dataset.narrationField = FIELD")
+    && bridge.includes('eveBrowserTtsVoice') && bridge.includes('eve:browser-tts-voice'),
+    'Browser TTS voice is not shared between Agentic Narration Manager, Notes, and World Book');
 expect(notesNarrationSource.includes('Reader playing') && notesNarrationSource.includes('Reader finished')
     && notesNarrationSource.includes('Windows default output'),
     'Notes narration does not report the truthful playback route and terminal state');

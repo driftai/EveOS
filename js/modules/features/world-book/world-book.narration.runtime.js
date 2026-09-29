@@ -4,19 +4,9 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
     if (runtime.ready) return;
     const SETTINGS_KEY = 'eveWorldBookNarrationSettings';
     const defaults = {
-        enabled: true,
-        engine: 'browser',
-        browserVoice: '',
-        geminiVoice: 'Aoede',
-        rate: 1,
-        pitch: 1,
-        volume: 1,
-        strictVerbatim: true,
-        backgroundPrefetch: true,
-        preferNativeOutput: true,
-        routeToAudioflix: false,
-        cacheMb: 192,
-        cacheDays: 30
+        enabled: true, engine: 'browser', browserVoice: '', geminiVoice: 'Aoede',
+        rate: 1, pitch: 1, volume: 1, strictVerbatim: true, backgroundPrefetch: true,
+        preferNativeOutput: true, routeToAudioflix: false, cacheMb: 192, cacheDays: 30
     };
     let passages = [];
     let state = emptyState();
@@ -25,65 +15,36 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
     let pausedFrom = '';
     const audio = () => window.EveWorldBookNarrationAudio;
     const cache = () => window.EveWorldBookNarrationCache;
+    const clips = () => window.EveWorldBookNarrationClips;
     const gemini = () => window.EveWorldBookNarrationGemini;
     const native = () => window.EveWorldBookNarrationNative;
     const outputs = () => window.EveWorldBookNarrationOutputs;
     const clamp = value => Math.min(1, Math.max(0, Number(value) || 0));
     function emptyState() {
         return {
-            status: 'idle',
-            source: null,
-            index: 0,
-            passageCount: 0,
-            passage: '',
-            passageRatio: 0,
-            overallRatio: 0,
-            passageDuration: 0,
-            engine: '',
-            output: '',
-            localRuntime: true,
-            error: ''
+            status: 'idle', source: null, index: 0, passageCount: 0, passage: '',
+            passageRatio: 0, overallRatio: 0, passageDuration: 0, engine: '', output: '',
+            localRuntime: true, dirtyCount: 0, error: ''
         };
     }
     function settings() {
         const bridge = window.EveWorldBookNarrationBridge;
-        if (bridge?.settings) return { ...defaults, ...bridge.settings() };
-        try { return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; }
+        try { return { ...defaults, ...(bridge?.settings ? bridge.settings() : JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')) }; }
         catch (_error) { return { ...defaults }; }
-    }
-    function split(text, max = 600) {
-        const normalized = String(text || '').replace(/\r\n?/g, '\n').replace(/\s+/g, ' ').trim();
-        if (!normalized) return [];
-        const pieces = normalized.split(/(?<=[.!?]["'\u201d\u2019)\]]?)\s+/u);
-        const output = [];
-        let current = '';
-        for (const raw of pieces) {
-            let part = raw.trim();
-            while (part.length > max) {
-                let cut = part.lastIndexOf(' ', max);
-                if (cut < max * 0.45) cut = max;
-                if (current) { output.push(current); current = ''; }
-                output.push(part.slice(0, cut).trim());
-                part = part.slice(cut).trim();
-            }
-            if (!part) continue;
-            const candidate = current ? current + ' ' + part : part;
-            if (candidate.length <= max) current = candidate;
-            else { if (current) output.push(current); current = part; }
-        }
-        if (current) output.push(current);
-        return output.filter(value => /[\p{L}\p{N}]/u.test(value));
     }
     function snapshot(extra = {}) {
         const count = passages.length;
         const overallRatio = count
             ? state.status === 'complete' ? 1 : clamp((state.index + state.passageRatio) / count)
             : 0;
+        const clipState = clips()?.state?.() || [];
         return {
             ...state,
             passageCount: count,
             passage: passages[state.index] || '',
             overallRatio,
+            clips: clipState,
+            dirtyCount: clipState.filter(item => item.dirty).length,
             localRuntime: true,
             ...extra
         };
@@ -95,23 +56,38 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
     }
     function load(source) {
         stop();
-        const text = String(source?.text || '');
-        passages = split(text);
+        const plan = clips()?.load?.(source, settings()) || [];
+        passages = plan.map(item => item.text);
         if (!passages.length) throw new Error('This source does not contain speakable text.');
+        const clipSource = clips()?.source?.() || source || {};
         state = {
             ...emptyState(),
             status: 'ready',
             source: {
-                id: String(source?.id || 'eveos:local-reader-source'),
-                title: String(source?.title || 'EveOS Reader Source'),
-                locator: String(source?.locator || 'EveOS'),
-                kind: String(source?.kind || 'source'),
-                revision: cache()?.hash?.(text) || ''
+                id: String(clipSource.id || 'eveos:local-reader-source'),
+                title: String(clipSource.title || 'EveOS Reader Source'),
+                locator: String(clipSource.locator || 'EveOS'),
+                kind: String(clipSource.kind || 'source'),
+                revision: String(clipSource.revision || cache()?.hash?.(clipSource.text || '') || '')
             }
         };
         pendingStartRatio = 0;
         return emit();
     }
+    function applyPlan(plan) {
+        passages = (plan || []).map(item => item.text);
+        if (!passages.length) {
+            outputs()?.stopAll?.('Narration source cleared.');
+            state = { ...state, status: 'idle', index: 0, passageRatio: 0, passageDuration: 0 };
+        } else {
+            state.index = Math.min(state.index, passages.length - 1);
+            const clipSource = clips()?.source?.();
+            if (clipSource) state.source = { ...state.source, revision: clipSource.revision };
+        }
+        return emit();
+    }
+    const previewSource = text => applyPlan(clips()?.preview?.(String(text || ''), settings()) || []);
+    const reloadSource = () => applyPlan(clips()?.reload?.(settings()) || []);
     function primeAudio() {
         return audio()?.prime?.() || Promise.resolve({ ok: false, state: 'unavailable', error: 'Web Audio is unavailable.' });
     }
@@ -152,8 +128,9 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
         });
         if (token === runToken && ok !== true) throw new Error('Narration output is unavailable.');
     }
-    async function playGemini(index, passage, config, token, startRatio, primePromise) {
-        let record = await cache()?.get?.(state.source, passage, index, config);
+    async function playGemini(index, passage, config, token, startRatio, primePromise, forceRegenerate = false) {
+        if (forceRegenerate) await cache()?.remove?.(state.source, passage, index, config);
+        let record = forceRegenerate ? null : await cache()?.get?.(state.source, passage, index, config);
         if (token !== runToken) return;
         if (record?.pcm?.byteLength) {
             if (config.routeToAudioflix) return playExternal('audioflix', record, config, token, startRatio);
@@ -246,28 +223,36 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
             emit();
         }, startRatio);
     }
-    async function playPassage(index, config, token, primePromise) {
+    async function playPassage(index, baseConfig, token, primePromise, forceRegenerate = false) {
         const passage = passages[index];
+        const startedHash = clips()?.get?.(index)?.hash || '', markRendered = used => { if ((clips()?.get?.(index)?.hash || '') === startedHash) clips()?.markRendered?.(index, used); };
+        const config = clips()?.config?.(index, baseConfig) || { ...baseConfig };
         const startRatio = clamp(pendingStartRatio || state.passageRatio);
         pendingStartRatio = 0;
         state.passageRatio = startRatio;
         if (config.engine === 'gemini') {
             try {
-                await playGemini(index, passage, config, token, startRatio, primePromise);
+                await playGemini(index, passage, config, token, startRatio, primePromise, forceRegenerate);
+                if (token === runToken && !['blocked', 'error'].includes(state.status)) markRendered(config);
                 return;
             } catch (error) {
                 if (token !== runToken) return;
+                await outputs()?.stopAll?.('Switching narration output.');
                 if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
+                    const fallback = { ...config, engine: 'browser' };
                     state.error = 'Gemini unavailable - using browser speech.';
                     state.engine = 'browser';
+                    state.output = 'browser';
                     emit();
-                    await speakBrowser(passage, config, token, startRatio);
+                    const completed = await speakBrowser(passage, fallback, token, startRatio);
+                    if (token === runToken && completed !== false) markRendered(fallback);
                     return;
                 }
                 throw error;
             }
         }
-        await speakBrowser(passage, config, token, startRatio);
+        const completed = await speakBrowser(passage, config, token, startRatio);
+        if (token === runToken && completed !== false) markRendered(config);
     }
     async function run(token, primePromise) {
         try {
@@ -301,7 +286,8 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
         if (state.status === 'paused') return resume();
         if (state.status === 'complete') { state.index = 0; state.passageRatio = 0; }
         const token = ++runToken;
-        const primePromise = options.primePromise || (settings().engine === 'gemini' ? primeAudio() : null);
+        const activeConfig = clips()?.config?.(state.index, settings()) || settings();
+        const primePromise = options.primePromise || (activeConfig.engine === 'gemini' ? primeAudio() : null);
         void run(token, primePromise);
         return emit();
     }
@@ -348,17 +334,39 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
     }
     function stop() {
         runToken += 1;
-        gemini()?.cancel?.('Narration stopped.');
-        audio()?.stop?.({ preserveContext: true });
-        void native()?.stop?.();
-        outputs()?.stopBrowser?.();
-        try { window.EveAudioflixNative?.clearVoices?.('world-book-narration'); } catch (_error) {}
+        outputs()?.stopAll?.('Narration stopped.');
         pausedFrom = '';
         state.status = passages.length ? 'ready' : 'idle';
         state.passageRatio = 0;
         state.passageDuration = 0;
         state.error = '';
         emit();
+        return snapshot();
+    }
+    async function regenerateClip(index) {
+        if (!passages.length) throw new Error('Choose something to read first.');
+        stop();
+        state.index = Math.max(0, Math.min(passages.length - 1, Number(index) || 0));
+        state.passageRatio = 0;
+        state.passageDuration = 0;
+        state.error = '';
+        const token = ++runToken;
+        const config = clips()?.config?.(state.index, settings()) || settings();
+        const primePromise = config.engine === 'gemini' ? primeAudio() : null;
+        try {
+            await playPassage(state.index, config, token, primePromise, true);
+            if (token === runToken && !['blocked', 'error'].includes(state.status)) {
+                state.status = 'ready';
+                state.passageRatio = 0;
+                state.passageDuration = 0;
+                emit();
+            }
+        } catch (error) {
+            if (token !== runToken) return snapshot();
+            state.status = 'error';
+            state.error = error?.message || String(error);
+            emit();
+        }
         return snapshot();
     }
     function seekProgress(value, autoplay = false) {
@@ -393,11 +401,17 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
         if (action === 'previous') return step(-1);
         if (action === 'next') return step(1);
         if (action === 'seek-progress') return seekProgress(data?.value, data?.autoplay === true);
+        if (action === 'reload-source') return reloadSource();
+        if (action === 'regenerate-clip') return regenerateClip(data?.index);
+        if (action === 'set-clip-engine') { clips()?.choose?.(data?.index, { engine: data?.engine }); return emit(); }
+        if (action === 'set-clip-voice') {
+            const engine = clips()?.get?.(data?.index)?.engine;
+            clips()?.choose?.(data?.index, engine === 'gemini' ? { geminiVoice: data?.voice } : { browserVoice: data?.voice });
+            return emit();
+        }
         return null;
     }
-    function configure(config = settings()) {
-        audio()?.setVolume?.(config.volume ?? 1);
-    }
+    const configure = (config = settings()) => { audio()?.setVolume?.(config.volume ?? 1); clips()?.syncDefaults?.(config); if (passages.length) emit(); };
     window.addEventListener('eve:world-book-narration-settings', event => configure(event.detail || settings()));
     window.addEventListener('beforeunload', () => {
         runToken += 1;
@@ -416,6 +430,10 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
         configure,
         settings,
         snapshot,
+        previewSource,
+        reloadSource,
+        setSourceProvider: provider => clips()?.setProvider?.(provider),
+        regenerateClip,
         getState: () => snapshot(),
         ownsSource: () => Boolean(state.source)
     });

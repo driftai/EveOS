@@ -99,6 +99,18 @@ window.EveWorldBookNarrationOutputs = window.EveWorldBookNarrationOutputs || {};
         clearProgress();
     }
 
+    async function stopAll(reason = 'Narration stopped.') {
+        window.EveWorldBookNarrationGemini?.cancel?.(reason);
+        window.EveWorldBookNarrationAudio?.stop?.({ preserveContext: true });
+        stopBrowser();
+        let audioflix = null;
+        try { audioflix = window.EveAudioflixNative?.clearVoices?.('world-book-narration'); } catch (_error) {}
+        await Promise.allSettled([
+            Promise.resolve(window.EveWorldBookNarrationNative?.stop?.()),
+            Promise.resolve(audioflix)
+        ]);
+    }
+
     Object.assign(outputs, {
         ready: true,
         browser,
@@ -107,6 +119,7 @@ window.EveWorldBookNarrationOutputs = window.EveWorldBookNarrationOutputs || {};
         pauseBrowser,
         resumeBrowser,
         stopBrowser,
+        stopAll,
         hasBrowserUtterance: () => Boolean(utterance)
     });
 })(window.EveWorldBookNarrationOutputs);

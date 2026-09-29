@@ -359,7 +359,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         });
         overlay.querySelector('[data-world-book-notes]').addEventListener('input', function (event) {
             persistNotes(event.currentTarget.value);
-            ns.offline?.updateNotesMeta?.(overlay, event.currentTarget.value);
+            ns.offline?.updateNotesMeta?.(overlay, event.currentTarget.value); ns.notesNarration?.notifyChanged?.(event.currentTarget.value);
         });
         ns.offline?.bind?.(overlay, { onNotes: () => void setView('notes') });
         document.body.appendChild(overlay);

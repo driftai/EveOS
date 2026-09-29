@@ -52,6 +52,8 @@ def assert_static_contract() -> None:
     assert "world-book.offline.js" in html
     assert "world-book.offline.css" in html
     assert "world-book.overlay.js" in html
+    assert "world-book.narration.clips.js" in html
+    assert html.index("world-book.narration.clips.js") < html.index("world-book.narration.runtime.js")
     client = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.client.js").read_text(encoding="utf-8")
     assert "api/health" in client
     assert "standalone launcher" in client
@@ -82,12 +84,15 @@ def assert_static_contract() -> None:
     assert "data-world-book-notes-download" in overlay
     assert "data-world-book-notes-read" in overlay
     assert "notesNarration?.readAloud" in overlay
+    assert "notesNarration?.notifyChanged" in overlay
     assert "ensureNarrationTarget" not in overlay
     notes_narration = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.notes.narration.js").read_text(encoding="utf-8")
     read_aloud = notes_narration[notes_narration.index("async function readAloud"):notes_narration.index("ns.notesNarration")]
     assert "ns.client.start" not in read_aloud
     assert "primeAudio" in read_aloud and read_aloud.index("primeAudio") < read_aloud.index("await ")
     assert "local: true" in read_aloud
+    assert "setSourceProvider" in notes_narration
+    assert "notifyChanged" in notes_narration
     assert "data-world-book-needs-server" in overlay
     assert "targetView = 'notes'" in overlay
     assert "requestAnimationFrame" in overlay
@@ -121,6 +126,8 @@ def assert_static_contract() -> None:
     assert "transform: none !important" in offline_css
     assert ".notes-world-book-notes-view" in offline_css
     assert "padding: 10px clamp(14px, 2vw, 28px)" in offline_css
+    assert "grid-template-rows: auto minmax(min(220px, 45vh), 1fr)" in offline_css
+    assert "[data-world-book-notes]" in offline_css and "resize: vertical" in offline_css
 
     app_index = (tool / "app" / "index.html").read_text(encoding="utf-8")
     assert 'data-entry-section="metadata"' in app_index

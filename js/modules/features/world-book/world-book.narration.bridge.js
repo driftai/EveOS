@@ -4,6 +4,7 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
     'use strict';
 
     const SETTINGS_KEY = 'eveWorldBookNarrationSettings';
+    const BROWSER_TTS_VOICE_KEY = 'eveBrowserTtsVoice';
     const VOICE_ID = 'world-book-narration';
     const defaults = {
         enabled: true,
@@ -25,7 +26,10 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
     let activeReaderTarget = null;
     let activeMode = 'world-book';
     const pendingCommands = [];
-    const LOCAL_ACTIONS = new Set(['play', 'pause', 'stop', 'previous', 'next', 'seek-progress']);
+    const LOCAL_ACTIONS = new Set([
+        'play', 'pause', 'stop', 'previous', 'next', 'seek-progress',
+        'reload-source', 'regenerate-clip', 'set-clip-engine', 'set-clip-voice'
+    ]);
     const readyTargets = new WeakSet();
 
     function clamp(value, min, max, fallback) {
@@ -39,6 +43,8 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
             ...value,
             enabled: value.enabled !== false,
             engine: value.engine === 'gemini' ? 'gemini' : 'browser',
+            browserVoice: value.browserVoice !== undefined
+                ? String(value.browserVoice || '') : String(localStorage.getItem(BROWSER_TTS_VOICE_KEY) || ''),
             rate: clamp(value.rate, 0.5, 2, 1),
             pitch: clamp(value.pitch, 0, 2, 1),
             volume: clamp(value.volume, 0, 1, 1),
@@ -94,7 +100,17 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
 
     function saveSettings(patch) {
         const next = normalize({ ...settings(), ...(patch || {}) });
-        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)); } catch (_error) {}
+        try {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+            if (patch && Object.prototype.hasOwnProperty.call(patch, 'browserVoice')) {
+                localStorage.setItem(BROWSER_TTS_VOICE_KEY, next.browserVoice || '');
+            }
+        } catch (_error) {}
+        if (patch && Object.prototype.hasOwnProperty.call(patch, 'browserVoice')) {
+            window.dispatchEvent(new CustomEvent('eve:browser-tts-voice', {
+                detail: { voiceURI: next.browserVoice || '', source: 'world-book-narration' }
+            }));
+        }
         window.dispatchEvent(new CustomEvent('eve:world-book-narration-settings', { detail: next }));
         window.EveWorldBookNarrationRuntime?.configure?.(next);
         return next;
