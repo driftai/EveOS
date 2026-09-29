@@ -133,19 +133,6 @@ window.EveWorldBook = window.EveWorldBook || {};
         setOverlayStatus(`Reloading ${view === 'portal' ? 'World Portal' : 'World Book'}...`);
     }
 
-    async function ensureNarrationTarget(overlay) {
-        let snapshot = await ns.client.refresh();
-        if (!snapshot.running) snapshot = await ns.client.start();
-        renderStatus(snapshot);
-        if (!snapshot.running) {
-            throw new Error(snapshot.message || 'World Book Reader could not start.');
-        }
-        const frame = overlay?.querySelector('[data-world-book-frame]');
-        if (!frame) throw new Error('World Book Reader frame is unavailable.');
-        navigateFrame(frame, activeFrameUrl(snapshot, 'world'), false);
-        return snapshot;
-    }
-
     async function readNotesAloud(overlay) {
         const editor = overlay?.querySelector('[data-world-book-notes]');
         const button = overlay?.querySelector('[data-world-book-notes-read]');
@@ -157,13 +144,16 @@ window.EveWorldBook = window.EveWorldBook || {};
             return;
         }
 
+        // Prime WebAudio synchronously from the user's click before any network/generation await.
+        const runtime = window.EveWorldBookNarrationRuntime;
+        const primePromise = runtime?.primeAudio?.();
         const priorLabel = button?.textContent || 'Read aloud';
         if (button) {
             button.disabled = true;
             button.textContent = 'Connecting...';
         }
         try {
-            await ensureNarrationTarget(overlay);
+            if (!runtime?.ready) throw new Error('The EveOS Reader runtime is unavailable.');
             const bridge = window.EveWorldBookNarrationBridge;
             const accepted = bridge?.readSource?.({
                 id: 'eveos:scratchpad',
@@ -173,10 +163,17 @@ window.EveWorldBook = window.EveWorldBook || {};
                 locator: 'EveOS / Notes / Scratchpad'
             }, {
                 autoplay: true,
-                openCompanion: true
+                openCompanion: true,
+                local: true,
+                primePromise
             });
             if (!accepted) throw new Error('The Reader bridge is unavailable.');
-            if (meta) meta.textContent = 'Reader connected · using the current Scratchpad text';
+            const primed = await Promise.resolve(primePromise);
+            if (primed && primed.ok === false && meta) {
+                meta.textContent = 'Reader ready · Tap Play to enable audio';
+            } else if (meta) {
+                meta.textContent = 'Reader connected · using the current Scratchpad text';
+            }
         } catch (error) {
             if (meta) meta.textContent = `Reader unavailable · ${error?.message || String(error)}`;
         } finally {
@@ -331,7 +328,7 @@ window.EveWorldBook = window.EveWorldBook || {};
                     <div class="notes-world-book-actions">
                         <span class="notes-world-book-status-pill" data-world-book-status-pill data-state="checking">Checking</span>
                         <button type="button" data-world-book-server-toggle>Start World Book</button>
-                        <button type="button" data-world-book-reader-controls data-world-book-needs-server title="Open compact Reader controls">Reader controls</button>
+                        <button type="button" data-world-book-reader-controls title="Open compact Reader controls">Reader controls</button>
                         <button type="button" data-world-book-reload data-world-book-needs-server title="Reload the active World Book view">&#8635;</button>
                         <span class="notes-world-book-detach-state" data-world-book-detach-state data-state="attached">Attached</span>
                         <button type="button" class="notes-world-book-detach"
@@ -353,7 +350,7 @@ window.EveWorldBook = window.EveWorldBook || {};
                             <div><span>Scratchpad</span><small data-world-book-notes-meta>Offline-ready</small></div>
                             <div class="notes-world-book-notes-tools">
                                 <button type="button" data-world-book-notes-read
-                                    title="Read the current Scratchpad with the World Book Reader; Gemini Link is used when the Reader engine is Gemini">Read aloud</button>
+                                    title="Read the current Scratchpad with EveOS Reader; Gemini Link is used directly when the Reader engine is Gemini">Read aloud</button>
                                 <button type="button" data-world-book-notes-copy>Copy</button>
                                 <button type="button" data-world-book-notes-download>Download .txt</button>
                             </div>

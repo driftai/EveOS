@@ -82,7 +82,11 @@ def assert_static_contract() -> None:
     assert "data-world-book-notes-download" in overlay
     assert "data-world-book-notes-read" in overlay
     assert "readNotesAloud" in overlay
-    assert "ensureNarrationTarget" in overlay
+    assert "ensureNarrationTarget" not in overlay
+    read_aloud = overlay[overlay.index("async function readNotesAloud"):overlay.index("function renderDetachState")]
+    assert "ns.client.start" not in read_aloud
+    assert "primeAudio" in read_aloud and read_aloud.index("primeAudio") < read_aloud.index("await ")
+    assert "local: true" in read_aloud
     assert "data-world-book-needs-server" in overlay
     assert "targetView = 'notes'" in overlay
     assert "requestAnimationFrame" in overlay
@@ -93,6 +97,7 @@ def assert_static_contract() -> None:
     narration_bridge = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.narration.bridge.js").read_text(encoding="utf-8")
     narration_ui = (tool / "app" / "assets" / "js" / "narration" / "ui.js").read_text(encoding="utf-8")
     assert "readSource" in narration_bridge
+    assert "EveWorldBookNarrationRuntime" in narration_bridge
     assert "'load-source'" in narration_bridge
     assert 'data.action === "load-source"' in narration_ui
     assert "controller.load(data.data?.source || {})" in narration_ui

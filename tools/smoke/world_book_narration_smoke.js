@@ -23,6 +23,10 @@ const api = read('tools', 'World-Book', 'app', 'assets', 'js', 'api.js');
 const ui = read('tools', 'World-Book', 'app', 'assets', 'js', 'narration', 'ui.js');
 const bridge = read('js', 'modules', 'features', 'world-book', 'world-book.narration.bridge.js');
 const companion = read('js', 'modules', 'features', 'world-book', 'world-book.narration.companion.js');
+const localAudio = read('js', 'modules', 'features', 'world-book', 'world-book.narration.audio.js');
+const localCache = read('js', 'modules', 'features', 'world-book', 'world-book.narration.cache.js');
+const localGemini = read('js', 'modules', 'features', 'world-book', 'world-book.narration.gemini.js');
+const localRuntime = read('js', 'modules', 'features', 'world-book', 'world-book.narration.runtime.js');
 const eveHtml = read('EveOS.html');
 const overlaySource = read('js', 'modules', 'features', 'world-book', 'world-book.overlay.js');
 const manager = read('js', 'modules', 'gemini', 'html_loaders', 'agentic', 'narration',
@@ -74,6 +78,15 @@ expect(api.includes('/api/narration/document/download') && ui.includes('readerDo
     'reader library cannot recover imported source files');
 expect(gemini.includes('ws://127.0.0.1:9085') && gemini.includes('world_book_narration'),
     'World Book narration is not using the canonical isolated Gemini lane');
+expect(localGemini.includes("ws://127.0.0.1:9085") && localGemini.includes("sessionRole: 'world_book_narration'"),
+    'EveOS Notes narration does not share the canonical isolated Gemini lane');
+expect(localAudio.includes('beginStream') && localAudio.includes('trimPcm') && localAudio.includes("context.state === 'running'"),
+    'EveOS narration audio lacks streaming, silence trimming, or running-context checks');
+expect(localCache.includes("const DB_NAME = 'eve-world-book-narration'") && localCache.includes('cacheMb') && localCache.includes('cacheDays'),
+    'EveOS narration cache does not preserve the World Book cache policy');
+expect(localRuntime.includes('primeAudio') && localRuntime.includes("state.status = 'blocked'")
+    && localRuntime.includes("Gemini unavailable - using browser speech."),
+    'EveOS narration runtime lacks user-activation gating or browser fallback');
 expect(gemini.includes('outputTranscriptionEnabled: true') && gemini.includes('spokenText')
     && gemini.includes('startRatio') && gemini.includes('session_ready'),
     'Gemini narration lacks transcript capture, model provenance, or offset playback');
@@ -92,6 +105,9 @@ expect(bridge.includes('pendingCommands') && bridge.includes('readyTargets'),
     'World Book commands are not queued behind the iframe readiness handshake');
 expect(bridge.includes('activeReaderTarget') && bridge.includes('commandTargets()'),
     'Reader commands can reach multiple loaded World Book controllers');
+expect(bridge.includes("activeMode === 'local'") && bridge.includes("eve:world-book-narration-local-state")
+    && bridge.includes('options.local === true'),
+    'Reader companion commands are not routed to EveOS Notes narration while World Book is stopped');
 expect(companion.includes('documentPictureInPicture.requestWindow') && companion.includes('window.open(')
     && companion.includes('mountInline()'),
     'detached Reader controls lack Picture-in-Picture, popup, or in-page fallback coverage');

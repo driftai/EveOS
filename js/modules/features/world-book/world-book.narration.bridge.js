@@ -22,7 +22,9 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
     let pendingReaderOpen = false;
     let latestState = null;
     let activeReaderTarget = null;
+    let activeMode = 'world-book';
     const pendingCommands = [];
+    const LOCAL_ACTIONS = new Set(['play', 'pause', 'stop', 'previous', 'next', 'seek-progress']);
     const readyTargets = new WeakSet();
 
     function clamp(value, min, max, fallback) {
@@ -92,10 +94,19 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
         const next = normalize({ ...settings(), ...(patch || {}) });
         try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)); } catch (_error) {}
         window.dispatchEvent(new CustomEvent('eve:world-book-narration-settings', { detail: next }));
+        window.EveWorldBookNarrationRuntime?.configure?.(next);
         return next;
     }
 
     function broadcastCommand(action, options = {}) {
+        if (activeMode === 'local' && LOCAL_ACTIONS.has(action) && window.EveWorldBookNarrationRuntime?.ownsSource?.()) {
+            try {
+                window.EveWorldBookNarrationRuntime.command(action, options.data || null);
+                return 1;
+            } catch (_error) {
+                return 0;
+            }
+        }
         const message = {
             type: 'eve-world-book-narration-command',
             action,
@@ -165,7 +176,8 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
             passageRatio: 0,
             overallRatio: 0,
             passageDuration: 0,
-            engine: settings().engine
+            engine: settings().engine,
+            localRuntime: options.local === true
         };
         latestState = seed;
         broadcastSettings();
@@ -173,6 +185,15 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
         if (options.openCompanion !== false) {
             void window.EveWorldBookNarrationCompanion?.open?.(seed);
         }
+        if (options.local === true) {
+            const local = window.EveWorldBookNarrationRuntime;
+            if (!local?.load || !local?.play) return false;
+            activeMode = 'local';
+            local.load(normalizedSource);
+            if (options.autoplay === true) local.play({ primePromise: options.primePromise || null });
+            return true;
+        }
+        activeMode = 'world-book';
         broadcastCommand('load-source', {
             data: {
                 source: normalizedSource,
@@ -214,6 +235,7 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
         } else if (data.type === 'eve-world-book-narration-stop') {
             void window.EveAudioflixNative?.clearVoices?.(VOICE_ID);
         } else if (data.type === 'eve-world-book-narration-state') {
+            activeMode = 'world-book';
             activeReaderTarget = event.source;
             latestState = data.detail && typeof data.detail === 'object' ? data.detail : null;
             window.EveWorldBookNarrationCompanion?.update?.(latestState);
@@ -227,6 +249,13 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
     });
 
     window.addEventListener('eve:world-book-narration-settings', broadcastSettings);
+    window.addEventListener('eve:world-book-narration-local-state', event => {
+        activeMode = 'local';
+        latestState = event.detail && typeof event.detail === 'object' ? event.detail : null;
+        window.EveWorldBookNarrationCompanion?.update?.(latestState);
+        window.dispatchEvent(new CustomEvent('eve:world-book-narration-state', { detail: latestState }));
+        window.dispatchEvent(new CustomEvent('eve:audioflix-reader-state', { detail: latestState }));
+    });
     window.addEventListener('eve:world-book-frame-loading', event => {
         const target = event.detail?.target;
         if (target) {
