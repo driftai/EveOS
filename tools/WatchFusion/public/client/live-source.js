@@ -70,6 +70,13 @@
     const result = await post(`/api/live/${source.streamId}/room`, { ...saved, roomId, title: source.title, mode: source.mode });
     state = result.state; render();
   }
+  async function stopOwned(id) {
+    const saved = owner(id);
+    if (!id || !saved) return;
+    await post(`/api/live/${id}/stop`, saved).catch(() => {});
+    owners.delete(id);
+    try { localStorage.removeItem(ownerKey(id)); } catch {}
+  }
   function askAudioflix(config) {
     return new Promise((resolve, reject) => {
       const target = window.parent !== window ? window.parent : window.opener;
@@ -97,12 +104,14 @@
     if (busy || (roomId && !isHost())) return setStatus('Only the host can select the room source.');
     busy = true;
     let created;
+    const previousId = state?.source?.kind === 'live' ? state.source.streamId : '';
     try {
       created = await post('/api/live', {}); owners.set(created.id, created);
       try { localStorage.setItem(ownerKey(created.id), JSON.stringify(created)); } catch {}
       const source = { kind: 'live', streamId: created.id, viewerToken: created.viewerToken, title: mode === 'audioflix' ? 'Audioflix · Music Library' : 'Linked tab', mode };
       if (mode === 'audioflix') await askAudioflix({ base: location.origin, id: created.id, token: created.publisherToken });
       if (roomId) await share(source); else applySoloSource(source);
+      if (previousId && previousId !== created.id) await stopOwned(previousId);
       if (mode === 'tab') {
         const pairing = new URL(location.origin); pairing.hash = `live=${created.id}.${created.publisherToken}`;
         $('livePairLink').value = pairing.href; $('livePairHelp').hidden = false;
@@ -119,7 +128,7 @@
   $('liveListen').onclick = async () => { const video = $('liveVideo'); video.muted = !video.muted; try { await video.play(); $('liveListen').textContent = video.muted ? 'Listen here' : 'Mute here'; } catch { status('Browser blocked playback. Try Listen here again.'); } };
   $('liveRetry').onclick = () => { const source = state?.source; if (source?.kind === 'live') { receiver?.stop(); receiver = null; load(source); } };
   $('liveStop').onclick = async () => {
-    try { await post(`/api/live/${currentId}/stop`, owner(currentId)); owners.delete(currentId); localStorage.removeItem(ownerKey(currentId)); disconnect(); $('livePairHelp').hidden = true; setStatus('Live source stopped'); }
+    try { await stopOwned(currentId); disconnect(); $('livePairHelp').hidden = true; setStatus('Live source stopped'); }
     catch (error) { status(error.message); }
   };
   $('liveControls').addEventListener('click', event => { const button = event.target.closest('[data-live-action]'); if (button && canControl()) receiver?.control(button.dataset.liveAction, Number(button.dataset.value)); });

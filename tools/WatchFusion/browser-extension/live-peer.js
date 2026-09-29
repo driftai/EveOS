@@ -13,7 +13,14 @@
       const url = new URL('/live-ws', this.options.base); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
       const socket = new WebSocket(url); this.socket = socket;
       socket.onopen = () => { this.retry = 0; this.send({ type: 'join', id: this.options.id, token: this.options.token, role: this.options.stream ? 'publisher' : 'viewer', roomId: this.options.roomId, memberId: this.options.memberId }); };
-      socket.onmessage = event => this.receive(JSON.parse(event.data)).catch(error => this.status(error.message));
+      socket.onmessage = event => {
+        try {
+          this.receive(JSON.parse(event.data)).catch(error => this.status(error.message));
+        } catch {
+          this.status('The live connection sent an invalid response. Reconnecting…');
+          socket.close(4002, 'invalid response');
+        }
+      };
       socket.onerror = () => this.status('Live connection unavailable');
       socket.onclose = event => {
         this.clearPeers();
@@ -60,7 +67,10 @@
       peer.ontrack = event => { const stream = event.streams[0]; if (stream) this.options.onStream?.(stream); };
       peer.onconnectionstatechange = () => {
         if (peer.connectionState === 'connected') { clearTimeout(peer.deadline); this.status('Live · connected'); }
-        if (peer.connectionState === 'failed') this.status('Live media could not connect. Retry; remote networks may need a TURN relay.');
+        if (peer.connectionState === 'failed') {
+          this.status('Live media lost its route. Reconnecting…');
+          if (!this.options.stream && this.socket?.readyState === 1) this.socket.close(4001, 'peer retry');
+        }
       };
       peer.deadline = setTimeout(() => { if (peer.connectionState !== 'connected') this.status('Live media is waiting for a network route. Retry on the same LAN or configure a TURN relay.'); }, 15000);
       return peer;

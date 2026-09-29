@@ -1,9 +1,10 @@
-let capture, peer, output, timer, rect, sampledAt = 0, lastMetadata = {};
+let capture, broadcast, peer, output, timer, rect, sampledAt = 0, lastMetadata = {};
 const video = document.getElementById('source'), canvas = document.getElementById('crop');
 const paint = canvas.getContext('2d', { alpha: false });
 function stop() {
   clearInterval(timer); timer = null; peer?.stop(); peer = null;
   capture?.getTracks().forEach(track => track.stop()); capture = null;
+  broadcast?.getVideoTracks().forEach(track => track.stop()); broadcast = null;
   video.srcObject = null; output?.close().catch(() => {}); output = null;
   rect = null; paint.fillStyle = '#080c12'; paint.fillRect(0, 0, canvas.width, canvas.height);
 }
@@ -31,9 +32,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       video.srcObject = capture; await video.play();
       // tabCapture silences the source's local output. Restore it once, here.
       output = new AudioContext(); output.createMediaStreamSource(capture).connect(output.destination); await output.resume();
-      const stream = new MediaStream([...canvas.captureStream(30).getVideoTracks(), ...capture.getAudioTracks()]);
+      broadcast = new MediaStream([...canvas.captureStream(30).getVideoTracks(), ...capture.getAudioTracks()]);
       timer = setInterval(draw, 33);
-      peer = new WatchFusionLivePeer({ base: message.base, id: message.id, token: message.token, stream,
+      peer = new WatchFusionLivePeer({ base: message.base, id: message.id, token: message.token, stream: broadcast,
         onReady: () => peer.metadata(lastMetadata),
         onControl: (action, value) => chrome.runtime.sendMessage({ to: 'worker', type: 'control', action, value }).catch(() => {}),
         onStatus: status => { if (/stopped|expired|denied|replaced/i.test(status)) stop(); }
