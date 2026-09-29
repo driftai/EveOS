@@ -291,7 +291,6 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await hostContext.close();
     await viewerContext.close();
   });
-
   test('Regression: Client does not issue periodic 5-second forced seeks', async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -389,7 +388,6 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await expect(page.locator('#hostBadge')).toHaveText('YOU ARE HOST');
     await expect(page.locator('#members .member')).toHaveCount(1);
   });
-
 
   test('Host unloads media for every room tab without deleting the room', async ({ browser }) => {
     const hostContext = await browser.newContext();
