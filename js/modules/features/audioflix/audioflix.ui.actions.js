@@ -66,6 +66,20 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 }
                 return;
             }
+            if (action === 'clear-ungrouped') {
+                const clearType = type === 'music' ? 'music' : 'sound', key = clearType === 'music' ? 'music' : 'soundboard';
+                const targets = (ctx.state()[key] || []).filter((entry) => !String(clearType === 'music' ? (entry.folder || entry.card) : entry.category || '').trim());
+                if (!targets.length) { ctx.playbackStatus = 'Ungrouped is already clear.'; ctx.rerender(); return; }
+                const ids = new Set(targets.map((entry) => entry.id));
+                ctx.invalidateQueueRun?.();
+                if (clearType === 'music' && ctx.activeMusicQueue?.items?.length) {
+                    const kept = ctx.activeMusicQueue.items.filter((entryId) => !ids.has(entryId));
+                    ctx.activeMusicQueue = { ...ctx.activeMusicQueue, items: kept, currentIndex: kept.length ? 0 : -1, isPlaying: false };
+                }
+                for (const entry of targets) { ctx.stopRepeater(entry.id); await stopItemPlayback(entry.id); window.EveAudioflixState?.removeItem?.(clearType, entry.id); }
+                ctx.playbackStatus = `Cleared ${targets.length} ungrouped ${clearType === 'music' ? 'track' : 'sound'}${targets.length === 1 ? '' : 's'}.`;
+                window.EveAudioflixAudio?.syncQueueView?.(); ctx.rerender(); return;
+            }
             if (action === 'delete-item') { if (item) { ctx.deleteConfirmId = id; ctx.rerenderModal(); } return; }
             if (action === 'cancel-delete-item') { ctx.deleteConfirmId = ''; ctx.rerenderModal(); return; }
             if (action === 'confirm-delete-item') { await deleteStoredItem(item, type, id); ctx.deleteConfirmId = ''; return; }
