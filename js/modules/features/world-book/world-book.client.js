@@ -155,6 +155,11 @@ window.EveWorldBook = window.EveWorldBook || {};
         const controllerPromise = findController();
         const direct = await findDirectServer();
         if (direct) {
+            const quickController = await Promise.race([
+                controllerPromise,
+                new Promise((resolve) => window.setTimeout(() => resolve(null), 60))
+            ]);
+            if (quickController) return mergeManagedDirect(quickController, direct);
             const immediate = applyDirectStatus(direct);
             void controllerPromise.then(function (found) {
                 if (found) mergeManagedDirect(found, direct);
