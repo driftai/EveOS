@@ -33,6 +33,8 @@ function render() {
   const inRoom=!!roomId&&!!session;
   document.documentElement.classList.toggle('watchfusion-room-active',inRoom);
   const source=state.source||{};
+  const isLive=source.kind==='live';
+  if(!isLive)window.watchFusionLive?.disconnect?.();
   const isNuvio=source.kind==='nuvio';
   const isVoxelVision=source.kind==='voxelvision';
   const isYoutube=source.kind==='youtube'||!!source.videoId;
@@ -53,17 +55,17 @@ function render() {
   if($('hostBadge'))$('hostBadge').textContent=isHost()?(state.temporaryHost?'TEMP HOST':'YOU ARE HOST'):(state.temporaryHost?'TEMP HOST ACTIVE':'');
   if($('leaveRoomBtn'))$('leaveRoomBtn').hidden=!inRoom;
   if($('deleteRoomBtn'))$('deleteRoomBtn').hidden=!isHost();
-  if($('syncBtn'))$('syncBtn').hidden=!inRoom||isNuvio||isVoxelVision;
+  if($('syncBtn'))$('syncBtn').hidden=!inRoom||isNuvio||isVoxelVision||isLive;
   if($('copyBtn'))$('copyBtn').hidden=!inRoom;
   if(playerHost)playerHost.classList.toggle('nuvio-active',isNuvio);
   if(playerHost)playerHost.classList.toggle('voxelvision-active',isVoxelVision);
-  const hasActiveMedia=isNuvio||isVoxelVision||isYoutube||source.kind==='media';
+  const hasActiveMedia=isLive||isNuvio||isVoxelVision||isYoutube||source.kind==='media';
   if($('mediaStage'))$('mediaStage').classList.toggle('media-stage-empty',!hasActiveMedia);
   if(nuvioFrame){nuvioFrame.hidden=!isNuvio;nuvioFrame.style.display=isNuvio?'block':'none';}
   if(nuvioToolbar)nuvioToolbar.hidden=!isNuvio;
   if(voxelVisionFrame){voxelVisionFrame.hidden=!isVoxelVision;voxelVisionFrame.style.display=isVoxelVision?'block':'none';}
   if(voxelVisionToolbar)voxelVisionToolbar.hidden=!isVoxelVision;
-  const ytFrame=$('player');if(ytFrame){const hiddenByTool=isNuvio||isVoxelVision;ytFrame.hidden=hiddenByTool;ytFrame.style.display=hiddenByTool?'none':'block';}
+  const ytFrame=$('player');if(ytFrame){const hiddenByTool=isLive||isNuvio||isVoxelVision;ytFrame.hidden=hiddenByTool;ytFrame.style.display=hiddenByTool?'none':'block';}
   document.querySelectorAll('.source-tab').forEach(tab=>{
     const active=(isNuvio&&tab.id==='shortcutNuvioBtn')||(isVoxelVision&&tab.id==='shortcutVoxelVisionBtn')||(!isNuvio&&!isVoxelVision&&tab.id==='resolveTabBtn');
     tab.classList.toggle('active',active);
@@ -80,7 +82,7 @@ function render() {
     else $('sourceInput').value=source.originalUrl||(source.videoId?`https://www.youtube.com/watch?v=${source.videoId}`:'');
     updateSourceInputButton?.();
   }
-  $('sourceModeLabel').textContent=isNuvio?'Nuvio':(isVoxelVision?'VoxelVision':(isYoutube?'YouTube':(source.kind==='media'?'External media':'Ready')));
+  $('sourceModeLabel').textContent=isLive?'Live media':isNuvio?'Nuvio':(isVoxelVision?'VoxelVision':(isYoutube?'YouTube':(source.kind==='media'?'External media':'Ready')));
   const mediaMeta=$('mediaMeta');
   if(mediaMeta){
     if(isNuvio)mediaMeta.textContent=source.title||'Nuvio Integration';
@@ -89,6 +91,6 @@ function render() {
     else mediaMeta.textContent='';
   }
 
-  if((source.kind==='media'||source.kind==='nuvio'||source.kind==='voxelvision')&&window.watchPartyProviders){const provider=window.watchPartyProviders.find(source);provider?.load?.(source)?.catch?.(error=>setStatus(error?.message||'Media player failed to initialize.'));}
+  if((source.kind==='live'||source.kind==='media'||source.kind==='nuvio'||source.kind==='voxelvision')&&window.watchPartyProviders){const provider=window.watchPartyProviders.find(source);provider?.load?.(source)?.catch?.(error=>setStatus(error?.message||'Media player failed to initialize.'));}
   else if(source.videoId){window.mediaPlayback?.clear?.();ensurePlayer(source.videoId);}
 }

@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/theme.css">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/setup.css">
+  <link rel="stylesheet" href="/live-source.css">
 </head>
 <body>
   <header class="topbar" id="watchfusionHeader">
@@ -82,6 +83,7 @@
 
             <div id="mediaStage" class="player-wrap media-stage-empty">
               <div class="player" id="playerHost">
+                <video id="liveVideo" autoplay playsinline muted hidden></video>
                 <div id="player"></div>
                 <iframe id="nuvioFrame" class="nuvio-frame" title="Nuvio" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; web-share" allowfullscreen hidden></iframe>
                 <iframe id="voxelVisionFrame" class="voxelvision-frame" title="VoxelVision" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen hidden></iframe>
@@ -104,6 +106,13 @@
               </div>
             </div>
 
+            <section id="liveControls" class="live-controls" hidden aria-label="Live media controls">
+              <header><strong id="liveTitle">Live media</strong><span id="liveGroup"></span><button id="liveListen" class="secondary">Listen here</button><button id="liveRetry" class="secondary">Reconnect</button><button id="liveStop" class="secondary">Stop link</button></header>
+              <div id="liveStatus" role="status" aria-live="polite">Waiting for source…</div>
+              <div class="live-transport"><button data-live-action="prev">Previous</button><button id="liveToggle" data-live-action="toggle">Play</button><button data-live-action="next">Next</button><output id="liveTime">0:00 / 0:00</output><input id="liveSeek" type="range" min="0" max="0" step=".1" aria-label="Source playback position"><label>Speed<select id="liveRate"><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option></select></label><label>Volume<input id="liveVolume" type="range" min="0" max="1" step=".01"></label></div>
+              <div id="liveQueueTools" class="live-queue-tools" hidden><button id="liveShuffle" data-live-action="shuffle" aria-pressed="false">Shuffle</button><button id="liveLoop" data-live-action="loop" aria-pressed="false">Loop</button></div>
+              <details id="liveQueueWrap" hidden open><summary>Music Library queue</summary><ol id="liveQueue"></ol></details>
+            </section>
             <div id="findMediaPanel" class="find-media-panel" hidden>
               <div class="find-media-title">
                 <div>
@@ -112,6 +121,8 @@
                 </div>
                 <button id="closeFindMediaBtn" class="secondary" type="button">Close</button>
               </div>
+              <div class="live-source-options"><button id="linkTabBtn" class="secondary">Link a playing tab</button><button id="linkAudioflixBtn" class="secondary">Connect Audioflix</button></div>
+              <div id="livePairHelp" class="live-pair-help" hidden><strong>Link the source tab</strong><p>Copy this private pairing link. On the tab playing your video, click the WatchFusion Media Link companion, paste the link, and choose Connect. The site's playlist keeps running.</p><input id="livePairLink" readonly aria-label="Private source pairing link"><button id="liveCopyPair" class="secondary">Copy pairing link</button><p>First time? <a href="/live-help.html" target="_blank" rel="noopener">Set up the companion</a>. Share the room link with viewers, not this pairing link.</p></div>
               <div class="source-row find-media-row">
                 <input id="sourceInput" placeholder="YouTube URL, direct .mp4/.webm/.m3u8, or watch-page URL">
                 <button id="loadBtn">Find / Load</button>
@@ -158,6 +169,7 @@
       </div>
     </section>
   </main>
+  <script src="/live-peer.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

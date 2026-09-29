@@ -70,6 +70,7 @@ export function attachRealtime(server) {
   server.on('upgrade', (request, socket, head) => {
     try {
       const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
+      if (url.pathname === '/live-ws') return;
       if (url.pathname !== '/ws') return socket.destroy();
       wss.handleUpgrade(request, socket, head, ws => wss.emit('connection', ws, request));
     } catch { socket.destroy(); }

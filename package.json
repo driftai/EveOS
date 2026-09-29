@@ -141,7 +141,8 @@
     "smoke:api-live-provider-matrix": "node tools/smoke/api_provider_matrix_live_smoke.js",
     "smoke:autotitle-live-browser": "node tools/smoke/autotitle_browser_html_smoke.js",
     "smoke:live-public-contracts": "npm run --silent smoke:api-live-provider-acceptance && npm run --silent smoke:api-live-provider-matrix && npm run --silent smoke:autotitle-live-browser",
-    "smoke:camofox-local-installer": "python tools/camofox-runtime/fetch_browser.py --self-test && node --check tools/camofox-runtime/scripts/doctor.cjs && node tools/smoke/camofox_installer_preservation_smoke.js"
+    "smoke:camofox-local-installer": "python tools/camofox-runtime/fetch_browser.py --self-test && node --check tools/camofox-runtime/scripts/doctor.cjs && node tools/smoke/camofox_installer_preservation_smoke.js",
+    "smoke:watchfusion-live": "node tools/WatchFusion/tests/smoke/node/live.smoke.js"
   },
   "engines": {
     "node": ">=20"

@@ -47,6 +47,8 @@ export async function sendFile(req, res) {
   let pathname;
   try { pathname = decodeURIComponent(requestUrl.pathname); } catch { return json(res, 400, { error: 'bad path' }); }
 
+  if (pathname === '/live-peer.js') return sendLocalDependency(res, path.join(PROJECT_ROOT, 'browser-extension', 'live-peer.js'), 'text/javascript; charset=utf-8');
+
   if (pathname === '/vendor/hls.js') {
     return sendLocalDependency(res, path.join(PROJECT_ROOT, 'node_modules', 'hls.js', 'dist', 'hls.min.js'), 'text/javascript; charset=utf-8');
   }
@@ -79,6 +81,7 @@ export async function sendFile(req, res) {
       'client/eveos-nuvio-auth-continuity.js',
       'client/eveos-embed-bridge.js',
       'client/bootstrap.js',
+      'client/live-source.js',
       'client/watchfusion-host-input-fix.js',
       'playback-sync.js'
     ];

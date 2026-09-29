@@ -169,6 +169,22 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
             return ctx.sampleRate;
         }
 
+        // A separate stream tap leaves speakers, waveform, and native PCM ownership intact.
+        async function createLiveTap() {
+            const ctx = safeGraph();
+            if (!ctx || !analyser) throw new Error('Audioflix audio capture is unavailable.');
+            await ctx.resume();
+            const destination = ctx.createMediaStreamDestination();
+            analyser.connect(destination);
+            let released = false;
+            return { stream: destination.stream, release() {
+                if (released) return;
+                released = true;
+                try { analyser.disconnect(destination); } catch {}
+                destination.stream.getTracks().forEach(track => track.stop());
+            } };
+        }
+
         function fitCanvas() {
             if (!canvas) return;
             const rect = canvas.getBoundingClientRect();
@@ -314,7 +330,7 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
             attachPlayer(player);
         }
 
-        return { attach, attachPlayer, playBufferWaveform, start, stop, getContext: ensureGraph, ensureGraph, setSpeakerMuted, setFrameTap };
+        return { attach, attachPlayer, playBufferWaveform, start, stop, getContext: ensureGraph, ensureGraph, setSpeakerMuted, setFrameTap, createLiveTap, getActivePlayer: () => activePlayer || ensureAudio() };
     }
 
     Object.assign(ns, { ready: true, createController });

@@ -19,6 +19,7 @@ import { handleRoomRoute } from './src/server/room-routes.js';
 import { sendFile } from './src/server/static-files.js';
 import { handleSystemRoute } from './src/server/system-routes.js';
 import { handleSetupRoute } from './src/server/setup-routes.js';
+import { attachLiveStreams, handleLiveRoute } from './src/server/live-streams.js';
 import { attachRealtime } from './src/server/realtime.js';
 
 function shouldRedirectToCanonicalHost(req, url) {
@@ -56,6 +57,7 @@ export function createServer() {
         return res.end();
       }
 
+      if (await handleLiveRoute(req, res, parts) !== false) return;
       if (handleSystemRoute(req, res, parts)) return;
       if (await handleSetupRoute(req, res, parts) !== false) return;
       if (await handleMediaRoute(req, res, parts) !== false) return;
@@ -81,6 +83,7 @@ export function createServer() {
     }
   });
 
+  attachLiveStreams(server);
   attachRealtime(server);
   setInterval(pruneRooms, 10000).unref();
   return server;

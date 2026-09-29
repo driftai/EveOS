@@ -433,5 +433,6 @@ window.EveAudioflix = window.EveAudioflix || {};
         if (window.__eveAudioflixOpenPending) { window.__eveAudioflixOpenPending = false; open(); }
     });
     window.addEventListener('beforeunload', () => { window.EveAudioflixNative?.clearHotkeys?.().catch(() => {}); });
+    ns.queueConnection = { snapshot: () => ({ groupName: activeMusicQueue.groupName, currentIndex: activeMusicQueue.currentIndex, shuffle: activeMusicQueue.shuffle, loop: activeMusicQueue.loop, entries: activeMusicQueue.items.map((id, index) => ({ id, title: queueTrackAt(index)?.title || 'Untitled' })) }), step: delta => playQueueIndex(activeMusicQueue.currentIndex + delta), jump: index => playQueueIndex(index), action: action => ['shuffle-music-group', 'loop-music-group'].includes(action) ? handleAction({ dataset: { afAction: action } }, {}) : false };
     Object.assign(ns, { ready: true, open, openNexus, close, render: rerender, probeMissingDurations });
 })();

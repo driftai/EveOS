@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { runLiveSmokes } from './node/live.smoke.js';
 import { runFastSmoke } from './node/fast.smoke.js';
 import { runNodeSmokes } from './node/server.smoke.js';
 import { runPlaybackStateSmokes } from './node/playback-state.smoke.js';
@@ -36,6 +37,7 @@ const FINGERPRINT_INPUTS = [
   'server.js',
   'nuvio/.gitkeep',
   'public',
+  'browser-extension',
   'scripts',
   'src',
   'tests',
@@ -149,6 +151,7 @@ async function main() {
     results.push(...await runSourceTabSmokes());
   }
 
+  if (node || security) results.push(...await runLiveSmokes());
   if (security) results.push(...await runSecuritySmokes());
 
   if (integration) {
