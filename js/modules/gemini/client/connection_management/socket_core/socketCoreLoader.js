@@ -9,7 +9,7 @@ console.log("socketCoreLoader.js loading...");
 const SOCKET_CORE_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/client/connection_management/socket_core';
 
 const socketCoreScripts = [
-    `${SOCKET_CORE_BASE_PATH}/geminiApiFailure.js?v=3a84186b5ef6`,
+    `${SOCKET_CORE_BASE_PATH}/geminiApiFailure.js?v=d5949aeaf49e`,
     `${SOCKET_CORE_BASE_PATH}/socketGlobalState.js?v=7e59a7999ff8`, // Load Global State before handlers
     `${SOCKET_CORE_BASE_PATH}/scc/eh/errorEventHandler.js?v=f4ce7d6151a4`,
     `${SOCKET_CORE_BASE_PATH}/scc/eh/openEventHandler.js?v=2745fa72a01d`,

@@ -49,7 +49,7 @@ const masterScriptList = [
     `${BASE_PATHS.CLIENT_CORE}/connection_management/geminiInstructionState.js?v=783e71af7bc3`,
     `${BASE_PATHS.CLIENT_CORE}/connection_management/geminiSessionResumption.js?v=14014db741b6`,
     `${BASE_PATHS.CLIENT_CORE}/connection_management/autoSetupHandler.js?v=54e76c719a48`,
-    `${BASE_PATHS.CLIENT_CORE}/connection_management/socket_core/socketCoreLoader.js?v=22d374b2839c`,
+    `${BASE_PATHS.CLIENT_CORE}/connection_management/socket_core/socketCoreLoader.js?v=a5f5a8755fec`,
     `${BASE_PATHS.CLIENT_CORE}/connection_management/waitForConnection.js?v=78e959ad2d9b`,
 
     // 2. Agentic Functions

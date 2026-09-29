@@ -42,6 +42,13 @@
         });
     }
 
+    function originatingIp(detail) {
+        const match = String(detail || '').match(/originating ip address(?: of the call)?\s*\(([^)]+)\)/i);
+        if (!match) return '';
+        const candidate = match[1].trim();
+        return /^[0-9a-f:.]+$/i.test(candidate) ? candidate : '';
+    }
+
     function classify(value) {
         const detail = extractText(value);
 
@@ -64,12 +71,15 @@
             });
         }
         if (/(ip address restriction|originating ip address|ip allowlist|api_key_ip_address_blocked)/i.test(detail)) {
+            const callerIp = originatingIp(detail);
             return result('ip-restriction', {
                 credential: true,
                 policyBlocked: true,
                 retryable: false,
                 status: 'API Key IP Mismatch',
-                message: 'Google rejected this key because its IP allowlist does not include the current public network. Update the allowed IPs or save a new Google AI Studio auth key.',
+                message: callerIp
+                    ? `Google saw Gemini Link leave from ${callerIp}, which is not on this key's IP allowlist. Add that public IP or save a compatible Google AI Studio auth key, then click the connection status to retry.`
+                    : 'Google rejected this key because its IP allowlist does not include the backend public address. Restart Gemini Link to apply direct IPv4 routing, update the allowed IPs if needed, then click the connection status to retry.',
                 detail
             });
         }

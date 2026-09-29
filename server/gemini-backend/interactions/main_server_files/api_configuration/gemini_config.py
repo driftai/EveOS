@@ -1,3 +1,4 @@
+import inspect
 import json
 import os
 import socket
@@ -86,26 +87,48 @@ def _env_enabled(name, default=True):
 
 
 def _gemini_http_options(api_version):
-    """Build google-genai HTTP options with the same IPv4 policy as Live.
+    """Build deterministic google-genai HTTP options.
 
     API-key IP restrictions apply to GenerateContent as well as Live. Binding
     HTTPX transports to the IPv4 wildcard keeps Text Brain, transcription, and
     other HTTP model calls on IPv4 without changing the API key allowlist.
-    Supplying an async transport also keeps google-genai on its HTTPX path, where
-    the local bind address is explicit and deterministic.
+    The SDK enables ``trust_env`` by default, which can silently route only the
+    HTTP calls through an inherited/system proxy. Direct egress keeps every
+    Gemini HTTP call on the same public route as the Live WebSocket.
     """
     options = {
         "api_version": api_version,
         "timeout": TimeoutConfig.CLIENT_TIMEOUT_MS,
     }
+    sync_args = {}
+    async_args = {}
     if _env_enabled("EVEOS_GEMINI_FORCE_IPV4", True):
-        options["client_args"] = {
-            "transport": httpx.HTTPTransport(local_address="0.0.0.0"),
-        }
-        options["async_client_args"] = {
-            "transport": httpx.AsyncHTTPTransport(local_address="0.0.0.0"),
-        }
+        sync_args["transport"] = httpx.HTTPTransport(local_address="0.0.0.0")
+        async_args["transport"] = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+    if _env_enabled("EVEOS_GEMINI_DIRECT_EGRESS", True):
+        sync_args["trust_env"] = False
+        async_args["trust_env"] = False
+    if sync_args:
+        options["client_args"] = sync_args
+    if async_args:
+        options["async_client_args"] = async_args
     return options
+
+
+def _disable_automatic_websocket_proxy(connector, kwargs):
+    """Disable system proxy discovery when the installed connector supports it.
+
+    websockets 14.2 (the pinned EveOS version) connects directly and has no
+    ``proxy`` argument. Newer releases discover OS proxies automatically, so
+    detect that capability instead of passing an unsupported keyword today.
+    """
+    if not _env_enabled("EVEOS_GEMINI_DIRECT_EGRESS", True):
+        return
+    try:
+        if "proxy" in inspect.signature(connector).parameters:
+            kwargs.setdefault("proxy", None)
+    except (TypeError, ValueError):
+        pass
 
 
 def install_live_websocket_ipv4_patch():
@@ -129,6 +152,7 @@ def install_live_websocket_ipv4_patch():
 
             def eveos_ipv4_ws_connect(*args, **kwargs):
                 kwargs.setdefault("family", socket.AF_INET)
+                _disable_automatic_websocket_proxy(original_connect, kwargs)
                 return original_connect(*args, **kwargs)
 
             eveos_ipv4_ws_connect.__name__ = "eveos_ipv4_ws_connect"
@@ -140,6 +164,7 @@ def install_live_websocket_ipv4_patch():
 
             def eveos_ipv4_music_connect(*args, **kwargs):
                 kwargs.setdefault("family", socket.AF_INET)
+                _disable_automatic_websocket_proxy(original_music_connect, kwargs)
                 return original_music_connect(*args, **kwargs)
 
             eveos_ipv4_music_connect.__name__ = "eveos_ipv4_music_connect"
@@ -175,6 +200,8 @@ def create_gemini_client(api_key, api_version="v1beta"):
         print(f"[OK] Client configured successfully with {TimeoutConfig.CLIENT_TIMEOUT_SECONDS}s timeout")
         if force_ipv4:
             print("[OK] Gemini HTTP IPv4 routing enabled")
+        if _env_enabled("EVEOS_GEMINI_DIRECT_EGRESS", True):
+            print("[OK] Gemini direct egress enabled (environment proxies ignored)")
         print(f"[OK] Response timeout set to {TimeoutConfig.RESPONSE_TIMEOUT}s (extended to {TimeoutConfig.RESPONSE_TIMEOUT_EXTENDED}s for retries)")
         return client
     except Exception as e:

@@ -236,6 +236,11 @@ def start_server() -> dict:
         # crash while printing UTF-8 status text before either server binds.
         env["PYTHONUTF8"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
+        # Keep the public address seen by Google's IP-restricted API keys
+        # deterministic. Operators can still override either policy before
+        # launching EveOS when an explicit proxy or IPv6 route is required.
+        env.setdefault("EVEOS_GEMINI_FORCE_IPV4", "1")
+        env.setdefault("EVEOS_GEMINI_DIRECT_EGRESS", "1")
         saved_api_key = gemini_credentials.load_api_key()
         if saved_api_key:
             env["GOOGLE_API_KEY"] = saved_api_key

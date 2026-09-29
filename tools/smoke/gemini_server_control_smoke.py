@@ -56,7 +56,10 @@ def assert_backend_lifecycle_contract():
     interactions_root = ROOT / "server" / "gemini-backend" / "interactions"
     sys.path.insert(0, str(interactions_root))
 
-    from main_server_files.api_configuration.gemini_config import _gemini_http_options
+    from main_server_files.api_configuration.gemini_config import (
+        _disable_automatic_websocket_proxy,
+        _gemini_http_options,
+    )
     from main_server_files.port_management.port_handler import is_port_in_use
     from main_server_files.server_initialization.server_initializer import parse_server_port, validate_server_port
     from main_server_files.status_monitoring.status_handler import _websocket_ready, start_status_server
@@ -101,9 +104,14 @@ def assert_backend_lifecycle_contract():
 
     # Text Brain/transcription use normal HTTP model calls, so IPv4 routing must
     # cover both HTTPX clients as well as the separately patched Live WebSocket.
-    with mock.patch.dict(os.environ, {"EVEOS_GEMINI_FORCE_IPV4": "1"}):
+    with mock.patch.dict(
+        os.environ,
+        {"EVEOS_GEMINI_FORCE_IPV4": "1", "EVEOS_GEMINI_DIRECT_EGRESS": "1"},
+    ):
         http_options = _gemini_http_options("v1beta")
     assert http_options["api_version"] == "v1beta"
+    assert http_options["client_args"]["trust_env"] is False
+    assert http_options["async_client_args"]["trust_env"] is False
     sync_transport = http_options["client_args"]["transport"]
     async_transport = http_options["async_client_args"]["transport"]
     try:
@@ -112,6 +120,14 @@ def assert_backend_lifecycle_contract():
     finally:
         sync_transport.close()
         asyncio.run(async_transport.aclose())
+
+    def proxy_aware_connector(uri, *, proxy=True):
+        return uri, proxy
+
+    websocket_kwargs = {}
+    with mock.patch.dict(os.environ, {"EVEOS_GEMINI_DIRECT_EGRESS": "1"}):
+        _disable_automatic_websocket_proxy(proxy_aware_connector, websocket_kwargs)
+    assert websocket_kwargs["proxy"] is None
 
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     assert "httpx==0.28.1" in requirements
@@ -195,6 +211,8 @@ def assert_start_contract():
     assert command[0] == sys.executable
     assert environment["PYTHONUTF8"] == "1"
     assert environment["PYTHONIOENCODING"] == "utf-8"
+    assert environment["EVEOS_GEMINI_FORCE_IPV4"] == "1"
+    assert environment["EVEOS_GEMINI_DIRECT_EGRESS"] == "1"
     assert result["state"] == "starting"
 
 

@@ -171,7 +171,7 @@ async function main() {
     });
     await context.window.handleSocketMessage({
         data: JSON.stringify({
-            text: 'API error: the provided API key has an IP address restriction. The originating IP address is not allowed.',
+            text: 'API error: the provided API key has an IP address restriction. The originating IP address of the call (203.0.113.25) violates this restriction.',
             is_system_message: true,
             is_error: true,
         })
@@ -180,7 +180,7 @@ async function main() {
         || state.credentialStatusMessage !== 'API Key IP Mismatch') {
         throw new Error(`IP restriction was not classified precisely: ${JSON.stringify(state)}`);
     }
-    if (!messages.some((message) => /ip allowlist/i.test(message))) {
+    if (!messages.some((message) => /203\.0\.113\.25.*ip allowlist/i.test(message))) {
         throw new Error(`IP restriction guidance was not displayed: ${JSON.stringify(messages)}`);
     }
 
