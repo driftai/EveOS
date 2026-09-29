@@ -10,7 +10,7 @@ const COMPONENT_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/
 
 const pageInitScripts = [
     `${COMPONENT_BASE_PATH}/svgLifecycle.js?v=1e452628edcd`,
-    `${COMPONENT_BASE_PATH}/displayLoader.js?v=902487a18be8`,
+    `${COMPONENT_BASE_PATH}/displayLoader.js?v=201d5ae8bf1c`,
     `${COMPONENT_BASE_PATH}/connectivityStartup.js?v=f701e021de2c`,
     `${COMPONENT_BASE_PATH}/initializationCoordinator.js?v=607f60fce0b3`
 ];

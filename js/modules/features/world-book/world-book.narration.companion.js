@@ -182,8 +182,9 @@ window.EveWorldBookNarrationCompanion = window.EveWorldBookNarrationCompanion ||
         const play = activeRoot.querySelector('[data-reader-action="play"]');
         play.textContent = status === 'playing' ? 'Pause' : status === 'paused' ? 'Resume' : 'Play';
         const settings = bridge()?.settings?.() || {};
-        activeRoot.querySelector('[data-reader-route]').textContent = settings.routeToAudioflix
-            ? 'World Book -> Audioflix native output' : 'Local reader output';
+        activeRoot.querySelector('[data-reader-route]').textContent = state.output === 'native-default'
+            ? 'World Book -> Windows default output'
+            : settings.routeToAudioflix ? 'World Book -> Audioflix native output' : 'World Book -> browser output';
         activeRoot.querySelector('[data-reader-volume]').value = Number(settings.volume ?? 1);
         syncAudioflixSummary();
     }

@@ -13,6 +13,7 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
         volume: 1,
         strictVerbatim: true,
         backgroundPrefetch: true,
+        preferNativeOutput: true,
         routeToAudioflix: false,
         cacheMb: 192,
         cacheDays: 30
@@ -21,12 +22,12 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
     let state = emptyState();
     let runToken = 0;
     let pendingStartRatio = 0;
-    let browserUtterance = null;
-    let browserTimer = 0;
     let pausedFrom = '';
     const audio = () => window.EveWorldBookNarrationAudio;
     const cache = () => window.EveWorldBookNarrationCache;
     const gemini = () => window.EveWorldBookNarrationGemini;
+    const native = () => window.EveWorldBookNarrationNative;
+    const outputs = () => window.EveWorldBookNarrationOutputs;
     const clamp = value => Math.min(1, Math.max(0, Number(value) || 0));
     function emptyState() {
         return {
@@ -39,6 +40,7 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
             overallRatio: 0,
             passageDuration: 0,
             engine: '',
+            output: '',
             localRuntime: true,
             error: ''
         };
@@ -113,83 +115,51 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
     function primeAudio() {
         return audio()?.prime?.() || Promise.resolve({ ok: false, state: 'unavailable', error: 'Web Audio is unavailable.' });
     }
-    function browserVoices() {
-        return window.speechSynthesis?.getVoices?.() || [];
-    }
     function speakBrowser(text, config, token, startRatio) {
-        if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
-            return Promise.reject(new Error('Browser speech is unavailable in this browser.'));
-        }
-        const offset = Math.floor(text.length * clamp(startRatio));
-        const spoken = text.slice(offset);
-        if (!spoken.trim()) return Promise.resolve();
-        return new Promise((resolve, reject) => {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(spoken);
-            const selected = browserVoices().find(voice => voice.voiceURI === config.browserVoice);
-            if (selected) { utterance.voice = selected; utterance.lang = selected.lang; }
-            utterance.rate = Number(config.rate) || 1;
-            utterance.pitch = Number.isFinite(Number(config.pitch)) ? Number(config.pitch) : 1;
-            utterance.volume = Number.isFinite(Number(config.volume)) ? Number(config.volume) : 1;
-            const words = Math.max(1, spoken.trim().split(/\s+/).length);
-            const estimateMs = Math.max(500, words / (175 * Math.max(0.5, utterance.rate)) * 60000);
-            const startedAt = performance.now();
-            state.status = 'playing';
-            state.engine = 'browser';
-            emit();
-            window.clearInterval(browserTimer);
-            browserTimer = window.setInterval(() => {
-                if (token !== runToken || state.status !== 'playing') return;
-                const ratio = clamp(startRatio + ((performance.now() - startedAt) / estimateMs) * (1 - startRatio));
-                state.passageRatio = Math.min(0.98, ratio);
+        return outputs().browser(text, {
+            config,
+            startRatio,
+            isCancelled: () => token !== runToken,
+            onStart: () => {
+                state.status = 'playing';
+                state.engine = 'browser';
+                state.output = 'browser';
                 emit();
-            }, 180);
-            utterance.onboundary = event => {
+            },
+            onProgress: ratio => {
                 if (token !== runToken) return;
-                state.passageRatio = clamp((offset + Math.max(0, Number(event.charIndex) || 0)) / Math.max(1, text.length));
+                state.passageRatio = clamp(ratio);
                 emit();
-            };
-            utterance.onend = () => { browserUtterance = null; window.clearInterval(browserTimer); resolve(); };
-            utterance.onerror = event => {
-                browserUtterance = null;
-                window.clearInterval(browserTimer);
-                if (['canceled', 'interrupted'].includes(event.error)) resolve();
-                else reject(new Error('Browser narration failed: ' + (event.error || 'unknown error')));
-            };
-            browserUtterance = utterance;
-            window.speechSynthesis.speak(utterance);
+            }
         });
     }
-    async function playAudioflix(record, config, token, startRatio) {
-        const bytes = new Uint8Array(record.pcm || 0);
-        const start = Math.floor((bytes.byteLength / 2) * clamp(startRatio)) * 2;
-        const encoded = audio().bytesBase64(bytes.slice(start));
-        const ok = await window.EveAudioflixNative?.playVoice?.(encoded, {
-            sampleRate: record.sampleRate || audio().SAMPLE_RATE,
-            channels: 1,
-            volume: config.volume ?? 1,
-            voiceId: 'world-book-narration',
-            replace: true
-        });
-        if (token !== runToken) return;
-        if (ok !== true) throw new Error('Audioflix native routing is not active.');
+    async function playExternal(route, record, config, token, startRatio) {
         state.status = 'playing';
         state.engine = 'gemini';
-        state.passageDuration = Number(record.durationSec) || 0;
+        state.output = route === 'audioflix' ? 'audioflix' : 'native-default';
+        state.passageDuration = Number(record.durationSec)
+            || (record.pcm.byteLength / 2 / (record.sampleRate || 24000));
         emit();
-        const durationMs = Math.max(100, state.passageDuration * (1 - clamp(startRatio)) * 1000);
-        const startedAt = performance.now();
-        while (token === runToken && performance.now() - startedAt < durationMs) {
-            if (state.status === 'paused') { await new Promise(resolve => setTimeout(resolve, 80)); continue; }
-            state.passageRatio = clamp(startRatio + ((performance.now() - startedAt) / durationMs) * (1 - startRatio));
-            emit();
-            await new Promise(resolve => setTimeout(resolve, 120));
-        }
+        const ok = await outputs()[route](record, {
+            volume: config.volume,
+            startRatio,
+            isCancelled: () => token !== runToken,
+            onProgress: ratio => {
+                if (token !== runToken) return;
+                state.passageRatio = clamp(ratio);
+                emit();
+            }
+        });
+        if (token === runToken && ok !== true) throw new Error('Narration output is unavailable.');
     }
     async function playGemini(index, passage, config, token, startRatio, primePromise) {
         let record = await cache()?.get?.(state.source, passage, index, config);
         if (token !== runToken) return;
         if (record?.pcm?.byteLength) {
+            if (config.routeToAudioflix) return playExternal('audioflix', record, config, token, startRatio);
+            if (config.preferNativeOutput !== false && await native()?.available?.()) {
+                return playExternal('nativeDefault', record, config, token, startRatio);
+            }
             const primed = await (primePromise || primeAudio());
             if (!primed?.ok || audio()?.getState?.() !== 'running') {
                 state.status = 'blocked';
@@ -198,9 +168,9 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
                 return;
             }
             state.passageDuration = Number(record.durationSec) || (record.pcm.byteLength / 2 / (record.sampleRate || 24000));
-            if (config.routeToAudioflix) return playAudioflix(record, config, token, startRatio);
             state.status = 'playing';
             state.engine = 'gemini';
+            state.output = 'browser';
             emit();
             await audio().playRecord(record, {
                 volume: config.volume,
@@ -213,8 +183,11 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
             });
             return;
         }
-        const primed = await (primePromise || primeAudio());
-        if (!primed?.ok || audio()?.getState?.() !== 'running') {
+        const useNativeDefault = config.routeToAudioflix !== true
+            && config.preferNativeOutput !== false
+            && await native()?.available?.();
+        const primed = useNativeDefault ? { ok: true } : await (primePromise || primeAudio());
+        if (!useNativeDefault && (!primed?.ok || audio()?.getState?.() !== 'running')) {
             state.status = 'blocked';
             state.error = 'Tap Play to enable audio.';
             emit();
@@ -222,9 +195,10 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
         }
         state.status = 'generating';
         state.engine = 'gemini';
+        state.output = config.routeToAudioflix ? 'audioflix' : (useNativeDefault ? 'native-default' : 'browser');
         state.error = '';
         emit();
-        const stream = config.routeToAudioflix ? null : audio().beginStream({
+        const stream = config.routeToAudioflix || useNativeDefault ? null : audio().beginStream({
             volume: config.volume,
             onStart: () => {
                 if (token !== runToken) return;
@@ -251,7 +225,11 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
             console.warn('Narration dropped duplicate PCM chunks:', result.duplicateChunks);
         }
         if (config.routeToAudioflix) {
-            await playAudioflix(record, config, token, startRatio);
+            await playExternal('audioflix', record, config, token, startRatio);
+            return;
+        }
+        if (useNativeDefault) {
+            await playExternal('nativeDefault', record, config, token, startRatio);
             return;
         }
         if (!result.streamed) {
@@ -330,7 +308,12 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
     function pause() {
         if (!['playing', 'generating'].includes(state.status)) return snapshot();
         pausedFrom = state.status;
-        window.speechSynthesis?.pause?.();
+        if (state.output === 'native-default') {
+            pendingStartRatio = state.passageRatio;
+            runToken += 1;
+            void native()?.stop?.();
+        }
+        outputs()?.pauseBrowser?.();
         void audio()?.pause?.();
         state.status = 'paused';
         emit();
@@ -338,12 +321,17 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
     }
     async function resume() {
         if (state.status !== 'paused') return snapshot();
-        if (browserUtterance) {
-            window.speechSynthesis?.resume?.();
+        if (outputs()?.hasBrowserUtterance?.()) {
+            outputs()?.resumeBrowser?.();
             state.status = 'playing';
             pausedFrom = '';
             emit();
             return snapshot();
+        }
+        if (state.output === 'native-default') {
+            state.status = 'ready';
+            pausedFrom = '';
+            return play();
         }
         const result = await audio()?.resume?.();
         if (!result?.ok || audio()?.getState?.() !== 'running') {
@@ -362,9 +350,8 @@ window.EveWorldBookNarrationRuntime = window.EveWorldBookNarrationRuntime || {};
         runToken += 1;
         gemini()?.cancel?.('Narration stopped.');
         audio()?.stop?.({ preserveContext: true });
-        window.speechSynthesis?.cancel?.();
-        window.clearInterval(browserTimer);
-        browserUtterance = null;
+        void native()?.stop?.();
+        outputs()?.stopBrowser?.();
         try { window.EveAudioflixNative?.clearVoices?.('world-book-narration'); } catch (_error) {}
         pausedFrom = '';
         state.status = passages.length ? 'ready' : 'idle';

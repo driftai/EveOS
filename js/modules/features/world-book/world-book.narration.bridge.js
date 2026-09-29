@@ -15,6 +15,7 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
         volume: 1,
         strictVerbatim: true,
         backgroundPrefetch: true,
+        preferNativeOutput: true,
         routeToAudioflix: false,
         cacheMb: 192,
         cacheDays: 30
@@ -43,6 +44,7 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
             volume: clamp(value.volume, 0, 1, 1),
             strictVerbatim: value.strictVerbatim !== false,
             backgroundPrefetch: value.backgroundPrefetch !== false,
+            preferNativeOutput: value.preferNativeOutput !== false,
             routeToAudioflix: value.routeToAudioflix === true,
             cacheMb: clamp(value.cacheMb, 16, 1024, 192),
             cacheDays: clamp(value.cacheDays, 1, 365, 30)

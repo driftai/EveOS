@@ -50,6 +50,8 @@ async function main() {
         await page.goto(`http://127.0.0.1:${port}/`);
         for (const file of [
             'world-book.narration.audio.js',
+            'world-book.narration.native.js',
+            'world-book.narration.outputs.js',
             'world-book.narration.cache.js',
             'world-book.narration.gemini.js',
             'world-book.narration.runtime.js',

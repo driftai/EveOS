@@ -41,7 +41,7 @@ window.EveWorldBook = window.EveWorldBook || {};
             if (primed && primed.ok === false && meta) {
                 meta.textContent = 'Reader ready · Tap Play to enable audio';
             } else if (meta) {
-                meta.textContent = 'Reader connected · using the current Scratchpad text';
+                meta.textContent = 'Reader requested · preparing the current Scratchpad text';
             }
         } catch (error) {
             if (meta) meta.textContent = `Reader unavailable · ${error?.message || String(error)}`;
@@ -52,6 +52,21 @@ window.EveWorldBook = window.EveWorldBook || {};
             }
         }
     }
+
+    window.addEventListener('eve:world-book-narration-state', event => {
+        const state = event.detail;
+        if (state?.source?.id !== 'eveos:scratchpad') return;
+        const meta = document.querySelector('#notes-world-book-overlay [data-world-book-notes-meta]');
+        if (!meta) return;
+        const route = state.output === 'native-default'
+            ? 'Windows default output'
+            : state.output === 'audioflix' ? 'Audioflix output' : 'browser output';
+        if (state.status === 'generating') meta.textContent = `Reader generating · ${route}`;
+        else if (state.status === 'playing') meta.textContent = `Reader playing · ${route}`;
+        else if (state.status === 'complete') meta.textContent = `Reader finished · ${route}`;
+        else if (state.status === 'blocked') meta.textContent = `Reader blocked · ${state.error || 'enable audio'}`;
+        else if (state.status === 'error') meta.textContent = `Reader error · ${state.error || 'playback failed'}`;
+    });
 
     ns.notesNarration = Object.freeze({ readAloud });
 })(window.EveWorldBook);

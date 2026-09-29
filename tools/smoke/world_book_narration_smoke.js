@@ -24,6 +24,8 @@ const ui = read('tools', 'World-Book', 'app', 'assets', 'js', 'narration', 'ui.j
 const bridge = read('js', 'modules', 'features', 'world-book', 'world-book.narration.bridge.js');
 const companion = read('js', 'modules', 'features', 'world-book', 'world-book.narration.companion.js');
 const localAudio = read('js', 'modules', 'features', 'world-book', 'world-book.narration.audio.js');
+const localNative = read('js', 'modules', 'features', 'world-book', 'world-book.narration.native.js');
+const localOutputs = read('js', 'modules', 'features', 'world-book', 'world-book.narration.outputs.js');
 const localCache = read('js', 'modules', 'features', 'world-book', 'world-book.narration.cache.js');
 const localGemini = read('js', 'modules', 'features', 'world-book', 'world-book.narration.gemini.js');
 const localRuntime = read('js', 'modules', 'features', 'world-book', 'world-book.narration.runtime.js');
@@ -85,6 +87,13 @@ expect(localAudio.includes('beginStream') && localAudio.includes('trimPcm')
     && /(?:ctx|context)\.state === 'running'/.test(localAudio)
     && localAudio.includes("context.state !== 'running'"),
     'EveOS narration audio lacks streaming, silence trimming, or running-context checks');
+expect(localNative.includes("'/api/audioflix/play-voice'")
+    && localNative.includes("deviceId: 'default'")
+    && localNative.includes("'/api/audioflix/clear-voices'"),
+    'EveOS narration lacks its audible Windows-default output contract');
+expect(localOutputs.includes('nativeDefault') && localOutputs.includes('audioflix')
+    && localOutputs.includes('SpeechSynthesisUtterance'),
+    'EveOS narration output routes are not isolated behind the output adapter');
 expect(localCache.includes("const DB_NAME = 'eve-world-book-narration'") && localCache.includes('cacheMb') && localCache.includes('cacheDays'),
     'EveOS narration cache does not preserve the World Book cache policy');
 expect(localRuntime.includes('primeAudio') && localRuntime.includes("state.status = 'blocked'")
@@ -120,6 +129,11 @@ expect(companion.includes("command('seek-progress'") && companion.includes('open
 expect(eveHtml.indexOf('world-book.narration.companion.js')
     < eveHtml.indexOf('world-book.narration.bridge.js'),
     'the Reader companion does not load before its host bridge');
+expect(eveHtml.indexOf('world-book.narration.native.js')
+    < eveHtml.indexOf('world-book.narration.outputs.js')
+    && eveHtml.indexOf('world-book.narration.outputs.js')
+    < eveHtml.indexOf('world-book.narration.runtime.js'),
+    'the Reader output adapters do not load before the narration runtime');
 expect(overlaySource.includes('data-world-book-reader-controls')
     && overlaySource.includes('openCompanion'),
     'the EveOS World Book header cannot open the detached Reader companion directly');
@@ -137,6 +151,11 @@ expect(!manager.includes('type="password"') && !manager.includes('geminiApiKey')
     'Narration Manager introduced a second credential field');
 expect(manager.includes('clearCacheArmedUntil') && manager.includes("button.textContent = 'Clear now'"),
     'Narration Manager cache deletion is not confirmation guarded');
+expect(manager.includes('preferNativeOutput') && manager.includes('Prefer audible Windows output'),
+    'Narration Manager does not expose the reliable Windows output preference');
+expect(notesNarrationSource.includes('Reader playing') && notesNarrationSource.includes('Reader finished')
+    && notesNarrationSource.includes('Windows default output'),
+    'Notes narration does not report the truthful playback route and terminal state');
 expect(manager.includes('cacheClearQueued') && !manager.includes('cacheStats = { count: 0, bytes: 0 }'),
     'Narration Manager fabricates cache-clear success before World Book confirms it');
 expect(agenticConfig.includes('worldBookNarrationManagerUILoader'),

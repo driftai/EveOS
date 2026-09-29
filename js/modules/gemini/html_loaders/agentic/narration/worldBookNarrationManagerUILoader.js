@@ -23,7 +23,9 @@ window.WorldBookNarrationManagerAgentic = window.WorldBookNarrationManagerAgenti
     function summary(value) {
         if (!value.enabled) return 'Narration is paused. Reader documents and cached audio remain intact.';
         const engine = value.engine === 'gemini' ? `Gemini ${value.geminiVoice || 'voice'}` : 'offline browser speech';
-        const route = value.routeToAudioflix ? ' through Audioflix' : '';
+        const route = value.routeToAudioflix
+            ? ' through the selected Audioflix output'
+            : value.preferNativeOutput !== false ? ' through reliable Windows output when Local Control is available' : '';
         const cache = cacheClearQueued
             ? ' Cache clear queued until World Book is ready.'
             : cacheStats ? ` Cache: ${cacheStats.count || 0} passages / ${humanBytes(cacheStats.bytes)}.` : '';
@@ -67,6 +69,7 @@ window.WorldBookNarrationManagerAgentic = window.WorldBookNarrationManagerAgenti
                 <div class="gemini-narration-checks">
                     <label><input data-narration-field="strictVerbatim" type="checkbox"> Read source text verbatim</label>
                     <label><input data-narration-field="backgroundPrefetch" type="checkbox"> Generate the next passage in the background</label>
+                    <label><input data-narration-field="preferNativeOutput" type="checkbox"> Prefer audible Windows output when Local Control is available</label>
                     <label><input data-narration-field="routeToAudioflix" type="checkbox"> Route generated narration through Audioflix when its native output is active</label>
                 </div>
                 <footer>
