@@ -1,0 +1,97 @@
+.entry-section {
+  margin-top: 16px;
+}
+.entry-section:not(.content-card):not(.details-card):not(.links-card) {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.entry-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+.entry-section-heading h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.entry-section-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.entry-section-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.entry-section.is-collapsed > .entry-section-body,
+.links-card.is-collapsed > .link-list,
+.links-card.is-collapsed .link-direction-control,
+.links-card.is-collapsed #entry-link-count,
+.links-card.is-collapsed #add-link-btn,
+.links-card.is-collapsed #link-back-btn {
+  display: none !important;
+}
+.entry-section.is-collapsed > .entry-section-heading,
+.entry-section.is-collapsed > .section-heading,
+.links-card.is-collapsed > .section-heading {
+  margin-bottom: 0;
+}
+.entry-notes-field {
+  margin-bottom: 0;
+}
+.entry-section .field-grid {
+  margin: 0;
+}
+.provenance-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+.provenance-editor label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.provenance-editor label > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.provenance-editor input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-strong);
+  color: var(--text);
+}
+.provenance-editor #save-entry-provenance-btn {
+  justify-self: start;
+  align-self: end;
+}
+body.focus-mode:not(.focus-details-open) .entry-section.focus-secondary {
+  display: none;
+}
+@media (max-width: 720px) {
+  .entry-section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .entry-section-heading > button {
+    align-self: flex-start;
+  }
+  .provenance-editor {
+    grid-template-columns: 1fr;
+  }
+}
