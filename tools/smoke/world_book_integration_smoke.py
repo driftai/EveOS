@@ -57,6 +57,10 @@ def assert_static_contract() -> None:
     assert "standalone launcher" in client
     assert "EveOSLocalControl" in client
     assert "ensureController" in client
+    assert "Promise.all(bases.map" in client
+    assert "refreshPromise" in client
+    assert "findDirectServer" in client and "650" in client
+    assert "window.setTimeout(() => { void refresh(); }, 0)" in client
     overlay = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.overlay.js").read_text(encoding="utf-8")
     detached = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.detach.js").read_text(encoding="utf-8")
     assert "world-book.detach.js" in html
@@ -121,6 +125,13 @@ def assert_static_contract() -> None:
     assert "ref.provenance = { ...provenance }" in app_link_chain
     assert 'id="link-provenance-source"' in link_dialog
     assert 'document.documentElement.classList.toggle("embedded-eveos"' in app_bootstrap
+    assert "loadScriptsOrdered" in app_bootstrap
+    assert "Promise.all(names.map" in app_bootstrap
+    app_loader = (tool / "app" / "assets" / "js" / "app-loader.js").read_text(encoding="utf-8")
+    app_start_chain = (tool / "app" / "assets" / "js" / "app" / "chains" / "06-layer.js.part").read_text(encoding="utf-8")
+    assert "Promise.all(manifest.map" in app_loader
+    assert 'setStatus(config.rootPath ? "Loading workspace…"' in app_start_chain
+    assert "void loadPhysicalRoot().then" in app_start_chain
     assert "html.embedded-eveos .topbar" in app_header_css
     assert ".entry-section.is-collapsed" in app_sections_css
     assert ".link-provenance-grid" in app_sections_css
@@ -138,6 +149,9 @@ def assert_static_contract() -> None:
     assert 'parsed.path == "/api/health"' in handler
     assert '"instanceId": SERVER_INSTANCE_ID' in handler
     assert "Access-Control-Allow-Origin" in handler
+    assert '"public, max-age=31536000, immutable"' in handler
+    assert '"no-cache"' in handler
+    assert 'parsed_request.path.startswith("/api/")' in handler
 
     launch_batch = (tool / "launch.bat").read_text(encoding="utf-8")
     assert 'launch.ps1" %*' in launch_batch
