@@ -1,3 +1,9 @@
+/* Keep every Notes/World Book panel pinned to the top of EveOS instead of
+   visually floating in the available stage height. */
+.notes-world-book-notes-view {
+    padding: 12px clamp(14px, 2vw, 28px) clamp(14px, 2vw, 28px);
+}
+
 .notes-world-book-notes-heading > div:first-child {
     min-width: 0;
     display: grid;
@@ -25,15 +31,17 @@
 }
 
 .notes-world-book-offline {
-    padding: clamp(14px, 2vw, 24px);
+    padding: 12px clamp(14px, 2vw, 24px) clamp(14px, 2vw, 24px);
     overflow: auto;
-    place-content: stretch;
+    place-content: start stretch;
+    align-items: start;
     justify-items: stretch;
     text-align: left;
 }
 .notes-world-book-offline-shell {
     width: min(1120px, 100%);
-    margin: auto;
+    margin: 0 auto;
+    align-self: start;
     display: grid;
     gap: 12px;
     color: var(--text-main);
