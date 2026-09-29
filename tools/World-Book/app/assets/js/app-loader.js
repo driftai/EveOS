@@ -1,14 +1,13 @@
 window.WorldBookAppReady = (async function () {
   const base = "assets/js/app/chains/";
-  const manifest = await fetch(`${base}manifest.json`, { cache: "no-store" }).then(response => {
+  const manifest = await fetch(`${base}manifest.json`, { cache: "no-cache" }).then(response => {
     if (!response.ok) throw new Error("Could not load the app chain manifest.");
     return response.json();
   });
-  const sources = [];
-  for (const name of manifest) {
-    const response = await fetch(`${base}${name}`, { cache: "no-store" });
+  const sources = await Promise.all(manifest.map(async name => {
+    const response = await fetch(`${base}${name}`, { cache: "no-cache" });
     if (!response.ok) throw new Error(`Could not load app layer: ${name}`);
-    sources.push(`\n/* app-chain:${name} */\n${await response.text()}`);
-  }
+    return `\n/* app-chain:${name} */\n${await response.text()}`;
+  }));
   Function(sources.join("\n"))();
 })();
