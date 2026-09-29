@@ -193,14 +193,11 @@ async function main() {
             throw new Error(`Gemini command buttons overflow at narrow width: ${JSON.stringify(commandLayout)}`);
         }
 
-        await page.evaluate(() => {
-            const section = document.querySelector('[data-collapsible-section="agentic"]');
-            if (section?.classList.contains('collapsed')) {
-                section.querySelector('[data-collapsible-header]')?.click();
-            }
-        });
-        await page.waitForSelector('[data-world-book-narration-settings]', { state: 'visible', timeout: 10000 });
-        await page.click('[data-world-book-narration-settings]');
+        await page.evaluate(() => window.WorldBookNarrationManagerAgentic?.openSettings?.());
+        await page.waitForFunction(() => {
+            const dialog = document.getElementById('world-book-narration-settings-dialog');
+            return !!dialog && (dialog.open || dialog.hasAttribute('open'));
+        }, undefined, { timeout: 10000 });
         requireModernDialog('World Book Narration', await inspectAgenticDialog('#world-book-narration-settings-dialog'));
         const narrationVoice = await page.evaluate(() => {
             const select = document.querySelector('[data-narration-browser-voice]');
