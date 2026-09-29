@@ -46,7 +46,7 @@
     "assets/js/taxonomy/dashboard.js?v=d3cbd3159bf9",
     "assets/js/tree.js?v=c5e92e28868e",
     "assets/js/editor.js?v=6e8c61c58e54",
-    "assets/js/app-loader.js?v=63d0962679a6",
+    "assets/js/app-loader.js?v=3a5a6ba8a42e",
     "assets/js/narration/text.js?v=5ded239401a5",
     "assets/js/narration/integrity.js?v=6de25b744f4a",
     "assets/js/narration/store.js?v=94f85c510474",
