@@ -17,8 +17,16 @@ class WorldBookHandler(SimpleHTTPRequestHandler):
         return ""
 
     def end_headers(self) -> None:
-        self.send_header("Cache-Control", "no-store")
-        if urlparse(self.path).path == "/api/health":
+        parsed_request = urlparse(self.path)
+        if parsed_request.path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-store")
+        elif "v=" in parsed_request.query:
+            # Versioned UI assets are content-addressed by EveOS/World Book cache tokens.
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        else:
+            # Keep editable local files fresh while still allowing fast conditional reloads.
+            self.send_header("Cache-Control", "no-cache")
+        if parsed_request.path == "/api/health":
             allowed_origin = self.allowed_health_origin()
             if allowed_origin:
                 self.send_header("Access-Control-Allow-Origin", allowed_origin)
