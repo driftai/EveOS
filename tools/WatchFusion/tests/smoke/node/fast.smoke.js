@@ -101,7 +101,7 @@ export async function runFastSmoke() {
     assert.match(playbackSync, /SENSOR_MIN_SAMPLES = 5/);
     assert.doesNotMatch(playbackSync, /nearestHigherRate|nearestLowerRate/);
     assert.match(mediaPlayer, /mediaAnchorServerTime/);
-    assert.match(mediaPlayer, /mediaDriftCorrecting && absoluteDrift > 0\.04/);
+    assert.match(mediaPlayer, /absoluteDrift >= 0\.20 \|\| \(mediaDriftCorrecting && absoluteDrift > 0\.12\)/);
     assert.match(continuityBridge, /transfer\.retryTimer = setInterval/);
     assert.match(continuityBridge, /completedTransferIds\.has\(data\.requestId\)/);
   });
