@@ -285,6 +285,14 @@
         <small>The inverse view is generated automatically on the target entry.</small>
       </label>
 
+      <div class="link-provenance-grid">
+        <label class="field"><span>Relationship source</span><input id="link-provenance-source" placeholder="Chapter, note, manuscript..."></label>
+        <label class="field"><span>Known as of</span><input id="link-provenance-known" placeholder="Chapter 4, revision 2..."></label>
+        <label class="field"><span>Confidence</span><input id="link-provenance-confidence" placeholder="confirmed, likely, uncertain..."></label>
+        <label class="field"><span>Created by</span><input id="link-provenance-created-by" placeholder="manual, Eve, import..."></label>
+      </div>
+      <p class="dialog-note">Optional relationship provenance is stored on the link itself, so chapter-limited or source-sensitive lore can keep its knowledge boundary without requiring Eve Injection.</p>
+
       <label class="automation-toggle">
         <input id="link-mount-shortcut" type="checkbox">
         <span><strong>Show as child shortcut</strong><small>Available when the current entry is a folder. The shortcut opens the one canonical source and cannot drift.</small></span>
