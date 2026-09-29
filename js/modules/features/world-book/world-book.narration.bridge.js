@@ -140,6 +140,49 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
         }));
     }
 
+    function readSource(source, options = {}) {
+        const text = String(source?.text || '');
+        if (!text.trim()) return false;
+        const normalizedSource = {
+            id: String(source?.id || 'eveos:external-reader-source'),
+            title: String(source?.title || 'EveOS Reader Source'),
+            text,
+            kind: String(source?.kind || 'external source'),
+            locator: String(source?.locator || 'EveOS')
+        };
+        const compactPassage = text.replace(/\s+/g, ' ').trim().slice(0, 420);
+        const seed = {
+            status: 'loading',
+            source: {
+                id: normalizedSource.id,
+                title: normalizedSource.title,
+                kind: normalizedSource.kind,
+                locator: normalizedSource.locator
+            },
+            index: 0,
+            passageCount: 0,
+            passage: compactPassage,
+            passageRatio: 0,
+            overallRatio: 0,
+            passageDuration: 0,
+            engine: settings().engine
+        };
+        latestState = seed;
+        broadcastSettings();
+        window.EveWorldBookNarrationCompanion?.update?.(seed);
+        if (options.openCompanion !== false) {
+            void window.EveWorldBookNarrationCompanion?.open?.(seed);
+        }
+        broadcastCommand('load-source', {
+            data: {
+                source: normalizedSource,
+                autoplay: options.autoplay === true,
+                showReader: options.showReader === true
+            }
+        });
+        return true;
+    }
+
     function openReader() {
         pendingReaderOpen = true;
         void window.EveWorldBook?.open?.('world');
@@ -198,6 +241,7 @@ window.EveWorldBookNarrationBridge = window.EveWorldBookNarrationBridge || {};
         saveSettings,
         broadcastSettings,
         broadcastCommand,
+        readSource,
         openReader,
         openCompanion,
         getState: () => latestState

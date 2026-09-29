@@ -55,7 +55,7 @@
     "assets/js/narration/controller.js?v=b4cf2264a243",
     "assets/js/narration/cache-ui.js?v=7a1761c09e2b",
     "assets/js/narration/layout.js?v=24dd98d5a8e9",
-    "assets/js/narration/ui.js?v=f44318a26f2c"
+    "assets/js/narration/ui.js?v=b72bc4e1381f"
   ];
 
   await loadScriptsOrdered(scripts);

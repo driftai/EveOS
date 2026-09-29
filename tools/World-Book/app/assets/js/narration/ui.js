@@ -359,6 +359,17 @@
     const data = event.data;
     if (!WB.NarrationHost?.isHostEvent?.(event) || data?.type !== "eve-world-book-narration-command") return;
     if (data.action === "open-reader") showDialog();
+    if (data.action === "load-source") {
+      try {
+        controller.load(data.data?.source || {});
+        if (data.data?.showReader === true) showDialog();
+        status("Ready", "ready");
+        if (data.data?.autoplay === true) controller.play();
+      } catch (error) {
+        status(error.message || "This source does not contain readable text.", "error");
+      }
+      return;
+    }
     if (data.action === "play") {
       try { controller.play(); } catch (error) { status(error.message || "Choose something to read first.", "warning"); }
     }

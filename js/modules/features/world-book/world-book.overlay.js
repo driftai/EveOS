@@ -133,6 +133,60 @@ window.EveWorldBook = window.EveWorldBook || {};
         setOverlayStatus(`Reloading ${view === 'portal' ? 'World Portal' : 'World Book'}...`);
     }
 
+    async function ensureNarrationTarget(overlay) {
+        let snapshot = await ns.client.refresh();
+        if (!snapshot.running) snapshot = await ns.client.start();
+        renderStatus(snapshot);
+        if (!snapshot.running) {
+            throw new Error(snapshot.message || 'World Book Reader could not start.');
+        }
+        const frame = overlay?.querySelector('[data-world-book-frame]');
+        if (!frame) throw new Error('World Book Reader frame is unavailable.');
+        navigateFrame(frame, activeFrameUrl(snapshot, 'world'), false);
+        return snapshot;
+    }
+
+    async function readNotesAloud(overlay) {
+        const editor = overlay?.querySelector('[data-world-book-notes]');
+        const button = overlay?.querySelector('[data-world-book-notes-read]');
+        const meta = overlay?.querySelector('[data-world-book-notes-meta]');
+        const text = String(editor?.value || '');
+        if (!text.trim()) {
+            if (meta) meta.textContent = 'Nothing to read yet · type something in Scratchpad first';
+            editor?.focus?.({ preventScroll: true });
+            return;
+        }
+
+        const priorLabel = button?.textContent || 'Read aloud';
+        if (button) {
+            button.disabled = true;
+            button.textContent = 'Connecting...';
+        }
+        try {
+            await ensureNarrationTarget(overlay);
+            const bridge = window.EveWorldBookNarrationBridge;
+            const accepted = bridge?.readSource?.({
+                id: 'eveos:scratchpad',
+                title: 'EveOS Scratchpad',
+                text,
+                kind: 'scratchpad',
+                locator: 'EveOS / Notes / Scratchpad'
+            }, {
+                autoplay: true,
+                openCompanion: true
+            });
+            if (!accepted) throw new Error('The Reader bridge is unavailable.');
+            if (meta) meta.textContent = 'Reader connected · using the current Scratchpad text';
+        } catch (error) {
+            if (meta) meta.textContent = `Reader unavailable · ${error?.message || String(error)}`;
+        } finally {
+            if (button) {
+                button.disabled = false;
+                button.textContent = priorLabel;
+            }
+        }
+    }
+
     function renderDetachState(detail) {
         const overlay = document.getElementById(OVERLAY_ID);
         if (!overlay) return;
@@ -298,6 +352,8 @@ window.EveWorldBook = window.EveWorldBook || {};
                         <div class="notes-world-book-notes-heading">
                             <div><span>Scratchpad</span><small data-world-book-notes-meta>Offline-ready</small></div>
                             <div class="notes-world-book-notes-tools">
+                                <button type="button" data-world-book-notes-read
+                                    title="Read the current Scratchpad with the World Book Reader; Gemini Link is used when the Reader engine is Gemini">Read aloud</button>
                                 <button type="button" data-world-book-notes-copy>Copy</button>
                                 <button type="button" data-world-book-notes-download>Download .txt</button>
                             </div>
@@ -332,6 +388,9 @@ window.EveWorldBook = window.EveWorldBook || {};
         });
         overlay.querySelector('[data-world-book-reader-controls]').addEventListener('click', () => {
             window.EveWorldBookNarrationBridge?.openCompanion?.();
+        });
+        overlay.querySelector('[data-world-book-notes-read]').addEventListener('click', () => {
+            void readNotesAloud(overlay);
         });
         overlay.querySelector('[data-world-book-reload]').addEventListener('click', () => void reloadActiveFrame());
         overlay.querySelector('[data-world-book-detach]').addEventListener('click', ns.detach);

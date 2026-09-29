@@ -80,6 +80,9 @@ def assert_static_contract() -> None:
     assert "ns.offline?.shell?.('portal')" in overlay
     assert "data-world-book-notes-copy" in overlay
     assert "data-world-book-notes-download" in overlay
+    assert "data-world-book-notes-read" in overlay
+    assert "readNotesAloud" in overlay
+    assert "ensureNarrationTarget" in overlay
     assert "data-world-book-needs-server" in overlay
     assert "targetView = 'notes'" in overlay
     assert "requestAnimationFrame" in overlay
@@ -87,6 +90,12 @@ def assert_static_contract() -> None:
     assert "window.open" in detached
     assert "eve:world-book-detached-state" in detached
     assert "isOpen:" in detached
+    narration_bridge = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.narration.bridge.js").read_text(encoding="utf-8")
+    narration_ui = (tool / "app" / "assets" / "js" / "narration" / "ui.js").read_text(encoding="utf-8")
+    assert "readSource" in narration_bridge
+    assert "'load-source'" in narration_bridge
+    assert 'data.action === "load-source"' in narration_ui
+    assert "controller.load(data.data?.source || {})" in narration_ui
     world_css = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.css").read_text(encoding="utf-8")
     assert ".notes-world-book-portal-view" in world_css
     assert "[data-world-portal-frame]" in world_css
