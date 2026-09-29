@@ -5,12 +5,27 @@
     padding: 0 !important;
 }
 
-/* EveOS has broad section styling elsewhere. These panels are absolute stage
-   surfaces, so any section margin physically shifts the whole surface down and
-   exposes the shell behind it as a false "gap". Keep their margin box pinned
-   to the stage edge instead of only trimming their internal padding. */
-.notes-world-book-stage > [data-world-book-panel] {
+/* Lock the stage boundary itself. The panel must begin on the exact first
+   pixel below the Notes & World Books header; no inherited positioning,
+   transforms, or box margins are allowed to shift it down. */
+.notes-world-book-header {
     margin: 0 !important;
+}
+.notes-world-book-shell {
+    gap: 0 !important;
+}
+.notes-world-book-stage > [data-world-book-panel] {
+    position: absolute !important;
+    inset: 0 !important;
+    top: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    transform: none !important;
+    box-sizing: border-box !important;
 }
 .notes-world-book-overlay[data-view="notes"] .notes-world-book-notes-view {
     padding: 2px clamp(14px, 2vw, 28px) clamp(14px, 2vw, 28px) !important;

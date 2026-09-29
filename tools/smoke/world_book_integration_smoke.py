@@ -101,6 +101,9 @@ def assert_static_contract() -> None:
     assert ".notes-world-book-stage" in offline_css
     assert "padding: 0 !important" in offline_css
     assert ".notes-world-book-stage > [data-world-book-panel]" in offline_css
+    assert "position: absolute !important" in offline_css
+    assert "inset: 0 !important" in offline_css
+    assert "transform: none !important" in offline_css
     assert ".notes-world-book-notes-view" in offline_css
     assert "padding: 2px clamp(14px, 2vw, 28px)" in offline_css
 
