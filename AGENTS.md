@@ -89,6 +89,7 @@ EveOS inherits WatchFusion's output-efficient verification discipline.
 - The authoritative upstream snapshot for the initial merge is documented in `docs/WATCHFUSION-INTEGRATION.md`.
 - Machine-local dependencies, sessions, downloaded media, caches, generated test results, and `node_modules` must not be committed.
 - Opening WatchFusion while its runtime/control plane is stopped must remain a valid degraded mode: the workspace stays navigable and explains inactive live features instead of surfacing raw network errors.
+- Audioflix owns its Internal Player controls. Queue-specific source actions (for example restart, repeat-one, or Track Details) must be published through Audioflix queue metadata and rendered generically by WatchFusion; do not duplicate their behavior in WatchFusion. Repeat-one consumes the current track's Ended transition and must never also advance the queue or start a second track.
 
 ## Browser Qualification & Verification
 
