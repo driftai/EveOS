@@ -10,6 +10,7 @@ function ensurePlayer(videoId) {
   window.mediaPlayback?.clear?.();
   const host = $('playerHost') || document.querySelector('.player.panel');
   if (host) {
+    window.watchFusionYoutubeLayout?.activate?.(host);
     if (!$('player')) {
       const p = document.createElement('div');
       p.id = 'player';
@@ -56,6 +57,7 @@ function ensurePlayer(videoId) {
         events: {
           onReady: async () => {
             ytPlayerReady = true;
+            window.watchFusionYoutubeLayout?.refresh?.();
             try {
               const frame = ytPlayer.getIframe?.();
               if (frame) {
