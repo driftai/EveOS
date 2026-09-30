@@ -39,3 +39,6 @@
 - Audioflix remains a real WebRTC audio stream. Auto audio sync uses measured playout timestamps when the browser exposes them; otherwise it uses the device's remembered calibration, with a physically-qualified 335 ms mobile seed and 0 ms desktop seed.
 - Audioflix is audio-only in the WatchFusion media stage: keep its transport/queue controls visible, but do not reserve or render a black video canvas unless the received stream actually contains a live video track.
 - The horizontal Watch Party divider must preserve at least 280 px of embedded media height on laptop-size layouts.
+
+- LAN share UI must derive from the selected EveOS exposure context as a fallback when host-local network diagnostics are temporarily unavailable. "Copy LAN link" is room-only UI and must never remain visible in solo mode.
+- Host-local diagnostics may accept the host machine's own physical IP/sslip hostname only when the request socket is also one of that same machine's interface addresses; remote LAN clients remain outside the host-local capability boundary.

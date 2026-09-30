@@ -91,6 +91,9 @@ export async function runFastSmoke() {
     assert.doesNotMatch(render, />Save<\/a>/);
     assert.match(core, /runtimeShareBaseUrl/);
     assert.match(core, /runtimeExposureMode !== 'local'/);
+    assert.match(core, /function updateLanCopyVisibility/);
+    assert.match(core, /runtimeShareBaseUrl\|\|eveosShareBaseUrl/);
+    assert.match(core, /button\.hidden=!\(roomId&&session&&serverLanMode&&base\)/);
     assert.match(style, /eveos-embedded\.watchfusion-room-active/);
     assert.match(style, /eveos-embedded #partyDetails/);
     assert.match(style, /watchfusion-room-active:not\(\.eveos-embedded\) #partyDetails/);

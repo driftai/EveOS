@@ -61,6 +61,7 @@ function render() {
   if($('deleteRoomBtn'))$('deleteRoomBtn').hidden=!isHost();
   if($('syncBtn'))$('syncBtn').hidden=!inRoom||isNuvio||isVoxelVision||isLive;
   if($('copyBtn'))$('copyBtn').hidden=!inRoom;
+  updateLanCopyVisibility?.();
   if(playerHost)playerHost.classList.toggle('nuvio-active',nuvioViewVisible);
   if(playerHost)playerHost.classList.toggle('voxelvision-active',isVoxelVision);
   const hasLoadedMedia=isLive||nuvioViewVisible||isVoxelVision||isYoutube||source.kind==='media';

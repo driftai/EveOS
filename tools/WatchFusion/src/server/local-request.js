@@ -1,3 +1,5 @@
+import os from 'node:os';
+
 function hostnameFromHost(value) {
   const raw = String(value || '').split(',')[0].trim();
   if (!raw) return '';
@@ -13,6 +15,27 @@ export function socketIsLoopback(req) {
   return raw === '127.0.0.1' || raw === '::1' || raw === '::ffff:127.0.0.1';
 }
 
+function normalizedAddress(value) {
+  return String(value || '').toLowerCase().replace(/^::ffff:/, '');
+}
+function hostMachineAddresses() {
+  const out = new Set(['127.0.0.1', '::1']);
+  try {
+    for (const entries of Object.values(os.networkInterfaces() || {})) {
+      for (const entry of entries || []) if (entry?.address) out.add(normalizedAddress(entry.address));
+    }
+  } catch {}
+  return out;
+}
+function sslipIpv4(value) {
+  const match = String(value || '').toLowerCase().match(/^(\d{1,3})-(\d{1,3})-(\d{1,3})-(\d{1,3})\.sslip\.io$/);
+  return match ? match.slice(1).join('.') : '';
+}
+export function socketIsHostMachine(req) {
+  const raw = normalizedAddress(req.socket?.remoteAddress);
+  return socketIsLoopback(req) || (!!raw && hostMachineAddresses().has(raw));
+}
+
 export function isLocalHostName(value) {
   const hostname = String(value || '').toLowerCase();
   return hostname === 'localhost'
@@ -21,11 +44,20 @@ export function isLocalHostName(value) {
     || hostname === '127-0-0-1.sslip.io';
 }
 
+export function isHostMachineName(value) {
+  const hostname = String(value || '').toLowerCase();
+  if (isLocalHostName(hostname)) return true;
+  const addresses = hostMachineAddresses();
+  if (addresses.has(normalizedAddress(hostname))) return true;
+  const sslip = sslipIpv4(hostname);
+  return !!sslip && addresses.has(sslip);
+}
+
 export function requestHostIsLocal(req) {
   const direct = hostnameFromHost(req.headers?.host);
-  if (!isLocalHostName(direct)) return false;
+  if (!isHostMachineName(direct)) return false;
   const forwardedRaw = String(req.headers?.['x-forwarded-host'] || '').trim();
-  if (forwardedRaw && !isLocalHostName(hostnameFromHost(forwardedRaw))) return false;
+  if (forwardedRaw && !isHostMachineName(hostnameFromHost(forwardedRaw))) return false;
   return true;
 }
 
@@ -40,14 +72,14 @@ export function browserOriginIsLocal(req, { allowNullOrigin = false, allowedExte
   try {
     const parsed = new URL(origin);
     return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
-      && isLocalHostName(parsed.hostname);
+      && isHostMachineName(parsed.hostname);
   } catch {
     return false;
   }
 }
 
 export function isHostLocalRequest(req, options = {}) {
-  if (!socketIsLoopback(req)) return false;
+  if (!socketIsHostMachine(req)) return false;
   if (!requestHostIsLocal(req)) return false;
   if (req.headers?.['cf-ray'] || req.headers?.['cf-connecting-ip']) return false;
   return browserOriginIsLocal(req, options);

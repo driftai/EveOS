@@ -244,6 +244,12 @@ let transportBaseUrl = '';
 let networkInfoReady = Promise.resolve();
 let runtimeExposureMode = eveosShareMode;
 let runtimeShareBaseUrl = eveosShareBaseUrl;
+function updateLanCopyVisibility() {
+  const button=$('copyLanBtn');
+  if(!button)return;
+  const base=lanBaseUrl||(runtimeExposureMode==='lan'?(runtimeShareBaseUrl||eveosShareBaseUrl):null);
+  button.hidden=!(roomId&&session&&serverLanMode&&base);
+}
 function apiUrl(path) { const value=String(path||''); return transportBaseUrl ? `${transportBaseUrl}${value.startsWith('/')?value:`/${value}`}` : value; }
 function eventStreamUrl(path) { return apiUrl(path); }
 
@@ -263,14 +269,22 @@ async function loadNetworkInfo() {
       : reportedMode === 'lan' ? (data?.preferredLanHost || data?.lanHosts?.[0] || data?.preferredLanAddress || data?.lanAddresses?.[0] || eveosShareBaseUrl)
         : null;
     $('runtimeMode').textContent = reportedMode === 'cloudflare' ? 'Remote' : reportedMode === 'lan' ? 'LAN' : 'Local';
-    if (!serverLanMode) { lanBaseUrl=null; $('copyLanBtn').hidden=true; return; }
+    if (!serverLanMode) { lanBaseUrl=null; updateLanCopyVisibility(); return; }
     lanBaseUrl = data?.preferredLanHost || data?.lanHosts?.[0]
-      || data?.preferredLanAddress || data?.lanAddresses?.[0] || null;
-    $('copyLanBtn').hidden = !lanBaseUrl;
+      || data?.preferredLanAddress || data?.lanAddresses?.[0]
+      || (reportedMode==='lan' ? (eveosShareBaseUrl || runtimeShareBaseUrl) : null);
+    updateLanCopyVisibility();
   } catch {
     runtimeExposureMode = isTryCloudflare || eveosShareMode === 'cloudflare' ? 'cloudflare' : eveosShareMode === 'lan' || isReachableLanHost(location.hostname) ? 'lan' : 'local';
     $('runtimeMode').textContent = runtimeExposureMode === 'cloudflare' ? 'Remote' : runtimeExposureMode === 'lan' ? 'LAN' : 'Local';
-    if (isReachableLanHost(location.hostname)) { serverLanMode=true; lanBaseUrl=location.origin; $('copyLanBtn').hidden=false; }
+    if (runtimeExposureMode==='lan') {
+      serverLanMode=true;
+      lanBaseUrl=eveosShareBaseUrl||runtimeShareBaseUrl||(isReachableLanHost(location.hostname)?location.origin:null);
+    } else if (isReachableLanHost(location.hostname)) {
+      serverLanMode=true;
+      lanBaseUrl=location.origin;
+    }
+    updateLanCopyVisibility();
   }
 }
 function isReachableLanHost(hostname) { return /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname) || /(?:^|\.)sslip\.io$/i.test(hostname); }
@@ -279,7 +293,10 @@ function roomLink(baseUrl) {
   const token = shareRoomToken();
   return baseUrl && token ? `${String(baseUrl).replace(/\/$/, '')}/watch/${encodeURIComponent(token)}` : null;
 }
-function lanRoomLink() { return roomLink(lanBaseUrl); }
+function lanRoomLink() {
+  const base=lanBaseUrl||(runtimeExposureMode==='lan'?(runtimeShareBaseUrl||eveosShareBaseUrl):null);
+  return roomLink(base);
+}
 function localRoomLink() { return roomLink(`http://127.0.0.1:${location.port||'9087'}`); }
 function shareRoomLink() {
   const token = shareRoomToken();
