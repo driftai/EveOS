@@ -1,64 +1,252 @@
-@media (min-width: 901px) {
-  html.watchfusion-room-active .grid,
-  .grid:has(#partyPanel:not([hidden])) { grid-template-columns: minmax(0, 1fr) 340px; }
+/* Responsive WatchParty geometry.
+   The DOM order is main workspace -> splitter -> party panel. room-resize.js
+   chooses side-by-side when the actual WatchFusion workspace is wide enough,
+   and bottom-stack otherwise. */
+html.watchfusion-room-active .grid,
+html .grid:has(#partyPanel:not([hidden])) {
+  min-width: 0;
+  min-height: 0;
+  gap: 0;
+  align-items: stretch;
+  overflow: hidden;
+}
 
-  /* Detached rooms are a bounded media workspace, not a page whose height is
-     dictated by chat history. Keep media and Watch Party matched, but cap the
-     shared row so a long conversation becomes an internal scroll surface. */
-  html.watchfusion-room-active:not(.eveos-embedded) .grid {
-    height: clamp(540px, calc(100dvh - 112px), 760px);
-    min-height: 0;
-    max-height: 760px;
-    align-items: stretch;
+html.eveos-embedded.watchfusion-room-active .grid,
+html.eveos-embedded .grid:has(#partyPanel:not([hidden])) {
+  width: 100%;
+  height: 100%;
+}
+
+html.watchfusion-room-active:not(.eveos-embedded) .grid {
+  height: clamp(540px, calc(100dvh - 112px), 760px);
+  max-height: 760px;
+}
+
+html.watchfusion-room-active .maincol,
+html .grid:has(#partyPanel:not([hidden])) .maincol {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+html.watchfusion-room-active .watch-shell,
+html .grid:has(#partyPanel:not([hidden])) .watch-shell {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+html.watchfusion-room-active #mediaStage.player-wrap:not(.media-stage-empty),
+html .grid:has(#partyPanel:not([hidden])) #mediaStage.player-wrap:not(.media-stage-empty) {
+  min-width: 0;
+  min-height: 0;
+}
+
+html.watchfusion-room-active .room-splitter:not([hidden]),
+html .grid:has(#partyPanel:not([hidden])) .room-splitter:not([hidden]) {
+  display: block;
+  z-index: 4;
+}
+
+html.watchfusion-room-active .side,
+html .grid:has(#partyPanel:not([hidden])) .side {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 0;
+}
+
+html.watchfusion-room-active #partyDetails,
+html .grid:has(#partyPanel:not([hidden])) #partyDetails {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+html.watchfusion-room-active .chat,
+html .grid:has(#partyPanel:not([hidden])) .chat {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 80px;
+  overflow-y: auto;
+}
+
+/* Wide workspace: WatchParty returns to the right side with a vertical splitter. */
+html.watchfusion-room-active.watchfusion-party-side .grid,
+html.watchfusion-party-side .grid:has(#partyPanel:not([hidden])) {
+  grid-template-columns: minmax(0, 1fr) 8px var(--watchfusion-party-width, 320px);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+html.watchfusion-party-side .room-splitter {
+  width: 8px;
+  min-width: 8px;
+  height: 100%;
+  min-height: 0;
+  cursor: col-resize;
+}
+
+html.watchfusion-party-side .room-splitter::before {
+  inset: 0 3px;
+}
+
+html.watchfusion-party-side .room-splitter:hover::before,
+html.watchfusion-party-side .room-splitter:focus-visible::before {
+  inset: 0 2px;
+}
+
+html.watchfusion-party-side .side {
+  border-left: 1px solid var(--border-subtle);
+  border-top: 0;
+}
+
+html.watchfusion-party-side.watchfusion-resizing,
+html.watchfusion-party-side.watchfusion-resizing * {
+  cursor: col-resize !important;
+}
+
+/* Narrow workspace: keep WatchParty below media with the existing horizontal splitter. */
+html.watchfusion-room-active.watchfusion-party-bottom .grid,
+html.watchfusion-party-bottom .grid:has(#partyPanel:not([hidden])) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 8px var(--watchfusion-party-height, 300px);
+}
+
+html.watchfusion-party-bottom .room-splitter {
+  width: 100%;
+  min-width: 0;
+  height: 8px;
+  min-height: 8px;
+  cursor: row-resize;
+}
+
+html.watchfusion-party-bottom .room-splitter::before {
+  inset: 3px 0;
+}
+
+html.watchfusion-party-bottom .room-splitter:hover::before,
+html.watchfusion-party-bottom .room-splitter:focus-visible::before {
+  inset: 2px 0;
+}
+
+html.watchfusion-party-bottom .side {
+  border-left: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+html.watchfusion-party-bottom.watchfusion-resizing,
+html.watchfusion-party-bottom.watchfusion-resizing * {
+  cursor: row-resize !important;
+}
+
+/* Compact/phone room UI: bound every surface to the embedded viewport and let
+   chat scroll internally instead of forcing the whole EveOS iframe wider/taller. */
+@media (max-width: 650px) {
+  html.watchfusion-party-bottom .room-splitter {
+    height: 10px;
+    min-height: 10px;
   }
-  html.watchfusion-room-active:not(.eveos-embedded) .maincol {
-    display: flex;
-    height: 100%;
+
+  html.watchfusion-party-bottom .side {
+    padding: 8px;
     min-height: 0;
-    max-height: 100%;
-  }
-  html.watchfusion-room-active:not(.eveos-embedded) .watch-shell {
-    flex: 1 1 auto;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
-    height: 100%;
-    min-height: 0;
-    max-height: 100%;
     overflow: hidden;
   }
-  html.watchfusion-room-active:not(.eveos-embedded) #mediaStage.player-wrap:not(.media-stage-empty) {
-    display: grid;
-    grid-template-rows: minmax(0, 1fr) auto;
-    height: 100%;
-    min-height: 0;
-    max-height: 100%;
-    overflow: hidden;
+
+  html.watchfusion-party-bottom .sidehead {
+    align-items: center;
+    gap: 8px;
   }
-  html.watchfusion-room-active:not(.eveos-embedded) .player-wrap .player {
-    aspect-ratio: auto;
-    height: 100%;
-    min-height: 0;
-    max-height: 100%;
+
+  html.watchfusion-party-bottom .sidehead h2 {
+    margin: 0;
+    font-size: 17px;
   }
-  html.watchfusion-room-active:not(.eveos-embedded) .side {
-    align-self: stretch;
-    height: 100%;
-    min-height: 0;
-    max-height: 100%;
-    overflow: hidden;
-  }
-  html.watchfusion-room-active:not(.eveos-embedded) #partyDetails {
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    max-height: 100%;
-    overflow: hidden;
-  }
-  html.watchfusion-room-active:not(.eveos-embedded) .chat {
-    flex: 1 1 320px;
-    min-height: 140px;
-    max-height: min(48dvh, 460px);
+
+  html.watchfusion-party-bottom .members {
+    max-height: 78px;
     overflow-y: auto;
+    align-content: flex-start;
+  }
+
+  html.watchfusion-party-bottom .member-row {
+    max-width: 100%;
+  }
+
+  html.watchfusion-party-bottom #partyDetails {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  html.watchfusion-party-bottom .chat {
+    min-height: 64px;
+    padding-block: 5px;
+  }
+
+  html.watchfusion-party-bottom .chatform {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  html.watchfusion-party-bottom .chatform textarea {
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+    max-height: 92px;
+    resize: none;
+  }
+
+  html.watchfusion-party-bottom .chatform button {
+    padding-inline: 9px;
+  }
+
+  html.watchfusion-party-bottom .chat-hint {
+    display: none;
+  }
+
+  html.eveos-embedded.watchfusion-party-bottom .watch-shell {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  html.eveos-embedded.watchfusion-party-bottom #mediaStage.player-wrap:not(.media-stage-empty) {
+    min-height: 160px;
+  }
+
+  html.eveos-embedded.watchfusion-party-bottom .find-media-panel {
+    max-height: 42dvh;
+    padding: 8px;
+  }
+
+  html.eveos-embedded.watchfusion-party-bottom .source-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  html.eveos-embedded.watchfusion-party-bottom #resolveTabBtn {
+    grid-column: 1 / -1;
+  }
+
+  html.eveos-embedded.watchfusion-party-bottom .media-status-row {
+    align-content: flex-start;
+  }
+
+  html.eveos-embedded.watchfusion-party-bottom .youtube-playback-mode {
+    flex: 1 1 100%;
+  }
+
+  html.eveos-embedded.watchfusion-party-bottom .media-status-row > button {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 }
