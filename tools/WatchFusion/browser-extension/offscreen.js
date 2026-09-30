@@ -46,7 +46,8 @@ function fullFrame(value) {
 
 async function updateRelayTrack() {
   const sourceTrack = capture?.getVideoTracks?.()[0];
-  const desired = fullFrame(rect) && sourceTrack?.readyState === 'live' ? 'direct' : 'canvas';
+  const directAllowed = lastMetadata?.relayHint !== 'canvas';
+  const desired = directAllowed && fullFrame(rect) && sourceTrack?.readyState === 'live' ? 'direct' : 'canvas';
   if (!peer || desired === relayVideoMode) return;
   if (desired === 'canvas') { startDrawLoop(); draw(); }
   await peer.replaceVideoTrack(desired === 'direct' ? sourceTrack : canvasTrack);

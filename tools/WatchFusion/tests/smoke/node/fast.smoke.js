@@ -92,9 +92,11 @@ export async function runFastSmoke() {
     assert.match(style, /max-height:\s*min\(48dvh, 460px\)/);
     assert.match(style, /align-self:\s*stretch/);
     assert.match(style, /scrollbar-gutter:\s*stable/);
-    assert.match(roomResize, /watchfusion\.partyPanelWidth/);
+    assert.match(roomResize, /watchfusion\.partyPanelHeight/);
+    assert.match(roomResize, /startY/);
     assert.match(roomResize, /setPointerCapture/);
-    assert.match(style, /--watchfusion-party-width/);
+    assert.match(style, /--watchfusion-party-height/);
+    assert.match(style, /cursor:\s*row-resize/);
     assert.match(connection, /function resumeRoomSession/);
     assert.match(connection, /syncResumedPlayback/);
     assert.match(connection, /document\.addEventListener\('visibilitychange', resumeVisibleRoom\)/);

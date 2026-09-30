@@ -129,6 +129,7 @@
         duration: Number.isFinite(element?.duration) ? element.duration : pageMedia?.duration || 0,
         rate: element?.playbackRate || pageMedia?.rate || 1,
         volume: element ? (element.muted ? 0 : element.volume ?? 1) : pageMedia?.volume ?? 1,
+        relayHint: controller ? 'canvas' : 'auto',
         status: element || controller ? '' : 'Waiting for a playable video · embedded players may need Setup & embedded players access.'
       }
     }).catch(() => {});
