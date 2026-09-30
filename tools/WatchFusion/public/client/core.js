@@ -242,6 +242,8 @@ let lanNetworkInfo = null;
 let serverLanMode = false;
 let transportBaseUrl = '';
 let networkInfoReady = Promise.resolve();
+let runtimeExposureMode = eveosShareMode;
+let runtimeShareBaseUrl = eveosShareBaseUrl;
 function apiUrl(path) { const value=String(path||''); return transportBaseUrl ? `${transportBaseUrl}${value.startsWith('/')?value:`/${value}`}` : value; }
 function eventStreamUrl(path) { return apiUrl(path); }
 
@@ -253,14 +255,21 @@ async function loadNetworkInfo() {
     lanNetworkInfo = data;
     transportBaseUrl = data?.requestIsVirtual ? (data?.transportBridge || '') : '';
     if (transportBaseUrl) setStatus(`Virtual adapter bridged via ${transportBaseUrl}`);
-    serverLanMode = data?.localOnly === false || data?.localMode === false;
-    $('runtimeMode').textContent = isTryCloudflare || eveosShareMode === 'cloudflare' ? 'Remote' : serverLanMode ? 'LAN' : 'Local';
+    const reportedMode = ['local', 'lan', 'cloudflare'].includes(data?.exposureMode) ? data.exposureMode
+      : (isTryCloudflare || eveosShareMode === 'cloudflare' ? 'cloudflare' : (data?.localOnly === false || data?.localMode === false ? 'lan' : eveosShareMode));
+    runtimeExposureMode = reportedMode;
+    serverLanMode = reportedMode === 'lan' || data?.localOnly === false || data?.localMode === false;
+    runtimeShareBaseUrl = reportedMode === 'cloudflare' ? (data?.remoteUrl || eveosShareBaseUrl)
+      : reportedMode === 'lan' ? (data?.preferredLanHost || data?.lanHosts?.[0] || data?.preferredLanAddress || data?.lanAddresses?.[0] || eveosShareBaseUrl)
+        : null;
+    $('runtimeMode').textContent = reportedMode === 'cloudflare' ? 'Remote' : reportedMode === 'lan' ? 'LAN' : 'Local';
     if (!serverLanMode) { lanBaseUrl=null; $('copyLanBtn').hidden=true; return; }
     lanBaseUrl = data?.preferredLanHost || data?.lanHosts?.[0]
       || data?.preferredLanAddress || data?.lanAddresses?.[0] || null;
     $('copyLanBtn').hidden = !lanBaseUrl;
   } catch {
-    $('runtimeMode').textContent = isTryCloudflare || eveosShareMode === 'cloudflare' ? 'Remote' : eveosShareMode === 'lan' || isReachableLanHost(location.hostname) ? 'LAN' : 'Local';
+    runtimeExposureMode = isTryCloudflare || eveosShareMode === 'cloudflare' ? 'cloudflare' : eveosShareMode === 'lan' || isReachableLanHost(location.hostname) ? 'lan' : 'local';
+    $('runtimeMode').textContent = runtimeExposureMode === 'cloudflare' ? 'Remote' : runtimeExposureMode === 'lan' ? 'LAN' : 'Local';
     if (isReachableLanHost(location.hostname)) { serverLanMode=true; lanBaseUrl=location.origin; $('copyLanBtn').hidden=false; }
   }
 }
@@ -275,7 +284,8 @@ function localRoomLink() { return roomLink(`http://127.0.0.1:${location.port||'9
 function shareRoomLink() {
   const token = shareRoomToken();
   if (!token) return null;
-  if (eveosShareBaseUrl && eveosShareMode !== 'local') return roomLink(eveosShareBaseUrl);
+  if (runtimeShareBaseUrl && runtimeExposureMode !== 'local') return roomLink(runtimeShareBaseUrl);
+  if (runtimeExposureMode === 'cloudflare' && runtimeShareBaseUrl) return roomLink(runtimeShareBaseUrl);
   if (isTryCloudflare) return roomLink(location.origin);
   if (serverLanMode && lanBaseUrl) return lanRoomLink();
   if (isReachableLanHost(location.hostname)) return roomLink(location.origin);

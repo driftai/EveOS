@@ -117,6 +117,9 @@ html.eveos-embedded .header-toggle {
   height: 30px;
   min-width: 30px;
 }
+html.eveos-embedded .top-actions { gap: 6px; }
+html.eveos-embedded .top-actions button { padding: 5px 8px; font-size: 12px; line-height: 1.2; }
+html.eveos-embedded .top-actions .room-pill { padding: 4px 8px; font-size: 11px; }
 html.eveos-embedded main {
   flex: 1 1 auto;
   display: flex;
@@ -349,4 +352,21 @@ html.eveos-embedded .chat { min-height: 0; }
   }
   html.eveos-embedded .brand { font-size: 13px; }
   html.eveos-embedded .watch-shell-head { align-items: stretch; }
+}
+
+@media (min-width: 700px) and (max-width: 900px) {
+  html.eveos-embedded.watchfusion-room-active.watchfusion-audioflix-live .grid {
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 300px);
+    overflow: hidden;
+  }
+  html.eveos-embedded.watchfusion-room-active.watchfusion-audioflix-live .side {
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
+    border-left: 1px solid var(--border-subtle);
+    border-top: 0;
+  }
+  html.eveos-embedded.watchfusion-room-active.watchfusion-audioflix-live #partyDetails { overflow: hidden; }
+  html.eveos-embedded.watchfusion-room-active.watchfusion-audioflix-live .chat { min-height: 120px; }
+  html.eveos-embedded.watchfusion-room-active.watchfusion-audioflix-live .live-controls { max-height: none; padding: 8px; }
 }

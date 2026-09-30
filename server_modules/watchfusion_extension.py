@@ -1,23 +1,60 @@
-"""Forward fixed extension-folder actions to the verified host-local runtime."""
-import http.client
-import json
+"""Open fixed WatchFusion extension folders from trusted EveOS local control."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+
+
+def _root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _folder(package: str) -> Path | None:
+    if package == "official":
+        return _root() / "extension"
+    if package == "watchfusion":
+        return _root() / "tools" / "WatchFusion" / "browser-extension"
+    return None
+
+
+def _prepare_official() -> tuple[bool, str]:
+    from . import watchfusion_control
+    script = _root() / "tools" / "extensions" / "assemble.cjs"
+    try:
+        result = subprocess.run(
+            [watchfusion_control._node(), str(script), "--write"],
+            cwd=str(_root()), capture_output=True, text=True, timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return False, f"Could not prepare the EveOS extension: {error}"
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()[-1200:]
+        return False, f"Could not prepare the EveOS extension. {detail}".strip()
+    return True, ""
 
 
 def open_extension_folder(package: str = "watchfusion") -> dict:
-    from . import watchfusion_control
-    if package not in {"official", "watchfusion"}:
+    folder = _folder(package)
+    if folder is None:
         return {"ok": False, "message": "Unknown extension package."}
-    if not watchfusion_control._health():
-        return {"ok": False, "message": "Start WatchFusion on this PC first."}
-    connection = http.client.HTTPConnection("127.0.0.1", watchfusion_control.WATCHFUSION_PORT, timeout=15)
+    if not folder.is_dir():
+        return {"ok": False, "message": f"Browser extension folder is missing: {folder}"}
+    if package == "official":
+        ok, message = _prepare_official()
+        if not ok:
+            return {"ok": False, "message": message}
+    if os.name != "nt":
+        return {"ok": True, "path": str(folder), "message": "Extension folder path is ready."}
     try:
-        connection.request("POST", f"/api/setup/open-extension-folder?package={package}", headers={"Connection": "close"})
-        response = connection.getresponse()
-        result = json.loads(response.read(65536).decode("utf-8"))
-        if response.status != 200 or not isinstance(result, dict):
-            return {"ok": False, "message": result.get("error", "Folder could not be opened.") if isinstance(result, dict) else "Invalid runtime response."}
-        return result
-    except (OSError, ValueError, UnicodeError, http.client.HTTPException) as error:
+        subprocess.Popen(
+            ["explorer.exe", str(folder)], cwd=str(_root()),
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError as error:
         return {"ok": False, "message": f"Could not open extension folder: {error}"}
-    finally:
-        connection.close()
+    label = "EveOS extension" if package == "official" else "WatchFusion companion"
+    return {"ok": True, "path": str(folder), "message": f"{label} folder opened."}

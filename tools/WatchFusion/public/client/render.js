@@ -34,6 +34,7 @@ function render() {
   document.documentElement.classList.toggle('watchfusion-room-active',inRoom);
   const source=state.source||{};
   const isLive=source.kind==='live';
+  document.documentElement.classList.toggle('watchfusion-audioflix-live',isLive&&source.mode==='audioflix');
   if(!isLive)window.watchFusionLive?.disconnect?.();
   const isNuvio=source.kind==='nuvio';
   const isVoxelVision=source.kind==='voxelvision';

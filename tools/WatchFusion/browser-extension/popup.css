@@ -4,3 +4,6 @@ input,button{box-sizing:border-box;width:100%;padding:10px;margin-top:8px;border
 button{cursor:pointer;background:#164759}button.secondary{background:#202a36}label{display:block}
 #stop{background:#292b35}details{margin-top:12px;padding:10px;border:1px solid #324657;border-radius:9px;background:#0d131b}
 summary{cursor:pointer;font-weight:700;color:#d8edf5}details p{font-size:12px;margin:8px 0 2px}#status{min-height:20px;margin-bottom:0}
+
+.runtime-state{display:flex;align-items:center;justify-content:space-between;margin:-4px 0 12px;padding:7px 9px;border:1px solid #324657;border-radius:8px;background:#0d131b}
+.runtime-state strong{color:#d8edf5;font-size:12px;letter-spacing:.02em}

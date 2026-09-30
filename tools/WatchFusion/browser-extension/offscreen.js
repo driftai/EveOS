@@ -1,4 +1,5 @@
 let capture, broadcast, peer, output, timer, frameCallback, rect, canvasTrack, lastMetadata = {};
+let relayVideoMode = 'canvas';
 const video = document.getElementById('source'), canvas = document.getElementById('crop');
 const paint = canvas.getContext('2d', { alpha: false });
 const sharing = () => Boolean(peer && capture?.getVideoTracks().some(track => track.readyState === 'live'));
@@ -36,11 +37,28 @@ function relayBitrate(base) {
   } catch { return 6000000; }
 }
 
+function fullFrame(value) {
+  if (!value) return false;
+  const right = Number(value.x) + Number(value.width);
+  const bottom = Number(value.y) + Number(value.height);
+  return Number(value.x) <= 0.015 && Number(value.y) <= 0.015 && right >= 0.985 && bottom >= 0.985;
+}
+
+async function updateRelayTrack() {
+  const sourceTrack = capture?.getVideoTracks?.()[0];
+  const desired = fullFrame(rect) && sourceTrack?.readyState === 'live' ? 'direct' : 'canvas';
+  if (!peer || desired === relayVideoMode) return;
+  if (desired === 'canvas') { startDrawLoop(); draw(); }
+  await peer.replaceVideoTrack(desired === 'direct' ? sourceTrack : canvasTrack);
+  relayVideoMode = desired;
+  if (desired === 'direct') stopDrawLoop();
+}
+
 function stop() {
   stopDrawLoop(); peer?.stop(); peer = null;
   capture?.getTracks().forEach(track => track.stop()); capture = null;
   broadcast?.getTracks().forEach(track => track.stop()); broadcast = null;
-  canvasTrack = null; video.srcObject = null;
+  canvasTrack = null; video.srcObject = null; relayVideoMode = 'canvas';
   output?.close().catch(() => {}); output = null;
   rect = null; lastMetadata = {}; blank();
   void notifySharing();
@@ -71,12 +89,13 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message.to !== 'offscreen' || sender.id !== chrome.runtime.id) return;
   (async () => {
     if (message.type === 'stop') { stop(); return { ok: true }; }
-    if (message.type === 'status') return { linked:sharing() };
+    if (message.type === 'status') return { linked:sharing(), relayVideoMode, diagnostics:await peer?.diagnostics?.() || [] };
     if (message.type === 'sample') {
       rect = message.rect || null;
       lastMetadata = message.metadata || {};
       peer?.metadata(lastMetadata);
-      return { ok: true };
+      await updateRelayTrack();
+      return { ok: true, relayVideoMode };
     }
     if (message.type !== 'start') return;
     stop();
@@ -88,10 +107,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
           minWidth: 640, minHeight: 360, maxWidth: 2560, maxHeight: 1440, maxFrameRate: 30
         } }
       });
+      const captureVideo = capture.getVideoTracks()[0];
+      if (captureVideo) captureVideo.contentHint = 'motion';
       video.srcObject = capture;
       await video.play();
 
-      // tabCapture suppresses local tab audio. Restore it independently of the relayed stream.
       output = new AudioContext();
       output.createMediaStreamSource(capture).connect(output.destination);
       await output.resume();
@@ -110,7 +130,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         onControl: (action, value) => chrome.runtime.sendMessage({ to: 'worker', type: 'control', action, value }).catch(() => {}),
         onStatus: status => { if (/stopped|expired|denied|replaced/i.test(status)) stop(); }
       });
-      capture.getVideoTracks()[0].onended = stop;
+      if (captureVideo) captureVideo.onended = stop;
       void notifySharing();
       return { ok: true };
     } catch (error) { stop(); throw error; }

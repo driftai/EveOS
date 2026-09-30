@@ -27,12 +27,18 @@
       }
       const payload = await response.json();
       if (!response.ok || payload.ok !== true) throw new Error(`${payload.message || `Could not start ${name}.`} Start it from EveOS Local Control.`);
-      for (let attempt = 0; attempt < 6; attempt++) {
+      const prompted = payload.launchPrompt === true;
+      const deadline = Date.now() + (prompted ? Math.max(15000, Number(config.launchTimeoutMs) || 120000) : 3000);
+      do {
         current = await status();
         if (current.online || current.conflict) break;
-        await new Promise(resolve => setTimeout(resolve, 400));
+        await new Promise(resolve => setTimeout(resolve, prompted ? 500 : 400));
+      } while (Date.now() < deadline);
+      if (current.conflict) throw new Error(`${name} port became occupied by another service.`);
+      if (!current.online) {
+        if (prompted) throw new Error(payload.message || `${name} is waiting for a Local/LAN/Remote selection.`);
+        throw new Error(`${name} is not ready yet. Check its console in EveOS before trying again.`);
       }
-      if (!current.online) throw new Error(`${name} is not ready yet. Check its console in EveOS before trying again.`);
     }
     const url = `${config.httpOrigin}/`;
     const tabs = await chrome.tabs.query({ url:config.tabPattern });

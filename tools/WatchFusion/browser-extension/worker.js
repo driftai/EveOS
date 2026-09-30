@@ -119,6 +119,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     const internal = sender.id === chrome.runtime.id;
     if (message.type === 'preview-pairing' && internal) return { ok: true, ...pairing(message.pairing) };
     if (message.type === 'status' && internal) return globalThis.WatchFusionMediaLink.status();
+    if (message.type === 'runtime-status' && internal) {
+      return globalThis.WatchFusionHubConnector?.serviceStatus?.() || { online:false, exposureMode:null, mode:'Offline' };
+    }
     if (message.type === 'start-pairing' && internal && !sender.tab) {
       return startCurrentTab(message.pairing, { tabId: message.tabId, fromHub: false });
     }

@@ -72,14 +72,25 @@
         await sender.setParameters(params);
       } catch {}
     }
+    async replaceVideoTrack(track) {
+      if (!track || track.kind !== 'video' || !this.options.stream) return;
+      const audio = this.options.stream.getAudioTracks();
+      this.options.stream = new MediaStream([track, ...audio]);
+      await Promise.all([...this.peers.values()].map(async peer => {
+        const sender = peer.getSenders().find(item => item.track?.kind === 'video');
+        if (!sender || sender.track === track) return;
+        try { await sender.replaceTrack(track); await this.tuneSender(sender); } catch {}
+      }));
+    }
     createPeer(id) {
       const peer = new RTCPeerConnection({ iceServers: this.iceServers || [] });
       peer.pendingIce = []; this.peers.set(id, peer);
       peer.onicecandidate = event => { if (event.candidate) this.send({ type: 'signal', peer: id, signal: { candidate: event.candidate.toJSON() } }); };
       peer.ontrack = event => {
+        const target = Math.max(0, Math.min(4000, Number(this.options.jitterBufferTargetMs) || 60));
         try {
-          if ('jitterBufferTarget' in event.receiver) event.receiver.jitterBufferTarget = 60;
-          else if ('playoutDelayHint' in event.receiver) event.receiver.playoutDelayHint = 0.06;
+          if ('jitterBufferTarget' in event.receiver) event.receiver.jitterBufferTarget = target;
+          else if ('playoutDelayHint' in event.receiver) event.receiver.playoutDelayHint = target / 1000;
         } catch {}
         const stream = event.streams[0]; if (stream) this.options.onStream?.(stream);
       };
@@ -92,6 +103,33 @@
       };
       peer.deadline = setTimeout(() => { if (peer.connectionState !== 'connected') this.status('Live media is waiting for a network route. Retry on the same LAN or configure a TURN relay.'); }, 15000);
       return peer;
+    }
+    async diagnostics() {
+      const result = [];
+      for (const [id, peer] of this.peers) {
+        const item = { peer:id, state:peer.connectionState };
+        try {
+          const stats = await peer.getStats();
+          stats.forEach(report => {
+            const kind = report.kind || report.mediaType;
+            if (report.type === 'outbound-rtp' && kind === 'video') item.outboundVideo = {
+              framesEncoded:report.framesEncoded, totalEncodeTime:report.totalEncodeTime,
+              qualityLimitationReason:report.qualityLimitationReason, bytesSent:report.bytesSent,
+              retransmittedPacketsSent:report.retransmittedPacketsSent
+            };
+            if (report.type === 'inbound-rtp' && (kind === 'video' || kind === 'audio')) item[`inbound${kind === 'audio' ? 'Audio' : 'Video'}`] = {
+              framesDecoded:report.framesDecoded, framesDropped:report.framesDropped, jitter:report.jitter,
+              jitterBufferDelay:report.jitterBufferDelay, jitterBufferTargetDelay:report.jitterBufferTargetDelay,
+              jitterBufferEmittedCount:report.jitterBufferEmittedCount, packetsLost:report.packetsLost
+            };
+            if (report.type === 'candidate-pair' && report.state === 'succeeded' && (report.nominated || report.selected)) {
+              item.route = { currentRoundTripTime:report.currentRoundTripTime, availableOutgoingBitrate:report.availableOutgoingBitrate };
+            }
+          });
+        } catch {}
+        result.push(item);
+      }
+      return result;
     }
     metadata(value) { this.send({ type: 'metadata', metadata: value }); }
     control(action, value) { this.send({ type: 'control', action, value }); }

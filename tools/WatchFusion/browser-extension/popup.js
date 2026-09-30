@@ -20,6 +20,19 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   }
 });
 
+async function refreshRuntimeStatus() {
+  try {
+    const result = await chrome.runtime.sendMessage({ to:'worker', type:'runtime-status' });
+    $('runtimeMode').textContent = result?.mode || (result?.online ? 'Local' : 'Offline');
+    $('runtimeMode').dataset.mode = result?.exposureMode || 'offline';
+    return result;
+  } catch {
+    $('runtimeMode').textContent = 'Offline';
+    $('runtimeMode').dataset.mode = 'offline';
+    return { online:false };
+  }
+}
+
 async function previewPairing(value) {
   const result = await chrome.runtime.sendMessage({ to: 'worker', type: 'preview-pairing', pairing: value });
   if (result?.error) throw new Error(result.error);
@@ -84,6 +97,10 @@ async function restorePreparedLink() {
   } catch {}
   status('Prepared by EveOS Bridge. Press Connect once to approve this WatchFusion server.');
 }
+
+void refreshRuntimeStatus();
+const runtimeStatusTimer = setInterval(() => void refreshRuntimeStatus(), 2000);
+window.addEventListener('unload', () => clearInterval(runtimeStatusTimer));
 
 void refreshSharing().then(result => {
   if (result?.linked) status('A tab is currently linked.');

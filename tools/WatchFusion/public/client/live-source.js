@@ -22,6 +22,14 @@
       $(id).disabled = busy || !!(roomId && !isHost());
     }
   }
+  function playoutDelayMs(source) {
+    if (source?.mode === 'audioflix') {
+      const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+        || ((navigator.maxTouchPoints || 0) > 0 && matchMedia('(pointer: coarse)').matches);
+      return mobile ? 80 : 60;
+    }
+    return isTryCloudflare ? 60 : 25;
+  }
   function controls(metadata = {}) {
     connectionActions();
     lastMetadata = metadata;
@@ -79,6 +87,7 @@
     controls({}); status('Connecting live media…');
     receiver = new window.WatchFusionLivePeer({ base: location.origin, id: currentId,
       token: saved?.publisherToken || source.viewerToken, roomId, memberId: session?.memberId,
+      jitterBufferTargetMs: playoutDelayMs(source),
       onStatus: status, onMetadata: controls,
       onStream: stream => {
         video.srcObject = stream;

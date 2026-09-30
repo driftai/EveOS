@@ -9,7 +9,7 @@ const managedTools = new Map([
   ['watchfusion', globalThis.EveOSManagedDashboard.create({ name:'WatchFusion',
     httpOrigin:new URL(watchfusion.url).origin, tabPattern:new URL(watchfusion.url).origin + '/*',
     healthUrl:watchfusion.health, healthKey:'app', healthValue:'WatchFusion',
-    controlOrigin:globalThis.NexusBrowserRuntimeConfig.controlOrigin, startPath:'/api/watchfusion/start' })]
+    controlOrigin:globalThis.NexusBrowserRuntimeConfig.controlOrigin, startPath:'/api/watchfusion/launch', launchTimeoutMs:120000 })]
 ]);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

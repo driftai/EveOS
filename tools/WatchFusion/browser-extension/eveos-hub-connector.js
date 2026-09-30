@@ -14,17 +14,25 @@
   }
 
   async function serviceStatus() {
-    let linked = false;
+    let linked = false, online = false, exposureMode = null;
     try {
       linked = (await globalThis.WatchFusionMediaLink?.status?.())?.linked === true;
     } catch (_error) {}
     try {
       const result = await fetch(`${dashboardUrl}api/health`, { cache: 'no-store' });
       const payload = await result.json().catch(() => ({}));
-      return { online: result.ok && payload?.ok !== false, linked };
-    } catch (_error) {
-      return { online: false, linked };
+      online = result.ok && payload?.ok !== false;
+    } catch (_error) {}
+    if (online) {
+      try {
+        const result = await fetch(`${dashboardUrl}api/network-info`, { cache: 'no-store' });
+        const payload = await result.json().catch(() => ({}));
+        if (result.ok && ['local', 'lan', 'cloudflare'].includes(payload?.exposureMode)) exposureMode = payload.exposureMode;
+      } catch (_error) {}
+      exposureMode ||= 'local';
     }
+    const mode = !online ? 'Offline' : exposureMode === 'cloudflare' ? 'Remote' : exposureMode === 'lan' ? 'LAN' : 'Local';
+    return { online, linked, exposureMode, mode };
   }
 
   function description(status) {
@@ -82,6 +90,8 @@
     if (message.type === 'invoke') return invoke(message.detail);
     return failure(message.type, 'UNKNOWN_REQUEST', 'Unknown EveOS hub request.');
   }
+  globalThis.WatchFusionHubConnector = Object.freeze({ serviceStatus });
+
   if (globalThis.EveOSExtensionModules) {
     globalThis.EveOSExtensionModules.register('watchfusion', handle);
     return;

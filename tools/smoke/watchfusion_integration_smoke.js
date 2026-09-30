@@ -62,6 +62,7 @@ function sourceContract() {
     const helper = read('server_modules/eveos_control_helper.py');
     const control = read('server_modules/watchfusion_control.py');
     const modes = read('server_modules/watchfusion_modes.py');
+    const extensionFolder = read('server_modules/watchfusion_extension.py');
     const exposureControl = read('server_modules/watchfusion_exposure.py');
     const prefs = read('server_modules/eveos_console_prefs.py');
     const registry = JSON.parse(read('config/eveos-ports.json'));
@@ -71,6 +72,7 @@ function sourceContract() {
     const modeUi = read('js/modules/features/watchfusion/watchfusion.mode-select.js');
     const css = read('css/modules/watchfusion.css');
     const setupRoutes = read('tools/WatchFusion/src/server/setup-routes.js');
+    const systemRoutes = read('tools/WatchFusion/src/server/system-routes.js');
     const roomImageRoutes = read('tools/WatchFusion/src/server/room-image-routes.js');
     const localRequest = read('tools/WatchFusion/src/server/local-request.js');
     const httpUtils = read('tools/WatchFusion/src/server/http-utils.js');
@@ -91,12 +93,17 @@ function sourceContract() {
     const clientBootstrap = read('tools/WatchFusion/public/client/bootstrap.js');
     const clientRender = read('tools/WatchFusion/public/client/render.js');
     const liveSource = read('tools/WatchFusion/public/client/live-source.js');
+    const livePeer = read('tools/WatchFusion/browser-extension/live-peer.js');
     const providerRegistry = read('tools/WatchFusion/public/client/provider-registry.js');
     const audioflixLink = read('js/modules/features/watchfusion/watchfusion.audioflix-link.js');
     const sourceProbe = read('tools/WatchFusion/browser-extension/source-probe.js');
     const sourcePageAdapter = read('tools/WatchFusion/browser-extension/source-page-adapter.js');
     const sourceWorker = read('tools/WatchFusion/browser-extension/worker.js');
     const offscreenRelay = read('tools/WatchFusion/browser-extension/offscreen.js');
+    const companionHub = read('tools/WatchFusion/browser-extension/eveos-hub-connector.js');
+    const companionPopup = read('tools/WatchFusion/browser-extension/popup.js');
+    const officialExtensionWorker = read('extension/service-worker.js');
+    const dashboardOpen = read('tools/Nexus-Browser/extension/dashboard-open.js');
     const mediaPlayer = read('tools/WatchFusion/public/client/media-player.js');
     const roomConnection = read('tools/WatchFusion/public/client/room-connection.js');
     const continuityBridge = read('tools/WatchFusion/public/client/eveos-embed-bridge.js');
@@ -115,6 +122,7 @@ function sourceContract() {
     check(helper.includes('"/api/watchfusion/mode"') && helper.includes('watchfusion_modes.apply_request'), 'WF-CONTROL-MODE', 'WatchFusion mode-switch route is missing');
     check(modes.includes('watchfusion_control.start_server(host="0.0.0.0")') && modes.includes('START-WATCHFUSION-REMOTE.bat'), 'WF-CONTROL-MODE-LAUNCH', 'mode switcher cannot launch LAN and Remote modes');
     check(modeUi.includes("dataset.wfMode") && modeUi.includes("/api/watchfusion/mode"), 'WF-MODE-UI', 'top marker mode selector is not wired to lifecycle control');
+    check(officialExtensionWorker.includes("startPath:'/api/watchfusion/launch'") && dashboardOpen.includes('payload.launchPrompt === true') && dashboardOpen.includes('launchTimeoutMs'), 'WF-EXTENSION-SELECTIVE-OPEN', 'official Bridge WatchFusion Open bypasses the Local/LAN/Remote selective launcher');
     check(helper.includes('"/api/watchfusion/setup"') && helper.includes('watchfusion_control.setup_component'), 'WF-CONTROL-SETUP', 'fresh-clone core setup route is missing');
     check(helper.includes('("watchFusion", watchfusion_control.stop_server)'), 'WF-STOP-ALL', 'global EveOS stop does not include WatchFusion');
 
@@ -133,7 +141,9 @@ function sourceContract() {
     check(control.includes('"components": components'), 'WF-OFFLINE-SETUP-STATUS', 'outer workspace cannot inspect components while WatchFusion is stopped');
     check(offscreenRelay.includes('requestVideoFrameCallback') && offscreenRelay.includes("contentHint = 'motion'"), 'WF-LIVE-LOW-LATENCY-CAPTURE', 'linked-tab relay is not frame-driven/motion-optimized');
     check(sourceWorker.includes("to: 'offscreen'"), 'WF-LIVE-WORKER-RELAY', 'linked-tab worker no longer routes samples to offscreen relay');
-    check(read('tools/WatchFusion/browser-extension/live-peer.js').includes("degradationPreference = 'maintain-framerate'"), 'WF-LIVE-SENDER-PACING', 'WebRTC sender is not tuned to preserve frame cadence');
+    check(livePeer.includes("degradationPreference = 'maintain-framerate'"), 'WF-LIVE-SENDER-PACING', 'WebRTC sender is not tuned to preserve frame cadence');
+    check(offscreenRelay.includes('fullFrame') && offscreenRelay.includes('replaceVideoTrack') && livePeer.includes('async replaceVideoTrack(track)'), 'WF-LIVE-DIRECT-TRACK', 'full-frame linked tabs cannot bypass the canvas relay stage');
+    check(livePeer.includes('jitterBufferTargetMs') && livePeer.includes('async diagnostics()') && livePeer.includes('jitterBufferTargetDelay') && liveSource.includes("return isTryCloudflare ? 60 : 25"), 'WF-LIVE-LATENCY-DIAGNOSTICS', 'live receiver latency targets or WebRTC diagnostics are missing');
     check(control.includes('_runtime_json("/api/network-info")') && control.includes('watchfusion_exposure.reconcile_status') && exposureControl.includes('network.get("localOnly") is False') && exposureControl.includes('network.get("canonicalLanHost")') && exposureControl.includes('exposureMode="lan"'), 'WF-LIVE-LAN-EXPOSURE', 'WatchFusion control does not recover the selected LAN surface from the live runtime when exposure metadata is stale');
     check(control.includes('eveos_console_prefs.headless_for("watchFusion")'), 'WF-CONSOLE', 'WatchFusion does not use its independent console preference');
     check(prefs.includes('"watchFusion"'), 'WF-CONSOLE-REGISTRY', 'WatchFusion is not registered in console preferences');
@@ -186,6 +196,7 @@ function sourceContract() {
     check(innerCss.includes('grid-template-rows: minmax(0, 1fr) auto;'), 'WF-MEDIA-TOOLBAR-GRID', 'embedded media player still consumes 100% height before its toolbar is laid out');
     check(innerCss.includes('html.eveos-embedded .source-badge { display: none; }'), 'WF-EMBEDDED-TABS-WIDTH', 'redundant source badge still steals horizontal space from embedded tabs');
     check(innerCss.includes('html.eveos-embedded #partyDetails') && innerCss.includes('watchfusion-room-active:not(.eveos-embedded) #partyDetails') && innerCss.includes('scrollbar-gutter: stable'), 'WF-EMBEDDED-CHAT-SCROLL', 'embedded or detached WatchParty chat does not preserve a bounded scroll surface');
+    check(innerCss.includes('html.eveos-embedded .top-actions button') && clientRender.includes("watchfusion-audioflix-live") && innerCss.includes('watchfusion-audioflix-live .grid'), 'WF-EMBEDDED-COMPACT-AUDIOFLIX', 'embedded controls or Audioflix room geometry can still consume excessive space');
     check(roomConnection.includes('function resumeRoomSession') && roomConnection.includes('syncResumedPlayback') && roomConnection.includes("window.addEventListener('focus', resumeRoomSession)") && roomConnection.includes("document.addEventListener('visibilitychange', resumeVisibleRoom)"), 'WF-ROOM-RESUME-SYNC', 'returning from a background tab does not actively refresh room state and force playback catch-up');
     check(!roomConnection.includes('updateServerClock(nextState.serverTime, Date.now(), Date.now())') && clientBootstrap.includes('const sentAt=Date.now()') && clientBootstrap.includes('updateServerClock(data.state.serverTime,sentAt,receivedAt)'), 'WF-MEASURED-SERVER-CLOCK', 'unmeasured snapshots can still poison the room clock with a false zero-latency sample');
     check(clientRender.includes("$('partyDetails').hidden=!inRoom"), 'WF-ROOM-REJOIN-DETAILS', 'leaving and rejoining can leave the chat/details container hidden until reload');
@@ -202,6 +213,9 @@ function sourceContract() {
     check(providerRegistry.includes('unloadMediaProvider') && providerRegistry.includes('unload: () => window.mediaPlayback?.clear?.()'), 'WF-PROVIDER-UNLOAD', 'media providers do not participate in the generic unload lifecycle');
     check(setupHtml.includes('id="livePairClose"') && setupHtml.includes('id="livePairFolder"') && !setupHtml.includes('live-help.html'), 'WF-PAIRING-INLINE-SETUP', 'tab-pairing setup still depends on an external help page or lacks its own close/folder controls');
     check(setupRoutes.includes("parts[2] === 'open-extension-folder'") && setupRoutes.includes('isHostLocalRequest(req)') && setupRoutes.includes("spawn('explorer.exe'"), 'WF-EXTENSION-FOLDER-LOCAL', 'the companion folder shortcut is missing or not host-local protected');
+    check(extensionFolder.includes('explorer.exe') && extensionFolder.includes('assemble.cjs') && !extensionFolder.includes('HTTPConnection'), 'WF-EXTENSION-FOLDER-CONTROL', 'EveOS folder buttons still depend on forwarding through the active WatchFusion exposure');
+    check(systemRoutes.includes('exposureMode') && systemRoutes.includes('trustedExtensionIds()') && companionHub.includes('api/network-info') && companionPopup.includes('runtime-status'), 'WF-EXTENSION-MODE-STATUS', 'WatchFusion popup cannot report Local/LAN/Remote from the live runtime');
+    check(clientCore.includes('data?.exposureMode') && clientBootstrap.includes("loadNetworkInfo().catch") && clientCore.includes("runtimeExposureMode === 'cloudflare'"), 'WF-RUNTIME-MODE-REFRESH', 'inner WatchFusion mode can remain stale after an exposure restart');
     check(liveSource.includes("listenPreferences.get(currentId) ?? source.mode === 'audioflix'") && liveSource.includes('listenPreferences.set(currentId') && audioflixLink.includes("acquireSpeakerMute?.('watchfusion-live')"), 'WF-AUDIOFLIX-LISTEN-HERE', 'Audioflix room monitoring must default on, preserve explicit listener choice, and suppress duplicate host speakers');
     check(sourceWorker.includes('allFrames: true') && sourceWorker.includes('controlFrameId') && sourceProbe.includes("pointerEvents: 'none'"), 'WF-GENERIC-TAB-MEDIA', 'generic tab media does not keep a stable media-only surface or route controls to the selected frame');
     check(sourceWorker.includes("world: 'MAIN'") && sourceWorker.includes("source-page-adapter.js")

@@ -1,5 +1,8 @@
-import { LAN_MODE, PORT } from './config.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { LAN_MODE, PORT, PROJECT_ROOT } from './config.js';
 import { counts } from './room-store.js';
+import { trustedExtensionIds } from './extension-identity.js';
 import { isHostLocalRequest } from './local-request.js';
 import {
   isVirtualAddress,
@@ -11,6 +14,16 @@ import {
 } from './network.js';
 import { json, now } from './http-utils.js';
 
+function remoteTunnelUrl() {
+  try {
+    const raw = fs.readFileSync(path.join(PROJECT_ROOT, '.runtime', 'remote-url.txt'), 'utf8').trim();
+    const url = new URL(raw);
+    return url.protocol === 'https:' && /(?:^|\.)trycloudflare\.com$/i.test(url.hostname) ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 export function handleSystemRoute(req, res, parts) {
   if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'health') {
     const { rooms, aliases } = counts();
@@ -20,7 +33,7 @@ export function handleSystemRoute(req, res, parts) {
 
   if (req.method !== 'GET' || parts[0] !== 'api' || parts[1] !== 'network-info') return false;
 
-  if (!isHostLocalRequest(req, { allowNullOrigin: true })) {
+  if (!isHostLocalRequest(req, { allowNullOrigin: true, allowedExtensionIds: trustedExtensionIds() })) {
     json(res, 403, { error: 'network diagnostics are host-local only' });
     return true;
   }
@@ -36,11 +49,15 @@ export function handleSystemRoute(req, res, parts) {
   const preferredUrls = lanUrls(preferredAddress, PORT);
   const requestOriginHost = originForRequest(req);
   const requestUrls = lanUrls(requestOriginHost, PORT);
+  const remoteUrl = remoteTunnelUrl();
+  const exposureMode = remoteUrl ? 'cloudflare' : LAN_MODE ? 'lan' : 'local';
 
   json(res, 200, {
     ok: true,
     app: 'WatchFusion',
     port: PORT,
+    exposureMode,
+    remoteUrl,
     localAddress,
     localHost,
     localCanonicalHost: localHost,
