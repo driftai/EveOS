@@ -5,10 +5,14 @@ function arg(name, fallback) {
   const index = args.indexOf(name);
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 }
-const base = arg('--base', process.env.WATCHFUSION_URL || 'http://127.0.0.1:9087/');
+const baseInput = arg('--base', process.env.WATCHFUSION_URL || 'http://127.0.0.1:9087/');
 const target = arg('--url', process.env.WATCHFUSION_VIDEO_URL || 'https://youtu.be/ds3sGeb8pK0?si=i9hCSJS7v2SLMYI7');
 const seconds = Math.max(5, Math.min(120, Number(arg('--seconds', '20')) || 20));
 const strict = args.includes('--strict');
+const embedded = args.includes('--embedded');
+const baseUrl = new URL(baseInput);
+if (embedded) baseUrl.searchParams.set('eveos', '1');
+const base = baseUrl.href;
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
@@ -105,7 +109,7 @@ const strict = args.includes('--strict');
   });
 
   const health = result.elapsedPlaybackSec >= seconds * 0.65 && result.stalledRatio < 0.25 ? 'good' : 'degraded';
-  console.log(JSON.stringify({ smoke:'watchfusion-video-stream', target, seconds, health, result,
+  console.log(JSON.stringify({ smoke:'watchfusion-video-stream', target, seconds, embedded, base, health, result,
     consoleErrors:consoleErrors.slice(0,20), requestFailures:requestFailures.slice(0,20) }, null, 2));
   console.log(`WATCHFUSION_VIDEO_STREAM_SMOKE_${health === 'good' ? 'OK' : 'DEGRADED'}`);
   await browser.close();
