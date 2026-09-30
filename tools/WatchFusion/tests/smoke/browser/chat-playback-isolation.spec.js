@@ -18,13 +18,13 @@ test('chat command does not re-enter playback synchronization', async ({ page })
       messages: []
     };
 
-    let syncCalls = 0;
-    const originalSync = syncPlaybackForAuthorityChange;
+    let youtubeSyncCalls = 0;
+    let mediaSyncCalls = 0;
+    const originalSyncPlayer = syncPlayer;
     const originalFetch = window.fetch;
-    syncPlaybackForAuthorityChange = (...args) => {
-      syncCalls += 1;
-      return originalSync(...args);
-    };
+    const originalMediaPlayback = window.mediaPlayback;
+    syncPlayer = () => { youtubeSyncCalls += 1; };
+    window.mediaPlayback = { ...(originalMediaPlayback || {}), sync: () => { mediaSyncCalls += 1; } };
     window.fetch = async () => new Response(JSON.stringify({
       ok: true,
       state: {
@@ -38,15 +38,17 @@ test('chat command does not re-enter playback synchronization', async ({ page })
 
     try {
       const ok = await command('chat', { text: 'hello' });
-      return { ok, syncCalls, authority: playbackAuthorityKey(state) };
+      return { ok, youtubeSyncCalls, mediaSyncCalls };
     } finally {
       window.fetch = originalFetch;
-      syncPlaybackForAuthorityChange = originalSync;
+      window.mediaPlayback = originalMediaPlayback;
+      syncPlayer = originalSyncPlayer;
     }
   });
 
   expect(result.ok).toBe(true);
-  expect(result.syncCalls).toBe(1);
+  expect(result.youtubeSyncCalls).toBe(0);
+  expect(result.mediaSyncCalls).toBe(0);
 });
 
 test('same-source chat render does not rehydrate the active YouTube player', async ({ page }) => {
