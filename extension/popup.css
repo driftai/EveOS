@@ -2,10 +2,14 @@
 * { box-sizing:border-box; }
 /* Keep html/body clear: their backgrounds propagate to the square document canvas. */
 body { margin:0; width:420px; height:570px; overflow:hidden; background:transparent; }
+/* Match the native frame with one full-bleed surface, not nested rounded rims. */
 #popupShell { width:100%; height:100%; display:flex; flex-direction:column; overflow:hidden;
-  border-radius:20px; isolation:isolate;
-  background:radial-gradient(ellipse at 100% 0,#163b48 0,transparent 48%),#0b121b;
-  box-shadow:inset 0 0 0 1px #304553; }
+  position:relative; isolation:isolate; border-radius:0;
+  background:radial-gradient(ellipse at 85% 0,#32627324,transparent 55%),
+    linear-gradient(180deg,#152934 0,#101e29 22%,#0b141e 70%);
+  box-shadow:inset 0 1px 0 #96cedd0c; }
+#popupShell::before { content:""; position:absolute; top:0; left:18px; right:18px; height:1px;
+  pointer-events:none; background:linear-gradient(90deg,transparent,#8fe3ef55,transparent); }
 header { display:flex; gap:10px; align-items:center; padding:14px 16px 12px; flex-shrink:0; }
 header strong { display:block; font-size:18px; font-weight:650; letter-spacing:-.02em; color:#71e3ee; }
 .tagline { display:block; font-size:11px; color:#8faab8; margin-top:1px; }

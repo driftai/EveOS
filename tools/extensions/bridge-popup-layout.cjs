@@ -4,15 +4,19 @@ const path = require('node:path');
 
 async function qualifyPopupCorners(page) {
   const image = await page.screenshot({ omitBackground:true });
-  const alpha = await page.evaluate(async png => {
+  const pixels = await page.evaluate(async png => {
     const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(png), character => character.charCodeAt(0))], { type:'image/png' }));
     const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
     const context = canvas.getContext('2d'); context.drawImage(bitmap, 0, 0); bitmap.close();
-    return [[0, 0], [canvas.width - 1, 0], [0, canvas.height - 1], [canvas.width - 1, canvas.height - 1], [canvas.width / 2, 30]]
-      .map(([x, y]) => context.getImageData(x, y, 1, 1).data[3]);
+    return [[0, 0], [6, 0], [canvas.width - 1, 0], [canvas.width - 7, 0],
+      [0, canvas.height - 1], [6, canvas.height - 1], [canvas.width - 1, canvas.height - 1], [canvas.width - 7, canvas.height - 1]]
+      .map(([x, y]) => [...context.getImageData(x, y, 1, 1).data]);
   }, image.toString('base64'));
-  assert.deepEqual(alpha.slice(0, 4), [0, 0, 0, 0], 'popup canvas must not paint square backing pixels outside the rounded shell');
-  assert.equal(alpha[4], 255, 'rounded shell must retain its opaque interior');
+  assert(pixels.every(pixel => pixel[3] === 255), 'full-bleed finish must not leave contrasting corner cutouts');
+  for (let index = 0; index < pixels.length; index += 2) {
+    assert(pixels[index].slice(0, 3).every((channel, component) => Math.abs(channel - pixels[index + 1][component]) <= 4),
+      'corner colors must flow smoothly into the surface, not form a separate rim');
+  }
 }
 
 async function qualifyPopupLayout(page, resultDir) {
@@ -20,14 +24,18 @@ async function qualifyPopupLayout(page, resultDir) {
   await qualifyPopupCorners(page);
   const shell = await page.locator('#popupShell').evaluate(element => {
     const bounds = element.getBoundingClientRect(), style = getComputedStyle(element);
-    return { width:bounds.width, height:bounds.height, overflow:style.overflow,
+    const body = document.body.getBoundingClientRect();
+    return { width:bounds.width, height:bounds.height, x:bounds.x, y:bounds.y,
+      bodyWidth:body.width, bodyHeight:body.height, overflow:style.overflow, shadow:style.boxShadow,
       rootBackground:getComputedStyle(document.documentElement).backgroundColor,
       bodyBackground:getComputedStyle(document.body).backgroundColor, radius:parseFloat(style.borderRadius) };
   });
-  assert.deepEqual([shell.width, shell.height], [420, 570], 'popup dimensions must remain stable');
-  assert(shell.overflow === 'hidden' && shell.radius >= 18 && shell.rootBackground === 'rgba(0, 0, 0, 0)'
-      && shell.bodyBackground === 'rgba(0, 0, 0, 0)',
-    'only the rounded shell may paint a background, not html/body canvas propagation');
+  assert.deepEqual([shell.bodyWidth, shell.bodyHeight], [420, 570], 'native popup dimensions must remain stable');
+  assert.deepEqual([shell.x, shell.y, shell.width, shell.height], [0, 0, 420, 570],
+    'surface must meet the native frame without an inset bezel');
+  assert(shell.overflow === 'hidden' && shell.radius === 0 && shell.rootBackground === 'rgba(0, 0, 0, 0)'
+      && shell.bodyBackground === 'rgba(0, 0, 0, 0)' && shell.shadow !== 'none',
+    'one intentional full-bleed surface must paint the popup, without html/body background propagation');
   for (const [id, label, last] of [
     ['tools', 'Tools', 'main .tool-section:last-child .card:last-child'],
     ['watchfusion', 'WatchFusion', '#status'],

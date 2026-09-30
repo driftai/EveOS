@@ -18,7 +18,7 @@ WatchFusion's **Open EveOS extension folder** action prepares the shared package
 
 `bridge-surfaces.css` supplies a shared presentation layer to same-origin included panels: rounded controls, compact spacing, keyboard focus, and slim themed scrollbars. It changes neither canonical standalone assets nor website content, permissions, or tool behavior. The browser still owns the popup's toolbar anchor and outer native frame.
 
-The painted popup background belongs only to `#popupShell`, which clips all four rounded corners. Keep `html` and `body` backgrounds transparent: either element's background can propagate to the rectangular document canvas and undo the visible rounding. Browser checks inspect rendered corner alpha as well as geometry; they do not claim to reshape Chrome's native window border.
+The painted surface belongs to `#popupShell` and meets Chrome's rectangular frame directly, with a continuous low-contrast gradient and a faint top highlight. Rounded controls and content panels stay inside; avoid an inset bezel, black corner cutouts, or multiple perimeter outlines. Keep `html` and `body` backgrounds transparent so this single surface owns the finish. Browser checks inspect opaque, smoothly matched corner pixels and stable full-bleed geometry; they do not claim to reshape Chrome's native window border.
 
 About/setup, Local services, Browser tools, their individual cards, and WatchFusion's setup drawer are collapsible. Their last expanded/collapsed choices persist as boolean-only `eveosBridgeExpandedV1:` keys in `chrome.storage.local`; refreshing status or reopening Bridge does not reset them. This is local UI state, not repository data, and contains no URLs, chats, pairing links, or room contents.
 
