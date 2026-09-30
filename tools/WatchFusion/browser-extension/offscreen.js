@@ -45,14 +45,9 @@ function fullFrame(value) {
 }
 
 async function updateRelayTrack() {
-  const sourceTrack = capture?.getVideoTracks?.()[0];
-  const directAllowed = lastMetadata?.relayHint !== 'canvas';
-  const desired = directAllowed && fullFrame(rect) && sourceTrack?.readyState === 'live' ? 'direct' : 'canvas';
-  if (!peer || desired === relayVideoMode) return;
-  if (desired === 'canvas') { startDrawLoop(); draw(); }
-  await peer.replaceVideoTrack(desired === 'direct' ? sourceTrack : canvasTrack);
-  relayVideoMode = desired;
-  if (desired === 'direct') stopDrawLoop();
+  // Track choice is made before WebRTC negotiation. Do not replace the active video sender mid-stream:
+  // that path physically froze Miruro while its controls/metadata remained responsive.
+  if (relayVideoMode === 'canvas') { startDrawLoop(); draw(); }
 }
 
 function stop() {
@@ -106,6 +101,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (message.type !== 'start') return;
     stop();
     try {
+      rect = message.initialRect || null;
+      lastMetadata = message.initialMetadata || {};
       capture = await navigator.mediaDevices.getUserMedia({
         audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: message.streamId } },
         video: { mandatory: {
@@ -122,12 +119,19 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       output.createMediaStreamSource(capture).connect(output.destination);
       await output.resume();
 
-      const canvasStream = canvas.captureStream(0);
-      canvasTrack = canvasStream.getVideoTracks()[0];
-      canvasTrack.contentHint = 'motion';
-      broadcast = new MediaStream([canvasTrack, ...capture.getAudioTracks()]);
-      startDrawLoop();
-      draw();
+      const startDirect = lastMetadata?.relayHint === 'direct-start' && fullFrame(rect) && captureVideo?.readyState === 'live';
+      if (startDirect) {
+        relayVideoMode = 'direct';
+        broadcast = new MediaStream([captureVideo, ...capture.getAudioTracks()]);
+      } else {
+        relayVideoMode = 'canvas';
+        const canvasStream = canvas.captureStream(0);
+        canvasTrack = canvasStream.getVideoTracks()[0];
+        canvasTrack.contentHint = 'motion';
+        broadcast = new MediaStream([canvasTrack, ...capture.getAudioTracks()]);
+        startDrawLoop();
+        draw();
+      }
 
       peer = new WatchFusionLivePeer({
         base: message.base, id: message.id, token: message.token, stream: broadcast,

@@ -54,6 +54,14 @@
     focused = null; savedStyle = null;
   }
 
+  function cleanup() {
+    enabled = false;
+    restoreFocus();
+    children.clear();
+    pageMedia = null;
+  }
+  window.__watchFusionMediaProbeCleanup = cleanup;
+
   function focus(element) {
     if (!element || focused === element) return;
     restoreFocus();
@@ -129,14 +137,14 @@
         duration: Number.isFinite(element?.duration) ? element.duration : pageMedia?.duration || 0,
         rate: element?.playbackRate || pageMedia?.rate || 1,
         volume: element ? (element.muted ? 0 : element.volume ?? 1) : pageMedia?.volume ?? 1,
-        relayHint: controller ? 'canvas' : 'auto',
+        relayHint: controller ? 'direct-start' : 'auto',
         status: element || controller ? '' : 'Waiting for a playable video · embedded players may need Setup & embedded players access.'
       }
     }).catch(() => {});
   }
 
   chrome.runtime.onMessage.addListener(message => {
-    if (message.type === 'probe-stop') { enabled = false; restoreFocus(); return; }
+    if (message.type === 'probe-stop') { cleanup(); return; }
     if (message.type === 'probe-start') { enabled = true; snapshot(); return; }
     if (message.type !== 'source-control' || !enabled) return;
     const element = media();

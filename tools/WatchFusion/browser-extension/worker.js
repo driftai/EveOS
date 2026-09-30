@@ -1,7 +1,7 @@
 importScripts('eveos-hub-connector.js');
 
 let sourceTab = null, controlFrameId = 0;
-let lastRefresh = 0;
+let lastRefresh = 0, lastCombinedSample = null, captureReady = false;
 const frameSamples = new Map();
 const asset = value => (globalThis.EveOSExtensionModuleRoots?.watchfusion || '') + value;
 
@@ -33,7 +33,7 @@ async function messageFrames(tabId, message) {
 }
 
 async function inject(tabId) {
-  frameSamples.clear(); controlFrameId = 0;
+  frameSamples.clear(); controlFrameId = 0; lastCombinedSample = null;
   let results;
   try {
     await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, world: 'MAIN',
@@ -66,17 +66,34 @@ function combinedSample(frameId, message) {
     return null;
   }
   const rect = media ? crop(top) : null;
-  return { rect, metadata: rect ? media.metadata : { ...(top?.metadata || {}),
+  lastCombinedSample = { rect, metadata: rect ? media.metadata : { ...(top?.metadata || {}),
     status: 'Waiting for playable media · enable Setup & embedded players access for embedded video.' } };
+  return lastCombinedSample;
+}
+
+async function waitForInitialSample(timeoutMs = 700) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (lastCombinedSample?.rect) return lastCombinedSample;
+    await new Promise(resolve => setTimeout(resolve, 40));
+  }
+  return lastCombinedSample;
 }
 
 async function stop() {
   const saved = await chrome.storage.session.get('sourceTab');
   const tabId = sourceTab ?? saved.sourceTab;
-  if (tabId != null) await messageFrames(tabId, { type: 'probe-stop' });
-  sourceTab = null; frameSamples.clear(); controlFrameId = 0;
-  await chrome.storage.session.remove('sourceTab');
+  captureReady = false;
   await chrome.runtime.sendMessage({ to: 'offscreen', type: 'stop' }).catch(() => {});
+  if (tabId != null) {
+    await messageFrames(tabId, { type: 'probe-stop' });
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => { try { globalThis.__watchFusionMediaProbeCleanup?.(); } catch {} }
+    }).catch(() => {});
+  }
+  sourceTab = null; frameSamples.clear(); controlFrameId = 0; lastCombinedSample = null;
+  await chrome.storage.session.remove('sourceTab');
   return { ok: true };
 }
 
@@ -87,13 +104,22 @@ async function startCurrentTab(value, options = {}) {
   if (!Number.isInteger(tabId) || active?.id !== tabId) throw new Error('Return to the source tab before linking it.');
   await stop();
   try {
-    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
-    await offscreen();
     sourceTab = tabId;
     await chrome.storage.session.set({ sourceTab });
-    const result = await chrome.runtime.sendMessage({ to: 'offscreen', type: 'start', streamId, ...config });
-    if (result?.error) throw new Error(result.error);
     await inject(tabId);
+    const initial = await waitForInitialSample();
+    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    await offscreen();
+    const result = await chrome.runtime.sendMessage({
+      to: 'offscreen', type: 'start', streamId, ...config,
+      initialRect: initial?.rect || null,
+      initialMetadata: initial?.metadata || null
+    });
+    if (result?.error) throw new Error(result.error);
+    captureReady = true;
+    if (lastCombinedSample) {
+      await chrome.runtime.sendMessage({ to:'offscreen', type:'sample', ...lastCombinedSample }).catch(() => {});
+    }
     return { ok: true, message: 'Current tab linked to WatchFusion.' };
   } catch (error) { await stop(); throw error; }
 }
@@ -137,7 +163,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       return { ok: true };
     }
     if (message.type === 'sample' && sender.tab?.id === tabId) {
-      return chrome.runtime.sendMessage({ to: 'offscreen', type: 'sample', ...combinedSample(sender.frameId || 0, message) });
+      const sample = combinedSample(sender.frameId || 0, message);
+      if (!captureReady) return { ok:true, pending:true };
+      return chrome.runtime.sendMessage({ to: 'offscreen', type: 'sample', ...sample });
     }
     if (message.type === 'control' && sender.url === chrome.runtime.getURL(asset('offscreen.html')) && tabId != null) {
       return chrome.tabs.sendMessage(tabId, { type: 'source-control', action: message.action, value: message.value }, { frameId: controlFrameId });
