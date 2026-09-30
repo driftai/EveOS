@@ -3,8 +3,8 @@
     inset: 0;
     z-index: 24000;
     padding: 4px;
-    background: color-mix(in srgb, var(--bg-color) 70%, transparent);
-    backdrop-filter: blur(18px) saturate(1.08);
+    background: color-mix(in srgb, var(--bg-color) 94%, #000 6%);
+    backdrop-filter: none;
 }
 .watchfusion-overlay[hidden] { display: none !important; }
 .watchfusion-shell {
