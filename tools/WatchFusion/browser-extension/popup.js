@@ -5,9 +5,16 @@ async function refreshSharing() {
   const revision = ++sharingRevision;
   try {
     const result = await chrome.runtime.sendMessage({ to:'worker', type:'status' });
-    if (revision === sharingRevision) $('stop').hidden = result?.linked !== true;
+    if (revision === sharingRevision) {
+      const linked = result?.linked === true;
+      $('stop').hidden = !linked;
+      $('stats').hidden = !linked;
+    }
     return result;
-  } catch { if (revision === sharingRevision) $('stop').hidden = true; return { linked:false }; }
+  } catch {
+    if (revision === sharingRevision) { $('stop').hidden = true; $('stats').hidden = true; }
+    return { linked:false };
+  }
 }
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'session' && Object.hasOwn(changes, 'sourceTab')) void refreshSharing();
@@ -62,6 +69,20 @@ async function connectPairing(value, requestAccess = true) {
 $('connect').onclick = async () => {
   try { await connectPairing($('pairing').value.trim(), true); }
   catch (error) { status(error.message); }
+};
+
+$('stats').onclick = async () => {
+  try {
+    const result = await chrome.runtime.sendMessage({ to:'worker', type:'status' });
+    if (!result?.linked) throw new Error('No tab is currently linked.');
+    const payload = JSON.stringify({
+      relayVideoMode: result.relayVideoMode || null,
+      captureSettings: result.captureSettings || null,
+      publisher: result.diagnostics || []
+    }, null, 2);
+    await navigator.clipboard.writeText(payload);
+    status('Live publisher diagnostics copied.');
+  } catch (error) { status(error.message); }
 };
 
 $('stop').onclick = async () => {

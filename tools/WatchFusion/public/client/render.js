@@ -51,6 +51,7 @@ function render() {
   $('roomPill').textContent=inRoom?displayRoomLabel():'Solo';
   $('roomPill').title=inRoom?`Copy join code: ${joinCode||roomId}`:'No active room';
   if(partyPanel)partyPanel.hidden=!inRoom;
+  if($('roomSplitter'))$('roomSplitter').hidden=!inRoom;
   if($('partyDetails'))$('partyDetails').hidden=!inRoom;
   if($('startPartyBtn'))$('startPartyBtn').hidden=inRoom;
   if($('openRoomBtn'))$('openRoomBtn').hidden=inRoom;

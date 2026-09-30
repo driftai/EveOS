@@ -370,3 +370,74 @@ html.eveos-embedded .chat { min-height: 0; }
   html.eveos-embedded.watchfusion-room-active.watchfusion-audioflix-live .chat { min-height: 120px; }
   html.eveos-embedded.watchfusion-room-active.watchfusion-audioflix-live .live-controls { max-height: none; padding: 8px; }
 }
+
+.room-splitter {
+  display: none;
+  width: 8px;
+  min-width: 8px;
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+  background: color-mix(in srgb, var(--border-subtle) 24%, transparent);
+  outline: none;
+}
+.room-splitter::before {
+  content: '';
+  position: absolute;
+  inset: 0 3px;
+  background: var(--border-subtle);
+  transition: background .12s ease, inset .12s ease;
+}
+.room-splitter:hover::before,
+.room-splitter:focus-visible::before {
+  inset: 0 2px;
+  background: var(--accent);
+}
+html.watchfusion-resizing,
+html.watchfusion-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+.live-audio-sync {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 4px 0 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.live-audio-sync label { display: flex; align-items: center; gap: 7px; }
+.live-audio-sync input { width: 150px; }
+.live-audio-sync output { min-width: 48px; color: var(--text-main); font-variant-numeric: tabular-nums; }
+
+@media (min-width: 901px) {
+  html.watchfusion-room-active .grid,
+  .grid:has(#partyPanel:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr) 8px minmax(230px, var(--watchfusion-party-width, 340px));
+    gap: 0;
+  }
+  html.watchfusion-room-active .room-splitter:not([hidden]),
+  .grid:has(#partyPanel:not([hidden])) .room-splitter:not([hidden]) { display: block; }
+}
+@media (min-width: 700px) and (max-width: 900px) {
+  html.eveos-embedded.watchfusion-room-active .grid,
+  html.eveos-embedded .grid:has(#partyPanel:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr) 8px minmax(230px, var(--watchfusion-party-width, 300px));
+    gap: 0;
+    overflow: hidden;
+  }
+  html.eveos-embedded .room-splitter:not([hidden]) { display: block; }
+  html.eveos-embedded.watchfusion-room-active .side,
+  html.eveos-embedded .grid:has(#partyPanel:not([hidden])) .side {
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
+    border-left: 1px solid var(--border-subtle);
+    border-top: 0;
+  }
+  html.eveos-embedded.watchfusion-room-active #partyDetails { overflow: hidden; }
+}
+@media (max-width: 699px) {
+  .room-splitter { display: none !important; }
+}

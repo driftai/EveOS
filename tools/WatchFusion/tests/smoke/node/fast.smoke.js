@@ -65,6 +65,7 @@ export async function runFastSmoke() {
     const mediaPlayer = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'media-player.js'), 'utf8');
     const playbackSync = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'playback-sync.js'), 'utf8');
     const continuityBridge = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'eveos-embed-bridge.js'), 'utf8');
+    const roomResize = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'room-resize.js'), 'utf8');
     const style = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'style.css'), 'utf8');
     assert.match(core, /serverLanMode && lanBaseUrl/);
     assert.ok(core.indexOf('preferredLanHost') < core.indexOf('preferredLanAddress'));
@@ -81,8 +82,8 @@ export async function runFastSmoke() {
     assert.match(render, /fileName\.style\.display='none'/);
     assert.doesNotMatch(render, /Image link copied/);
     assert.doesNotMatch(render, />Save<\/a>/);
-    assert.match(core, /eveosShareBaseUrl/);
-    assert.match(core, /eveosShareMode !== 'local'/);
+    assert.match(core, /runtimeShareBaseUrl/);
+    assert.match(core, /runtimeExposureMode !== 'local'/);
     assert.match(style, /eveos-embedded\.watchfusion-room-active/);
     assert.match(style, /eveos-embedded #partyDetails/);
     assert.match(style, /watchfusion-room-active:not\(\.eveos-embedded\) #partyDetails/);
@@ -91,6 +92,9 @@ export async function runFastSmoke() {
     assert.match(style, /max-height:\s*min\(48dvh, 460px\)/);
     assert.match(style, /align-self:\s*stretch/);
     assert.match(style, /scrollbar-gutter:\s*stable/);
+    assert.match(roomResize, /watchfusion\.partyPanelWidth/);
+    assert.match(roomResize, /setPointerCapture/);
+    assert.match(style, /--watchfusion-party-width/);
     assert.match(connection, /function resumeRoomSession/);
     assert.match(connection, /syncResumedPlayback/);
     assert.match(connection, /document\.addEventListener\('visibilitychange', resumeVisibleRoom\)/);

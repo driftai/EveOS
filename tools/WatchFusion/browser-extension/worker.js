@@ -108,7 +108,12 @@ globalThis.WatchFusionMediaLink = Object.freeze({
       const contexts = await chrome.runtime.getContexts({ contextTypes:['OFFSCREEN_DOCUMENT'], documentUrls:[chrome.runtime.getURL(asset('offscreen.html'))] });
       if (!contexts.length) return { linked:false };
       const result = await chrome.runtime.sendMessage({ to:'offscreen', type:'status' });
-      return { linked:result?.linked === true };
+      return {
+        linked: result?.linked === true,
+        relayVideoMode: result?.relayVideoMode || null,
+        captureSettings: result?.captureSettings || null,
+        diagnostics: Array.isArray(result?.diagnostics) ? result.diagnostics : []
+      };
     } catch { return { linked:false }; }
   }
 });

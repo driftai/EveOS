@@ -120,7 +120,9 @@
             if (report.type === 'inbound-rtp' && (kind === 'video' || kind === 'audio')) item[`inbound${kind === 'audio' ? 'Audio' : 'Video'}`] = {
               framesDecoded:report.framesDecoded, framesDropped:report.framesDropped, jitter:report.jitter,
               jitterBufferDelay:report.jitterBufferDelay, jitterBufferTargetDelay:report.jitterBufferTargetDelay,
-              jitterBufferEmittedCount:report.jitterBufferEmittedCount, packetsLost:report.packetsLost
+              jitterBufferMinimumDelay:report.jitterBufferMinimumDelay, jitterBufferEmittedCount:report.jitterBufferEmittedCount,
+              framesPerSecond:report.framesPerSecond, packetsLost:report.packetsLost,
+              concealedSamples:report.concealedSamples, insertedSamplesForDeceleration:report.insertedSamplesForDeceleration
             };
             if (report.type === 'candidate-pair' && report.state === 'succeeded' && (report.nominated || report.selected)) {
               item.route = { currentRoundTripTime:report.currentRoundTripTime, availableOutgoingBitrate:report.availableOutgoingBitrate };

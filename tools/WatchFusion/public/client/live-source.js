@@ -1,6 +1,9 @@
 /* A live source owns its timeline. Never feed it through file/YouTube drift correction. */
 (() => {
   let receiver = null, currentId = '', currentMember = '', busy = false, lastMetadata = {};
+  let activeLiveStream = null, listenEnabled = false;
+  let delayContext = null, delaySource = null, delayNode = null, delayStream = null;
+  const AUDIO_SYNC_KEY = 'watchfusion.audioSyncDelayMs';
   const owners = new Map();
   const listenPreferences = new Map();
   const ownerKey = id => `watchfusion.live.${id}`;
@@ -22,16 +25,52 @@
       $(id).disabled = busy || !!(roomId && !isHost());
     }
   }
-  function playoutDelayMs(source) {
-    if (source?.mode === 'audioflix') {
-      const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
-        || ((navigator.maxTouchPoints || 0) > 0 && matchMedia('(pointer: coarse)').matches);
-      return mobile ? 80 : 60;
+  function audioSyncDelayMs() {
+    const value = Number(storage.get(AUDIO_SYNC_KEY, '0'));
+    return Number.isFinite(value) ? Math.max(0, Math.min(250, value)) : 0;
+  }
+  function stopDelayGraph(closeContext = false) {
+    try { delaySource?.disconnect(); } catch {}
+    try { delayNode?.disconnect(); } catch {}
+    delaySource = null; delayNode = null; delayStream = null;
+    if (closeContext && delayContext) { delayContext.close?.().catch?.(() => {}); delayContext = null; }
+  }
+  async function refreshAudioOutput() {
+    const video = $('liveVideo');
+    if (!video) return;
+    if (!listenEnabled) { video.muted = true; stopDelayGraph(false); return; }
+    const delayMs = state?.source?.mode === 'audioflix' ? audioSyncDelayMs() : 0;
+    if (!activeLiveStream || delayMs <= 0) { stopDelayGraph(false); video.muted = false; return; }
+    const Context = window.AudioContext || window.webkitAudioContext;
+    if (!Context) { video.muted = false; return; }
+    video.muted = true;
+    if (!delayContext) delayContext = new Context({ latencyHint: 'interactive' });
+    if (delayStream !== activeLiveStream || !delaySource || !delayNode) {
+      stopDelayGraph(false);
+      delaySource = delayContext.createMediaStreamSource(activeLiveStream);
+      delayNode = delayContext.createDelay(1);
+      delaySource.connect(delayNode).connect(delayContext.destination);
+      delayStream = activeLiveStream;
     }
-    return isTryCloudflare ? 60 : 25;
+    delayNode.delayTime.setTargetAtTime(delayMs / 1000, delayContext.currentTime, 0.008);
+    try { await delayContext.resume(); } catch {}
+  }
+  function updateAudioSyncUi(source = state?.source) {
+    const wrap = $('liveAudioSyncWrap'), input = $('liveAudioSync'), output = $('liveAudioSyncValue');
+    if (!wrap || !input || !output) return;
+    const active = source?.kind === 'live' && source.mode === 'audioflix';
+    wrap.hidden = !active;
+    const value = audioSyncDelayMs();
+    if (document.activeElement !== input) input.value = String(value);
+    output.textContent = `+${value} ms`;
+  }
+  function playoutDelayMs(source) {
+    if (source?.mode === 'audioflix') return 60;
+    return isTryCloudflare ? 60 : 10;
   }
   function controls(metadata = {}) {
     connectionActions();
+    updateAudioSyncUi();
     lastMetadata = metadata;
     $('liveTitle').textContent = metadata.title || state?.source?.title || 'Live media';
     $('liveGroup').textContent = metadata.group || '';
@@ -66,12 +105,14 @@
     for (const id of ['player', 'nuvioFrame', 'voxelVisionFrame']) { const el = $(id); if (el) { el.hidden = true; el.style.display = 'none'; } }
   }
   function setListen(video, enabled) {
-    video.muted = !enabled;
+    listenEnabled = !!enabled;
+    void refreshAudioOutput();
     $('liveListen').textContent = enabled ? 'Mute here' : 'Listen here';
     $('liveListen').setAttribute('aria-pressed', String(enabled));
   }
   function disconnect() {
     receiver?.stop(); receiver = null; currentId = ''; currentMember = '';
+    activeLiveStream = null; listenEnabled = false; stopDelayGraph(true);
     const video = $('liveVideo'); video.srcObject = null; setListen(video, false);
     video.hidden = true; $('liveControls').hidden = true;
     connectionActions(null);
@@ -90,7 +131,9 @@
       jitterBufferTargetMs: playoutDelayMs(source),
       onStatus: status, onMetadata: controls,
       onStream: stream => {
+        activeLiveStream = stream;
         video.srcObject = stream;
+        void refreshAudioOutput();
         video.play().catch(() => {
           setListen(video, false);
           status('Playback is ready · press Listen here once to enable audio.');
@@ -210,6 +253,17 @@
     try { await video.play(); } catch { setListen(video, false); status('Browser blocked playback. Try Listen here again.'); }
   };
   $('liveRetry').onclick = () => { const source = state?.source; if (source?.kind === 'live') { receiver?.stop(); receiver = null; load(source); } };
+  $('liveStats').onclick = async () => {
+    const payload = { sourceMode: state?.source?.mode || null, receiver: await receiver?.diagnostics?.() || [] };
+    const copied = await copyText(JSON.stringify(payload, null, 2));
+    status(copied ? 'Live receiver diagnostics copied.' : `Live diagnostics: ${JSON.stringify(payload)}`);
+  };
+  $('liveAudioSync').oninput = event => {
+    const value = Math.max(0, Math.min(250, Number(event.currentTarget.value) || 0));
+    storage.set(AUDIO_SYNC_KEY, String(value));
+    $('liveAudioSyncValue').textContent = `+${value} ms`;
+    void refreshAudioOutput();
+  };
   $('liveStop').onclick = async () => {
     try {
       if (window.unloadWatchFusionMedia) await window.unloadWatchFusionMedia();
@@ -218,7 +272,7 @@
   };
   $('liveControls').addEventListener('click', event => { const button = event.target.closest('[data-live-action]'); if (button && canControl()) receiver?.control(button.dataset.liveAction, Number(button.dataset.value)); });
   for (const [id, action] of [['liveSeek', 'seek'], ['liveRate', 'rate'], ['liveVolume', 'volume']]) $(id).onchange = () => { if (canControl()) receiver?.control(action, Number($(id).value)); };
-  window.watchFusionLive = { load, disconnect, share, unload };
+  window.watchFusionLive = { load, disconnect, share, unload, diagnostics: () => receiver?.diagnostics?.() || Promise.resolve([]) };
   connectionActions();
   window.watchPartyProviders.register({ id: 'live', supports: source => source?.kind === 'live', load: async source => load(source), unload });
   window.addEventListener('beforeunload', () => receiver?.stop());

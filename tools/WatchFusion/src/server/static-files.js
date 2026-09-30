@@ -80,6 +80,7 @@ export async function sendFile(req, res) {
       'client/eveos-continuity-state.js',
       'client/eveos-nuvio-auth-continuity.js',
       'client/eveos-embed-bridge.js',
+      'client/room-resize.js',
       'client/bootstrap.js',
       'client/live-source.js',
       'client/watchfusion-host-input-fix.js',

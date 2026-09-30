@@ -92,6 +92,7 @@ function sourceContract() {
     const clientCore = read('tools/WatchFusion/public/client/core.js');
     const clientBootstrap = read('tools/WatchFusion/public/client/bootstrap.js');
     const clientRender = read('tools/WatchFusion/public/client/render.js');
+    const roomResize = read('tools/WatchFusion/public/client/room-resize.js');
     const liveSource = read('tools/WatchFusion/public/client/live-source.js');
     const livePeer = read('tools/WatchFusion/browser-extension/live-peer.js');
     const providerRegistry = read('tools/WatchFusion/public/client/provider-registry.js');
@@ -137,13 +138,13 @@ function sourceContract() {
     check(control.includes('[npm, "ci", "--no-audit", "--no-fund"]'), 'WF-CORE-CI', 'fresh clone cannot repair locked WatchFusion dependencies');
     check(control.includes('setupAvailable') && control.includes('npmReady'), 'WF-CORE-STATUS', 'outer UI cannot distinguish repairable dependency state');
     check(control.includes('"onDemand": True') && control.includes('is never restored at EveOS boot'), 'WF-ON-DEMAND-LIFECYCLE', 'WatchFusion can still auto-restore a prior runtime session');
-    check(control.includes('def start_server(*, persist: bool = False)') && control.includes('def stop_server(*, persist: bool = False)'), 'WF-NO-PERSIST-DEFAULT', 'ordinary WatchFusion start/stop still persists surprise boot state');
+    check(control.includes('def start_server(*, persist: bool = False, host: str = "127.0.0.1")') && control.includes('def stop_server(*, persist: bool = False)'), 'WF-NO-PERSIST-DEFAULT', 'ordinary WatchFusion start/stop still persists surprise boot state');
     check(control.includes('"components": components'), 'WF-OFFLINE-SETUP-STATUS', 'outer workspace cannot inspect components while WatchFusion is stopped');
     check(offscreenRelay.includes('requestVideoFrameCallback') && offscreenRelay.includes("contentHint = 'motion'"), 'WF-LIVE-LOW-LATENCY-CAPTURE', 'linked-tab relay is not frame-driven/motion-optimized');
     check(sourceWorker.includes("to: 'offscreen'"), 'WF-LIVE-WORKER-RELAY', 'linked-tab worker no longer routes samples to offscreen relay');
     check(livePeer.includes("degradationPreference = 'maintain-framerate'"), 'WF-LIVE-SENDER-PACING', 'WebRTC sender is not tuned to preserve frame cadence');
     check(offscreenRelay.includes('fullFrame') && offscreenRelay.includes('replaceVideoTrack') && livePeer.includes('async replaceVideoTrack(track)'), 'WF-LIVE-DIRECT-TRACK', 'full-frame linked tabs cannot bypass the canvas relay stage');
-    check(livePeer.includes('jitterBufferTargetMs') && livePeer.includes('async diagnostics()') && livePeer.includes('jitterBufferTargetDelay') && liveSource.includes("return isTryCloudflare ? 60 : 25"), 'WF-LIVE-LATENCY-DIAGNOSTICS', 'live receiver latency targets or WebRTC diagnostics are missing');
+    check(livePeer.includes('jitterBufferTargetMs') && livePeer.includes('async diagnostics()') && livePeer.includes('jitterBufferMinimumDelay') && liveSource.includes("return isTryCloudflare ? 60 : 10"), 'WF-LIVE-LATENCY-DIAGNOSTICS', 'live receiver latency targets or WebRTC diagnostics are missing');
     check(control.includes('_runtime_json("/api/network-info")') && control.includes('watchfusion_exposure.reconcile_status') && exposureControl.includes('network.get("localOnly") is False') && exposureControl.includes('network.get("canonicalLanHost")') && exposureControl.includes('exposureMode="lan"'), 'WF-LIVE-LAN-EXPOSURE', 'WatchFusion control does not recover the selected LAN surface from the live runtime when exposure metadata is stale');
     check(control.includes('eveos_console_prefs.headless_for("watchFusion")'), 'WF-CONSOLE', 'WatchFusion does not use its independent console preference');
     check(prefs.includes('"watchFusion"'), 'WF-CONSOLE-REGISTRY', 'WatchFusion is not registered in console preferences');
@@ -155,7 +156,7 @@ function sourceContract() {
     check(ui.includes("DETACHED_WINDOW_NAME = 'eveWatchFusionWindow'") && ui.includes('function detach()'), 'WF-DETACH', 'WatchFusion does not have Matrix-style named-window detach');
     check(ui.includes('data-wf-action="detach"') && !ui.includes('Open separate'), 'WF-DETACH-UI', 'WatchFusion header still uses the old separate-window action');
     check(ui.includes("mode === 'lan' || mode === 'cloudflare'") && ui.includes('snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl'), 'WF-SELECTED-EXPOSURE-URL', 'embedded and detached WatchFusion do not follow the selected Local/LAN/Cloudflare launch path');
-    check(clientCore.includes("eveosShareMode !== 'local'") && clientCore.includes('return roomLink(eveosShareBaseUrl)'), 'WF-SHARE-SCOPE-LINK', 'WatchFusion does not preserve the selected LAN/Cloudflare room-sharing scope');
+    check(clientCore.includes("runtimeExposureMode !== 'local'") && clientCore.includes('return roomLink(runtimeShareBaseUrl)'), 'WF-SHARE-SCOPE-LINK', 'WatchFusion does not preserve the selected LAN/Cloudflare room-sharing scope');
     check(lanLauncher.includes('LAN_HOST_URL=http://!LAN_IP:.=-!.sslip.io:') && lanLauncher.includes('-PublicUrl "!LAN_HOST_URL!"') && lanLauncher.includes('[FALLBACK] Direct LAN IP:'), 'WF-LAN-SSLIP-EXPOSURE', 'LAN launcher does not publish sslip.io as the canonical exposure URL while retaining the raw IP fallback');
     check(clientCore.indexOf('preferredLanHost') < clientCore.indexOf('preferredLanAddress'), 'WF-LAN-SSLIP-SHARE-LINK', 'copied LAN room links do not prefer the sslip.io host over the raw LAN IP');
     check(/watchfusion-shell-head[\s\S]*data-wf-action="stop"[\s\S]*<\/header>/.test(ui) && css.includes('[data-state="running"] .watchfusion-service-bar { display: none; }'), 'WF-COMPACT-RUNNING-CHROME', 'running WatchFusion still renders a redundant lifecycle status strip');
@@ -197,6 +198,8 @@ function sourceContract() {
     check(innerCss.includes('html.eveos-embedded .source-badge { display: none; }'), 'WF-EMBEDDED-TABS-WIDTH', 'redundant source badge still steals horizontal space from embedded tabs');
     check(innerCss.includes('html.eveos-embedded #partyDetails') && innerCss.includes('watchfusion-room-active:not(.eveos-embedded) #partyDetails') && innerCss.includes('scrollbar-gutter: stable'), 'WF-EMBEDDED-CHAT-SCROLL', 'embedded or detached WatchParty chat does not preserve a bounded scroll surface');
     check(innerCss.includes('html.eveos-embedded .top-actions button') && clientRender.includes("watchfusion-audioflix-live") && innerCss.includes('watchfusion-audioflix-live .grid'), 'WF-EMBEDDED-COMPACT-AUDIOFLIX', 'embedded controls or Audioflix room geometry can still consume excessive space');
+    check(setupHtml.includes('id="roomSplitter"') && roomResize.includes("watchfusion.partyPanelWidth") && roomResize.includes('setPointerCapture') && innerCss.includes('--watchfusion-party-width'), 'WF-ROOM-RESIZE', 'Watch Party divider is not user-resizable');
+    check(setupHtml.includes('id="liveAudioSync"') && setupHtml.includes('id="liveStats"') && liveSource.includes('createDelay(1)') && liveSource.includes('AUDIO_SYNC_KEY'), 'WF-AUDIOFLIX-DEVICE-DELAY', 'Audioflix does not expose a deterministic per-device delay path');
     check(roomConnection.includes('function resumeRoomSession') && roomConnection.includes('syncResumedPlayback') && roomConnection.includes("window.addEventListener('focus', resumeRoomSession)") && roomConnection.includes("document.addEventListener('visibilitychange', resumeVisibleRoom)"), 'WF-ROOM-RESUME-SYNC', 'returning from a background tab does not actively refresh room state and force playback catch-up');
     check(!roomConnection.includes('updateServerClock(nextState.serverTime, Date.now(), Date.now())') && clientBootstrap.includes('const sentAt=Date.now()') && clientBootstrap.includes('updateServerClock(data.state.serverTime,sentAt,receivedAt)'), 'WF-MEASURED-SERVER-CLOCK', 'unmeasured snapshots can still poison the room clock with a false zero-latency sample');
     check(clientRender.includes("$('partyDetails').hidden=!inRoom"), 'WF-ROOM-REJOIN-DETAILS', 'leaving and rejoining can leave the chat/details container hidden until reload');
@@ -223,7 +226,7 @@ function sourceContract() {
       && sourceProbe.includes("querySelectorAll('strmcx-embed')"), 'WF-WEB-COMPONENT-MEDIA',
     'web-component players cannot expose their visual surface, playback state, or controls to the selected-tab relay');
     check(offscreenRelay.includes('maxWidth: 2560') && offscreenRelay.includes('1920 / sw') && offscreenRelay.includes('canvas.captureStream(0)') && offscreenRelay.includes('requestFrame'), 'WF-LIVE-CAPTURE-QUALITY', 'live tab capture is still fixed-resolution or does not render on-demand at a high-quality media aspect ratio');
-    check(staticFiles.includes("'client/setup-health.js'") && staticFiles.includes("'client/voxelvision-adapter.js'") && staticFiles.includes("'client/media-player.js'"), 'WF-CLIENT-BUNDLE', 'Setup Health or core media adapters are missing from the integrated bundle');
+    check(staticFiles.includes("'client/setup-health.js'") && staticFiles.includes("'client/voxelvision-adapter.js'") && staticFiles.includes("'client/media-player.js'") && staticFiles.includes("'client/room-resize.js'"), 'WF-CLIENT-BUNDLE', 'Setup Health, room resize, or core media adapters are missing from the integrated bundle');
     check(staticFiles.includes('resolveContainedFile') && staticFiles.includes('fs.promises.realpath'), 'WF-STATIC-REALPATH-CONTAINMENT', 'main WatchFusion static serving does not realpath-check filesystem containment');
     check(setupClient.includes("'/api/setup/status'") && setupClient.includes("'/api/setup/install'"), 'WF-SETUP-CLIENT', 'Setup Health UI is not connected to setup API');
 

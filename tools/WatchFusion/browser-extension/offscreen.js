@@ -89,7 +89,12 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message.to !== 'offscreen' || sender.id !== chrome.runtime.id) return;
   (async () => {
     if (message.type === 'stop') { stop(); return { ok: true }; }
-    if (message.type === 'status') return { linked:sharing(), relayVideoMode, diagnostics:await peer?.diagnostics?.() || [] };
+    if (message.type === 'status') return {
+      linked: sharing(),
+      relayVideoMode,
+      captureSettings: capture?.getVideoTracks?.()[0]?.getSettings?.() || null,
+      diagnostics: await peer?.diagnostics?.() || []
+    };
     if (message.type === 'sample') {
       rect = message.rect || null;
       lastMetadata = message.metadata || {};
