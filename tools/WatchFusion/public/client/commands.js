@@ -81,7 +81,7 @@ function ensurePlayer(videoId) {
               // The player is still initialized at that point, so a later
               // manual host Play event must be allowed to become room state.
               playerInitializing = false;
-              syncPlayer({ hydrateHost: true });
+              syncHydratedPlayer(desired);
             } else {
               restorePlayerAudioPrefs();
               playerPrimed = true;
@@ -117,22 +117,23 @@ function ensurePlayer(videoId) {
       }
       applyingRemote = true;
       playerInitializing = true;
-      ytPlayer.cueVideoById(pendingVideoId);
-      waitForPlayerCued(pendingVideoId).then(async () => {
+      const desired = pendingVideoId;
+      ytPlayer.cueVideoById(desired);
+      waitForPlayerCued(desired).then(async () => {
         await primeYouTubePlayer(true);
         applyingRemote = false;
         playerInitializing = false;
-        syncPlayer({ hydrateHost: true });
+        syncHydratedPlayer(desired);
       }).catch(() => {
         applyingRemote = false;
         playerInitializing = false;
-        syncPlayer({ hydrateHost: true });
+        syncHydratedPlayer(desired);
       });
     } else {
       if (roomId) {
         primeYouTubePlayer().then(() => {
           playerInitializing = false;
-          syncPlayer({ hydrateHost: true });
+          syncHydratedPlayer(pendingVideoId);
         });
       } else {
         playerPrimed = true;
@@ -351,6 +352,21 @@ function requestViewerPlayback() {
     if (autoplayWasBlocked) setStatus('Starting synchronized playback muted · tap WatchFusion once for audio');
   }, 320);
 }
+function syncHydratedPlayer(videoId = state?.source?.videoId) {
+  const expected = String(videoId || '');
+  if (expected && state?.source?.videoId !== expected) return false;
+  const forceViewer = !isHost();
+  syncPlayer({ hydrateHost: true, force: forceViewer });
+  if (forceViewer && expected) {
+    setTimeout(() => {
+      if (!roomId || isHost() || !ytPlayerReady || state?.source?.videoId !== expected) return;
+      if ((ytPlayer?.getVideoData?.()?.video_id || '') !== expected) return;
+      syncPlayer({ force: true });
+    }, 350);
+  }
+  return true;
+}
+
 function syncPlayer(options = {}) {
   if (!roomId || !state?.source?.videoId || !ytPlayer || !ytPlayerReady) return;
   const loadedId = ytPlayer.getVideoData?.()?.video_id;
