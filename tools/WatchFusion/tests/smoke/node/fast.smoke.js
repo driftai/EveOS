@@ -154,8 +154,10 @@ export async function runFastSmoke() {
     assert.match(liveStreams, /sync-sample/);
     assert.match(liveStreams, /audio-sync/);
     assert.match(liveStreams, /pageUrl/);
+    assert.match(liveStreams, /sampledAt:/);
     assert.doesNotMatch(sourceAdapter, /setQuality|getQualities|qualityRestore/);
     assert.doesNotMatch(sourceProbe, /position:\s*['"]fixed['"]|captureStream|drawImage|requestFullscreen/);
+    assert.match(sourceProbe, /sampledAt:Date\.now\(\)/);
     assert.match(sourceWorker, /cleanupInjected/);
     assert.match(sourceWorker, /__watchFusionPageMediaAdapterCleanup/);
     assert.match(connection, /function resumeRoomSession/);
@@ -217,6 +219,23 @@ export async function runFastSmoke() {
     assert.equal(imports,0,'a successful direct stream should not download the cache fallback');
     assert.equal(loaded,1);
     assert.equal(restored,1);
+  });
+
+  await check('FAST-02D:linked-youtube-sync-does-not-seek-loop', () => {
+    const context={Date,performance:{now:()=>5000}};context.globalThis=context;
+    vm.createContext(context);
+    vm.runInContext(fs.readFileSync(path.join(PROJECT_ROOT,'public','client','linked-playback-sync.js'),'utf8'),context);
+    const sync=context.WatchFusionLinkedPlaybackSync,now=10000;
+    assert.equal(sync.projectedPosition({currentTime:10,paused:false,rate:1,sampledAt:9600},now),10.4);
+    assert.deepEqual({...sync.youtubePlan({currentTime:10,paused:false,rate:1,sampledAt:9600},1,10.1,{now})},{target:10.4,drift:0.3000000000000007,seek:false,pause:false,play:false});
+    assert.equal(sync.youtubePlan({currentTime:10,paused:false,rate:1,sampledAt:9600},3,10.1,{now}).play,false,'buffering must be allowed to recover without another play command');
+    assert.equal(sync.youtubePlan({currentTime:10,paused:false,rate:1,sampledAt:9600},1,8,{now}).seek,true,'meaningful linked-player drift still corrects');
+    assert.equal(sync.positionJumped(10.2,{position:10,at:4800,playing:true,rate:1},5000),false,'ordinary buffering is not a source seek');
+    assert.equal(sync.positionJumped(30,{position:10,at:4800,playing:true,rate:1},5000),true,'a genuine local scrub remains relayable');
+    const commands=fs.readFileSync(path.join(PROJECT_ROOT,'public','client','commands.js'),'utf8');
+    const linkedTab=fs.readFileSync(path.join(PROJECT_ROOT,'public','client','linked-tab.js'),'utf8');
+    assert.doesNotMatch(commands,/BUFFERING\)window\.watchFusionLinkedTab\.control\('seek'/);
+    assert.doesNotMatch(linkedTab,/action===['"]play['"][\s\S]{0,120}peer\.control\(['"]seek['"]/);
   });
 
   await check('FAST-02A:nuvio-browser-plugin-bridge-contract', () => {

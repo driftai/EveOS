@@ -69,6 +69,7 @@
       to:'worker', type:'sample', token:frameToken, topFrame:window === top, hasMedia, score,
       metadata: {
         pageUrl:location.href,
+        sampledAt:Date.now(),
         title:pageMedia?.title || navigator.mediaSession?.metadata?.title || document.title,
         paused:element ? element.paused : pageMedia?.paused !== false,
         ended:element ? !!element.ended : !!pageMedia?.ended,

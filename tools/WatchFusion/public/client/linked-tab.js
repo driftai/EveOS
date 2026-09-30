@@ -30,7 +30,6 @@
   }
   function control(action,value){
     if(!peer||!canControl())return false;
-    if((action==='play'||action==='pause')&&Number.isFinite(Number(value)))peer.control('seek',Number(value));
     peer.control(action,Number(value)||0);return true;
   }
   function followLocal(metadata,force=false){

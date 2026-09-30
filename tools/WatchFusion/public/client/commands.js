@@ -254,11 +254,14 @@ function hostPlaybackEventAllowed(playerState) {
 }
 
 function onYouTubeStateChange(event) {
-  if(window.watchFusionLinkedTab?.active?.()&&isHost()&&!window.watchFusionLinkedTab?.applying?.()){
+  if(window.watchFusionLinkedTab?.active?.()&&isHost()){
+    window.watchFusionYoutubeStability?.observe?.(event.data);
+    if(window.watchFusionLinkedTab?.applying?.())return;
     const position=Number(ytPlayer?.getCurrentTime?.())||0;
     if(event.data===YT.PlayerState.PLAYING)window.watchFusionLinkedTab.control('play',position);
     else if(event.data===YT.PlayerState.PAUSED)window.watchFusionLinkedTab.control('pause',position);
-    else if(event.data===YT.PlayerState.BUFFERING)window.watchFusionLinkedTab.control('seek',position);
+    else if(event.data===YT.PlayerState.BUFFERING&&window.WatchFusionLinkedPlaybackSync?.positionJumped(position,linkedYoutubePositionSample))window.watchFusionLinkedTab.control('seek',position);
+    if(event.data!==YT.PlayerState.BUFFERING)sampleLinkedYoutubePosition();
     return;
   }
   if (window.watchFusionYoutubeStability?.observe?.(event.data)) return;
@@ -379,18 +382,30 @@ function syncPlayer(options = {}) {
     setTimeout(() => { applyingRemote = false; }, 250);
   }
 }
-setInterval(observeYouTubeAudio, 250);
+let linkedYoutubePositionSample=null;
+function sampleLinkedYoutubePosition(){
+  if(!window.watchFusionLinkedTab?.active?.()||!ytPlayer||!ytPlayerReady||window.watchFusionLinkedTab?.applying?.()){if(!window.watchFusionLinkedTab?.active?.())linkedYoutubePositionSample=null;return;}
+  const playerState=ytPlayer.getPlayerState?.();
+  if(playerState===YT.PlayerState.BUFFERING)return;
+  linkedYoutubePositionSample={position:Number(ytPlayer.getCurrentTime?.())||0,at:performance.now(),playing:playerState===YT.PlayerState.PLAYING,rate:Number(ytPlayer.getPlaybackRate?.())||1};
+}
+setInterval(()=>{observeYouTubeAudio();sampleLinkedYoutubePosition();},250);
 
 function followAttachedYouTube(metadata = {}, options = {}) {
   if(!ytPlayer||!ytPlayerReady)return false;
-  const target=Math.max(0,Number(metadata.currentTime)||0),current=Number(ytPlayer.getCurrentTime?.())||0;
-  const rate=Math.min(2,Math.max(.25,Number(metadata.rate)||1));
+  const current=Number(ytPlayer.getCurrentTime?.())||0,playerState=ytPlayer.getPlayerState?.();
+  const plan=window.WatchFusionLinkedPlaybackSync?.youtubePlan(metadata,playerState,current,options);
+  if(!plan)return false;
+  const rate=Math.min(2,Math.max(.25,Number(metadata.rate)||1)),volume=Number(metadata.volume);
+  const rateChanged=Math.abs((Number(ytPlayer.getPlaybackRate?.())||1)-rate)>.01;
+  const volumeChanged=Number.isFinite(volume)&&Math.abs((Number(ytPlayer.getVolume?.())||0)-Math.max(0,Math.min(1,volume))*100)>.5;
+  if(!plan.seek&&!plan.pause&&!plan.play&&!rateChanged&&!volumeChanged)return true;
   window.watchFusionLinkedTab?.setApplying?.(true);applyingRemote=true;
   try{
-    if((options.force&&Math.abs(target-current)>.05)||Math.abs(target-current)>.35)ytPlayer.seekTo?.(target,true);
-    if(Math.abs((Number(ytPlayer.getPlaybackRate?.())||1)-rate)>.01)ytPlayer.setPlaybackRate?.(rate);
-    const volume=Number(metadata.volume);if(Number.isFinite(volume))ytPlayer.setVolume?.(Math.max(0,Math.min(1,volume))*100);
-    if(metadata.paused)ytPlayer.pauseVideo?.();else ytPlayer.playVideo?.();
+    if(plan.seek)ytPlayer.seekTo?.(plan.target,true);
+    if(rateChanged)ytPlayer.setPlaybackRate?.(rate);
+    if(volumeChanged)ytPlayer.setVolume?.(Math.max(0,Math.min(1,volume))*100);
+    if(plan.pause)ytPlayer.pauseVideo?.();else if(plan.play)ytPlayer.playVideo?.();
   }catch{}
   finally{setTimeout(()=>{applyingRemote=false;window.watchFusionLinkedTab?.setApplying?.(false);},250);}
   return true;
