@@ -37,8 +37,16 @@
     const value = String(storage.get(AUDIO_SYNC_AUTO_KEY, '1')).toLowerCase();
     return value !== '0' && value !== 'false';
   }
+  function deviceProfileAudioDelayMs() {
+    const calibrated=manualAudioSyncDelayMs();
+    if(calibrated>0)return calibrated;
+    let mobile=false;
+    try{mobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||((navigator.maxTouchPoints||0)>0&&matchMedia('(pointer: coarse)').matches);}catch{}
+    return mobile?310:0;
+  }
   function effectiveAudioSyncDelayMs() {
-    return audioSyncAutoEnabled() && autoSyncReady ? autoSyncDelayMs : manualAudioSyncDelayMs();
+    if(!audioSyncAutoEnabled())return manualAudioSyncDelayMs();
+    return autoSyncReady?autoSyncDelayMs:deviceProfileAudioDelayMs();
   }
   function stopDelayGraph(closeContext = false) {
     try { delaySource?.disconnect(); } catch {}
@@ -82,12 +90,14 @@
     const autoEnabled = audioSyncAutoEnabled();
     auto.checked = autoEnabled;
     input.disabled = autoEnabled;
-    const value = autoEnabled && autoSyncReady ? autoSyncDelayMs : manualAudioSyncDelayMs();
-    if (document.activeElement !== input) input.value = String(value);
-    output.textContent = autoEnabled ? (autoSyncReady ? `Auto +${value} ms` : 'Auto · waiting') : `+${value} ms`;
-    hint.textContent = autoEnabled
-      ? (autoSyncReady ? `Aligned against ${autoSyncPeers} room receivers.` : 'Waiting for another room receiver with playout timing support.')
-      : 'Manual per-device fine-tuning.';
+    const fallback=deviceProfileAudioDelayMs();
+    const value=autoEnabled?(autoSyncReady?autoSyncDelayMs:fallback):manualAudioSyncDelayMs();
+    if(document.activeElement!==input)input.value=String(value);
+    output.textContent=autoEnabled?`Auto +${value} ms`:`+${value} ms`;
+    hint.textContent=autoEnabled
+      ? (autoSyncReady?`Measured alignment against ${autoSyncPeers} room receivers.`
+        :(fallback>0?'Using this device’s remembered/mobile calibration because precise WebRTC playout timestamps are unavailable.':'Precise playout timing is unavailable here; this device stays at +0 ms.'))
+      :'Manual per-device fine-tuning · this value becomes the Auto fallback on this device.';
   }
   function playoutDelayMs(source) {
     if (source?.mode === 'audioflix') return 60;

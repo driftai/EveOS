@@ -67,6 +67,8 @@ export async function runFastSmoke() {
     const continuityBridge = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'eveos-embed-bridge.js'), 'utf8');
     const roomResize = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'room-resize.js'), 'utf8');
     const liveSource = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'live-source.js'), 'utf8');
+    const linkedTab = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'linked-tab.js'), 'utf8');
+    const mediaControls = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'media-controls.js'), 'utf8');
     const liveStreams = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'server', 'live-streams.js'), 'utf8');
     const style = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'style.css'), 'utf8');
     assert.match(core, /serverLanMode && lanBaseUrl/);
@@ -95,12 +97,19 @@ export async function runFastSmoke() {
     assert.match(style, /align-self:\s*stretch/);
     assert.match(style, /scrollbar-gutter:\s*stable/);
     assert.match(roomResize, /watchfusion\.partyPanelHeight/);
+    assert.match(roomResize, /MIN_MEDIA_HEIGHT = 280/);
     assert.match(roomResize, /startY/);
     assert.match(roomResize, /setPointerCapture/);
     assert.match(style, /--watchfusion-party-height/);
     assert.match(style, /cursor:\s*row-resize/);
     assert.match(liveSource, /AUDIO_SYNC_AUTO_KEY/);
+    assert.match(liveSource, /deviceProfileAudioDelayMs/);
+    assert.match(liveSource, /return mobile\?310:0/);
     assert.match(liveSource, /onAudioSync:\s*applyAutoSync/);
+    assert.match(linkedTab, /watchFusionMediaResolver/);
+    assert.match(linkedTab, /command\('mirror'/);
+    assert.match(mediaControls, /MEDIA_PREFS_KEY/);
+    assert.match(mediaControls, /preferredCandidateIndex/);
     assert.match(liveStreams, /sync-sample/);
     assert.match(liveStreams, /audio-sync/);
     assert.match(connection, /function resumeRoomSession/);

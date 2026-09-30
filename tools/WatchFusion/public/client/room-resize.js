@@ -1,9 +1,9 @@
 (() => {
   const STORAGE_KEY = 'watchfusion.partyPanelHeight';
-  const DEFAULT_HEIGHT = 360;
-  const MIN_HEIGHT = 150;
+  const DEFAULT_HEIGHT = 300;
+  const MIN_HEIGHT = 140;
   const MAX_HEIGHT = 720;
-  const MIN_MEDIA_HEIGHT = 180;
+  const MIN_MEDIA_HEIGHT = 280;
   const grid = document.querySelector('#app .grid');
   const panel = $('partyPanel');
   const splitter = $('roomSplitter');

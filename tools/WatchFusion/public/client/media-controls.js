@@ -68,10 +68,10 @@ async function resolveMediaInput(options={}) {
   const videoId=youtubeId(input);
   if(videoId&&(/youtube\.com|youtu\.be/i.test(input)||/^[A-Za-z0-9_-]{11}$/.test(input))){
     resolvedMediaCandidates=[{url:input,videoId,type:'youtube',provider:'youtube',server:'youtube.com',title:'YouTube'}];
-    updateMediaCandidateUi(0);return options.autoLoad?loadYoutubeInput(input):true;
+    updateMediaCandidateUi(0);return options.previewOnly?true:loadYoutubeInput(input);
   }
   const kind=directKind(input);
-  if(kind){resolvedMediaCandidates=[{url:input,type:kind,server:new URL(input).hostname,provider:'direct-media',title:'Direct media',referer:input}];updateMediaCandidateUi(0);return options.autoLoad?loadMediaCandidate(resolvedMediaCandidates[0],input):true;}
+  if(kind){resolvedMediaCandidates=[{url:input,type:kind,server:new URL(input).hostname,provider:'direct-media',title:'Direct media',referer:input}];updateMediaCandidateUi(0);return options.previewOnly?true:loadMediaCandidate(resolvedMediaCandidates[0],input);}
   const button=$('loadBtn');if(button)button.disabled=true;if(!options.silent)setStatus('Finding playable media...');
   try {
     const res=await fetch(apiUrl('/api/media/resolve'),{method:'POST',headers:{'Content-Type':'application/json',...(session?.memberId?{'x-member-id':session.memberId}:{})},
@@ -92,5 +92,8 @@ async function resolveAndLoadMediaInput(input,options={}){return resolveMediaInp
 async function loadSelectedMedia(){const candidate=selectedMediaCandidate();if(!candidate)return alert('Find a media source first.');return loadMediaCandidate(candidate,resolvedMediaPageUrl||$('sourceInput')?.value.trim()||candidate.url);}
 $('resolveMediaBtn')?.addEventListener('click',()=>resolveMediaInput());
 $('loadMediaBtn')?.addEventListener('click',async()=>{if($('findMediaPanel'))$('findMediaPanel').hidden=true;await loadSelectedMedia();});
-$('mediaSourceSelect')?.addEventListener('change',()=>updateMediaCandidateUi(Number($('mediaSourceSelect')?.value)||0));
+$('mediaSourceSelect')?.addEventListener('change',()=>{
+  updateMediaCandidateUi(Number($('mediaSourceSelect')?.value)||0);
+  saveMediaPreference(resolvedMediaPageUrl,selectedMediaCandidate());
+});
 window.watchFusionMediaResolver={resolve:resolveMediaInput,resolveAndLoad:resolveAndLoadMediaInput,loadCandidate:loadMediaCandidate,selected:selectedMediaCandidate,preference:mediaPreference,savePreference:saveMediaPreference};

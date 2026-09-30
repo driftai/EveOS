@@ -393,7 +393,7 @@ html.watchfusion-resizing * { cursor: row-resize !important; user-select: none !
 html.eveos-embedded.watchfusion-room-active .grid,
 html.eveos-embedded .grid:has(#partyPanel:not([hidden])) {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(180px, 1fr) 8px var(--watchfusion-party-height, 360px);
+  grid-template-rows: minmax(280px, 1fr) 8px var(--watchfusion-party-height, 300px);
   gap: 0;
   height: 100%;
   overflow: hidden;
@@ -410,3 +410,13 @@ html.eveos-embedded .grid:has(#partyPanel:not([hidden])) .side {
 html.eveos-embedded.watchfusion-room-active #partyDetails,
 html.eveos-embedded .grid:has(#partyPanel:not([hidden])) #partyDetails { overflow: hidden; }
 html.eveos-embedded.watchfusion-room-active .chat { min-height: 100px; }
+
+html.eveos-embedded.watchfusion-room-active #mediaStage.player-wrap:not(.media-stage-empty) {
+  min-height: 280px;
+}
+@media (max-height: 720px) {
+  html.eveos-embedded.watchfusion-room-active .grid,
+  html.eveos-embedded .grid:has(#partyPanel:not([hidden])) {
+    grid-template-rows: minmax(280px, 1fr) 8px minmax(140px, var(--watchfusion-party-height, 240px));
+  }
+}
