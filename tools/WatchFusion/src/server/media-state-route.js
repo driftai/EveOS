@@ -54,10 +54,12 @@ export async function handleMediaStateRoute(req, res, parts) {
       return json(res, 200, { ok: true, state: publicState(room) });
     }
 
-    // 3. Direct HLS or video file source
-    const parsed = classifyMediaUrl(media.url);
+    // 3. Direct HLS/video source or a host-imported VoxelVision media file.
+    const rawMediaUrl = String(media.url || '').trim();
+    const localImported = /^\/voxelvision\/media\/imported\/[A-Za-z0-9._%~-]+$/i.test(rawMediaUrl);
+    const parsed = localImported ? { kind: 'file', url: rawMediaUrl } : classifyMediaUrl(rawMediaUrl);
     if (!parsed || parsed.kind === 'page') return json(res, 400, { error: 'media source must be a direct HLS, media-file, Nuvio, or VoxelVision source' });
-    const publicUrl = await assertPublicHttpUrl(parsed.url);
+    const publicUrl = localImported ? rawMediaUrl : await assertPublicHttpUrl(parsed.url);
     let referer = String(media.referer || body.originalUrl || '').trim();
     if (!referer || referer.includes('.watami.win') || referer.includes('.piltover.li') || referer.includes('.m3u8')) {
       referer = 'https://www.miruro.ru/';
