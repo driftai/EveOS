@@ -39,7 +39,21 @@
 }
 html.eveos-embedded .youtube-playback-mode small { display: none; }
 @media (max-width: 650px) {
-  .youtube-playback-mode { width: 100%; }
-  .youtube-playback-options { flex: 1; }
-  .youtube-playback-options button { flex: 1; }
+  .youtube-playback-mode {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 5px;
+    padding: 3px 5px;
+  }
+  .youtube-playback-mode > span { font-size: 10px; }
+  .youtube-playback-options { min-width: 0; width: 100%; }
+  .youtube-playback-options button {
+    flex: 1;
+    min-width: 0;
+    min-height: 26px;
+    padding: 3px 5px;
+    font-size: 10px;
+  }
+  .youtube-playback-mode small { display: none; }
 }
