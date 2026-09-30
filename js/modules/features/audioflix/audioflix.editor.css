@@ -305,18 +305,18 @@
 }
 
 .audioflix-queue-badge {
-    display: inline-flex;
+    display: inline-flex; flex: 0 0 auto;
     align-items: center;
-    gap: 4px;
-    padding: 2px 7px;
+    gap: 3px; max-width: 96px;
+    padding: 1px 5px;
     border-radius: 6px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
+    font-size: 0.62rem; line-height: 1.1;
+    font-weight: 700; letter-spacing: 0.01em; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.15);
     color: #94a3b8;
-    margin-right: 6px;
+    margin-right: 3px;
 }
 
 .audioflix-queue-badge.is-active {
