@@ -302,6 +302,42 @@ export function getYoutubeStatus() {
   };
 }
 
+export function resolveYoutubeStream(sourceUrl) {
+  const ytDlp = findYtDlp();
+  if (!ytDlp) return Promise.reject(new Error('YouTube support is not installed.'));
+  const canonicalSourceUrl = canonicalYoutubeUrl(sourceUrl);
+  return new Promise((resolve, reject) => {
+    const args = [...ytDlp.prefix, '--no-playlist', '--no-warnings', '--dump-single-json'];
+    if (parseInt(process.versions.node.split('.')[0], 10) >= 22) args.push('--js-runtimes', 'node');
+    args.push(canonicalSourceUrl);
+    const child = spawn(ytDlp.command, args, { cwd: __dirname, windowsHide: true, shell: false, timeout: 15000 });
+    let stdout = '', stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', chunk => { if (stdout.length < 4 * 1024 * 1024) stdout += chunk; });
+    child.stderr.on('data', chunk => { if (stderr.length < 16 * 1024) stderr += chunk; });
+    child.on('error', error => reject(new Error(`Could not start yt-dlp: ${error.message}`)));
+    child.on('close', code => {
+      if (code !== 0) return reject(new Error(cleanProcessError(stderr, `yt-dlp exited with code ${code}`)));
+      let info;
+      try { info = JSON.parse(stdout); } catch { return reject(new Error('YouTube returned invalid stream metadata.')); }
+      const formats = Array.isArray(info?.formats) ? info.formats : [];
+      const hlsVideo = formats.filter(item => item?.url && String(item.protocol).includes('m3u8')
+        && item.vcodec && item.vcodec !== 'none' && Number(item.height) > 0)
+        .sort((a, b) => Math.min(Number(b.height), 1080) - Math.min(Number(a.height), 1080)
+          || Number(String(b.vcodec).startsWith('avc1')) - Number(String(a.vcodec).startsWith('avc1'))
+          || Number(b.tbr || 0) - Number(a.tbr || 0))[0];
+      const hlsAudio = formats.filter(item => item?.url && String(item.protocol).includes('m3u8') && item.vcodec === 'none')
+        .sort((a, b) => Number(b.tbr || b.format_id || 0) - Number(a.tbr || a.format_id || 0))[0];
+      if (!hlsVideo || !hlsAudio) return reject(new Error('YouTube did not return compatible HLS video and audio streams.'));
+      resolve({ title: info.title || 'YouTube video', videoUrl: hlsVideo.url, audioUrl: hlsAudio.url,
+        width: Number(hlsVideo.width) || Number(hlsVideo.height) || 1280, height: Number(hlsVideo.height) || 720,
+        bandwidth: Math.max(128000, Math.round((Number(hlsVideo.tbr) || 1200) * 1000)),
+        sourceUrl: canonicalSourceUrl, strategy: 'direct-hls' });
+    });
+  });
+}
+
 export async function runYoutubeImport(sourceUrl, qualityId = DEFAULT_YOUTUBE_QUALITY) {
   const ytDlp = findYtDlp();
   if (!ytDlp) {

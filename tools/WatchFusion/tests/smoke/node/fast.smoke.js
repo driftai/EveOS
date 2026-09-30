@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { startServer } from '../helpers/server-harness.js';
 import { request } from '../helpers/http-client.js';
+import { isM3u8Response } from '../../../src/server/media-routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../../..');
@@ -15,6 +17,11 @@ export async function runFastSmoke() {
     try { await fn(); results.push({ id, status: 'PASS' }); }
     catch (error) { results.push({ id, status: 'FAIL', error: error.message }); }
   };
+
+  await check('FAST-00:hls-segments-are-not-reparsed-as-playlists', () => {
+    assert.equal(isM3u8Response('https://cdn.example/master.m3u8?token=1','application/octet-stream'),true);
+    assert.equal(isM3u8Response('https://cdn.example/playlist/index.m3u8/govp/slices=0-20/file/seg.ts','video/mp2t'),false);
+  });
 
   await check('FAST-01:source-tab-contract', () => {
     const html = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'index.html'), 'utf8');
@@ -154,18 +161,46 @@ export async function runFastSmoke() {
     assert.match(commands, /watchFusionYoutubeStability\?\.observe[\s\S]*hostPlaybackEventAllowed/);
     assert.match(youtubeStability, /YT\.PlayerState\.BUFFERING/);
     assert.match(youtubeStability, /getVideoLoadedFraction/);
+    assert.match(youtubeStability, /STALL_CHECKS=3/);
+    assert.match(youtubeStability, /bufferProgressed/);
+    assert.match(youtubeStability, /roomId\?state\?\.playback\?\.paused===true:pausedIntent/);
+    assert.match(youtubeStability, /\/voxelvision\/api\/youtube\/stream/);
     assert.match(youtubeStability, /\/voxelvision\/api\/youtube\/import/);
     assert.match(youtubeStability, /quality:'max'/);
     assert.match(youtubeStability, /watchFusionMediaResolver\?\.loadCandidate/);
-    assert.match(youtubeStability, /Stable local YouTube playback ready/);
+    assert.match(youtubeStability, /Stable direct YouTube playback ready/);
+    assert.match(commands, /switching to direct playback[\s\S]*stabilize\?\.\(\{ resume: true \}\)/);
     assert.match(commands, /syncPlayer\(\{ hydrateHost: true \}\)/);
     assert.match(playbackSync, /SEEK_DRIFT_SEC = 0\.65/);
     assert.match(playbackSync, /SENSOR_MIN_SAMPLES = 5/);
     assert.doesNotMatch(playbackSync, /nearestHigherRate|nearestLowerRate/);
     assert.match(mediaPlayer, /mediaAnchorServerTime/);
+    assert.match(mediaPlayer, /mediaEnsurePromise && mediaEnsureUrl === url/);
+    assert.doesNotMatch(mediaPlayer, /host\.innerHTML\s*=/);
+    assert.match(mediaPlayer, /host\.prepend\(mediaVideo\)/);
     assert.match(mediaPlayer, /absoluteDrift >= 0\.20 \|\| \(mediaDriftCorrecting && absoluteDrift > 0\.12\)/);
     assert.match(continuityBridge, /transfer\.retryTimer = setInterval/);
     assert.match(continuityBridge, /completedTransferIds\.has\(data\.requestId\)/);
+  });
+
+  await check('FAST-02C:youtube-buffer-failover-is-sustained-and-resumes', async () => {
+    const callbacks=[];let directResolutions=0,imports=0,plays=0;
+    const context={state:{source:{videoId:'H7OPLMNYi-Q',originalUrl:'https://youtu.be/H7OPLMNYi-Q'},playback:{position:0,paused:true}},
+      roomId:null,isHost:()=>true,apiUrl:value=>value,window:{watchFusionLinkedTab:{active:()=>false}},
+      ytPlayer:{getPlayerState:()=>3,getDuration:()=>240,getVideoLoadedFraction:()=>0,getCurrentTime:()=>0,pauseVideo(){},playVideo(){plays+=1;}},
+      YT:{PlayerState:{BUFFERING:3,PLAYING:1,PAUSED:2,ENDED:0}},setTimeout:fn=>{callbacks.push(fn);return callbacks.length;},clearTimeout:()=>{},
+      fetch:async url=>{if(String(url).endsWith('/stream'))directResolutions+=1;else imports+=1;return{ok:false,json:async()=>({error:'offline'})};},setStatus:()=>{},console};
+    vm.createContext(context);
+    vm.runInContext(fs.readFileSync(path.join(PROJECT_ROOT,'public','client','youtube-stability.js'),'utf8'),context);
+    context.window.watchFusionYoutubeStability.observe(3);
+    callbacks.shift()();
+    assert.equal(directResolutions,0,'a single ordinary buffering interval must not start fallback resolution');
+    assert.equal(imports,0,'a single ordinary buffering interval must not start a source-max download');
+    while(imports===0&&callbacks.length)callbacks.shift()();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(directResolutions,1,'an unchanged sustained stall should try direct playback once');
+    assert.equal(imports,1,'a failed direct stream should retain the existing cache fallback');
+    assert.equal(plays,1,'failed cache fallback must resume intended solo playback');
   });
 
   await check('FAST-02A:nuvio-browser-plugin-bridge-contract', () => {

@@ -228,7 +228,11 @@ function onYouTubeError(event) {
   if (code === 2) return setStatus('YouTube rejected the video ID.');
   if (code === 5) return setStatus('YouTube could not play this video in the embedded player.');
   if (code === 100) return setStatus('This video is unavailable or private.');
-  if (code === 101 || code === 150) return setStatus('The owner has disabled playback outside YouTube.');
+  if (code === 101 || code === 150) {
+    setStatus('This video blocks embedding · switching to direct playback…');
+    void window.watchFusionYoutubeStability?.stabilize?.({ resume: true });
+    return;
+  }
   setStatus(`YouTube error ${code || 'unknown'}`);
 }
 

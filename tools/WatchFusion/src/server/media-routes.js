@@ -8,6 +8,12 @@ import { assertPublicHttpUrl } from './public-url.js';
 
 const activeResolutions = new Set();
 
+export function isM3u8Response(rawUrl, contentType = '') {
+  if (String(contentType).toLowerCase().includes('mpegurl')) return true;
+  try { return new URL(String(rawUrl)).pathname.toLowerCase().endsWith('.m3u8'); }
+  catch { return false; }
+}
+
 function buildMediaProxyPath(rawUrl, baseUrl, referer) {
   try {
     const resolved = new URL(String(rawUrl || '').trim(), baseUrl);
@@ -75,7 +81,7 @@ async function streamMediaUrl(req, res, targetUrl, referer, depth = 0) {
       }
 
       const contentType = proxyRes.headers['content-type'] || '';
-      const isM3u8 = contentType.includes('mpegurl') || publicUrl.toLowerCase().includes('.m3u8');
+      const isM3u8 = isM3u8Response(publicUrl, contentType);
       const responseHeaders = {
         'Cache-Control': 'no-cache',
         'Cross-Origin-Resource-Policy': 'same-origin'

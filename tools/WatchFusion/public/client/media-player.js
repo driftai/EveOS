@@ -1,6 +1,8 @@
 let mediaVideo = null;
 let hlsInstance = null;
 let hlsLoadPromise = null;
+let mediaEnsurePromise = null;
+let mediaEnsureUrl = '';
 let mediaPlayerReady = false;
 let mediaLoadedUrl = '';
 let mediaEventGuard = 0;
@@ -29,8 +31,12 @@ function ensureMediaElement() {
   }
   const host = $('playerHost') || $('player')?.parentElement || document.querySelector('.player.panel') || $('player');
   if (!host) return null;
-  host.innerHTML = '<video id="mediaVideo" controls playsinline preload="metadata"></video>';
-  mediaVideo = $('mediaVideo');
+  mediaVideo = document.createElement('video');
+  mediaVideo.id = 'mediaVideo';
+  mediaVideo.controls = true;
+  mediaVideo.playsInline = true;
+  mediaVideo.preload = 'metadata';
+  host.prepend(mediaVideo);
   if (!mediaVideo) return null;
   mediaVideo.addEventListener('play', onMediaPlay);
   mediaVideo.addEventListener('pause', onMediaPause);
@@ -58,6 +64,8 @@ function clearMediaPlayer() {
   }
   mediaPlayerReady = false;
   mediaLoadedUrl = '';
+  mediaEnsurePromise = null;
+  mediaEnsureUrl = '';
 }
 
 function loadHlsScript() {
@@ -168,6 +176,19 @@ function resolvePlayableStreamUrl(source) {
 }
 
 async function ensureMediaSource(source) {
+  if (!isMediaSource(source)) return false;
+  const url = String(source.url);
+  if (mediaEnsurePromise && mediaEnsureUrl === url) return mediaEnsurePromise;
+  const pending = loadMediaSource(source);
+  mediaEnsureUrl = url;
+  mediaEnsurePromise = pending;
+  try { return await pending; }
+  finally {
+    if (mediaEnsurePromise === pending) { mediaEnsurePromise = null; mediaEnsureUrl = ''; }
+  }
+}
+
+async function loadMediaSource(source) {
   if (!isMediaSource(source)) return false;
   const url = String(source.url);
   if (mediaLoadedUrl === url && mediaPlayerReady) {

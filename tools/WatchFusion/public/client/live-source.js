@@ -183,8 +183,8 @@
     stopAudioSyncSampling();
     receiver?.stop(); receiver = null; currentId = ''; currentMember = '';
     activeLiveStream = null; listenEnabled = false; stopDelayGraph(true);
-    const video = $('liveVideo'); video.srcObject = null; setListen(video, false);
-    video.hidden = true; $('liveControls').hidden = true;
+    const video = $('liveVideo'); if(video){video.srcObject = null;video.hidden = true;}setListen(video, false);
+    $('liveControls').hidden = true;
     connectionActions(null);
   }
   function load(source) {

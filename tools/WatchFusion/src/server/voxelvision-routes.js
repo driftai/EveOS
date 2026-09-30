@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -10,6 +11,7 @@ import {
   getYoutubeStatus,
   isSupportedYoutubeUrl,
   normalizeYoutubeQuality,
+  resolveYoutubeStream,
   runYoutubeImport
 } from '../../voxelvision/youtube-import.js';
 
@@ -39,6 +41,25 @@ const MIME_TYPES = Object.freeze({
 });
 
 let youtubeImportBusy = false;
+let youtubeStreamBusy = false;
+const youtubeStreams = new Map();
+const YOUTUBE_STREAM_TTL_MS = 2 * 60 * 60 * 1000;
+
+function registerYoutubeStream(stream) {
+  const now = Date.now();
+  for (const [key, value] of youtubeStreams) if (now - value.createdAt > YOUTUBE_STREAM_TTL_MS) youtubeStreams.delete(key);
+  const token = crypto.randomBytes(16).toString('hex');
+  youtubeStreams.set(token, { ...stream, createdAt: now });
+  return `/voxelvision/api/youtube/stream/${token}.m3u8`;
+}
+
+function youtubeStreamMaster(stream) {
+  const proxy = url => `/api/media/stream?url=${encodeURIComponent(url)}&referer=${encodeURIComponent(stream.sourceUrl)}`;
+  return ['#EXTM3U', '#EXT-X-VERSION:3',
+    `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Default",DEFAULT=YES,AUTOSELECT=YES,URI="${proxy(stream.audioUrl)}"`,
+    `#EXT-X-STREAM-INF:BANDWIDTH=${stream.bandwidth},RESOLUTION=${stream.width}x${stream.height},AUDIO="audio"`,
+    proxy(stream.videoUrl), ''].join('\n');
+}
 
 function buildContentSecurityPolicy() {
   const directives = [
@@ -225,6 +246,36 @@ async function handleVoxelVisionApi(req, res, pathname) {
   }
   if (req.method === 'GET' && pathname === '/voxelvision/api/youtube/status') {
     return json(res, 200, youtubeStatusForRequest(hostLocal));
+  }
+  const streamMatch = pathname.match(/^\/voxelvision\/api\/youtube\/stream\/([a-f0-9]{32})\.m3u8$/);
+  if (req.method === 'GET' && streamMatch) {
+    const stream = youtubeStreams.get(streamMatch[1]);
+    if (!stream || Date.now() - stream.createdAt > YOUTUBE_STREAM_TTL_MS) return json(res, 404, { error: 'YouTube stream expired.' });
+    const body = youtubeStreamMaster(stream);
+    res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store', 'Content-Length': Buffer.byteLength(body) });
+    return res.end(body);
+  }
+  if (req.method === 'POST' && pathname === '/voxelvision/api/youtube/stream') {
+    if (!hostLocal) return json(res, 403, { ok: false, error: 'Host-local access required for YouTube playback resolution.' });
+    if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
+      return json(res, 415, { ok: false, error: 'Content-Type must be application/json.' });
+    }
+    if (youtubeStreamBusy) return json(res, 409, { ok: false, error: 'YouTube playback resolution is already running.' });
+    try {
+      const body = await readBody(req);
+      const sourceUrl = typeof body.url === 'string' ? body.url.trim() : '';
+      if (sourceUrl.length > MAX_SOURCE_URL_LENGTH || !isSupportedYoutubeUrl(sourceUrl)) {
+        return json(res, 400, { ok: false, error: 'Enter a valid youtube.com or youtu.be URL.' });
+      }
+      youtubeStreamBusy = true;
+      const stream = await resolveYoutubeStream(sourceUrl);
+      return json(res, 200, { ok: true, title: stream.title, strategy: stream.strategy,
+        mediaUrl: registerYoutubeStream(stream), mediaType: 'hls' });
+    } catch (error) {
+      return json(res, 502, { ok: false, error: error?.message || 'YouTube playback resolution failed.' });
+    } finally {
+      youtubeStreamBusy = false;
+    }
   }
   if (req.method === 'POST' && pathname === '/voxelvision/api/youtube/import') {
     if (!hostLocal) return json(res, 403, { ok: false, error: 'Host-local access required for YouTube import.' });
