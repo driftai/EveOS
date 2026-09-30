@@ -253,8 +253,8 @@ function onYouTubeStateChange(event) {
     else if(event.data===YT.PlayerState.BUFFERING)window.watchFusionLinkedTab.control('seek',position);
     return;
   }
-  if (!hostPlaybackEventAllowed(event.data)) return;
   if (window.watchFusionYoutubeStability?.observe?.(event.data)) return;
+  if (!hostPlaybackEventAllowed(event.data)) return;
 
   const position = Number(ytPlayer?.getCurrentTime?.()) || 0;
   const duration = Number(ytPlayer?.getDuration?.()) || 0;
