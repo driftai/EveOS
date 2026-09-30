@@ -65,9 +65,10 @@ function openRealtimeSocket() {
         return;
       }
       if (payload.type !== 'state' || !payload.state) return;
+      const authorityBefore = playbackAuthorityKey(state);
       if (!acceptRealtimeState(payload.state)) return;
       render();
-      syncPlayer();
+      syncPlaybackForAuthorityChange(authorityBefore);
     };
     socket.onerror = () => {};
     socket.onclose = () => {
