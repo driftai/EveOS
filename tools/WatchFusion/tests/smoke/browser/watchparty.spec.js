@@ -46,6 +46,7 @@ test.describe('WatchFusion Multi-Client Suite', () => {
   });
 
   test('Embedded room creation preserves EveOS mode and reveals the party UI', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/?eveos=1');
     await page.click('#headerToggleBtn');
     await page.click('#startPartyBtn');
@@ -56,8 +57,10 @@ test.describe('WatchFusion Multi-Client Suite', () => {
     await expect(page).toHaveURL(/\/watch\/905\?eveos=1$/);
     await expect(page.locator('html')).toHaveClass(/watchfusion-room-active/);
     await expect(page.locator('#partyPanel')).toBeVisible();
+    await expect(page.locator('html')).toHaveClass(/watchfusion-party-side/);
+    await expect(page.locator('#roomSplitter')).toHaveAttribute('aria-orientation', 'vertical');
     const columns = await page.locator('.grid').evaluate(element => getComputedStyle(element).gridTemplateColumns);
-    expect(columns.trim().split(/\s+/)).toHaveLength(2);
+    expect(columns.trim().split(/\s+/)).toHaveLength(3);
 
     await page.fill('#chatInput', Array.from({ length: 400 }, (_, index) => `scroll-line-${index}`).join('\n'));
     await page.press('#chatInput', 'Enter');
