@@ -12,6 +12,7 @@
   const MIN_MAIN_HEIGHT = 240;
   const COMPACT_MAIN_HEIGHT = 190;
   const SPLITTER_SIZE = 8;
+  const COMPACT_SPLITTER_SIZE = 10;
   const grid = document.querySelector('#app .grid');
   const panel = $('partyPanel');
   const splitter = $('roomSplitter');
@@ -36,16 +37,19 @@
 
   function limits(nextMode = mode || desiredMode()) {
     const rect = grid.getBoundingClientRect();
+    const splitterSize = nextMode === 'bottom' && rect.width <= 650
+      ? COMPACT_SPLITTER_SIZE
+      : SPLITTER_SIZE;
     if (nextMode === 'side') {
       return {
         min: MIN_WIDTH,
-        max: Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, rect.width - MIN_MAIN_WIDTH - SPLITTER_SIZE))
+        max: Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, rect.width - MIN_MAIN_WIDTH - splitterSize))
       };
     }
     const minMain = rect.width <= 650 ? COMPACT_MAIN_HEIGHT : MIN_MAIN_HEIGHT;
     return {
       min: MIN_HEIGHT,
-      max: Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, rect.height - minMain - SPLITTER_SIZE))
+      max: Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, rect.height - minMain - splitterSize))
     };
   }
 
