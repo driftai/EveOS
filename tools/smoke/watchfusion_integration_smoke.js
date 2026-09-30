@@ -85,6 +85,7 @@ function sourceContract() {
     const youtubeSetup = read('tools/WatchFusion/voxelvision/scripts/SETUP-YOUTUBE.ps1');
     const youtubeImport = read('tools/WatchFusion/voxelvision/youtube-import.js');
     const videoStreamSmoke = read('tools/WatchFusion/scripts/smoke-video-stream.cjs');
+    const eveosVideoSmoke = read('tools/WatchFusion/scripts/smoke-eveos-video-present.cjs');
     const depthSession = read('tools/WatchFusion/voxelvision/public/js/depth-worker-session.js');
     const maskAssist = read('tools/WatchFusion/voxelvision/public/js/foreground-mask-assist.js');
     const sensing = read('js/modules/features/watchfusion/watchfusion.runtime-sensing.js');
@@ -264,6 +265,7 @@ function sourceContract() {
     check(youtubeImport.includes('preferredByHeight') && youtubeImport.includes("strategy: 'adaptive-hls'") && voxelRoutes.includes('stream.variants') && voxelRoutes.includes('#EXT-X-INDEPENDENT-SEGMENTS'), 'WF-YOUTUBE-ADAPTIVE-HLS', 'direct YouTube playback is still pinned to one fixed HLS rendition instead of an adaptive ladder');
     check(mediaPlayer.includes('capLevelToPlayerSize: true') && mediaPlayer.includes('capLevelOnFPSDrop: true') && mediaPlayer.includes('startLevel: -1') && mediaPlayer.includes('abrBandWidthFactor: 0.80') && mediaDiagnostics.includes('watchFusionMediaDiagnostics') && staticFiles.includes("'client/media-diagnostics.js'"), 'WF-YOUTUBE-HLS-ABR', 'YouTube-direct HLS does not expose conservative ABR/player diagnostics');
     check(videoStreamSmoke.includes('requestVideoFrameCallback') && mediaDiagnostics.includes('bufferedAheadSec') && videoStreamSmoke.includes('droppedFrameRatio') && videoStreamSmoke.includes('WATCHFUSION_VIDEO_STREAM_SMOKE_') && videoStreamSmoke.includes("--embedded"), 'WF-VIDEO-STREAM-DIAGNOSTIC', 'WatchFusion lacks a reusable playback/frame/buffer diagnostic smoke');
+    check(eveosVideoSmoke.includes('window.EveWatchFusion.open()') && eveosVideoSmoke.includes('requestVideoFrameCallback') && eveosVideoSmoke.includes('PerformanceObserver') && eveosVideoSmoke.includes('WATCHFUSION_EVEOS_VIDEO_PRESENT_'), 'WF-EVEOS-VIDEO-PRESENT-DIAGNOSTIC', 'WatchFusion lacks an actual outer-EveOS presentation diagnostic for compositor/frame pacing');
     check(depthSession.includes('voxelvision.model-ready-v1') && depthSession.includes('readyAt'), 'WF-DEPTH-MODEL-STATUS', 'depth model readiness is not persisted for Setup Health');
     check(maskAssist.includes("current['anime-mask']") && maskAssist.includes('readyAt'), 'WF-MASK-MODEL-STATUS', 'anime mask readiness is not persisted for Setup Health');
 }
