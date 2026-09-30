@@ -291,6 +291,16 @@ html.eveos-embedded .chat { min-height: 0; }
     flex-basis: 36px;
     min-height: 36px;
     padding: 3px 7px;
+    z-index: 100;
+    overflow: visible;
+  }
+  html.eveos-embedded .top-actions {
+    top: calc(100% + 4px);
+    right: 40px;
+    z-index: 200;
+    width: min(220px, calc(100vw - 48px));
+    max-height: calc(100dvh - 48px);
+    overflow-y: auto;
   }
   html.eveos-embedded .brand { font-size: 13px; }
   html.eveos-embedded .watch-shell-head { align-items: stretch; }
