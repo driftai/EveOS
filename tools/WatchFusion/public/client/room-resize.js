@@ -3,6 +3,7 @@
   const WIDTH_KEY = 'watchfusion.partyPanelWidth';
   const SIDE_BREAKPOINT = 980;
   const DEFAULT_HEIGHT = 300;
+  const DEFAULT_COMPACT_HEIGHT = 360;
   const DEFAULT_WIDTH = 320;
   const MIN_HEIGHT = 160;
   const MAX_HEIGHT = 720;
@@ -30,7 +31,8 @@
 
   function storedSize(nextMode) {
     const key = nextMode === 'side' ? WIDTH_KEY : HEIGHT_KEY;
-    const fallback = nextMode === 'side' ? DEFAULT_WIDTH : DEFAULT_HEIGHT;
+    const compact = nextMode === 'bottom' && grid.getBoundingClientRect().width <= 650;
+    const fallback = nextMode === 'side' ? DEFAULT_WIDTH : (compact ? DEFAULT_COMPACT_HEIGHT : DEFAULT_HEIGHT);
     const stored = Number(storage.get(key));
     return Number.isFinite(stored) ? stored : fallback;
   }
@@ -56,7 +58,8 @@
   function apply(value = storedSize(mode || desiredMode()), persist = true) {
     const nextMode = mode || desiredMode();
     const { min, max } = limits(nextMode);
-    const fallback = nextMode === 'side' ? DEFAULT_WIDTH : DEFAULT_HEIGHT;
+    const compact = nextMode === 'bottom' && grid.getBoundingClientRect().width <= 650;
+    const fallback = nextMode === 'side' ? DEFAULT_WIDTH : (compact ? DEFAULT_COMPACT_HEIGHT : DEFAULT_HEIGHT);
     const next = Math.round(Math.max(min, Math.min(max, Number(value) || fallback)));
     const key = nextMode === 'side' ? WIDTH_KEY : HEIGHT_KEY;
     const variable = nextMode === 'side' ? '--watchfusion-party-width' : '--watchfusion-party-height';
@@ -102,7 +105,8 @@
   function reset() {
     const key = mode === 'side' ? WIDTH_KEY : HEIGHT_KEY;
     storage.remove(key);
-    apply(mode === 'side' ? DEFAULT_WIDTH : DEFAULT_HEIGHT, false);
+    const compact = mode === 'bottom' && grid.getBoundingClientRect().width <= 650;
+    apply(mode === 'side' ? DEFAULT_WIDTH : (compact ? DEFAULT_COMPACT_HEIGHT : DEFAULT_HEIGHT), false);
   }
 
   splitter.addEventListener('pointerdown', event => {
