@@ -12,7 +12,7 @@
       if (this.closed) return;
       const url = new URL('/live-ws', this.options.base); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
       const socket = new WebSocket(url); this.socket = socket;
-      socket.onopen = () => { this.retry = 0; this.send({ type: 'join', id: this.options.id, token: this.options.token, role: this.options.stream ? 'publisher' : 'viewer', roomId: this.options.roomId, memberId: this.options.memberId }); };
+      socket.onopen = () => { this.retry = 0; this.send({ type: 'join', id: this.options.id, token: this.options.token, role: (this.options.publisher || this.options.stream) ? 'publisher' : 'viewer', roomId: this.options.roomId, memberId: this.options.memberId }); };
       socket.onmessage = event => {
         try {
           this.receive(JSON.parse(event.data)).catch(error => this.status(error.message));

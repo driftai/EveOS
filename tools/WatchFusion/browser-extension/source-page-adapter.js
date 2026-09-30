@@ -5,6 +5,7 @@
   const CHANNEL = 'eveos.watchfusion.page-media.v1';
   const bindings = new Map();
   const state = { hasMedia:false, paused:true, currentTime:0, duration:0, rate:1, volume:1, title:'' };
+  const qualityRestore = new Map();
   let observer = null, refreshTimer = null, disposed = false;
 
   function player() {
@@ -21,6 +22,24 @@
     state.title = navigator.mediaSession?.metadata?.title
       || target?.shadowRoot?.querySelector('iframe')?.getAttribute('aria-label') || document.title;
     window.postMessage({ channel:CHANNEL, type:'state', ...state }, '*');
+  }
+
+  async function preferLowestQuality(target) {
+    if (!target || qualityRestore.has(target) || typeof target.setQuality !== 'function') return;
+    qualityRestore.set(target, null);
+    try {
+      const previous = typeof target.getQuality === 'function' ? await target.getQuality() : null;
+      const getter = typeof target.getQualities === 'function' ? target.getQualities.bind(target)
+        : (typeof target.getAvailableQualities === 'function' ? target.getAvailableQualities.bind(target) : null);
+      if (!getter) return;
+      const raw = await getter();
+      const qualities = (Array.isArray(raw) ? raw : []).map(item => typeof item === 'string' ? item : item?.id || item?.label).filter(Boolean);
+      const ranked = qualities.map(value => ({ value, n:Number(String(value).match(/(\d{3,4})/)?.[1]) || Infinity }))
+        .filter(item => Number.isFinite(item.n)).sort((a,b) => a.n-b.n);
+      if (!ranked.length) return;
+      qualityRestore.set(target, previous);
+      await target.setQuality(ranked[0].value);
+    } catch {}
   }
 
   function bind(target) {
@@ -40,6 +59,7 @@
     target.addEventListener('strmcx-duration-change', handlers.duration);
     target.addEventListener('strmcx-ended', handlers.ended);
     bindings.set(target, handlers);
+    void preferLowestQuality(target);
   }
 
   function unbindAll() {
@@ -49,6 +69,12 @@
       try { target.removeEventListener('strmcx-duration-change', handlers.duration); } catch {}
       try { target.removeEventListener('strmcx-ended', handlers.ended); } catch {}
     }
+    for (const [target, previous] of qualityRestore) {
+      if (previous != null && typeof target?.setQuality === 'function') {
+        try { Promise.resolve(target.setQuality(previous)).catch(() => {}); } catch {}
+      }
+    }
+    qualityRestore.clear();
     bindings.clear();
   }
 
