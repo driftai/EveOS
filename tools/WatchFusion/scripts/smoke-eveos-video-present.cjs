@@ -1,12 +1,25 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const {
+  sleep,
+  formatTime,
+  summarizeIntervals,
+  playbackSnapshot,
+  waitForPlayable,
+  outerLayoutSnapshot,
+  innerLayoutSnapshot,
+  installDiagnostics,
+  collectDiagnostics,
+  analyzeSamples
+} = require('./smoke-eveos-video-present-helpers.cjs');
 
 const args = process.argv.slice(2);
 function arg(name, fallback) {
   const index = args.indexOf(name);
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 }
+
 const requestedEveosUrl = arg('--eveos', process.env.EVEOS_URL || '');
 const target = arg('--url', process.env.WATCHFUSION_VIDEO_URL || 'https://youtu.be/ds3sGeb8pK0?si=i9hCSJS7v2SLMYI7');
 const seconds = Math.max(5, Math.min(900, Number(arg('--seconds', '20')) || 20));
@@ -21,50 +34,41 @@ const maxSeconds = Math.max(
 );
 const channel = arg('--channel', process.env.PW_BROWSER_CHANNEL || '');
 const strict = args.includes('--strict');
+const progressEverySec = Math.max(2, Math.min(60, Number(arg('--progress-every', '10')) || 10));
 
 const repoRoot = path.resolve(__dirname, '../../..');
 
 function readJson(filePath) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+  catch { return null; }
 }
-
 function readPortRegistry() {
   return readJson(path.join(repoRoot, 'config', 'eveos-ports.json'))?.ports || {};
 }
-
 function validPort(value) {
   const port = Number(value);
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : 0;
 }
-
 function configuredPort(name, fallback = 0) {
   return validPort(readPortRegistry()?.[name]?.port) || validPort(fallback);
 }
-
 function readLastLauncherPort() {
   try {
     return validPort(fs.readFileSync(
       path.join(repoRoot, 'data', 'runtime', 'eveos-last-launcher-port.txt'),
       'utf8'
     ).trim());
-  } catch {
-    return 0;
-  }
+  } catch { return 0; }
 }
 
 async function resolveEveosUrl() {
   if (requestedEveosUrl) return requestedEveosUrl;
-
   const controlPort = configuredPort('GEMINI_CONTROL_PORT', 9082);
   if (controlPort) {
     try {
       const response = await fetch(
         `http://127.0.0.1:${controlPort}/api/control-plane/status`,
-        { cache: 'no-store', signal: AbortSignal.timeout(1500) }
+        { cache:'no-store', signal:AbortSignal.timeout(1500) }
       );
       const payload = await response.json();
       const activePort = validPort(payload?.web?.port);
@@ -74,146 +78,79 @@ async function resolveEveosUrl() {
       }
     } catch {}
   }
-
-  const fallbackPort = readLastLauncherPort()
-    || configuredPort('EVEOS_WEB_PORT', 8765)
-    || 3000;
+  const fallbackPort = readLastLauncherPort() || configuredPort('EVEOS_WEB_PORT', 8765) || 3000;
   return `http://127.0.0.1:${fallbackPort}/EveOS.html`;
 }
 
-function summarizeIntervals(values) {
-  if (!values.length) return { count:0, avgMs:null, p95Ms:null, worstMs:null, over50Ms:0, over100Ms:0 };
-  const sorted=[...values].sort((a,b)=>a-b);
-  const pick=p=>sorted[Math.min(sorted.length-1,Math.floor(sorted.length*p))];
-  return {
-    count:values.length,
-    avgMs:values.reduce((sum,value)=>sum+value,0)/values.length,
-    p95Ms:pick(.95),
-    worstMs:sorted.at(-1),
-    over50Ms:values.filter(value=>value>50).length,
-    over100Ms:values.filter(value=>value>100).length
-  };
+function stage(mode, message) {
+  console.log(`[watchfusion-video][${mode}] ${message}`);
 }
 
-function rectSnapshot(element) {
-  if (!element) return null;
-  const rect = element.getBoundingClientRect();
-  const style = getComputedStyle(element);
-  return {
-    x: rect.x, y: rect.y, width: rect.width, height: rect.height,
-    right: rect.right, bottom: rect.bottom,
-    display: style.display, position: style.position,
-    overflow: style.overflow, overflowX: style.overflowX, overflowY: style.overflowY
-  };
+function playbackProgressLine(snapshot) {
+  if (!snapshot) return 'playback unavailable';
+  const total = Number(snapshot.duration) || 0;
+  const current = Number(snapshot.currentTime) || 0;
+  const pct = total > 0 ? ` ${Math.min(100, (current / total) * 100).toFixed(1)}%` : '';
+  return `${snapshot.mode || 'unknown'} ${formatTime(current)}/${total ? formatTime(total) : '?'}${pct} state=${snapshot.stateName || 'n/a'}`;
 }
 
-async function outerLayoutSnapshot(page) {
-  return page.evaluate(() => {
-    const overlay = document.querySelector('#watchfusion-overlay');
-    const frame = document.querySelector('#watchfusion-overlay .watchfusion-frame');
-    const root = document.documentElement;
-    const body = document.body;
-    return {
-      viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
-      root: {
-        clientWidth: root.clientWidth, clientHeight: root.clientHeight,
-        scrollWidth: root.scrollWidth, scrollHeight: root.scrollHeight
-      },
-      body: body ? {
-        clientWidth: body.clientWidth, clientHeight: body.clientHeight,
-        scrollWidth: body.scrollWidth, scrollHeight: body.scrollHeight
-      } : null,
-      overlay: (() => {
-        if (!overlay) return null;
-        const rect = overlay.getBoundingClientRect();
-        const style = getComputedStyle(overlay);
-        return {
-          x: rect.x, y: rect.y, width: rect.width, height: rect.height,
-          right: rect.right, bottom: rect.bottom,
-          display: style.display, position: style.position,
-          overflow: style.overflow, overflowX: style.overflowX, overflowY: style.overflowY
-        };
-      })(),
-      frame: (() => {
-        if (!frame) return null;
-        const rect = frame.getBoundingClientRect();
-        const style = getComputedStyle(frame);
-        return {
-          x: rect.x, y: rect.y, width: rect.width, height: rect.height,
-          right: rect.right, bottom: rect.bottom,
-          display: style.display, position: style.position,
-          overflow: style.overflow, overflowX: style.overflowX, overflowY: style.overflowY
-        };
-      })()
-    };
-  });
-}
+async function waitForPlaybackWindow(page, frame, mode) {
+  const limitMs = (untilEnded ? maxSeconds : seconds) * 1000;
+  const started = Date.now();
+  let lastProgress = -Infinity;
+  let ended = false;
 
-async function innerLayoutSnapshot(frame) {
-  return frame.evaluate(() => {
-    const root = document.documentElement;
-    const body = document.body;
-    const video = document.querySelector('#mediaVideo');
-    const oversized = [...document.querySelectorAll('body *')].map(element => {
-      const rect = element.getBoundingClientRect();
-      if (!rect.width || !rect.height) return null;
-      if (rect.right <= innerWidth + 2 && rect.bottom <= innerHeight + 2
-          && rect.width <= innerWidth + 2 && rect.height <= innerHeight + 2) return null;
-      return {
-        tag: element.tagName,
-        id: element.id || '',
-        className: typeof element.className === 'string' ? element.className.slice(0, 120) : '',
-        x: rect.x, y: rect.y, width: rect.width, height: rect.height,
-        right: rect.right, bottom: rect.bottom
-      };
-    }).filter(Boolean).slice(0, 12);
-    const snapRect = element => {
-      if (!element) return null;
-      const rect = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
-      return {
-        x: rect.x, y: rect.y, width: rect.width, height: rect.height,
-        right: rect.right, bottom: rect.bottom,
-        display: style.display, position: style.position,
-        overflow: style.overflow, overflowX: style.overflowX, overflowY: style.overflowY
-      };
-    };
-    return {
-      viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
-      root: {
-        clientWidth: root.clientWidth, clientHeight: root.clientHeight,
-        scrollWidth: root.scrollWidth, scrollHeight: root.scrollHeight
-      },
-      body: body ? {
-        clientWidth: body.clientWidth, clientHeight: body.clientHeight,
-        scrollWidth: body.scrollWidth, scrollHeight: body.scrollHeight
-      } : null,
-      video: snapRect(video),
-      videoState: video ? {
-        readyState: video.readyState,
-        networkState: video.networkState,
-        paused: video.paused,
-        ended: video.ended,
-        currentTime: Number(video.currentTime) || 0,
-        duration: Number.isFinite(video.duration) ? video.duration : null,
-        currentSrc: video.currentSrc || video.src || ''
-      } : null,
-      oversized
-    };
-  });
+  while (Date.now() - started < limitMs) {
+    const elapsedMs = Date.now() - started;
+    if (elapsedMs - lastProgress >= progressEverySec * 1000) {
+      lastProgress = elapsedMs;
+      const snap = await playbackSnapshot(frame).catch(() => null);
+      stage(mode, `playback: ${playbackProgressLine(snap)}`);
+    }
+
+    if (untilEnded) {
+      const snap = await playbackSnapshot(frame).catch(() => null);
+      if (snap?.ended) {
+        ended = true;
+        stage(mode, `end detected at ${formatTime(snap.currentTime)} / ${formatTime(snap.duration)}`);
+        break;
+      }
+    } else if (elapsedMs >= seconds * 1000) {
+      break;
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  if (untilEnded && !ended) {
+    const snap = await playbackSnapshot(frame).catch(() => null);
+    stage(mode, `end not observed before ${maxSeconds}s ceiling; last=${playbackProgressLine(snap)}`);
+  }
+
+  return ended;
 }
 
 async function runPass(headed) {
+  const mode = headed ? 'headed' : 'headless';
   const eveosUrl = await resolveEveosUrl();
   const launchOptions = { headless: !headed };
   if (channel) launchOptions.channel = channel;
+
   let browser = null;
-  const consoleErrors = [], pageErrors = [], requestFailures = [];
+  const consoleErrors = [];
+  const pageErrors = [];
+  const requestFailures = [];
 
   try {
+    stage(mode, `launching ${channel || 'bundled Chromium'} via Playwright (${headed ? 'visible' : 'headless'})`);
     browser = await chromium.launch(launchOptions);
+    const browserVersion = browser.version();
+    stage(mode, `browser ready: ${browserVersion}`);
+
     const page = await browser.newPage({ viewport:{ width:1600, height:1000 } });
-    page.on('console', message => { if(message.type()==='error') consoleErrors.push(message.text()); });
+    page.on('console', message => {
+      if (message.type() === 'error') consoleErrors.push(message.text());
+    });
     page.on('pageerror', error => pageErrors.push(error.message));
     page.on('requestfailed', request => {
       const url = request.url();
@@ -222,165 +159,117 @@ async function runPass(headed) {
       }
     });
 
-    await page.goto(eveosUrl,{ waitUntil:'domcontentloaded', timeout:120000 });
+    stage(mode, `opening EveOS: ${eveosUrl}`);
+    await page.goto(eveosUrl, { waitUntil:'domcontentloaded', timeout:120000 });
     await page.waitForFunction(
       () => window.EveWatchFusion?.ready && typeof window.EveWatchFusion.open === 'function',
       null,
       { timeout:120000 }
     );
+    stage(mode, 'EveOS WatchFusion bridge ready');
+
     await page.evaluate(() => window.EveWatchFusion.open());
-    await page.waitForSelector('#watchfusion-overlay .watchfusion-frame:not([hidden])',{ timeout:30000 });
+    await page.waitForSelector('#watchfusion-overlay .watchfusion-frame:not([hidden])', { timeout:30000 });
+    stage(mode, 'WatchFusion overlay opened');
 
     const handle = await page.locator('#watchfusion-overlay .watchfusion-frame').elementHandle();
     const frame = await handle?.contentFrame();
-    if(!frame) throw new Error('WatchFusion iframe was not available inside EveOS.');
+    if (!frame) throw new Error('WatchFusion iframe was not available inside EveOS.');
+
     await frame.waitForFunction(
       () => document.readyState === 'complete' || document.readyState === 'interactive',
       null,
       { timeout:30000 }
     );
+    stage(mode, 'WatchFusion iframe ready');
+
     await frame.evaluate(() => globalThis.showFindMedia?.());
     await frame.locator('#sourceInput').fill(target);
     await frame.locator('#loadBtn').click();
+    stage(mode, 'source submitted; waiting for native YouTube or direct-video player');
 
-    try {
-      await frame.waitForFunction(() => {
-        const video=document.querySelector('#mediaVideo');
-        return !!video && video.readyState>=1;
-      }, null, { timeout:60000 });
-    } catch (error) {
-      const loadState = await frame.evaluate(() => {
-        const video=document.querySelector('#mediaVideo');
-        return {
-          sourceKind: globalThis.state?.source?.kind || null,
-          source: globalThis.state?.source || null,
-          mediaDiagnostics: globalThis.watchFusionMediaDiagnostics?.snapshot?.() || null,
-          video: video ? {
-            readyState:video.readyState,
-            networkState:video.networkState,
-            paused:video.paused,
-            ended:video.ended,
-            currentTime:Number(video.currentTime)||0,
-            duration:Number.isFinite(video.duration)?video.duration:null,
-            currentSrc:video.currentSrc||video.src||'',
-            error:video.error ? { code:video.error.code, message:video.error.message || '' } : null
-          } : null
-        };
-      });
-      throw new Error(`WatchFusion media did not become video-ready within 60s. LOAD_STATE=${JSON.stringify(loadState)}`);
+    const readySnapshot = await waitForPlayable(frame, 60000, message => stage(mode, message));
+    if (!readySnapshot?.ready) {
+      const layout = await innerLayoutSnapshot(frame).catch(() => null);
+      throw new Error(
+        `WatchFusion player did not become ready within 60s. PLAYER_STATE=${JSON.stringify(readySnapshot)} LAYOUT=${JSON.stringify(layout)}`
+      );
     }
+    stage(mode, `player ready: ${playbackProgressLine(readySnapshot)}`);
 
     const layoutStart = {
       outer: await outerLayoutSnapshot(page),
       inner: await innerLayoutSnapshot(frame)
     };
 
-    await page.evaluate(() => {
-      const diag={ raf:[], last:0, longTasks:[] };
-      window.__wfOuterPresentDiag=diag;
-      const tick=now=>{
-        if(diag.last)diag.raf.push(now-diag.last);
-        diag.last=now;
-        diag.rafId=requestAnimationFrame(tick);
-      };
-      diag.rafId=requestAnimationFrame(tick);
-      try{
-        diag.observer=new PerformanceObserver(list=>{
-          for(const entry of list.getEntries())diag.longTasks.push({start:entry.startTime,duration:entry.duration});
-        });
-        diag.observer.observe({type:'longtask',buffered:true});
-      }catch{}
-    });
+    await installDiagnostics(page, frame);
+    stage(mode, `diagnostics armed; ${untilEnded ? `watching until media ends (ceiling ${maxSeconds}s)` : `sampling for ${seconds}s`}`);
 
-    await frame.evaluate(() => {
-      const video=document.querySelector('#mediaVideo');
-      const diag={ frames:[], lastFrame:0, events:[], samples:[], longTasks:[] };
-      window.__wfInnerPresentDiag=diag;
-      for(const name of ['loadedmetadata','durationchange','waiting','stalled','playing','canplay','seeking','seeked','ended','error']){
-        video.addEventListener(name,()=>diag.events.push({name,at:performance.now(),time:Number(video.currentTime)||0}),{passive:true});
-      }
-      if(typeof video.requestVideoFrameCallback==='function'){
-        const frameTick=now=>{
-          if(diag.lastFrame)diag.frames.push(now-diag.lastFrame);
-          diag.lastFrame=now;
-          video.requestVideoFrameCallback(frameTick);
-        };
-        video.requestVideoFrameCallback(frameTick);
-      }
-      try{
-        diag.observer=new PerformanceObserver(list=>{
-          for(const entry of list.getEntries())diag.longTasks.push({start:entry.startTime,duration:entry.duration});
-        });
-        diag.observer.observe({type:'longtask',buffered:true});
-      }catch{}
-      video.play?.().catch(()=>{});
-      diag.timer=setInterval(()=>{
-        const snap=globalThis.watchFusionMediaDiagnostics?.snapshot?.()||{};
-        diag.samples.push({at:performance.now(),...snap});
-      },250);
-    });
+    const endedObserved = await waitForPlaybackWindow(page, frame, mode);
+    if (untilEnded) await page.waitForTimeout(350);
 
-    if (untilEnded) {
-      await Promise.race([
-        frame.waitForFunction(() => document.querySelector('#mediaVideo')?.ended === true, null, { timeout:maxSeconds*1000 }).catch(() => null),
-        page.waitForTimeout(maxSeconds*1000)
-      ]);
-      await page.waitForTimeout(350);
-    } else {
-      await page.waitForTimeout(seconds*1000);
-    }
-
+    stage(mode, 'collecting presentation and layout snapshots');
     const layoutEnd = {
       outer: await outerLayoutSnapshot(page),
       inner: await innerLayoutSnapshot(frame)
     };
+    const { outer, inner } = await collectDiagnostics(page, frame);
 
-    const outer=await page.evaluate(() => {
-      const diag=window.__wfOuterPresentDiag||{raf:[],longTasks:[]};
-      cancelAnimationFrame(diag.rafId);
-      diag.observer?.disconnect?.();
-      return { raf:diag.raf, longTasks:diag.longTasks };
-    });
-    const inner=await frame.evaluate(() => {
-      const diag=window.__wfInnerPresentDiag;
-      clearInterval(diag.timer);
-      diag.observer?.disconnect?.();
-      const first=diag.samples[0]||{},last=diag.samples.at(-1)||{};
-      return {
-        frames:diag.frames,
-        events:diag.events,
-        longTasks:diag.longTasks,
-        samples:diag.samples,
-        elapsedPlaybackSec:Math.max(0,(Number(last.currentTime)||0)-(Number(first.currentTime)||0)),
-        start:first,end:last
-      };
-    });
-
-    const outerRaf=summarizeIntervals(outer.raf);
-    const innerFrames=summarizeIntervals(inner.frames);
-    const waiting=inner.events.filter(event=>event.name==='waiting'||event.name==='stalled');
-    const droppedRatio=inner.end.totalFrames?Number(inner.end.droppedFrames||0)/Number(inner.end.totalFrames):0;
-    const outerLongMs=outer.longTasks.reduce((sum,item)=>sum+Number(item.duration||0),0);
-    const innerLongMs=inner.longTasks.reduce((sum,item)=>sum+Number(item.duration||0),0);
-    const expectedWindow = untilEnded ? Math.min(seconds, 20) : seconds;
-    const healthyPlayback=inner.elapsedPlaybackSec>=expectedWindow*.65 && waiting.length<=2;
-    const healthyPresentation=outerRaf.over100Ms<=2 && innerFrames.over100Ms<=2 && droppedRatio<.08;
-    const health=healthyPlayback&&healthyPresentation?'good':'degraded';
+    const outerRaf = summarizeIntervals(outer.raf);
+    const innerRaf = summarizeIntervals(inner.raf);
+    const innerFrames = summarizeIntervals(inner.frames);
+    const sampleAnalysis = analyzeSamples(inner.samples);
+    const waiting = inner.events.filter(event => event.name === 'waiting' || event.name === 'stalled');
+    const direct = inner.end.mode === 'direct';
+    const droppedRatio = direct && inner.end.totalFrames
+      ? Number(inner.end.droppedFrames || 0) / Number(inner.end.totalFrames)
+      : null;
+    const outerLongMs = outer.longTasks.reduce((sum,item) => sum + Number(item.duration || 0), 0);
+    const innerLongMs = inner.longTasks.reduce((sum,item) => sum + Number(item.duration || 0), 0);
+    const maxGapAllowance = Math.max(2, Math.ceil(Math.max(seconds, inner.elapsedPlaybackSec) / 30));
+    const expectedWindow = untilEnded ? Math.min(20, Math.max(5, inner.end.duration || 20)) : seconds;
+    const healthyPlayback = untilEnded
+      ? endedObserved
+      : inner.elapsedPlaybackSec >= expectedWindow * 0.65 && sampleAnalysis.stalledRatio < 0.25;
+    const presentationGapCount = direct ? innerFrames.over100Ms : innerRaf.over100Ms;
+    const healthyPresentation = outerRaf.over100Ms <= maxGapAllowance
+      && presentationGapCount <= maxGapAllowance
+      && (droppedRatio == null || droppedRatio < 0.08);
+    const health = healthyPlayback && healthyPresentation ? 'good' : 'degraded';
 
     return {
       smoke:'watchfusion-eveos-video-present',
-      mode:headed?'headed':'headless',
-      eveosUrl,target,seconds,untilEnded,maxSeconds,headed,channel:channel||null,health,
+      mode,
+      eveosUrl,
+      target,
+      seconds,
+      untilEnded,
+      maxSeconds,
+      headed,
+      browser:{ engine:'chromium', channel:channel || 'bundled-chromium', version:browserVersion },
+      health,
       playback:{
+        mediaMode:inner.end.mode || readySnapshot.mode || null,
         elapsedPlaybackSec:inner.elapsedPlaybackSec,
+        endedObserved,
         waitingOrStalledEvents:waiting,
-        eventCounts:inner.events.reduce((out,event)=>{out[event.name]=(out[event.name]||0)+1;return out;},{}),
+        eventCounts:inner.events.reduce((out,event) => {
+          out[event.name] = (out[event.name] || 0) + 1;
+          return out;
+        }, {}),
+        stalledPairs:sampleAnalysis.stalledPairs,
+        activePairs:sampleAnalysis.activePairs,
+        stalledRatio:sampleAnalysis.stalledRatio,
+        bufferingSamples:sampleAnalysis.bufferingSamples,
         droppedFrameRatio:droppedRatio,
-        start:inner.start,end:inner.end
+        start:inner.start,
+        end:inner.end
       },
       presentation:{
         outerRaf,
-        innerVideoFrames:innerFrames,
+        innerRaf,
+        innerVideoFrames:direct ? innerFrames : null,
+        note:direct ? null : 'Native YouTube iframe is cross-origin; requestVideoFrameCallback is unavailable, so inner RAF + YouTube timeline/state are used instead.',
         outerLongTasks:outer.longTasks.slice(-20),
         innerLongTasks:inner.longTasks.slice(-20),
         outerLongTaskMs:outerLongMs,
@@ -392,44 +281,63 @@ async function runPass(headed) {
       pageErrors:pageErrors.slice(0,20)
     };
   } finally {
-    if (browser) await browser.close().catch(() => {});
+    if (browser) {
+      stage(mode, 'closing Playwright browser');
+      await browser.close().catch(() => {});
+    }
   }
 }
 
 (async () => {
-  const results=[];
+  const results = [];
   for (const headed of runModes) {
-    const mode=headed?'headed':'headless';
+    const mode = headed ? 'headed' : 'headless';
     console.log(`WATCHFUSION_EVEOS_VIDEO_PRESENT_START ${mode}`);
     try {
-      const result=await runPass(headed);
+      const result = await runPass(headed);
       results.push(result);
-      console.log(JSON.stringify(result,null,2));
-      console.log(`WATCHFUSION_EVEOS_VIDEO_PRESENT_${mode.toUpperCase()}_${result.health==='good'?'OK':'DEGRADED'}`);
+      console.log(JSON.stringify(result, null, 2));
+      console.log(`WATCHFUSION_EVEOS_VIDEO_PRESENT_${mode.toUpperCase()}_${result.health === 'good' ? 'OK' : 'DEGRADED'}`);
     } catch (error) {
-      const failed={ smoke:'watchfusion-eveos-video-present', mode, health:'error', error:error.stack||String(error) };
+      const failed = {
+        smoke:'watchfusion-eveos-video-present',
+        mode,
+        health:'error',
+        error:error.stack || String(error)
+      };
       results.push(failed);
-      console.error(JSON.stringify(failed,null,2));
+      console.error(JSON.stringify(failed, null, 2));
     }
   }
 
-  const overall=results.every(result=>result.health==='good')?'good':'degraded';
-  if (runModes.length>1) {
+  const overall = results.every(result => result.health === 'good') ? 'good' : 'degraded';
+  if (runModes.length > 1) {
     console.log(JSON.stringify({
       smoke:'watchfusion-eveos-video-present-matrix',
-      target,seconds,untilEnded,maxSeconds,channel:channel||null,
+      target,
+      seconds,
+      untilEnded,
+      maxSeconds,
+      channel:channel || null,
       health:overall,
-      modes:results.map(result=>({
+      modes:results.map(result => ({
         mode:result.mode,
         health:result.health,
+        mediaMode:result.playback?.mediaMode ?? null,
         elapsedPlaybackSec:result.playback?.elapsedPlaybackSec ?? null,
+        endedObserved:result.playback?.endedObserved ?? null,
         outerWorstRafMs:result.presentation?.outerRaf?.worstMs ?? null,
+        innerWorstRafMs:result.presentation?.innerRaf?.worstMs ?? null,
         innerWorstFrameMs:result.presentation?.innerVideoFrames?.worstMs ?? null,
         droppedFrameRatio:result.playback?.droppedFrameRatio ?? null,
         error:result.error || null
       }))
-    },null,2));
-    console.log(`WATCHFUSION_EVEOS_VIDEO_PRESENT_MATRIX_${overall==='good'?'OK':'DEGRADED'}`);
+    }, null, 2));
+    console.log(`WATCHFUSION_EVEOS_VIDEO_PRESENT_MATRIX_${overall === 'good' ? 'OK' : 'DEGRADED'}`);
   }
-  if(strict&&overall!=='good')process.exitCode=1;
-})().catch(error=>{console.error(error.stack||error);process.exitCode=1;});
+
+  if (strict && overall !== 'good') process.exitCode = 1;
+})().catch(error => {
+  console.error(error.stack || error);
+  process.exitCode = 1;
+});
