@@ -150,6 +150,12 @@ html.watchfusion-party-bottom.watchfusion-resizing * {
 /* Compact/phone room UI: bound every surface to the embedded viewport and let
    chat scroll internally instead of forcing the whole EveOS iframe wider/taller. */
 @media (max-width: 650px) {
+  html.watchfusion-room-active:not(.eveos-embedded) .grid {
+    height: calc(100dvh - 66px);
+    max-height: none;
+    min-height: 0;
+    margin: 6px auto;
+  }
   html.watchfusion-room-active.watchfusion-party-bottom .grid,
   html.watchfusion-party-bottom .grid:has(#partyPanel:not([hidden])) {
     grid-template-rows: minmax(0, 1fr) 10px var(--watchfusion-party-height, 300px);
@@ -214,14 +220,17 @@ html.watchfusion-party-bottom.watchfusion-resizing * {
   html.watchfusion-party-bottom .members {
     display: flex;
     flex-wrap: nowrap;
-    gap: 5px;
-    max-height: none;
+    align-items: center;
+    gap: 6px;
     min-width: 0;
+    min-height: 38px;
+    max-height: 42px;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 1px 0 3px;
+    padding: 5px 1px 6px;
     align-content: center;
     scrollbar-width: thin;
+    border-bottom: 1px solid var(--border-subtle);
   }
 
   html.watchfusion-party-bottom .member-row {
@@ -231,8 +240,12 @@ html.watchfusion-party-bottom.watchfusion-resizing * {
   }
 
   html.watchfusion-party-bottom .member {
-    padding: 4px 7px;
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 8px;
     font-size: 11px;
+    line-height: 1.15;
     white-space: nowrap;
   }
 
@@ -255,8 +268,9 @@ html.watchfusion-party-bottom.watchfusion-resizing * {
     min-height: 96px;
     gap: 6px;
     padding: 5px 1px 7px;
-    border-top: 1px solid var(--border-subtle);
+    border-top: 0;
     scrollbar-gutter: auto;
+    overflow-anchor: none;
   }
 
   html.watchfusion-party-bottom .msg {
