@@ -449,3 +449,20 @@ html.eveos-embedded .watch-shell.solo-idle .find-media-panel {
 html.eveos-embedded .watch-shell.solo-idle .media-status-row[hidden] {
   display: none !important;
 }
+
+html.eveos-embedded.watchfusion-room-active.watchfusion-room-idle .grid {
+  grid-template-rows: auto 8px var(--watchfusion-party-height, 300px);
+  align-content: start;
+}
+html.eveos-embedded .watch-shell.room-idle {
+  grid-template-rows: auto auto auto auto;
+  align-content: start;
+}
+html.eveos-embedded .watch-shell.room-idle .find-media-panel {
+  max-height: none;
+}
+@media (max-height: 720px) {
+  html.eveos-embedded.watchfusion-room-active.watchfusion-room-idle .grid {
+    grid-template-rows: auto 8px minmax(140px, var(--watchfusion-party-height, 240px));
+  }
+}

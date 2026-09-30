@@ -45,3 +45,5 @@
 
 - In embedded Audioflix rooms, the reserved media-workspace height should be useful: expand the Music Library queue through the audio-only control area instead of leaving a large dead gap. Preserve the existing Watch Party splitter behavior.
 - The EveOS outer Refresh button is a user-requested UI reload as well as a lifecycle/status refresh. Background polling must remain status-only so it never reloads WatchFusion every poll interval.
+- In an active room with no loaded media, collapse the media workspace to content height rather than reserving a blank 280px/1fr canvas. The full media allocation returns as soon as visual media loads; Audioflix keeps its separate queue-filling audio-only layout.
+- YouTube room host playback is authoritative after initial player hydration. Never continuously apply inbound room snapshots back onto the active host player; that can create host-only seek/play stutter while viewers remain smooth. Viewers keep adaptive correction; host hydration is explicit and one-shot when a player/video is created or cued.

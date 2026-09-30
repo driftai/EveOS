@@ -79,7 +79,7 @@ function ensurePlayer(videoId) {
               // The player is still initialized at that point, so a later
               // manual host Play event must be allowed to become room state.
               playerInitializing = false;
-              syncPlayer();
+              syncPlayer({ hydrateHost: true });
             } else {
               restorePlayerAudioPrefs();
               playerPrimed = true;
@@ -120,17 +120,17 @@ function ensurePlayer(videoId) {
         await primeYouTubePlayer(true);
         applyingRemote = false;
         playerInitializing = false;
-        syncPlayer();
+        syncPlayer({ hydrateHost: true });
       }).catch(() => {
         applyingRemote = false;
         playerInitializing = false;
-        syncPlayer();
+        syncPlayer({ hydrateHost: true });
       });
     } else {
       if (roomId) {
         primeYouTubePlayer().then(() => {
           playerInitializing = false;
-          syncPlayer();
+          syncPlayer({ hydrateHost: true });
         });
       } else {
         playerPrimed = true;
@@ -344,6 +344,7 @@ function syncPlayer(options = {}) {
     ensurePlayer(state.source.videoId);
     return;
   }
+  if (isHost() && options.hydrateHost !== true) return;
   if (!isHost() && typeof window.applyAdaptiveViewerSync === 'function') {
     // Playback lifecycle ownership stays here. Adaptive sync is a focused
     // viewer-correction service and must not replace this function wholesale.

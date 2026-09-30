@@ -64,6 +64,7 @@ export async function runFastSmoke() {
     const bootstrap = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'bootstrap.js'), 'utf8');
     const mediaPlayer = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'media-player.js'), 'utf8');
     const playbackSync = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'playback-sync.js'), 'utf8');
+    const commands = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'commands.js'), 'utf8');
     const continuityBridge = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'eveos-embed-bridge.js'), 'utf8');
     const roomResize = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'room-resize.js'), 'utf8');
     const liveSource = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'live-source.js'), 'utf8');
@@ -112,6 +113,10 @@ export async function runFastSmoke() {
     assert.match(render, /hasVisualMedia=\(isLive&&source\.mode!==['"]audioflix['"]\)/);
     assert.match(render, /watchShell\.classList\.toggle\('solo-idle',idleSolo\)/);
     assert.match(render, /watchShell\.classList\.toggle\('audio-only-live',audioOnlyLive\)/);
+    assert.match(render, /watchShell\.classList\.toggle\('room-idle',roomIdleNoMedia\)/);
+    assert.match(render, /watchfusion-room-idle/);
+    assert.match(style, /watchfusion-room-active\.watchfusion-room-idle \.grid/);
+    assert.match(style, /grid-template-rows:\s*auto 8px var\(--watchfusion-party-height/);
     assert.match(liveCss, /\.watch-shell\.audio-only-live \.live-controls/);
     assert.match(liveCss, /#liveQueueWrap:not\(\[hidden\]\)/);
     assert.match(liveCss, /#liveQueue[\s\S]*max-height:\s*none/);
@@ -142,6 +147,8 @@ export async function runFastSmoke() {
     assert.doesNotMatch(connection, /updateServerClock\(nextState\.serverTime, Date\.now\(\), Date\.now\(\)\)/);
     assert.match(bootstrap, /updateServerClock\(data\.state\.serverTime,sentAt,receivedAt\)/);
     assert.match(playbackSync, /SYNC_TOLERANCE_SEC = 0\.15/);
+    assert.match(commands, /if \(isHost\(\) && options\.hydrateHost !== true\) return;/);
+    assert.match(commands, /syncPlayer\(\{ hydrateHost: true \}\)/);
     assert.match(playbackSync, /SEEK_DRIFT_SEC = 0\.65/);
     assert.match(playbackSync, /SENSOR_MIN_SAMPLES = 5/);
     assert.doesNotMatch(playbackSync, /nearestHigherRate|nearestLowerRate/);
