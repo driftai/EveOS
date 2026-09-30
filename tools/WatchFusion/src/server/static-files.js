@@ -70,6 +70,7 @@ export async function sendFile(req, res) {
       'client/commands.js',
       'client/media-player.js',
       'client/media-controls.js',
+      'client/youtube-stability.js',
       'client/realtime.js',
       'client/nuvio-embedded-toolbar.js',
       'client/nuvio-native-viewport-connector.js',
