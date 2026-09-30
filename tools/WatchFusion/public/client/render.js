@@ -66,8 +66,17 @@ function render() {
   if(playerHost)playerHost.classList.toggle('voxelvision-active',isVoxelVision);
   const hasLoadedMedia=isLive||nuvioViewVisible||isVoxelVision||isYoutube||source.kind==='media';
   const hasVisualMedia=(isLive&&source.mode!=='audioflix')||nuvioViewVisible||isVoxelVision||isYoutube||source.kind==='media';
+  const idleSolo=!inRoom&&!hasLoadedMedia;
+  const watchShell=document.querySelector('.watch-shell');
+  if(watchShell)watchShell.classList.toggle('solo-idle',idleSolo);
+  if($('soloEmptyState'))$('soloEmptyState').hidden=!idleSolo||findMediaPanel?.hidden===false;
   if($('mediaStage'))$('mediaStage').classList.toggle('media-stage-empty',!hasVisualMedia);
   if($('unloadMediaBtn'))$('unloadMediaBtn').hidden=!hasLoadedMedia||(inRoom&&!isHost());
+  if(document.querySelector('.media-status-row')){
+    const statusText=String($('syncStatus')?.textContent||'').trim();
+    const meaningfulStatus=statusText&&statusText!=='Solo mode';
+    document.querySelector('.media-status-row').hidden=idleSolo&&!meaningfulStatus;
+  }
   if(nuvioFrame){nuvioFrame.hidden=!nuvioViewVisible;nuvioFrame.style.display=nuvioViewVisible?'block':'none';}
   if(nuvioToolbar)nuvioToolbar.hidden=!nuvioViewVisible;
   if(voxelVisionFrame){voxelVisionFrame.hidden=!isVoxelVision;voxelVisionFrame.style.display=isVoxelVision?'block':'none';}

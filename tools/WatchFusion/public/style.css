@@ -423,3 +423,29 @@ html.eveos-embedded.watchfusion-room-active #mediaStage.player-wrap:not(.media-s
     grid-template-rows: minmax(280px, 1fr) 8px minmax(140px, var(--watchfusion-party-height, 240px));
   }
 }
+
+.solo-empty-state {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  align-content: center;
+  min-height: 132px;
+  padding: 22px 18px;
+  text-align: center;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(180deg, rgba(16,20,28,.82), rgba(12,15,21,.72));
+}
+.solo-empty-state[hidden] { display: none !important; }
+.solo-empty-state strong { font-size: 15px; color: var(--text-main); }
+.solo-empty-state span { font-size: 12px; color: var(--text-muted); }
+html.eveos-embedded .watch-shell.solo-idle {
+  grid-template-rows: auto auto auto auto;
+  align-content: start;
+}
+html.eveos-embedded .watch-shell.solo-idle .find-media-panel {
+  max-height: none;
+}
+html.eveos-embedded .watch-shell.solo-idle .media-status-row[hidden] {
+  display: none !important;
+}

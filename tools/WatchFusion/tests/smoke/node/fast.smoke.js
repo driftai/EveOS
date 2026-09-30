@@ -109,6 +109,10 @@ export async function runFastSmoke() {
     assert.match(style, /--watchfusion-party-height/);
     assert.match(style, /cursor:\s*row-resize/);
     assert.match(render, /hasVisualMedia=\(isLive&&source\.mode!==['"]audioflix['"]\)/);
+    assert.match(render, /watchShell\.classList\.toggle\('solo-idle',idleSolo\)/);
+    assert.match(render, /soloEmptyState/);
+    assert.match(style, /\.watch-shell\.solo-idle/);
+    assert.match(style, /\.solo-empty-state/);
     assert.match(liveSource, /liveVideo\.hidden=source\?\.mode===['"]audioflix['"]/);
     assert.match(style, /#mediaStage\.player-wrap\.media-stage-empty[\s\S]*display:\s*none\s*!important/);
     assert.match(style, /video:not\(\[hidden\]\)/);

@@ -14,7 +14,7 @@ $('loadBtn').onclick=async()=>{
   if(/^(?:nuvio:\/\/|stremio:\/\/|tt\d{7,10}$)/i.test(input))return openNuvioBrowserMode();
   await window.watchFusionMediaResolver?.resolve?.({input,autoLoad:false});
 };
-function showFindMedia(){if($('findMediaPanel'))$('findMediaPanel').hidden=false;document.querySelectorAll('.source-tab').forEach(tab=>tab.classList.toggle('active',tab.id==='resolveTabBtn'));if($('sourceModeLabel'))$('sourceModeLabel').textContent='Ready';$('sourceInput')?.focus();}
+function showFindMedia(){if($('findMediaPanel'))$('findMediaPanel').hidden=false;if($('soloEmptyState'))$('soloEmptyState').hidden=true;document.querySelectorAll('.source-tab').forEach(tab=>tab.classList.toggle('active',tab.id==='resolveTabBtn'));if($('sourceModeLabel'))$('sourceModeLabel').textContent='Ready';$('sourceInput')?.focus();}
 function showNuvio(){if($('findMediaPanel'))$('findMediaPanel').hidden=true;openNuvioBrowserMode();}
 function showVoxelVision(){if($('findMediaPanel'))$('findMediaPanel').hidden=true;openVoxelVisionMode();}
 $('shortcutNuvioBtn').onclick=null;
@@ -50,7 +50,7 @@ async function unloadWatchFusionMedia(){
   }catch(error){setStatus(error?.message||'Could not unload media.');return false;}
 }
 window.unloadWatchFusionMedia=unloadWatchFusionMedia;
-$('closeFindMediaBtn').onclick=()=>{if($('findMediaPanel'))$('findMediaPanel').hidden=true;};
+$('closeFindMediaBtn').onclick=()=>{if($('findMediaPanel'))$('findMediaPanel').hidden=true;render();};
 $('unloadMediaBtn').onclick=()=>{void unloadWatchFusionMedia();};
 $('syncBtn').onclick=()=>{if(!roomId)return;if(state?.source?.kind==='media')window.mediaPlayback?.sync?.({force:true});else syncPlayer({force:true});};$('copyBtn').onclick=async()=>{const link=shareRoomLink();if(!link)return;const copied=await copyText(link);setCopyButtonFeedback($('copyBtn'),copied,'Copy room link');setStatus(copied?'Shareable room link copied':link);};$('roomPill').onclick=copyJoinCode;$('copyLanBtn').onclick=async()=>{if(!roomId||!session){updateLanCopyVisibility();return;}let link=lanRoomLink();if(!link){await loadNetworkInfo().catch(()=>{});link=lanRoomLink();}if(!link){updateLanCopyVisibility();return setStatus('LAN share address is still resolving');}const copied=await copyText(link);setCopyButtonFeedback($('copyLanBtn'),copied,'Copy LAN link');setStatus(copied?'LAN room link copied':link);};$('leaveRoomBtn').onclick=async()=>{if(!roomId||!session)return;const leavingRoom=roomId,memberId=session.memberId;try{await fetch(apiUrl(`/api/rooms/${encodeURIComponent(leavingRoom)}/leave`),{method:'POST',headers:{'x-member-id':memberId},cache:'no-store'});}catch{}leaveRoom('Left room.');};$('deleteRoomBtn').onclick=async()=>{if(!isHost())return;if(!confirm('Delete this room for everyone?'))return;const ok=await command('delete-room');if(ok)leaveRoom('Room deleted.');};
 async function sendChatMessage(){const input=$('chatInput');const submit=$('chatForm')?.querySelector('button[type="submit"],button:not([type])');const text=input?.value.trim();if(!text||!roomId||!session)return;if(submit)submit.disabled=true;try{const ok=await command('chat',{text});if(ok){input.value='';setStatus(text.length>500?`Prompt sent · ${text.length.toLocaleString()} characters`:'Message sent');}}catch{setStatus('Connection failed · message kept for retry');}finally{if(submit)submit.disabled=false;input?.focus();}}
