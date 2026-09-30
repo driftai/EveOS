@@ -1,6 +1,8 @@
 let renderedChatSignature='';
 let renderedChatRoomKey='';
 let renderedChatMessageKeys=[];
+let chatStickToBottom=true;
+let chatScrollBound=false;
 let renderedMemberSignature='';
 let renderedMediaSourceKey='';
 
@@ -62,6 +64,12 @@ function chatMessageHtml(message){
   return `<div class="msg" data-message-id="${escapeHtml(message.id)}"><div class="msg-head"><b>${escapeHtml(message.name)}</b>${actions}</div>${text?`<p>${escapeHtml(text)}</p>`:''}${image}</div>`;
 }
 function bindChatActions(chat){
+  if(!chatScrollBound){
+    chatScrollBound=true;
+    chat.addEventListener('scroll',()=>{
+      chatStickToBottom=(chat.scrollHeight-chat.scrollTop-chat.clientHeight)<48;
+    },{passive:true});
+  }
   if(chat.dataset.actionsBound==='1')return;
   chat.dataset.actionsBound='1';
   chat.addEventListener('click',async event=>{
@@ -91,7 +99,8 @@ function renderChatMessages(){
   const keys=messages.map(chatMessageKey);
   const signature=`${roomKey}:${keys.join('|')}`;
   if(signature===renderedChatSignature)return;
-  const nearBottom=!renderedChatSignature||(chat.scrollHeight-chat.scrollTop-chat.clientHeight)<48;
+  if(roomKey!==renderedChatRoomKey)chatStickToBottom=true;
+  const shouldStick=chatStickToBottom;
   const previousScrollTop=chat.scrollTop;
   const canAppend=roomKey===renderedChatRoomKey
     &&renderedChatMessageKeys.length<=keys.length
@@ -102,7 +111,13 @@ function renderChatMessages(){
   }else if(!canAppend||keys.length!==renderedChatMessageKeys.length){
     chat.innerHTML=messages.map(chatMessageHtml).join('');
   }
-  if(nearBottom)chat.scrollTop=chat.scrollHeight;else chat.scrollTop=Math.min(previousScrollTop,Math.max(0,chat.scrollHeight-chat.clientHeight));
+  if(shouldStick){
+    chat.scrollTop=chat.scrollHeight;
+    chatStickToBottom=true;
+  }else{
+    chat.scrollTop=Math.min(previousScrollTop,Math.max(0,chat.scrollHeight-chat.clientHeight));
+    chatStickToBottom=false;
+  }
   renderedChatSignature=signature;
   renderedChatRoomKey=roomKey;
   renderedChatMessageKeys=keys;
