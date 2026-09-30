@@ -151,6 +151,19 @@
     if (document.activeElement !== $('liveVolume')) $('liveVolume').value = metadata.volume ?? 1;
     $('liveShuffle').setAttribute('aria-pressed', String(!!metadata.shuffle));
     $('liveLoop').setAttribute('aria-pressed', String(!!metadata.loop));
+    const sourceActions = Array.isArray(metadata.actions) ? metadata.actions.filter(item => item?.id && item?.label) : [];
+    const sourceActionHost = $('liveSourceActions');
+    const sourceActionSignature = JSON.stringify(sourceActions.map(item => [item.id, item.label, !!item.pressed]));
+    if (sourceActionHost?.dataset.signature !== sourceActionSignature) {
+      sourceActionHost.replaceChildren(...sourceActions.map(item => {
+        const button = document.createElement('button');
+        button.type = 'button'; button.textContent = item.label; button.dataset.liveAction = item.id;
+        if (typeof item.pressed === 'boolean') button.setAttribute('aria-pressed', String(item.pressed));
+        return button;
+      }));
+      sourceActionHost.dataset.signature = sourceActionSignature;
+    }
+    if (sourceActionHost) sourceActionHost.hidden = state?.source?.mode !== 'audioflix' || !sourceActions.length;
     const queue = metadata.queue || [];
     const signature = JSON.stringify([queue, metadata.index]);
     if ($('liveQueue').dataset.signature !== signature) {
