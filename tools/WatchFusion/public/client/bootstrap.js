@@ -14,7 +14,7 @@ $('loadBtn').onclick=async()=>{
   if(/^(?:nuvio:\/\/|stremio:\/\/|tt\d{7,10}$)/i.test(input))return openNuvioBrowserMode();
   await window.watchFusionMediaResolver?.resolve?.({input,autoLoad:false});
 };
-function showFindMedia()function showFindMedia(){if($('findMediaPanel'))$('findMediaPanel').hidden=false;document.querySelectorAll('.source-tab').forEach(tab=>tab.classList.toggle('active',tab.id==='resolveTabBtn'));if($('sourceModeLabel'))$('sourceModeLabel').textContent='Ready';$('sourceInput')?.focus();}
+function showFindMedia(){if($('findMediaPanel'))$('findMediaPanel').hidden=false;document.querySelectorAll('.source-tab').forEach(tab=>tab.classList.toggle('active',tab.id==='resolveTabBtn'));if($('sourceModeLabel'))$('sourceModeLabel').textContent='Ready';$('sourceInput')?.focus();}
 function showNuvio(){if($('findMediaPanel'))$('findMediaPanel').hidden=true;openNuvioBrowserMode();}
 function showVoxelVision(){if($('findMediaPanel'))$('findMediaPanel').hidden=true;openVoxelVisionMode();}
 $('shortcutNuvioBtn').onclick=null;

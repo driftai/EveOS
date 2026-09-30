@@ -215,6 +215,7 @@ export async function runFastSmoke() {
     try {
       const response = await request(server.baseUrl, '/app.js');
       assert.equal(response.status, 200);
+      assert.doesNotThrow(() => new Function(response.body));
       assert.match(response.body, /installWatchFusionHostInputFix/);
       assert.match(response.body, /watchfusion-host-input-fix\.js/);
       assert.match(response.body, /function openVoxelVisionMode/);
