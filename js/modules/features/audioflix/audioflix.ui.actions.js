@@ -58,6 +58,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
             if (action === 'layer-play') return item && window.EveAudioflixAudio?.layerPlay?.({ ...item, type: type || item.type });
             if (action === 'internal-view') { if (item) try { await window.EveAudioflixAudio?.openInternalView?.(item); } catch (err) { ctx.playbackStatus = err.message || 'Internal player failed'; ctx.rerender(); } return; }
             if (action === 'item-info') {
+                ctx.overlay?.classList.remove('audioflix-info-over-internal');
                 // Modal-only swap: nothing outside the settings panel changes, so do not rebuild
                 // every card (that stall is what made a playing song hitch on open).
                 if (!item) return; ctx.activeInfoItem = item; ctx.activeInfoType = type; ctx.deleteConfirmId = ''; ctx.rerenderModal();
@@ -84,7 +85,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
             if (action === 'delete-item') { if (item) { ctx.deleteConfirmId = id; ctx.rerenderModal(); } return; }
             if (action === 'cancel-delete-item') { ctx.deleteConfirmId = ''; ctx.rerenderModal(); return; }
             if (action === 'confirm-delete-item') { await deleteStoredItem(item, type, id); ctx.deleteConfirmId = ''; return; }
-            if (action === 'close-info') { ctx.activeInfoItem = ctx.activeInfoType = null; ctx.deleteConfirmId = ''; ctx.rerenderModal(); return; }
+            if (action === 'close-info') { ctx.overlay?.classList.remove('audioflix-info-over-internal'); ctx.activeInfoItem = ctx.activeInfoType = null; ctx.deleteConfirmId = ''; ctx.rerenderModal(); return; }
             if (action === 'copy-url') {
                 try {
                     await navigator.clipboard.writeText(actionTarget.dataset.afUrl || '');
