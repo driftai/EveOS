@@ -147,7 +147,7 @@ async function runPass(headed) {
     const browserVersion = browser.version();
     stage(mode, `browser ready: ${browserVersion}`);
 
-    const page = await browser.newPage({ viewport:{ width:1600, height:1000 } });
+    const page = await browser.newPage(headed ? { viewport:null } : { viewport:{ width:1600, height:1000 } });
     page.on('console', message => {
       if (message.type() === 'error') consoleErrors.push(message.text());
     });
@@ -231,10 +231,16 @@ async function runPass(headed) {
     const healthyPlayback = untilEnded
       ? endedObserved
       : inner.elapsedPlaybackSec >= expectedWindow * 0.65 && sampleAnalysis.stalledRatio < 0.25;
+    const outerGapRatio = outerRaf.count ? outerRaf.over100Ms / outerRaf.count : 0;
+    const innerGapRatio = innerRaf.count ? innerRaf.over100Ms / innerRaf.count : 0;
     const presentationGapCount = direct ? innerFrames.over100Ms : innerRaf.over100Ms;
-    const healthyPresentation = outerRaf.over100Ms <= maxGapAllowance
-      && presentationGapCount <= maxGapAllowance
-      && (droppedRatio == null || droppedRatio < 0.08);
+    const healthyPresentation = direct
+      ? outerRaf.over100Ms <= maxGapAllowance
+        && presentationGapCount <= maxGapAllowance
+        && (droppedRatio == null || droppedRatio < 0.08)
+      : outerRaf.p95Ms < 50 && innerRaf.p95Ms < 50
+        && outerGapRatio < 0.02 && innerGapRatio < 0.02
+        && sampleAnalysis.stalledRatio < 0.05;
     const health = healthyPlayback && healthyPresentation ? 'good' : 'degraded';
 
     return {
@@ -269,7 +275,9 @@ async function runPass(headed) {
         outerRaf,
         innerRaf,
         innerVideoFrames:direct ? innerFrames : null,
-        note:direct ? null : 'Native YouTube iframe is cross-origin; requestVideoFrameCallback is unavailable, so inner RAF + YouTube timeline/state are used instead.',
+        outerGapRatio,
+        innerGapRatio,
+        note:direct ? null : 'Native YouTube iframe is cross-origin; requestVideoFrameCallback is unavailable, so inner RAF + YouTube timeline/state are used instead. Sparse headed RAF gaps may come from window occlusion/focus changes; health uses p95 cadence plus gap ratio and playback continuity.',
         outerLongTasks:outer.longTasks.slice(-20),
         innerLongTasks:inner.longTasks.slice(-20),
         outerLongTaskMs:outerLongMs,
