@@ -81,6 +81,7 @@ function sourceContract() {
     const innerCss = read('tools/WatchFusion/public/style.css');
     const liveCss = read('tools/WatchFusion/public/live-source.css');
     const staticFiles = read('tools/WatchFusion/src/server/static-files.js');
+    const voxelRoutes = read('tools/WatchFusion/src/server/voxelvision-routes.js');
     const youtubeSetup = read('tools/WatchFusion/voxelvision/scripts/SETUP-YOUTUBE.ps1');
     const youtubeImport = read('tools/WatchFusion/voxelvision/youtube-import.js');
     const videoStreamSmoke = read('tools/WatchFusion/scripts/smoke-video-stream.cjs');
