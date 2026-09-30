@@ -66,6 +66,8 @@ export async function runFastSmoke() {
     const playbackSync = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'playback-sync.js'), 'utf8');
     const continuityBridge = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'eveos-embed-bridge.js'), 'utf8');
     const roomResize = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'room-resize.js'), 'utf8');
+    const liveSource = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'live-source.js'), 'utf8');
+    const liveStreams = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'server', 'live-streams.js'), 'utf8');
     const style = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'style.css'), 'utf8');
     assert.match(core, /serverLanMode && lanBaseUrl/);
     assert.ok(core.indexOf('preferredLanHost') < core.indexOf('preferredLanAddress'));
@@ -97,6 +99,10 @@ export async function runFastSmoke() {
     assert.match(roomResize, /setPointerCapture/);
     assert.match(style, /--watchfusion-party-height/);
     assert.match(style, /cursor:\s*row-resize/);
+    assert.match(liveSource, /AUDIO_SYNC_AUTO_KEY/);
+    assert.match(liveSource, /onAudioSync:\s*applyAutoSync/);
+    assert.match(liveStreams, /sync-sample/);
+    assert.match(liveStreams, /audio-sync/);
     assert.match(connection, /function resumeRoomSession/);
     assert.match(connection, /syncResumedPlayback/);
     assert.match(connection, /document\.addEventListener\('visibilitychange', resumeVisibleRoom\)/);

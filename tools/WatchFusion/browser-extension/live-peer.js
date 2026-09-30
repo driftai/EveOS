@@ -34,6 +34,7 @@
     async receive(message) {
       if (message.type === 'ready') { this.iceServers = message.iceServers; this.viewerId = message.peer; this.options.onReady?.(); return; }
       if (message.type === 'status') return this.status(message.status);
+      if (message.type === 'audio-sync') return this.options.onAudioSync?.(message);
       if (message.type === 'metadata') return this.options.onMetadata?.(message.metadata);
       if (message.type === 'control') return this.options.onControl?.(message.action, message.value);
       if (message.type === 'left') return this.drop(message.peer);
@@ -122,7 +123,8 @@
               jitterBufferDelay:report.jitterBufferDelay, jitterBufferTargetDelay:report.jitterBufferTargetDelay,
               jitterBufferMinimumDelay:report.jitterBufferMinimumDelay, jitterBufferEmittedCount:report.jitterBufferEmittedCount,
               framesPerSecond:report.framesPerSecond, packetsLost:report.packetsLost,
-              concealedSamples:report.concealedSamples, insertedSamplesForDeceleration:report.insertedSamplesForDeceleration
+              concealedSamples:report.concealedSamples, insertedSamplesForDeceleration:report.insertedSamplesForDeceleration,
+              estimatedPlayoutTimestamp:report.estimatedPlayoutTimestamp, totalProcessingDelay:report.totalProcessingDelay
             };
             if (report.type === 'candidate-pair' && report.state === 'succeeded' && (report.nominated || report.selected)) {
               item.route = { currentRoundTripTime:report.currentRoundTripTime, availableOutgoingBitrate:report.availableOutgoingBitrate };
@@ -133,6 +135,26 @@
       }
       return result;
     }
+    async audioSyncSample() {
+      for (const peer of this.peers.values()) {
+        try {
+          const stats = await peer.getStats();
+          for (const report of stats.values()) {
+            if (report.type !== 'inbound-rtp' || (report.kind || report.mediaType) !== 'audio') continue;
+            const estimatedPlayoutTimestamp = Number(report.estimatedPlayoutTimestamp);
+            if (!Number.isFinite(estimatedPlayoutTimestamp) || estimatedPlayoutTimestamp <= 0) return null;
+            const emitted = Number(report.jitterBufferEmittedCount) || 0;
+            return {
+              estimatedPlayoutTimestamp,
+              jitterBufferDelayMs: emitted > 0 ? (Number(report.jitterBufferDelay) || 0) * 1000 / emitted : null,
+              jitterBufferTargetMs: emitted > 0 ? (Number(report.jitterBufferTargetDelay) || 0) * 1000 / emitted : null
+            };
+          }
+        } catch {}
+      }
+      return null;
+    }
+    syncAudio(sample) { this.send({ type: 'sync-sample', sample }); }
     metadata(value) { this.send({ type: 'metadata', metadata: value }); }
     control(action, value) { this.send({ type: 'control', action, value }); }
     drop(id) { const peer = this.peers.get(id); if (peer) { clearTimeout(peer.deadline); peer.close(); this.peers.delete(id); } }

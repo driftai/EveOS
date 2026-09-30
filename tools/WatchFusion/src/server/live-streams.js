@@ -25,8 +25,43 @@ function roomAccess(roomId, memberId, streamId) {
   if (!getMember(room, memberId) || room.source?.streamId !== streamId || streams.get(streamId)?.roomId !== room.id) return null;
   return { room, host: room.hostId === memberId };
 }
+function audioSyncSample(value = {}) {
+  const estimatedPlayoutTimestamp = Number(value.estimatedPlayoutTimestamp);
+  if (!Number.isFinite(estimatedPlayoutTimestamp) || estimatedPlayoutTimestamp <= 0) return null;
+  return {
+    estimatedPlayoutTimestamp,
+    nativeOutputLatencyMs: Math.max(0, Math.min(1000, Number(value.nativeOutputLatencyMs) || 0)),
+    appliedDelayMs: Math.max(0, Math.min(1000, Number(value.appliedDelayMs) || 0)),
+    auto: value.auto !== false,
+    at: Date.now()
+  };
+}
+function broadcastAudioSync(stream) {
+  const now = Date.now();
+  for (const [id, sample] of stream.syncSamples) {
+    if (!stream.viewers.has(id) || now - sample.at > 3500) stream.syncSamples.delete(id);
+  }
+  const samples = [...stream.syncSamples.entries()];
+  if (samples.length < 2) {
+    for (const [id] of samples) send(stream.viewers.get(id), { type:'audio-sync', available:false, peers:samples.length, delayMs:0 });
+    return;
+  }
+  const values = samples.map(([id, sample]) => {
+    const natural = sample.estimatedPlayoutTimestamp - sample.nativeOutputLatencyMs;
+    const reference = natural - (sample.auto ? 0 : sample.appliedDelayMs);
+    return { id, natural, reference };
+  });
+  const clocks = values.map(value => value.natural);
+  if (Math.max(...clocks) - Math.min(...clocks) > 5000) return;
+  const target = Math.min(...values.map(value => value.reference));
+  for (const value of values) {
+    const delayMs = Math.max(0, Math.min(1000, Math.round(value.natural - target)));
+    send(stream.viewers.get(value.id), { type:'audio-sync', available:true, peers:values.length, delayMs });
+  }
+}
 function dispose(stream) {
   streams.delete(stream.id);
+  stream.syncSamples.clear();
   for (const socket of [stream.publisher, ...stream.viewers.values()]) socket?.close(1000, 'Live source stopped');
 }
 export async function handleLiveRoute(req, res, parts) {
@@ -35,7 +70,7 @@ export async function handleLiveRoute(req, res, parts) {
   const body = await readBody(req, { maxBytes: 4096 });
   if (!parts[2]) {
     if (streams.size >= 16) return json(res, 429, { error: 'Stop an unused live source first.' });
-    const stream = { id: crypto.randomUUID(), publisherToken: token(), viewerToken: token(), viewers: new Map(), publisher: null, metadata: {}, at: Date.now() };
+    const stream = { id: crypto.randomUUID(), publisherToken: token(), viewerToken: token(), viewers: new Map(), syncSamples: new Map(), publisher: null, metadata: {}, at: Date.now() };
     streams.set(stream.id, stream);
     return json(res, 201, { id: stream.id, publisherToken: stream.publisherToken, viewerToken: stream.viewerToken });
   }
@@ -111,6 +146,9 @@ export function attachLiveStreams(server) {
         } else if (publisher && message.type === 'metadata') {
           stream.metadata = metadata(message.metadata);
           for (const viewer of stream.viewers.values()) send(viewer, { type: 'metadata', metadata: stream.metadata });
+        } else if (!publisher && message.type === 'sync-sample' && stream.roomId) {
+          const sample = audioSyncSample(message.sample);
+          if (sample) { stream.syncSamples.set(peerId, sample); broadcastAudioSync(stream); }
         } else if (!publisher && message.type === 'control') {
           const canControl = credential.owner || roomAccess(credential.roomId, credential.memberId, stream.id)?.host;
           if (!canControl) return send(socket, { type: 'status', status: 'Only the host controls this live source.' });
@@ -125,7 +163,12 @@ export function attachLiveStreams(server) {
       if (publisher && stream.publisher === socket) {
         stream.publisher = null;
         for (const viewer of stream.viewers.values()) send(viewer, { type: 'status', status: 'Source disconnected · waiting for it to return' });
-      } else if (peerId) { stream.viewers.delete(peerId); send(stream.publisher, { type: 'left', peer: peerId }); }
+      } else if (peerId) {
+        stream.viewers.delete(peerId);
+        stream.syncSamples.delete(peerId);
+        broadcastAudioSync(stream);
+        send(stream.publisher, { type: 'left', peer: peerId });
+      }
     });
     socket.on('error', () => {});
   });

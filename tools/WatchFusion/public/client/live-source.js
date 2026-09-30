@@ -3,7 +3,9 @@
   let receiver = null, currentId = '', currentMember = '', busy = false, lastMetadata = {};
   let activeLiveStream = null, listenEnabled = false;
   let delayContext = null, delaySource = null, delayNode = null, delayStream = null;
+  let audioSyncTimer = null, autoSyncDelayMs = 0, autoSyncReady = false, autoSyncPeers = 0;
   const AUDIO_SYNC_KEY = 'watchfusion.audioSyncDelayMs';
+  const AUDIO_SYNC_AUTO_KEY = 'watchfusion.audioSyncAuto';
   const owners = new Map();
   const listenPreferences = new Map();
   const ownerKey = id => `watchfusion.live.${id}`;
@@ -25,9 +27,16 @@
       $(id).disabled = busy || !!(roomId && !isHost());
     }
   }
-  function audioSyncDelayMs() {
+  function manualAudioSyncDelayMs() {
     const value = Number(storage.get(AUDIO_SYNC_KEY, '0'));
-    return Number.isFinite(value) ? Math.max(0, Math.min(250, value)) : 0;
+    return Number.isFinite(value) ? Math.max(0, Math.min(1000, value)) : 0;
+  }
+  function audioSyncAutoEnabled() {
+    const value = String(storage.get(AUDIO_SYNC_AUTO_KEY, '1')).toLowerCase();
+    return value !== '0' && value !== 'false';
+  }
+  function effectiveAudioSyncDelayMs() {
+    return audioSyncAutoEnabled() && autoSyncReady ? autoSyncDelayMs : manualAudioSyncDelayMs();
   }
   function stopDelayGraph(closeContext = false) {
     try { delaySource?.disconnect(); } catch {}
@@ -35,12 +44,19 @@
     delaySource = null; delayNode = null; delayStream = null;
     if (closeContext && delayContext) { delayContext.close?.().catch?.(() => {}); delayContext = null; }
   }
+  function audioOutputLatencyMs() {
+    if (!delayContext) return 0;
+    const base = Number(delayContext.baseLatency) || 0;
+    const output = Number(delayContext.outputLatency) || 0;
+    return Math.max(0, Math.min(1000, (base + output) * 1000));
+  }
   async function refreshAudioOutput() {
     const video = $('liveVideo');
     if (!video) return;
     if (!listenEnabled) { video.muted = true; stopDelayGraph(false); return; }
-    const delayMs = state?.source?.mode === 'audioflix' ? audioSyncDelayMs() : 0;
-    if (!activeLiveStream || delayMs <= 0) { stopDelayGraph(false); video.muted = false; return; }
+    const audioflix = state?.source?.mode === 'audioflix';
+    if (!activeLiveStream) { video.muted = !listenEnabled; return; }
+    if (!audioflix) { stopDelayGraph(false); video.muted = false; return; }
     const Context = window.AudioContext || window.webkitAudioContext;
     if (!Context) { video.muted = false; return; }
     video.muted = true;
@@ -48,25 +64,66 @@
     if (delayStream !== activeLiveStream || !delaySource || !delayNode) {
       stopDelayGraph(false);
       delaySource = delayContext.createMediaStreamSource(activeLiveStream);
-      delayNode = delayContext.createDelay(1);
+      delayNode = delayContext.createDelay(2);
       delaySource.connect(delayNode).connect(delayContext.destination);
       delayStream = activeLiveStream;
     }
-    delayNode.delayTime.setTargetAtTime(delayMs / 1000, delayContext.currentTime, 0.008);
+    delayNode.delayTime.setTargetAtTime(effectiveAudioSyncDelayMs() / 1000, delayContext.currentTime, 0.008);
     try { await delayContext.resume(); } catch {}
   }
   function updateAudioSyncUi(source = state?.source) {
     const wrap = $('liveAudioSyncWrap'), input = $('liveAudioSync'), output = $('liveAudioSyncValue');
-    if (!wrap || !input || !output) return;
+    const auto = $('liveAudioSyncAuto'), hint = $('liveAudioSyncHint');
+    if (!wrap || !input || !output || !auto || !hint) return;
     const active = source?.kind === 'live' && source.mode === 'audioflix';
     wrap.hidden = !active;
-    const value = audioSyncDelayMs();
+    const autoEnabled = audioSyncAutoEnabled();
+    auto.checked = autoEnabled;
+    input.disabled = autoEnabled;
+    const value = autoEnabled && autoSyncReady ? autoSyncDelayMs : manualAudioSyncDelayMs();
     if (document.activeElement !== input) input.value = String(value);
-    output.textContent = `+${value} ms`;
+    output.textContent = autoEnabled ? (autoSyncReady ? `Auto +${value} ms` : 'Auto · waiting') : `+${value} ms`;
+    hint.textContent = autoEnabled
+      ? (autoSyncReady ? `Aligned against ${autoSyncPeers} room receivers.` : 'Waiting for another room receiver with playout timing support.')
+      : 'Manual per-device fine-tuning.';
   }
   function playoutDelayMs(source) {
     if (source?.mode === 'audioflix') return 60;
     return isTryCloudflare ? 60 : 10;
+  }
+  function stopAudioSyncSampling() {
+    clearInterval(audioSyncTimer); audioSyncTimer = null;
+    autoSyncReady = false; autoSyncDelayMs = 0; autoSyncPeers = 0;
+  }
+  async function sendAudioSyncSample() {
+    if (!receiver || !roomId || state?.source?.mode !== 'audioflix') return;
+    const sample = await receiver.audioSyncSample?.();
+    if (!sample?.estimatedPlayoutTimestamp) return;
+    receiver.syncAudio?.({
+      ...sample,
+      nativeOutputLatencyMs: audioOutputLatencyMs(),
+      appliedDelayMs: effectiveAudioSyncDelayMs(),
+      auto: audioSyncAutoEnabled()
+    });
+  }
+  function startAudioSyncSampling(source = state?.source) {
+    clearInterval(audioSyncTimer); audioSyncTimer = null;
+    if (!roomId || source?.mode !== 'audioflix') return;
+    setTimeout(() => void sendAudioSyncSample(), 350);
+    audioSyncTimer = setInterval(() => void sendAudioSyncSample(), 1000);
+  }
+  function applyAutoSync(message = {}) {
+    if (!audioSyncAutoEnabled()) return;
+    autoSyncPeers = Math.max(0, Number(message.peers) || 0);
+    if (!message.available || autoSyncPeers < 2) {
+      autoSyncReady = false; autoSyncDelayMs = 0;
+    } else {
+      const target = Math.max(0, Math.min(1000, Number(message.delayMs) || 0));
+      autoSyncDelayMs = autoSyncReady ? Math.round((autoSyncDelayMs * 0.6 + target * 0.4) / 5) * 5 : Math.round(target / 5) * 5;
+      autoSyncReady = true;
+    }
+    updateAudioSyncUi();
+    void refreshAudioOutput();
   }
   function controls(metadata = {}) {
     connectionActions();
@@ -111,6 +168,7 @@
     $('liveListen').setAttribute('aria-pressed', String(enabled));
   }
   function disconnect() {
+    stopAudioSyncSampling();
     receiver?.stop(); receiver = null; currentId = ''; currentMember = '';
     activeLiveStream = null; listenEnabled = false; stopDelayGraph(true);
     const video = $('liveVideo'); video.srcObject = null; setListen(video, false);
@@ -120,7 +178,7 @@
   function load(source) {
     hideOtherPlayers(); $('liveVideo').hidden = false; $('liveControls').hidden = false;
     const membership = `${roomId || ''}:${session?.memberId || ''}`;
-    if (source.streamId === currentId && membership === currentMember && receiver) { controls(lastMetadata); return; }
+    if (source.streamId === currentId && membership === currentMember && receiver) { controls(lastMetadata); startAudioSyncSampling(source); return; }
     receiver?.stop(); currentId = source.streamId; currentMember = membership;
     const saved = owner(currentId);
     const video = $('liveVideo');
@@ -129,7 +187,7 @@
     receiver = new window.WatchFusionLivePeer({ base: location.origin, id: currentId,
       token: saved?.publisherToken || source.viewerToken, roomId, memberId: session?.memberId,
       jitterBufferTargetMs: playoutDelayMs(source),
-      onStatus: status, onMetadata: controls,
+      onStatus: status, onMetadata: controls, onAudioSync: applyAutoSync,
       onStream: stream => {
         activeLiveStream = stream;
         video.srcObject = stream;
@@ -140,6 +198,7 @@
         });
       }
     });
+    startAudioSyncSampling(source);
   }
   async function share(source) {
     const saved = owner(source.streamId);
@@ -248,21 +307,41 @@
   $('livePairFolder').onclick = () => openFolder('watchfusion');
   $('livePairOfficialFolder').onclick = () => openFolder('official');
   $('liveListen').onclick = async () => {
-    const video = $('liveVideo'); setListen(video, video.muted);
-    listenPreferences.set(currentId, !video.muted);
+    const video = $('liveVideo'); setListen(video, !listenEnabled);
+    listenPreferences.set(currentId, listenEnabled);
     try { await video.play(); } catch { setListen(video, false); status('Browser blocked playback. Try Listen here again.'); }
   };
   $('liveRetry').onclick = () => { const source = state?.source; if (source?.kind === 'live') { receiver?.stop(); receiver = null; load(source); } };
   $('liveStats').onclick = async () => {
-    const payload = { sourceMode: state?.source?.mode || null, receiver: await receiver?.diagnostics?.() || [] };
+    const payload = {
+      sourceMode: state?.source?.mode || null,
+      audioSync: {
+        auto: audioSyncAutoEnabled(),
+        appliedDelayMs: effectiveAudioSyncDelayMs(),
+        autoReady: autoSyncReady,
+        peers: autoSyncPeers,
+        nativeOutputLatencyMs: audioOutputLatencyMs()
+      },
+      receiver: await receiver?.diagnostics?.() || []
+    };
     const copied = await copyText(JSON.stringify(payload, null, 2));
     status(copied ? 'Live receiver diagnostics copied.' : `Live diagnostics: ${JSON.stringify(payload)}`);
   };
+  $('liveAudioSyncAuto').onchange = event => {
+    const enabled = !!event.currentTarget.checked;
+    if (!enabled && autoSyncReady) storage.set(AUDIO_SYNC_KEY, String(autoSyncDelayMs));
+    storage.set(AUDIO_SYNC_AUTO_KEY, enabled ? '1' : '0');
+    if (!enabled) { autoSyncReady = false; autoSyncPeers = 0; }
+    updateAudioSyncUi();
+    void refreshAudioOutput();
+    void sendAudioSyncSample();
+  };
   $('liveAudioSync').oninput = event => {
-    const value = Math.max(0, Math.min(250, Number(event.currentTarget.value) || 0));
+    const value = Math.max(0, Math.min(1000, Number(event.currentTarget.value) || 0));
     storage.set(AUDIO_SYNC_KEY, String(value));
     $('liveAudioSyncValue').textContent = `+${value} ms`;
     void refreshAudioOutput();
+    void sendAudioSyncSample();
   };
   $('liveStop').onclick = async () => {
     try {
@@ -275,5 +354,5 @@
   window.watchFusionLive = { load, disconnect, share, unload, diagnostics: () => receiver?.diagnostics?.() || Promise.resolve([]) };
   connectionActions();
   window.watchPartyProviders.register({ id: 'live', supports: source => source?.kind === 'live', load: async source => load(source), unload });
-  window.addEventListener('beforeunload', () => receiver?.stop());
+  window.addEventListener('beforeunload', () => { stopAudioSyncSampling(); receiver?.stop(); });
 })();
