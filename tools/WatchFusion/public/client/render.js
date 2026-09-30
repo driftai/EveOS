@@ -67,8 +67,9 @@ function render() {
   const hasLoadedMedia=isLive||nuvioViewVisible||isVoxelVision||isYoutube||source.kind==='media';
   const hasVisualMedia=(isLive&&source.mode!=='audioflix')||nuvioViewVisible||isVoxelVision||isYoutube||source.kind==='media';
   const idleSolo=!inRoom&&!hasLoadedMedia;
+  const audioOnlyLive=isLive&&source.mode==='audioflix';
   const watchShell=document.querySelector('.watch-shell');
-  if(watchShell)watchShell.classList.toggle('solo-idle',idleSolo);
+  if(watchShell){watchShell.classList.toggle('solo-idle',idleSolo);watchShell.classList.toggle('audio-only-live',audioOnlyLive);}
   if($('soloEmptyState'))$('soloEmptyState').hidden=!idleSolo||findMediaPanel?.hidden===false;
   if($('mediaStage'))$('mediaStage').classList.toggle('media-stage-empty',!hasVisualMedia);
   if($('unloadMediaBtn'))$('unloadMediaBtn').hidden=!hasLoadedMedia||(inRoom&&!isHost());
