@@ -95,3 +95,34 @@ test('phone embedded rooms stack WatchParty below media without horizontal overf
   expect(geometry.chatHeight).toBeGreaterThanOrEqual(90);
   expect(geometry.panelBottom).toBeLessThanOrEqual(geometry.viewportHeight + 1);
 });
+
+
+test('standalone phone rooms use the viewport and keep member chips readable', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.click('#headerToggleBtn');
+  await page.click('#startPartyBtn');
+  await page.fill('#nameInput', 'PhoneHost');
+  await page.fill('#roomInput', 'LAYOUTPHONE2');
+  await page.click('#createBtn');
+  await expect(page.locator('#partyPanel')).toBeVisible();
+
+  const geometry = await page.evaluate(() => {
+    const grid = document.querySelector('.grid').getBoundingClientRect();
+    const members = document.getElementById('members').getBoundingClientRect();
+    const panel = document.getElementById('partyPanel').getBoundingClientRect();
+    return {
+      gridBottom: grid.bottom,
+      viewportHeight: innerHeight,
+      memberHeight: members.height,
+      panelBottom: panel.bottom,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth
+    };
+  });
+
+  expect(Math.abs(geometry.viewportHeight - geometry.gridBottom)).toBeLessThanOrEqual(8);
+  expect(geometry.memberHeight).toBeGreaterThanOrEqual(38);
+  expect(geometry.panelBottom).toBeLessThanOrEqual(geometry.viewportHeight + 1);
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
+});
