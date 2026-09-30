@@ -80,8 +80,9 @@ function startSseEvents() {
     try { payload = JSON.parse(e.data); } catch { return; }
     if (payload.type === 'room-deleted') { leaveRoom('Room deleted by the host.'); return; }
     if (payload.type !== 'state') return;
+    const authorityBefore = playbackAuthorityKey(state);
     if (!applyIncomingRoomState(payload.state)) return;
-    render(); syncPlayer();
+    render(); syncPlaybackForAuthorityChange(authorityBefore);
   };
   eventSource.onerror = () => { eventSource?.close(); eventSource = null; startStatePolling(); setStatus('Reconnecting…'); };
   eventSource.onopen = () => setStatus('Connected');
@@ -101,7 +102,10 @@ function startStatePolling() {
       const data = await res.json();
       if (data.state?.serverTime) updateServerClock(data.state.serverTime, sentAt, receivedAt);
       if (data.session?.memberId) { session = data.session; saveRoomSession(session, roomId, roomCode, joinCode); }
-      if (data.state && applyIncomingRoomState(data.state)) { render(); syncPlayer(); }
+      if (data.state) {
+        const authorityBefore = playbackAuthorityKey(state);
+        if (applyIncomingRoomState(data.state)) { render(); syncPlaybackForAuthorityChange(authorityBefore); }
+      }
       setStatus('Connected');
     } catch { setStatus('Reconnecting…'); }
     finally { remotePollBusy = false; }
