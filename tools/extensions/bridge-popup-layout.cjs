@@ -2,16 +2,32 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
+async function qualifyPopupCorners(page) {
+  const image = await page.screenshot({ omitBackground:true });
+  const alpha = await page.evaluate(async png => {
+    const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(png), character => character.charCodeAt(0))], { type:'image/png' }));
+    const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
+    const context = canvas.getContext('2d'); context.drawImage(bitmap, 0, 0); bitmap.close();
+    return [[0, 0], [canvas.width - 1, 0], [0, canvas.height - 1], [canvas.width - 1, canvas.height - 1], [canvas.width / 2, 30]]
+      .map(([x, y]) => context.getImageData(x, y, 1, 1).data[3]);
+  }, image.toString('base64'));
+  assert.deepEqual(alpha.slice(0, 4), [0, 0, 0, 0], 'popup canvas must not paint square backing pixels outside the rounded shell');
+  assert.equal(alpha[4], 255, 'rounded shell must retain its opaque interior');
+}
+
 async function qualifyPopupLayout(page, resultDir) {
   await page.setViewportSize({ width:420, height:570 });
-  const shell = await page.locator('body').evaluate(element => {
+  await qualifyPopupCorners(page);
+  const shell = await page.locator('#popupShell').evaluate(element => {
     const bounds = element.getBoundingClientRect(), style = getComputedStyle(element);
     return { width:bounds.width, height:bounds.height, overflow:style.overflow,
-      background:getComputedStyle(document.documentElement).backgroundColor, border:style.borderWidth };
+      rootBackground:getComputedStyle(document.documentElement).backgroundColor,
+      bodyBackground:getComputedStyle(document.body).backgroundColor, radius:parseFloat(style.borderRadius) };
   });
   assert.deepEqual([shell.width, shell.height], [420, 570], 'popup dimensions must remain stable');
-  assert(shell.overflow === 'hidden' && shell.background !== 'rgba(0, 0, 0, 0)' && shell.border === '0px',
-    'one opaque canvas must meet the native browser frame without a contrasting square backing');
+  assert(shell.overflow === 'hidden' && shell.radius >= 18 && shell.rootBackground === 'rgba(0, 0, 0, 0)'
+      && shell.bodyBackground === 'rgba(0, 0, 0, 0)',
+    'only the rounded shell may paint a background, not html/body canvas propagation');
   for (const [id, label, last] of [
     ['tools', 'Tools', 'main .tool-section:last-child .card:last-child'],
     ['watchfusion', 'WatchFusion', '#status'],
@@ -47,4 +63,4 @@ async function qualifyPopupLayout(page, resultDir) {
   }
   return 4;
 }
-module.exports = { qualifyPopupLayout };
+module.exports = { qualifyPopupLayout, qualifyPopupCorners };

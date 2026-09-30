@@ -18,6 +18,8 @@ WatchFusion's **Open EveOS extension folder** action prepares the shared package
 
 `bridge-surfaces.css` supplies a shared presentation layer to same-origin included panels: rounded controls, compact spacing, keyboard focus, and slim themed scrollbars. It changes neither canonical standalone assets nor website content, permissions, or tool behavior. The browser still owns the popup's toolbar anchor and outer native frame.
 
+The painted popup background belongs only to `#popupShell`, which clips all four rounded corners. Keep `html` and `body` backgrounds transparent: either element's background can propagate to the rectangular document canvas and undo the visible rounding. Browser checks inspect rendered corner alpha as well as geometry; they do not claim to reshape Chrome's native window border.
+
 About/setup, Local services, Browser tools, their individual cards, and WatchFusion's setup drawer are collapsible. Their last expanded/collapsed choices persist as boolean-only `eveosBridgeExpandedV1:` keys in `chrome.storage.local`; refreshing status or reopening Bridge does not reset them. This is local UI state, not repository data, and contains no URLs, chats, pairing links, or room contents.
 
 Opening Nexus explicitly starts its existing managed runtime when needed, verifies branded readiness, then opens or focuses its dashboard. Merely opening Bridge or refreshing status never starts a service. Local Control allows only the stable Bridge origin to call Nexus's Start route, from loopback without forwarded/share headers; other extension lifecycle operations remain forbidden. Standalone Nexus can open an already-running dashboard; startup remains in EveOS unless the approved Bridge performs it.

@@ -1,8 +1,11 @@
-:root { color-scheme:dark; font:13px/1.4 system-ui,sans-serif; background:#0b121b; color:#e3edf4; }
+:root { color-scheme:dark; font:13px/1.4 system-ui,sans-serif; background:transparent; color:#e3edf4; }
 * { box-sizing:border-box; }
-body { margin:0; width:420px; height:570px; display:flex; flex-direction:column; overflow:hidden;
-  border:0; border-radius:0;
-  background:radial-gradient(ellipse at 100% 0,#163b48 0,transparent 48%),#0b121b; }
+/* Keep html/body clear: their backgrounds propagate to the square document canvas. */
+body { margin:0; width:420px; height:570px; overflow:hidden; background:transparent; }
+#popupShell { width:100%; height:100%; display:flex; flex-direction:column; overflow:hidden;
+  border-radius:20px; isolation:isolate;
+  background:radial-gradient(ellipse at 100% 0,#163b48 0,transparent 48%),#0b121b;
+  box-shadow:inset 0 0 0 1px #304553; }
 header { display:flex; gap:10px; align-items:center; padding:14px 16px 12px; flex-shrink:0; }
 header strong { display:block; font-size:18px; font-weight:650; letter-spacing:-.02em; color:#71e3ee; }
 .tagline { display:block; font-size:11px; color:#8faab8; margin-top:1px; }
