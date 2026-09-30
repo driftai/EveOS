@@ -87,6 +87,38 @@ async function main() {
     assert(queued.length === 3, `queue lists every track in the group (got ${queued.length})`);
     assert(/^▶/.test(queued[0]), `the current track is marked (got "${queued[0]}")`);
 
+    const playerUi = await page.evaluate(() => {
+        const rect = selector => document.querySelector(selector)?.getBoundingClientRect();
+        const prev = rect('[data-url-player-action="prev"]');
+        const toggle = rect('[data-url-player-action="toggle"]');
+        const next = rect('[data-url-player-action="next"]');
+        return {
+            actions: ['restart', 'repeat-one', 'details'].map(action =>
+                !!document.querySelector(`[data-url-player-action="${action}"]`)),
+            widths: { prev: prev?.width || 0, toggle: toggle?.width || 0, next: next?.width || 0 }
+        };
+    });
+    assert(playerUi.actions.every(Boolean), 'Internal Player exposes Restart, Loop track, and Track details');
+    assert(playerUi.widths.prev <= 60 && playerUi.widths.next <= 60 && playerUi.widths.toggle > playerUi.widths.prev,
+        'prev/next stay compact while the central play button owns the flexible width');
+
+    // Custom ranges must map 0 and max to the actual ends of the painted track.
+    const rangeEdges = await page.evaluate(() => {
+        const seek = document.querySelector('.audioflix-provider-seek');
+        seek.max = '100'; seek.value = '0'; seek.dispatchEvent(new Event('input', { bubbles: true }));
+        const seekZero = seek.style.getPropertyValue('--progress');
+        seek.value = '100'; seek.dispatchEvent(new Event('input', { bubbles: true }));
+        const seekFull = seek.style.getPropertyValue('--progress');
+        const volume = document.querySelector('.audioflix-provider-volume');
+        volume.value = '0'; volume.dispatchEvent(new Event('input', { bubbles: true }));
+        const volumeZero = volume.style.getPropertyValue('--volume');
+        volume.value = '1'; volume.dispatchEvent(new Event('input', { bubbles: true }));
+        const volumeFull = volume.style.getPropertyValue('--volume');
+        return { seekZero, seekFull, volumeZero, volumeFull };
+    });
+    assert(rangeEdges.seekZero === '0%' && rangeEdges.seekFull === '100%', 'seek fill reaches exact 0% and 100% endpoints');
+    assert(rangeEdges.volumeZero === '0%' && rangeEdges.volumeFull === '100%', 'volume fill reaches exact 0% and 100% endpoints');
+
     const atStart = await page.evaluate(() => ({
         prevDisabled: document.querySelector('[data-url-player-action="prev"]').disabled,
         nextDisabled: document.querySelector('[data-url-player-action="next"]').disabled,
@@ -123,6 +155,50 @@ async function main() {
     assert(rateAfterStep.controller === 2, 'speed survives moving to the next queue track');
     assert(rateAfterStep.picker === 2, 'the picker still shows the chosen speed');
     progress('speed OK — 2x applied and carried across a queue step');
+
+    // Restart uses the same active player rather than creating a second audio session.
+    await page.evaluate(() => window.EveAudioflixAudio.seek(12));
+    await page.click('[data-url-player-action="restart"]');
+    await page.waitForFunction(() => (window.EveAudioflixAudio?.getPlaybackState?.()?.currentTime || 99) < 1.5, undefined, { timeout: 5000 });
+    progress('restart OK — active queue track returns to the beginning');
+
+    // Track Details is the existing Audioflix settings modal, raised above the Internal Player.
+    await page.click('[data-url-player-action="details"]');
+    await page.waitForSelector('.audioflix-info-modal .audioflix-info-card', { timeout: 5000 });
+    const detailsLayer = await page.evaluate(() => ({
+        title: document.querySelector('.audioflix-info-title')?.textContent || '',
+        overlayZ: Number(getComputedStyle(document.querySelector('#audioflix-overlay')).zIndex) || 0,
+        playerZ: Number(getComputedStyle(document.querySelector('.audioflix-provider-stage')).zIndex) || 0,
+        raised: document.querySelector('#audioflix-overlay')?.classList.contains('audioflix-info-over-internal')
+    }));
+    assert(detailsLayer.title === 'Beta', `Track Details follows the queue's current song (got "${detailsLayer.title}")`);
+    assert(detailsLayer.raised && detailsLayer.overlayZ > detailsLayer.playerZ, 'Track Details is layered above the Internal Player');
+    await page.click('.audioflix-info-close-btn');
+    await page.waitForFunction(() => !document.querySelector('.audioflix-info-modal'), undefined, { timeout: 5000 });
+
+    // Repeat-one must consume Ended without advancing the queue or starting a second track.
+    await page.click('[data-url-player-action="repeat-one"]');
+    await page.waitForFunction(() => document.querySelector('[data-url-player-action="repeat-one"]')?.getAttribute('aria-pressed') === 'true');
+    const repeatTitle = await page.evaluate(() => window.EveAudioflixAudio?.getPlaybackState?.()?.item?.title || '');
+    await page.evaluate(() => {
+        const item = window.EveAudioflixAudio?.getPlaybackState?.()?.item;
+        const detail = { status: 'Ended', item };
+        window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail }));
+        window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail }));
+    });
+    await page.waitForFunction((title) => {
+        const current = document.querySelector('.audioflix-provider-queue-list li.is-current');
+        return (window.EveAudioflixAudio?.getPlaybackState?.()?.item?.title || '') === title && current?.textContent.includes(title);
+    }, repeatTitle, { timeout: 5000 });
+    assert((await page.locator('.audioflix-provider-queue-list li.is-current').count()) === 1, 'repeat-one keeps exactly one current queue entry');
+    await page.click('[data-url-player-action="repeat-one"]');
+    await page.waitForFunction(() => document.querySelector('[data-url-player-action="repeat-one"]')?.getAttribute('aria-pressed') === 'false');
+    await page.evaluate(() => {
+        const item = window.EveAudioflixAudio?.getPlaybackState?.()?.item;
+        window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail: { status: 'Ended', item } }));
+    });
+    await page.waitForFunction(() => document.querySelectorAll('.audioflix-provider-queue-list li')[2]?.classList.contains('is-current'), undefined, { timeout: 5000 });
+    progress('repeat-one OK — loops only the current song, then normal queue advance resumes when disabled');
 
     // Physical regression: Play Group -> manually choose a different song -> Shuffle while
     // Queue View is open. Old provider lifecycle events must not bounce the queue back, and the
