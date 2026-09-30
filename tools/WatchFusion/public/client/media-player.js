@@ -24,6 +24,7 @@ function isMediaSource(source = state?.source) {
 
 function ensureMediaElement() {
   if (mediaVideo && document.contains(mediaVideo)) return mediaVideo;
+  window.watchFusionYoutubeLayout?.deactivate?.();
   if (typeof ytPlayer !== 'undefined' && ytPlayer) {
     try { ytPlayer.destroy(); } catch {}
     ytPlayer = null;
