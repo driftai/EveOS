@@ -55,10 +55,22 @@ function registerYoutubeStream(stream) {
 
 function youtubeStreamMaster(stream) {
   const proxy = url => `/api/media/stream?url=${encodeURIComponent(url)}&referer=${encodeURIComponent(stream.sourceUrl)}`;
-  return ['#EXTM3U', '#EXT-X-VERSION:3',
-    `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Default",DEFAULT=YES,AUTOSELECT=YES,URI="${proxy(stream.audioUrl)}"`,
-    `#EXT-X-STREAM-INF:BANDWIDTH=${stream.bandwidth},RESOLUTION=${stream.width}x${stream.height},AUDIO="audio"`,
-    proxy(stream.videoUrl), ''].join('\n');
+  const variants = Array.isArray(stream.variants) && stream.variants.length
+    ? stream.variants
+    : [{ videoUrl: stream.videoUrl, width: stream.width, height: stream.height, bandwidth: stream.bandwidth, fps: stream.fps }];
+  const lines = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-INDEPENDENT-SEGMENTS',
+    `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Default",DEFAULT=YES,AUTOSELECT=YES,URI="${proxy(stream.audioUrl)}"`];
+  for (const variant of variants) {
+    const attrs = [
+      `BANDWIDTH=${Math.max(192000, Number(variant.bandwidth) || 900000)}`,
+      `RESOLUTION=${Math.max(1, Number(variant.width) || 1280)}x${Math.max(1, Number(variant.height) || 720)}`,
+      Number(variant.fps) > 0 ? `FRAME-RATE=${Number(variant.fps).toFixed(3)}` : null,
+      'AUDIO="audio"'
+    ].filter(Boolean).join(',');
+    lines.push(`#EXT-X-STREAM-INF:${attrs}`, proxy(variant.videoUrl));
+  }
+  lines.push('');
+  return lines.join('\n');
 }
 
 function buildContentSecurityPolicy() {

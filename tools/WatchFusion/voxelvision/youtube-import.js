@@ -322,18 +322,43 @@ export function resolveYoutubeStream(sourceUrl) {
       let info;
       try { info = JSON.parse(stdout); } catch { return reject(new Error('YouTube returned invalid stream metadata.')); }
       const formats = Array.isArray(info?.formats) ? info.formats : [];
-      const hlsVideo = formats.filter(item => item?.url && String(item.protocol).includes('m3u8')
-        && item.vcodec && item.vcodec !== 'none' && Number(item.height) > 0)
-        .sort((a, b) => Math.min(Number(b.height), 1080) - Math.min(Number(a.height), 1080)
-          || Number(String(b.vcodec).startsWith('avc1')) - Number(String(a.vcodec).startsWith('avc1'))
-          || Number(b.tbr || 0) - Number(a.tbr || 0))[0];
       const hlsAudio = formats.filter(item => item?.url && String(item.protocol).includes('m3u8') && item.vcodec === 'none')
-        .sort((a, b) => Number(b.tbr || b.format_id || 0) - Number(a.tbr || a.format_id || 0))[0];
-      if (!hlsVideo || !hlsAudio) return reject(new Error('YouTube did not return compatible HLS video and audio streams.'));
-      resolve({ title: info.title || 'YouTube video', videoUrl: hlsVideo.url, audioUrl: hlsAudio.url,
-        width: Number(hlsVideo.width) || Number(hlsVideo.height) || 1280, height: Number(hlsVideo.height) || 720,
-        bandwidth: Math.max(128000, Math.round((Number(hlsVideo.tbr) || 1200) * 1000)),
-        sourceUrl: canonicalSourceUrl, strategy: 'direct-hls' });
+        .sort((a, b) => Number(b.tbr || b.abr || b.format_id || 0) - Number(a.tbr || a.abr || a.format_id || 0))[0];
+      const videos = formats.filter(item => item?.url && String(item.protocol).includes('m3u8')
+        && item.vcodec && item.vcodec !== 'none' && Number(item.height) > 0 && Number(item.height) <= 1080);
+      const preferredByHeight = new Map();
+      for (const item of videos) {
+        const height = Number(item.height) || 0;
+        const current = preferredByHeight.get(height);
+        const codecRank = value => String(value || '').startsWith('avc1') ? 3 : String(value || '').startsWith('h264') ? 2 : 1;
+        const score = codecRank(item.vcodec) * 1e9 + Number(item.tbr || item.vbr || 0);
+        const currentScore = current ? codecRank(current.vcodec) * 1e9 + Number(current.tbr || current.vbr || 0) : -1;
+        if (score > currentScore) preferredByHeight.set(height, item);
+      }
+      let chosen = [...preferredByHeight.values()].sort((a, b) => Number(a.height) - Number(b.height));
+      if (chosen.length > 6) {
+        const targets = [240, 360, 480, 720, 1080];
+        const keep = new Map();
+        for (const target of targets) {
+          const candidate = chosen.filter(item => Number(item.height) <= target).at(-1);
+          if (candidate) keep.set(Number(candidate.height), candidate);
+        }
+        keep.set(Number(chosen[0].height), chosen[0]);
+        keep.set(Number(chosen.at(-1).height), chosen.at(-1));
+        chosen = [...keep.values()].sort((a, b) => Number(a.height) - Number(b.height));
+      }
+      if (!chosen.length || !hlsAudio) return reject(new Error('YouTube did not return compatible adaptive HLS video and audio streams.'));
+      const audioBandwidth = Math.max(64000, Math.round((Number(hlsAudio.tbr || hlsAudio.abr) || 128) * 1000));
+      const variants = chosen.map(item => ({
+        videoUrl: item.url,
+        width: Number(item.width) || Math.round((Number(item.height) || 720) * 16 / 9),
+        height: Number(item.height) || 720,
+        fps: Number(item.fps) || null,
+        codec: item.vcodec || null,
+        bandwidth: Math.max(192000, Math.round((Number(item.tbr || item.vbr) || 900) * 1000) + audioBandwidth)
+      }));
+      resolve({ title: info.title || 'YouTube video', variants, audioUrl: hlsAudio.url,
+        sourceUrl: canonicalSourceUrl, strategy: 'adaptive-hls' });
     });
   });
 }
