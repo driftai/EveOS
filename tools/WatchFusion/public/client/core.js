@@ -197,6 +197,35 @@ window.watchPartyClock = {
   now: estimatedServerNow,
   update: updateServerClock
 };
+
+function playbackAuthorityKey(roomState = state) {
+  const source = roomState?.source || {};
+  const playback = roomState?.playback || {};
+  return [
+    source.kind || '',
+    source.type || '',
+    source.videoId || '',
+    source.url || '',
+    source.streamId || '',
+    source.mode || '',
+    Number(playback.updatedAt) || 0,
+    playback.paused === true ? 1 : 0,
+    playback.ended === true ? 1 : 0,
+    Number(playback.rate) || 1,
+    Number.isFinite(Number(playback.volume)) ? Number(playback.volume) : '',
+    playback.muted === true ? 1 : 0
+  ].join('|');
+}
+function syncPlaybackForAuthorityChange(previousKey, options = {}) {
+  if (!options.force && playbackAuthorityKey(state) === previousKey) return false;
+  if (state?.source?.kind === 'media') window.mediaPlayback?.sync?.({ force: !!options.force });
+  else syncPlayer({ force: !!options.force });
+  return true;
+}
+window.watchFusionPlaybackAuthority = {
+  key: playbackAuthorityKey,
+  syncIfChanged: syncPlaybackForAuthorityChange
+};
 const lobby = $('lobby');
 const app = $('app');
 let ytApiPromise = null;
