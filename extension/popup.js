@@ -6,6 +6,8 @@ const sourceWindow = chrome.windows.getCurrent();
 const nav = document.querySelector('nav');
 const views = document.getElementById('views');
 let activeId = 'tools';
+const layout = globalThis.EveOSBridgeUIState.create({ chromeApi:chrome,
+  onError:error => { document.getElementById('popupStatus').textContent = `Could not save layout: ${error.message}`; } });
 
 async function select(id) {
   const entry = entries.find(item => item.id === id);
@@ -27,6 +29,14 @@ async function select(id) {
       theme.id = 'bridge-surface-theme'; theme.rel = 'stylesheet';
       theme.href = chrome.runtime.getURL('bridge-surfaces.css');
       document.head.append(theme);
+      if (id !== 'tools') {
+        document.querySelectorAll('details').forEach((node, index) => {
+          const name = node.id || node.querySelector(':scope > summary')?.textContent.trim().toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-').slice(0, 60) || index;
+          node.dataset.collapse ||= `panel:${id}:${name}`;
+        });
+        void layout.bind(document).catch(error => { document.getElementById('popupStatus').textContent = error.message; });
+      }
     });
     frame.src = `${entry.popup}?windowId=${window.id}`;
     frames.set(id, frame); views.append(frame);

@@ -7,18 +7,22 @@
   <link rel="stylesheet" href="hub.css">
 </head>
 <body>
-  <header><span>BROWSER TOOLS</span><h1>EveOS Bridge</h1><p>Nexus, Dex, WatchFusion, and Tab URLs are included. Each tool also works standalone.</p></header>
-  <nav>
-    <button type="button" data-action="refresh">Refresh</button>
-    <button type="button" class="primary" data-action="discover">Discover companions</button>
-  </nav>
-  <p class="privacy">Additional companion discovery is optional. Included tools use the same source as their standalone versions.</p>
+  <details class="setup-panel" data-collapse="setup">
+    <summary>About & setup</summary>
+    <header><span>BROWSER TOOLS</span><h1>EveOS Bridge</h1><p>Nexus, Dex, WatchFusion, and Tab URLs are included. Each tool also works standalone.</p></header>
+    <nav>
+      <button type="button" data-action="refresh">Refresh</button>
+      <button type="button" class="primary" data-action="discover">Discover companions</button>
+    </nav>
+    <p class="privacy">Additional companion discovery is optional. Included tools use the same source as their standalone versions.</p>
+  </details>
   <main>
-    <section><h2>Local services</h2><div class="cards" data-services></div></section>
-    <section><h2>Browser tools</h2><div class="cards" data-connectors></div></section>
+    <details class="tool-section" data-collapse="section:services" open><summary><h2>Local services</h2></summary><div class="cards" data-services></div></details>
+    <details class="tool-section" data-collapse="section:connectors" open><summary><h2>Browser tools</h2></summary><div class="cards" data-connectors></div></details>
   </main>
   <p role="status" data-status>Checking EveOS...</p>
   <script src="core/protocol.js"></script>
+  <script src="core/ui-state.js"></script>
   <script src="hub.js"></script>
 </body>
 </html>

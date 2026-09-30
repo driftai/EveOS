@@ -4,6 +4,9 @@ const protocol = globalThis.EveOSExtensionProtocol;
 const servicesHost = document.querySelector('[data-services]');
 const connectorsHost = document.querySelector('[data-connectors]');
 const status = document.querySelector('[data-status]');
+const layout = globalThis.EveOSBridgeUIState.create({ chromeApi:chrome,
+  onError:error => { status.textContent = `Could not save layout: ${error.message}`; } });
+let refreshVersion = 0;
 
 const escapeHtml = value => String(value || '').replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -11,7 +14,7 @@ const escapeHtml = value => String(value || '').replace(/[&<>"']/g, char => ({
 
 function serviceCard(item) {
   const detail = item.online ? (item.detail?.message || 'Ready') : 'Not running';
-  return `<article class="card"><strong>${escapeHtml(item.name)}</strong><span class="badge ${item.online ? 'online' : ''}">${item.online ? 'ONLINE' : 'OFFLINE'}</span><small>${escapeHtml(detail)}</small><button type="button" data-open-service="${escapeHtml(item.id)}">Open</button></article>`;
+  return `<details class="card" data-collapse="service:${escapeHtml(item.id)}"><summary><strong>${escapeHtml(item.name)}</strong><span class="badge ${item.online ? 'online' : ''}">${item.online ? 'ONLINE' : 'OFFLINE'}</span></summary><div class="card-body"><small>${escapeHtml(detail)}</small><button type="button" data-open-service="${escapeHtml(item.id)}">Open</button></div></details>`;
 }
 
 function connectorCard(item) {
@@ -22,13 +25,18 @@ function connectorCard(item) {
       : '';
     return `<div class="connector-action">${input}<button type="button" data-invoke-connector="${escapeHtml(item.extensionId)}" data-connector-id="${escapeHtml(item.id)}" data-action-id="${escapeHtml(action.id)}">${escapeHtml(action.label)}</button>${action.description ? `<small>${escapeHtml(action.description)}</small>` : ''}</div>`;
   }).join('');
-  return `<article class="card connector-card"><strong>${escapeHtml(item.name)}</strong><span class="badge online">${item.integration === 'included' ? 'INCLUDED' : 'CONNECTED'}</span><small>${escapeHtml(capabilities)}</small><button type="button" data-open-connector="${escapeHtml(item.extensionId)}" data-connector-id="${escapeHtml(item.id)}">Open tool</button>${actions ? `<div class="connector-actions">${actions}</div>` : ''}</article>`;
+  return `<details class="card connector-card" data-collapse="connector:${escapeHtml(item.id)}:${escapeHtml(item.extensionId)}"><summary><strong>${escapeHtml(item.name)}</strong><span class="badge online">${item.integration === 'included' ? 'INCLUDED' : 'CONNECTED'}</span></summary><div class="card-body"><small>${escapeHtml(capabilities)}</small><button type="button" data-open-connector="${escapeHtml(item.extensionId)}" data-connector-id="${escapeHtml(item.id)}">Open tool</button>${actions ? `<div class="connector-actions">${actions}</div>` : ''}</div></details>`;
 }
 
-function render(snapshot) {
-  servicesHost.innerHTML = (snapshot.services || []).map(serviceCard).join('') || '<div class="empty">No EveOS services registered.</div>';
-  connectorsHost.innerHTML = (snapshot.connectors || []).map(connectorCard).join('')
+async function render(snapshot, version) {
+  const services = document.createElement('div'), connectors = document.createElement('div');
+  services.innerHTML = (snapshot.services || []).map(serviceCard).join('') || '<div class="empty">No EveOS services registered.</div>';
+  connectors.innerHTML = (snapshot.connectors || []).map(connectorCard).join('')
     || '<div class="empty">No companion extensions discovered yet.</div>';
+  await Promise.all([layout.bind(services), layout.bind(connectors)]);
+  if (version !== refreshVersion) return;
+  servicesHost.replaceChildren(...services.childNodes);
+  connectorsHost.replaceChildren(...connectors.childNodes);
   status.textContent = `Updated ${new Date(snapshot.generatedAt || Date.now()).toLocaleTimeString()}`;
 }
 
@@ -37,10 +45,11 @@ async function send(type, detail = {}) {
 }
 
 async function refresh(type = 'refresh') {
+  const version = ++refreshVersion;
   status.textContent = type === 'scan' ? 'Discovering EveOS companions...' : 'Refreshing EveOS...';
   const result = await send(type);
   if (!result?.ok) throw new Error(result?.message || result?.code || 'EveOS Bridge request failed.');
-  render(result.snapshot);
+  await render(result.snapshot, version);
 }
 
 document.addEventListener('click', async event => {
@@ -53,7 +62,11 @@ document.addEventListener('click', async event => {
       if (!granted) throw new Error('Companion discovery permission was not granted.');
       await refresh('scan');
     } else if (target.dataset.openService) {
-      await send('open-service', { id: target.dataset.openService });
+      target.disabled = true;
+      status.textContent = target.dataset.openService === 'nexus-browser' ? 'Opening Nexus Browser; starting it if needed…' : 'Opening service…';
+      const result = await send('open-service', { id: target.dataset.openService });
+      if (!result?.ok) throw new Error(result?.message || 'Could not open the service.');
+      status.textContent = result.detail?.message || 'Service opened.';
     } else if (target.dataset.openConnector) {
       const result = await send('open-connector', { extensionId: target.dataset.openConnector, id: target.dataset.connectorId });
       if (!result?.ok) throw new Error(result?.message || result?.code || 'Companion could not be opened.');
@@ -70,7 +83,7 @@ document.addEventListener('click', async event => {
     }
   } catch (error) {
     status.textContent = error?.message || String(error);
-  }
+  } finally { if (target.isConnected) target.disabled = false; }
 });
 
-void refresh().catch(error => { status.textContent = error?.message || String(error); });
+void layout.bind(document).then(() => refresh()).catch(error => { status.textContent = error?.message || String(error); });

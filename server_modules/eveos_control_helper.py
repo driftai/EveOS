@@ -17,6 +17,7 @@ from . import bookmark_intel_control, eveos_console_prefs, eveos_ports, eveos_we
 from . import gemini_control, gemini_credentials, local_moe_control, matrix_window_control, nexus_browser_control
 from . import piano_player_control, watchfusion_control, world_book_control
 from .eveos_http_cors import eveos_cors_origin
+from . import eveos_control_requests
 
 DEFAULT_PORT = eveos_ports.service_port("GEMINI_CONTROL_PORT")
 MAIN_LAUNCHER_PORT = 3000
@@ -30,11 +31,7 @@ def _shutdown_plane_after_response(delay: float = 0.4) -> bool:
     threading.Timer(delay, _SERVER.shutdown).start()
     return True
 def _valid_port(value) -> int | None:
-    try:
-        port = int(value)
-    except (TypeError, ValueError):
-        return None
-    return port if 1 <= port <= 65535 else None
+    return eveos_control_requests.valid_port(value)
 def _last_launcher_port_path() -> Path:
     return _project_root() / "data" / "runtime" / "eveos-last-launcher-port.txt"
 def _read_last_launcher_port() -> int | None:
@@ -77,24 +74,7 @@ def _discover_file_web_port() -> int | None:
 
 
 def _request_web_port(handler) -> int | None:
-    parsed_request = urlparse(handler.path)
-    query = parse_qs(parsed_request.query)
-    if query.get("port"):
-        requested = _valid_port(query["port"][0])
-        if requested is not None:
-            return requested
-
-    origin = str(handler.headers.get("Origin", "")).strip()
-    if not origin or origin == "null" or origin.lower().startswith("file:"):
-        return _discover_file_web_port()
-    try:
-        parsed_origin = urlparse(origin)
-        host = (parsed_origin.hostname or "").lower()
-        if parsed_origin.scheme not in {"http", "https"} or host not in _LOOPBACK_HOSTS:
-            return None
-        return _valid_port(parsed_origin.port)
-    except ValueError:
-        return None
+    return eveos_control_requests.request_web_port(handler, _discover_file_web_port)
 
 
 def wait_for_control(port: int, timeout: float) -> int:
@@ -323,7 +303,8 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             "/api/nexus-browser/start", "/api/nexus-browser/stop", "/api/nexus-browser/setup", "/api/nexus-browser/extension",
             "/api/gemini-credentials", "/api/control-plane/consoles", "/api/matrix-window/control",
         }
-        if path in controlled_paths and not gemini_control.request_can_control(self):
+        if path in controlled_paths and not (gemini_control.request_can_control(self)
+                or eveos_control_requests.can_start_nexus(self, path)):
             self._send({
                 "ok": False,
                 "controllerAvailable": True,

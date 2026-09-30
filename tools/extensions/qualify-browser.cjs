@@ -8,6 +8,7 @@ const { WebSocketServer } = require('ws');
 const { audit, build } = require('./assemble.cjs');
 const { qualifyTabPopup } = require('./tab-collector-browser.cjs');
 const { qualifyPopupLayout } = require('./bridge-popup-layout.cjs');
+const { qualifyCollapses } = require('./bridge-collapse-browser.cjs');
 const ROOT = path.resolve(__dirname, '../..');
 
 const mediaHtml = iframe => `<!doctype html><html><body style="margin:0;height:2200px;background:#802050">
@@ -24,7 +25,7 @@ async function qualifyBrowser() {
   fs.mkdirSync(resultDir, { recursive: true });
   const fixture = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': req.url === '/health' ? 'application/json' : 'text/html' });
-    res.end(req.url === '/health' ? '{"ok":true}' : mediaHtml(req.url !== '/frame').replace('PORT', fixture.address().port));
+    res.end(req.url === '/health' ? '{"ok":true,"service":"eveos-nexus-browser"}' : mediaHtml(req.url !== '/frame').replace('PORT', fixture.address().port));
   });
   const sockets = [], messages = [];
   const wss = new WebSocketServer({ server: fixture, path: '/ws' });
@@ -48,7 +49,8 @@ async function qualifyBrowser() {
         const config = path.join(packageDir, variant.nexus, 'runtime-config.js');
         const source = fs.readFileSync(config, 'utf8');
         assert(/const port = \d+;/.test(source));
-        fs.writeFileSync(config, source.replace(/const port = \d+;/, `const port = ${port};`));
+        fs.writeFileSync(config, source.replace(/const port = \d+;/, `const port = ${port};`)
+          .replace(/const controlPort = \d+;/, `const controlPort = ${port};`));
       }
       // Only the qualification package receives this localhost port override.
       const context = await chromium.launchPersistentContext(path.join(temp, 'profile'), {
@@ -70,6 +72,7 @@ async function qualifyBrowser() {
           await hub.goto(`chrome-extension://${extensionId}/hub.html`);
           await hub.getByText('INCLUDED', { exact: true }).first().waitFor();
           assert.equal(await hub.getByText('INCLUDED', { exact: true }).count(), 3);
+          await hub.locator('[data-collapse^="connector:watchfusion:"] > summary').click();
           await hub.locator('[data-open-connector][data-connector-id="watchfusion"]').evaluate(el => {
             const r = el.getBoundingClientRect(); if (!r.width || !r.height) throw new Error('Hidden tool action');
           });
@@ -82,6 +85,7 @@ async function qualifyBrowser() {
           assert.equal(await popup.locator('body').evaluate(el => el.getBoundingClientRect().height), 570);
           await popup.screenshot({ path: path.join(resultDir, 'bridge-popup.png') });
           pass += await qualifyPopupLayout(popup, resultDir);
+          pass += await qualifyCollapses(popup, worker, resultDir);
           await popup.close(); pass++;
         }
         if (variant.nexus != null) {

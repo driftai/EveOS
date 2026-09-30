@@ -52,6 +52,8 @@ async function qualifyTabPopup(context, worker, { extensionId, prefix, base, mai
     if (main) {
       await page.getByRole('tab', { name: 'Tools', exact: true }).click();
       const hub = page.frameLocator('#view-tools');
+      const collectorCard = hub.locator('[data-collapse^="connector:tab-collector:"]');
+      if (!await collectorCard.evaluate(node => node.open)) await collectorCard.locator('summary').click();
       await hub.locator('[data-open-connector][data-connector-id="tab-collector"]').click();
       await page.locator('#tab-tab-collector[aria-selected="true"]').waitFor();
       assert.equal(await ui.locator('#urls').inputValue(), expected.join('\n'), 'switching views preserves the manual collection');

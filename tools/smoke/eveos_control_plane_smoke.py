@@ -360,6 +360,8 @@ def helper_http_smoke():
         status_code, payload = request_json(port, "POST", "/api/nexus-browser/stop")
         assert_true(status_code == 200 and payload.get("running") is False,
                     "Nexus Browser stop route failed")
+        from tools.qualification.bridge_control_cases import qualify_bridge_start
+        qualify_bridge_start(port, request_json)
     finally:
         server.shutdown()
         server.server_close()

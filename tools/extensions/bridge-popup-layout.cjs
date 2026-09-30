@@ -6,12 +6,14 @@ async function qualifyPopupLayout(page, resultDir) {
   await page.setViewportSize({ width:420, height:570 });
   const shell = await page.locator('body').evaluate(element => {
     const bounds = element.getBoundingClientRect(), style = getComputedStyle(element);
-    return { width:bounds.width, height:bounds.height, radius:parseFloat(style.borderRadius), overflow:style.overflow };
+    return { width:bounds.width, height:bounds.height, overflow:style.overflow,
+      background:getComputedStyle(document.documentElement).backgroundColor, border:style.borderWidth };
   });
   assert.deepEqual([shell.width, shell.height], [420, 570], 'popup dimensions must remain stable');
-  assert(shell.radius >= 12 && shell.overflow === 'hidden', 'shell must clip to its rounded surface');
+  assert(shell.overflow === 'hidden' && shell.background !== 'rgba(0, 0, 0, 0)' && shell.border === '0px',
+    'one opaque canvas must meet the native browser frame without a contrasting square backing');
   for (const [id, label, last] of [
-    ['tools', 'Tools', 'main section:last-child .card:last-child'],
+    ['tools', 'Tools', 'main .tool-section:last-child .card:last-child'],
     ['watchfusion', 'WatchFusion', '#status'],
     ['tab-collector', 'Tab URLs', 'small']
   ]) {

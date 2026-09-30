@@ -1,7 +1,7 @@
-:root { color-scheme:dark; font:13px/1.4 system-ui,sans-serif; background:transparent; color:#e3edf4; }
+:root { color-scheme:dark; font:13px/1.4 system-ui,sans-serif; background:#0b121b; color:#e3edf4; }
 * { box-sizing:border-box; }
 body { margin:0; width:420px; height:570px; display:flex; flex-direction:column; overflow:hidden;
-  border:1px solid #304553; border-radius:18px;
+  border:0; border-radius:0;
   background:radial-gradient(ellipse at 100% 0,#163b48 0,transparent 48%),#0b121b; }
 header { display:flex; gap:10px; align-items:center; padding:14px 16px 12px; flex-shrink:0; }
 header strong { display:block; font-size:18px; font-weight:650; letter-spacing:-.02em; color:#71e3ee; }

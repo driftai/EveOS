@@ -1,6 +1,7 @@
 if (typeof importScripts === 'function') {
   importScripts('extension-assets.js');
   importScripts('runtime-config.js');
+  importScripts('dashboard-open.js');
   importScripts('eveos-hub-connector.js');
   importScripts('dex-ui-refresh.js');
   importScripts('content/provider-adapter-revision.js');

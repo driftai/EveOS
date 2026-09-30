@@ -11,16 +11,22 @@ const TARGET = path.join(ROOT, 'tools', 'Nexus-Browser', 'extension', 'runtime-c
 function expectedSource() {
   const registry = JSON.parse(fs.readFileSync(REGISTRY, 'utf8'));
   const port = Number(registry?.ports?.NEXUS_BROWSER_PORT?.port);
+  const controlPort = Number(registry?.ports?.GEMINI_CONTROL_PORT?.port);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error('NEXUS_BROWSER_PORT is invalid in config/eveos-ports.json.');
+  }
+  if (!Number.isInteger(controlPort) || controlPort < 1 || controlPort > 65535) {
+    throw new Error('GEMINI_CONTROL_PORT is invalid in config/eveos-ports.json.');
   }
   return `/* Generated from config/eveos-ports.json by tools/audit/sync-nexus-browser-port.js. */
 (() => {
   const port = ${port};
+  const controlPort = ${controlPort};
   const httpOrigin = \`http://127.0.0.1:\${port}\`;
   const config = Object.freeze({
     port,
     httpOrigin,
+    controlOrigin: \`http://127.0.0.1:\${controlPort}\`,
     healthUrl: \`\${httpOrigin}/health\`,
     websocketUrl: \`ws://127.0.0.1:\${port}/ws\`,
     dexUrl: \`\${httpOrigin}/?mode=dex\`,

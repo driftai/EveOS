@@ -122,8 +122,9 @@ async function main() {
   assert.equal(descriptor.integration, 'included');
   const media = await require('../extensions/media-regression.cjs').qualifyMediaWorker();
   const tabs = await require('../extensions/tab-collector-regression.cjs').qualifyTabCollector();
+  const dashboard = await require('../extensions/dashboard-regression.cjs').qualifyDashboardOpen();
   const browser = process.argv.includes('--browser') ? await require('../extensions/qualify-browser.cjs').qualifyBrowser() : 0;
-  console.log(`EVEOS_EXTENSION_HUB_SMOKE_OK media=${media} tabs=${tabs} browser=${browser}`);
+  console.log(`EVEOS_EXTENSION_HUB_SMOKE_OK media=${media} tabs=${tabs} dashboard=${dashboard} browser=${browser}`);
 }
 
 main().catch(error => {

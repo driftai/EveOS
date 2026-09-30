@@ -3,22 +3,14 @@
 
   const CHANNEL = 'eveos.extension.v1';
   const VERSION = 1;
-  const dashboardUrl = 'http://127.0.0.1:9088/';
+  const dashboardUrl = `${globalThis.NexusBrowserRuntimeConfig.httpOrigin}/`;
 
   function response(type, detail) {
     return { channel: CHANNEL, version: VERSION, type, ok: true, detail };
   }
 
   async function serviceStatus() {
-    try {
-      const healthUrl = globalThis.NexusBrowserRuntimeConfig?.healthUrl
-        || 'http://127.0.0.1:9088/health';
-      const result = await fetch(healthUrl, { cache: 'no-store' });
-      const payload = await result.json().catch(() => ({}));
-      return { online: result.ok && payload?.ok !== false };
-    } catch (_error) {
-      return { online: false };
-    }
+    return globalThis.NexusBrowserDashboard.status();
   }
 
   function description(status) {
@@ -39,8 +31,7 @@
     if (message.type === 'describe') return response('describe', description(status));
     if (message.type === 'status') return response('status', status);
     if (message.type === 'open' || (message.type === 'invoke' && message.detail?.action === 'open-dashboard')) {
-      await chrome.tabs.create({ url: dashboardUrl });
-      return response(message.type, { message: 'Nexus Browser opened.', opened: true });
+      return response(message.type, await globalThis.NexusBrowserDashboard.open());
     }
     return { channel: CHANNEL, version: VERSION, type: message.type, ok: false, code: 'UNKNOWN_ACTION' };
   }

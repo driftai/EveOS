@@ -16,6 +16,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'open-service') {
       const service = catalog.services.find(item => item.id === message.id);
       if (!service) return { ok: false, code: 'UNKNOWN_SERVICE' };
+      if (service.id === 'nexus-browser') {
+        const result = await globalThis.EveOSExtensionModules.invoke(service.id, protocol.request(protocol.REQUESTS.OPEN));
+        return { ok:protocol.isResponse(result), detail:result.detail, message:result.message };
+      }
       await chrome.tabs.create({ url: service.url });
       return { ok: true };
     }

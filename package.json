@@ -18,6 +18,7 @@
     "runtime:search-monitor:restart": "node tools/runtime/search-monitor-runtime.mjs restart",
     "runtime:search-monitor:qualify": "node tools/runtime/search-monitor-runtime.mjs qualify",
     "runtime:search-monitor:extension-reload": "node tools/runtime/search-monitor-runtime.mjs extension-reload",
+    "runtime:bridge:nexus-open": "node tools/runtime/bridge-nexus-open.cjs",
     "build:audioflix-genai": "esbuild tools/bundles/audioflix-genai.entry.mjs --bundle --format=iife --platform=browser --target=es2020 --minify --outfile=js/vendor/audioflix-genai.js",
     "build:asset-versions": "node tools/audit/sync-runtime-asset-versions.js --write",
     "build:eveos-extension": "node tools/extensions/assemble.cjs --write",
