@@ -232,6 +232,37 @@ function onYouTubeError(event) {
   setStatus(`YouTube error ${code || 'unknown'}`);
 }
 
+let hostYouTubeBufferTimer = null;
+let hostYouTubeBufferHeld = false;
+function clearHostYouTubeBufferTimer() {
+  if (hostYouTubeBufferTimer) clearTimeout(hostYouTubeBufferTimer);
+  hostYouTubeBufferTimer = null;
+}
+function youtubeBufferedAheadSeconds() {
+  const duration = Number(ytPlayer?.getDuration?.()) || 0;
+  const fraction = Number(ytPlayer?.getVideoLoadedFraction?.());
+  const current = Number(ytPlayer?.getCurrentTime?.()) || 0;
+  if (!(duration > 0) || !Number.isFinite(fraction)) return 0;
+  return Math.max(0, duration * Math.max(0, Math.min(1, fraction)) - current);
+}
+function scheduleHostYouTubeBufferRecovery() {
+  clearHostYouTubeBufferTimer();
+  if (!roomId || !isHost() || !state || applyingRemote || primingPlayer || playerInitializing) return;
+  hostYouTubeBufferTimer = setTimeout(async () => {
+    hostYouTubeBufferTimer = null;
+    if (!roomId || !isHost() || ytPlayer?.getPlayerState?.() !== YT.PlayerState.BUFFERING) return;
+    const position = Number(ytPlayer?.getCurrentTime?.()) || 0;
+    if (!hostYouTubeBufferHeld) {
+      hostYouTubeBufferHeld = true;
+      setStatus('Host buffering · holding the room in sync…');
+      await command('pause', { position, buffering: true });
+    }
+    if (youtubeBufferedAheadSeconds() >= 2.5 && ytPlayer?.getPlayerState?.() === YT.PlayerState.BUFFERING) {
+      try { ytPlayer.playVideo?.(); } catch {}
+    }
+  }, 550);
+}
+
 function hostPlaybackEventAllowed(playerState) {
   if (!state || primingPlayer || playerInitializing || !isHost()) return false;
   if (!applyingRemote) return true;
@@ -255,10 +286,17 @@ function onYouTubeStateChange(event) {
   }
   if (!hostPlaybackEventAllowed(event.data)) return;
 
+  if (event.data === YT.PlayerState.BUFFERING) {
+    scheduleHostYouTubeBufferRecovery();
+    return;
+  }
+  clearHostYouTubeBufferTimer();
+
   const position = Number(ytPlayer?.getCurrentTime?.()) || 0;
   const duration = Number(ytPlayer?.getDuration?.()) || 0;
 
   if (event.data === YT.PlayerState.ENDED) {
+    hostYouTubeBufferHeld = false;
     // Natural completion is authoritative room state. Do not use a timer or
     // position heuristic; the YouTube event itself defines the transition.
     command('pause', {
@@ -269,6 +307,9 @@ function onYouTubeStateChange(event) {
   }
 
   if (event.data === YT.PlayerState.PLAYING) {
+    const resumedFromBuffer = hostYouTubeBufferHeld;
+    hostYouTubeBufferHeld = false;
+    if (resumedFromBuffer) setStatus('Connected');
     const replaying = !!state.playback.ended;
     const playPosition = replaying ? 0 : position;
 
@@ -283,6 +324,7 @@ function onYouTubeStateChange(event) {
   }
 
   if (event.data === YT.PlayerState.PAUSED) {
+    hostYouTubeBufferHeld = false;
     command('pause', { position });
   }
 }

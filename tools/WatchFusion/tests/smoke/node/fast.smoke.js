@@ -120,6 +120,8 @@ export async function runFastSmoke() {
     assert.match(liveCss, /\.watch-shell\.audio-only-live \.live-controls/);
     assert.match(liveCss, /#liveQueueWrap:not\(\[hidden\]\)/);
     assert.match(liveCss, /#liveQueue[\s\S]*max-height:\s*none/);
+    assert.match(liveCss, /overflow-y:\s*scroll/);
+    assert.match(liveCss, /scrollbar-gutter:\s*stable/);
     assert.match(render, /soloEmptyState/);
     assert.match(style, /\.watch-shell\.solo-idle/);
     assert.match(style, /\.solo-empty-state/);
@@ -128,7 +130,7 @@ export async function runFastSmoke() {
     assert.match(style, /video:not\(\[hidden\]\)/);
     assert.match(liveSource, /AUDIO_SYNC_AUTO_KEY/);
     assert.match(liveSource, /deviceProfileAudioDelayMs/);
-    assert.match(liveSource, /return mobile\?330:0/);
+    assert.match(liveSource, /return mobile\?355:0/);
     assert.match(liveSource, /onAudioSync:\s*applyAutoSync/);
     assert.match(linkedTab, /watchFusionMediaResolver/);
     assert.match(linkedTab, /command\('mirror'/);
@@ -148,6 +150,9 @@ export async function runFastSmoke() {
     assert.match(bootstrap, /updateServerClock\(data\.state\.serverTime,sentAt,receivedAt\)/);
     assert.match(playbackSync, /SYNC_TOLERANCE_SEC = 0\.15/);
     assert.match(commands, /if \(isHost\(\) && options\.hydrateHost !== true\) return;/);
+    assert.match(commands, /YT\.PlayerState\.BUFFERING/);
+    assert.match(commands, /getVideoLoadedFraction/);
+    assert.match(commands, /Host buffering · holding the room in sync/);
     assert.match(commands, /syncPlayer\(\{ hydrateHost: true \}\)/);
     assert.match(playbackSync, /SEEK_DRIFT_SEC = 0\.65/);
     assert.match(playbackSync, /SENSOR_MIN_SAMPLES = 5/);

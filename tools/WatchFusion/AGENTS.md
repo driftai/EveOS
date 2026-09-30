@@ -36,7 +36,7 @@
 - Attachment is passive by default: do not restyle/resize the source page, force quality, replace media, enter fullscreen, click controls automatically, or capture pixels. Sampling may read URL/media state; page writes are allowed only for an explicit WatchFusion transport command.
 - The source tab may be muted at the browser-tab level while attached to prevent duplicate local audio, but its original mute state must be restored exactly. This browser-level mute must not change the page player's own volume/mute state.
 - MAIN-world web-component listeners and isolated-world probes must both be disposed on unlink and before reinjection so extension reloads/upgrades cannot leave stale observers behind.
-- Audioflix remains a real WebRTC audio stream. Auto audio sync uses measured playout timestamps when the browser exposes them; otherwise it uses the device's remembered calibration, with a physically-qualified 330 ms mobile seed and 0 ms desktop seed.
+- Audioflix remains a real WebRTC audio stream. Auto audio sync uses measured playout timestamps when the browser exposes them; otherwise it uses the device's remembered calibration, with a physically-qualified 355 ms mobile seed and 0 ms desktop seed.
 - Audioflix is audio-only in the WatchFusion media stage: keep its transport/queue controls visible, but do not reserve or render a black video canvas unless the received stream actually contains a live video track.
 - The horizontal Watch Party divider must preserve at least 280 px of embedded media height on laptop-size layouts.
 
@@ -47,3 +47,5 @@
 - The EveOS outer Refresh button is a user-requested UI reload as well as a lifecycle/status refresh. Background polling must remain status-only so it never reloads WatchFusion every poll interval.
 - In an active room with no loaded media, collapse the media workspace to content height rather than reserving a blank 280px/1fr canvas. The full media allocation returns as soon as visual media loads; Audioflix keeps its separate queue-filling audio-only layout.
 - YouTube room host playback is authoritative after initial player hydration. Never continuously apply inbound room snapshots back onto the active host player; that can create host-only seek/play stutter while viewers remain smooth. Viewers keep adaptive correction; host hydration is explicit and one-shot when a player/video is created or cued.
+- Long Audioflix Music Library queues are explicit scroll surfaces in embedded WatchFusion. Keep a stable/visible vertical scrollbar; do not let the queue expand until later items are clipped behind Find Media.
+- YouTube host buffering is a transport event, not a reason to force quality. After a sustained BUFFERING state, hold the room timeline at the host position so viewers do not run ahead; if YouTube reports data already buffered ahead, a single play nudge may recover the host. Do not use setPlaybackQuality/getPlaybackQuality: modern YouTube embeds do not support quality forcing.

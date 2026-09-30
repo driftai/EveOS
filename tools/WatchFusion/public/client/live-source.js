@@ -42,7 +42,7 @@
     if(calibrated>0)return calibrated;
     let mobile=false;
     try{mobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||((navigator.maxTouchPoints||0)>0&&matchMedia('(pointer: coarse)').matches);}catch{}
-    return mobile?330:0;
+    return mobile?355:0;
   }
   function effectiveAudioSyncDelayMs() {
     if(!audioSyncAutoEnabled())return manualAudioSyncDelayMs();
