@@ -5,33 +5,33 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 async function qualifyMediaWorker() {
-  const state = {}, listeners = [], sent = [], injected = [], offscreen = [];
-  let rejectCapture = false, captureActive = false, offscreenExists = false;
+  const state = {}, listeners = [], sent = [], injected = [], tabUpdates = [], published = [];
+  let activeTab = { id:7, url:'https://example.test/watch', mutedInfo:{ muted:false } };
+  let livePeer = null;
+  class LivePeer {
+    constructor(options) { this.options=options;this.closed=false;livePeer=this;options.onReady?.(); }
+    metadata(value) { published.push(value); }
+    stop() { this.closed=true; }
+  }
   const context = vm.createContext({ console, URL, Date, Map, Set, Promise, importScripts() {},
-    EveOSExtensionModuleRoots: { watchfusion: 'modules/watchfusion/' } });
+    WatchFusionLivePeer:LivePeer, EveOSExtensionModuleRoots: { watchfusion: 'modules/watchfusion/' } });
   context.chrome = {
     runtime: {
       id: 'official', getURL: value => `chrome-extension://official/${value}`,
-      getContexts: async () => offscreenExists ? [{}] : [], onMessage: { addListener: fn => listeners.push(fn) },
-      sendMessage: async message => {
-        sent.push(message);
-        if (message.to === 'offscreen' && message.type === 'start') captureActive = true;
-        if (message.to === 'offscreen' && message.type === 'stop') captureActive = false;
-        return message.to === 'offscreen' && message.type === 'status' ? { linked:captureActive } : { ok:true };
-      }
+      onMessage: { addListener: fn => listeners.push(fn) }
     },
     storage: { session: {
       get: async () => ({ ...state }), set: async value => Object.assign(state, value),
-      remove: async key => { delete state[key]; }
+      remove: async keys => { for(const key of Array.isArray(keys)?keys:[keys])delete state[key]; }
     } },
-    tabs: { query: async () => [{ id: 7 }], sendMessage: async (...args) => { sent.push(args); return { ok: true }; },
+    tabs: { query: async () => activeTab ? [activeTab] : [], get:async id => id===activeTab?.id?activeTab:Promise.reject(new Error('missing tab')),
+      update:async(id,value)=>{tabUpdates.push({id,value});activeTab={...activeTab,...value};return activeTab;},
+      sendMessage: async (...args) => { sent.push(args); return { ok: true }; },
       onUpdated: { addListener() {} }, onRemoved: { addListener() {} } },
-    tabCapture: { getMediaStreamId: async () => { if (rejectCapture) throw new Error('Capture denied'); return 'fixture-stream'; } },
-    offscreen: { createDocument: async details => { offscreen.push(details); offscreenExists = true; } },
     scripting: { executeScript: async details => {
       injected.push(details);
       // The real probe can report before executeScript resolves. Keep that sample.
-      vm.runInContext(`combinedSample(1, {token:'player',topFrame:false,hasMedia:true,score:3,rect:{x:.1,y:.2,width:.8,height:.6},metadata:{title:'frame'}})`, context);
+      vm.runInContext(`combinedSample(1, {token:'player',topFrame:false,hasMedia:true,score:3,metadata:{title:'frame',pageUrl:'https://example.test/watch'}})`, context);
       return [{ frameId: 0 }, { frameId: 1 }];
     } }
   };
@@ -39,27 +39,22 @@ async function qualifyMediaWorker() {
   const link = 'http://localhost:19193/#live=12345678-1234-1234-1234-123456789abc.' + 'a'.repeat(48);
   await context.WatchFusionMediaLink.startCurrentTab(link);
   assert.equal((await context.WatchFusionMediaLink.status()).linked, true);
-  captureActive = false;
-  assert.equal((await context.WatchFusionMediaLink.status()).linked, false, 'a saved source tab is not proof of active sharing');
-  captureActive = true;
   assert.equal(state.sourceTab, 7);
-  assert.equal(injected[0].world, 'MAIN');
-  assert.equal(injected[0].files[0], 'modules/watchfusion/source-page-adapter.js');
-  assert.equal(injected[1].files[0], 'modules/watchfusion/source-probe.js');
-  assert.equal(offscreen[0].url, 'modules/watchfusion/offscreen.html');
+  assert.equal(tabUpdates[0].value.muted,true,'the linked source tab is browser-muted while attached');
+  const injectedFiles=injected.filter(value=>Array.isArray(value.files));
+  assert.equal(injectedFiles[0].world, 'MAIN');
+  assert.equal(injectedFiles[0].files[0], 'modules/watchfusion/source-page-adapter.js');
+  assert.equal(injectedFiles[1].files[0], 'modules/watchfusion/source-probe.js');
   assert.equal(vm.runInContext('frameSamples.get(1).metadata.title', context), 'frame');
-  vm.runInContext(`combinedSample(0, {token:'root',topFrame:true,hasMedia:false,children:[{token:'player',rect:{x:.2,y:.1,width:.5,height:.8}}]})`, context);
-  const crop = vm.runInContext(`combinedSample(1, {token:'player',topFrame:false,hasMedia:true,score:3,rect:{x:.1,y:.2,width:.8,height:.6}}).rect`, context);
-  assert.equal(crop.x, .25); assert.equal(crop.width, .4);
-  assert(Math.abs(crop.y - .26) < 1e-9); assert.equal(crop.height, .48);
-  const missing = vm.runInContext(`combinedSample(0, {token:'root',topFrame:true,hasMedia:false,children:[],rect:{x:0,y:0,width:1,height:1}})`, context);
-  assert.equal(missing.rect, null, 'unassociated comments frames must never become the media crop');
+  const missing = vm.runInContext(`frameSamples.clear();combinedSample(0, {token:'root',topFrame:true,hasMedia:false,metadata:{pageUrl:'https://example.test/watch'}})`, context);
   assert.match(missing.metadata.status, /embedded players/);
-  await new Promise(resolve => listeners[0]({ to: 'worker', type: 'control', action: 'pause' },
-    { id: 'official', url: 'chrome-extension://official/modules/watchfusion/offscreen.html' }, resolve));
+  await livePeer.options.onControl('pause',0);
   assert(sent.some(value => Array.isArray(value) && value[2]?.frameId === 1 && value[1].type === 'source-control'));
-  rejectCapture = true;
-  await assert.rejects(context.WatchFusionMediaLink.startCurrentTab(link), /Capture denied/);
+  assert(published.every(value => !Object.hasOwn(value,'stream')),'state-link metadata must never publish captured pixels');
+  await context.WatchFusionMediaLink.stop();
+  assert.equal(tabUpdates.at(-1).value.muted,false,'unlink restores the original browser mute state');
+  activeTab = null;
+  await assert.rejects(context.WatchFusionMediaLink.startCurrentTab(link), /Return to the source tab/);
   assert.equal(state.sourceTab, undefined);
   assert.equal((await context.WatchFusionMediaLink.status()).linked, false);
   await qualifyAudioflixFailure();
@@ -102,10 +97,10 @@ async function qualifyMediaPopup() {
     const elements = new Map(), listeners = {};
     let linked = false, denied = false;
     const element = id => {
-      if (!elements.has(id)) elements.set(id, { hidden:id === 'stop', value:'pairing', textContent:'' });
+      if (!elements.has(id)) elements.set(id, { hidden:id === 'stop', value:'pairing', textContent:'', dataset:{} });
       return elements.get(id);
     };
-    const context = vm.createContext({ Object, location:{ pathname:`/${prefix}popup.html` },
+    const context = vm.createContext({ Object, location:{ pathname:`/${prefix}popup.html` }, setInterval:()=>1,clearInterval:()=>{},window:{addEventListener(){}},
       document:{ getElementById:element },
       chrome:{ tabs:{ query:async () => [{ id:7 }] }, permissions:{ request:async () => true, contains:async () => true },
         storage:{ onChanged:{ addListener:fn => { listeners.storage = fn; } },
@@ -129,18 +124,11 @@ async function qualifyMediaPopup() {
     await element('stop').onclick(); assert.equal(element('stop').hidden, true);
     linked = true; listeners.storage({ sourceTab:{ newValue:7 } }, 'session'); await context.refreshSharing();
     assert.equal(element('stop').hidden, false);
-    listeners.message({ to:'popup', type:'capture-state', linked:false }, { id:'foreign', url:`chrome-extension://fixture/${prefix}offscreen.html` });
-    assert.equal(element('stop').hidden, false, 'foreign senders cannot spoof capture state');
-    listeners.message({ to:'popup', type:'capture-state', linked:false }, { id:'fixture', url:`chrome-extension://fixture/${prefix}offscreen.html` });
-    assert.equal(element('stop').hidden, true);
     const pending = [];
     context.chrome.runtime.sendMessage = () => new Promise(resolve => pending.push(resolve));
-    for (const active of [true, false]) {
-      const stale = context.refreshSharing();
-      listeners.message({ to:'popup', type:'capture-state', linked:active }, { id:'fixture', url:`chrome-extension://fixture/${prefix}offscreen.html` });
-      pending.shift()({ linked:!active }); await stale;
-      assert.equal(element('stop').hidden, !active, 'a delayed status reply cannot overwrite a newer capture event');
-    }
+    const stale=context.refreshSharing(),fresh=context.refreshSharing();
+    pending[1]({linked:true});await fresh;pending[0]({linked:false});await stale;
+    assert.equal(element('stop').hidden,false,'an older status reply cannot overwrite newer linked state');
   }
 }
 
@@ -159,22 +147,20 @@ async function qualifyLiveActions() {
   const sandbox = vm.createContext({ window, $: element, session: null, roomId: null,
     document: { activeElement: null }, ytPlayer: null, state: { source: null },
     location: { origin: 'http://localhost:19193' }, crypto: require('node:crypto').webcrypto,
+    storage: { get: () => null, set: () => {} },
     localStorage: { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value), removeItem: key => saved.delete(key) },
     apiUrl: value => value, makeClientId: () => require('node:crypto').randomUUID(), setStatus() {}, isHost: () => true, URL, setTimeout, clearTimeout,
+    setInterval: () => 1, clearInterval: () => {},
     copyText: async () => true, setCopyButtonFeedback() {}, fetch: async () => ({ ok: true, json: async () => ({ id: 'test', publisherToken: 'private', viewerToken: 'viewer' }) }) });
   sandbox.applySoloSource = source => { sandbox.state = { source }; window.watchFusionLive.load(source); };
   let unloaded = 0;
   window.unloadWatchFusionMedia = async () => { unloaded++; await window.watchFusionLive.unload(); sandbox.state = { source: null }; };
   vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../WatchFusion/public/client/live-source.js'), 'utf8'), sandbox);
-  await element('linkTabBtn').onclick();
-  assert.equal(element('linkTabBtn').textContent, 'Unlink playing tab');
-  await element('linkTabBtn').onclick();
-  assert.equal(unloaded, 1); assert.equal(element('linkTabBtn').textContent, 'Link a playing tab');
   sandbox.state = { source: { kind: 'live', mode: 'audioflix', streamId: 'audio' } };
   window.watchFusionLive.load(sandbox.state.source);
   assert.equal(element('linkAudioflixBtn').textContent, 'Disconnect Audioflix');
   await element('linkAudioflixBtn').onclick();
-  assert.equal(unloaded, 2); assert.equal(element('linkAudioflixBtn').textContent, 'Connect Audioflix');
+  assert.equal(unloaded, 1); assert.equal(element('linkAudioflixBtn').textContent, 'Connect Audioflix');
   await element('livePairOfficialFolder').onclick();
   assert.equal(element('livePairFeedback').textContent, 'official opened');
   await element('livePairFolder').onclick();

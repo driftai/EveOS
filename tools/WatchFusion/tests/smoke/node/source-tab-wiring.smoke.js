@@ -33,7 +33,6 @@ export async function runSourceTabSmokes() {
   const staticFiles = fs.readFileSync(path.join(SRC_SERVER, 'static-files.js'), 'utf8');
   const worker = readExtension('worker.js');
   const probe = readExtension('source-probe.js');
-  const offscreen = readExtension('offscreen.js');
   const popup = readExtension('popup.js');
 
   await record('ST-01:bootstrap-no-global-window-pointerdown-for-nuvio-tab', async () => {
@@ -94,30 +93,36 @@ export async function runSourceTabSmokes() {
     assert.match(playerFix, /#nuvioFrame/);
   })();
 
-  await record('ST-10:extension-keeps-one-companion-owned-capture-runtime', async () => {
+  await record('ST-10:extension-keeps-one-companion-owned-state-link-runtime', async () => {
     assert.match(worker, /globalThis\.WatchFusionMediaLink = Object\.freeze/);
     assert.match(worker, /startCurrentTab/);
     assert.match(worker, /allFrames: true/);
     assert.match(worker, /source-page-adapter\.js/);
     assert.match(worker, /world: 'MAIN'/);
     assert.match(worker, /controlFrameId/);
+    assert.match(worker, /relayVideoMode:'state-only'/);
+    assert.match(worker, /importScripts\('live-peer\.js'\)/);
+    assert.doesNotMatch(worker, /importScripts\(asset\('live-peer\.js'\)\)/);
+    assert.doesNotMatch(worker, /tabCapture|getMediaStreamId|offscreen/);
     assert.match(popup, /type: 'start-pairing'/);
     assert.doesNotMatch(popup, /tabCapture|getMediaStreamId|source-probe\.js/);
   })();
 
-  await record('ST-11:media-only-crop-is-dynamic-and-scroll-stable', async () => {
-    assert.match(probe, /position: 'fixed'/);
-    assert.match(probe, /pointerEvents: 'none'/);
-    assert.match(probe, /frameFallback/);
-    assert.match(probe, /mediaRatio/);
-    assert.match(probe, /objectFit === 'contain'/);
+  await record('ST-11:state-probe-is-passive-and-timestamped', async () => {
+    assert.doesNotMatch(probe, /position:\s*['"]fixed['"]|captureStream|drawImage|requestFullscreen/);
     assert.match(probe, /\[aria-label\*="Next" i\]/);
     assert.match(probe, /strmcx-embed/);
-    assert.match(offscreen, /maxWidth: 2560/);
-    assert.match(offscreen, /1920 \/ sw/);
-    assert.match(offscreen, /canvas\.captureStream\(0\)/);
-    assert.match(offscreen, /requestFrame/);
-    assert.match(offscreen, /rect = message\.rect \|\| null/);
+    assert.match(probe, /sampledAt:Date\.now\(\)/);
+    assert.doesNotMatch(probe, /typeof element\.(?:play|pause|seek)/,
+      'The isolated probe must trust the main-world adapter instead of rechecking hidden custom-element methods.');
+  })();
+
+  await record('ST-12:manual-find-load-detaches-linked-source', async () => {
+    assert.match(bootstrap, /watchFusionLinkedTab\?\.active\?\.\(\)[\s\S]{0,100}watchFusionLinkedTab\.stop\(\{quiet:true\}\)/);
+    const mediaControls = readClient('media-controls.js');
+    assert.match(mediaControls, /loadSelectedMedia\(\)[\s\S]{0,260}watchFusionLinkedTab\.stop\(\{quiet:true\}\)/);
+    assert.match(worker, /message\.type==='start-pairing'/);
+    assert.equal((worker.match(/startCurrentTab\(/g)||[]).length,2,'Only the public method and explicit start-pairing route may start a tab link.');
   })();
 
   return results;

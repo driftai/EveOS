@@ -29,9 +29,10 @@
 
   function pagePlayer() {
     if (!pageMedia?.hasMedia || Date.now() - pageMedia.at > 2200) return null;
-    return [...document.querySelectorAll('strmcx-embed')].find(element =>
-      typeof element.play === 'function' && typeof element.pause === 'function' && typeof element.seek === 'function'
-    ) || null;
+    // Custom-element prototype methods live in the page's main world and are not
+    // reliably visible from this isolated extension world. The main-world adapter
+    // already validates the transport API before publishing hasMedia.
+    return document.querySelector('strmcx-embed');
   }
 
   function cleanup() {

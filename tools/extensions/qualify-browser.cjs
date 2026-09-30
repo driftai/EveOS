@@ -167,25 +167,18 @@ async function qualifyBrowser() {
             await inject(sourceTab);
           }, `http://127.0.0.1:${port}/media`);
           assert.equal(await worker.evaluate(async () => (await WatchFusionMediaLink.status()).linked), false,
-            'a persisted tab without active offscreen capture must not report sharing');
+            'a persisted tab without an active state publisher must not report linked');
           const frame = page.frames().find(value => value.url().includes('/frame'));
-          await frame.waitForFunction(() => document.querySelector('video').style.position === 'fixed');
-          const before = await frame.locator('video').boundingBox();
-          await page.evaluate(() => scrollTo(0, 1000));
-          await frame.evaluate(() => scrollTo(0, 1000));
-          const after = await frame.locator('video').boundingBox();
-          assert.deepEqual(after, before);
           await worker.evaluate(() => new Promise((resolve, reject) => {
             const began = Date.now();
             const check = () => controlFrameId !== 0 ? resolve() : Date.now() - began > 3000
               ? reject(new Error('No embedded media control frame')) : setTimeout(check, 50);
             check();
           }));
-          const combined = await worker.evaluate(() => {
-            const value = [...frameSamples.values()].find(sample => sample?.hasMedia && !sample.topFrame);
-            return combinedSample(value.frameId, value).rect;
-          });
-          assert(combined.width > 0 && combined.height > 0 && combined.height < 1);
+          const combined = await worker.evaluate(() => lastCombinedSample.metadata);
+          assert.equal(combined.pageUrl, `http://127.0.0.1:${port}/media`);
+          assert(Number.isFinite(combined.sampledAt) && combined.sampledAt > 0);
+          assert.equal(await frame.locator('video').getAttribute('style'), 'width:600px;height:420px');
           assert.equal(await page.locator('iframe[data-comments]').evaluate(el => el.style.position), '');
           await worker.evaluate(() => chrome.tabs.sendMessage(sourceTab, { type: 'source-control', action: 'pause' }, { frameId: controlFrameId }));
           await frame.waitForFunction(() => document.querySelector('video').paused);
@@ -205,7 +198,7 @@ async function qualifyBrowser() {
               ? reject(new Error('Web-component media adapter did not become playable')) : setTimeout(check, 50);
             check();
           }));
-          assert.equal(await page.locator('strmcx-embed').evaluate(el => el.style.position), 'fixed');
+          assert.equal(await page.locator('strmcx-embed').evaluate(el => el.style.position), '');
           await worker.evaluate(() => chrome.tabs.sendMessage(sourceTab, { type:'source-control', action:'pause' }, { frameId:0 }));
           await page.waitForFunction(() => window.mediaCalls.includes('pause'));
           await worker.evaluate(() => WatchFusionMediaLink.stop());

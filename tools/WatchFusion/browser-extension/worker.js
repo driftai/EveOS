@@ -1,6 +1,8 @@
 importScripts('eveos-hub-connector.js');
 const asset = value => (globalThis.EveOSExtensionModuleRoots?.watchfusion || '') + value;
-importScripts(asset('live-peer.js'));
+// Nested worker imports are relative to this module in standalone mode and are
+// rooted by EveOS Bridge's module loader in the assembled extension.
+importScripts('live-peer.js');
 
 let sourceTab = null, controlFrameId = 0, statePeer = null;
 let lastRefresh = 0, lastCombinedSample = null, publisherReady = false, stopping = false;

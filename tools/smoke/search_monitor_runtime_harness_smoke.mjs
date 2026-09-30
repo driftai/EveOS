@@ -59,6 +59,11 @@ requireCondition(
   'live qualification reintroduced the opaque Windows npm.cmd shim'
 );
 requireCondition(
+  runtimeCliSource.includes("spawnSync(process.execPath, [npmCli, '--prefix'")
+    && runtimeCliSource.includes("'run', '--silent', 'extension:reload'"),
+  'extension reload no longer launches npm through its Node entrypoint'
+);
+requireCondition(
   runtimeCliSource.includes('spawnError')
     && runtimeCliSource.includes('qualificationFailure')
     && runtimeCliSource.includes('stageResults'),

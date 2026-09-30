@@ -89,7 +89,7 @@ async function resolveMediaInput(options={}) {
   finally{if(button)button.disabled=false;}
 }
 async function resolveAndLoadMediaInput(input,options={}){return resolveMediaInput({input:String(input||'').trim(),autoLoad:true,silent:!!options.silent});}
-async function loadSelectedMedia(){const candidate=selectedMediaCandidate();if(!candidate)return alert('Find a media source first.');return loadMediaCandidate(candidate,resolvedMediaPageUrl||$('sourceInput')?.value.trim()||candidate.url);}
+async function loadSelectedMedia(){const candidate=selectedMediaCandidate();if(!candidate)return alert('Find a media source first.');if(window.watchFusionLinkedTab?.active?.())await window.watchFusionLinkedTab.stop({quiet:true});return loadMediaCandidate(candidate,resolvedMediaPageUrl||$('sourceInput')?.value.trim()||candidate.url);}
 $('resolveMediaBtn')?.addEventListener('click',()=>resolveMediaInput());
 $('loadMediaBtn')?.addEventListener('click',async()=>{if($('findMediaPanel'))$('findMediaPanel').hidden=true;await loadSelectedMedia();});
 $('mediaSourceSelect')?.addEventListener('change',()=>{

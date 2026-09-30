@@ -11,19 +11,20 @@ async function qualifyManagedTool(kind) {
   const origin = 'http://127.0.0.1:12345';
   const healthKey = kind === 'watchfusion' ? 'app' : 'service';
   const healthValue = kind === 'watchfusion' ? 'WatchFusion' : 'eveos-nexus-browser';
+  const startPath = kind === 'watchfusion' ? '/api/watchfusion/launch' : '/api/nexus-browser/start';
   const context = vm.createContext({ URL, AbortSignal, setTimeout:callback => { callback(); },
     NexusBrowserRuntimeConfig:{ httpOrigin:origin, controlOrigin:origin, healthUrl:origin+'/health', tabPattern:origin+'/*' },
     fetch:async (url, options) => {
       if (url.endsWith('/health')) return { ok:true, json:async () => ({ ok:healthy || conflict,
         [healthKey]:conflict ? 'unrelated-service' : healthValue }) };
-      assert(url.endsWith(`/api/${kind}/start`) && options.method === 'POST');
+      assert(url.endsWith(startPath) && options.method === 'POST');
       starts++; if (!denied) healthy = true;
       return { ok:!denied, json:async () => ({ ok:!denied, message:'Lifecycle permission denied' }) };
     }, chrome:{ tabs:{ query:async () => existing, create:async ({ url }) => { creates++; return { id:8, url }; },
       update:async id => { focuses++; return { id }; } }, windows:{ update:async () => {} } } });
   vm.runInContext(source, context);
   const api = kind === 'nexus-browser' ? context.NexusBrowserDashboard : context.EveOSManagedDashboard.create({
-    ...context.NexusBrowserRuntimeConfig, name:'WatchFusion', healthKey, healthValue, startPath:'/api/watchfusion/start' });
+    ...context.NexusBrowserRuntimeConfig, name:'WatchFusion', healthKey, healthValue, startPath });
   assert.equal((await api.status()).online, false); assert.equal(starts, 0, 'status must remain passive');
   const [first, second] = await Promise.all([api.open(), api.open()]);
   assert.equal(first.tabId, second.tabId); assert.equal(starts, 1); assert.equal(creates, 1, 'concurrent opens must not duplicate startup/tabs');
@@ -49,7 +50,7 @@ async function qualifyHubRouting() {
     NexusBrowserRuntimeConfig:{ controlOrigin:'http://127.0.0.1:12346' },
     NexusBrowserDashboard:{ open:async () => { opened.push('nexus-browser'); return { opened:true }; } },
     EveOSManagedDashboard:{ create:config => {
-      assert.equal(config.startPath, '/api/watchfusion/start');
+      assert.equal(config.startPath, '/api/watchfusion/launch');
       assert.equal(config.healthKey, 'app');
       return { open:async () => { opened.push('watchfusion'); return { opened:true }; } };
     } },

@@ -8,9 +8,7 @@
     "storage",
     "tabs",
     "scripting",
-    "activeTab",
-    "tabCapture",
-    "offscreen"
+    "activeTab"
   ],
   "optional_permissions": [
     "management"

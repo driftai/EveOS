@@ -12,6 +12,7 @@ $('loadBtn').onclick=async()=>{
   const input=$('sourceInput').value.trim();
   if(!input)return alert('Paste a YouTube URL, direct video/HLS URL, or supported watch-page URL.');
   if(/^(?:nuvio:\/\/|stremio:\/\/|tt\d{7,10}$)/i.test(input))return openNuvioBrowserMode();
+  if(window.watchFusionLinkedTab?.active?.())await window.watchFusionLinkedTab.stop({quiet:true});
   await window.watchFusionMediaResolver?.resolve?.({input,autoLoad:false});
 };
 function showFindMedia(){if($('findMediaPanel'))$('findMediaPanel').hidden=false;if($('soloEmptyState'))$('soloEmptyState').hidden=true;document.querySelectorAll('.source-tab').forEach(tab=>tab.classList.toggle('active',tab.id==='resolveTabBtn'));if($('sourceModeLabel'))$('sourceModeLabel').textContent='Ready';$('sourceInput')?.focus();}

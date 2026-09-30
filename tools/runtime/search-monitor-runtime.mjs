@@ -188,8 +188,8 @@ async function extensionReload() {
   if (status?.running !== true) {
     throw new Error('Nexus Browser must be running before extension reload qualification.');
   }
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = spawnSync(npm, ['--prefix', path.join(ROOT, 'tools', 'Nexus-Browser'), 'run', 'extension:reload'], {
+  const npmCli = process.env.npm_execpath; if (!npmCli) throw new Error('Run extension reload through the registered npm script.');
+  const result = spawnSync(process.execPath, [npmCli, '--prefix', path.join(ROOT, 'tools', 'Nexus-Browser'), 'run', '--silent', 'extension:reload'], {
     cwd: ROOT,
     stdio: 'inherit',
     env: process.env,

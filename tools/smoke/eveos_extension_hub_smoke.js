@@ -20,11 +20,13 @@ async function main() {
   assert(manifest.optional_permissions.includes('management'));
   assert(!manifest.permissions.includes('management'));
   assert(!JSON.stringify(manifest).includes('<all_urls>'));
-  assert(manifest.permissions.includes('tabCapture') && manifest.permissions.includes('scripting'));
+  assert(manifest.permissions.includes('scripting') && manifest.permissions.includes('activeTab'));
+  assert(!manifest.permissions.includes('tabCapture') && !manifest.permissions.includes('offscreen'));
   const assembly = require('../extensions/assemble.cjs').audit();
   assert.equal(assembly.registry.length, 3);
   assert(assembly.files.has('modules/nexus-browser/content/chatgpt.js'));
-  assert(assembly.files.has('modules/watchfusion/offscreen.html'));
+  assert(assembly.files.has('modules/watchfusion/worker.js'));
+  assert(assembly.files.has('modules/watchfusion/live-peer.js'));
   assert(assembly.files.has('modules/tab-collector/popup.html'));
   assert(manifest.content_scripts.every(group => group.js.every(file => file.startsWith('modules/nexus-browser/'))));
   for (const [file, bytes] of assembly.files) {
