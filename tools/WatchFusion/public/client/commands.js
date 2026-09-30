@@ -147,7 +147,11 @@ function waitForPlayerCued(videoId, timeoutMs = 2500) {
   const started = performance.now();
   return new Promise((resolve, reject) => {
     const tick = () => {
-      if (!ytPlayer || !ytPlayerReady) return reject(new Error('YouTube player is not ready.'));
+      if (!ytPlayer || !ytPlayerReady) {
+        if (performance.now() - started >= timeoutMs) return reject(new Error('YouTube player is not ready.'));
+        setTimeout(tick, 50);
+        return;
+      }
       const current = ytPlayer.getVideoData?.()?.video_id || '';
       if (current === videoId) return resolve();
       if (performance.now() - started >= timeoutMs) return reject(new Error('YouTube player did not finish loading the selected video.'));
@@ -229,8 +233,8 @@ function onYouTubeError(event) {
   if (code === 5) return setStatus('YouTube could not play this video in the embedded player.');
   if (code === 100) return setStatus('This video is unavailable or private.');
   if (code === 101 || code === 150) {
-    setStatus('This video blocks embedding · switching to direct playback…');
-    void window.watchFusionYoutubeStability?.stabilize?.({ resume: true });
+    setStatus('This video blocks embedding · switching to Direct video compatibility mode…');
+    void window.watchFusionYoutubeStability?.stabilize?.({ blocked: true });
     return;
   }
   setStatus(`YouTube error ${code || 'unknown'}`);

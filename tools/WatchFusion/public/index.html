@@ -19,8 +19,10 @@
   </style>
   <link rel="stylesheet" href="/theme.css">
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/room-layout.css">
   <link rel="stylesheet" href="/setup.css">
   <link rel="stylesheet" href="/live-source.css">
+  <link rel="stylesheet" href="/youtube-playback-mode.css">
 </head>
 <body>
   <header class="topbar" id="watchfusionHeader">
@@ -152,6 +154,14 @@
 
             <div class="smallrow media-status-row">
               <span id="mediaMeta"></span>
+              <div id="youtubePlaybackMode" class="youtube-playback-mode" hidden>
+                <span>Playback</span>
+                <div class="youtube-playback-options" role="group" aria-label="YouTube playback mode">
+                  <button id="youtubeEmbedModeBtn" class="secondary" type="button" aria-pressed="false">YouTube player</button>
+                  <button id="youtubeDirectModeBtn" class="secondary" type="button" aria-pressed="false">Direct video</button>
+                </div>
+                <small id="youtubePlaybackModeHint"></small>
+              </div>
               <span id="syncStatus">Solo mode</span>
               <button id="syncBtn" class="secondary" hidden>Sync me</button>
               <button id="unloadMediaBtn" class="secondary" hidden>Unload media</button>

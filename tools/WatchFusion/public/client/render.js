@@ -38,7 +38,8 @@ function render() {
   if(!isLive&&!window.watchFusionLinkedTab?.active?.())window.watchFusionLive?.disconnect?.();
   const isNuvio=source.kind==='nuvio';
   const isVoxelVision=source.kind==='voxelvision';
-  const isYoutube=source.kind==='youtube'||!!source.videoId;
+  const youtubePlaybackMode=window.watchFusionYoutubePlaybackMode?.mode?.(source)||null;
+  const isYoutube=youtubePlaybackMode==='embed'||(!youtubePlaybackMode&&(source.kind==='youtube'||!!source.videoId));
   const playerHost=$('playerHost');
   const nuvioToolbar=$('nuvioToolbar');
   const nuvioFrame=$('nuvioFrame');
@@ -99,22 +100,23 @@ function render() {
   renderChatMessages();
 
   if(!sourceInputDirty&&$('sourceInput')){
-    if(source.kind==='media')$('sourceInput').value=source.url||source.originalUrl||'';
+    if(source.kind==='media')$('sourceInput').value=youtubePlaybackMode==='direct'?(source.originalUrl||source.referer||source.url||''):(source.url||source.originalUrl||'');
     else if(source.kind==='nuvio')$('sourceInput').value=source.originalUrl||source.url||'nuvio://media';
     else if(source.kind==='voxelvision')$('sourceInput').value=source.originalUrl||source.url||'voxelvision://home';
     else $('sourceInput').value=source.originalUrl||(source.videoId?`https://www.youtube.com/watch?v=${source.videoId}`:'');
     updateSourceInputButton?.();
   }
-  $('sourceModeLabel').textContent=isLive?'Live media':isNuvio?'Nuvio':(isVoxelVision?'VoxelVision':(isYoutube?'YouTube':(source.kind==='media'?'External media':'Ready')));
+  $('sourceModeLabel').textContent=isLive?'Live media':isNuvio?'Nuvio':(isVoxelVision?'VoxelVision':(youtubePlaybackMode==='direct'?'YouTube Direct':(isYoutube?'YouTube':(source.kind==='media'?'External media':'Ready'))));
   const mediaMeta=$('mediaMeta');
   if(mediaMeta){
     if(isNuvio)mediaMeta.textContent=source.title||'Nuvio Integration';
     else if(isVoxelVision)mediaMeta.textContent=source.title||'VoxelVision 3D Media Engine';
-    else if(source.kind==='media')mediaMeta.textContent=[source.title,source.server,source.audio?.toUpperCase(),source.type?.toUpperCase()].filter(Boolean).join(' · ')||'Direct media';
+    else if(source.kind==='media')mediaMeta.textContent=youtubePlaybackMode==='direct'?[source.title,'YouTube','DIRECT'].filter(Boolean).join(' · '):([source.title,source.server,source.audio?.toUpperCase(),source.type?.toUpperCase()].filter(Boolean).join(' · ')||'Direct media');
     else mediaMeta.textContent='';
   }
 
   if((source.kind==='live'||source.kind==='media'||source.kind==='nuvio'||source.kind==='voxelvision')&&window.watchPartyProviders){const provider=window.watchPartyProviders.find(source);provider?.load?.(source)?.catch?.(error=>setStatus(error?.message||'Media player failed to initialize.'));}
   else if(source.videoId){window.mediaPlayback?.clear?.();ensurePlayer(source.videoId);}
+  window.watchFusionYoutubePlaybackMode?.render?.();
   if(window.watchFusionLinkedTab?.active?.())window.watchFusionLinkedTab.render?.();
 }

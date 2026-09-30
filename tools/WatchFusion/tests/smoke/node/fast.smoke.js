@@ -41,6 +41,9 @@ export async function runFastSmoke() {
     assert.match(html, /<textarea id="chatInput"/);
     assert.match(html, /id="chatImageInput"[^>]+accept="image\/jpeg,image\/png,image\/webp,image\/gif"/);
     assert.match(html, /id="leaveRoomBtn"[^>]*>Leave room<\/button>/);
+    assert.match(html, /youtube-playback-mode\.css/);
+    assert.match(html, /id="youtubeEmbedModeBtn"[^>]*>YouTube player<\/button>/);
+    assert.match(html, /id="youtubeDirectModeBtn"[^>]*>Direct video<\/button>/);
   });
 
   await check('FAST-02:source-switch-wiring', () => {
@@ -73,6 +76,7 @@ export async function runFastSmoke() {
     const playbackSync = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'playback-sync.js'), 'utf8');
     const commands = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'commands.js'), 'utf8');
     const youtubeStability = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'youtube-stability.js'), 'utf8');
+    const youtubeMode = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'youtube-playback-mode.js'), 'utf8');
     const continuityBridge = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'eveos-embed-bridge.js'), 'utf8');
     const roomResize = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'room-resize.js'), 'utf8');
     const liveSource = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'live-source.js'), 'utf8');
@@ -83,7 +87,10 @@ export async function runFastSmoke() {
     const sourceProbe = fs.readFileSync(path.join(PROJECT_ROOT, 'browser-extension', 'source-probe.js'), 'utf8');
     const sourceWorker = fs.readFileSync(path.join(PROJECT_ROOT, 'browser-extension', 'worker.js'), 'utf8');
     const style = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'style.css'), 'utf8');
+    const roomLayoutCss = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'room-layout.css'), 'utf8');
+    const layoutCss = `${style}\n${roomLayoutCss}`;
     const liveCss = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'live-source.css'), 'utf8');
+    const youtubeModeCss = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'youtube-playback-mode.css'), 'utf8');
     assert.match(core, /serverLanMode && lanBaseUrl/);
     assert.ok(core.indexOf('preferredLanHost') < core.indexOf('preferredLanAddress'));
     assert.match(core, /function shareRoomToken\(\) \{ return joinCode \|\| roomCode \|\| roomId; \}/);
@@ -106,11 +113,11 @@ export async function runFastSmoke() {
     assert.match(core, /button\.hidden=!\(roomId&&session&&serverLanMode&&base\)/);
     assert.match(style, /eveos-embedded\.watchfusion-room-active/);
     assert.match(style, /eveos-embedded #partyDetails/);
-    assert.match(style, /watchfusion-room-active:not\(\.eveos-embedded\) #partyDetails/);
-    assert.match(style, /watchfusion-room-active:not\(\.eveos-embedded\) #mediaStage\.player-wrap:not\(\.media-stage-empty\)/);
-    assert.match(style, /height:\s*clamp\(540px, calc\(100dvh - 112px\), 760px\)/);
-    assert.match(style, /max-height:\s*min\(48dvh, 460px\)/);
-    assert.match(style, /align-self:\s*stretch/);
+    assert.match(layoutCss, /watchfusion-room-active:not\(\.eveos-embedded\) #partyDetails/);
+    assert.match(layoutCss, /watchfusion-room-active:not\(\.eveos-embedded\) #mediaStage\.player-wrap:not\(\.media-stage-empty\)/);
+    assert.match(layoutCss, /height:\s*clamp\(540px, calc\(100dvh - 112px\), 760px\)/);
+    assert.match(layoutCss, /max-height:\s*min\(48dvh, 460px\)/);
+    assert.match(layoutCss, /align-self:\s*stretch/);
     assert.match(style, /scrollbar-gutter:\s*stable/);
     assert.match(roomResize, /watchfusion\.partyPanelHeight/);
     assert.match(roomResize, /MIN_MEDIA_HEIGHT = 280/);
@@ -161,15 +168,20 @@ export async function runFastSmoke() {
     assert.match(commands, /watchFusionYoutubeStability\?\.observe[\s\S]*hostPlaybackEventAllowed/);
     assert.match(youtubeStability, /YT\.PlayerState\.BUFFERING/);
     assert.match(youtubeStability, /getVideoLoadedFraction/);
-    assert.match(youtubeStability, /STALL_CHECKS=3/);
-    assert.match(youtubeStability, /bufferProgressed/);
-    assert.match(youtubeStability, /roomId\?state\?\.playback\?\.paused===true:pausedIntent/);
+    assert.match(youtubeStability, /native playback stays active/);
+    assert.match(youtubeStability, /options\.manual!==true&&options\.blocked!==true/);
     assert.match(youtubeStability, /\/voxelvision\/api\/youtube\/stream/);
     assert.match(youtubeStability, /\/voxelvision\/api\/youtube\/import/);
     assert.match(youtubeStability, /quality:'max'/);
     assert.match(youtubeStability, /watchFusionMediaResolver\?\.loadCandidate/);
     assert.match(youtubeStability, /Stable direct YouTube playback ready/);
-    assert.match(commands, /switching to direct playback[\s\S]*stabilize\?\.\(\{ resume: true \}\)/);
+    assert.match(youtubeMode, /switchToEmbed/);
+    assert.match(youtubeMode, /switchToDirect/);
+    assert.match(youtubeMode, /stabilize\?\.\(\{ manual: true/);
+    assert.match(youtubeMode, /loadYoutubeInput\(url\)/);
+    assert.match(youtubeModeCss, /button\[aria-pressed="true"\]/);
+    assert.match(commands, /blocks embedding[\s\S]*stabilize\?\.\(\{ blocked: true \}\)/);
+    assert.match(commands, /!ytPlayer \|\| !ytPlayerReady\)[\s\S]*setTimeout\(tick, 50\)/);
     assert.match(commands, /syncPlayer\(\{ hydrateHost: true \}\)/);
     assert.match(playbackSync, /SEEK_DRIFT_SEC = 0\.65/);
     assert.match(playbackSync, /SENSOR_MIN_SAMPLES = 5/);
@@ -183,24 +195,28 @@ export async function runFastSmoke() {
     assert.match(continuityBridge, /completedTransferIds\.has\(data\.requestId\)/);
   });
 
-  await check('FAST-02C:youtube-buffer-failover-is-sustained-and-resumes', async () => {
-    const callbacks=[];let directResolutions=0,imports=0,plays=0;
+  await check('FAST-02C:youtube-buffering-stays-native-until-direct-mode-is-chosen', async () => {
+    const callbacks=[];let directResolutions=0,imports=0,loaded=0,restored=0;
     const context={state:{source:{videoId:'H7OPLMNYi-Q',originalUrl:'https://youtu.be/H7OPLMNYi-Q'},playback:{position:0,paused:true}},
       roomId:null,isHost:()=>true,apiUrl:value=>value,window:{watchFusionLinkedTab:{active:()=>false}},
-      ytPlayer:{getPlayerState:()=>3,getDuration:()=>240,getVideoLoadedFraction:()=>0,getCurrentTime:()=>0,pauseVideo(){},playVideo(){plays+=1;}},
+      ytPlayer:{getPlayerState:()=>3,getDuration:()=>240,getVideoLoadedFraction:()=>0,getCurrentTime:()=>0,pauseVideo(){},playVideo(){}},
       YT:{PlayerState:{BUFFERING:3,PLAYING:1,PAUSED:2,ENDED:0}},setTimeout:fn=>{callbacks.push(fn);return callbacks.length;},clearTimeout:()=>{},
-      fetch:async url=>{if(String(url).endsWith('/stream'))directResolutions+=1;else imports+=1;return{ok:false,json:async()=>({error:'offline'})};},setStatus:()=>{},console};
+      fetch:async url=>{if(String(url).endsWith('/stream')){directResolutions+=1;return{ok:true,json:async()=>({mediaUrl:'/youtube-direct.m3u8',mediaType:'hls',title:'Test'})};}imports+=1;return{ok:false,json:async()=>({error:'offline'})};},
+      setStatus:()=>{},console};
+    context.window.watchFusionMediaResolver={loadCandidate:async()=>{loaded+=1;context.state.source={kind:'media',url:'/youtube-direct.m3u8',originalUrl:'https://youtu.be/H7OPLMNYi-Q'};return true;}};
+    context.window.mediaPlayback={ensureSource:async()=>true,restore:async()=>{restored+=1;return true;}};
     vm.createContext(context);
     vm.runInContext(fs.readFileSync(path.join(PROJECT_ROOT,'public','client','youtube-stability.js'),'utf8'),context);
     context.window.watchFusionYoutubeStability.observe(3);
     callbacks.shift()();
-    assert.equal(directResolutions,0,'a single ordinary buffering interval must not start fallback resolution');
-    assert.equal(imports,0,'a single ordinary buffering interval must not start a source-max download');
-    while(imports===0&&callbacks.length)callbacks.shift()();
-    await new Promise(resolve=>setImmediate(resolve));
-    assert.equal(directResolutions,1,'an unchanged sustained stall should try direct playback once');
-    assert.equal(imports,1,'a failed direct stream should retain the existing cache fallback');
-    assert.equal(plays,1,'failed cache fallback must resume intended solo playback');
+    assert.equal(directResolutions,0,'buffering must not silently replace the YouTube iframe');
+    assert.equal(imports,0,'buffering must not silently start a source-max download');
+    assert.equal(await context.window.watchFusionYoutubeStability.stabilize(),false,'direct playback requires an explicit mode request');
+    assert.equal(await context.window.watchFusionYoutubeStability.stabilize({manual:true,paused:true}),true);
+    assert.equal(directResolutions,1,'manual Direct video should resolve the existing streaming fallback');
+    assert.equal(imports,0,'a successful direct stream should not download the cache fallback');
+    assert.equal(loaded,1);
+    assert.equal(restored,1);
   });
 
   await check('FAST-02A:nuvio-browser-plugin-bridge-contract', () => {

@@ -1,0 +1,45 @@
+.youtube-playback-mode {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  padding: 4px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: rgba(8, 14, 20, 0.72);
+}
+.youtube-playback-mode > span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.youtube-playback-options {
+  display: inline-flex;
+  gap: 3px;
+  padding: 2px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .04);
+}
+.youtube-playback-options button {
+  min-height: 28px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.youtube-playback-options button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--btn-secondary-bg));
+  color: var(--text-main);
+}
+.youtube-playback-mode small {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+html.eveos-embedded .youtube-playback-mode small { display: none; }
+@media (max-width: 650px) {
+  .youtube-playback-mode { width: 100%; }
+  .youtube-playback-options { flex: 1; }
+  .youtube-playback-options button { flex: 1; }
+}

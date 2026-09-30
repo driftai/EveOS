@@ -193,7 +193,7 @@ test.describe('WatchFusion EveOS Detach & Reattach Continuity', () => {
     `);
 
     const frameLoc = page.frameLocator('#wfFrame');
-    await expect(frameLoc.locator('#mediaStage')).toBeVisible({ timeout: 15000 });
+    await expect(frameLoc.locator('#app')).toBeVisible({ timeout: 15000 });
 
     // Verify embedded bridge is active
     const frame = page.frame({ url: /\/\?eveos=1/ });

@@ -24,7 +24,7 @@ test.describe('WatchFusion Nuvio Native Viewport Wrapper Shell, Media Stage & He
     await expect(headerActions).toBeHidden();
   });
 
-  test('Empty media stage starts collapsed, Find Media stays collapsed, loading YouTube reveals stage', async ({ page }) => {
+  test('Empty media stage starts collapsed and loading YouTube reveals the stage beside Find Media', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#app')).toBeVisible();
 
@@ -41,7 +41,7 @@ test.describe('WatchFusion Nuvio Native Viewport Wrapper Shell, Media Stage & He
     // Load YouTube video -> stage expands and player becomes visible
     await page.fill('#sourceInput', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
     await page.click('#loadBtn');
-    await expect(findMediaPanel).toBeHidden();
+    await expect(findMediaPanel).toBeVisible();
     await expect(mediaStage).not.toHaveClass(/media-stage-empty/);
     await expect(page.locator('#player')).toBeVisible();
   });
