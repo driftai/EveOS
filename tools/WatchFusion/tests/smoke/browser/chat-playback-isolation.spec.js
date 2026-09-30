@@ -100,3 +100,59 @@ test('same-source chat render does not rehydrate the active YouTube player', asy
   expect(result.clearCalls).toBe(1);
   expect(result.chatCount).toBe(1);
 });
+
+
+test('chat history stays put when a new message arrives while reading older messages', async ({ page }) => {
+  await page.goto('/');
+
+  const result = await page.evaluate(() => {
+    roomId = 'CHATSCROLL1';
+    session = { memberId: 'viewer-member', publicId: 'viewer-public' };
+    const now = Date.now();
+    state = {
+      roomId,
+      hostId: 'host-public',
+      revision: 1,
+      source: { kind: 'ready' },
+      playback: { paused: true, ended: false, position: 0, rate: 1, updatedAt: now, projectedAt: now },
+      members: [{ id: 'viewer-public', name: 'Phone', isOwner: false }],
+      messages: Array.from({ length: 30 }, (_, index) => ({
+        id: `msg-${index}`,
+        memberId: 'viewer-public',
+        name: 'Phone',
+        text: `history line ${index} ${'x'.repeat(80)}`,
+        at: now + index
+      }))
+    };
+
+    const chat = document.getElementById('chat');
+    chat.style.height = '150px';
+    chat.style.maxHeight = '150px';
+    render();
+    chat.scrollTop = Math.min(120, Math.max(0, chat.scrollHeight - chat.clientHeight - 120));
+    chat.dispatchEvent(new Event('scroll'));
+    const before = chat.scrollTop;
+
+    state = {
+      ...state,
+      revision: 2,
+      messages: [...state.messages, {
+        id: 'msg-new',
+        memberId: 'viewer-member',
+        name: 'Phone',
+        text: 'new message',
+        at: now + 100
+      }]
+    };
+    render();
+
+    return {
+      before,
+      after: chat.scrollTop,
+      max: Math.max(0, chat.scrollHeight - chat.clientHeight)
+    };
+  });
+
+  expect(Math.abs(result.after - result.before)).toBeLessThanOrEqual(1);
+  expect(result.after).toBeLessThan(result.max - 20);
+});
