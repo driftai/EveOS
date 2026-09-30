@@ -150,6 +150,11 @@ html.watchfusion-party-bottom.watchfusion-resizing * {
 /* Compact/phone room UI: bound every surface to the embedded viewport and let
    chat scroll internally instead of forcing the whole EveOS iframe wider/taller. */
 @media (max-width: 650px) {
+  html.watchfusion-room-active.watchfusion-party-bottom .grid,
+  html.watchfusion-party-bottom .grid:has(#partyPanel:not([hidden])) {
+    grid-template-rows: minmax(0, 1fr) 10px var(--watchfusion-party-height, 300px);
+  }
+
   html.watchfusion-party-bottom .room-splitter {
     height: 10px;
     min-height: 10px;
