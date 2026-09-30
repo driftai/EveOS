@@ -74,6 +74,7 @@ export async function runFastSmoke() {
     const sourceProbe = fs.readFileSync(path.join(PROJECT_ROOT, 'browser-extension', 'source-probe.js'), 'utf8');
     const sourceWorker = fs.readFileSync(path.join(PROJECT_ROOT, 'browser-extension', 'worker.js'), 'utf8');
     const style = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'style.css'), 'utf8');
+    const liveCss = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'live-source.css'), 'utf8');
     assert.match(core, /serverLanMode && lanBaseUrl/);
     assert.ok(core.indexOf('preferredLanHost') < core.indexOf('preferredLanAddress'));
     assert.match(core, /function shareRoomToken\(\) \{ return joinCode \|\| roomCode \|\| roomId; \}/);
@@ -110,6 +111,10 @@ export async function runFastSmoke() {
     assert.match(style, /cursor:\s*row-resize/);
     assert.match(render, /hasVisualMedia=\(isLive&&source\.mode!==['"]audioflix['"]\)/);
     assert.match(render, /watchShell\.classList\.toggle\('solo-idle',idleSolo\)/);
+    assert.match(render, /watchShell\.classList\.toggle\('audio-only-live',audioOnlyLive\)/);
+    assert.match(liveCss, /\.watch-shell\.audio-only-live \.live-controls/);
+    assert.match(liveCss, /#liveQueueWrap:not\(\[hidden\]\)/);
+    assert.match(liveCss, /#liveQueue[\s\S]*max-height:\s*none/);
     assert.match(render, /soloEmptyState/);
     assert.match(style, /\.watch-shell\.solo-idle/);
     assert.match(style, /\.solo-empty-state/);

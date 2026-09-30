@@ -42,3 +42,5 @@
 
 - LAN share UI must derive from the selected EveOS exposure context as a fallback when host-local network diagnostics are temporarily unavailable. "Copy LAN link" is room-only UI and must never remain visible in solo mode.
 - Host-local diagnostics may accept the host machine's own physical IP/sslip hostname only when the request socket is also one of that same machine's interface addresses; remote LAN clients remain outside the host-local capability boundary.
+
+- In embedded Audioflix rooms, the reserved media-workspace height should be useful: expand the Music Library queue through the audio-only control area instead of leaving a large dead gap. Preserve the existing Watch Party splitter behavior.

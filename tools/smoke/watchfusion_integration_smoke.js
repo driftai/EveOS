@@ -79,6 +79,7 @@ function sourceContract() {
     const setupClient = read('tools/WatchFusion/public/client/setup-health.js');
     const setupHtml = read('tools/WatchFusion/public/index.html');
     const innerCss = read('tools/WatchFusion/public/style.css');
+    const liveCss = read('tools/WatchFusion/public/live-source.css');
     const staticFiles = read('tools/WatchFusion/src/server/static-files.js');
     const youtubeSetup = read('tools/WatchFusion/voxelvision/scripts/SETUP-YOUTUBE.ps1');
     const youtubeImport = read('tools/WatchFusion/voxelvision/youtube-import.js');
@@ -206,6 +207,7 @@ function sourceContract() {
     check(innerCss.includes('html.eveos-embedded .top-actions button') && clientRender.includes("watchfusion-audioflix-live"), 'WF-EMBEDDED-COMPACT-AUDIOFLIX', 'embedded controls or Audioflix room geometry can still consume excessive space');
     check(setupHtml.includes('aria-orientation="horizontal"') && roomResize.includes("watchfusion.partyPanelHeight") && roomResize.includes('MIN_MEDIA_HEIGHT = 280') && roomResize.includes('setPointerCapture') && innerCss.includes('minmax(280px, 1fr)') && innerCss.includes('cursor: row-resize'), 'WF-ROOM-RESIZE', 'Watch Party divider can still collapse the media stage below its usable laptop height');
     check(setupHtml.includes('id="soloEmptyState"') && clientRender.includes("classList.toggle('solo-idle',idleSolo)") && innerCss.includes('.watch-shell.solo-idle') && innerCss.includes('.solo-empty-state'), 'WF-SOLO-EMPTY-STATE', 'solo mode can still expand into an unstructured full-height dead canvas');
+    check(clientRender.includes("classList.toggle('audio-only-live',audioOnlyLive)") && liveCss.includes('.watch-shell.audio-only-live .live-controls') && liveCss.includes('#liveQueueWrap:not([hidden])') && liveCss.includes('max-height: none'), 'WF-AUDIOFLIX-QUEUE-FILL', 'Audioflix can still leave a large dead media-area gap instead of giving that space to the music queue');
     check(clientRender.includes("hasVisualMedia=(isLive&&source.mode!=='audioflix')") && liveSource.includes("liveVideo.hidden=source?.mode==='audioflix'") && innerCss.includes('#mediaStage.player-wrap.media-stage-empty') && innerCss.includes('video:not([hidden])'), 'WF-AUDIOFLIX-NO-BLACK-STAGE', 'Audioflix audio-only playback can still reserve an empty black media stage in embedded WatchFusion');
     check(setupHtml.includes('id="liveAudioSync"') && setupHtml.includes('id="liveAudioSyncAuto"') && setupHtml.includes('max="1000"') && setupHtml.includes('id="liveStats"') && liveSource.includes('createDelay(2)') && liveSource.includes('AUDIO_SYNC_KEY'), 'WF-AUDIOFLIX-DEVICE-DELAY', 'Audioflix does not expose a deterministic per-device delay path');
     check(livePeer.includes('estimatedPlayoutTimestamp') && livePeer.includes('audioSyncSample()') && liveStreams.includes("type:'audio-sync'") && liveSource.includes('AUDIO_SYNC_AUTO_KEY') && liveSource.includes('onAudioSync: applyAutoSync') && liveSource.includes('deviceProfileAudioDelayMs') && liveSource.includes('return mobile?335:0'), 'WF-AUDIOFLIX-AUTO-SYNC', 'Audioflix does not combine measured playout sync with the calibrated mobile fallback');
