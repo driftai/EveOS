@@ -139,24 +139,87 @@
 }
 
 .audioflix-provider-stage.is-internal-view {
-    width: min(860px, calc(100vw - 32px));
+    width: min(860px, calc(100vw - 24px));
+    max-height: min(92dvh, 900px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.audioflix-provider-stage.is-internal-view header,
+.audioflix-provider-stage.is-internal-view .audioflix-provider-status,
+.audioflix-provider-stage.is-internal-view .audioflix-provider-transport {
+    flex: 0 0 auto;
 }
 
 .audioflix-provider-stage.is-internal-view .audioflix-provider-frame {
-    min-height: 270px;
+    min-height: clamp(180px, 32vh, 320px);
+    flex: 0 1 auto;
+}
+
+.audioflix-provider-stage.is-internal-view .audioflix-provider-queue {
+    flex: 1 1 auto;
+    min-height: 96px;
+    max-height: min(32vh, 280px);
 }
 
 .audioflix-provider-transport {
     display: grid;
-    /* play | time | seek | speed | volume. The speed picker is a 5th cell — with only four
-       columns it wrapped to a second row and made the compact error stage taller. Hidden
-       prev/next steppers take no cell, so single-track mode stays one row. */
-    grid-template-columns: auto auto minmax(80px, 1fr) auto auto;
-    align-items: center;
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
     padding: 10px 12px 12px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(2, 7, 10, 0.82);
+}
+
+.audioflix-provider-buttons {
+    display: grid;
+    grid-template-columns: 46px minmax(120px, 1fr) 46px;
+    align-items: center;
+    gap: 10px;
+}
+
+.audioflix-provider-buttons .audioflix-provider-step {
+    width: 46px;
+    min-width: 46px;
+    padding-inline: 0;
+}
+
+.audioflix-provider-buttons .audioflix-provider-toggle {
+    width: 100%;
+    min-width: 0;
+}
+
+.audioflix-provider-timeline {
+    display: grid;
+    grid-template-columns: auto minmax(100px, 1fr);
+    align-items: center;
+    gap: 10px;
+}
+
+.audioflix-provider-options {
+    display: flex;
+    align-items: center;
+    gap: 10px 12px;
+    flex-wrap: wrap;
+}
+
+.audioflix-provider-tools {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+
+.audioflix-provider-tools[hidden] {
+    display: none;
+}
+
+.audioflix-provider-tools button[aria-pressed="true"] {
+    border-color: rgba(0, 212, 255, 0.72);
+    background: rgba(0, 212, 255, 0.16);
+    color: #bdf5ff;
 }
 
 .audioflix-provider-transport output {
@@ -167,9 +230,60 @@
 }
 
 .audioflix-provider-transport input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
     min-width: 0;
     width: 100%;
-    accent-color: #00d4ff;
+    height: 4px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    outline: none;
+    cursor: pointer;
+    background: linear-gradient(to right, #00d4ff 0 var(--range-fill, 0%), rgba(255,255,255,.2) var(--range-fill, 0%) 100%);
+}
+
+.audioflix-provider-seek { --range-fill: var(--progress, 0%); }
+.audioflix-provider-volume { --range-fill: var(--volume, 100%); }
+
+.audioflix-provider-transport input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+}
+
+.audioflix-provider-transport input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: -4px;
+    border: 2px solid #071116;
+    border-radius: 50%;
+    background: #00d4ff;
+    box-shadow: 0 0 7px rgba(0, 212, 255, .35);
+}
+
+.audioflix-provider-transport input[type="range"]::-moz-range-track {
+    height: 4px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255,255,255,.2);
+}
+
+.audioflix-provider-transport input[type="range"]::-moz-range-progress {
+    height: 4px;
+    border-radius: 999px;
+    background: #00d4ff;
+}
+
+.audioflix-provider-transport input[type="range"]::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border: 2px solid #071116;
+    border-radius: 50%;
+    background: #00d4ff;
 }
 
 .audioflix-provider-transport label {
@@ -181,7 +295,12 @@
 }
 
 .audioflix-provider-transport label input {
-    width: 88px;
+    width: 112px;
+}
+
+.audioflix-provider-volume-wrap {
+    flex: 1 1 180px;
+    max-width: 280px;
 }
 
 .audioflix-provider-stage.is-collapsed {
@@ -200,6 +319,7 @@
         right: 8px;
         bottom: 8px;
         width: calc(100vw - 16px);
+        max-height: calc(100dvh - 16px);
     }
 
     .audioflix-provider-stage header {
@@ -207,17 +327,47 @@
         flex-direction: column;
     }
 
-    .audioflix-provider-transport {
-        grid-template-columns: auto 1fr;
+    .audioflix-provider-stage.is-internal-view {
+        width: calc(100vw - 16px);
+        max-height: calc(100dvh - 16px);
     }
 
-    .audioflix-provider-transport > .audioflix-provider-seek {
-        grid-column: 1 / -1;
-        grid-row: 2;
+    .audioflix-provider-stage.is-internal-view .audioflix-provider-frame {
+        min-height: clamp(150px, 28vh, 240px);
     }
 
-    .audioflix-provider-transport label {
-        grid-column: 1 / -1;
+    .audioflix-provider-buttons {
+        grid-template-columns: 42px minmax(0, 1fr) 42px;
+        gap: 7px;
+    }
+
+    .audioflix-provider-buttons .audioflix-provider-step {
+        width: 42px;
+        min-width: 42px;
+    }
+
+    .audioflix-provider-timeline {
+        grid-template-columns: 1fr;
+        gap: 5px;
+    }
+
+    .audioflix-provider-options {
+        align-items: stretch;
+    }
+
+    .audioflix-provider-options label,
+    .audioflix-provider-volume-wrap {
+        flex: 1 1 140px;
+        max-width: none;
+    }
+
+    .audioflix-provider-tools {
+        flex: 1 1 100%;
+        margin-left: 0;
+    }
+
+    .audioflix-provider-tools button {
+        flex: 1 1 auto;
     }
 }
 
