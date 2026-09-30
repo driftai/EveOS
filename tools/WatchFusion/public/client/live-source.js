@@ -255,6 +255,7 @@
     });
   }
   async function start(mode) {
+    if(mode==='tab')return window.watchFusionLinkedTab?.start?.();
     if (busy || (roomId && !isHost())) return setStatus('Only the host can select the room source.');
     if(mode==='audioflix'&&window.watchFusionLinkedTab?.active?.())await window.watchFusionLinkedTab.stop({quiet:true});
     busy = true; connectionActions();

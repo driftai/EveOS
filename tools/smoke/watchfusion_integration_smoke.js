@@ -105,6 +105,7 @@ function sourceContract() {
     const offscreenRelay = read('tools/WatchFusion/browser-extension/offscreen.js');
     const companionHub = read('tools/WatchFusion/browser-extension/eveos-hub-connector.js');
     const companionPopup = read('tools/WatchFusion/browser-extension/popup.js');
+    const companionManifest = read('tools/WatchFusion/browser-extension/manifest.json');
     const officialExtensionWorker = read('extension/service-worker.js');
     const dashboardOpen = read('tools/Nexus-Browser/extension/dashboard-open.js');
     const mediaPlayer = read('tools/WatchFusion/public/client/media-player.js');
@@ -143,7 +144,7 @@ function sourceContract() {
     check(control.includes('"onDemand": True') && control.includes('is never restored at EveOS boot'), 'WF-ON-DEMAND-LIFECYCLE', 'WatchFusion can still auto-restore a prior runtime session');
     check(control.includes('def start_server(*, persist: bool = False, host: str = "127.0.0.1")') && control.includes('def stop_server(*, persist: bool = False)'), 'WF-NO-PERSIST-DEFAULT', 'ordinary WatchFusion start/stop still persists surprise boot state');
     check(control.includes('"components": components'), 'WF-OFFLINE-SETUP-STATUS', 'outer workspace cannot inspect components while WatchFusion is stopped');
-    check(!sourceWorker.includes('tabCapture.getMediaStreamId') && !sourceWorker.includes("to:'offscreen'") && !offscreenRelay.includes('getUserMedia') && sourceWorker.includes('publisher:true') && sourceWorker.includes("relayVideoMode:'state-only'"), 'WF-TAB-STATE-ONLY', 'linked tabs still capture/encode pixels instead of publishing URL/state directly from the service worker');
+    check(!sourceWorker.includes('tabCapture.getMediaStreamId') && !sourceWorker.includes("to:'offscreen'") && !offscreenRelay.includes('getUserMedia') && sourceWorker.includes('publisher:true') && sourceWorker.includes("relayVideoMode:'state-only'") && !companionManifest.includes('tabCapture'), 'WF-TAB-STATE-ONLY', 'linked tabs still request/capture/encode pixels instead of publishing URL/state directly from the service worker');
     check(sourceWorker.includes("importScripts(asset('live-peer.js'))") && livePeer.includes('this.heartbeat = setInterval') && sourceWorker.includes('sourceLinkConfig'), 'WF-TAB-STATE-LIFETIME', 'state-only source links cannot survive service-worker lifecycle/reconnect using their WebSocket heartbeat and session config');
     check(livePeer.includes("degradationPreference = 'maintain-framerate'"), 'WF-LIVE-SENDER-PACING', 'Audioflix WebRTC sender is not tuned to preserve frame cadence');
     check(sourceWorker.includes('sourceTabWasMuted') && sourceWorker.includes('muted:previousMuted') && sourceWorker.includes('muted:true'), 'WF-TAB-MUTE-RESTORE', 'state-only source tabs are not muted and restored without changing their media volume');
