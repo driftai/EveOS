@@ -18,6 +18,7 @@ function initVoxelVisionProvider() {
   }
 
   function hideOtherPlayers() {
+    window.watchFusionYoutubeLayout?.deactivate?.();
     const nuvioFrame = document.getElementById('nuvioFrame');
     const nuvioToolbar = document.getElementById('nuvioToolbar');
     if (nuvioFrame) {
