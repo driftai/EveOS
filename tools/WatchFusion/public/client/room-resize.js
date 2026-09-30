@@ -77,7 +77,8 @@
   function syncMode(force = false) {
     const next = desiredMode();
     if (!force && next === mode) {
-      apply(panelSize(), false);
+      const visibleSize = panel.hidden ? 0 : panelSize();
+      apply(visibleSize || storedSize(mode), false);
       return;
     }
     finish();
