@@ -92,6 +92,7 @@ function sourceContract() {
     const providerRegistry = read('tools/WatchFusion/public/client/provider-registry.js');
     const audioflixLink = read('js/modules/features/watchfusion/watchfusion.audioflix-link.js');
     const sourceProbe = read('tools/WatchFusion/browser-extension/source-probe.js');
+    const sourcePageAdapter = read('tools/WatchFusion/browser-extension/source-page-adapter.js');
     const sourceWorker = read('tools/WatchFusion/browser-extension/worker.js');
     const offscreenRelay = read('tools/WatchFusion/browser-extension/offscreen.js');
     const mediaPlayer = read('tools/WatchFusion/public/client/media-player.js');
@@ -195,6 +196,10 @@ function sourceContract() {
     check(setupRoutes.includes("parts[2] === 'open-extension-folder'") && setupRoutes.includes('isHostLocalRequest(req)') && setupRoutes.includes("spawn('explorer.exe'"), 'WF-EXTENSION-FOLDER-LOCAL', 'the companion folder shortcut is missing or not host-local protected');
     check(liveSource.includes("listenPreferences.get(currentId) ?? source.mode === 'audioflix'") && liveSource.includes('listenPreferences.set(currentId') && audioflixLink.includes("acquireSpeakerMute?.('watchfusion-live')"), 'WF-AUDIOFLIX-LISTEN-HERE', 'Audioflix room monitoring must default on, preserve explicit listener choice, and suppress duplicate host speakers');
     check(sourceWorker.includes('allFrames: true') && sourceWorker.includes('controlFrameId') && sourceProbe.includes("pointerEvents: 'none'"), 'WF-GENERIC-TAB-MEDIA', 'generic tab media does not keep a stable media-only surface or route controls to the selected frame');
+    check(sourceWorker.includes("world: 'MAIN'") && sourceWorker.includes("source-page-adapter.js")
+      && sourcePageAdapter.includes("querySelectorAll('strmcx-embed')") && sourcePageAdapter.includes("'strmcx-time-update'")
+      && sourceProbe.includes("querySelectorAll('strmcx-embed')"), 'WF-WEB-COMPONENT-MEDIA',
+    'web-component players cannot expose their visual surface, playback state, or controls to the selected-tab relay');
     check(offscreenRelay.includes('maxWidth: 2560') && offscreenRelay.includes('1920 / sw') && offscreenRelay.includes('canvas.captureStream(0)') && offscreenRelay.includes('requestFrame'), 'WF-LIVE-CAPTURE-QUALITY', 'live tab capture is still fixed-resolution or does not render on-demand at a high-quality media aspect ratio');
     check(staticFiles.includes("'client/setup-health.js'") && staticFiles.includes("'client/voxelvision-adapter.js'") && staticFiles.includes("'client/media-player.js'"), 'WF-CLIENT-BUNDLE', 'Setup Health or core media adapters are missing from the integrated bundle');
     check(staticFiles.includes('resolveContainedFile') && staticFiles.includes('fs.promises.realpath'), 'WF-STATIC-REALPATH-CONTAINMENT', 'main WatchFusion static serving does not realpath-check filesystem containment');

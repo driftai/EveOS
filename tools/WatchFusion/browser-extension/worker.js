@@ -36,8 +36,11 @@ async function inject(tabId) {
   frameSamples.clear(); controlFrameId = 0;
   let results;
   try {
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, world: 'MAIN',
+      files: [asset('source-page-adapter.js')] });
     results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [asset('source-probe.js')] });
   } catch {
+    await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: [asset('source-page-adapter.js')] });
     results = await chrome.scripting.executeScript({ target: { tabId }, files: [asset('source-probe.js')] });
   }
   results.forEach(result => { if (!frameSamples.has(result.frameId)) frameSamples.set(result.frameId, null); });

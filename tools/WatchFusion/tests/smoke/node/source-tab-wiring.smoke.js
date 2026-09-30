@@ -98,6 +98,8 @@ export async function runSourceTabSmokes() {
     assert.match(worker, /globalThis\.WatchFusionMediaLink = Object\.freeze/);
     assert.match(worker, /startCurrentTab/);
     assert.match(worker, /allFrames: true/);
+    assert.match(worker, /source-page-adapter\.js/);
+    assert.match(worker, /world: 'MAIN'/);
     assert.match(worker, /controlFrameId/);
     assert.match(popup, /type: 'start-pairing'/);
     assert.doesNotMatch(popup, /tabCapture|getMediaStreamId|source-probe\.js/);
@@ -110,6 +112,7 @@ export async function runSourceTabSmokes() {
     assert.match(probe, /mediaRatio/);
     assert.match(probe, /objectFit === 'contain'/);
     assert.match(probe, /\[aria-label\*="Next" i\]/);
+    assert.match(probe, /strmcx-embed/);
     assert.match(offscreen, /maxWidth: 2560/);
     assert.match(offscreen, /1920 \/ sw/);
     assert.match(offscreen, /canvas\.captureStream\(0\)/);

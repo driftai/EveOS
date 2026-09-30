@@ -16,6 +16,19 @@ const mediaHtml = iframe => `<!doctype html><html><body style="margin:0;height:2
   '<iframe data-comments style="width:850px;height:650px" src="http://localhost:PORT/comments"></iframe><iframe data-player style="width:600px;height:420px" src="http://localhost:PORT/frame"></iframe>' :
   '<video id="video" autoplay muted style="width:600px;height:420px"></video><script>const c=document.createElement("canvas");c.width=640;c.height=360;const ctx=c.getContext("2d");ctx.fillStyle="#00c480";ctx.fillRect(0,0,640,360);video.srcObject=c.captureStream(5);</script>'}
 </body></html>`;
+const componentHtml = `<!doctype html><html><body style="margin:0;background:#101820"><script>
+window.mediaCalls=[];
+class StrmFixture extends HTMLElement {
+  constructor(){super();this.attachShadow({mode:'open'}).innerHTML='<iframe aria-label="Fixture episode" style="width:100%;height:100%;border:0"></iframe>';}
+  connectedCallback(){this.style.cssText='display:block;width:800px;height:450px';
+    this.dispatchEvent(new CustomEvent('strmcx-state-change',{detail:{state:'playing'}}));
+    this.dispatchEvent(new CustomEvent('strmcx-time-update',{detail:{currentTime:12,duration:120}}));}
+  play(){mediaCalls.push('play')} pause(){mediaCalls.push('pause')} togglePlay(){mediaCalls.push('toggle')}
+  seek(value){mediaCalls.push('seek:'+value)} setVolume(value){mediaCalls.push('volume:'+value)}
+  setPlaybackRate(value){mediaCalls.push('rate:'+value)} nextEpisode(){mediaCalls.push('next')} previousEpisode(){mediaCalls.push('prev')}
+}
+customElements.define('strmcx-embed',StrmFixture);
+</script><strmcx-embed></strmcx-embed></body></html>`;
 
 async function qualifyBrowser() {
   audit(); // Reject a stale tracked manifest before preparing ignored packaging assets.
@@ -29,6 +42,7 @@ async function qualifyBrowser() {
     res.writeHead(200, { 'Content-Type': health || diagnosticsRequest ? 'application/json' : 'text/html' });
     res.end(health ? '{"ok":true,"service":"eveos-nexus-browser","app":"WatchFusion"}'
       : diagnosticsRequest ? '{"ok":true,"extensionConnected":true,"dexUiConnected":true,"uiClients":2,"onlineTargets":3,"localTargets":1,"dexRooms":4,"recoveryRooms":0,"serverSessionId":"fixture-session","savedAt":"2026-09-30T00:00:00Z","controlPlane":{}}'
+      : req.url === '/component' ? componentHtml
       : req.url === '/comments'
       ? '<!doctype html><html><body>Comments are not playable media.</body></html>'
       : mediaHtml(req.url !== '/frame').replaceAll('PORT', fixture.address().port));
@@ -178,7 +192,28 @@ async function qualifyBrowser() {
           await worker.evaluate(() => WatchFusionMediaLink.stop());
           assert.equal(await frame.locator('video').getAttribute('style'), 'width:600px;height:420px');
           assert.equal(await page.locator('iframe[data-player]').getAttribute('style'), 'width:600px;height:420px');
-          await page.close(); pass += 4;
+          await page.close();
+          page = await context.newPage();
+          await page.goto(`http://127.0.0.1:${port}/component`);
+          await worker.evaluate(async url => {
+            const [tab] = await chrome.tabs.query({ url }); sourceTab = tab.id;
+            await chrome.storage.session.set({ sourceTab }); await inject(sourceTab);
+          }, `http://127.0.0.1:${port}/component`);
+          await worker.evaluate(() => new Promise((resolve, reject) => {
+            const began = Date.now();
+            const check = () => frameSamples.get(0)?.hasMedia ? resolve() : Date.now() - began > 3000
+              ? reject(new Error('Web-component media adapter did not become playable')) : setTimeout(check, 50);
+            check();
+          }));
+          assert.equal(await page.locator('strmcx-embed').evaluate(el => el.style.position), 'fixed');
+          await worker.evaluate(() => chrome.tabs.sendMessage(sourceTab, { type:'source-control', action:'pause' }, { frameId:0 }));
+          await page.waitForFunction(() => window.mediaCalls.includes('pause'));
+          await worker.evaluate(() => WatchFusionMediaLink.stop());
+          const restored = await page.locator('strmcx-embed').evaluate(element => ({
+            position:element.style.position, width:element.style.width, height:element.style.height
+          }));
+          assert.deepEqual(restored, { position:'', width:'800px', height:'450px' });
+          await page.close(); pass += 6;
         }
         if (variant.id === 'official' || variant.id === 'collector-standalone') {
           pass += await qualifyTabPopup(context, worker, { extensionId,

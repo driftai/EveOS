@@ -3,13 +3,14 @@ const entries = [{ id: 'tools', popup: 'hub.html', label: 'Tools' },
   ...globalThis.EveOSExtensionModuleEntries.filter(item => item.popup)];
 const frames = new Map(), buttons = new Map();
 const sourceWindow = chrome.windows.getCurrent();
+const ACTIVE_TAB_KEY = 'eveosBridgeActiveTabV1';
 const nav = document.querySelector('nav');
 const views = document.getElementById('views');
 let activeId = 'tools';
 const layout = globalThis.EveOSBridgeUIState.create({ chromeApi:chrome,
   onError:error => { document.getElementById('popupStatus').textContent = `Could not save layout: ${error.message}`; } });
 
-async function select(id) {
+async function select(id, persist = true) {
   const entry = entries.find(item => item.id === id);
   if (!entry) return;
   activeId = id;
@@ -43,6 +44,7 @@ async function select(id) {
   }
   for (const [key, item] of frames) item.hidden = key !== id;
   for (const [key, button] of buttons) button.setAttribute('aria-selected', String(key === id));
+  if (persist) await chrome.storage.local.set({ [ACTIVE_TAB_KEY]:id });
 }
 
 for (const entry of entries) {
@@ -70,4 +72,7 @@ window.addEventListener('message', event => {
     document.getElementById('popupStatus').textContent = error.message;
   });
 });
-void select('tools').catch(error => { document.getElementById('popupStatus').textContent = error.message; });
+void chrome.storage.local.get(ACTIVE_TAB_KEY).then(saved => {
+  const remembered = entries.some(entry => entry.id === saved[ACTIVE_TAB_KEY]) ? saved[ACTIVE_TAB_KEY] : 'tools';
+  return select(remembered, false);
+}).catch(error => { document.getElementById('popupStatus').textContent = error.message; });

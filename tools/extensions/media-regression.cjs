@@ -43,7 +43,9 @@ async function qualifyMediaWorker() {
   assert.equal((await context.WatchFusionMediaLink.status()).linked, false, 'a saved source tab is not proof of active sharing');
   captureActive = true;
   assert.equal(state.sourceTab, 7);
-  assert.equal(injected[0].files[0], 'modules/watchfusion/source-probe.js');
+  assert.equal(injected[0].world, 'MAIN');
+  assert.equal(injected[0].files[0], 'modules/watchfusion/source-page-adapter.js');
+  assert.equal(injected[1].files[0], 'modules/watchfusion/source-probe.js');
   assert.equal(offscreen[0].url, 'modules/watchfusion/offscreen.html');
   assert.equal(vm.runInContext('frameSamples.get(1).metadata.title', context), 'frame');
   vm.runInContext(`combinedSample(0, {token:'root',topFrame:true,hasMedia:false,children:[{token:'player',rect:{x:.2,y:.1,width:.5,height:.8}}]})`, context);

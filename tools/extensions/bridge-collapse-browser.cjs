@@ -58,8 +58,10 @@ async function qualifyCollapses(page, worker, resultDir) {
     throw new Error('WatchFusion collapse preference not saved');
   });
   await page.reload();
-  await page.getByRole('tab', { name:'WatchFusion', exact:true }).click();
+  await page.waitForFunction(() => document.querySelector('#tab-watchfusion')?.getAttribute('aria-selected') === 'true');
   await watch.locator('details[open]').waitFor();
+  assert.equal(await page.getByRole('tab', { name:'WatchFusion', exact:true }).getAttribute('aria-selected'), 'true',
+    'reopening Bridge must restore its last selected tool tab');
   assert.equal(await watch.locator('#pairing').inputValue(), '', 'layout persistence must not save pairing inputs');
   return 6;
 }

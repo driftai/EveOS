@@ -2,10 +2,15 @@
 (() => {
   if (window.__watchFusionMediaProbe) return;
   window.__watchFusionMediaProbe = true;
-  let enabled = true, focused = null, savedStyle = null;
+  let enabled = true, focused = null, savedStyle = null, pageMedia = null;
   const frameToken = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`, children = new Map();
+  const PAGE_CHANNEL = 'eveos.watchfusion.page-media.v1';
 
   window.addEventListener('message', event => {
+    if (event.source === window && event.data?.channel === PAGE_CHANNEL && event.data.type === 'state') {
+      pageMedia = { ...event.data, at:Date.now() };
+      return;
+    }
     if (event.data?.type !== 'watchfusion:media-frame' || typeof event.data.token !== 'string') return;
     const frame = [...document.querySelectorAll('iframe')].find(value => value.contentWindow === event.source);
     if (frame) children.set(frame, { ...event.data, at: Date.now() });
@@ -28,6 +33,11 @@
       .filter(element => element.readyState > 0)
       .sort((a, b) => Number(a.paused) - Number(b.paused)
         || (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0] || null;
+  }
+
+  function pagePlayer() {
+    if (!pageMedia?.hasMedia || Date.now() - pageMedia.at > 1800) return null;
+    return [...document.querySelectorAll('strmcx-embed')].find(visible) || null;
   }
 
   function frameFallback() {
@@ -97,8 +107,9 @@
   function snapshot() {
     if (!enabled) return;
     const element = media();
-    const fallback = element ? null : frameFallback();
-    const visual = element?.tagName === 'VIDEO' ? element : fallback;
+    const controller = element ? null : pagePlayer();
+    const fallback = element || controller ? null : frameFallback();
+    const visual = element?.tagName === 'VIDEO' ? element : controller || fallback;
     if (visual) focus(visual);
     else if (!element) restoreFocus();
     const rect = normalizedRect(visual);
@@ -110,15 +121,15 @@
       to: 'worker', type: 'sample', rect, token: frameToken, topFrame: window === top,
       children: [...children].filter(([frame, child]) => frame.isConnected && child.hasMedia && Date.now() - child.at < 1800)
         .map(([frame, child]) => ({ token: child.token, rect: normalizedRect(frame) })),
-      hasMedia: Boolean(element), score,
+      hasMedia: Boolean(element || controller), score: controller ? score + 1 : score,
       metadata: {
-        title: navigator.mediaSession?.metadata?.title || document.title,
-        paused: !element || element.paused,
-        currentTime: element?.currentTime || 0,
-        duration: Number.isFinite(element?.duration) ? element.duration : 0,
-        rate: element?.playbackRate || 1,
-        volume: element ? (element.muted ? 0 : element.volume ?? 1) : 1,
-        status: element ? '' : 'Waiting for a playable video · embedded players may need Setup & embedded players access.'
+        title: pageMedia?.title || navigator.mediaSession?.metadata?.title || document.title,
+        paused: element ? element.paused : pageMedia?.paused !== false,
+        currentTime: element?.currentTime || pageMedia?.currentTime || 0,
+        duration: Number.isFinite(element?.duration) ? element.duration : pageMedia?.duration || 0,
+        rate: element?.playbackRate || pageMedia?.rate || 1,
+        volume: element ? (element.muted ? 0 : element.volume ?? 1) : pageMedia?.volume ?? 1,
+        status: element || controller ? '' : 'Waiting for a playable video · embedded players may need Setup & embedded players access.'
       }
     }).catch(() => {});
   }
@@ -128,7 +139,12 @@
     if (message.type === 'probe-start') { enabled = true; snapshot(); return; }
     if (message.type !== 'source-control' || !enabled) return;
     const element = media();
+    const controller = element ? null : pagePlayer();
     const value = Number(message.value) || 0;
+    if (controller) {
+      window.postMessage({ channel:PAGE_CHANNEL, type:'control', action:message.action, value }, '*');
+      snapshot(); return;
+    }
     if (message.action === 'next' || message.action === 'prev') { clickTransport(message.action); snapshot(); return; }
     if (!element) return;
     if (message.action === 'toggle') { if (element.paused) element.play().catch(() => {}); else element.pause(); }
