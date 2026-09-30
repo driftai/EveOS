@@ -54,7 +54,9 @@
 
   function syncStateKey() {
     const p = state?.playback;
-    return p ? [state?.revision, p.updatedAt, p.projectedAt, p.position, p.rate, p.paused, p.ended].join('|') : '';
+    if (!p) return '';
+    const sourceId = state?.source?.videoId || state?.source?.url || state?.source?.streamId || '';
+    return [sourceId, p.updatedAt, p.rate, p.paused, p.ended].join('|');
   }
 
   function refreshAnchor(force = false) {
