@@ -113,6 +113,7 @@ function sourceContract() {
     const officialExtensionWorker = read('extension/service-worker.js');
     const dashboardOpen = read('tools/Nexus-Browser/extension/dashboard-open.js');
     const mediaPlayer = read('tools/WatchFusion/public/client/media-player.js');
+    const mediaDiagnostics = read('tools/WatchFusion/public/client/media-diagnostics.js');
     const roomConnection = read('tools/WatchFusion/public/client/room-connection.js');
     const continuityBridge = read('tools/WatchFusion/public/client/eveos-embed-bridge.js');
     const roomStore = read('tools/WatchFusion/src/server/room-store.js');
@@ -260,7 +261,7 @@ function sourceContract() {
     check(youtubeSetup.includes('$nodeMajor -ge 22') && youtubeSetup.includes('deno.exe'), 'WF-YOUTUBE-JS-RUNTIME', 'fresh YouTube installer does not prefer supported Node 22+ with Deno fallback');
     check(youtubeImport.includes('nodeMajor >= 22'), 'WF-YTDLP-EJS', 'VoxelVision still forces an unsupported old Node runtime into current yt-dlp');
     check(youtubeImport.includes('preferredByHeight') && youtubeImport.includes("strategy: 'adaptive-hls'") && voxelRoutes.includes('stream.variants') && voxelRoutes.includes('#EXT-X-INDEPENDENT-SEGMENTS'), 'WF-YOUTUBE-ADAPTIVE-HLS', 'direct YouTube playback is still pinned to one fixed HLS rendition instead of an adaptive ladder');
-    check(mediaPlayer.includes('capLevelToPlayerSize: true') && mediaPlayer.includes('capLevelOnFPSDrop: true') && mediaPlayer.includes('startLevel: -1') && mediaPlayer.includes('abrBandWidthFactor: 0.80') && mediaPlayer.includes('watchFusionMediaDiagnostics'), 'WF-YOUTUBE-HLS-ABR', 'YouTube-direct HLS does not expose conservative ABR/player diagnostics');
+    check(mediaPlayer.includes('capLevelToPlayerSize: true') && mediaPlayer.includes('capLevelOnFPSDrop: true') && mediaPlayer.includes('startLevel: -1') && mediaPlayer.includes('abrBandWidthFactor: 0.80') && mediaDiagnostics.includes('watchFusionMediaDiagnostics') && staticFiles.includes("'client/media-diagnostics.js'"), 'WF-YOUTUBE-HLS-ABR', 'YouTube-direct HLS does not expose conservative ABR/player diagnostics');
     check(videoStreamSmoke.includes('requestVideoFrameCallback') && videoStreamSmoke.includes('bufferedAheadSec') && videoStreamSmoke.includes('droppedFrameRatio') && videoStreamSmoke.includes('WATCHFUSION_VIDEO_STREAM_SMOKE_'), 'WF-VIDEO-STREAM-DIAGNOSTIC', 'WatchFusion lacks a reusable playback/frame/buffer diagnostic smoke');
     check(depthSession.includes('voxelvision.model-ready-v1') && depthSession.includes('readyAt'), 'WF-DEPTH-MODEL-STATUS', 'depth model readiness is not persisted for Setup Health');
     check(maskAssist.includes("current['anime-mask']") && maskAssist.includes('readyAt'), 'WF-MASK-MODEL-STATUS', 'anime mask readiness is not persisted for Setup Health');

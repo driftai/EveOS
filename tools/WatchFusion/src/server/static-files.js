@@ -70,6 +70,7 @@ export async function sendFile(req, res) {
       'client/linked-playback-sync.js',
       'client/commands.js',
       'client/media-player.js',
+      'client/media-diagnostics.js',
       'client/media-controls.js',
       'client/youtube-playback-mode.js',
       'client/youtube-stability.js',

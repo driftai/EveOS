@@ -272,43 +272,6 @@ async function loadMediaSource(source) {
 function currentMediaPosition() { return Number(mediaVideo?.currentTime) || 0; }
 function mediaDuration() { return Number(mediaVideo?.duration) || 0; }
 function mediaPlaybackState() { return { position: currentMediaPosition(), rate: Number(mediaVideo?.playbackRate) || 1, paused: !!mediaVideo?.paused, ended: !!mediaVideo?.ended }; }
-function mediaBufferedAhead() {
-  if (!mediaVideo?.buffered?.length) return 0;
-  const current = currentMediaPosition();
-  let end = current;
-  for (let index = 0; index < mediaVideo.buffered.length; index += 1) {
-    const start = mediaVideo.buffered.start(index), rangeEnd = mediaVideo.buffered.end(index);
-    if (current >= start - 0.05 && current <= rangeEnd + 0.05) { end = rangeEnd; break; }
-  }
-  return Math.max(0, end - current);
-}
-function mediaDiagnosticsSnapshot() {
-  const quality = mediaVideo?.getVideoPlaybackQuality?.();
-  return {
-    kind: mediaVideo ? 'media' : null,
-    provider: state?.source?.provider || state?.source?.server || null,
-    currentTime: currentMediaPosition(),
-    duration: mediaDuration(),
-    paused: !!mediaVideo?.paused,
-    playbackRate: Number(mediaVideo?.playbackRate) || 1,
-    readyState: Number(mediaVideo?.readyState) || 0,
-    networkState: Number(mediaVideo?.networkState) || 0,
-    bufferedAheadSec: mediaBufferedAhead(),
-    width: Number(mediaVideo?.videoWidth) || 0,
-    height: Number(mediaVideo?.videoHeight) || 0,
-    totalFrames: Number(quality?.totalVideoFrames) || 0,
-    droppedFrames: Number(quality?.droppedVideoFrames) || 0,
-    hls: hlsInstance ? {
-      currentLevel: Number(hlsInstance.currentLevel),
-      nextAutoLevel: Number(hlsInstance.nextAutoLevel),
-      bandwidthEstimate: Number(hlsInstance.bandwidthEstimate) || 0,
-      levels: (hlsInstance.levels || []).map(level => ({
-        width: Number(level.width) || 0, height: Number(level.height) || 0,
-        bitrate: Number(level.bitrate) || 0
-      }))
-    } : null
-  };
-}
 async function restoreMediaPlayback(options={}) {
   if(!mediaVideo||!mediaPlayerReady)return false;
   const position=Math.max(0,Number(options.position)||0),paused=options.paused===true;
@@ -440,6 +403,5 @@ function followAttachedMedia(metadata = {}, options = {}) {
   return true;
 }
 window.mediaPlayback = { ensureSource: ensureMediaSource, sync: syncMediaPlayer, followAttached: followAttachedMedia, position: currentMediaPosition, state: mediaPlaybackState, restore: restoreMediaPlayback, clear: clearMediaPlayer };
-window.watchFusionMediaDiagnostics = { snapshot: mediaDiagnosticsSnapshot };
 setInterval(() => { try { if (roomId && isMediaSource() && !isHost() && mediaPlayerReady) syncMediaPlayer(); } catch {} }, 250);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && roomId && isMediaSource() && !isHost()) { refreshMediaAnchor(true); syncMediaPlayer(); } });
