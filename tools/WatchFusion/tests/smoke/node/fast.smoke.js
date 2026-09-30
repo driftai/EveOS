@@ -105,9 +105,13 @@ export async function runFastSmoke() {
     assert.match(roomResize, /setPointerCapture/);
     assert.match(style, /--watchfusion-party-height/);
     assert.match(style, /cursor:\s*row-resize/);
+    assert.match(render, /hasVisualMedia=\(isLive&&source\.mode!==['"]audioflix['"]\)/);
+    assert.match(liveSource, /liveVideo\.hidden=source\?\.mode===['"]audioflix['"]/);
+    assert.match(style, /#mediaStage\.player-wrap\.media-stage-empty[\s\S]*display:\s*none\s*!important/);
+    assert.match(style, /video:not\(\[hidden\]\)/);
     assert.match(liveSource, /AUDIO_SYNC_AUTO_KEY/);
     assert.match(liveSource, /deviceProfileAudioDelayMs/);
-    assert.match(liveSource, /return mobile\?310:0/);
+    assert.match(liveSource, /return mobile\?335:0/);
     assert.match(liveSource, /onAudioSync:\s*applyAutoSync/);
     assert.match(linkedTab, /watchFusionMediaResolver/);
     assert.match(linkedTab, /command\('mirror'/);

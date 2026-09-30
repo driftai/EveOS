@@ -63,9 +63,10 @@ function render() {
   if($('copyBtn'))$('copyBtn').hidden=!inRoom;
   if(playerHost)playerHost.classList.toggle('nuvio-active',nuvioViewVisible);
   if(playerHost)playerHost.classList.toggle('voxelvision-active',isVoxelVision);
-  const hasActiveMedia=isLive||nuvioViewVisible||isVoxelVision||isYoutube||source.kind==='media';
-  if($('mediaStage'))$('mediaStage').classList.toggle('media-stage-empty',!hasActiveMedia);
-  if($('unloadMediaBtn'))$('unloadMediaBtn').hidden=!hasActiveMedia||(inRoom&&!isHost());
+  const hasLoadedMedia=isLive||nuvioViewVisible||isVoxelVision||isYoutube||source.kind==='media';
+  const hasVisualMedia=(isLive&&source.mode!=='audioflix')||nuvioViewVisible||isVoxelVision||isYoutube||source.kind==='media';
+  if($('mediaStage'))$('mediaStage').classList.toggle('media-stage-empty',!hasVisualMedia);
+  if($('unloadMediaBtn'))$('unloadMediaBtn').hidden=!hasLoadedMedia||(inRoom&&!isHost());
   if(nuvioFrame){nuvioFrame.hidden=!nuvioViewVisible;nuvioFrame.style.display=nuvioViewVisible?'block':'none';}
   if(nuvioToolbar)nuvioToolbar.hidden=!nuvioViewVisible;
   if(voxelVisionFrame){voxelVisionFrame.hidden=!isVoxelVision;voxelVisionFrame.style.display=isVoxelVision?'block':'none';}

@@ -42,7 +42,7 @@
     if(calibrated>0)return calibrated;
     let mobile=false;
     try{mobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||((navigator.maxTouchPoints||0)>0&&matchMedia('(pointer: coarse)').matches);}catch{}
-    return mobile?310:0;
+    return mobile?335:0;
   }
   function effectiveAudioSyncDelayMs() {
     if(!audioSyncAutoEnabled())return manualAudioSyncDelayMs();
@@ -188,7 +188,10 @@
     connectionActions(null);
   }
   function load(source) {
-    hideOtherPlayers(); $('liveVideo').hidden = false; $('liveControls').hidden = false;
+    hideOtherPlayers();
+    const liveVideo=$('liveVideo');
+    liveVideo.hidden=source?.mode==='audioflix';
+    $('liveControls').hidden = false;
     const membership = `${roomId || ''}:${session?.memberId || ''}`;
     if (source.streamId === currentId && membership === currentMember && receiver) { controls(lastMetadata); startAudioSyncSampling(source); return; }
     receiver?.stop(); currentId = source.streamId; currentMember = membership;
@@ -203,6 +206,9 @@
       onStream: stream => {
         activeLiveStream = stream;
         video.srcObject = stream;
+        const hasVideo=stream?.getVideoTracks?.().some(track=>track.readyState!=='ended')===true;
+        video.hidden=!hasVideo;
+        if($('mediaStage'))$('mediaStage').classList.toggle('media-stage-empty',!hasVideo);
         void refreshAudioOutput();
         video.play().catch(() => {
           setListen(video, false);
