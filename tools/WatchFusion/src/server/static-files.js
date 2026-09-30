@@ -67,6 +67,7 @@ export async function sendFile(req, res) {
       'client/provider-registry.js',
       'client/render.js',
       'client/youtube-player.js',
+      'client/youtube-layout.js',
       'client/linked-playback-sync.js',
       'client/commands.js',
       'client/media-player.js',
