@@ -91,7 +91,8 @@ export async function handleLiveRoute(req, res, parts) {
   return json(res, 404, { error: 'Unknown live action.' });
 }
 function metadata(value = {}) {
-  return { title: text(value.title), group: text(value.group), paused: !!value.paused,
+  const pageUrl = /^https?:\/\//i.test(String(value.pageUrl || '')) ? text(value.pageUrl, 2048) : '';
+  return { title: text(value.title), group: text(value.group), pageUrl, paused: !!value.paused, ended: !!value.ended,
     currentTime: Math.max(0, Number(value.currentTime) || 0), duration: Math.max(0, Number(value.duration) || 0),
     rate: Math.min(4, Math.max(0.25, Number(value.rate) || 1)), volume: Math.min(1, Math.max(0, Number(value.volume) || 0)),
     index: Math.max(0, Number(value.index) || 0), shuffle: !!value.shuffle, loop: !!value.loop,

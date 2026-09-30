@@ -33,6 +33,8 @@
 - The companion publishes the current page URL plus playback state (play/pause, position, rate, volume, next/previous controls). WatchFusion resolves that URL through the existing Find Media provider registry and plays the resolved source locally/in the room.
 - Miruro must reuse the canonical media resolver. The client remembers the selected Miruro server/audio preference and reuses it on later episodes/pages; first-use Miruro prefers a dub candidate when available.
 - YouTube attachments use the WatchFusion YouTube iframe player and follow the attached page URL/state. Source-page pixel quality is not part of the transport.
-- The source tab is muted at the browser-tab level while attached and its original mute state, injected listeners/observers, and any best-effort quality setting must be restored on unlink.
+- Attachment is passive by default: do not restyle/resize the source page, force quality, replace media, enter fullscreen, click controls automatically, or capture pixels. Sampling may read URL/media state; page writes are allowed only for an explicit WatchFusion transport command.
+- The source tab may be muted at the browser-tab level while attached to prevent duplicate local audio, but its original mute state must be restored exactly. This browser-level mute must not change the page player's own volume/mute state.
+- MAIN-world web-component listeners and isolated-world probes must both be disposed on unlink and before reinjection so extension reloads/upgrades cannot leave stale observers behind.
 - Audioflix remains a real WebRTC audio stream. Auto audio sync uses measured playout timestamps when the browser exposes them; otherwise it uses the device's remembered calibration, with a 310 ms mobile seed and 0 ms desktop seed.
 - The horizontal Watch Party divider must preserve at least 280 px of embedded media height on laptop-size layouts.

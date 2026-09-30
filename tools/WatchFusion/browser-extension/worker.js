@@ -20,7 +20,22 @@ async function messageFrames(tabId, message) {
   await Promise.all([...frameIds].map(frameId => chrome.tabs.sendMessage(tabId, message, { frameId }).catch(() => {})));
 }
 
+async function cleanupInjected(tabId) {
+  if (!Number.isInteger(tabId)) return;
+  const run = async (world, globalName) => {
+    const spec = { target:{ tabId, allFrames:true }, world,
+      func:name => { try { globalThis[name]?.(); } catch {} }, args:[globalName] };
+    try { await chrome.scripting.executeScript(spec); }
+    catch { try { await chrome.scripting.executeScript({ ...spec, target:{ tabId } }); } catch {} }
+  };
+  await Promise.all([
+    run('ISOLATED', '__watchFusionMediaProbeCleanup'),
+    run('MAIN', '__watchFusionPageMediaAdapterCleanup')
+  ]);
+}
+
 async function inject(tabId) {
+  await cleanupInjected(tabId);
   frameSamples.clear(); controlFrameId = 0; lastCombinedSample = null;
   let results;
   try {
@@ -58,10 +73,7 @@ async function waitForInitialSample(timeoutMs=1200) {
 async function restoreSourceTab(tabId, previousMuted) {
   if(!Number.isInteger(tabId))return;
   await messageFrames(tabId,{type:'probe-stop'});
-  await chrome.scripting.executeScript({
-    target:{tabId,allFrames:true},
-    func:()=>{try{globalThis.__watchFusionMediaProbeCleanup?.();}catch{}try{globalThis.__watchFusionPageMediaAdapterCleanup?.();}catch{}}
-  }).catch(()=>{});
+  await cleanupInjected(tabId);
   if(typeof previousMuted==='boolean')await chrome.tabs.update(tabId,{muted:previousMuted}).catch(()=>{});
 }
 

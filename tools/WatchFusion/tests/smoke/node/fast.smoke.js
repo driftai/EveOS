@@ -70,6 +70,9 @@ export async function runFastSmoke() {
     const linkedTab = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'linked-tab.js'), 'utf8');
     const mediaControls = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'media-controls.js'), 'utf8');
     const liveStreams = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'server', 'live-streams.js'), 'utf8');
+    const sourceAdapter = fs.readFileSync(path.join(PROJECT_ROOT, 'browser-extension', 'source-page-adapter.js'), 'utf8');
+    const sourceProbe = fs.readFileSync(path.join(PROJECT_ROOT, 'browser-extension', 'source-probe.js'), 'utf8');
+    const sourceWorker = fs.readFileSync(path.join(PROJECT_ROOT, 'browser-extension', 'worker.js'), 'utf8');
     const style = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'style.css'), 'utf8');
     assert.match(core, /serverLanMode && lanBaseUrl/);
     assert.ok(core.indexOf('preferredLanHost') < core.indexOf('preferredLanAddress'));
@@ -112,6 +115,11 @@ export async function runFastSmoke() {
     assert.match(mediaControls, /preferredCandidateIndex/);
     assert.match(liveStreams, /sync-sample/);
     assert.match(liveStreams, /audio-sync/);
+    assert.match(liveStreams, /pageUrl/);
+    assert.doesNotMatch(sourceAdapter, /setQuality|getQualities|qualityRestore/);
+    assert.doesNotMatch(sourceProbe, /position:\s*['"]fixed['"]|captureStream|drawImage|requestFullscreen/);
+    assert.match(sourceWorker, /cleanupInjected/);
+    assert.match(sourceWorker, /__watchFusionPageMediaAdapterCleanup/);
     assert.match(connection, /function resumeRoomSession/);
     assert.match(connection, /syncResumedPlayback/);
     assert.match(connection, /document\.addEventListener\('visibilitychange', resumeVisibleRoom\)/);
