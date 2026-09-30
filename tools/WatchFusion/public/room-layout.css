@@ -189,11 +189,22 @@ html.watchfusion-party-bottom.watchfusion-resizing * {
   html.watchfusion-party-bottom #partyDetails {
     min-height: 0;
     overflow: hidden;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+
+  html.watchfusion-party-bottom .host-handoff-hint,
+  html.watchfusion-party-bottom #partyDetails > hr,
+  html.watchfusion-party-bottom #partyDetails > h2,
+  html.watchfusion-party-bottom .chat-hint {
+    display: none;
   }
 
   html.watchfusion-party-bottom .chat {
-    min-height: 64px;
-    padding-block: 5px;
+    min-height: 72px;
+    padding: 5px 2px;
+    border-top: 1px solid var(--border-subtle);
   }
 
   html.watchfusion-party-bottom .chatform {
