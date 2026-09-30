@@ -110,6 +110,7 @@ html.eveos-embedded .topbar {
   padding: 3px 8px;
   background: rgba(13, 16, 23, 0.97);
   position: relative;
+  backdrop-filter: none;
 }
 html.eveos-embedded .brand { font-size: 13px; }
 html.eveos-embedded .header-toggle {
@@ -401,4 +402,34 @@ html.eveos-embedded .watch-shell.room-idle .find-media-panel {
   html.eveos-embedded.watchfusion-room-active.watchfusion-room-idle .grid {
     grid-template-rows: auto 8px minmax(140px, var(--watchfusion-party-height, 240px));
   }
+}
+
+/* Detached WatchFusion keeps the same vertical media / splitter / Watch Party
+   geometry as the embedded workspace, but bounds it to the viewport. */
+html.watchfusion-room-active:not(.eveos-embedded) .grid {
+  height: clamp(540px, calc(100dvh - 112px), 760px);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(280px, 1fr) 8px minmax(140px, var(--watchfusion-party-height, 300px));
+  align-items: stretch;
+  overflow: hidden;
+}
+html.watchfusion-room-active:not(.eveos-embedded) .room-splitter:not([hidden]) { display: block; }
+html.watchfusion-room-active:not(.eveos-embedded) .side {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border-left: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+html.watchfusion-room-active:not(.eveos-embedded) #partyDetails {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(48dvh, 460px);
+  overflow: hidden;
+}
+html.watchfusion-room-active:not(.eveos-embedded) .chat { min-height: 0; }
+html.watchfusion-room-active:not(.eveos-embedded) #mediaStage.player-wrap:not(.media-stage-empty) {
+  min-height: 280px;
+  align-self: stretch;
 }
