@@ -3,6 +3,14 @@
 const protocol = globalThis.EveOSExtensionProtocol;
 const catalog = globalThis.EveOSExtensionCatalog;
 const discovery = globalThis.EveOSExtensionDiscovery.create({ chromeApi: chrome, fetchImpl: fetch });
+const watchfusion = catalog.services.find(item => item.id === 'watchfusion');
+const managedTools = new Map([
+  ['nexus-browser', globalThis.NexusBrowserDashboard],
+  ['watchfusion', globalThis.EveOSManagedDashboard.create({ name:'WatchFusion',
+    httpOrigin:new URL(watchfusion.url).origin, tabPattern:new URL(watchfusion.url).origin + '/*',
+    healthUrl:watchfusion.health, healthKey:'app', healthValue:'WatchFusion',
+    controlOrigin:globalThis.NexusBrowserRuntimeConfig.controlOrigin, startPath:'/api/watchfusion/start' })]
+]);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id || message?.channel !== protocol.UI_CHANNEL) return;
@@ -16,9 +24,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'open-service') {
       const service = catalog.services.find(item => item.id === message.id);
       if (!service) return { ok: false, code: 'UNKNOWN_SERVICE' };
-      if (service.id === 'nexus-browser') {
-        const result = await globalThis.EveOSExtensionModules.invoke(service.id, protocol.request(protocol.REQUESTS.OPEN));
-        return { ok:protocol.isResponse(result), detail:result.detail, message:result.message };
+      if (managedTools.has(service.id)) {
+        return { ok:true, detail:await managedTools.get(service.id).open() };
       }
       await chrome.tabs.create({ url: service.url });
       return { ok: true };
@@ -30,6 +37,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .find(item => item.extensionId === message.extensionId && (!message.id || item.id === message.id));
       if (!connector) return { ok: false, code: 'UNKNOWN_CONNECTOR' };
       const invoke = message.type === 'invoke-connector';
+      if (!invoke && managedTools.has(connector.id)) {
+        return { ok:true, detail:await managedTools.get(connector.id).open() };
+      }
       if (!invoke && connector.integration === 'included'
           && globalThis.EveOSExtensionModuleEntries.some(item => item.id === connector.moduleId && item.popup)) {
         return { ok: true, detail: { uiModule: connector.moduleId } };

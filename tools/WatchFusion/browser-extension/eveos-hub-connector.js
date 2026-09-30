@@ -16,7 +16,7 @@
   async function serviceStatus() {
     let linked = false;
     try {
-      linked = Number.isInteger((await chrome.storage.session.get('sourceTab')).sourceTab);
+      linked = (await globalThis.WatchFusionMediaLink?.status?.())?.linked === true;
     } catch (_error) {}
     try {
       const result = await fetch(`${dashboardUrl}api/health`, { cache: 'no-store' });
@@ -42,7 +42,7 @@
           description: 'Then open the extension on the playing source tab to start capture.',
           input: { kind: 'text', placeholder: 'Paste private pairing link' }
         },
-        { id: 'stop-sharing', label: 'Stop sharing', description: 'Stops the companion-owned tab capture.' }
+        ...(status.linked ? [{ id: 'stop-sharing', label: 'Stop sharing', description: 'Stops the companion-owned tab capture.' }] : [])
       ],
       status
     };

@@ -6,13 +6,14 @@ test.describe('WatchFusion Unified Cross-Provider Browser Suite', () => {
     const viewerContext = await browser.newContext();
     const hostPage = await hostContext.newPage();
     const viewerPage = await viewerContext.newPage();
+    const room = `CROSSPROV_${test.info().repeatEachIndex}`;
 
     // 1. Host creates room
     await hostPage.goto('/');
     await hostPage.click('#headerToggleBtn');
     await hostPage.click('#startPartyBtn');
     await hostPage.fill('#nameInput', 'HostAlice');
-    await hostPage.fill('#roomInput', 'CROSSPROV1');
+    await hostPage.fill('#roomInput', room);
     await hostPage.click('#createBtn');
     await expect(hostPage).toHaveURL(/\/watch\//, { timeout: 5000 });
     await expect(hostPage.locator('#partyPanel')).toBeVisible();
@@ -22,7 +23,7 @@ test.describe('WatchFusion Unified Cross-Provider Browser Suite', () => {
     await viewerPage.click('#headerToggleBtn');
     await viewerPage.click('#openRoomBtn');
     await viewerPage.fill('#nameInput', 'ViewerBob');
-    await viewerPage.fill('#roomInput', 'CROSSPROV1');
+    await viewerPage.fill('#roomInput', room);
     await viewerPage.click('#joinBtn');
     await expect(viewerPage).toHaveURL(/\/watch\//, { timeout: 5000 });
     await expect(viewerPage.locator('#partyPanel')).toBeVisible();

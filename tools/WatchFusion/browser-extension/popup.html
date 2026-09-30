@@ -10,12 +10,11 @@
   <p>Paste the private pairing link from Find Media, then link this playing tab.</p>
   <label>Private pairing link<input id="pairing" type="text" placeholder="Paste pairing link"></label>
   <button id="connect">Connect this tab</button>
-  <button id="stop">Stop sharing</button>
+  <button id="stop" hidden>Stop sharing</button>
   <details>
     <summary>Setup & embedded players</summary>
     <p>Use EveOS Bridge or load this tool standalone. Optional site access improves cross-origin iframe players.</p>
     <button id="siteAccess" class="secondary">Enable embedded-player access</button>
-    <button id="openFolder" class="secondary">Open extension folder</button>
   </details>
   <p id="status" role="status"></p>
   <script src="popup.js"></script>

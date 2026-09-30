@@ -99,7 +99,15 @@ globalThis.WatchFusionMediaLink = Object.freeze({
   pairing,
   startCurrentTab,
   stop,
-  status: async () => ({ linked: Number.isInteger(sourceTab ?? (await chrome.storage.session.get('sourceTab')).sourceTab) })
+  status: async () => {
+    if (!Number.isInteger(sourceTab ?? (await chrome.storage.session.get('sourceTab')).sourceTab)) return { linked:false };
+    try {
+      const contexts = await chrome.runtime.getContexts({ contextTypes:['OFFSCREEN_DOCUMENT'], documentUrls:[chrome.runtime.getURL(asset('offscreen.html'))] });
+      if (!contexts.length) return { linked:false };
+      const result = await chrome.runtime.sendMessage({ to:'offscreen', type:'status' });
+      return { linked:result?.linked === true };
+    } catch { return { linked:false }; }
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, reply) => {

@@ -115,6 +115,21 @@ def main():
     require("nexus_browser_control.restore_desired_state_async" not in source,
             "Nexus Browser can autostart during control-plane boot")
 
+    requests = eveos_control_helper.eveos_control_requests
+    handler = SimpleNamespace(client_address=("127.0.0.1", 1),
+                              server=SimpleNamespace(server_address=("127.0.0.1", 9082)),
+                              headers={"Host": "127.0.0.1:9082", "Origin": requests.bridge_origin()})
+    for route in ("/api/nexus-browser/start", "/api/watchfusion/start"):
+        require(requests.can_start_bridge_service(handler, route), f"Bridge Start denied: {route}")
+    for route in ("/api/watchfusion/stop", "/api/watchfusion/setup", "/api/watchfusion/extension", "/api/eveos-server/start"):
+        require(not requests.can_start_bridge_service(handler, route), f"Unapproved Bridge authority: {route}")
+    for key, value in (("Origin", "chrome-extension://untrusted"), ("Host", "remote.example:9082"), ("X-Forwarded-For", "127.0.0.1")):
+        original = dict(handler.headers)
+        handler.headers[key] = value
+        require(not requests.can_start_bridge_service(handler, "/api/watchfusion/start"), f"Unsafe Bridge caller accepted: {key}")
+        handler.headers = original
+    handler.client_address = ("192.0.2.1", 1)
+    require(not requests.can_start_bridge_service(handler, "/api/watchfusion/start"), "Remote Bridge client accepted")
     print("NEXUS_BROWSER_CONTROL_SMOKE_OK")
 
 

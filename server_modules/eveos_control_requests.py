@@ -44,8 +44,8 @@ def bridge_origin() -> str:
     return f"chrome-extension://{extension_id}"
 
 
-def can_start_nexus(handler, path: str) -> bool:
-    if path != "/api/nexus-browser/start":
+def can_start_bridge_service(handler, path: str) -> bool:
+    if path not in {"/api/nexus-browser/start", "/api/watchfusion/start"}:
         return False
     client = str(handler.client_address[0]).removeprefix("::ffff:")
     if client not in {"127.0.0.1", "::1"}:
@@ -60,3 +60,7 @@ def can_start_nexus(handler, path: str) -> bool:
         return str(headers.get("Origin", "")).lower() == bridge_origin()
     except (OSError, ValueError, KeyError):
         return False
+
+
+def can_start_nexus(handler, path: str) -> bool:
+    return path == "/api/nexus-browser/start" and can_start_bridge_service(handler, path)

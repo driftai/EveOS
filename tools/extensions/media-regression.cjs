@@ -6,14 +6,19 @@ const vm = require('node:vm');
 
 async function qualifyMediaWorker() {
   const state = {}, listeners = [], sent = [], injected = [], offscreen = [];
-  let rejectCapture = false;
+  let rejectCapture = false, captureActive = false, offscreenExists = false;
   const context = vm.createContext({ console, URL, Date, Map, Set, Promise, importScripts() {},
     EveOSExtensionModuleRoots: { watchfusion: 'modules/watchfusion/' } });
   context.chrome = {
     runtime: {
       id: 'official', getURL: value => `chrome-extension://official/${value}`,
-      getContexts: async () => [], onMessage: { addListener: fn => listeners.push(fn) },
-      sendMessage: async message => { sent.push(message); return { ok: true }; }
+      getContexts: async () => offscreenExists ? [{}] : [], onMessage: { addListener: fn => listeners.push(fn) },
+      sendMessage: async message => {
+        sent.push(message);
+        if (message.to === 'offscreen' && message.type === 'start') captureActive = true;
+        if (message.to === 'offscreen' && message.type === 'stop') captureActive = false;
+        return message.to === 'offscreen' && message.type === 'status' ? { linked:captureActive } : { ok:true };
+      }
     },
     storage: { session: {
       get: async () => ({ ...state }), set: async value => Object.assign(state, value),
@@ -22,7 +27,7 @@ async function qualifyMediaWorker() {
     tabs: { query: async () => [{ id: 7 }], sendMessage: async (...args) => { sent.push(args); return { ok: true }; },
       onUpdated: { addListener() {} }, onRemoved: { addListener() {} } },
     tabCapture: { getMediaStreamId: async () => { if (rejectCapture) throw new Error('Capture denied'); return 'fixture-stream'; } },
-    offscreen: { createDocument: async details => { offscreen.push(details); } },
+    offscreen: { createDocument: async details => { offscreen.push(details); offscreenExists = true; } },
     scripting: { executeScript: async details => {
       injected.push(details);
       // The real probe can report before executeScript resolves. Keep that sample.
@@ -33,6 +38,10 @@ async function qualifyMediaWorker() {
   vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../tools/WatchFusion/browser-extension/worker.js'), 'utf8'), context);
   const link = 'http://localhost:19193/#live=12345678-1234-1234-1234-123456789abc.' + 'a'.repeat(48);
   await context.WatchFusionMediaLink.startCurrentTab(link);
+  assert.equal((await context.WatchFusionMediaLink.status()).linked, true);
+  captureActive = false;
+  assert.equal((await context.WatchFusionMediaLink.status()).linked, false, 'a saved source tab is not proof of active sharing');
+  captureActive = true;
   assert.equal(state.sourceTab, 7);
   assert.equal(injected[0].files[0], 'modules/watchfusion/source-probe.js');
   assert.equal(offscreen[0].url, 'modules/watchfusion/offscreen.html');
@@ -54,7 +63,8 @@ async function qualifyMediaWorker() {
   await qualifyAudioflixFailure();
   await qualifyLiveActions();
   await qualifyConnectorActions();
-  return 17;
+  await qualifyMediaPopup();
+  return 28;
 }
 
 async function qualifyConnectorActions() {
@@ -63,6 +73,7 @@ async function qualifyConnectorActions() {
     let handle;
     const requests = [];
     const sandbox = vm.createContext({
+      WatchFusionMediaLink:{ status:async () => ({ linked:false }) },
       chrome: { storage: { session: { get: async () => ({}) } }, runtime: {
         getManifest: () => ({ version: 'fixture' }),
         onMessageExternal: { addListener: listener => { handle = message => new Promise(resolve => listener(message, {}, resolve)); } }
@@ -74,9 +85,60 @@ async function qualifyConnectorActions() {
     const request = type => ({ channel: 'eveos.extension.v1', version: 1, type });
     const described = await handle(request('describe'));
     assert(!described.detail.actions.some(action => action.id === 'open-extension-folder'), 'folder access belongs only in WatchFusion');
+    assert(!described.detail.actions.some(action => action.id === 'stop-sharing'), 'inactive sharing must not offer Stop');
+    sandbox.WatchFusionMediaLink.status = async () => ({ linked:true });
+    const active = await handle(request('describe'));
+    assert.equal(active.detail.actions.some(action => action.id === 'stop-sharing'), !bundled);
     const obsolete = await handle({ ...request('invoke'), detail: { action: 'open-extension-folder' } });
     assert.equal(obsolete.code, 'UNKNOWN_ACTION');
     assert(requests.every(url => !url.includes('open-extension-folder')), 'obsolete extension actions cannot open folders');
+  }
+}
+
+async function qualifyMediaPopup() {
+  for (const prefix of ['', 'modules/watchfusion/']) {
+    const elements = new Map(), listeners = {};
+    let linked = false, denied = false;
+    const element = id => {
+      if (!elements.has(id)) elements.set(id, { hidden:id === 'stop', value:'pairing', textContent:'' });
+      return elements.get(id);
+    };
+    const context = vm.createContext({ Object, location:{ pathname:`/${prefix}popup.html` },
+      document:{ getElementById:element },
+      chrome:{ tabs:{ query:async () => [{ id:7 }] }, permissions:{ request:async () => true, contains:async () => true },
+        storage:{ onChanged:{ addListener:fn => { listeners.storage = fn; } },
+          local:{ get:async () => ({}), set:async () => {}, remove:async () => {} } },
+        runtime:{ id:'fixture', getURL:path => `chrome-extension://fixture/${path}`,
+          onMessage:{ addListener:fn => { listeners.message = fn; } },
+          sendMessage:async message => {
+            if (message.type === 'status') return { linked };
+            if (message.type === 'preview-pairing') return { base:'http://localhost:12345' };
+            if (message.type === 'start-pairing') { if (denied) return { error:'Capture denied' }; linked = true; }
+            if (message.type === 'stop') linked = false;
+            return { ok:true };
+          } }
+      }
+    });
+    vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../WatchFusion/browser-extension/popup.js'), 'utf8'), context);
+    await context.refreshSharing(); assert.equal(element('stop').hidden, true);
+    await context.previewPairing('fixture'); assert.equal(element('stop').hidden, true, 'preview is not sharing');
+    denied = true; await element('connect').onclick(); assert.equal(element('stop').hidden, true);
+    denied = false; await element('connect').onclick(); assert.equal(element('stop').hidden, false);
+    await element('stop').onclick(); assert.equal(element('stop').hidden, true);
+    linked = true; listeners.storage({ sourceTab:{ newValue:7 } }, 'session'); await context.refreshSharing();
+    assert.equal(element('stop').hidden, false);
+    listeners.message({ to:'popup', type:'capture-state', linked:false }, { id:'foreign', url:`chrome-extension://fixture/${prefix}offscreen.html` });
+    assert.equal(element('stop').hidden, false, 'foreign senders cannot spoof capture state');
+    listeners.message({ to:'popup', type:'capture-state', linked:false }, { id:'fixture', url:`chrome-extension://fixture/${prefix}offscreen.html` });
+    assert.equal(element('stop').hidden, true);
+    const pending = [];
+    context.chrome.runtime.sendMessage = () => new Promise(resolve => pending.push(resolve));
+    for (const active of [true, false]) {
+      const stale = context.refreshSharing();
+      listeners.message({ to:'popup', type:'capture-state', linked:active }, { id:'fixture', url:`chrome-extension://fixture/${prefix}offscreen.html` });
+      pending.shift()({ linked:!active }); await stale;
+      assert.equal(element('stop').hidden, !active, 'a delayed status reply cannot overwrite a newer capture event');
+    }
   }
 }
 

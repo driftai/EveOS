@@ -304,7 +304,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             "/api/gemini-credentials", "/api/control-plane/consoles", "/api/matrix-window/control",
         }
         if path in controlled_paths and not (gemini_control.request_can_control(self)
-                or eveos_control_requests.can_start_nexus(self, path)):
+                or eveos_control_requests.can_start_bridge_service(self, path)):
             self._send({
                 "ok": False,
                 "controllerAvailable": True,

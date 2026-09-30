@@ -1,6 +1,8 @@
 let capture, broadcast, peer, output, timer, rect, canvasTrack, lastMetadata = {};
 const video = document.getElementById('source'), canvas = document.getElementById('crop');
 const paint = canvas.getContext('2d', { alpha: false });
+const sharing = () => Boolean(peer && capture?.getVideoTracks().some(track => track.readyState === 'live'));
+const notifySharing = () => chrome.runtime.sendMessage({ to:'popup', type:'capture-state', linked:sharing() }).catch(() => {});
 
 function blank() {
   paint.fillStyle = '#080c12';
@@ -14,6 +16,7 @@ function stop() {
   canvasTrack = null; video.srcObject = null;
   output?.close().catch(() => {}); output = null;
   rect = null; lastMetadata = {}; blank();
+  void notifySharing();
 }
 
 function fitCrop(sw, sh) {
@@ -41,6 +44,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message.to !== 'offscreen' || sender.id !== chrome.runtime.id) return;
   (async () => {
     if (message.type === 'stop') { stop(); return { ok: true }; }
+    if (message.type === 'status') return { linked:sharing() };
     if (message.type === 'sample') {
       rect = message.rect || null;
       lastMetadata = message.metadata || {};
@@ -79,6 +83,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         onStatus: status => { if (/stopped|expired|denied|replaced/i.test(status)) stop(); }
       });
       capture.getVideoTracks()[0].onended = stop;
+      void notifySharing();
       return { ok: true };
     } catch (error) { stop(); throw error; }
   })().then(reply, error => reply({ error: error.message }));

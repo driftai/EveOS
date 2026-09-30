@@ -1,5 +1,24 @@
 const $ = id => document.getElementById(id);
 const status = message => { $('status').textContent = message; };
+let sharingRevision = 0;
+async function refreshSharing() {
+  const revision = ++sharingRevision;
+  try {
+    const result = await chrome.runtime.sendMessage({ to:'worker', type:'status' });
+    if (revision === sharingRevision) $('stop').hidden = result?.linked !== true;
+    return result;
+  } catch { if (revision === sharingRevision) $('stop').hidden = true; return { linked:false }; }
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'session' && Object.hasOwn(changes, 'sourceTab')) void refreshSharing();
+});
+chrome.runtime.onMessage.addListener((message, sender) => {
+  const path = location.pathname.slice(1).replace(/popup\.html$/, 'offscreen.html');
+  if (sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL(path)
+      && message.to === 'popup' && message.type === 'capture-state') {
+    sharingRevision++; $('stop').hidden = message.linked !== true;
+  }
+});
 
 async function previewPairing(value) {
   const result = await chrome.runtime.sendMessage({ to: 'worker', type: 'preview-pairing', pairing: value });
@@ -20,6 +39,7 @@ async function connectPairing(value, requestAccess = true) {
   status('Connecting…');
   const result = await chrome.runtime.sendMessage({ to: 'worker', type: 'start-pairing', pairing: value, tabId: tab?.id });
   if (result?.error) throw new Error(result.error);
+  await refreshSharing();
   $('pairing').value = '';
   await chrome.storage.local.set({ watchFusionLastBase: parsed.base });
   await chrome.storage.local.remove('watchFusionPendingPairing');
@@ -32,8 +52,11 @@ $('connect').onclick = async () => {
 };
 
 $('stop').onclick = async () => {
-  const result = await chrome.runtime.sendMessage({ to: 'worker', type: 'stop' });
-  status(result?.error || 'Stopped sharing.');
+  try {
+    const result = await chrome.runtime.sendMessage({ to: 'worker', type: 'stop' });
+    if (result?.error) throw new Error(result.error);
+    await refreshSharing(); status('Stopped sharing.');
+  } catch (error) { status(error.message); }
 };
 
 $('siteAccess').onclick = async () => {
@@ -44,18 +67,6 @@ $('siteAccess').onclick = async () => {
       ? 'Embedded-player access enabled. Cross-origin players can now expose their own media controls.'
       : 'Embedded-player access was not granted. Standalone active-tab linking still works.');
   } catch (error) { status(error.message); }
-};
-
-$('openFolder').onclick = async () => {
-  try {
-    const packageName = location.pathname.includes('/modules/') ? 'official' : 'watchfusion';
-    const response = await fetch(`http://127.0.0.1:9087/api/setup/open-extension-folder?package=${packageName}`, { method: 'POST', cache: 'no-store' });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || 'Could not open the extension folder.');
-    status(result.message || 'Extension folder opened.');
-  } catch (_error) {
-    status('Start WatchFusion on this PC, then try Open extension folder again.');
-  }
 };
 
 async function restorePreparedLink() {
@@ -74,7 +85,7 @@ async function restorePreparedLink() {
   status('Prepared by EveOS Bridge. Press Connect once to approve this WatchFusion server.');
 }
 
-void chrome.runtime.sendMessage({ to: 'worker', type: 'status' }).then(result => {
+void refreshSharing().then(result => {
   if (result?.linked) status('A tab is currently linked.');
   else return restorePreparedLink();
 }).catch(() => restorePreparedLink());

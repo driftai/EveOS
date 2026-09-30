@@ -21,7 +21,7 @@
       version: chrome.runtime.getManifest().version,
       dashboardUrl,
       capabilities: ['Provider routing', 'Dex rooms', 'Local agents'],
-      actions: [{ id: 'open-dashboard', label: 'Open Nexus', description: 'Opens the standalone Nexus Browser control surface.' }],
+      actions: [],
       status
     };
   }

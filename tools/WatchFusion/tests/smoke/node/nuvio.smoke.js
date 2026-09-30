@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { startServer } from '../helpers/server-harness.js';
 import { request } from '../helpers/http-client.js';
@@ -14,6 +15,33 @@ import { addonProxyTimeoutMs } from '../../../src/server/nuvio-proxy.js';
 
 const PORT = 19187;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export async function qualifyNuvioSourceHandoff() {
+  const source = fs.readFileSync(path.join(__dirname, '../../../public/client/nuvio-adapter.js'), 'utf8');
+  for (const [revision, edited] of [[2, true], [3, true], [1, false]]) {
+    let deliver;
+    const input = { value:'prior-input' };
+    const context = vm.createContext({ window:{}, document:{ getElementById:id => id === 'sourceInput' ? input : { dataset:{} } },
+      roomId:'handoff', session:{ memberId:'host' }, sourceInputDirty:false,
+      state:{ revision:1, source:{ kind:'ready' } }, isHost:() => true, apiUrl:url => url, setStatus() {},
+      fetch:() => new Promise(resolve => { deliver = resolve; }) });
+    context.applyIncomingRoomState = next => {
+      if (next.revision < context.state.revision) return false;
+      context.state = next; return true;
+    };
+    context.render = () => { if (!context.sourceInputDirty) input.value = context.state.source.url; };
+    vm.runInContext(source, context);
+    const pending = context.openNuvioBrowserMode();
+    const kind = revision === 3 ? 'youtube' : 'nuvio';
+    context.state = { revision, source:{ kind } };
+    if (edited) { input.value = 'https://youtu.be/dQw4w9WgXcQ'; context.sourceInputDirty = true; }
+    deliver({ ok:true, json:async () => ({ state:{ revision:2, source:{ kind:'nuvio', url:'nuvio://home' } } }) });
+    await pending; await new Promise(setImmediate);
+    assert.equal(context.state.source.kind, kind, 'late Nuvio replies must not replace newer room state');
+    assert.equal(input.value, edited ? 'https://youtu.be/dQw4w9WgXcQ' : 'nuvio://home', 'late replies must preserve new source input');
+    assert.equal(context.sourceInputDirty, edited);
+  }
+}
 
 export async function runNuvioSmokes() {
   const results = [];
@@ -109,6 +137,8 @@ export async function runNuvioSmokes() {
     assert.match(patch, /moviedb_id/);
     assert.match(patch, /PluginServiceClient browser health layout changed/);
   })();
+
+  await record('NUV-00F:late-source-reply-preserves-newer-intent', qualifyNuvioSourceHandoff)();
 
   const server = await startServer({ port: PORT, host: '127.0.0.1' });
   const baseUrl = server.baseUrl;

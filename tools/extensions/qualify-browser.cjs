@@ -24,8 +24,9 @@ async function qualifyBrowser() {
   const resultDir = path.join(ROOT, 'data/runtime/smoke-results/extension-browser');
   fs.mkdirSync(resultDir, { recursive: true });
   const fixture = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': req.url === '/health' ? 'application/json' : 'text/html' });
-    res.end(req.url === '/health' ? '{"ok":true,"service":"eveos-nexus-browser"}' : req.url === '/comments'
+    const health = req.url === '/health' || req.url === '/api/health';
+    res.writeHead(200, { 'Content-Type': health ? 'application/json' : 'text/html' });
+    res.end(health ? '{"ok":true,"service":"eveos-nexus-browser","app":"WatchFusion"}' : req.url === '/comments'
       ? '<!doctype html><html><body>Comments are not playable media.</body></html>'
       : mediaHtml(req.url !== '/frame').replaceAll('PORT', fixture.address().port));
   });
@@ -54,6 +55,15 @@ async function qualifyBrowser() {
         fs.writeFileSync(config, source.replace(/const port = \d+;/, `const port = ${port};`)
           .replace(/const controlPort = \d+;/, `const controlPort = ${port};`));
       }
+      if (variant.id === 'official') {
+        const file = path.join(packageDir, 'core/catalog.js');
+        const catalog = require('../../extension/core/catalog.js');
+        let source = fs.readFileSync(file, 'utf8');
+        for (const id of ['nexus-browser', 'watchfusion']) {
+          source = source.replaceAll(new URL(catalog.services.find(item => item.id === id).url).origin, `http://127.0.0.1:${port}`);
+        }
+        fs.writeFileSync(file, source);
+      }
       // Only the qualification package receives this localhost port override.
       const context = await chromium.launchPersistentContext(path.join(temp, 'profile'), {
         channel: 'chromium', headless: true,
@@ -71,6 +81,7 @@ async function qualifyBrowser() {
           assert.deepEqual(descriptors.map(value => value.id).sort(), ['nexus-browser', 'tab-collector', 'watchfusion']);
           assert(descriptors.every(value => value.integration === 'included'));
           assert.deepEqual(descriptors.find(value => value.id === 'watchfusion').actions, []);
+          assert.deepEqual(descriptors.find(value => value.id === 'nexus-browser').actions, []);
           const hub = await context.newPage();
           await hub.goto(`chrome-extension://${extensionId}/hub.html`);
           await hub.getByText('INCLUDED', { exact: true }).first().waitFor();
@@ -79,11 +90,21 @@ async function qualifyBrowser() {
           await hub.locator('[data-open-connector][data-connector-id="watchfusion"]').evaluate(el => {
             const r = el.getBoundingClientRect(); if (!r.width || !r.height) throw new Error('Hidden tool action');
           });
-          await hub.close(); pass += 2;
+          await hub.locator('[data-collapse^="connector:nexus-browser:"] > summary').click();
+          assert.equal(await hub.getByRole('button', { name:'Open Nexus', exact:true }).count(), 0);
+          for (const id of ['nexus-browser', 'watchfusion']) {
+            await hub.locator(`[data-open-connector][data-connector-id="${id}"]`).click();
+            await hub.locator('[data-status]').filter({ hasText: id === 'watchfusion' ? 'WatchFusion is ready.' : 'Nexus Browser is ready.' }).waitFor();
+            const tabs = await worker.evaluate(async url => chrome.tabs.query({ url }), `http://127.0.0.1:${port}/`);
+            assert.equal(tabs.length, 1, 'Open tool must reuse a ready runtime dashboard, not open a companion popup');
+          }
+          await hub.close(); pass += 5;
           const popup = await context.newPage();
           await popup.goto(`chrome-extension://${extensionId}/popup.html`);
           await popup.getByRole('tab', { name: 'WatchFusion', exact: true }).click();
           await popup.frameLocator('#view-watchfusion').locator('#connect').waitFor();
+          assert(await popup.frameLocator('#view-watchfusion').locator('#stop').isHidden());
+          assert.equal(await popup.frameLocator('#view-watchfusion').locator('#openFolder').count(), 0);
           assert((await popup.locator('#view-watchfusion').getAttribute('src')).startsWith('modules/watchfusion/popup.html?windowId='));
           assert.equal(await popup.locator('body').evaluate(el => el.getBoundingClientRect().height), 570);
           await popup.screenshot({ path: path.join(resultDir, 'bridge-popup.png') });
@@ -109,6 +130,11 @@ async function qualifyBrowser() {
           await page.close(); pass += 2;
         }
         if (variant.media != null) {
+          const mediaPopup = await context.newPage();
+          await mediaPopup.goto(`chrome-extension://${extensionId}/${variant.media}popup.html`);
+          assert(await mediaPopup.locator('#stop').isHidden());
+          assert.equal(await mediaPopup.locator('#openFolder').count(), 0);
+          await mediaPopup.close(); pass++;
           page = await context.newPage();
           await page.goto(`http://127.0.0.1:${port}/media`);
           await page.frameLocator('iframe[data-player]').locator('#video').waitFor();
@@ -119,6 +145,8 @@ async function qualifyBrowser() {
             await chrome.storage.session.set({ sourceTab });
             await inject(sourceTab);
           }, `http://127.0.0.1:${port}/media`);
+          assert.equal(await worker.evaluate(async () => (await WatchFusionMediaLink.status()).linked), false,
+            'a persisted tab without active offscreen capture must not report sharing');
           const frame = page.frames().find(value => value.url().includes('/frame'));
           await frame.waitForFunction(() => document.querySelector('video').style.position === 'fixed');
           const before = await frame.locator('video').boundingBox();

@@ -199,7 +199,20 @@ function openNuvioBrowserMode(){
     render(); setStatus('Nuvio view reopened'); return;
   }
   const source={kind:'nuvio',type:'nuvio',url:'nuvio://home',entryUrl:'/nuvio/dist/index.html',title:'Nuvio',originalUrl:'nuvio://home'};
-  if(typeof roomId!=='undefined'&&roomId){if(typeof isHost==='function'&&!isHost())return alert('Only the host can switch the room to Nuvio.');fetch(apiUrl(`/api/rooms/${roomId}/media-source`),{method:'POST',headers:{'Content-Type':'application/json','x-member-id':session.memberId},body:JSON.stringify({media:source,originalUrl:source.originalUrl})}).then(async response=>{const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Could not open Nuvio.');state=data.state;sourceInputDirty=false;render();setStatus('Nuvio ready');}).catch(error=>setStatus(error.message||'Could not open Nuvio.'));return;}
+  if(typeof roomId!=='undefined'&&roomId){
+    if(typeof isHost==='function'&&!isHost())return alert('Only the host can switch the room to Nuvio.');
+    const inputAtRequest = document.getElementById('sourceInput')?.value;
+    return fetch(apiUrl(`/api/rooms/${roomId}/media-source`), {
+      method:'POST', headers:{'Content-Type':'application/json','x-member-id':session.memberId},
+      body:JSON.stringify({media:source,originalUrl:source.originalUrl})
+    }).then(async response=>{
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(data.error||'Could not open Nuvio.');
+      if(!applyIncomingRoomState(data.state))return;
+      if(document.getElementById('sourceInput')?.value === inputAtRequest)sourceInputDirty=false;
+      render();setStatus('Nuvio ready');
+    }).catch(error=>setStatus(error.message||'Could not open Nuvio.'));
+  }
   applySoloSource(source);setStatus('Nuvio ready · solo mode');
 }
 initNuvioProvider();
