@@ -228,6 +228,14 @@ async function ensureMediaSource(source) {
 function currentMediaPosition() { return Number(mediaVideo?.currentTime) || 0; }
 function mediaDuration() { return Number(mediaVideo?.duration) || 0; }
 function mediaPlaybackState() { return { position: currentMediaPosition(), rate: Number(mediaVideo?.playbackRate) || 1, paused: !!mediaVideo?.paused, ended: !!mediaVideo?.ended }; }
+async function restoreMediaPlayback(options={}) {
+  if(!mediaVideo||!mediaPlayerReady)return false;
+  const position=Math.max(0,Number(options.position)||0),paused=options.paused===true;
+  withMediaGuard(()=>{try{mediaVideo.currentTime=position;}catch{}});
+  if(paused)withMediaGuard(()=>mediaVideo.pause());
+  else {try{await mediaVideo.play();}catch{setStatus('Cached video is ready · press Play once to continue.');}}
+  return true;
+}
 function restoreMediaAudioPrefs() { if (!mediaVideo) return; mediaVideo.volume = Math.max(0, Math.min(1, Number(playerAudioPrefs?.volume ?? 100) / 100)); mediaVideo.muted = !!playerAudioPrefs?.muted; }
 function applyRoomMediaAudio() {
   const audio = authoritativeRoomAudio();
@@ -350,6 +358,6 @@ function followAttachedMedia(metadata = {}, options = {}) {
   });
   return true;
 }
-window.mediaPlayback = { ensureSource: ensureMediaSource, sync: syncMediaPlayer, followAttached: followAttachedMedia, position: currentMediaPosition, state: mediaPlaybackState, clear: clearMediaPlayer };
+window.mediaPlayback = { ensureSource: ensureMediaSource, sync: syncMediaPlayer, followAttached: followAttachedMedia, position: currentMediaPosition, state: mediaPlaybackState, restore: restoreMediaPlayback, clear: clearMediaPlayer };
 setInterval(() => { try { if (roomId && isMediaSource() && !isHost() && mediaPlayerReady) syncMediaPlayer(); } catch {} }, 250);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && roomId && isMediaSource() && !isHost()) { refreshMediaAnchor(true); syncMediaPlayer(); } });
