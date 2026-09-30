@@ -151,6 +151,14 @@
         event.source.postMessage({ type: 'watchfusion:extension-folder-result', requestId: data.requestId, ...result }, event.origin);
     });
 
+    window.EveWatchFusionFrameCapabilities = Object.freeze({
+        reload(manual = true) {
+            if (!activeFrame || activeFrame.hidden || !/^https?:/i.test(activeFrame.src || '')) return false;
+            reloadFrame(activeFrame, manual);
+            return true;
+        }
+    });
+
     const observer = new MutationObserver(() => patchFrame());
     observer.observe(document.documentElement, { childList: true, subtree: true });
     patchFrame();

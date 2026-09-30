@@ -123,7 +123,7 @@ export async function runFastSmoke() {
     assert.match(style, /video:not\(\[hidden\]\)/);
     assert.match(liveSource, /AUDIO_SYNC_AUTO_KEY/);
     assert.match(liveSource, /deviceProfileAudioDelayMs/);
-    assert.match(liveSource, /return mobile\?335:0/);
+    assert.match(liveSource, /return mobile\?330:0/);
     assert.match(liveSource, /onAudioSync:\s*applyAutoSync/);
     assert.match(linkedTab, /watchFusionMediaResolver/);
     assert.match(linkedTab, /command\('mirror'/);

@@ -278,14 +278,14 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             if (!action) return;
             if (action === 'close') return close();
             if (action === 'detach') return detach();
-            if (action === 'refresh') return refresh();
+            if (action === 'refresh') return refresh({ reloadUi: true });
             if (action === 'start') return setRunning(true);
             if (action === 'stop') return setRunning(false);
             if (action === 'setup-core') return setupCore();
         });
         return overlay;
     }
-    async function refresh() {
+    async function refresh(options = {}) {
         ensureOverlay();
         let controlled = null;
         try {
@@ -329,6 +329,9 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         sensor()?.configureExposure?.(status);
         renderStatus();
         window.dispatchEvent(new CustomEvent('eve:watchfusion-status', { detail: { ...status } }));
+        if (options.reloadUi === true && status?.running && frame?.dataset.loaded === '1' && !frame.hidden) {
+            window.EveWatchFusionFrameCapabilities?.reload?.(true);
+        }
         return status;
     }
     async function setupCore() {

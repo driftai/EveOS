@@ -36,7 +36,7 @@
 - Attachment is passive by default: do not restyle/resize the source page, force quality, replace media, enter fullscreen, click controls automatically, or capture pixels. Sampling may read URL/media state; page writes are allowed only for an explicit WatchFusion transport command.
 - The source tab may be muted at the browser-tab level while attached to prevent duplicate local audio, but its original mute state must be restored exactly. This browser-level mute must not change the page player's own volume/mute state.
 - MAIN-world web-component listeners and isolated-world probes must both be disposed on unlink and before reinjection so extension reloads/upgrades cannot leave stale observers behind.
-- Audioflix remains a real WebRTC audio stream. Auto audio sync uses measured playout timestamps when the browser exposes them; otherwise it uses the device's remembered calibration, with a physically-qualified 335 ms mobile seed and 0 ms desktop seed.
+- Audioflix remains a real WebRTC audio stream. Auto audio sync uses measured playout timestamps when the browser exposes them; otherwise it uses the device's remembered calibration, with a physically-qualified 330 ms mobile seed and 0 ms desktop seed.
 - Audioflix is audio-only in the WatchFusion media stage: keep its transport/queue controls visible, but do not reserve or render a black video canvas unless the received stream actually contains a live video track.
 - The horizontal Watch Party divider must preserve at least 280 px of embedded media height on laptop-size layouts.
 
@@ -44,3 +44,4 @@
 - Host-local diagnostics may accept the host machine's own physical IP/sslip hostname only when the request socket is also one of that same machine's interface addresses; remote LAN clients remain outside the host-local capability boundary.
 
 - In embedded Audioflix rooms, the reserved media-workspace height should be useful: expand the Music Library queue through the audio-only control area instead of leaving a large dead gap. Preserve the existing Watch Party splitter behavior.
+- The EveOS outer Refresh button is a user-requested UI reload as well as a lifecycle/status refresh. Background polling must remain status-only so it never reloads WatchFusion every poll interval.
