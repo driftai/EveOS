@@ -15,7 +15,7 @@ from urllib.request import urlopen
 
 from . import bookmark_intel_control, eveos_console_prefs, eveos_ports, eveos_web_control
 from . import gemini_control, gemini_credentials, local_moe_control, matrix_window_control, nexus_browser_control
-from . import piano_player_control, watchfusion_control, world_book_control
+from . import piano_player_control, watchfusion_control, watchfusion_modes, world_book_control
 from .eveos_http_cors import eveos_cors_origin
 from . import eveos_control_requests
 
@@ -270,7 +270,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             self._send(piano_player_control.get_status())
             return
         if path == "/api/watchfusion/status":
-            self._send(watchfusion_control.get_status())
+            self._send(watchfusion_modes.decorate_status(watchfusion_control.get_status()))
             return
         if path == "/api/bookmark-intel/status":
             self._send(bookmark_intel_control.get_status())
@@ -297,7 +297,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             "/api/gemini-server/start", "/api/gemini-server/stop",
             "/api/world-book/start", "/api/world-book/stop", "/api/world-book/launch",
             "/api/piano-player/start", "/api/piano-player/stop", "/api/piano-player/launch", "/api/piano-player/setup",
-            "/api/watchfusion/start", "/api/watchfusion/stop", "/api/watchfusion/launch", "/api/watchfusion/setup", "/api/watchfusion/extension",
+            "/api/watchfusion/start", "/api/watchfusion/stop", "/api/watchfusion/launch", "/api/watchfusion/setup", "/api/watchfusion/extension", "/api/watchfusion/mode",
             "/api/bookmark-intel/start", "/api/bookmark-intel/stop",
             "/api/local-moe/start", "/api/local-moe/stop", "/api/local-moe/launch", "/api/local-moe/setup",
             "/api/nexus-browser/start", "/api/nexus-browser/stop", "/api/nexus-browser/setup", "/api/nexus-browser/extension",
@@ -332,6 +332,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             "/api/watchfusion/start": watchfusion_control.start_server,
             "/api/watchfusion/stop": lambda: _stop_tool(watchfusion_control.stop_server),
             "/api/watchfusion/launch": watchfusion_control.open_launcher,
+            "/api/watchfusion/mode": lambda: watchfusion_modes.apply_request(gemini_credentials.read_json_body(self) or {}),
             "/api/watchfusion/extension": lambda: watchfusion_control.open_extension_folder(
                 str((gemini_credentials.read_json_body(self) or {}).get("package") or "watchfusion")),
             "/api/bookmark-intel/start": bookmark_intel_control.start_server,

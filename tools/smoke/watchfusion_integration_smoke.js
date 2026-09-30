@@ -61,12 +61,14 @@ function continuityReattachContract() {
 function sourceContract() {
     const helper = read('server_modules/eveos_control_helper.py');
     const control = read('server_modules/watchfusion_control.py');
+    const modes = read('server_modules/watchfusion_modes.py');
     const exposureControl = read('server_modules/watchfusion_exposure.py');
     const prefs = read('server_modules/eveos_console_prefs.py');
     const registry = JSON.parse(read('config/eveos-ports.json'));
     const manifest = read('js/config/manifest/scripts.parts/03-feature-modules.js');
     const bootstrap = read('js/modules/features/watchfusion/watchfusion.bootstrap.js');
     const ui = read('js/modules/features/watchfusion/watchfusion.js');
+    const modeUi = read('js/modules/features/watchfusion/watchfusion.mode-select.js');
     const css = read('css/modules/watchfusion.css');
     const setupRoutes = read('tools/WatchFusion/src/server/setup-routes.js');
     const roomImageRoutes = read('tools/WatchFusion/src/server/room-image-routes.js');
@@ -110,6 +112,9 @@ function sourceContract() {
     check(helper.includes('"/api/watchfusion/status"'), 'WF-CONTROL-STATUS', 'WatchFusion status route is missing');
     check(helper.includes('"/api/watchfusion/start"') && helper.includes('watchfusion_control.start_server'), 'WF-CONTROL-START', 'WatchFusion start route is missing');
     check(helper.includes('"/api/watchfusion/stop"') && helper.includes('watchfusion_control.stop_server'), 'WF-CONTROL-STOP', 'WatchFusion stop route is missing');
+    check(helper.includes('"/api/watchfusion/mode"') && helper.includes('watchfusion_modes.apply_request'), 'WF-CONTROL-MODE', 'WatchFusion mode-switch route is missing');
+    check(modes.includes('watchfusion_control.start_server(host="0.0.0.0")') && modes.includes('START-WATCHFUSION-REMOTE.bat'), 'WF-CONTROL-MODE-LAUNCH', 'mode switcher cannot launch LAN and Remote modes');
+    check(modeUi.includes("dataset.wfMode") && modeUi.includes("/api/watchfusion/mode"), 'WF-MODE-UI', 'top marker mode selector is not wired to lifecycle control');
     check(helper.includes('"/api/watchfusion/setup"') && helper.includes('watchfusion_control.setup_component'), 'WF-CONTROL-SETUP', 'fresh-clone core setup route is missing');
     check(helper.includes('("watchFusion", watchfusion_control.stop_server)'), 'WF-STOP-ALL', 'global EveOS stop does not include WatchFusion');
 
@@ -126,6 +131,9 @@ function sourceContract() {
     check(control.includes('"onDemand": True') && control.includes('is never restored at EveOS boot'), 'WF-ON-DEMAND-LIFECYCLE', 'WatchFusion can still auto-restore a prior runtime session');
     check(control.includes('def start_server(*, persist: bool = False)') && control.includes('def stop_server(*, persist: bool = False)'), 'WF-NO-PERSIST-DEFAULT', 'ordinary WatchFusion start/stop still persists surprise boot state');
     check(control.includes('"components": components'), 'WF-OFFLINE-SETUP-STATUS', 'outer workspace cannot inspect components while WatchFusion is stopped');
+    check(offscreenRelay.includes('requestVideoFrameCallback') && offscreenRelay.includes("contentHint = 'motion'"), 'WF-LIVE-LOW-LATENCY-CAPTURE', 'linked-tab relay is not frame-driven/motion-optimized');
+    check(sourceWorker.includes("to: 'offscreen'"), 'WF-LIVE-WORKER-RELAY', 'linked-tab worker no longer routes samples to offscreen relay');
+    check(read('tools/WatchFusion/browser-extension/live-peer.js').includes("degradationPreference = 'maintain-framerate'"), 'WF-LIVE-SENDER-PACING', 'WebRTC sender is not tuned to preserve frame cadence');
     check(control.includes('_runtime_json("/api/network-info")') && control.includes('watchfusion_exposure.reconcile_status') && exposureControl.includes('network.get("localOnly") is False') && exposureControl.includes('network.get("canonicalLanHost")') && exposureControl.includes('exposureMode="lan"'), 'WF-LIVE-LAN-EXPOSURE', 'WatchFusion control does not recover the selected LAN surface from the live runtime when exposure metadata is stale');
     check(control.includes('eveos_console_prefs.headless_for("watchFusion")'), 'WF-CONSOLE', 'WatchFusion does not use its independent console preference');
     check(prefs.includes('"watchFusion"'), 'WF-CONSOLE-REGISTRY', 'WatchFusion is not registered in console preferences');

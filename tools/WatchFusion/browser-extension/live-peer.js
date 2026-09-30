@@ -40,7 +40,8 @@
       if (message.type === 'viewer' && this.options.stream) {
         this.drop(message.peer);
         const peer = this.createPeer(message.peer);
-        for (const track of this.options.stream.getTracks()) peer.addTrack(track, this.options.stream);
+        const senders = this.options.stream.getTracks().map(track => peer.addTrack(track, this.options.stream));
+        await Promise.all(senders.map(sender => this.tuneSender(sender)));
         const offer = await peer.createOffer(); await peer.setLocalDescription(offer);
         this.send({ type: 'signal', peer: message.peer, signal: { description: peer.localDescription } });
         return;
@@ -60,11 +61,28 @@
         else peer.pendingIce.push(signal.candidate);
       }
     }
+    async tuneSender(sender) {
+      if (sender.track?.kind !== 'video') return;
+      try {
+        const params = sender.getParameters();
+        if (!params.encodings?.length) return;
+        params.encodings[0].maxBitrate = Math.max(500000, Number(this.options.maxVideoBitrate) || 6000000);
+        params.encodings[0].maxFramerate = Math.max(15, Number(this.options.maxVideoFramerate) || 30);
+        params.degradationPreference = 'maintain-framerate';
+        await sender.setParameters(params);
+      } catch {}
+    }
     createPeer(id) {
       const peer = new RTCPeerConnection({ iceServers: this.iceServers || [] });
       peer.pendingIce = []; this.peers.set(id, peer);
       peer.onicecandidate = event => { if (event.candidate) this.send({ type: 'signal', peer: id, signal: { candidate: event.candidate.toJSON() } }); };
-      peer.ontrack = event => { const stream = event.streams[0]; if (stream) this.options.onStream?.(stream); };
+      peer.ontrack = event => {
+        try {
+          if ('jitterBufferTarget' in event.receiver) event.receiver.jitterBufferTarget = 60;
+          else if ('playoutDelayHint' in event.receiver) event.receiver.playoutDelayHint = 0.06;
+        } catch {}
+        const stream = event.streams[0]; if (stream) this.options.onStream?.(stream);
+      };
       peer.onconnectionstatechange = () => {
         if (peer.connectionState === 'connected') { clearTimeout(peer.deadline); this.status('Live · connected'); }
         if (peer.connectionState === 'failed') {

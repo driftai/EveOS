@@ -361,7 +361,7 @@ def setup_component(component: str = "core") -> dict:
     return payload
 
 
-def start_server(*, persist: bool = False) -> dict:
+def start_server(*, persist: bool = False, host: str = "127.0.0.1") -> dict:
     """Programmatic WatchFusion start is deliberately localhost-only."""
     global _PROCESS
     eveos_exposure.clear_state("watchfusion")
@@ -377,7 +377,7 @@ def start_server(*, persist: bool = False) -> dict:
             return {**current, "ok": False, "state": "error"}
 
         environment = os.environ.copy()
-        environment.update(HOST="127.0.0.1", PORT=str(WATCHFUSION_PORT), EVEOS_INTEGRATED="1")
+        environment.update(HOST=host if host in {"127.0.0.1", "0.0.0.0"} else "127.0.0.1", PORT=str(WATCHFUSION_PORT), EVEOS_INTEGRATED="1")
         headless = eveos_console_prefs.headless_for("watchFusion")
         flags = 0
         if os.name == "nt":
@@ -396,7 +396,7 @@ def start_server(*, persist: bool = False) -> dict:
             break
         time.sleep(0.15)
     with _LOCK:
-        payload = _status("WatchFusion started locally." if _health() else "WatchFusion is starting locally.")
+        payload = _status(f"WatchFusion {'started' if _health() else 'is starting'} {'locally' if host == '127.0.0.1' else 'in LAN mode'}.")
         if _PROCESS and _PROCESS.poll() is not None and not payload["running"]:
             payload.update(ok=False, state="error", message="WatchFusion exited before becoming ready.")
         return payload
