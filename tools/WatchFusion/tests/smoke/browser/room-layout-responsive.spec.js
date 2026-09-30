@@ -53,28 +53,39 @@ test('phone embedded rooms stack WatchParty below media without horizontal overf
     const splitter = document.getElementById('roomSplitter').getBoundingClientRect();
     const panel = document.getElementById('partyPanel').getBoundingClientRect();
     const form = document.getElementById('chatForm').getBoundingClientRect();
+    const chat = document.getElementById('chat').getBoundingClientRect();
+    const tabs = getComputedStyle(document.querySelector('.source-tabs')).gridTemplateColumns.trim().split(/\s+/).length;
+    const hintDisplay = getComputedStyle(document.querySelector('.host-handoff-hint')).display;
     return {
       columns: getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length,
       rows: getComputedStyle(grid).gridTemplateRows.trim().split(/\s+/).length,
+      sourceTabColumns: tabs,
       mainBottom: main.bottom,
       splitterTop: splitter.top,
       splitterBottom: splitter.bottom,
       panelTop: panel.top,
       panelRight: panel.right,
+      panelBottom: panel.bottom,
       formRight: form.right,
+      formBottom: form.bottom,
+      chatHeight: chat.height,
+      hintDisplay,
       rootWidth: root.clientWidth,
       scrollWidth: root.scrollWidth,
-      panelBottom: panel.bottom,
       viewportHeight: innerHeight
     };
   });
 
   expect(geometry.columns).toBe(1);
   expect(geometry.rows).toBe(3);
+  expect(geometry.sourceTabColumns).toBe(3);
+  expect(geometry.hintDisplay).toBe('none');
   expect(Math.abs(geometry.mainBottom - geometry.splitterTop)).toBeLessThanOrEqual(1);
   expect(Math.abs(geometry.splitterBottom - geometry.panelTop)).toBeLessThanOrEqual(1);
   expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.rootWidth + 1);
   expect(geometry.panelRight).toBeLessThanOrEqual(geometry.rootWidth + 1);
   expect(geometry.formRight).toBeLessThanOrEqual(geometry.rootWidth + 1);
+  expect(geometry.formBottom).toBeLessThanOrEqual(geometry.panelBottom + 1);
+  expect(geometry.chatHeight).toBeGreaterThanOrEqual(64);
   expect(geometry.panelBottom).toBeLessThanOrEqual(geometry.viewportHeight + 1);
 });
