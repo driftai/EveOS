@@ -151,6 +151,7 @@ export async function runFastSmoke() {
     assert.match(bootstrap, /updateServerClock\(data\.state\.serverTime,sentAt,receivedAt\)/);
     assert.match(playbackSync, /SYNC_TOLERANCE_SEC = 0\.15/);
     assert.match(commands, /if \(isHost\(\) && options\.hydrateHost !== true\) return;/);
+    assert.match(commands, /watchFusionYoutubeStability\?\.observe[\s\S]*hostPlaybackEventAllowed/);
     assert.match(youtubeStability, /YT\.PlayerState\.BUFFERING/);
     assert.match(youtubeStability, /getVideoLoadedFraction/);
     assert.match(youtubeStability, /\/voxelvision\/api\/youtube\/import/);
