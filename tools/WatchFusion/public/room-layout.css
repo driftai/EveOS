@@ -246,11 +246,11 @@ html.watchfusion-party-bottom.watchfusion-resizing * {
   }
 
   html.eveos-embedded.watchfusion-party-bottom .source-tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   html.eveos-embedded.watchfusion-party-bottom #resolveTabBtn {
-    grid-column: 1 / -1;
+    grid-column: auto;
   }
 
   html.eveos-embedded.watchfusion-party-bottom .media-status-row {
