@@ -3,8 +3,9 @@
   if (window.__watchFusionPageMediaAdapter) return;
   window.__watchFusionPageMediaAdapter = true;
   const CHANNEL = 'eveos.watchfusion.page-media.v1';
-  const bound = new WeakSet();
+  const bindings = new Map();
   const state = { hasMedia:false, paused:true, currentTime:0, duration:0, rate:1, volume:1, title:'' };
+  let observer = null, refreshTimer = null, disposed = false;
 
   function player() {
     return [...document.querySelectorAll('strmcx-embed')].find(element => {
@@ -15,6 +16,7 @@
   }
 
   function publish(target = player()) {
+    if (disposed) return;
     state.hasMedia = !!target;
     state.title = navigator.mediaSession?.metadata?.title
       || target?.shadowRoot?.querySelector('iframe')?.getAttribute('aria-label') || document.title;
@@ -22,25 +24,39 @@
   }
 
   function bind(target) {
-    if (!target || bound.has(target)) return;
-    bound.add(target);
-    target.addEventListener('strmcx-state-change', event => {
-      state.paused = event.detail?.state !== 'playing'; publish(target);
-    });
-    target.addEventListener('strmcx-time-update', event => {
-      state.currentTime = Number(event.detail?.currentTime) || 0;
-      if (Number.isFinite(Number(event.detail?.duration))) state.duration = Number(event.detail.duration);
-      publish(target);
-    });
-    target.addEventListener('strmcx-duration-change', event => {
-      state.duration = Number(event.detail?.duration) || 0; publish(target);
-    });
-    target.addEventListener('strmcx-ended', () => { state.paused = true; publish(target); });
+    if (!target || bindings.has(target)) return;
+    const handlers = {
+      state: event => { state.paused = event.detail?.state !== 'playing'; publish(target); },
+      time: event => {
+        state.currentTime = Number(event.detail?.currentTime) || 0;
+        if (Number.isFinite(Number(event.detail?.duration))) state.duration = Number(event.detail.duration);
+        publish(target);
+      },
+      duration: event => { state.duration = Number(event.detail?.duration) || 0; publish(target); },
+      ended: () => { state.paused = true; publish(target); }
+    };
+    target.addEventListener('strmcx-state-change', handlers.state);
+    target.addEventListener('strmcx-time-update', handlers.time);
+    target.addEventListener('strmcx-duration-change', handlers.duration);
+    target.addEventListener('strmcx-ended', handlers.ended);
+    bindings.set(target, handlers);
   }
 
-  window.addEventListener('message', event => {
+  function unbindAll() {
+    for (const [target, handlers] of bindings) {
+      try { target.removeEventListener('strmcx-state-change', handlers.state); } catch {}
+      try { target.removeEventListener('strmcx-time-update', handlers.time); } catch {}
+      try { target.removeEventListener('strmcx-duration-change', handlers.duration); } catch {}
+      try { target.removeEventListener('strmcx-ended', handlers.ended); } catch {}
+    }
+    bindings.clear();
+  }
+
+  function onMessage(event) {
     const data = event.data;
-    if (event.source !== window || data?.channel !== CHANNEL || data.type !== 'control') return;
+    if (event.source !== window || data?.channel !== CHANNEL) return;
+    if (data.type === 'dispose') { dispose(); return; }
+    if (data.type !== 'control' || disposed) return;
     const target = player();
     if (!target) return;
     const value = Number(data.value) || 0;
@@ -53,10 +69,32 @@
     else if (data.action === 'next') target.nextEpisode();
     else if (data.action === 'prev') target.previousEpisode();
     publish(target);
-  });
+  }
 
-  function refresh() { const target = player(); bind(target); publish(target); }
-  new MutationObserver(refresh).observe(document.documentElement, { childList:true, subtree:true });
-  setInterval(refresh, 500);
+  function refresh() {
+    if (disposed) return;
+    const target = player();
+    bind(target);
+    publish(target);
+  }
+
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+    observer?.disconnect();
+    observer = null;
+    unbindAll();
+    window.removeEventListener('message', onMessage);
+    try { delete window.__watchFusionPageMediaAdapterCleanup; } catch { window.__watchFusionPageMediaAdapterCleanup = null; }
+    try { delete window.__watchFusionPageMediaAdapter; } catch { window.__watchFusionPageMediaAdapter = false; }
+  }
+
+  window.__watchFusionPageMediaAdapterCleanup = dispose;
+  window.addEventListener('message', onMessage);
+  observer = new MutationObserver(refresh);
+  observer.observe(document.documentElement, { childList:true, subtree:true });
+  refreshTimer = setInterval(refresh, 500);
   refresh();
 })();

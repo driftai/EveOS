@@ -2,11 +2,11 @@
 (() => {
   if (window.__watchFusionMediaProbe) return;
   window.__watchFusionMediaProbe = true;
-  let enabled = true, focused = null, savedStyle = null, pageMedia = null;
+  let enabled = true, focused = null, savedStyle = null, pageMedia = null, sampleTimer = null;
   const frameToken = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`, children = new Map();
   const PAGE_CHANNEL = 'eveos.watchfusion.page-media.v1';
 
-  window.addEventListener('message', event => {
+  function onWindowMessage(event) {
     if (event.source === window && event.data?.channel === PAGE_CHANNEL && event.data.type === 'state') {
       pageMedia = { ...event.data, at:Date.now() };
       return;
@@ -14,12 +14,13 @@
     if (event.data?.type !== 'watchfusion:media-frame' || typeof event.data.token !== 'string') return;
     const frame = [...document.querySelectorAll('iframe')].find(value => value.contentWindow === event.source);
     if (frame) children.set(frame, { ...event.data, at: Date.now() });
-  });
-  document.addEventListener('load', event => {
+  }
+
+  function onDocumentLoad(event) {
     if (enabled && event.target?.tagName === 'IFRAME') {
       chrome.runtime.sendMessage({ to: 'worker', type: 'refresh-probes' }).catch(() => {});
     }
-  }, true);
+  }
 
   function visible(element) {
     const rect = element?.getBoundingClientRect?.();
@@ -41,7 +42,6 @@
   }
 
   function frameFallback() {
-    // Never assume the biggest iframe is a player (it may be comments or ads).
     return [...children].filter(([frame, sample]) => frame.isConnected && visible(frame)
       && sample.hasMedia && Date.now() - sample.at < 1800)
       .sort((a, b) => b[1].score - a[1].score)[0]?.[0] || null;
@@ -55,10 +55,19 @@
   }
 
   function cleanup() {
+    if (!window.__watchFusionMediaProbe) return;
     enabled = false;
     restoreFocus();
     children.clear();
     pageMedia = null;
+    clearInterval(sampleTimer);
+    sampleTimer = null;
+    window.removeEventListener('message', onWindowMessage);
+    document.removeEventListener('load', onDocumentLoad, true);
+    chrome.runtime.onMessage.removeListener(onRuntimeMessage);
+    window.postMessage({ channel:PAGE_CHANNEL, type:'dispose' }, '*');
+    try { delete window.__watchFusionMediaProbeCleanup; } catch { window.__watchFusionMediaProbeCleanup = null; }
+    try { delete window.__watchFusionMediaProbe; } catch { window.__watchFusionMediaProbe = false; }
   }
   window.__watchFusionMediaProbeCleanup = cleanup;
 
@@ -143,7 +152,7 @@
     }).catch(() => {});
   }
 
-  chrome.runtime.onMessage.addListener(message => {
+  function onRuntimeMessage(message) {
     if (message.type === 'probe-stop') { cleanup(); return; }
     if (message.type === 'probe-start') { enabled = true; snapshot(); return; }
     if (message.type !== 'source-control' || !enabled) return;
@@ -163,8 +172,11 @@
     if (message.action === 'rate') element.playbackRate = Math.max(.25, Math.min(4, value));
     if (message.action === 'volume') { element.volume = Math.max(0, Math.min(1, value)); element.muted = value === 0; }
     snapshot();
-  });
+  }
 
-  setInterval(snapshot, 300);
+  window.addEventListener('message', onWindowMessage);
+  document.addEventListener('load', onDocumentLoad, true);
+  chrome.runtime.onMessage.addListener(onRuntimeMessage);
+  sampleTimer = setInterval(snapshot, 300);
   snapshot();
 })();
