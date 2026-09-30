@@ -41,7 +41,7 @@ async function unloadWatchFusionMedia(){
   try{
     await window.watchPartyProviders?.unload?.(source);
     window.mediaPlayback?.clear?.();
-    if(source.videoId||source.kind==='youtube'||source.type==='youtube'){try{ytPlayer?.stopVideo?.();}catch{}pendingVideoId=null;playerInitializing=false;window.watchFusionYoutubeStability?.reset?.();}
+    if(source.videoId||source.kind==='youtube'||source.type==='youtube'){try{ytPlayer?.stopVideo?.();}catch{}pendingVideoId=null;playerInitializing=false;window.watchFusionYoutubeLayout?.deactivate?.();window.watchFusionYoutubeStability?.reset?.();}
     const ready={kind:'ready',type:'ready',title:'Ready'};
     if(roomId){const ok=await command('source',{source:ready});if(!ok)return false;}
     else applySoloSource(ready);
