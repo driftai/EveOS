@@ -163,6 +163,7 @@ Thumbs.db
 # EveOS local modular state store (generated at runtime)
 data/modular-state/
 data/runtime/
+data/spatial-notes/
 **/.browser-ai-bridge/
 
 # EveOS local runtime path/session state (machine-specific)

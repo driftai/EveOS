@@ -1,0 +1,285 @@
+.notes-world-book-overlay[data-view="notes"] .notes-world-book-notes-view {
+    padding: 10px clamp(12px, 2vw, 24px) clamp(12px, 2vw, 24px) !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    gap: 10px;
+}
+
+.eve-notes-tabs {
+    display: flex;
+    gap: 6px;
+    min-width: 0;
+    padding: 4px;
+    border: 1px solid rgba(80, 202, 213, .2);
+    border-radius: 11px;
+    background: rgba(2, 13, 17, .64);
+}
+
+.eve-notes-tabs button,
+.eve-notes-workspace button,
+.eve-notes-workspace input,
+.eve-notes-workspace select {
+    min-height: 32px;
+    padding: 6px 10px;
+    box-sizing: border-box;
+    border: 1px solid rgba(79, 201, 212, .26);
+    border-radius: 8px;
+    background: rgba(8, 31, 37, .78);
+    color: var(--text-main);
+    font: inherit;
+    font-size: .75rem;
+}
+
+.eve-notes-tabs button {
+    flex: 1;
+    cursor: pointer;
+}
+
+.eve-notes-tabs button:hover,
+.eve-notes-workspace button:hover:not(:disabled) {
+    border-color: rgba(103, 235, 244, .66);
+    background: rgba(18, 73, 80, .82);
+}
+
+.eve-notes-tabs button.is-active {
+    border-color: rgba(110, 238, 246, .7);
+    background: linear-gradient(135deg, rgba(30, 170, 181, .7), rgba(22, 103, 113, .76));
+    color: #effeff;
+}
+
+.eve-notes-scratchpad,
+.eve-notes-workspace {
+    min-width: 0;
+    min-height: 0;
+    display: none;
+}
+
+.notes-world-book-overlay[data-eve-notes-mode="scratchpad"] .eve-notes-scratchpad {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 12px;
+}
+
+.notes-world-book-overlay[data-eve-notes-mode="files"] .eve-notes-workspace,
+.notes-world-book-overlay[data-eve-notes-mode="spatial"] .eve-notes-workspace {
+    display: grid;
+}
+
+.eve-notes-scratchpad [data-world-book-notes] {
+    height: 100% !important;
+    min-height: 0 !important;
+}
+
+.eve-notes-workspace {
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 8px;
+}
+
+.eve-notes-sourcebar,
+.eve-notes-trackbar,
+.eve-notes-spatialbar,
+.eve-notes-formatbar,
+.eve-notes-editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+}
+
+.eve-notes-sourcebar [data-eve-notes-root],
+.eve-notes-trackbar input {
+    min-width: 120px;
+    flex: 1;
+}
+
+.eve-notes-md-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text-muted);
+    font-size: .72rem;
+    white-space: nowrap;
+}
+
+.eve-notes-md-toggle input {
+    min-height: auto;
+    width: auto;
+    margin: 0;
+}
+
+.eve-notes-spatialbar {
+    flex-wrap: wrap;
+}
+
+.eve-notes-spatialbar small {
+    margin-left: auto;
+    color: var(--text-muted);
+}
+
+.notes-world-book-overlay[data-eve-notes-mode="files"] [data-eve-notes-spatial-only],
+.notes-world-book-overlay[data-eve-notes-mode="spatial"] [data-eve-notes-external-only],
+.notes-world-book-overlay[data-eve-notes-mode="scratchpad"] [data-eve-notes-panel="workspace"] {
+    display: none;
+}
+
+.eve-notes-browser {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(210px, 31%) minmax(0, 1fr);
+    overflow: hidden;
+    border: 1px solid rgba(78, 203, 213, .24);
+    border-radius: 13px;
+    background: rgba(3, 12, 16, .64);
+}
+
+.eve-notes-list-pane,
+.eve-notes-editor-pane {
+    min-width: 0;
+    min-height: 0;
+}
+
+.eve-notes-list-pane {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 7px;
+    padding: 10px;
+    border-right: 1px solid rgba(78, 203, 213, .18);
+}
+
+.eve-notes-pathbar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+}
+
+.eve-notes-pathbar button {
+    flex: 0 0 32px;
+    padding: 0;
+}
+
+.eve-notes-pathbar span {
+    overflow: hidden;
+    color: #8debf2;
+    font-size: .72rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.eve-notes-list {
+    min-height: 0;
+    display: grid;
+    align-content: start;
+    gap: 5px;
+    overflow: auto;
+    scrollbar-color: rgba(75, 190, 199, .66) rgba(2, 13, 17, .5);
+    scrollbar-width: thin;
+}
+
+.eve-notes-entry {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.eve-notes-entry small {
+    color: var(--text-muted);
+    font-size: .62rem;
+}
+
+.eve-notes-entry.is-active {
+    border-color: rgba(102, 233, 242, .7);
+    background: rgba(23, 103, 113, .7);
+}
+
+.eve-notes-empty {
+    margin: 10px 4px;
+    color: var(--text-muted);
+    font-size: .75rem;
+    line-height: 1.5;
+}
+
+.eve-notes-editor-pane {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 10px;
+}
+
+.eve-notes-editor-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.eve-notes-editor-head > div:first-child {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.eve-notes-editor-head strong,
+.eve-notes-editor-head small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.eve-notes-editor-head strong { color: #a5f6fb; }
+.eve-notes-editor-head small { color: var(--text-muted); font-size: .68rem; }
+.eve-notes-editor-actions { justify-content: flex-end; flex-wrap: wrap; }
+.eve-notes-editor-actions button { min-height: 29px; padding: 4px 8px; }
+
+.eve-notes-formatbar {
+    color: var(--text-muted);
+    font-size: .7rem;
+}
+
+.eve-notes-formatbar label { display: inline-flex; align-items: center; gap: 5px; }
+.eve-notes-formatbar select { min-height: 28px; padding: 3px 7px; }
+.eve-notes-formatbar input { min-height: auto; padding: 0; }
+
+[data-eve-notes-editor] {
+    width: 100%;
+    min-height: 0;
+    padding: 16px;
+    resize: none;
+    box-sizing: border-box;
+    border: 1px solid rgba(78, 203, 213, .25);
+    border-radius: 10px;
+    outline: 0;
+    background: rgba(1, 8, 11, .7);
+    color: var(--text-main);
+    line-height: 1.65;
+    caret-color: #65edf5;
+}
+
+[data-eve-notes-editor]:focus {
+    border-color: rgba(86, 226, 236, .62);
+    box-shadow: 0 0 0 3px rgba(49, 208, 219, .07);
+}
+
+[data-eve-notes-editor]:disabled { opacity: .58; cursor: not-allowed; }
+.eve-notes-workspace button:disabled { opacity: .42; cursor: not-allowed; }
+
+.eve-notes-status {
+    min-height: 18px;
+    color: var(--text-muted);
+    font-size: .7rem;
+}
+
+.eve-notes-status[data-state="error"] { color: #ff9e98; }
+.eve-notes-status[data-state="success"] { color: #8cf2b6; }
+
+@media (max-width: 820px) {
+    .eve-notes-sourcebar,
+    .eve-notes-trackbar { flex-wrap: wrap; }
+    .eve-notes-browser { grid-template-columns: 1fr; grid-template-rows: minmax(150px, 35%) minmax(0, 1fr); }
+    .eve-notes-list-pane { border-right: 0; border-bottom: 1px solid rgba(78, 203, 213, .18); }
+    .eve-notes-editor-head { align-items: flex-start; flex-direction: column; }
+    .eve-notes-editor-actions { justify-content: flex-start; }
+}

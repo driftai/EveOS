@@ -319,6 +319,13 @@ window.EveMatrixWorkshop = window.EveMatrixWorkshop || {};
         ns.openWorkspace(config.activeWorkspace || 'main');
     };
 
+    ns.rehydrate = function rehydrateMatrixWorkshop() {
+        const overlay = ensureOverlay();
+        if (!isOpen()) return;
+        const frame = overlay.querySelector(`#${FRAME_ID}`);
+        if (frame && (!frame.src || frame.src === 'about:blank')) frame.src = getSourceUrl();
+    };
+
     window.addEventListener('keydown', function (event) {
         if (event.key !== 'Escape' || !isOpen()) return;
         event.preventDefault();
@@ -326,6 +333,7 @@ window.EveMatrixWorkshop = window.EveMatrixWorkshop || {};
     });
 
     window.dispatchEvent(new CustomEvent('eve:matrix-workshop-ready'));
+    window.EveOSResume?.register?.('matrix', { open: ns.openCurrentView, resume: ns.rehydrate });
     if (window.__eveMatrixOpenPending) {
         window.__eveMatrixOpenPending = false;
         setTimeout(ns.openCurrentView, 0);

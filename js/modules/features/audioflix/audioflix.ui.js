@@ -435,4 +435,5 @@ window.EveAudioflix = window.EveAudioflix || {};
     window.addEventListener('beforeunload', () => { window.EveAudioflixNative?.clearHotkeys?.().catch(() => {}); });
     ns.queueConnection = { snapshot: () => ({ groupName: activeMusicQueue.groupName, currentIndex: activeMusicQueue.currentIndex, shuffle: activeMusicQueue.shuffle, loop: activeMusicQueue.loop, entries: activeMusicQueue.items.map((id, index) => ({ id, title: queueTrackAt(index)?.title || 'Untitled' })) }), step: delta => playQueueIndex(activeMusicQueue.currentIndex + delta), jump: index => playQueueIndex(index), action: action => ['shuffle-music-group', 'loop-music-group'].includes(action) ? handleAction({ dataset: { afAction: action } }, {}) : false };
     Object.assign(ns, { ready: true, open, openNexus, close, render: rerender, probeMissingDurations });
+    window.EveOSResume?.register?.('audioflix', { open, resume: () => { if (overlay && !document.body.contains(overlay)) overlay = null; if (overlay && !overlay.hidden) rerender(); } });
 })();

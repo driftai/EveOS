@@ -51,6 +51,10 @@ def assert_static_contract() -> None:
     assert "world-book.client.js" in html
     assert "world-book.offline.js" in html
     assert "world-book.offline.css" in html
+    assert "world-book.notes.workspace.css" in html
+    assert "world-book.notes.client.js" in html
+    assert "world-book.notes.workspace.js" in html
+    assert "eveos-resume.js" in html
     assert "world-book.overlay.template.js" in html
     assert "world-book.overlay.js" in html
     assert html.index("world-book.overlay.template.js") < html.index("world-book.overlay.js")
@@ -87,6 +91,12 @@ def assert_static_contract() -> None:
     assert "data-world-book-notes-copy" in overlay_surface
     assert "data-world-book-notes-download" in overlay_surface
     assert "data-world-book-notes-read" in overlay_surface
+    assert "data-eve-notes-mode=\"files\"" in overlay_surface
+    assert "data-eve-notes-mode=\"spatial\"" in overlay_surface
+    assert "data-eve-notes-editor" in overlay_surface
+    assert "notesWorkspace?.activate" in overlay
+    assert "EveOSResume?.register" in overlay
+    assert "restoreOpen" in overlay and "const repaired = createOverlay()" in overlay
     assert "notesNarration?.readAloud" in overlay
     assert "notesNarration?.notifyChanged" in overlay
     assert "ensureNarrationTarget" not in overlay
@@ -177,6 +187,11 @@ def assert_static_contract() -> None:
     assert "launch.ps1" in control
     assert 'headless_for("worldBook")' in control
     assert '"CREATE_NO_WINDOW" if headless else "CREATE_NEW_CONSOLE"' in control
+    assert "notes_workspace.handle_get_request" in control
+    assert "notes_workspace.handle_post_request" in control
+    notes_backend = (ROOT / "server_modules" / "notes_workspace.py").read_text(encoding="utf-8")
+    assert 'SPATIAL_ROOT_ID = "spatial"' in notes_backend
+    assert "expected_revision != current_revision" in notes_backend
 
     handler = (tool / "worldbook_runtime" / "layers" / "80_http_handler.py").read_text(encoding="utf-8")
     assert 'parsed.path == "/api/health"' in handler
@@ -212,6 +227,7 @@ def assert_static_contract() -> None:
 
 def assert_private_data_contract() -> None:
     ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "data/spatial-notes/" in ignore
     assert "tools/World-Book/data/**" in ignore
     assert "!tools/World-Book/data/README.txt" in ignore
 

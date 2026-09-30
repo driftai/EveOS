@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="js/modules/features/world-book/world-book.responsive.css?v=7e73f4dbbe4d">
     <link rel="stylesheet" href="js/modules/features/world-book/world-book.offline.css?v=8b6ae3a7dda7">
     <link rel="stylesheet" href="js/modules/features/world-book/world-book.portal.css?v=56de3a7227d9">
+    <link rel="stylesheet" href="js/modules/features/world-book/world-book.notes.workspace.css?v=471c579f6a7d">
     <link rel="stylesheet" href="css/modules/gemini/gemini_link_surfaces.eveos-fixes.css?v=5f41f44c6cff">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.css?v=2df73bb57067">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.library.css?v=9ae2be5527fe">
@@ -36,6 +37,7 @@
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.soundlab.responsive.css?v=5d30a2999ecb">
     <script src="js/vendor/lz-string.min.js?v=643f9ab7927a"></script>
     <script src="js/modules/core/theme-boot.js?v=c50db6103fb4"></script>
+    <script src="js/modules/core/eveos-resume.js?v=393bcc40fa0a"></script>
     <script>
         // Friendly heads-up when EveOS runs straight off the disk: everything browser-side is
         // fully local; the connection errors that follow just mean the OPTIONAL servers are off.
@@ -81,15 +83,15 @@
                 <button class="topbar-primary-btn" onclick="toggleView()" title="View">&#128203; View</button>
                 <button class="topbar-map-btn topbar-constellation-btn" onclick="if(window.EveConstellationMap) window.EveConstellationMap.openCurrentViewMap()" title="Constellation Map">&#127756; Map</button>
                 <button class="topbar-map-btn topbar-matrix-btn" type="button"
-                    onclick="window.EveMatrixWorkshop?.openCurrentView ? window.EveMatrixWorkshop.openCurrentView() : (window.__eveMatrixOpenPending = true)" aria-haspopup="dialog"
+                    onclick="window.EveOSResume?.open ? window.EveOSResume.open('matrix') : (window.EveMatrixWorkshop?.openCurrentView ? window.EveMatrixWorkshop.openCurrentView() : (window.__eveMatrixOpenPending = true))" aria-haspopup="dialog"
                     aria-controls="matrix-workshop-overlay" aria-expanded="false"
                     title="Matrix Workshop">&#9001; Matrix</button>
                 <button class="topbar-map-btn topbar-audioflix-btn" type="button"
-                    onclick="window.EveAudioflix?.open ? window.EveAudioflix.open() : (window.__eveAudioflixOpenPending = true)" aria-haspopup="dialog"
+                    onclick="window.EveOSResume?.open ? window.EveOSResume.open('audioflix') : (window.EveAudioflix?.open ? window.EveAudioflix.open() : (window.__eveAudioflixOpenPending = true))" aria-haspopup="dialog"
                     aria-controls="audioflix-overlay" aria-expanded="false"
                     title="Audioflix">&#127925; Audioflix</button>
                 <button class="topbar-primary-btn topbar-notes-world-book-btn" type="button"
-                    onclick="window.EveWorldBook?.open ? window.EveWorldBook.open() : (window.__eveWorldBookOpenPending = true)"
+                    onclick="window.EveOSResume?.open ? window.EveOSResume.open('worldBook') : (window.EveWorldBook?.open ? window.EveWorldBook.open() : (window.__eveWorldBookOpenPending = true))"
                     aria-haspopup="dialog" aria-controls="notes-world-book-overlay" aria-expanded="false"
                     title="Notes &amp; World Books">&#128221; Notes &amp; World Books</button>
                 <button class="topbar-primary-btn" onclick="openSettings()" title="Settings">&#9881; Settings</button>
@@ -206,7 +208,7 @@
     <script src="js/modules/features/matrix-workshop/matrix-workshop.datapack.mutations.js?v=705d372aa670"></script>
     <script src="js/modules/features/matrix-workshop/matrix-workshop.datapack.js?v=c57be6e7d08b"></script>
     <script src="js/modules/features/matrix-workshop/matrix-workshop.datapack.bridge.js?v=742e7a92a320"></script>
-    <script src="js/modules/features/matrix-workshop/matrix-workshop.js?v=5c44cdfc1b48"></script>
+    <script src="js/modules/features/matrix-workshop/matrix-workshop.js?v=a768a683ea5b"></script>
     <script src="js/modules/core/eveos-local-control.js?v=4acadc9ffb1e"></script>
     <script src="js/modules/core/eveos-console-panel.js?v=032bdfad44b5"></script>
     <script src="js/modules/features/world-book/world-book.client.js?v=f2a88dc55234"></script>
@@ -220,8 +222,10 @@
     <script src="js/modules/features/world-book/world-book.narration.clips.js?v=f0040b73eeaf"></script>
     <script src="js/modules/features/world-book/world-book.narration.runtime.js?v=2eef9847ab02"></script>
     <script src="js/modules/features/world-book/world-book.notes.narration.js?v=c0c3bdb9f1c3"></script>
-    <script src="js/modules/features/world-book/world-book.overlay.template.js?v=0d7a87cd4ac3"></script>
-    <script src="js/modules/features/world-book/world-book.overlay.js?v=af6060bed29c"></script>
+    <script src="js/modules/features/world-book/world-book.notes.client.js?v=f2356b610084"></script>
+    <script src="js/modules/features/world-book/world-book.notes.workspace.js?v=12b752862362"></script>
+    <script src="js/modules/features/world-book/world-book.overlay.template.js?v=64eece048a86"></script>
+    <script src="js/modules/features/world-book/world-book.overlay.js?v=01809d03dab4"></script>
     <script src="js/modules/features/world-book/world-book.narration.companion.js?v=9abb9f138d12"></script>
     <script src="js/modules/features/world-book/world-book.narration.bridge.js?v=95b8e71bcad7"></script>
     <script src="js/modules/features/world-book/world-book.narration.agentic.js?v=f4d72d907e74"></script>
@@ -331,7 +335,7 @@
     <script src="js/modules/features/audioflix/audioflix.ui.picker.js?v=7c92d54c0e51"></script>
     <script src="js/modules/features/audioflix/audioflix.ui.shared.js?v=f77258356948"></script>
     <script src="js/modules/features/audioflix/audioflix.ui.playlist-import.js?v=6f06733f8b7a"></script>
-    <script src="js/modules/features/audioflix/audioflix.ui.js?v=9a4516c5eac3"></script>
+    <script src="js/modules/features/audioflix/audioflix.ui.js?v=991ebc7518c0"></script>
     <script src="js/modules/gemini/ui/agenticDialogPortal.js?v=15d43d0ced56"></script>
     <script src="js/modules/features/watchfusion/watchfusion.mode-select.js?v=4f0caff53126"></script>
     <script src="js/config/manifest/scripts.parts/00-core.js?v=15d984d00815"></script>

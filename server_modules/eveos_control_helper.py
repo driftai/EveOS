@@ -15,7 +15,7 @@ from urllib.request import urlopen
 
 from . import bookmark_intel_control, eveos_console_prefs, eveos_ports, eveos_web_control
 from . import gemini_control, gemini_credentials, local_moe_control, matrix_window_control, nexus_browser_control
-from . import piano_player_control, watchfusion_control, watchfusion_modes, world_book_control
+from . import notes_workspace, piano_player_control, watchfusion_control, watchfusion_modes, world_book_control
 from .eveos_http_cors import eveos_cors_origin
 from . import eveos_control_requests
 
@@ -288,10 +288,12 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
                 return
             self._send(gemini_credentials.get_status())
             return
+        if notes_workspace.handle_get_request(self, path): return
         self._send({"ok": False, "error": "Unknown endpoint"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if notes_workspace.handle_post_request(self, path): return
         controlled_paths = {
             "/api/eveos-server/start", "/api/eveos-server/stop", "/api/eveos-server/stop-web",
             "/api/gemini-server/start", "/api/gemini-server/stop",

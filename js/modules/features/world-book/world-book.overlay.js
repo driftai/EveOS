@@ -239,6 +239,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         syncViewButtons(overlay, next);
         if (next === 'notes') {
             await hydrateNotes();
+            await ns.notesWorkspace?.activate?.(overlay);
             requestAnimationFrame(() => overlay.querySelector('[data-world-book-notes]')?.focus());
         } else {
             await refreshStatus();
@@ -301,13 +302,25 @@ window.EveWorldBook = window.EveWorldBook || {};
         });
         ns.offline?.bind?.(overlay, { onNotes: () => void setView('notes') });
         document.body.appendChild(overlay);
+        ns.notesWorkspace?.bind?.(overlay);
         syncViewButtons(overlay, overlay.dataset.view || 'notes');
         setHeaderHidden(readPreference(HEADER_KEY, '0') === '1');
         return overlay;
     }
 
     function ensureOverlay() {
-        return document.getElementById(OVERLAY_ID) || createOverlay();
+        const existing = document.getElementById(OVERLAY_ID);
+        if (existing?.querySelector('.notes-world-book-shell') && existing.querySelector('[data-world-book-close]')) return existing;
+        const restoreOpen = existing?.classList.contains('is-open') || document.body.classList.contains('notes-world-book-open');
+        existing?.remove();
+        const repaired = createOverlay();
+        if (restoreOpen) {
+            repaired.classList.add('is-open');
+            repaired.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('notes-world-book-open');
+            document.querySelector('.topbar-notes-world-book-btn')?.setAttribute('aria-expanded', 'true');
+        }
+        return repaired;
     }
 
     ns.open = async function openNotesWorldBook(view) {
@@ -362,6 +375,15 @@ window.EveWorldBook = window.EveWorldBook || {};
     ns.getDetachedWindow = function getDetachedWindow() {
         return ns.detached.getWindow();
     };
+    ns.rehydrate = async function rehydrateNotesWorldBook() {
+        const overlay = ensureOverlay();
+        await ns.notesWorkspace?.resume?.();
+        if (overlay.classList.contains('is-open')) {
+            renderDetachState(ns.detached?.state?.() || { open: false });
+            renderStatus(await ns.client.refresh());
+            await setView(overlay.dataset.view || 'notes');
+        }
+    };
 
     document.addEventListener('input', function (event) {
         if (event.target?.id !== 'notes-area') return;
@@ -378,6 +400,7 @@ window.EveWorldBook = window.EveWorldBook || {};
     }, true);
 
     window.dispatchEvent(new CustomEvent('eve:world-book-ready'));
+    window.EveOSResume?.register?.('worldBook', { open: ns.open, resume: ns.rehydrate });
     if (window.__eveWorldBookOpenPending) {
         window.__eveWorldBookOpenPending = false;
         window.setTimeout(ns.open, 0);
