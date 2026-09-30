@@ -65,6 +65,7 @@ export async function runFastSmoke() {
     const mediaPlayer = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'media-player.js'), 'utf8');
     const playbackSync = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'playback-sync.js'), 'utf8');
     const commands = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'commands.js'), 'utf8');
+    const youtubeStability = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'youtube-stability.js'), 'utf8');
     const continuityBridge = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'eveos-embed-bridge.js'), 'utf8');
     const roomResize = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'room-resize.js'), 'utf8');
     const liveSource = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'client', 'live-source.js'), 'utf8');
@@ -150,9 +151,12 @@ export async function runFastSmoke() {
     assert.match(bootstrap, /updateServerClock\(data\.state\.serverTime,sentAt,receivedAt\)/);
     assert.match(playbackSync, /SYNC_TOLERANCE_SEC = 0\.15/);
     assert.match(commands, /if \(isHost\(\) && options\.hydrateHost !== true\) return;/);
-    assert.match(commands, /YT\.PlayerState\.BUFFERING/);
-    assert.match(commands, /getVideoLoadedFraction/);
-    assert.match(commands, /Host buffering · holding the room in sync/);
+    assert.match(youtubeStability, /YT\.PlayerState\.BUFFERING/);
+    assert.match(youtubeStability, /getVideoLoadedFraction/);
+    assert.match(youtubeStability, /\/voxelvision\/api\/youtube\/import/);
+    assert.match(youtubeStability, /quality:'max'/);
+    assert.match(youtubeStability, /watchFusionMediaResolver\?\.loadCandidate/);
+    assert.match(youtubeStability, /Stable local YouTube playback ready/);
     assert.match(commands, /syncPlayer\(\{ hydrateHost: true \}\)/);
     assert.match(playbackSync, /SEEK_DRIFT_SEC = 0\.65/);
     assert.match(playbackSync, /SENSOR_MIN_SAMPLES = 5/);
