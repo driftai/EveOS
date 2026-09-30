@@ -83,6 +83,7 @@ export async function sendFile(req, res) {
       'client/room-resize.js',
       'client/bootstrap.js',
       'client/live-source.js',
+      'client/linked-tab.js',
       'client/watchfusion-host-input-fix.js',
       'playback-sync.js'
     ];

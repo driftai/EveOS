@@ -246,6 +246,13 @@ function hostPlaybackEventAllowed(playerState) {
 }
 
 function onYouTubeStateChange(event) {
+  if(window.watchFusionLinkedTab?.active?.()&&isHost()&&!window.watchFusionLinkedTab?.applying?.()){
+    const position=Number(ytPlayer?.getCurrentTime?.())||0;
+    if(event.data===YT.PlayerState.PLAYING)window.watchFusionLinkedTab.control('play',position);
+    else if(event.data===YT.PlayerState.PAUSED)window.watchFusionLinkedTab.control('pause',position);
+    else if(event.data===YT.PlayerState.BUFFERING)window.watchFusionLinkedTab.control('seek',position);
+    return;
+  }
   if (!hostPlaybackEventAllowed(event.data)) return;
 
   const position = Number(ytPlayer?.getCurrentTime?.()) || 0;
@@ -281,10 +288,14 @@ function onYouTubeStateChange(event) {
 }
 
 function onYouTubeRateChange() {
+  if(window.watchFusionLinkedTab?.active?.()&&isHost()&&!window.watchFusionLinkedTab?.applying?.()){window.watchFusionLinkedTab.control('rate',ytPlayer?.getPlaybackRate?.()||1);return;}
   if (!state || applyingRemote || primingPlayer || !isHost()) return;
   command('rate', { rate: ytPlayer?.getPlaybackRate?.() || 1 });
 }
 function onYouTubeVolumeChange() {
+  if(window.watchFusionLinkedTab?.active?.()&&isHost()&&!window.watchFusionLinkedTab?.applying?.()){
+    window.watchFusionLinkedTab.control('volume',ytPlayer?.isMuted?.()?0:(Number(ytPlayer?.getVolume?.())||0)/100);return;
+  }
   observeYouTubeAudio();
 }
 function requestViewerPlayback() {
@@ -359,3 +370,19 @@ function syncPlayer(options = {}) {
   }
 }
 setInterval(observeYouTubeAudio, 250);
+
+function followAttachedYouTube(metadata = {}, options = {}) {
+  if(!ytPlayer||!ytPlayerReady)return false;
+  const target=Math.max(0,Number(metadata.currentTime)||0),current=Number(ytPlayer.getCurrentTime?.())||0;
+  const rate=Math.min(2,Math.max(.25,Number(metadata.rate)||1));
+  window.watchFusionLinkedTab?.setApplying?.(true);applyingRemote=true;
+  try{
+    if((options.force&&Math.abs(target-current)>.05)||Math.abs(target-current)>.35)ytPlayer.seekTo?.(target,true);
+    if(Math.abs((Number(ytPlayer.getPlaybackRate?.())||1)-rate)>.01)ytPlayer.setPlaybackRate?.(rate);
+    const volume=Number(metadata.volume);if(Number.isFinite(volume))ytPlayer.setVolume?.(Math.max(0,Math.min(1,volume))*100);
+    if(metadata.paused)ytPlayer.pauseVideo?.();else ytPlayer.playVideo?.();
+  }catch{}
+  finally{setTimeout(()=>{applyingRemote=false;window.watchFusionLinkedTab?.setApplying?.(false);},250);}
+  return true;
+}
+window.watchFusionYoutubeFollow=followAttachedYouTube;

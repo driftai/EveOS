@@ -35,7 +35,7 @@ function render() {
   const source=state.source||{};
   const isLive=source.kind==='live';
   document.documentElement.classList.toggle('watchfusion-audioflix-live',isLive&&source.mode==='audioflix');
-  if(!isLive)window.watchFusionLive?.disconnect?.();
+  if(!isLive&&!window.watchFusionLinkedTab?.active?.())window.watchFusionLive?.disconnect?.();
   const isNuvio=source.kind==='nuvio';
   const isVoxelVision=source.kind==='voxelvision';
   const isYoutube=source.kind==='youtube'||!!source.videoId;
@@ -98,4 +98,5 @@ function render() {
 
   if((source.kind==='live'||source.kind==='media'||source.kind==='nuvio'||source.kind==='voxelvision')&&window.watchPartyProviders){const provider=window.watchPartyProviders.find(source);provider?.load?.(source)?.catch?.(error=>setStatus(error?.message||'Media player failed to initialize.'));}
   else if(source.videoId){window.mediaPlayback?.clear?.();ensurePlayer(source.videoId);}
+  if(window.watchFusionLinkedTab?.active?.())window.watchFusionLinkedTab.render?.();
 }

@@ -8,6 +8,7 @@ let mediaAnchorKey = '';
 let mediaAnchorPosition = 0;
 let mediaAnchorServerTime = 0;
 let mediaDriftCorrecting = false;
+let mediaAttachedGuardUntil = 0;
 let mediaReplayKey = '';
 let hlsNetworkRecoveryAttempts = 0;
 let hlsMediaRecoveryAttempts = 0;
@@ -241,6 +242,10 @@ function applyRoomMediaAudio() {
 }
 function onMediaVolume() {
   if (!mediaVideo || performance.now() < roomAudioGuardUntil) return;
+  if (window.watchFusionLinkedTab?.active?.() && !window.watchFusionLinkedTab?.applying?.() && performance.now() >= mediaAttachedGuardUntil) {
+    window.watchFusionLinkedTab.control('volume', mediaVideo.muted ? 0 : mediaVideo.volume);
+    return;
+  }
   playerAudioPrefs = { volume: Math.round(mediaVideo.volume * 100), muted: !!mediaVideo.muted };
   storage.set(PLAYER_AUDIO_PREFS_KEY, JSON.stringify(playerAudioPrefs));
   if (roomId && isHost()) publishRoomAudioState(playerAudioPrefs.volume, playerAudioPrefs.muted);
@@ -252,8 +257,13 @@ function withMediaGuard(fn) {
 }
 function authoritativeRoomPlay(position = 0) { if (!isHost()) return; command('play', { position }); }
 function authoritativeRoomPause(position = currentMediaPosition(), ended = false) { if (!isHost()) return; command('pause', { position, ended }); }
+function attachedMediaControl(action, value) {
+  if (!window.watchFusionLinkedTab?.active?.() || window.watchFusionLinkedTab?.applying?.() || performance.now() < mediaAttachedGuardUntil) return false;
+  window.watchFusionLinkedTab.control(action, value); return true;
+}
 function onMediaPlay() {
   if (mediaEventGuard || !isHost() || !state) return;
+  if (attachedMediaControl('play', currentMediaPosition())) return;
   const replaying = !!state.playback?.ended || !!mediaVideo?.ended;
   if (replaying) {
     withMediaGuard(() => { try { mediaVideo.currentTime = 0; } catch {} });
@@ -261,9 +271,9 @@ function onMediaPlay() {
   }
   authoritativeRoomPlay(replaying ? 0 : currentMediaPosition());
 }
-function onMediaPause() { if (mediaEventGuard || !isHost() || !state || mediaVideo?.ended) return; authoritativeRoomPause(currentMediaPosition(), false); }
-function onMediaSeeked() { if (mediaEventGuard || !isHost() || !state) return; command('seek', { position: currentMediaPosition() }); }
-function onMediaRate() { if (mediaEventGuard || !isHost() || !state) return; command('rate', { rate: mediaVideo?.playbackRate || 1 }); }
+function onMediaPause() { if (mediaEventGuard || !isHost() || !state || mediaVideo?.ended) return; if(!attachedMediaControl('pause',currentMediaPosition()))authoritativeRoomPause(currentMediaPosition(), false); }
+function onMediaSeeked() { if (mediaEventGuard || !isHost() || !state) return; if(!attachedMediaControl('seek',currentMediaPosition()))command('seek', { position: currentMediaPosition() }); }
+function onMediaRate() { if (mediaEventGuard || !isHost() || !state) return; if(!attachedMediaControl('rate',mediaVideo?.playbackRate||1))command('rate', { rate: mediaVideo?.playbackRate || 1 }); }
 function onMediaEnded() { if (mediaEventGuard || !isHost() || !state) return; authoritativeRoomPause(Math.max(currentMediaPosition(), mediaDuration()), true); }
 
 function replayViewerFromTerminal(target) {
@@ -326,6 +336,20 @@ function syncMediaPlayer(options = {}) {
   } catch (error) { setStatus(error?.message || 'Media synchronization error.'); }
 }
 
-window.mediaPlayback = { ensureSource: ensureMediaSource, sync: syncMediaPlayer, position: currentMediaPosition, state: mediaPlaybackState, clear: clearMediaPlayer };
+function followAttachedMedia(metadata = {}, options = {}) {
+  if (!mediaVideo || !mediaPlayerReady) return false;
+  const target=Math.max(0,Number(metadata.currentTime)||0),current=currentMediaPosition();
+  const rate=Math.min(2,Math.max(.25,Number(metadata.rate)||1)),drift=target-current;
+  mediaAttachedGuardUntil=performance.now()+550;
+  withMediaGuard(()=>{
+    if(((options.force&&Math.abs(drift)>.05)||Math.abs(drift)>.30)&&mediaVideo.readyState>=1)mediaVideo.currentTime=target;
+    if(Math.abs((Number(mediaVideo.playbackRate)||1)-rate)>.01)mediaVideo.playbackRate=rate;
+    const volume=Number(metadata.volume);
+    if(Number.isFinite(volume)&&Math.abs(mediaVideo.volume-Math.max(0,Math.min(1,volume)))>.01)mediaVideo.volume=Math.max(0,Math.min(1,volume));
+    if(metadata.paused)mediaVideo.pause();else mediaVideo.play()?.catch?.(()=>setStatus('Tap the video once to allow playback.'));
+  });
+  return true;
+}
+window.mediaPlayback = { ensureSource: ensureMediaSource, sync: syncMediaPlayer, followAttached: followAttachedMedia, position: currentMediaPosition, state: mediaPlaybackState, clear: clearMediaPlayer };
 setInterval(() => { try { if (roomId && isMediaSource() && !isHost() && mediaPlayerReady) syncMediaPlayer(); } catch {} }, 250);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && roomId && isMediaSource() && !isHost()) { refreshMediaAnchor(true); syncMediaPlayer(); } });

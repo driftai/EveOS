@@ -18,13 +18,15 @@
     const response = await fetch(apiUrl(path), { method: 'POST', headers: { 'Content-Type': 'application/json', ...(session?.memberId ? { 'x-member-id': session.memberId } : {}) }, body: JSON.stringify(body) });
     const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Live media request failed'); return result;
   }
-  function canControl() { return roomId ? isHost() : !!owner(currentId); }
+  function canControl() { if(window.watchFusionLinkedTab?.active?.())return roomId?isHost():true; return roomId ? isHost() : !!owner(currentId); }
   function connectionActions(source = state?.source) {
-    for (const [id, mode, label] of [['linkTabBtn', 'tab', 'Link a playing tab'], ['linkAudioflixBtn', 'audioflix', 'Connect Audioflix']]) {
-      const linked = source?.kind === 'live' && source.mode === mode;
-      $(id).textContent = linked ? (mode === 'tab' ? 'Unlink playing tab' : 'Disconnect Audioflix') : label;
-      $(id).setAttribute('aria-pressed', String(linked));
-      $(id).disabled = busy || !!(roomId && !isHost());
+    const linked=source?.kind==='live'&&source.mode==='audioflix';
+    $('linkAudioflixBtn').textContent=linked?'Disconnect Audioflix':'Connect Audioflix';
+    $('linkAudioflixBtn').setAttribute('aria-pressed',String(linked));
+    $('linkAudioflixBtn').disabled=busy||!!(roomId&&!isHost());
+    if(!window.watchFusionLinkedTab?.active?.()){
+      $('linkTabBtn').textContent='Link a playing tab';$('linkTabBtn').setAttribute('aria-pressed','false');
+      $('linkTabBtn').disabled=busy||!!(roomId&&!isHost());
     }
   }
   function manualAudioSyncDelayMs() {
@@ -244,6 +246,7 @@
   }
   async function start(mode) {
     if (busy || (roomId && !isHost())) return setStatus('Only the host can select the room source.');
+    if(mode==='audioflix'&&window.watchFusionLinkedTab?.active?.())await window.watchFusionLinkedTab.stop({quiet:true});
     busy = true; connectionActions();
     let created;
     const previousId = state?.source?.kind === 'live' ? state.source.streamId : '';
@@ -273,7 +276,7 @@
     catch (error) { setStatus(error.message); }
     finally { busy = false; connectionActions(); }
   }
-  $('linkTabBtn').onclick = () => selectMode('tab'); $('linkAudioflixBtn').onclick = () => selectMode('audioflix');
+  $('linkAudioflixBtn').onclick = () => selectMode('audioflix');
   $('liveCopyPair').onclick = async event => { const ok = await copyText($('livePairLink').value); setCopyButtonFeedback(event.currentTarget, ok); };
   $('livePairClose').onclick = () => { $('livePairHelp').hidden = true; };
   function askHostFolder(target, packageName) {
@@ -311,7 +314,10 @@
     listenPreferences.set(currentId, listenEnabled);
     try { await video.play(); } catch { setListen(video, false); status('Browser blocked playback. Try Listen here again.'); }
   };
-  $('liveRetry').onclick = () => { const source = state?.source; if (source?.kind === 'live') { receiver?.stop(); receiver = null; load(source); } };
+  $('liveRetry').onclick = () => {
+    if(window.watchFusionLinkedTab?.active?.())return window.watchFusionLinkedTab.reconnect();
+    const source=state?.source;if(source?.kind==='live'){receiver?.stop();receiver=null;load(source);}
+  };
   $('liveStats').onclick = async () => {
     const payload = {
       sourceMode: state?.source?.mode || null,
@@ -344,13 +350,21 @@
     void sendAudioSyncSample();
   };
   $('liveStop').onclick = async () => {
+    if(window.watchFusionLinkedTab?.active?.())return void window.watchFusionLinkedTab.stop();
     try {
       if (window.unloadWatchFusionMedia) await window.unloadWatchFusionMedia();
       else { await unload(); setStatus('Live source stopped'); }
     } catch (error) { status(error.message); }
   };
-  $('liveControls').addEventListener('click', event => { const button = event.target.closest('[data-live-action]'); if (button && canControl()) receiver?.control(button.dataset.liveAction, Number(button.dataset.value)); });
-  for (const [id, action] of [['liveSeek', 'seek'], ['liveRate', 'rate'], ['liveVolume', 'volume']]) $(id).onchange = () => { if (canControl()) receiver?.control(action, Number($(id).value)); };
+  $('liveControls').addEventListener('click',event=>{
+    const button=event.target.closest('[data-live-action]');if(!button||!canControl())return;
+    if(window.watchFusionLinkedTab?.active?.())window.watchFusionLinkedTab.control(button.dataset.liveAction,Number(button.dataset.value));
+    else receiver?.control(button.dataset.liveAction,Number(button.dataset.value));
+  });
+  for(const [id,action] of [['liveSeek','seek'],['liveRate','rate'],['liveVolume','volume']])$(id).onchange=()=>{
+    if(!canControl())return;const value=Number($(id).value);
+    if(window.watchFusionLinkedTab?.active?.())window.watchFusionLinkedTab.control(action,value);else receiver?.control(action,value);
+  };
   window.watchFusionLive = { load, disconnect, share, unload, diagnostics: () => receiver?.diagnostics?.() || Promise.resolve([]) };
   connectionActions();
   window.watchPartyProviders.register({ id: 'live', supports: source => source?.kind === 'live', load: async source => load(source), unload });
