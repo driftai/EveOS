@@ -34,6 +34,7 @@ $('resolveTabBtn').__watchFusionHostInputBound=true;
 window.openNuvioBrowserMode = openNuvioBrowserMode;
 window.openVoxelVisionMode = openVoxelVisionMode;
 async function unloadWatchFusionMedia(){
+  if(window.watchFusionLinkedTab?.active?.())await window.watchFusionLinkedTab.stop({quiet:true});
   const source=state?.source;if(!source||source.kind==='ready')return true;
   if(roomId&&!isHost()){setStatus('Only the host can unload the room media.');return false;}
   try{

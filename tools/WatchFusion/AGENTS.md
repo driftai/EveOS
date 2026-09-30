@@ -26,3 +26,13 @@
 - Keep host-capability bridges host-local. A Cloudflare/LAN transport is not authorization for local plugin networking, filesystem controls, diagnostics, or credentials.
 - Use `https://github.com/driftai/Side-Builds/tree/main/Nuvio-Onion-Wrapper` as the architectural reference for the external-install/wrapper boundary when Nuvio integration behavior is ambiguous.
 - Optimize Nuvio boot/reopen work at the wrapper lifecycle boundary first (iframe reuse, bounded readiness, caching, request fan-out) before changing upstream Nuvio internals.
+
+
+## Linked tab architecture (2026-09-30)
+- A linked browser tab is a **state/control adapter**, not a video relay. Do not reintroduce tabCapture/canvas/WebRTC pixel streaming for ordinary attached sites.
+- The companion publishes the current page URL plus playback state (play/pause, position, rate, volume, next/previous controls). WatchFusion resolves that URL through the existing Find Media provider registry and plays the resolved source locally/in the room.
+- Miruro must reuse the canonical media resolver. The client remembers the selected Miruro server/audio preference and reuses it on later episodes/pages; first-use Miruro prefers a dub candidate when available.
+- YouTube attachments use the WatchFusion YouTube iframe player and follow the attached page URL/state. Source-page pixel quality is not part of the transport.
+- The source tab is muted at the browser-tab level while attached and its original mute state, injected listeners/observers, and any best-effort quality setting must be restored on unlink.
+- Audioflix remains a real WebRTC audio stream. Auto audio sync uses measured playout timestamps when the browser exposes them; otherwise it uses the device's remembered calibration, with a 310 ms mobile seed and 0 ms desktop seed.
+- The horizontal Watch Party divider must preserve at least 280 px of embedded media height on laptop-size layouts.

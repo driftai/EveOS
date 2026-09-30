@@ -1,5 +1,5 @@
 (() => {
-  let link=null,peer=null,lastMetadata={},loadedPageUrl='',resolvingUrl='',resolveRevision=0,applying=false,lastMirrorAt=0,mirrorTimer=null;
+  let link=null,peer=null,lastMetadata={},loadedPageUrl='',resolvingUrl='',pendingUrl='',resolveRevision=0,applying=false,lastMirrorAt=0,mirrorTimer=null;
 
   function active(){return !!link;}
   function canControl(){return roomId?isHost():true;}
@@ -62,12 +62,15 @@
   }
   async function followUrl(url){
     const value=String(url||'').trim();if(!/^https?:\/\//i.test(value)||value===loadedPageUrl||value===resolvingUrl)return;
-    const revision=++resolveRevision;resolvingUrl=value;status('Attached tab changed · resolving its playable source…');
+    if(resolvingUrl){pendingUrl=value;return;}
+    const revision=++resolveRevision;resolvingUrl=value;pendingUrl='';status('Attached tab changed · resolving its playable source…');
     const ok=await window.watchFusionMediaResolver?.resolveAndLoad?.(value,{silent:true});
-    if(revision!==resolveRevision)return;resolvingUrl='';
-    if(!ok){status('Attached tab is connected, but its playable source could not be resolved yet.');return;}
-    loadedPageUrl=value;renderControls(lastMetadata);scheduleMirror(lastMetadata,true);
-    status('Attached tab state linked · WatchFusion is playing the resolved source.');
+    if(revision!==resolveRevision)return;
+    resolvingUrl='';
+    if(ok){loadedPageUrl=value;renderControls(lastMetadata);scheduleMirror(lastMetadata,true);status('Attached tab state linked · WatchFusion is playing the resolved source.');}
+    else status('Attached tab is connected, but its playable source could not be resolved yet.');
+    const queued=pendingUrl;pendingUrl='';
+    if(queued&&queued!==loadedPageUrl)void followUrl(queued);
   }
   function onMetadata(metadata={}){
     lastMetadata={...lastMetadata,...metadata};renderControls(lastMetadata);
@@ -85,14 +88,14 @@
     if(roomId&&!isHost())return setStatus('Only the host can attach the room source.');
     if(active())return stop();
     if(state?.source?.kind==='live'&&state.source.mode==='audioflix')await window.unloadWatchFusionMedia?.();
-    const created=await post('/api/live',{});link=created;loadedPageUrl='';resolvingUrl='';lastMetadata={};resolveRevision++;
+    const created=await post('/api/live',{});link=created;loadedPageUrl='';resolvingUrl='';pendingUrl='';lastMetadata={};resolveRevision++;
     const pairing=new URL(location.origin);pairing.hash=`live=${created.id}.${created.publisherToken}`;
     $('livePairLink').value=pairing.href;$('livePairHelp').hidden=false;$('findMediaPanel').hidden=false;renderControls({});
     status('Pair the source tab. WatchFusion will resolve its URL and keep only playback state attached.');connectPeer();
   }
   async function stop(options={}){
     if(!link)return true;
-    const old=link;link=null;resolveRevision++;resolvingUrl='';loadedPageUrl='';clearTimeout(mirrorTimer);mirrorTimer=null;
+    const old=link;link=null;resolveRevision++;resolvingUrl='';pendingUrl='';loadedPageUrl='';clearTimeout(mirrorTimer);mirrorTimer=null;
     peer?.stop();peer=null;await post(`/api/live/${old.id}/stop`,old).catch(()=>{});
     $('livePairHelp').hidden=true;restoreUi();if(!options.quiet)setStatus('Source tab unlinked · the page was restored to normal.');return true;
   }
