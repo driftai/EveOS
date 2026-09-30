@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const { chromium } = require('playwright');
 
 const args = process.argv.slice(2);
@@ -5,12 +7,71 @@ function arg(name, fallback) {
   const index = args.indexOf(name);
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 }
-const eveosUrl = arg('--eveos', process.env.EVEOS_URL || 'http://127.0.0.1:3000/EveOS.html');
+const requestedEveosUrl = arg('--eveos', process.env.EVEOS_URL || '');
 const target = arg('--url', process.env.WATCHFUSION_VIDEO_URL || 'https://youtu.be/ds3sGeb8pK0?si=i9hCSJS7v2SLMYI7');
 const seconds = Math.max(5, Math.min(120, Number(arg('--seconds', '20')) || 20));
 const headed = args.includes('--headed');
 const channel = arg('--channel', process.env.PW_BROWSER_CHANNEL || '');
 const strict = args.includes('--strict');
+
+const repoRoot = path.resolve(__dirname, '../../..');
+
+function readJson(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function readPortRegistry() {
+  return readJson(path.join(repoRoot, 'config', 'eveos-ports.json'))?.ports || {};
+}
+
+function validPort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : 0;
+}
+
+function configuredPort(name, fallback = 0) {
+  return validPort(readPortRegistry()?.[name]?.port) || validPort(fallback);
+}
+
+function readLastLauncherPort() {
+  try {
+    return validPort(fs.readFileSync(
+      path.join(repoRoot, 'data', 'runtime', 'eveos-last-launcher-port.txt'),
+      'utf8'
+    ).trim());
+  } catch {
+    return 0;
+  }
+}
+
+async function resolveEveosUrl() {
+  if (requestedEveosUrl) return requestedEveosUrl;
+
+  const controlPort = configuredPort('GEMINI_CONTROL_PORT', 9082);
+  if (controlPort) {
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${controlPort}/api/control-plane/status`,
+        { cache: 'no-store', signal: AbortSignal.timeout(1500) }
+      );
+      const payload = await response.json();
+      const activePort = validPort(payload?.web?.port);
+      if (response.ok && payload?.service === 'eveos-control-plane'
+          && payload?.web?.running === true && activePort) {
+        return `http://127.0.0.1:${activePort}/EveOS.html`;
+      }
+    } catch {}
+  }
+
+  const fallbackPort = readLastLauncherPort()
+    || configuredPort('EVEOS_WEB_PORT', 8765)
+    || 3000;
+  return `http://127.0.0.1:${fallbackPort}/EveOS.html`;
+}
 
 function summarizeIntervals(values) {
   if (!values.length) return { count:0, avgMs:null, p95Ms:null, worstMs:null, over50Ms:0, over100Ms:0 };
@@ -27,6 +88,7 @@ function summarizeIntervals(values) {
 }
 
 (async () => {
+  const eveosUrl = await resolveEveosUrl();
   const launchOptions = { headless: !headed };
   if (channel) launchOptions.channel = channel;
   const browser = await chromium.launch(launchOptions);
