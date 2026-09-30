@@ -144,6 +144,7 @@ function initNuvioProvider() {
     const host=document.getElementById('playerHost'); if(!host)return; let target=frame();
     if(!target){target=document.createElement('iframe');target.id='nuvioFrame';target.className='nuvio-frame';target.title='Nuvio';target.allow='autoplay; encrypted-media; fullscreen; picture-in-picture; web-share';target.allowFullscreen=true;host.appendChild(target);}
 
+    window.watchFusionYoutubeLayout?.deactivate?.();
     const entryPath=source.entryUrl||'/nuvio/dist/index.html';
     const absoluteEntry=new URL(entryPath,location.origin).href;
     const alreadyLoaded=target.dataset.watchFusionNuvioReady==='1' && target.src===absoluteEntry;
