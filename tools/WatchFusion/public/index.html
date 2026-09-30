@@ -24,7 +24,7 @@
 </head>
 <body>
   <header class="topbar" id="watchfusionHeader">
-    <div class="brand"><strong>WatchFusion</strong></div>
+    <div class="brand"><strong>WatchFusion</strong><span id="runtimeMode" class="runtime-mode" aria-label="Runtime mode">Local</span></div>
     <div class="top-actions" id="headerActions" hidden>
       <button class="secondary" id="setupHealthBtn" type="button" aria-expanded="false" aria-controls="setupPanel">Setup Health</button>
       <button class="secondary" id="startPartyBtn" type="button">Start Watch Party</button>
@@ -127,6 +127,7 @@
                 <p>Copy the private link. On the playing tab, open EveOS or WatchFusion Media Link, paste, and Connect.</p>
                 <input id="livePairLink" readonly aria-label="Private source pairing link">
                 <div class="live-pair-actions"><button id="liveCopyPair" class="secondary">Copy pairing link</button><button id="livePairOfficialFolder" class="secondary" type="button">EveOS extension folder</button><button id="livePairFolder" class="secondary" type="button">Standalone folder</button></div>
+                <p id="livePairFeedback" class="live-pair-note" role="status" aria-live="polite"></p>
                 <p class="live-pair-note">The companion popup contains first-time setup and optional embedded-player access. Share the room link with viewers, never this pairing link.</p>
               </div>
               <div class="source-row find-media-row">

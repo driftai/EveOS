@@ -23,7 +23,7 @@ async function connectPairing(value, requestAccess = true) {
   $('pairing').value = '';
   await chrome.storage.local.set({ watchFusionLastBase: parsed.base });
   await chrome.storage.local.remove('watchFusionPendingPairing');
-  status('Linked. WatchFusion now follows the media in this tab.');
+  status('Tab selected. WatchFusion follows its playable media; embedded players may need Setup & embedded players access.');
 }
 
 $('connect').onclick = async () => {
@@ -39,6 +39,7 @@ $('stop').onclick = async () => {
 $('siteAccess').onclick = async () => {
   try {
     const granted = await chrome.permissions.request({ origins: ['http://*/*', 'https://*/*'] });
+    if (granted) await chrome.runtime.sendMessage({ to: 'worker', type: 'refresh-probes' });
     status(granted
       ? 'Embedded-player access enabled. Cross-origin players can now expose their own media controls.'
       : 'Embedded-player access was not granted. Standalone active-tab linking still works.');

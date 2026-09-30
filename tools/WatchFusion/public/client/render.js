@@ -41,6 +41,8 @@ function render() {
   const playerHost=$('playerHost');
   const nuvioToolbar=$('nuvioToolbar');
   const nuvioFrame=$('nuvioFrame');
+  if(!isNuvio&&nuvioFrame)delete nuvioFrame.dataset.watchFusionNuvioClosed;
+  const nuvioViewVisible=isNuvio&&!isNuvioViewClosed(source);
   const voxelVisionToolbar=$('voxelVisionToolbar');
   const voxelVisionFrame=$('voxelVisionFrame');
   const partyPanel=$('partyPanel');
@@ -57,13 +59,13 @@ function render() {
   if($('deleteRoomBtn'))$('deleteRoomBtn').hidden=!isHost();
   if($('syncBtn'))$('syncBtn').hidden=!inRoom||isNuvio||isVoxelVision||isLive;
   if($('copyBtn'))$('copyBtn').hidden=!inRoom;
-  if(playerHost)playerHost.classList.toggle('nuvio-active',isNuvio);
+  if(playerHost)playerHost.classList.toggle('nuvio-active',nuvioViewVisible);
   if(playerHost)playerHost.classList.toggle('voxelvision-active',isVoxelVision);
-  const hasActiveMedia=isLive||isNuvio||isVoxelVision||isYoutube||source.kind==='media';
+  const hasActiveMedia=isLive||nuvioViewVisible||isVoxelVision||isYoutube||source.kind==='media';
   if($('mediaStage'))$('mediaStage').classList.toggle('media-stage-empty',!hasActiveMedia);
   if($('unloadMediaBtn'))$('unloadMediaBtn').hidden=!hasActiveMedia||(inRoom&&!isHost());
-  if(nuvioFrame){nuvioFrame.hidden=!isNuvio;nuvioFrame.style.display=isNuvio?'block':'none';}
-  if(nuvioToolbar)nuvioToolbar.hidden=!isNuvio;
+  if(nuvioFrame){nuvioFrame.hidden=!nuvioViewVisible;nuvioFrame.style.display=nuvioViewVisible?'block':'none';}
+  if(nuvioToolbar)nuvioToolbar.hidden=!nuvioViewVisible;
   if(voxelVisionFrame){voxelVisionFrame.hidden=!isVoxelVision;voxelVisionFrame.style.display=isVoxelVision?'block':'none';}
   if(voxelVisionToolbar)voxelVisionToolbar.hidden=!isVoxelVision;
   const ytFrame=$('player');if(ytFrame){const hideYouTube=isLive||isNuvio||isVoxelVision||!isYoutube;ytFrame.hidden=hideYouTube;ytFrame.style.display=hideYouTube?'none':'block';}

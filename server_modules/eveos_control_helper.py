@@ -297,7 +297,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             "/api/gemini-server/start", "/api/gemini-server/stop",
             "/api/world-book/start", "/api/world-book/stop", "/api/world-book/launch",
             "/api/piano-player/start", "/api/piano-player/stop", "/api/piano-player/launch", "/api/piano-player/setup",
-            "/api/watchfusion/start", "/api/watchfusion/stop", "/api/watchfusion/launch", "/api/watchfusion/setup",
+            "/api/watchfusion/start", "/api/watchfusion/stop", "/api/watchfusion/launch", "/api/watchfusion/setup", "/api/watchfusion/extension",
             "/api/bookmark-intel/start", "/api/bookmark-intel/stop",
             "/api/local-moe/start", "/api/local-moe/stop", "/api/local-moe/launch", "/api/local-moe/setup",
             "/api/nexus-browser/start", "/api/nexus-browser/stop", "/api/nexus-browser/setup", "/api/nexus-browser/extension",
@@ -332,6 +332,8 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             "/api/watchfusion/start": watchfusion_control.start_server,
             "/api/watchfusion/stop": lambda: _stop_tool(watchfusion_control.stop_server),
             "/api/watchfusion/launch": watchfusion_control.open_launcher,
+            "/api/watchfusion/extension": lambda: watchfusion_control.open_extension_folder(
+                str((gemini_credentials.read_json_body(self) or {}).get("package") or "watchfusion")),
             "/api/bookmark-intel/start": bookmark_intel_control.start_server,
             "/api/bookmark-intel/stop": lambda: _stop_tool(bookmark_intel_control.stop_server),
             "/api/local-moe/start": local_moe_control.start_server,

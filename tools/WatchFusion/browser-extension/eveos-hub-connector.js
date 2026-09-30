@@ -35,7 +35,7 @@
       version: chrome.runtime.getManifest().version,
       dashboardUrl,
       capabilities: ['Selected-tab media', 'Playback controls', 'WatchFusion status'],
-      actions: [
+      actions: globalThis.EveOSExtensionModules ? [] : [
         {
           id: 'prepare-tab-link',
           label: 'Prepare tab link',

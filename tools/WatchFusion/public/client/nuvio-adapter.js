@@ -1,3 +1,9 @@
+function nuvioViewKey(source) {
+  return JSON.stringify([roomId || '', source?.entryUrl || '', source?.url || '']);
+}
+function isNuvioViewClosed(source) {
+  return document.getElementById('nuvioFrame')?.dataset.watchFusionNuvioClosed === nuvioViewKey(source);
+}
 function initNuvioProvider() {
   if (typeof window === 'undefined' || !window.watchPartyProviders) return;
 
@@ -40,6 +46,7 @@ function initNuvioProvider() {
   }
   function closeNuvioView() {
     const target = frame();
+    if (target && roomId) target.dataset.watchFusionNuvioClosed = nuvioViewKey(state?.source);
     setNuvioVisible(false);
     setPlayerNuvioClass(false);
     window.mediaPlayback?.clear?.();
@@ -133,6 +140,7 @@ function initNuvioProvider() {
   }
   let compatibilityTimer=null;
   function loadFrame(source){
+    if (isNuvioViewClosed(source)) return;
     const host=document.getElementById('playerHost'); if(!host)return; let target=frame();
     if(!target){target=document.createElement('iframe');target.id='nuvioFrame';target.className='nuvio-frame';target.title='Nuvio';target.allow='autoplay; encrypted-media; fullscreen; picture-in-picture; web-share';target.allowFullscreen=true;host.appendChild(target);}
 
@@ -182,6 +190,10 @@ function initNuvioProvider() {
   function registerProvider(){window.watchPartyProviders.register({id:'nuvio',supports:source=>source&&(source.kind==='nuvio'||source.type==='nuvio'),load:async source=>{loadFrame(source);},unload:()=>closeNuvioView()});}
 }
 function openNuvioBrowserMode(){
+  if (state?.source?.kind === 'nuvio' && isNuvioViewClosed(state.source)) {
+    delete document.getElementById('nuvioFrame').dataset.watchFusionNuvioClosed;
+    render(); setStatus('Nuvio view reopened'); return;
+  }
   const source={kind:'nuvio',type:'nuvio',url:'nuvio://home',entryUrl:'/nuvio/dist/index.html',title:'Nuvio',originalUrl:'nuvio://home'};
   if(typeof roomId!=='undefined'&&roomId){if(typeof isHost==='function'&&!isHost())return alert('Only the host can switch the room to Nuvio.');fetch(apiUrl(`/api/rooms/${roomId}/media-source`),{method:'POST',headers:{'Content-Type':'application/json','x-member-id':session.memberId},body:JSON.stringify({media:source,originalUrl:source.originalUrl})}).then(async response=>{const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Could not open Nuvio.');state=data.state;sourceInputDirty=false;render();setStatus('Nuvio ready');}).catch(error=>setStatus(error.message||'Could not open Nuvio.'));return;}
   applySoloSource(source);setStatus('Nuvio ready · solo mode');

@@ -3,6 +3,18 @@
   if (window.__watchFusionMediaProbe) return;
   window.__watchFusionMediaProbe = true;
   let enabled = true, focused = null, savedStyle = null;
+  const frameToken = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`, children = new Map();
+
+  window.addEventListener('message', event => {
+    if (event.data?.type !== 'watchfusion:media-frame' || typeof event.data.token !== 'string') return;
+    const frame = [...document.querySelectorAll('iframe')].find(value => value.contentWindow === event.source);
+    if (frame) children.set(frame, { ...event.data, at: Date.now() });
+  });
+  document.addEventListener('load', event => {
+    if (enabled && event.target?.tagName === 'IFRAME') {
+      chrome.runtime.sendMessage({ to: 'worker', type: 'refresh-probes' }).catch(() => {});
+    }
+  }, true);
 
   function visible(element) {
     const rect = element?.getBoundingClientRect?.();
@@ -19,9 +31,10 @@
   }
 
   function frameFallback() {
-    if (window !== top) return null;
-    return [...document.querySelectorAll('iframe')].filter(visible)
-      .sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0] || null;
+    // Never assume the biggest iframe is a player (it may be comments or ads).
+    return [...children].filter(([frame, sample]) => frame.isConnected && visible(frame)
+      && sample.hasMedia && Date.now() - sample.at < 1800)
+      .sort((a, b) => b[1].score - a[1].score)[0]?.[0] || null;
   }
 
   function restoreFocus() {
@@ -90,9 +103,14 @@
     else if (!element) restoreFocus();
     const rect = normalizedRect(visual);
     const area = rect ? rect.width * rect.height : 0;
+    const score = (element && !element.paused ? 2 : 0) + area;
+    if (window !== top) parent.postMessage({ type: 'watchfusion:media-frame', token: frameToken,
+      hasMedia: Boolean(element || fallback), score: fallback ? children.get(fallback).score : score }, '*');
     chrome.runtime.sendMessage({
-      to: 'worker', type: 'sample', rect, topFrame: window === top,
-      hasMedia: Boolean(element), score: (element && !element.paused ? 2 : 0) + area,
+      to: 'worker', type: 'sample', rect, token: frameToken, topFrame: window === top,
+      children: [...children].filter(([frame, child]) => frame.isConnected && child.hasMedia && Date.now() - child.at < 1800)
+        .map(([frame, child]) => ({ token: child.token, rect: normalizedRect(frame) })),
+      hasMedia: Boolean(element), score,
       metadata: {
         title: navigator.mediaSession?.metadata?.title || document.title,
         paused: !element || element.paused,
@@ -100,7 +118,7 @@
         duration: Number.isFinite(element?.duration) ? element.duration : 0,
         rate: element?.playbackRate || 1,
         volume: element ? (element.muted ? 0 : element.volume ?? 1) : 1,
-        status: element ? '' : fallback ? 'Embedded media frame linked' : 'Waiting for playable media…'
+        status: element ? '' : 'Waiting for a playable video · embedded players may need Setup & embedded players access.'
       }
     }).catch(() => {});
   }

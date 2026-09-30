@@ -202,6 +202,8 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         const detach = overlay.querySelector('[data-wf-action="detach"]');
         const setup = overlay.querySelector('[data-wf-setup]');
         const running = status?.running === true;
+        const title = overlay.querySelector('#watchfusion-title');
+        if (title) title.textContent = `WatchFusion · ${({ lan: 'LAN', cloudflare: 'Remote' })[status?.exposureMode] || 'Local'}`;
         overlay.dataset.state = running ? 'running' : (status?.state || 'stopped');
         if (badge) badge.textContent = stateLabel();
         if (message) message.textContent = status?.message || 'WatchFusion workspace ready.';

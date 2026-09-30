@@ -9,7 +9,8 @@ const { createTurnLedger } = require('../dex/turn-ledger');
 const { createIncidentStore } = require('../dex/incident-store');
 const { createServerDurability } = require('../dex/server-durability');
 const { createDexStateStore } = require('../dex/state-store');
-const { server, HOST, configureDurability } = require('../server');
+const localTargets = require('../local-targets/manager');
+const { server, wss, HOST, configureDurability } = require('../server');
 
 function startTestServer() {
   return new Promise((resolve) => {
@@ -19,6 +20,9 @@ function startTestServer() {
       resolve({
         port,
         close: () => new Promise((done) => {
+          // HTTP closeAllConnections excludes upgraded WebSockets. A failed
+          // assertion must not leave server.close waiting for those forever.
+          for (const socket of wss.clients) socket.terminate();
           server.closeAllConnections?.();
           server.close(done);
         })
@@ -55,12 +59,15 @@ function waitMessage(ws, predicate, timeoutMs = 3000) {
   });
 }
 
-test('Nexus Browser Protocol Suite', async (t) => {
+test('Nexus Browser Protocol Suite', { timeout: 15000 }, async (t) => {
   let instance;
   let tempDir;
   let originalStores;
 
   t.before(async () => {
+    // These are online bridge contracts, not native terminal discovery tests.
+    // Synchronous host discovery can consume their message deadline under load.
+    t.mock.method(localTargets, 'listLocalTargets', async () => []);
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dex-bridge-protocol-'));
     const testLedger = createTurnLedger({ filePath: path.join(tempDir, 'dex-turn-ledger.jsonl') });
     const testIncidents = createIncidentStore({ filePath: path.join(tempDir, 'incidents.jsonl') });
@@ -93,8 +100,9 @@ test('Nexus Browser Protocol Suite', async (t) => {
     assert.match(text, /Nexus Browser/);
   });
 
-  await t.test('UI receives error when extension is offline', async () => {
+  await t.test('UI receives error when extension is offline', async (t) => {
     const uiWs = new WebSocket(`ws://${HOST}:${instance.port}/ws`);
+    t.after(() => uiWs.terminate());
     await new Promise((resolve) => uiWs.on('open', resolve));
 
     uiWs.send(JSON.stringify({ type: 'hello', role: 'ui' }));
@@ -109,21 +117,25 @@ test('Nexus Browser Protocol Suite', async (t) => {
     uiWs.close();
   });
 
-  await t.test('Full UI and Extension handshake and prompt routing round-trip', async () => {
+  await t.test('Full UI and Extension handshake and prompt routing round-trip', async (t) => {
     const uiWs = new WebSocket(`ws://${HOST}:${instance.port}/ws`);
+    t.after(() => uiWs.terminate());
     await new Promise((resolve) => uiWs.on('open', resolve));
     uiWs.send(JSON.stringify({ type: 'hello', role: 'ui' }));
 
     const extWs = new WebSocket(`ws://${HOST}:${instance.port}/ws`);
+    t.after(() => extWs.terminate());
     await new Promise((resolve) => extWs.on('open', resolve));
+    const connected = waitMessage(uiWs, (m) => m.type === 'bridge_status' && m.connected === true);
+    const tabsRequested = waitMessage(extWs, (m) => m.type === 'request_tabs');
     extWs.send(JSON.stringify({ type: 'hello', role: 'extension' }));
 
     // UI should be notified that extension connected
-    const extConnected = await waitMessage(uiWs, (m) => m.type === 'bridge_status' && m.connected === true);
+    const extConnected = await connected;
     assert.equal(extConnected.connected, true);
 
     // Extension should receive request_tabs
-    const reqTabs = await waitMessage(extWs, (m) => m.type === 'request_tabs');
+    const reqTabs = await tabsRequested;
     assert.equal(reqTabs.type, 'request_tabs');
 
     // Extension publishes tabs
@@ -176,17 +188,21 @@ test('Nexus Browser Protocol Suite', async (t) => {
     uiWs.close();
   });
 
-  await t.test('Routes request_search_results from UI to extension and search_results_result back to UI', async () => {
+  await t.test('Routes request_search_results from UI to extension and search_results_result back to UI', async (t) => {
     const uiWs = new WebSocket(`ws://${HOST}:${instance.port}/ws`);
+    t.after(() => uiWs.terminate());
     await new Promise((resolve) => uiWs.on('open', resolve));
     uiWs.send(JSON.stringify({ type: 'hello', role: 'ui' }));
 
     const extWs = new WebSocket(`ws://${HOST}:${instance.port}/ws`);
+    t.after(() => extWs.terminate());
     await new Promise((resolve) => extWs.on('open', resolve));
+    const connected = waitMessage(uiWs, (m) => m.type === 'bridge_status' && m.connected === true);
+    const tabsRequested = waitMessage(extWs, (m) => m.type === 'request_tabs');
     extWs.send(JSON.stringify({ type: 'hello', role: 'extension' }));
 
-    await waitMessage(uiWs, (m) => m.type === 'bridge_status' && m.connected === true);
-    await waitMessage(extWs, (m) => m.type === 'request_tabs');
+    await connected;
+    await tabsRequested;
 
     // UI requests search results for a specific turn stage
     const reqId = 'req-search-456';

@@ -20,6 +20,7 @@
 .live-pair-head { justify-content:space-between; }
 .live-pair-head button { width:auto; }
 .live-pair-actions { flex-wrap:wrap; }
-.live-pair-actions button { flex:1 1 150px; }
+.live-pair-actions button { flex:0 1 auto; padding:7px 10px; font-size:12px; min-height:30px; }
+.runtime-mode { margin-left:8px; padding:3px 7px; border:1px solid var(--line,#39434e); border-radius:6px; font-size:11px; color:var(--muted,#9ba7b8); }
 .live-pair-note { font-size:12px; }
 #liveListen[aria-pressed="true"] { background:rgba(0,212,255,.15); }

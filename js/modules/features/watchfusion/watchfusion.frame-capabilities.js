@@ -127,6 +127,30 @@
         }
     });
 
+    // LAN/remote transport is never filesystem authority. Only the known host view
+    // may ask the existing local control plane to open a fixed extension package.
+    window.addEventListener('message', async event => {
+        const data = event.data;
+        if (data?.type !== 'watchfusion:extension-folder') return;
+        const embedded = document.querySelector('#watchfusion-overlay .watchfusion-frame')?.contentWindow;
+        const detached = window.EveWatchFusion?.getDetachedWindow?.();
+        if (!event.source || (event.source !== embedded && event.source !== detached)
+            || !window.EveWatchFusionRuntimeSensor?.isCandidateOrigin?.(event.origin)
+            || !['official', 'watchfusion'].includes(data.package) || typeof data.requestId !== 'string') return;
+        let result;
+        try {
+            const base = window.EveOSLocalControl?.baseUrl?.()
+                || `http://127.0.0.1:${window.EveOSPortRegistry.get('GEMINI_CONTROL_PORT')}`;
+            const response = await fetch(`${base}/api/watchfusion/extension`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ package: data.package }), signal: AbortSignal.timeout(18000)
+            });
+            result = await response.json();
+            if (!response.ok) throw new Error(result.message || 'Could not open extension folder.');
+        } catch (error) { result = { ok: false, message: error.message }; }
+        event.source.postMessage({ type: 'watchfusion:extension-folder-result', requestId: data.requestId, ...result }, event.origin);
+    });
+
     const observer = new MutationObserver(() => patchFrame());
     observer.observe(document.documentElement, { childList: true, subtree: true });
     patchFrame();

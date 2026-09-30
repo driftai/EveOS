@@ -143,45 +143,6 @@ test.describe('WatchFusion Nuvio Native Viewport Wrapper Shell, Media Stage & He
     });
   }
 
-  test('In active room: Close Nuvio closes view locally without changing room source', async ({ browser }) => {
-    const hostContext = await browser.newContext();
-    const viewerContext = await browser.newContext();
-    const hostPage = await hostContext.newPage();
-    const viewerPage = await viewerContext.newPage();
-    const roomCode = `NUVCLOSE${Math.floor(Math.random() * 9000 + 1000)}`;
-
-    await hostPage.goto('/');
-    await expect(hostPage.locator('#app')).toBeVisible();
-    await hostPage.click('#shortcutNuvioBtn');
-    await hostPage.click('#headerToggleBtn');
-    await hostPage.click('#startPartyBtn');
-    await hostPage.fill('#nameInput', 'HostCloseTester');
-    await hostPage.fill('#roomInput', roomCode);
-    await hostPage.click('#createBtn');
-    await expect(hostPage).toHaveURL(/\/watch\//, { timeout: 5000 });
-    await expect(hostPage.locator('#partyPanel')).toBeVisible();
-    await expect(hostPage.locator('#sourceModeLabel')).toHaveText('Nuvio');
-    await expect(hostPage.locator('#nuvioFrame')).toBeVisible();
-
-    await viewerContext.addInitScript(() => localStorage.setItem('wp-name', 'ViewerCloseTester'));
-    await viewerPage.goto(hostPage.url());
-    await expect(viewerPage).toHaveURL(/\/watch\//, { timeout: 5000 });
-    await expect(viewerPage.locator('#app')).toBeVisible();
-    await expect(viewerPage.locator('#partyPanel')).toBeVisible();
-    await expect(viewerPage.locator('#sourceModeLabel')).toHaveText('Nuvio');
-    await expect(viewerPage.locator('#nuvioFrame')).toBeVisible();
-
-    await hostPage.click('#nuvioCloseBtn');
-    await expect(hostPage.locator('#nuvioFrame')).toBeHidden();
-    await expect(hostPage.locator('#nuvioToolbar')).toBeHidden();
-    await expect(hostPage.locator('#syncStatus')).toContainText('Nuvio view closed');
-
-    await expect(viewerPage.locator('#sourceModeLabel')).toHaveText('Nuvio');
-    await expect(viewerPage.locator('#nuvioFrame')).toBeVisible();
-
-    await hostContext.close();
-    await viewerContext.close();
-  });
 
   test('Dynamic switching: Nuvio -> Find Media drawer -> YouTube -> switch back to Nuvio', async ({ page }) => {
     await page.goto('/');

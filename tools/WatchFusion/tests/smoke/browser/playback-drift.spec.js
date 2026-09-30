@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-function configureViewer(page, { current, target = 100, paused = false, rate = 1 }) {
-  return page.evaluate(({ current, target, paused, rate }) => {
+function configureViewer(page, { current, target = 100, paused = false, rate = 1, samples = 1, currentRate = 1 }) {
+  return page.evaluate(({ current, target, paused, rate, samples, currentRate }) => {
     const calls = { seek: [], rates: [], play: 0, pause: 0 };
     roomId = 'drift-room';
     state = {
@@ -21,9 +21,9 @@ function configureViewer(page, { current, target = 100, paused = false, rate = 1
     ytPlayer = {
       getVideoData: () => ({ video_id: 'M7lc1UVf-VE' }),
       getCurrentTime: () => current,
-      getPlaybackRate: () => 1,
-      setPlaybackRate: value => calls.rates.push(value),
-      seekTo: value => calls.seek.push(value),
+      getPlaybackRate: () => currentRate,
+      setPlaybackRate: value => { calls.rates.push(value); currentRate = value; },
+      seekTo: value => { calls.seek.push(value); current = value; },
       playVideo: () => { calls.play += 1; },
       pauseVideo: () => { calls.pause += 1; },
       setVolume: () => {},
@@ -31,76 +31,71 @@ function configureViewer(page, { current, target = 100, paused = false, rate = 1
       mute: () => {},
       unMute: () => {}
     };
-    syncPlayer();
+    const descriptor = Object.getOwnPropertyDescriptor(performance, 'now');
+    const began = performance.now();
+    try {
+      for (let index = 0; index < samples; index++) {
+        Object.defineProperty(performance, 'now', { configurable: true, value: () => began + index * 250 });
+        syncPlayer();
+      }
+    } finally {
+      if (descriptor) Object.defineProperty(performance, 'now', descriptor);
+      else delete performance.now;
+    }
+    calls.status = document.querySelector('#syncStatus').textContent;
+    calls.diagnostics = window.watchFusionSyncDiagnostics();
     return calls;
-  }, { current, target, paused, rate });
+  }, { current, target, paused, rate, samples, currentRate });
 }
 
 test.describe('Adaptive playback drift regression', () => {
-  test('moderate viewer drift uses temporary supported playback rate without seeking', async ({ page }) => {
+  test('one moderate drift sample never changes speed or seeks', async ({ page }) => {
     await page.goto('/');
     const calls = await configureViewer(page, { current: 99, target: 100 });
 
     expect(calls.seek).toEqual([]);
-    expect(calls.rates).toContain(1.25);
+    expect(calls.rates).toEqual([]);
+    expect(calls.diagnostics.stable).toBe(false);
+    expect(calls.diagnostics.sampleCount).toBe(1);
   });
 
   test('small viewer drift does not introduce an aggressive correction', async ({ page }) => {
     await page.goto('/');
-    const calls = await configureViewer(page, { current: 99.97, target: 100 });
+    const calls = await configureViewer(page, { current: 99.97, target: 100, samples: 5 });
 
     expect(calls.seek).toEqual([]);
     expect(calls.rates).not.toContain(1.25);
+    expect(calls.diagnostics.stable).toBe(true);
+    expect(calls.diagnostics.action).toBe('steady');
   });
 
-  test('audible fractional drift is corrected automatically without a hard seek', async ({ page }) => {
+  test('stable fractional sensor drift preserves the host rate without seeking', async ({ page }) => {
     await page.goto('/');
-    const calls = await configureViewer(page, { current: 99.82, target: 100 });
+    const calls = await configureViewer(page, { current: 99.82, target: 100, samples: 5 });
 
     expect(calls.seek).toEqual([]);
-    expect(calls.rates).toContain(1.25);
+    expect(calls.rates).toEqual([]);
+    expect(calls.diagnostics.stable).toBe(true);
+    expect(calls.diagnostics.filteredDriftSec).toBeGreaterThan(0.15);
+    expect(calls.diagnostics.action).toBe('steady');
   });
 
-  test('catch-up notice returns to Connected after drift settles', async ({ page }) => {
+  test('filtered phase correction reports Re-synced then Connected after settling', async ({ page }) => {
     await page.goto('/');
+    const calls = await configureViewer(page, { current: 99, target: 100, samples: 5 });
+    expect(calls.seek).toHaveLength(1);
+    expect(calls.rates).toEqual([1]);
+    expect(calls.status).toBe('Re-synced');
+    expect(calls.diagnostics.action).toBe('stable-seek');
     const statuses = await page.evaluate(() => {
-      let current = 99.97;
-      roomId = 'drift-room';
-      state = {
-        hostId: 'host-member',
-        source: { type: 'youtube', videoId: 'M7lc1UVf-VE' },
-        playback: { paused: false, position: 100, rate: 1, updatedAt: Date.now(), projectedAt: Date.now() },
-        members: [], messages: []
-      };
-      session = { memberId: 'viewer-member' };
-      ytPlayerReady = true;
-      ytPlayer = {
-        getVideoData: () => ({ video_id: 'M7lc1UVf-VE' }),
-        getCurrentTime: () => current,
-        getPlaybackRate: () => 1,
-        setPlaybackRate: () => {},
-        seekTo: () => {},
-        playVideo: () => {},
-        pauseVideo: () => {},
-        setVolume: () => {},
-        isMuted: () => false,
-        mute: () => {},
-        unMute: () => {}
-      };
-      syncPlayer();
-      current = 99;
-      syncPlayer();
-      const catching = document.querySelector('#syncStatus').textContent;
-      current = 99.97;
       syncPlayer();
       const settled = document.querySelector('#syncStatus').textContent;
-      setStatus('Catching up…');
+      setStatus('Re-synced');
       state.playback.paused = true;
       syncPlayer({ force: true });
-      return { catching, settled, paused: document.querySelector('#syncStatus').textContent };
+      return { settled, paused: document.querySelector('#syncStatus').textContent };
     });
 
-    expect(statuses.catching).toContain('Catching up');
     expect(statuses.settled).toMatch(/^Connected/);
     expect(statuses.paused).toMatch(/^Connected/);
   });
@@ -125,7 +120,7 @@ test.describe('Adaptive playback drift regression', () => {
 
   test('large viewer drift uses one corrective seek instead of a repeated seek loop', async ({ page }) => {
     await page.goto('/');
-    const calls = await configureViewer(page, { current: 97, target: 100 });
+    const calls = await configureViewer(page, { current: 97, target: 100, samples: 2 });
 
     expect(calls.seek).toHaveLength(1);
     expect(calls.seek[0]).toBeGreaterThanOrEqual(100);
@@ -133,7 +128,7 @@ test.describe('Adaptive playback drift regression', () => {
 
   test('paused host state stops an already-playing viewer immediately', async ({ page }) => {
     await page.goto('/');
-    const calls = await configureViewer(page, { current: 102, target: 100, paused: true });
+    const calls = await configureViewer(page, { current: 102, target: 100, paused: true, currentRate: 1.25 });
 
     expect(calls.pause).toBeGreaterThan(0);
     expect(calls.rates).toContain(1);

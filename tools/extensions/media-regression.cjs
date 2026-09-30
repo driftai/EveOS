@@ -26,7 +26,7 @@ async function qualifyMediaWorker() {
     scripting: { executeScript: async details => {
       injected.push(details);
       // The real probe can report before executeScript resolves. Keep that sample.
-      vm.runInContext(`combinedSample(1, {topFrame:false,hasMedia:true,score:3,rect:{x:.1,y:.2,width:.8,height:.6},metadata:{title:'frame'}})`, context);
+      vm.runInContext(`combinedSample(1, {token:'player',topFrame:false,hasMedia:true,score:3,rect:{x:.1,y:.2,width:.8,height:.6},metadata:{title:'frame'}})`, context);
       return [{ frameId: 0 }, { frameId: 1 }];
     } }
   };
@@ -37,10 +37,13 @@ async function qualifyMediaWorker() {
   assert.equal(injected[0].files[0], 'modules/watchfusion/source-probe.js');
   assert.equal(offscreen[0].url, 'modules/watchfusion/offscreen.html');
   assert.equal(vm.runInContext('frameSamples.get(1).metadata.title', context), 'frame');
-  vm.runInContext(`combinedSample(0, {topFrame:true,hasMedia:false,rect:{x:.2,y:.1,width:.5,height:.8}})`, context);
-  const crop = vm.runInContext(`combinedSample(1, {topFrame:false,hasMedia:true,score:3,rect:{x:.1,y:.2,width:.8,height:.6}}).rect`, context);
+  vm.runInContext(`combinedSample(0, {token:'root',topFrame:true,hasMedia:false,children:[{token:'player',rect:{x:.2,y:.1,width:.5,height:.8}}]})`, context);
+  const crop = vm.runInContext(`combinedSample(1, {token:'player',topFrame:false,hasMedia:true,score:3,rect:{x:.1,y:.2,width:.8,height:.6}}).rect`, context);
   assert.equal(crop.x, .25); assert.equal(crop.width, .4);
   assert(Math.abs(crop.y - .26) < 1e-9); assert.equal(crop.height, .48);
+  const missing = vm.runInContext(`combinedSample(0, {token:'root',topFrame:true,hasMedia:false,children:[],rect:{x:0,y:0,width:1,height:1}})`, context);
+  assert.equal(missing.rect, null, 'unassociated comments frames must never become the media crop');
+  assert.match(missing.metadata.status, /embedded players/);
   await new Promise(resolve => listeners[0]({ to: 'worker', type: 'control', action: 'pause' },
     { id: 'official', url: 'chrome-extension://official/modules/watchfusion/offscreen.html' }, resolve));
   assert(sent.some(value => Array.isArray(value) && value[2]?.frameId === 1 && value[1].type === 'source-control'));
@@ -49,7 +52,45 @@ async function qualifyMediaWorker() {
   assert.equal(state.sourceTab, undefined);
   assert.equal((await context.WatchFusionMediaLink.status()).linked, false);
   await qualifyAudioflixFailure();
-  return 9;
+  await qualifyLiveActions();
+  return 13;
+}
+
+async function qualifyLiveActions() {
+  const elements = new Map(), listeners = {}, saved = new Map();
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, { textContent: '', hidden: false, dataset: {}, style: {},
+      setAttribute() {}, querySelectorAll: () => [], replaceChildren() {}, addEventListener() {}, play: async () => {} });
+    return elements.get(id);
+  };
+  const window = { addEventListener: (type, callback) => { listeners[type] = callback; }, removeEventListener() {},
+    watchPartyProviders: { register() {} }, WatchFusionLivePeer: class { stop() {} } };
+  const target = { postMessage: message => queueMicrotask(() => listeners.message({ source: target,
+    data: { type: 'watchfusion:extension-folder-result', requestId: message.requestId, ok: true, message: `${message.package} opened` } })) };
+  window.parent = target;
+  const sandbox = vm.createContext({ window, $: element, session: null, roomId: null,
+    document: { activeElement: null }, ytPlayer: null, state: { source: null },
+    location: { origin: 'http://localhost:19193' }, crypto: require('node:crypto').webcrypto,
+    localStorage: { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value), removeItem: key => saved.delete(key) },
+    apiUrl: value => value, makeClientId: () => require('node:crypto').randomUUID(), setStatus() {}, isHost: () => true, URL, setTimeout, clearTimeout,
+    copyText: async () => true, setCopyButtonFeedback() {}, fetch: async () => ({ ok: true, json: async () => ({ id: 'test', publisherToken: 'private', viewerToken: 'viewer' }) }) });
+  sandbox.applySoloSource = source => { sandbox.state = { source }; window.watchFusionLive.load(source); };
+  let unloaded = 0;
+  window.unloadWatchFusionMedia = async () => { unloaded++; await window.watchFusionLive.unload(); sandbox.state = { source: null }; };
+  vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../WatchFusion/public/client/live-source.js'), 'utf8'), sandbox);
+  await element('linkTabBtn').onclick();
+  assert.equal(element('linkTabBtn').textContent, 'Unlink playing tab');
+  await element('linkTabBtn').onclick();
+  assert.equal(unloaded, 1); assert.equal(element('linkTabBtn').textContent, 'Link a playing tab');
+  sandbox.state = { source: { kind: 'live', mode: 'audioflix', streamId: 'audio' } };
+  window.watchFusionLive.load(sandbox.state.source);
+  assert.equal(element('linkAudioflixBtn').textContent, 'Disconnect Audioflix');
+  await element('linkAudioflixBtn').onclick();
+  assert.equal(unloaded, 2); assert.equal(element('linkAudioflixBtn').textContent, 'Connect Audioflix');
+  await element('livePairOfficialFolder').onclick();
+  assert.equal(element('livePairFeedback').textContent, 'official opened');
+  await element('livePairFolder').onclick();
+  assert.equal(element('livePairFeedback').textContent, 'watchfusion opened');
 }
 
 async function qualifyAudioflixFailure() {

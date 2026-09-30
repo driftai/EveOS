@@ -13,7 +13,7 @@ const ROOT = path.resolve(__dirname, '../..');
 
 const mediaHtml = iframe => `<!doctype html><html><body style="margin:0;height:2200px;background:#802050">
 <aside>Fixture sidebar must stay outside the selected media.</aside>${iframe ?
-  '<iframe style="width:600px;height:420px" src="http://localhost:PORT/frame"></iframe>' :
+  '<iframe data-comments style="width:850px;height:650px" src="http://localhost:PORT/comments"></iframe><iframe data-player style="width:600px;height:420px" src="http://localhost:PORT/frame"></iframe>' :
   '<video id="video" autoplay muted style="width:600px;height:420px"></video><script>const c=document.createElement("canvas");c.width=640;c.height=360;const ctx=c.getContext("2d");ctx.fillStyle="#00c480";ctx.fillRect(0,0,640,360);video.srcObject=c.captureStream(5);</script>'}
 </body></html>`;
 
@@ -25,7 +25,9 @@ async function qualifyBrowser() {
   fs.mkdirSync(resultDir, { recursive: true });
   const fixture = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': req.url === '/health' ? 'application/json' : 'text/html' });
-    res.end(req.url === '/health' ? '{"ok":true,"service":"eveos-nexus-browser"}' : mediaHtml(req.url !== '/frame').replace('PORT', fixture.address().port));
+    res.end(req.url === '/health' ? '{"ok":true,"service":"eveos-nexus-browser"}' : req.url === '/comments'
+      ? '<!doctype html><html><body>Comments are not playable media.</body></html>'
+      : mediaHtml(req.url !== '/frame').replaceAll('PORT', fixture.address().port));
   });
   const sockets = [], messages = [];
   const wss = new WebSocketServer({ server: fixture, path: '/ws' });
@@ -68,6 +70,7 @@ async function qualifyBrowser() {
           const descriptors = await worker.evaluate(() => EveOSExtensionModules.describe());
           assert.deepEqual(descriptors.map(value => value.id).sort(), ['nexus-browser', 'tab-collector', 'watchfusion']);
           assert(descriptors.every(value => value.integration === 'included'));
+          assert.deepEqual(descriptors.find(value => value.id === 'watchfusion').actions, []);
           const hub = await context.newPage();
           await hub.goto(`chrome-extension://${extensionId}/hub.html`);
           await hub.getByText('INCLUDED', { exact: true }).first().waitFor();
@@ -108,7 +111,7 @@ async function qualifyBrowser() {
         if (variant.media != null) {
           page = await context.newPage();
           await page.goto(`http://127.0.0.1:${port}/media`);
-          await page.frameLocator('iframe').locator('#video').waitFor();
+          await page.frameLocator('iframe[data-player]').locator('#video').waitFor();
           await page.waitForFunction(() => document.querySelector('iframe').contentWindow != null);
           await worker.evaluate(async url => {
             const [tab] = await chrome.tabs.query({ url });
@@ -134,11 +137,12 @@ async function qualifyBrowser() {
             return combinedSample(value.frameId, value).rect;
           });
           assert(combined.width > 0 && combined.height > 0 && combined.height < 1);
+          assert.equal(await page.locator('iframe[data-comments]').evaluate(el => el.style.position), '');
           await worker.evaluate(() => chrome.tabs.sendMessage(sourceTab, { type: 'source-control', action: 'pause' }, { frameId: controlFrameId }));
           await frame.waitForFunction(() => document.querySelector('video').paused);
           await worker.evaluate(() => WatchFusionMediaLink.stop());
           assert.equal(await frame.locator('video').getAttribute('style'), 'width:600px;height:420px');
-          assert.equal(await page.locator('iframe').getAttribute('style'), 'width:600px;height:420px');
+          assert.equal(await page.locator('iframe[data-player]').getAttribute('style'), 'width:600px;height:420px');
           await page.close(); pass += 4;
         }
         if (variant.id === 'official' || variant.id === 'collector-standalone') {

@@ -56,7 +56,7 @@
                     '__eveWatchFusionAudioflixLinkReady'
                 ),
                 companionReady(
-                    'js/modules/features/watchfusion/watchfusion.frame-capabilities.js?v=a9c9a4d8a966',
+                    'js/modules/features/watchfusion/watchfusion.frame-capabilities.js?v=0dedca0b4d97',
                     'data-eve-watchfusion-frame-capabilities',
                     '__eveWatchFusionFrameCapabilitiesReady'
                 ),

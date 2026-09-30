@@ -254,11 +254,13 @@ async function loadNetworkInfo() {
     transportBaseUrl = data?.requestIsVirtual ? (data?.transportBridge || '') : '';
     if (transportBaseUrl) setStatus(`Virtual adapter bridged via ${transportBaseUrl}`);
     serverLanMode = data?.localOnly === false || data?.localMode === false;
+    $('runtimeMode').textContent = isTryCloudflare || eveosShareMode === 'cloudflare' ? 'Remote' : serverLanMode ? 'LAN' : 'Local';
     if (!serverLanMode) { lanBaseUrl=null; $('copyLanBtn').hidden=true; return; }
     lanBaseUrl = data?.preferredLanHost || data?.lanHosts?.[0]
       || data?.preferredLanAddress || data?.lanAddresses?.[0] || null;
     $('copyLanBtn').hidden = !lanBaseUrl;
   } catch {
+    $('runtimeMode').textContent = isTryCloudflare || eveosShareMode === 'cloudflare' ? 'Remote' : eveosShareMode === 'lan' || isReachableLanHost(location.hostname) ? 'LAN' : 'Local';
     if (isReachableLanHost(location.hostname)) { serverLanMode=true; lanBaseUrl=location.origin; $('copyLanBtn').hidden=false; }
   }
 }

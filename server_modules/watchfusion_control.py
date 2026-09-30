@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from . import eveos_console_prefs, eveos_exposure, eveos_ports, watchfusion_exposure
+from .watchfusion_extension import open_extension_folder
 
 
 WATCHFUSION_PORT = eveos_ports.service_port("WATCHFUSION_PORT")

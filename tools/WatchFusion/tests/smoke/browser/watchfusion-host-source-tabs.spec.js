@@ -1,6 +1,56 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('WatchFusion host source controls', () => {
+  test('In active room: Close Nuvio closes view locally without changing room source', async ({ browser }) => {
+    const hostContext = await browser.newContext();
+    const viewerContext = await browser.newContext();
+    const hostPage = await hostContext.newPage();
+    const viewerPage = await viewerContext.newPage();
+    const roomCode = `NUVCLOSE${Math.floor(Math.random() * 9000 + 1000)}`;
+
+    await hostPage.goto('/');
+    await expect(hostPage.locator('#app')).toBeVisible();
+    await hostPage.click('#shortcutNuvioBtn');
+    await hostPage.click('#headerToggleBtn');
+    await hostPage.click('#startPartyBtn');
+    await hostPage.fill('#nameInput', 'HostCloseTester');
+    await hostPage.fill('#roomInput', roomCode);
+    await hostPage.click('#createBtn');
+    await expect(hostPage).toHaveURL(/\/watch\//, { timeout: 5000 });
+    await expect(hostPage.locator('#partyPanel')).toBeVisible();
+    await expect(hostPage.locator('#sourceModeLabel')).toHaveText('Nuvio');
+    await expect(hostPage.locator('#nuvioFrame')).toBeVisible();
+
+    await viewerContext.addInitScript(() => localStorage.setItem('wp-name', 'ViewerCloseTester'));
+    await viewerPage.goto(hostPage.url());
+    await expect(viewerPage).toHaveURL(/\/watch\//, { timeout: 5000 });
+    await expect(viewerPage.locator('#app')).toBeVisible();
+    await expect(viewerPage.locator('#partyPanel')).toBeVisible();
+    await expect(viewerPage.locator('#sourceModeLabel')).toHaveText('Nuvio');
+    await expect(viewerPage.locator('#nuvioFrame')).toBeVisible();
+
+    const sourceBeforeClose = await hostPage.evaluate(() => JSON.stringify(state.source));
+    await hostPage.click('#nuvioCloseBtn');
+    // A room heartbeat/render must not reverse the host's local close intent.
+    await hostPage.evaluate(() => render());
+    await expect(hostPage.locator('#nuvioFrame')).toBeHidden();
+    await expect(hostPage.locator('#nuvioToolbar')).toBeHidden();
+    // Connection heartbeats may replace transient status text; assert the durable
+    // per-source close marker and actual UI instead of a short-lived toast.
+    const closedKey = await hostPage.evaluate(() => nuvioViewKey(state.source));
+    await expect(hostPage.locator('#nuvioFrame')).toHaveAttribute('data-watch-fusion-nuvio-closed', closedKey);
+
+    await expect(viewerPage.locator('#sourceModeLabel')).toHaveText('Nuvio');
+    await expect(viewerPage.locator('#nuvioFrame')).toBeVisible();
+
+    expect(await hostPage.evaluate(() => JSON.stringify(state.source))).toBe(sourceBeforeClose);
+    await hostPage.click('#shortcutNuvioBtn');
+    await expect(hostPage.locator('#nuvioFrame')).toBeVisible();
+    expect(await hostPage.evaluate(() => JSON.stringify(state.source))).toBe(sourceBeforeClose);
+
+    await hostContext.close();
+    await viewerContext.close();
+  });
   test('Nuvio -> VoxelVision -> Find Media -> Nuvio preserves mounted documents', async ({ page }) => {
     // This fixture proves shell lifecycle only, never real provider discovery.
     await page.route('**/nuvio/dist/index.html', route => route.fulfill({

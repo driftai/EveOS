@@ -1,6 +1,7 @@
 importScripts('eveos-hub-connector.js');
 
 let sourceTab = null, controlFrameId = 0;
+let lastRefresh = 0;
 const frameSamples = new Map();
 const asset = value => (globalThis.EveOSExtensionModuleRoots?.watchfusion || '') + value;
 
@@ -49,12 +50,21 @@ function combinedSample(frameId, message) {
   const media = fresh.filter(value => value.hasMedia).sort((a, b) => b.score - a.score)[0];
   const top = fresh.find(value => value.topFrame);
   if (media) controlFrameId = media.frameId;
-  const outer = top?.rect, inner = media?.rect;
-  const rect = media?.topFrame ? inner : outer && inner ? {
-    x: outer.x + inner.x * outer.width, y: outer.y + inner.y * outer.height,
-    width: inner.width * outer.width, height: inner.height * outer.height
-  } : outer || null;
-  return { rect, metadata: media?.metadata || top?.metadata || message.metadata || {} };
+  function crop(frame, visited = new Set()) {
+    if (!frame || visited.has(frame.token)) return null;
+    if (frame.token === media?.token) return frame.rect;
+    visited.add(frame.token);
+    for (const child of frame.children || []) {
+      const inner = crop(fresh.find(value => value.token === child.token), visited);
+      const outer = child.rect;
+      if (outer && inner) return { x: outer.x + inner.x * outer.width, y: outer.y + inner.y * outer.height,
+        width: inner.width * outer.width, height: inner.height * outer.height };
+    }
+    return null;
+  }
+  const rect = media ? crop(top) : null;
+  return { rect, metadata: rect ? media.metadata : { ...(top?.metadata || {}),
+    status: 'Waiting for playable media · enable Setup & embedded players access for embedded video.' } };
 }
 
 async function stop() {
@@ -103,6 +113,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     }
     if (message.type === 'stop' && internal && !sender.tab) return stop();
     const tabId = sourceTab ?? (await chrome.storage.session.get('sourceTab')).sourceTab;
+    if (message.type === 'refresh-probes' && internal && tabId != null && (!sender.tab || sender.tab.id === tabId)) {
+      if (Date.now() - lastRefresh > 1000) { lastRefresh = Date.now(); await inject(tabId); }
+      return { ok: true };
+    }
     if (message.type === 'sample' && sender.tab?.id === tabId) {
       return chrome.runtime.sendMessage({ to: 'offscreen', type: 'sample', ...combinedSample(sender.frameId || 0, message) });
     }

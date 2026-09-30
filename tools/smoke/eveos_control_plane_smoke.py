@@ -34,14 +34,14 @@ def assert_true(condition, message):
         raise AssertionError(message)
 
 
-def request_json(port: int, method: str, path: str, origin: str = "null") -> tuple[int, dict]:
+def request_json(port: int, method: str, path: str, origin: str = "null", body: dict | None = None) -> tuple[int, dict]:
     for attempt in range(3):
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
         try:
             connection.request(
                 method,
                 path,
-                body=b"{}" if method == "POST" else None,
+                body=json.dumps(body or {}).encode() if method == "POST" else None,
                 headers={"Origin": origin, "Content-Type": "application/json", "Connection": "close"},
             )
             response = connection.getresponse()
@@ -175,6 +175,7 @@ def helper_http_smoke():
         H.eveos_web_control.get_status, H.eveos_web_control.start_server, H.eveos_web_control.stop_server,
         H.world_book_control.get_status, H.world_book_control.start_server, H.world_book_control.stop_server,
         H.watchfusion_control.get_status, H.watchfusion_control.start_server, H.watchfusion_control.stop_server,
+        H.watchfusion_control.open_extension_folder,
         H.nexus_browser_control.get_status, H.nexus_browser_control.start_server,
         H.nexus_browser_control.stop_server, H.nexus_browser_control.setup_runtime,
         H.nexus_browser_control.open_extension_folder,
@@ -249,6 +250,7 @@ def helper_http_smoke():
     H.watchfusion_control.get_status = lambda: dict(watch_state)
     H.watchfusion_control.start_server = lambda: set_watch_running(True)
     H.watchfusion_control.stop_server = lambda: set_watch_running(False)
+    H.watchfusion_control.open_extension_folder = lambda package: {"ok": True, "package": package}
     H.nexus_browser_control.get_status = lambda: dict(nexus_state)
     H.nexus_browser_control.start_server = lambda: set_nexus_running(True)
     H.nexus_browser_control.stop_server = lambda: set_nexus_running(False)
@@ -329,6 +331,10 @@ def helper_http_smoke():
         assert_true(payload.get("port") == 3000, "Global Stop targeted the wrong web port")
         assert_true("stoppedAlso" in payload, "Global Stop no longer reports managed child teardown")
 
+        status_code, payload = request_json(port, "POST", "/api/watchfusion/extension", body={"package": "official"})
+        assert_true(status_code == 200 and payload.get("package") == "official", "WatchFusion folder forwarding failed")
+        status_code, _ = request_json(port, "POST", "/api/watchfusion/extension", origin="https://untrusted.example")
+        assert_true(status_code == 403, "Remote WatchFusion folder control was not rejected")
         status_code, payload = request_json(port, "POST", "/api/world-book/start")
         assert_true(status_code == 200 and payload.get("running") is True, "World Book start route failed")
         assert_true(web_state["running"] is False, "World Book start also started EveOS localhost")
@@ -371,6 +377,7 @@ def helper_http_smoke():
             H.eveos_web_control.get_status, H.eveos_web_control.start_server, H.eveos_web_control.stop_server,
             H.world_book_control.get_status, H.world_book_control.start_server, H.world_book_control.stop_server,
             H.watchfusion_control.get_status, H.watchfusion_control.start_server, H.watchfusion_control.stop_server,
+            H.watchfusion_control.open_extension_folder,
             H.nexus_browser_control.get_status, H.nexus_browser_control.start_server,
             H.nexus_browser_control.stop_server, H.nexus_browser_control.setup_runtime,
             H.nexus_browser_control.open_extension_folder,

@@ -14,7 +14,16 @@
     const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Live media request failed'); return result;
   }
   function canControl() { return roomId ? isHost() : !!owner(currentId); }
+  function connectionActions(source = state?.source) {
+    for (const [id, mode, label] of [['linkTabBtn', 'tab', 'Link a playing tab'], ['linkAudioflixBtn', 'audioflix', 'Connect Audioflix']]) {
+      const linked = source?.kind === 'live' && source.mode === mode;
+      $(id).textContent = linked ? (mode === 'tab' ? 'Unlink playing tab' : 'Disconnect Audioflix') : label;
+      $(id).setAttribute('aria-pressed', String(linked));
+      $(id).disabled = busy || !!(roomId && !isHost());
+    }
+  }
   function controls(metadata = {}) {
+    connectionActions();
     lastMetadata = metadata;
     $('liveTitle').textContent = metadata.title || state?.source?.title || 'Live media';
     $('liveGroup').textContent = metadata.group || '';
@@ -57,6 +66,7 @@
     receiver?.stop(); receiver = null; currentId = ''; currentMember = '';
     const video = $('liveVideo'); video.srcObject = null; setListen(video, false);
     video.hidden = true; $('liveControls').hidden = true;
+    connectionActions(null);
   }
   function load(source) {
     hideOtherPlayers(); $('liveVideo').hidden = false; $('liveControls').hidden = false;
@@ -102,7 +112,7 @@
     return new Promise((resolve, reject) => {
       const target = window.parent !== window ? window.parent : window.opener;
       if (!target) return reject(new Error('Open WatchFusion from EveOS to connect its Music Library.'));
-      const requestId = crypto.randomUUID();
+      const requestId = makeClientId();
       const timer = setTimeout(() => { window.removeEventListener('message', onReply); reject(new Error('Audioflix did not answer. Open Music Library in EveOS and retry.')); }, 10000);
       function onReply(event) {
         if (event.source !== target || event.data?.type !== 'watchfusion:audioflix-result' || event.data.requestId !== requestId) return;
@@ -123,7 +133,7 @@
   }
   async function start(mode) {
     if (busy || (roomId && !isHost())) return setStatus('Only the host can select the room source.');
-    busy = true;
+    busy = true; connectionActions();
     let created;
     const previousId = state?.source?.kind === 'live' ? state.source.streamId : '';
     try {
@@ -142,27 +152,49 @@
     } catch (error) {
       if (created) { await post(`/api/live/${created.id}/stop`, created).catch(() => {}); owners.delete(created.id); try { localStorage.removeItem(ownerKey(created.id)); } catch {} }
       setStatus(error.message);
-    } finally { busy = false; }
+    } finally { busy = false; connectionActions(); }
   }
-  $('linkTabBtn').onclick = () => start('tab'); $('linkAudioflixBtn').onclick = () => start('audioflix');
+  async function selectMode(mode) {
+    if (busy) return;
+    if (state?.source?.kind !== 'live' || state.source.mode !== mode) return start(mode);
+    busy = true; connectionActions();
+    try { await window.unloadWatchFusionMedia(); }
+    catch (error) { setStatus(error.message); }
+    finally { busy = false; connectionActions(); }
+  }
+  $('linkTabBtn').onclick = () => selectMode('tab'); $('linkAudioflixBtn').onclick = () => selectMode('audioflix');
   $('liveCopyPair').onclick = async event => { const ok = await copyText($('livePairLink').value); setCopyButtonFeedback(event.currentTarget, ok); };
   $('livePairClose').onclick = () => { $('livePairHelp').hidden = true; };
-  $('livePairFolder').onclick = async () => {
+  function askHostFolder(target, packageName) {
+    return new Promise((resolve, reject) => {
+      const requestId = makeClientId();
+      const timer = setTimeout(() => finish(new Error('EveOS did not answer. Reload EveOS and retry.')), 20000);
+      function finish(error, result) { clearTimeout(timer); window.removeEventListener('message', reply); error ? reject(error) : resolve(result); }
+      function reply(event) {
+        if (event.source !== target || event.data?.type !== 'watchfusion:extension-folder-result' || event.data.requestId !== requestId) return;
+        finish(event.data.ok ? null : new Error(event.data.message || 'Folder could not be opened.'), event.data);
+      }
+      window.addEventListener('message', reply);
+      target.postMessage({ type: 'watchfusion:extension-folder', requestId, package: packageName }, '*');
+    });
+  }
+  async function openFolder(packageName) {
+    const feedback = $('livePairFeedback');
+    feedback.textContent = 'Opening folder…';
     try {
-      const response = await fetch(apiUrl('/api/setup/open-extension-folder'), { method: 'POST', cache: 'no-store' });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Could not open the companion folder.');
-      status(result.message || 'Companion folder opened.');
-    } catch (error) { status(error.message); }
-  };
-  $('livePairOfficialFolder').onclick = async () => {
-    try {
-      const response = await fetch(apiUrl('/api/setup/open-extension-folder?package=official'), { method: 'POST', cache: 'no-store' });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Could not open the EveOS extension folder.');
-      status(result.message || 'EveOS extension folder opened.');
-    } catch (error) { status(error.message); }
-  };
+      const target = window.parent !== window ? window.parent : window.opener;
+      let result;
+      if (target) result = await askHostFolder(target, packageName);
+      else {
+        const response = await fetch(`/api/setup/open-extension-folder?package=${packageName}`, { method: 'POST', cache: 'no-store' });
+        result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Open WatchFusion on this PC’s local URL to open folders.');
+      }
+      feedback.textContent = result.message || 'Extension folder opened.';
+    } catch (error) { feedback.textContent = error.message; }
+  }
+  $('livePairFolder').onclick = () => openFolder('watchfusion');
+  $('livePairOfficialFolder').onclick = () => openFolder('official');
   $('liveListen').onclick = async () => {
     const video = $('liveVideo'); setListen(video, video.muted);
     listenPreferences.set(currentId, !video.muted);
@@ -178,6 +210,7 @@
   $('liveControls').addEventListener('click', event => { const button = event.target.closest('[data-live-action]'); if (button && canControl()) receiver?.control(button.dataset.liveAction, Number(button.dataset.value)); });
   for (const [id, action] of [['liveSeek', 'seek'], ['liveRate', 'rate'], ['liveVolume', 'volume']]) $(id).onchange = () => { if (canControl()) receiver?.control(action, Number($(id).value)); };
   window.watchFusionLive = { load, disconnect, share, unload };
+  connectionActions();
   window.watchPartyProviders.register({ id: 'live', supports: source => source?.kind === 'live', load: async source => load(source), unload });
   window.addEventListener('beforeunload', () => receiver?.stop());
 })();
