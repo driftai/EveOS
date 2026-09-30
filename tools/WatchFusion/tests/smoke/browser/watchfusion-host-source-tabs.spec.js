@@ -124,6 +124,9 @@ test.describe('WatchFusion host source controls', () => {
     await expect(page.locator('#findMediaPanel')).toBeVisible();
     await expect(page.locator('#sourceModeLabel')).toHaveText('Ready');
     await expect(page.locator('#resolveTabBtn')).toHaveClass(/active/);
+    await page.evaluate(() => render()); // A room heartbeat must preserve user intent.
+    await expect(page.locator('#findMediaPanel')).toBeVisible();
+    await expect(page.locator('#nuvioFrame')).toBeVisible();
   });
 
   test('VoxelVision opens as a mounted source and can switch back to Nuvio', async ({ page }) => {

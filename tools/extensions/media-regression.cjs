@@ -53,7 +53,31 @@ async function qualifyMediaWorker() {
   assert.equal((await context.WatchFusionMediaLink.status()).linked, false);
   await qualifyAudioflixFailure();
   await qualifyLiveActions();
-  return 13;
+  await qualifyConnectorActions();
+  return 17;
+}
+
+async function qualifyConnectorActions() {
+  const source = fs.readFileSync(path.resolve(__dirname, '../WatchFusion/browser-extension/eveos-hub-connector.js'), 'utf8');
+  for (const bundled of [false, true]) {
+    let handle;
+    const requests = [];
+    const sandbox = vm.createContext({
+      chrome: { storage: { session: { get: async () => ({}) } }, runtime: {
+        getManifest: () => ({ version: 'fixture' }),
+        onMessageExternal: { addListener: listener => { handle = message => new Promise(resolve => listener(message, {}, resolve)); } }
+      } },
+      fetch: async url => { requests.push(url); return { ok: true, json: async () => ({ ok: true }) }; },
+      ...(bundled ? { EveOSExtensionModules: { register: (_id, listener) => { handle = listener; } } } : {})
+    });
+    vm.runInContext(source, sandbox);
+    const request = type => ({ channel: 'eveos.extension.v1', version: 1, type });
+    const described = await handle(request('describe'));
+    assert(!described.detail.actions.some(action => action.id === 'open-extension-folder'), 'folder access belongs only in WatchFusion');
+    const obsolete = await handle({ ...request('invoke'), detail: { action: 'open-extension-folder' } });
+    assert.equal(obsolete.code, 'UNKNOWN_ACTION');
+    assert(requests.every(url => !url.includes('open-extension-folder')), 'obsolete extension actions cannot open folders');
+  }
 }
 
 async function qualifyLiveActions() {

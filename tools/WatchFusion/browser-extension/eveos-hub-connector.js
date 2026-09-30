@@ -42,8 +42,7 @@
           description: 'Then open the extension on the playing source tab to start capture.',
           input: { kind: 'text', placeholder: 'Paste private pairing link' }
         },
-        { id: 'stop-sharing', label: 'Stop sharing', description: 'Stops the companion-owned tab capture.' },
-        { id: 'open-extension-folder', label: 'Open companion folder', description: 'Opens the unpacked extension folder on the EveOS host.' }
+        { id: 'stop-sharing', label: 'Stop sharing', description: 'Stops the companion-owned tab capture.' }
       ],
       status
     };
@@ -54,14 +53,6 @@
     if (action === 'stop-sharing') {
       await globalThis.WatchFusionMediaLink?.stop?.();
       return response('invoke', { message: 'WatchFusion sharing stopped.' });
-    }
-    if (action === 'open-extension-folder') {
-      const packageName = globalThis.EveOSExtensionModules ? 'official' : 'watchfusion';
-      const result = await fetch(`http://127.0.0.1:9087/api/setup/open-extension-folder?package=${packageName}`, { method: 'POST', cache: 'no-store' });
-      const payload = await result.json().catch(() => ({}));
-      return result.ok
-        ? response('invoke', { message: payload.message || 'Companion folder opened.' })
-        : failure('invoke', 'OPEN_FOLDER_FAILED', payload.error || 'WatchFusion could not open the companion folder.');
     }
     if (action === 'prepare-tab-link') {
       const api = globalThis.WatchFusionMediaLink;

@@ -41,7 +41,7 @@ function render() {
   const playerHost=$('playerHost');
   const nuvioToolbar=$('nuvioToolbar');
   const nuvioFrame=$('nuvioFrame');
-  if(!isNuvio&&nuvioFrame)delete nuvioFrame.dataset.watchFusionNuvioClosed;
+  if(!isNuvio&&nuvioFrame){delete nuvioFrame.dataset.watchFusionNuvioClosed;delete nuvioFrame.dataset.watchFusionNuvioSelected;}
   const nuvioViewVisible=isNuvio&&!isNuvioViewClosed(source);
   const voxelVisionToolbar=$('voxelVisionToolbar');
   const voxelVisionFrame=$('voxelVisionFrame');

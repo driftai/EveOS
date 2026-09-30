@@ -164,7 +164,11 @@ function initNuvioProvider() {
 
     if (!alreadyLoaded) window.mediaPlayback?.clear?.();
     target.removeAttribute('hidden');target.style.display='block';setPlayerNuvioClass(true);setToolbarVisible(true);setActiveSourceTab('nuvio');
-    if (document.getElementById('findMediaPanel')) document.getElementById('findMediaPanel').hidden = true;
+    const selectionKey = nuvioViewKey(source);
+    if (target.dataset.watchFusionNuvioSelected !== selectionKey) {
+      target.dataset.watchFusionNuvioSelected = selectionKey;
+      if (document.getElementById('findMediaPanel')) document.getElementById('findMediaPanel').hidden = true;
+    }
     window.watchFusionNuvioViewport?.attach?.(target);
 
     if (!alreadyLoaded) {
