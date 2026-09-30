@@ -37,9 +37,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .find(item => item.extensionId === message.extensionId && (!message.id || item.id === message.id));
       if (!connector) return { ok: false, code: 'UNKNOWN_CONNECTOR' };
       const invoke = message.type === 'invoke-connector';
-      if (!invoke && managedTools.has(connector.id)) {
-        return { ok:true, detail:await managedTools.get(connector.id).open() };
-      }
       if (!invoke && connector.integration === 'included'
           && globalThis.EveOSExtensionModuleEntries.some(item => item.id === connector.moduleId && item.popup)) {
         return { ok: true, detail: { uiModule: connector.moduleId } };

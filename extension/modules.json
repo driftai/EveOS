@@ -1,6 +1,6 @@
 {
   "modules": [
-    { "id": "nexus-browser", "source": "tools/Nexus-Browser/extension", "entry": "service-worker-entry.js" },
+    { "id": "nexus-browser", "source": "tools/Nexus-Browser/extension", "entry": "service-worker-entry.js", "popup": "popup.html", "label": "Nexus" },
     { "id": "watchfusion", "source": "tools/WatchFusion/browser-extension", "entry": "worker.js", "popup": "popup.html", "label": "WatchFusion" },
     { "id": "tab-collector", "source": "tools/Tab-Collector/extension", "entry": "worker.js", "popup": "popup.html", "label": "Tab URLs" }
   ]

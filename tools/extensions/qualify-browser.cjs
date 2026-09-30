@@ -25,8 +25,11 @@ async function qualifyBrowser() {
   fs.mkdirSync(resultDir, { recursive: true });
   const fixture = http.createServer((req, res) => {
     const health = req.url === '/health' || req.url === '/api/health';
-    res.writeHead(200, { 'Content-Type': health ? 'application/json' : 'text/html' });
-    res.end(health ? '{"ok":true,"service":"eveos-nexus-browser","app":"WatchFusion"}' : req.url === '/comments'
+    const diagnosticsRequest = req.url === '/diagnostics';
+    res.writeHead(200, { 'Content-Type': health || diagnosticsRequest ? 'application/json' : 'text/html' });
+    res.end(health ? '{"ok":true,"service":"eveos-nexus-browser","app":"WatchFusion"}'
+      : diagnosticsRequest ? '{"ok":true,"extensionConnected":true,"dexUiConnected":true,"uiClients":2,"onlineTargets":3,"localTargets":1,"dexRooms":4,"recoveryRooms":0,"serverSessionId":"fixture-session","savedAt":"2026-09-30T00:00:00Z","controlPlane":{}}'
+      : req.url === '/comments'
       ? '<!doctype html><html><body>Comments are not playable media.</body></html>'
       : mediaHtml(req.url !== '/frame').replaceAll('PORT', fixture.address().port));
   });
@@ -92,15 +95,19 @@ async function qualifyBrowser() {
           });
           await hub.locator('[data-collapse^="connector:nexus-browser:"] > summary').click();
           assert.equal(await hub.getByRole('button', { name:'Open Nexus', exact:true }).count(), 0);
-          for (const id of ['nexus-browser', 'watchfusion']) {
-            await hub.locator(`[data-open-connector][data-connector-id="${id}"]`).click();
-            await hub.locator('[data-status]').filter({ hasText: id === 'watchfusion' ? 'WatchFusion is ready.' : 'Nexus Browser is ready.' }).waitFor();
-            const tabs = await worker.evaluate(async url => chrome.tabs.query({ url }), `http://127.0.0.1:${port}/`);
-            assert.equal(tabs.length, 1, 'Open tool must reuse a ready runtime dashboard, not open a companion popup');
-          }
-          await hub.close(); pass += 5;
+          await hub.close(); pass += 3;
           const popup = await context.newPage();
           await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+          await popup.getByRole('tab', { name: 'Nexus', exact: true }).click();
+          const nexus = popup.frameLocator('#view-nexus-browser');
+          await nexus.locator('#state').filter({ hasText:'ONLINE' }).waitFor();
+          assert.equal(await nexus.locator('#providers').textContent(), '3');
+          assert((await popup.locator('#view-nexus-browser').getAttribute('src')).startsWith('modules/nexus-browser/popup.html?windowId='));
+          await popup.getByRole('tab', { name:'Tools', exact:true }).click();
+          const tools = popup.frameLocator('#view-tools');
+          await tools.locator('[data-collapse^="connector:nexus-browser:"] > summary').click();
+          await tools.locator('[data-open-connector][data-connector-id="nexus-browser"]').click();
+          await popup.waitForFunction(() => document.querySelector('#tab-nexus-browser')?.getAttribute('aria-selected') === 'true');
           await popup.getByRole('tab', { name: 'WatchFusion', exact: true }).click();
           await popup.frameLocator('#view-watchfusion').locator('#connect').waitFor();
           assert(await popup.frameLocator('#view-watchfusion').locator('#stop').isHidden());

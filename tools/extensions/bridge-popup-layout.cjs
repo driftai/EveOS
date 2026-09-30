@@ -38,13 +38,14 @@ async function qualifyPopupLayout(page, resultDir) {
     'one intentional full-bleed surface must paint the popup, without html/body background propagation');
   for (const [id, label, last] of [
     ['tools', 'Tools', 'main .tool-section:last-child .card:last-child'],
+    ['nexus-browser', 'Nexus', 'footer'],
     ['watchfusion', 'WatchFusion', '#status'],
     ['tab-collector', 'Tab URLs', 'small']
   ]) {
     await page.getByRole('tab', { name:label, exact:true }).click();
     const panel = page.frameLocator(`#view-${id}`);
     await panel.locator('#bridge-surface-theme').waitFor({ state:'attached' });
-    if (id === 'tools') await panel.locator('[data-status]').filter({ hasText:'Updated' }).waitFor();
+    if (id === 'tools') await panel.locator('[data-status]:not(:empty)').waitFor();
     const frame = page.frames().find(item => item !== page.mainFrame()
       && item.url().includes(id === 'tools' ? '/hub.html' : `/modules/${id}/popup.html`));
     await frame.waitForFunction(() => getComputedStyle(document.documentElement).scrollbarWidth === 'thin');

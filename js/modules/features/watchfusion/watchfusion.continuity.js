@@ -25,6 +25,8 @@
     let detachedWindow = null;
     let detachedOrigin = '';
     let ownerRole = 'embedded';
+    const pendingEmbeddedRelays = new Map();
+    const PENDING_RELAY_TTL_MS = 35000;
 
     function frameWindow() {
         return document.querySelector('#watchfusion-overlay .watchfusion-frame')?.contentWindow || null;
@@ -57,6 +59,33 @@
         }
     }
 
+    function queueEmbeddedRelay(data, sourceRole) {
+        if (sourceRole !== 'detached' || data.type !== 'watchfusion:continuity-handoff'
+            || data.targetRole !== 'embedded' || typeof data.requestId !== 'string') return false;
+        const now = Date.now();
+        for (const [requestId, entry] of pendingEmbeddedRelays) {
+            if (entry.expiresAt <= now) pendingEmbeddedRelays.delete(requestId);
+        }
+        pendingEmbeddedRelays.set(data.requestId, {
+            data: { ...data }, sourceRole, expiresAt: now + PENDING_RELAY_TTL_MS
+        });
+        while (pendingEmbeddedRelays.size > 4) {
+            pendingEmbeddedRelays.delete(pendingEmbeddedRelays.keys().next().value);
+        }
+        return true;
+    }
+
+    function flushEmbeddedRelays() {
+        const now = Date.now();
+        for (const [requestId, entry] of pendingEmbeddedRelays) {
+            if (entry.expiresAt <= now) {
+                pendingEmbeddedRelays.delete(requestId);
+                continue;
+            }
+            if (relay(entry.data, entry.sourceRole)) pendingEmbeddedRelays.delete(requestId);
+        }
+    }
+
     function registerPresence(event, data) {
         if (data.type === 'watchfusion:embedded-presence') {
             const expected = frameWindow();
@@ -64,6 +93,7 @@
             embeddedWindow = event.source;
             embeddedOrigin = event.origin;
             configure('embedded');
+            flushEmbeddedRelays();
             return true;
         }
 
@@ -127,15 +157,23 @@
         if (!sourceRole) return;
 
         if (data.type === 'watchfusion:reattach-request' && sourceRole === 'detached') {
+            embeddedWindow = null;
+            embeddedOrigin = '';
             window.EveWatchFusion?.open?.();
             return;
         }
 
         if (!RELAY_TYPES.has(data.type)) return;
-        if (!relay(data, sourceRole)) return;
+        if (!relay(data, sourceRole) && !queueEmbeddedRelay(data, sourceRole)) return;
 
-        if (data.type === 'watchfusion:continuity-applied') ownerRole = String(data.targetRole || ownerRole);
-        if (data.type === 'watchfusion:continuity-failed') ownerRole = String(data.sourceRole || ownerRole);
+        if (data.type === 'watchfusion:continuity-applied') {
+            pendingEmbeddedRelays.delete(String(data.requestId || ''));
+            ownerRole = String(data.targetRole || ownerRole);
+        }
+        if (data.type === 'watchfusion:continuity-failed') {
+            pendingEmbeddedRelays.delete(String(data.requestId || ''));
+            ownerRole = String(data.sourceRole || ownerRole);
+        }
     }
 
     window.addEventListener('message', handleProtocol);

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nexus Browser</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header><div><span class="eyebrow">EVEOS NEXUS BROWSER</span><h1>Backend activity</h1></div><span id="state" class="state">CHECKING</span></header>
+  <p id="summary" class="summary">Reading the local Nexus control plane…</p>
+  <main>
+    <section class="metrics" aria-label="Nexus runtime metrics">
+      <article><strong id="providers">—</strong><span>Provider tabs</span></article>
+      <article><strong id="agents">—</strong><span>Local agents</span></article>
+      <article><strong id="rooms">—</strong><span>Dex rooms</span></article>
+      <article><strong id="clients">—</strong><span>UI clients</span></article>
+    </section>
+    <section class="panel"><h2>Connections</h2>
+      <div class="row"><span>Provider extension</span><strong id="extension">—</strong></div>
+      <div class="row"><span>Dex controller</span><strong id="dex">—</strong></div>
+      <div class="row"><span>Recovery rooms</span><strong id="recovery">—</strong></div>
+      <div class="row"><span>Pending operations</span><strong id="pending">—</strong></div>
+    </section>
+    <section class="panel"><h2>Runtime</h2>
+      <div class="row"><span>Session</span><code id="session">—</code></div>
+      <div class="row"><span>State saved</span><strong id="saved">—</strong></div>
+    </section>
+  </main>
+  <footer><span id="updated">Not updated yet</span><button id="refresh" type="button">Refresh</button></footer>
+  <script src="runtime-config.js"></script><script src="popup.js"></script>
+</body></html>

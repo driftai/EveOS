@@ -5,7 +5,7 @@ const path = require('node:path');
 async function qualifyCollapses(page, worker, resultDir) {
   await page.getByRole('tab', { name:'Tools', exact:true }).click();
   let hub = page.frameLocator('#view-tools');
-  await hub.locator('[data-status]').filter({ hasText:'Updated' }).waitFor();
+  await hub.locator('[data-status]:not(:empty)').waitFor();
   const card = id => hub.locator(`[data-collapse="service:${id}"]`);
   for (const id of ['eveos', 'nexus-browser', 'watchfusion']) {
     assert.equal(await card(id).evaluate(node => node.open), false, 'unconfigured service actions start folded');

@@ -41,7 +41,10 @@ async function qualifyHubRouting() {
   const protocol = require('../../extension/core/protocol.js');
   const context = vm.createContext({ URL, Map, fetch:async () => { throw new Error('Unexpected hub fetch'); },
     EveOSExtensionProtocol:protocol,
-    EveOSExtensionCatalog:{ services:[{ id:'watchfusion', url:'http://127.0.0.1:12345/', health:'http://127.0.0.1:12345/api/health' }] },
+    EveOSExtensionCatalog:{ services:[
+      { id:'nexus-browser', url:'http://127.0.0.1:12345/', health:'http://127.0.0.1:12345/health' },
+      { id:'watchfusion', url:'http://127.0.0.1:12345/', health:'http://127.0.0.1:12345/api/health' }
+    ] },
     EveOSExtensionDiscovery:{ STORAGE_KEY:'saved', create:() => ({}) },
     NexusBrowserRuntimeConfig:{ controlOrigin:'http://127.0.0.1:12346' },
     NexusBrowserDashboard:{ open:async () => { opened.push('nexus-browser'); return { opened:true }; } },
@@ -52,7 +55,7 @@ async function qualifyHubRouting() {
     } },
     EveOSExtensionModules:{ describe:async () => ['nexus-browser', 'watchfusion'].map(id => ({
       id, extensionId:'hub', integration:'included', moduleId:id, actions:[] })) },
-    EveOSExtensionModuleEntries:[{ id:'watchfusion', popup:'popup.html' }],
+    EveOSExtensionModuleEntries:[{ id:'nexus-browser', popup:'popup.html' }, { id:'watchfusion', popup:'popup.html' }],
     chrome:{ runtime:{ id:'hub', onMessage:{ addListener:fn => { listener = fn; } } },
       storage:{ local:{ get:async () => ({ saved:[] }) } } }
   });
@@ -60,9 +63,11 @@ async function qualifyHubRouting() {
   const send = details => new Promise(resolve => listener({ channel:protocol.UI_CHANNEL, ...details }, { id:'hub' }, resolve));
   for (const id of ['nexus-browser', 'watchfusion']) {
     const result = await send({ type:'open-connector', id, extensionId:'hub' });
-    assert.equal(result.ok, true); assert.equal(result.detail.uiModule, undefined, 'Open tool must open the managed runtime, not the companion panel');
-    assert.equal(opened.at(-1), id);
+    assert.equal(result.ok, true); assert.equal(result.detail.uiModule, id, 'included Open tool must select its Bridge tab');
   }
+  assert.deepEqual(opened, [], 'connector tabs must remain passive and not start managed services');
+  assert.equal((await send({ type:'open-service', id:'nexus-browser' })).ok, true);
+  assert.equal(opened.at(-1), 'nexus-browser');
   assert.equal((await send({ type:'open-service', id:'watchfusion' })).ok, true);
   assert.equal(opened.at(-1), 'watchfusion');
   assert.equal((await send({ type:'invoke-connector', id:'nexus-browser', extensionId:'hub', action:'open-dashboard' })).code, 'UNKNOWN_CONNECTOR_ACTION');

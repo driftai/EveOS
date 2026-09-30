@@ -72,7 +72,10 @@ document.addEventListener('click', async event => {
       status.textContent = 'Opening tool through EveOS; starting it if needed…';
       const result = await send('open-connector', { extensionId: target.dataset.openConnector, id: target.dataset.connectorId });
       if (!result?.ok) throw new Error(result?.message || result?.code || 'Companion could not be opened.');
-      if (result.detail?.uiModule) parent.postMessage({ channel: 'eveos.bridge.navigate.v1', moduleId: result.detail.uiModule }, location.origin);
+      if (result.detail?.uiModule) {
+        parent.postMessage({ channel: 'eveos.bridge.navigate.v1', moduleId: result.detail.uiModule }, location.origin);
+        status.textContent = 'Tool tab opened.';
+      }
       else status.textContent = result.detail?.message || 'Tool opened.';
     } else if (target.dataset.invokeConnector) {
       const extensionId = target.dataset.invokeConnector;

@@ -20,6 +20,44 @@ function read(relative) {
     return fs.readFileSync(path.join(ROOT, relative), 'utf8').replace(/\r\n/g, '\n');
 }
 
+function continuityReattachContract() {
+    const vm = require('node:vm');
+    const events = {};
+    const makePeer = () => ({ closed: false, messages: [], postMessage(payload, origin) { this.messages.push({ payload, origin }); } });
+    const oldEmbedded = makePeer(), newEmbedded = makePeer(), detached = makePeer();
+    let currentEmbedded = oldEmbedded, opens = 0;
+    const window = {
+        crypto: { randomUUID: () => 'continuity-session' },
+        addEventListener: (type, listener) => { events[type] = listener; },
+        EveWatchFusionRuntimeSensor: { isCandidateOrigin: () => true },
+        EveWatchFusion: {
+            getDetachedWindow: () => detached,
+            open: () => { opens += 1; currentEmbedded = newEmbedded; }
+        }
+    };
+    const document = {
+        querySelector: selector => selector.includes('watchfusion-frame') ? { contentWindow: currentEmbedded } : null,
+        addEventListener: () => {}
+    };
+    window.window = window; window.document = document;
+    vm.runInNewContext(read('js/modules/features/watchfusion/watchfusion.continuity.js'), {
+        window, document, Uint8Array, Date, Math, Set, Map, Object, String
+    });
+    const send = (source, data) => events.message({ source, origin:'http://127.0.0.1:9087', data:{ source:'WatchFusion', ...data } });
+    send(oldEmbedded, { type:'watchfusion:embedded-presence', version:1, embedded:true });
+    send(detached, { type:'watchfusion:detached-presence', version:1, detached:true, windowName:'eveWatchFusionWindow' });
+    send(detached, { type:'watchfusion:reattach-request', version:2, role:'detached', sessionId:'continuity-session' });
+    send(detached, { type:'watchfusion:continuity-handoff', version:2, role:'detached', sessionId:'continuity-session',
+        requestId:'handoff-1', targetRole:'embedded', snapshot:{ media:{ type:'none' } } });
+    const staleDelivery = oldEmbedded.messages.some(item => item.payload.type === 'watchfusion:continuity-handoff');
+    const earlyDelivery = newEmbedded.messages.some(item => item.payload.type === 'watchfusion:continuity-handoff');
+    send(newEmbedded, { type:'watchfusion:embedded-presence', version:1, embedded:true });
+    const delivered = newEmbedded.messages.filter(item => item.payload.type === 'watchfusion:continuity-handoff');
+    check(opens === 1 && !staleDelivery && !earlyDelivery && delivered.length === 1
+        && delivered[0].payload.requestId === 'handoff-1', 'WF-REATTACH-RECEIVER-QUEUE',
+    'reattach did not hold the handoff until the replacement embedded receiver registered');
+}
+
 function sourceContract() {
     const helper = read('server_modules/eveos_control_helper.py');
     const control = read('server_modules/watchfusion_control.py');
@@ -204,6 +242,7 @@ function embeddedRuntime() {
 }
 
 sourceContract();
+continuityReattachContract();
 const runtime = embeddedRuntime();
 
 if (failures.length) {
