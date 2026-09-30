@@ -281,12 +281,13 @@ html.eveos-embedded .chat { min-height: 0; }
   .row > * { flex: 1; }
   .find-media-row input { flex-basis: 100%; }
   .find-media-row #loadBtn { width: 100%; }
-  .watch-shell-head { align-items: stretch; flex-direction: column; gap: 8px; }
-  .source-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .source-badge { align-self: flex-start; }
+  .watch-shell-head { align-items: stretch; flex-direction: column; gap: 5px; padding: 6px; }
+  .source-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+  .source-tab { min-height: 38px; padding: 6px 4px; font-size: 12px; }
+  .source-badge { display: none; }
   .nuvio-toolbar-note, .voxelvision-toolbar-note { width: 100%; margin-left: 0; }
-  .media-status-row { gap: 6px; }
-  .smallrow span#syncStatus { margin-left: 0; flex-basis: 100%; }
+  .media-status-row { gap: 5px; padding: 6px; }
+  .smallrow span#syncStatus { margin-left: 0; flex-basis: 100%; font-size: 11px; }
   html.eveos-embedded .topbar {
     flex-basis: 36px;
     min-height: 36px;
