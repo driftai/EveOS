@@ -119,7 +119,7 @@ async function commandRoute(req, res, room, roomId, memberId, member) {
   const receivedAt = now();
   const sampleAgeSeconds = sampledCommandAgeSeconds(body, receivedAt);
   const isHost = member.id === room.hostId || memberId === room.hostId;
-  if (['play', 'pause', 'seek', 'rate', 'volume', 'source', 'transfer-host'].includes(body.type) && !isHost) {
+  if (['play', 'pause', 'seek', 'rate', 'volume', 'source', 'mirror', 'transfer-host'].includes(body.type) && !isHost) {
     return json(res, 403, { error: 'only the current host controls this action' });
   }
   const type = body.type;
@@ -142,6 +142,18 @@ async function commandRoute(req, res, room, roomId, memberId, member) {
       room.source = { type: 'youtube', videoId, originalUrl: youtubeUrlFromId(videoId) };
     }
     room.playback = freshPlayback(room.playback);
+  } else if (type === 'mirror') {
+    const sampledPosition = Math.max(0, Number(body.position) || 0);
+    const rate = Math.min(2, Math.max(0.25, Number(body.rate) || 1));
+    const paused = !!body.paused;
+    room.playback.position = paused ? sampledPosition : sampledPosition + sampleAgeSeconds * rate;
+    room.playback.paused = paused;
+    room.playback.ended = !!body.ended;
+    room.playback.rate = rate;
+    const volume = Number(body.volume);
+    if (Number.isFinite(volume)) room.playback.volume = Math.min(100, Math.max(0, volume));
+    if (body.muted != null) room.playback.muted = !!body.muted;
+    room.playback.updatedAt = receivedAt;
   } else if (type === 'play') {
     const replayingEnded = !!room.playback.ended;
     const sampledPosition = Math.max(0, Number(body.position) || 0);

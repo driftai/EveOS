@@ -197,7 +197,8 @@ export async function handleMediaRoute(req, res, parts) {
       if (activeResolutions.has(key)) return json(res, 429, { ok: false, code: 'RESOLUTION_IN_PROGRESS', message: 'A media resolution is already running for this room.' });
       activeResolutions.add(key);
       try {
-        const result = await provider.resolve(validated.url, { timeoutMs: body.timeoutMs, maxResults: 12 });
+        const maxResults = Math.max(1, Math.min(20, Number(body.maxResults) || 20));
+        const result = await provider.resolve(validated.url, { timeoutMs: body.timeoutMs, maxResults });
         return json(res, result.ok ? 200 : 422, { ...result, provider: provider.id });
       } finally {
         activeResolutions.delete(key);

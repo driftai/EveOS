@@ -11,20 +11,10 @@ $('loadBtn').onclick=async()=>{
   if(roomId&&!isHost())return alert('Only the host can load video sources.');
   const input=$('sourceInput').value.trim();
   if(!input)return alert('Paste a YouTube URL, direct video/HLS URL, or supported watch-page URL.');
-  if (/^(?:nuvio:\/\/|stremio:\/\/|tt\d{7,10}$)/i.test(input)) return openNuvioBrowserMode();
-  if(/\.m3u8(?:$|[?#])/i.test(input)||/\.(mp4|webm|m4v|mkv)(?:$|[?#])/i.test(input)){
-    const isHls=/\.m3u8(?:$|[?#])/i.test(input);const source={kind:'media',url:input,type:isHls?'hls':'file',server:new URL(input).hostname,title:'Direct media',originalUrl:input};setStatus('Loading direct media…');
-    if($('findMediaPanel'))$('findMediaPanel').hidden=true;
-    if(!roomId){applySoloSource(source);setStatus('Media ready · solo mode');return;}
-    const res=await fetch(apiUrl(`/api/rooms/${roomId}/media-source`),{method:'POST',headers:{'Content-Type':'application/json','x-member-id':session.memberId},body:JSON.stringify({media:source,originalUrl:input})});const data=await res.json().catch(()=>({}));if(!res.ok)return setStatus(data.error||'Could not load media.');state=data.state;sourceInputDirty=false;render();setStatus('Media ready');return;
-  }
-  const youtubeLike=/^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\//i.test(input)||/^[A-Za-z0-9_-]{11}$/.test(input);
-  if(!youtubeLike&&/^https?:\/\//i.test(input)){await resolveMediaInput();return;}
-  if($('findMediaPanel'))$('findMediaPanel').hidden=true;
-  if(!roomId){const videoId=window.parseYoutubeInput?window.parseYoutubeInput(input):input;applySoloSource({type:'youtube',kind:'youtube',videoId,originalUrl:input});ensurePlayer(videoId);setStatus('Video ready · solo mode');return;}
-  const ok=await command('source',{input});if(ok){sourceInputDirty=false;setStatus('Video ready');}
+  if(/^(?:nuvio:\/\/|stremio:\/\/|tt\d{7,10}$)/i.test(input))return openNuvioBrowserMode();
+  await window.watchFusionMediaResolver?.resolve?.({input,autoLoad:false});
 };
-function showFindMedia(){if($('findMediaPanel'))$('findMediaPanel').hidden=false;document.querySelectorAll('.source-tab').forEach(tab=>tab.classList.toggle('active',tab.id==='resolveTabBtn'));if($('sourceModeLabel'))$('sourceModeLabel').textContent='Ready';$('sourceInput')?.focus();}
+function showFindMedia()function showFindMedia(){if($('findMediaPanel'))$('findMediaPanel').hidden=false;document.querySelectorAll('.source-tab').forEach(tab=>tab.classList.toggle('active',tab.id==='resolveTabBtn'));if($('sourceModeLabel'))$('sourceModeLabel').textContent='Ready';$('sourceInput')?.focus();}
 function showNuvio(){if($('findMediaPanel'))$('findMediaPanel').hidden=true;openNuvioBrowserMode();}
 function showVoxelVision(){if($('findMediaPanel'))$('findMediaPanel').hidden=true;openVoxelVisionMode();}
 $('shortcutNuvioBtn').onclick=null;
