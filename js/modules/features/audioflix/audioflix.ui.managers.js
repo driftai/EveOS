@@ -77,7 +77,7 @@ window.EveAudioflixUiManagers = window.EveAudioflixUiManagers || {};
         };
         const renderFoldersManager = () => {
             const musicItems = state().music || [];
-            const folderCounts = {};
+            const folderCounts = Object.fromEntries((state().musicFolders || []).map((name) => [String(name || '').trim(), 0]).filter(([name]) => name));
             musicItems.forEach(it => {
                 const f = String(it.folder || it.card || '').trim() || 'Ungrouped';
                 folderCounts[f] = (folderCounts[f] || 0) + 1;
