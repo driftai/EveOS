@@ -73,13 +73,19 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
     }
 
     function musicRef(item, state) {
+        const folder = text(item?.folder || item?.card);
+        const port = (state?.musicPortConnections || []).find((entry) => (
+            folder && text(entry?.folder).toLowerCase() === folder.toLowerCase()
+        ));
         return {
             id: text(item?.id),
             title: text(item?.title),
             localPath: text(item?.localPath),
             playlistId: text(item?.playlistId),
             sourceId: text(item?.sourceId),
-            folder: text(item?.folder || item?.card),
+            portConnectionId: text(port?.id),
+            sourceKind: item?.isMusicPort ? 'music-port' : (item?.playlistId ? 'playlist' : 'manual'),
+            folder,
             classifiers: uniq(item?.classifiers),
             groups: uniq(state?.musicGroupMap?.[item?.id] || []),
             musicPortGroup: text(item?.musicPortGroup)
