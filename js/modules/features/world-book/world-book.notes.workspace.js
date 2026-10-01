@@ -40,8 +40,23 @@ window.EveWorldBook = window.EveWorldBook || {};
         return !!opened && !!editor && editor.value !== originalContent;
     }
 
-    function allowDiscard() {
-        return !isDirty() || window.confirm('Discard the unsaved changes to this note?');
+    async function confirmAction(message, options = {}) {
+        if (typeof window.showConfirm === 'function') return window.showConfirm(message, options);
+        status('Confirmation dialog is unavailable.', 'error');
+        return false;
+    }
+
+    async function promptValue(message, defaultValue = '') {
+        if (typeof window.showPrompt === 'function') return window.showPrompt(message, defaultValue);
+        status('Input dialog is unavailable.', 'error');
+        return null;
+    }
+
+    async function allowDiscard() {
+        return !isDirty() || await confirmAction('Discard the unsaved changes to this note?', {
+            title: 'Unsaved note',
+            confirmLabel: 'Discard'
+        });
     }
 
     function workspaceRoots() {
@@ -171,7 +186,7 @@ window.EveWorldBook = window.EveWorldBook || {};
     }
 
     async function setMode(next) {
-        if (!['scratchpad', 'files', 'spatial'].includes(next) || (next !== mode && !allowDiscard())) return;
+        if (!['scratchpad', 'files', 'spatial'].includes(next) || (next !== mode && !(await allowDiscard()))) return;
         mode = next;
         write(MODE_KEY, mode);
         applyMode();
@@ -183,12 +198,12 @@ window.EveWorldBook = window.EveWorldBook || {};
 
     async function openEntry(path, kind) {
         if (kind === 'folder') {
-            if (!allowDiscard()) return;
+            if (!(await allowDiscard())) return;
             clearEditor();
             await loadList(path);
             return;
         }
-        if (!allowDiscard()) return;
+        if (!(await allowDiscard())) return;
         status('Opening note…');
         try {
             const payload = await ns.notesClient.read(currentRoot, path);
@@ -242,7 +257,10 @@ window.EveWorldBook = window.EveWorldBook || {};
 
     async function removePath() {
         if (!currentRoot || mode === 'spatial') return;
-        if (!window.confirm('Stop tracking this location? No files will be deleted.')) return;
+        if (!(await confirmAction('Stop tracking this location? No files will be deleted.', {
+            title: 'Stop tracking notes',
+            confirmLabel: 'Stop tracking'
+        }))) return;
         try {
             await ns.notesClient.untrack(currentRoot);
             clearEditor('Tracked location removed. No files were deleted.');
@@ -253,7 +271,7 @@ window.EveWorldBook = window.EveWorldBook || {};
     async function createItem(kind) {
         if (!currentRoot) return;
         const label = kind === 'folder' ? 'Folder name' : 'Note name (.txt or .md)';
-        const name = window.prompt(label);
+        const name = await promptValue(label);
         if (!name) return;
         try {
             const payload = await ns.notesClient.create(currentRoot, currentPath, name, kind);
@@ -282,7 +300,7 @@ window.EveWorldBook = window.EveWorldBook || {};
 
     async function linkNote() {
         if (!opened?.noteRef) return;
-        const target = window.prompt('Paste another EveOS note link to connect it:', '');
+        const target = await promptValue('Paste another EveOS note link to connect it:', '');
         if (!target) return;
         try {
             const payload = await ns.notesClient.link(opened.noteRef, target.trim());
@@ -366,8 +384,8 @@ window.EveWorldBook = window.EveWorldBook || {};
             else if (event.target.closest?.('[data-eve-notes-export]')) void exportBackup();
             else if (event.target.closest?.('[data-eve-notes-import]')) one('[data-eve-notes-import-file]').click();
         });
-        one('[data-eve-notes-root]').addEventListener('change', event => {
-            if (!allowDiscard()) return renderRoots(currentRoot);
+        one('[data-eve-notes-root]').addEventListener('change', async event => {
+            if (!(await allowDiscard())) return renderRoots(currentRoot);
             currentRoot = event.target.value;
             write(ROOT_KEYS[mode], currentRoot);
             currentPath = '';
