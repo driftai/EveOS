@@ -78,6 +78,7 @@ window.EveAudioflix = window.EveAudioflix || {};
     const renderGroupAssign = (item, type) => uiModal.renderGroupAssign(item, type);
 
     async function loadPortedSounds() {
+        await window.EveAudioflixFsPorts?.reconcile?.().catch?.(() => false);
         const snapshot = state(), base = (window.location.origin && !window.location.origin.startsWith('file:')) ? window.location.origin.replace('localhost', '127.0.0.1') : 'http://127.0.0.1:8765';
         deadServerPorts = new Set();
         try {
