@@ -42,7 +42,15 @@ vm.runInContext(source, context, { filename: 'audioflix.audio.codec.js' });
 
 (async () => {
     const codec = windowObject.EveAudioflixAudioCodec;
-    const shortA = await codec.getDecodedBuffer('short.wav', () => fakeContext);
+    const concurrent = await Promise.all([
+        codec.getDecodedBuffer('short.wav', () => fakeContext),
+        codec.getDecodedBuffer('short.wav', () => fakeContext),
+        codec.getDecodedBuffer('short.wav', () => fakeContext)
+    ]);
+    if (!concurrent.every((buffer) => buffer === concurrent[0]) || fetchCount !== 1) {
+        throw new Error('concurrent clicks did not share one in-flight decode');
+    }
+    const shortA = concurrent[0];
     const shortB = await codec.getDecodedBuffer('short.wav', () => fakeContext);
     if (shortA !== shortB || fetchCount !== 1) throw new Error('short clip was not reused from the decode cache');
 
