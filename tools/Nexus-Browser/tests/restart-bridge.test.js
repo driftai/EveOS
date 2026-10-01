@@ -38,7 +38,7 @@ test('restart helper verifies both EveOS checkout and expected command fragment'
 
 
 test('restart helper trusts the verified live server parent over a stale supervisor pid file', () => {
-  const root = path.resolve(__dirname, '..').replace(///g, '\\');
+  const root = path.resolve(__dirname, '..').replace(/\//g, '\\');
   const server = {
     ProcessId: 116376,
     ParentProcessId: 121672,
