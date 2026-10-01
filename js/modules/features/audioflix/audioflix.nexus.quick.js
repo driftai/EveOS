@@ -141,7 +141,7 @@ window.EveAudioflixNexusQuick = window.EveAudioflixNexusQuick || {};
             .find(card => card.querySelector('[data-af-action="play"]')?.dataset.afId === id) || null;
     }
 
-    function jumpToCard(id) {
+    function jumpToCard(id, options = {}) {
         close();
         const reveal = () => {
             const card = cardFor(id);
@@ -155,10 +155,14 @@ window.EveAudioflixNexusQuick = window.EveAudioflixNexusQuick || {};
             });
             return true;
         };
-        if (!reveal()) {
-            window.EveAudioflix?.render?.();
-            requestAnimationFrame(() => requestAnimationFrame(reveal));
+        if (reveal()) return true;
+        if (options.fallbackBackend === true) {
+            const key = options.type === 'sound' ? 'soundboardViewMode' : 'musicViewMode';
+            window.EveAudioflixState?.update?.({ [key]: 'backend' }, 'audioflix-nexus-jump-card');
         }
+        window.EveAudioflix?.render?.();
+        requestAnimationFrame(() => requestAnimationFrame(reveal));
+        return true;
     }
 
     function openInNexus() {
@@ -200,5 +204,5 @@ window.EveAudioflixNexusQuick = window.EveAudioflixNexusQuick || {};
         if (dialog && !dialog.hidden) renderResults();
     });
 
-    Object.assign(ns, { ready: true, open, close, render: renderResults });
+    Object.assign(ns, { ready: true, open, close, render: renderResults, jumpToCard });
 })();
