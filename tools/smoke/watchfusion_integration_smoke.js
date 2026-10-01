@@ -139,6 +139,10 @@ function sourceContract() {
     check(officialExtensionWorker.includes("startPath:'/api/watchfusion/launch'") && dashboardOpen.includes('payload.launchPrompt === true') && dashboardOpen.includes('launchTimeoutMs'), 'WF-EXTENSION-SELECTIVE-OPEN', 'official Bridge WatchFusion Open bypasses the Local/LAN/Remote selective launcher');
     check(helper.includes('"/api/watchfusion/setup"') && helper.includes('watchfusion_control.setup_component'), 'WF-CONTROL-SETUP', 'fresh-clone core setup route is missing');
     check(helper.includes('("watchFusion", watchfusion_control.stop_server)'), 'WF-STOP-ALL', 'global EveOS stop does not include WatchFusion');
+    check(modes.includes('def stop_remote_helpers()') && control.includes('watchfusion_modes.stop_remote_helpers()')
+      && modes.includes('for name in ("cloudflared.pid", "server.pid")')
+      && modes.includes('["taskkill", "/F", "/T", "/PID", str(pid)]'),
+      'WF-STOP-REMOTE-HELPERS', 'stopping WatchFusion does not also terminate its owned Cloudflare/server helper process trees');
 
     const wfPort = Number(registry?.ports?.WATCHFUSION_PORT?.port);
     const geminiPort = Number(registry?.ports?.GEMINI_WS_PORT?.port);
