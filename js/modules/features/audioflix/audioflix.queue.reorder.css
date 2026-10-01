@@ -1,0 +1,91 @@
+.audioflix-provider-stage.is-internal-view .audioflix-provider-queue {
+    min-height: clamp(150px, 26vh, 250px);
+    max-height: min(42vh, 380px);
+}
+
+.audioflix-provider-queue-list > li {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    border-radius: 7px;
+}
+
+.audioflix-provider-queue-list > li.is-dragging {
+    opacity: 0.45;
+}
+
+.audioflix-provider-queue-list > li.is-drop-target {
+    background: rgba(0, 212, 255, 0.12);
+    outline: 1px dashed rgba(0, 212, 255, 0.55);
+}
+
+.audioflix-queue-drag-handle {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    min-height: 28px;
+    color: rgba(203, 213, 225, 0.55);
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+}
+
+.audioflix-queue-drag-handle:active {
+    cursor: grabbing;
+}
+
+.audioflix-provider-queue-list li .audioflix-queue-entry-main {
+    min-width: 0;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.audioflix-queue-order-buttons {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.audioflix-provider-queue-list li .audioflix-queue-order-buttons button {
+    display: inline-grid;
+    place-items: center;
+    width: 27px;
+    min-width: 27px;
+    height: 27px;
+    padding: 0;
+    text-align: center;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background: rgba(15, 23, 42, 0.62);
+    color: #cbd5e1;
+    font-size: 0.78rem;
+}
+
+.audioflix-provider-queue-list li .audioflix-queue-order-buttons button:disabled {
+    opacity: 0.28;
+    cursor: not-allowed;
+}
+
+.audioflix-provider-queue-list li.is-current .audioflix-queue-drag-handle,
+.audioflix-provider-queue-list li.is-current .audioflix-queue-order-buttons button {
+    color: #7ee2a8;
+}
+
+@media (max-width: 560px) {
+    .audioflix-provider-stage.is-internal-view .audioflix-provider-queue {
+        min-height: 132px;
+        max-height: min(38vh, 300px);
+    }
+    .audioflix-provider-queue-list > li {
+        grid-template-columns: 16px minmax(0, 1fr) auto;
+        gap: 3px;
+    }
+    .audioflix-provider-queue-list li .audioflix-queue-order-buttons button {
+        width: 30px;
+        min-width: 30px;
+        height: 30px;
+    }
+}
