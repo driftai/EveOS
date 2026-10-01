@@ -361,6 +361,12 @@ async function main() {
     await page.waitForSelector('.audioflix-nexus-panel [data-af-nexus-search][data-af-type="music"]', { timeout: 5000 });
     assert(await page.inputValue('.audioflix-nexus-panel [data-af-nexus-search][data-af-type="music"]') === 'Beta',
         'Fast Track transfers the current query into the main Nexus Audio Link panel');
+    await page.waitForSelector('.audioflix-nexus-panel [data-af-action="nexus-jump-card"][data-af-type="music"]');
+    await page.click('.audioflix-nexus-panel [data-af-action="nexus-jump-card"][data-af-type="music"]');
+    await page.waitForFunction(() => [...document.querySelectorAll('.audioflix-item-card')].some(card =>
+        card.classList.contains('is-nexus-jump-target') && /Beta/.test(card.textContent || '')), undefined, { timeout: 5000 });
+    assert(!document.querySelector('.audioflix-nexus-panel'), 'main Nexus Jump to card closes the manager panel before navigation');
+    progress('main Nexus result Jump to card OK');
 
     assert(pageErrors.length === 0, 'no uncaught page errors: ' + pageErrors.join(' | '));
     await browser.close();
