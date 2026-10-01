@@ -47,6 +47,17 @@ function Get-TunnelUrl {
     return $null
 }
 
+function Exit-RemoteCancelled {
+    param([string]$Message = 'Remote startup cancelled because WatchFusion stopped.')
+    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $UrlFile -Force -ErrorAction SilentlyContinue
+    Write-Host ""
+    Write-Host $Message
+    Write-Host "Cloudflare tunnel session ended cleanly."
+    Write-Host ""
+    exit 0
+}
+
 Write-Host ""
 Write-Host "Starting WatchFusion for Internet access..."
 Write-Host ""
@@ -91,8 +102,11 @@ $Url = $null
 $Deadline = (Get-Date).AddSeconds(60)
 while ((Get-Date) -lt $Deadline) {
     if ($Tunnel.HasExited) {
+        if (-not (Test-WatchFusion)) {
+            Exit-RemoteCancelled "Remote startup cancelled while waiting for a Cloudflare hostname."
+        }
         Write-Host ""
-        Write-Host "ERROR: Cloudflare terminal exited during startup."
+        Write-Host "ERROR: Cloudflare tunnel exited during startup."
         if (Test-Path $CloudflareLog) { Get-Content $CloudflareLog }
         throw "Cloudflare tunnel exited during startup."
     }
@@ -102,6 +116,9 @@ while ((Get-Date) -lt $Deadline) {
 }
 
 if (-not $Url) {
+    if (-not (Test-WatchFusion)) {
+        Exit-RemoteCancelled "Remote startup cancelled before Cloudflare assigned a hostname."
+    }
     Write-Host ""
     Write-Host "ERROR: Cloudflare did not provide a public URL within 60 seconds."
     if (Test-Path $CloudflareLog) {
@@ -121,11 +138,26 @@ Write-Host "Waiting for the public hostname to become reachable..."
 $Ready = $false
 $ReadyDeadline = (Get-Date).AddSeconds(60)
 while ((Get-Date) -lt $ReadyDeadline) {
-    if ($Tunnel.HasExited) { throw "Cloudflare terminal exited while waiting for public readiness." }
+    if ($Tunnel.HasExited) {
+        if (-not (Test-WatchFusion)) {
+            Exit-RemoteCancelled "Remote startup cancelled while waiting for public readiness."
+        }
+        throw "Cloudflare tunnel exited while waiting for public readiness."
+    }
+    if (-not (Test-WatchFusion)) {
+        try { Stop-Process -Id $Tunnel.Id -Force -ErrorAction SilentlyContinue } catch {}
+        Exit-RemoteCancelled "Remote startup cancelled while waiting for public readiness."
+    }
     if (Test-RemoteUrl $Url) { $Ready = $true; break }
     Start-Sleep -Seconds 1
 }
-if (-not $Ready) { throw "Cloudflare created the hostname but it was not reachable." }
+if (-not $Ready) {
+    if (-not (Test-WatchFusion)) {
+        try { Stop-Process -Id $Tunnel.Id -Force -ErrorAction SilentlyContinue } catch {}
+        Exit-RemoteCancelled "Remote startup cancelled before public readiness completed."
+    }
+    throw "Cloudflare created the hostname but it was not reachable."
+}
 
 Write-Host ""
 Write-Host "============================================================"
