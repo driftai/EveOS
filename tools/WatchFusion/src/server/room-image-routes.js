@@ -175,7 +175,7 @@ function sendImage(req, res, room, attachmentId) {
     'Content-Type': attachment.type,
     'Content-Length': attachment.size,
     'Content-Disposition': `inline; filename="image"; filename*=UTF-8''${encodeURIComponent(attachment.name)}`,
-    'Cache-Control': 'private, max-age=3600',
+    'Cache-Control': 'private, max-age=86400, immutable',
     'X-Content-Type-Options': 'nosniff'
   });
   return req.method === 'HEAD' ? res.end() : res.end(attachment.bytes);
