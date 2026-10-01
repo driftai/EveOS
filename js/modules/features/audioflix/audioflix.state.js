@@ -43,8 +43,6 @@ window.EveAudioflixState = window.EveAudioflixState || {};
 
     const { text, normalizeVolume, id, bool } = window.EveAudioflixStateSchema;
 
-
-
     // Per-item cleaners live in a sibling module (audioflix.state.schema.js) so this store stays
     // under the line cap; they run against the same coerce/clamp/id primitives.
     const { cleanItem, cleanPort, boundedItems, boundedBindings } = window.EveAudioflixStateSchema.create({ text, normalizeVolume, id });
@@ -55,7 +53,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const legacyArtist = legacyMusicFocus.startsWith('smart:artist:') ? legacyMusicFocus : '';
         const legacyClassifier = legacyMusicFocus.startsWith('class:') ? legacyMusicFocus : '';
         return {
-            schemaVersion: 1,
+            schemaVersion: 2, durabilityRevision: Math.max(0, Number(source.durabilityRevision || 0) || 0), durabilityUpdatedAt: Math.max(0, Number(source.durabilityUpdatedAt || 0) || 0),
             enabled: source.enabled !== false,
             routeMode: ['browser', 'browser-selective', 'vb-cable', 'manual', 'native-bridge'].includes(source.routeMode) ? source.routeMode : 'browser',
             preferredSinkId: text(source.preferredSinkId, ''),
@@ -136,6 +134,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
                     trackCount: Number(entry?.trackCount || 0) || 0
                 }))
                 .filter((entry) => !!entry.id && !!entry.path),
+            musicFolders: window.EveAudioflixStateRecovery?.folderRegistry?.(source) || [],
             musicGroups: Array.isArray(source.musicGroups)
                 ? [...new Set(source.musicGroups.map((g) => text(g, '')).filter(Boolean))]
                 : [],
@@ -183,9 +182,10 @@ window.EveAudioflixState = window.EveAudioflixState || {};
             return fallbackState;
         }
         if (root === cachedRoot && root.audioflix === cachedState && cachedState) return cachedState;
-        const hasDatapackState = Object.prototype.hasOwnProperty.call(root, 'audioflix');
+        const hasDatapackState = Object.prototype.hasOwnProperty.call(root, 'audioflix'), fallback = fallbackState || fallbackRead();
         cachedRoot = root;
-        cachedState = normalize(hasDatapackState ? root.audioflix : (fallbackState || fallbackRead()));
+        cachedState = normalize(hasDatapackState ? (window.EveAudioflixStateRecovery?.prefer?.(root.audioflix, fallback, STORAGE_KEY) || root.audioflix) : fallback);
+        cachedState = window.EveAudioflixStateRecovery?.restoreStructure?.(STORAGE_KEY, cachedState) || cachedState;
         root.audioflix = cachedState;
         revision += 1;
         return cachedState;
@@ -210,7 +210,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const state = ensure();
         if (saveTimer) window.clearTimeout(saveTimer);
         saveTimer = 0;
-        fallbackWrite(state);
+        fallbackWrite(state); window.EveAudioflixStateRecovery?.writeStructure?.(STORAGE_KEY, state);
         if (typeof window.saveConfig === 'function') {
             window.saveConfig({
                 source: reason || 'audioflix',
@@ -223,7 +223,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
     }
 
     function scheduleSave(reason) {
-        revision += 1;
+        const durable = ensure(); durable.durabilityRevision = window.EveAudioflixStateRecovery?.nextRevision?.(STORAGE_KEY, durable) || (Number(durable.durabilityRevision || 0) + 1); durable.durabilityUpdatedAt = Date.now(); revision += 1;
         pendingSaveReasons.add(reason);
         if (saveTimer) window.clearTimeout(saveTimer);
         saveTimer = window.setTimeout(() => persistNow(reason), SAVE_DELAY_MS);
@@ -299,6 +299,8 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const key = type === 'music' ? 'music' : 'soundboard';
         const max = type === 'music' ? MAX_MUSIC : MAX_SOUNDBOARD;
         state[key] = boundedItems([...(state[key] || []), item], type === 'music' ? 'music' : 'sound', max);
+        if (type === 'music') state.musicFolders = window.EveAudioflixStateRecovery?.folderRegistry?.(state) || state.musicFolders || [];
+        window.EveAudioflixStateRecovery?.applyTrackStructure?.(STORAGE_KEY, state, state[key][state[key].length - 1], type === 'music' ? 'music' : 'sound');
         const next = syncRootOrFallback(state);
         scheduleSave(`audioflix-add-${type}`);
         return next[key][next[key].length - 1];
