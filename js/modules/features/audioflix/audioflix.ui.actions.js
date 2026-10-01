@@ -192,7 +192,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 ctx.rerender(); return;
             }
             if (action === 'play-music-group') {
-                const { name, items } = ctx.frontendActiveGroup('music');
+                const { name, items, activeGroup } = ctx.frontendActiveGroup('music');
                 if (items && items.length) {
                     const prev = ctx.activeMusicQueue || {};
                     let ids = items.map(it => it.id);
@@ -200,6 +200,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                     if (prev.shuffle) ids = ctx.shuffleQueue(ids);
                     ctx.activeMusicQueue = {
                         groupName: name,
+                        sourceGroup: activeGroup || '',
                         items: ids,
                         currentIndex: 0,
                         isPlaying: true,
@@ -219,7 +220,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                     return;
                 }
                 await ctx.waitForQueueTransition?.();
-                const { name, items } = ctx.frontendActiveGroup('music');
+                const { name, items, activeGroup } = ctx.frontendActiveGroup('music');
                 if (!items?.length) return;
                 const prev = ctx.activeMusicQueue || {};
                 const running = prev.isPlaying && prev.items?.length && prev.groupName === name;
@@ -228,7 +229,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                     let ids = items.map((it) => it.id);
                     if (prev.shuffle) ids = ctx.shuffleQueue(ids);
                     ctx.activeMusicQueue = {
-                        groupName: name, items: ids, currentIndex: 0, isPlaying: true,
+                        groupName: name, sourceGroup: activeGroup || '', items: ids, currentIndex: 0, isPlaying: true,
                         shuffle: prev.shuffle === true, loop: prev.loop === true
                     };
                 }
@@ -246,7 +247,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 const prev = ctx.activeMusicQueue || {};
                 ctx.invalidateQueueRun?.();
                 // Keep the shuffle/loop preferences armed for the next Play Group.
-                ctx.activeMusicQueue = { groupName: '', items: [], currentIndex: -1, isPlaying: false, shuffle: prev.shuffle === true, loop: prev.loop === true };
+                ctx.activeMusicQueue = { groupName: '', sourceGroup: '', items: [], currentIndex: -1, isPlaying: false, shuffle: prev.shuffle === true, loop: prev.loop === true };
                 await window.EveAudioflixAudio?.stopAll?.();
                 ctx.rerender();
                 return;
