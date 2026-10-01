@@ -96,7 +96,7 @@ def _kill_owned_pid_file(path: Path) -> None:
     )
 
 
-def _stop_remote_helpers() -> None:
+def stop_remote_helpers() -> None:
     global _MODE_PROCESS
     if _MODE_PROCESS and _MODE_PROCESS.poll() is None:
         try:
@@ -174,7 +174,7 @@ def apply_request(body: dict) -> dict:
                 "message": "WatchFusion mode must be local, lan, or cloudflare."}
 
     _write_request(mode)
-    _stop_remote_helpers()
+    stop_remote_helpers()
     current = watchfusion_control.get_status()
     if current.get("running"):
         watchfusion_control.stop_server()
