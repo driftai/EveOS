@@ -19,7 +19,7 @@ window.EveAudioflixNexusQuick = window.EveAudioflixNexusQuick || {};
         const snapshot = state();
         const nexus = window.EveAudioflixNexus;
         const mode = kind === 'music' ? (snapshot.musicViewMode || 'backend') : (snapshot.soundboardViewMode || 'backend');
-        const library = nexus?.items?.(kind) || [];
+        const library = window.EveAudioflix?.catalogItems?.(kind) || nexus?.items?.(kind) || [];
         if (mode !== 'frontend') return { mode, label: 'Backend · whole library', items: library };
         const visibleIds = itemButtonIds(kind);
         const items = library.filter(item => visibleIds.has(item.id));
@@ -109,7 +109,7 @@ window.EveAudioflixNexusQuick = window.EveAudioflixNexusQuick || {};
     }
 
     function findTrack(id) {
-        return (window.EveAudioflixNexus?.items?.(type) || []).find(item => String(item.id) === String(id)) || null;
+        return (window.EveAudioflix?.catalogItems?.(type) || window.EveAudioflixNexus?.items?.(type) || []).find(item => String(item.id) === String(id)) || null;
     }
 
     async function play(id) {
