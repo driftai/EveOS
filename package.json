@@ -120,7 +120,7 @@
     "smoke:knowledge-cache": "node tools/smoke/wiki_fandom_cache_richness_smoke.js",
     "smoke:capability-transitions": "python tools/smoke/eveos_capability_transition_matrix.py",
     "smoke:capability-behavior": "node tools/smoke/gemini_server_readiness_smoke.js && node tools/smoke/gemini_invalid_api_key_gate_smoke.js && node tools/smoke/backup_mismatch_report_smoke.js && node tools/smoke/data_transfer_json_only_routes.js",
-    "smoke:audioflix-backup-roundtrip": "node tools/smoke/audioflix_json_backup_roundtrip_smoke.js && node tools/smoke/audioflix_durability_smoke.js",
+    "smoke:audioflix-backup-roundtrip": "node tools/smoke/audioflix_json_backup_roundtrip_smoke.js && node tools/smoke/audioflix_durability_smoke.js && node tools/smoke/audioflix_music_port_browser_smoke.js",
     "smoke:nexus-functional": "node tools/smoke/nexus_search_smoke.js",
     "smoke:nexus-state-integrity": "node tools/smoke/nexus_index_incremental_browser_smoke.js && node tools/smoke/nexus_index_persistence_cap_smoke.js && node tools/smoke/nexus_index_state_fingerprint_smoke.js && node tools/smoke/nexus_index_surgical_delta_smoke.js && node tools/smoke/nexus_datapack_view_state_browser_smoke.js && node tools/smoke/nexus_folder_integrity_debug_smoke.js && node tools/smoke/nexus_large_datapack_hardening_smoke.js && node tools/smoke/nexus_macro_no_ghost_cards_smoke.js",
     "smoke:nexus-linked-library-micro": "node tools/smoke/nexus_linked_library_micro_browser_smoke.js",
