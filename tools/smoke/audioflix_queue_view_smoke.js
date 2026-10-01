@@ -76,6 +76,11 @@ async function main() {
         'Nexus Audio Link keeps its normal primary button');
     assert(await page.locator('[data-af-action="open-nexus-quick"][data-af-type="music"]').count() === 1,
         'Nexus Audio Link exposes a dedicated Fast Track search segment');
+    await page.click('[data-af-action="toggle-nexus"][data-af-type="music"]');
+    await page.waitForSelector('.audioflix-nexus-panel');
+    await page.click('[data-af-action="toggle-nexus"][data-af-type="music"]');
+    await page.waitForFunction(() => !document.querySelector('.audioflix-nexus-panel'));
+    progress('Nexus primary launcher toggles its full panel open/closed');
     await page.click('[data-af-action="open-nexus-quick"][data-af-type="music"]');
     await page.fill('.audioflix-nexus-quick input[type="search"]', 'Beta');
     await page.waitForFunction(() => document.querySelectorAll('.audioflix-nexus-quick-row').length === 1);
