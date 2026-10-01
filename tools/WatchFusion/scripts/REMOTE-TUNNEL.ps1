@@ -115,33 +115,24 @@ Write-Host "Cloudflare tunnel process opened directly (PID $($Tunnel.Id))."
 Write-Host "Waiting for Cloudflare to assign a public hostname..."
 
 $Url = $null
-$Deadline = (Get-Date).AddSeconds(60)
-while ((Get-Date) -lt $Deadline) {
+$NextWaitNotice = (Get-Date).AddSeconds(30)
+while (-not $Url) {
     if ($Tunnel.HasExited) {
         if (-not (Test-WatchFusion)) {
             Exit-RemoteCancelled "Remote startup cancelled while waiting for a Cloudflare hostname."
         }
         Write-Host ""
-        Write-Host "ERROR: Cloudflare tunnel exited during startup."
+        Write-Host "ERROR: Cloudflare tunnel process exited before assigning a public hostname."
         if (Test-Path $CloudflareLog) { Get-Content $CloudflareLog }
         throw "Cloudflare tunnel exited during startup."
     }
     $Url = Get-TunnelUrl
     if ($Url) { break }
-    Start-Sleep -Milliseconds 500
-}
-
-if (-not $Url) {
-    if (-not (Test-WatchFusion)) {
-        Exit-RemoteCancelled "Remote startup cancelled before Cloudflare assigned a hostname."
+    if ((Get-Date) -ge $NextWaitNotice) {
+        Write-Host "Still waiting for Cloudflare to assign a hostname; tunnel process remains active..."
+        $NextWaitNotice = (Get-Date).AddSeconds(30)
     }
-    Write-Host ""
-    Write-Host "ERROR: Cloudflare did not provide a public URL within 60 seconds."
-    if (Test-Path $CloudflareLog) {
-        Write-Host "Cloudflare log:"
-        Get-Content $CloudflareLog
-    } else { Write-Host "No Cloudflare log was created." }
-    throw "Cloudflare tunnel startup failed."
+    Start-Sleep -Milliseconds 500
 }
 
 $Url | Set-Content -Encoding ASCII $UrlFile
@@ -153,26 +144,20 @@ Write-Host "Waiting for the public hostname to become reachable..."
 
 $Ready = $false
 $ReadyDeadline = (Get-Date).AddSeconds(60)
-while ((Get-Date) -lt $ReadyDeadline) {
-    if ($Tunnel.HasExited) {
-        if (-not (Test-WatchFusion)) {
-            Exit-RemoteCancelled "Remote startup cancelled while waiting for public readiness."
-        }
-        throw "Cloudflare tunnel exited while waiting for public readiness."
-    }
-    if (-not (Test-WatchFusion)) {
-        try { Stop-Process -Id $Tunnel.Id -Force -ErrorAction SilentlyContinue } catch {}
-        Exit-RemoteCancelled "Remote startup cancelled while waiting for public readiness."
-    }
+while ((Get-Date) -lt $ReadyDeadline -and -not $Tunnel.HasExited) {
     if (Test-RemoteUrl $Url) { $Ready = $true; break }
     Start-Sleep -Seconds 1
 }
-if (-not $Ready) {
+if ($Tunnel.HasExited) {
     if (-not (Test-WatchFusion)) {
-        try { Stop-Process -Id $Tunnel.Id -Force -ErrorAction SilentlyContinue } catch {}
-        Exit-RemoteCancelled "Remote startup cancelled before public readiness completed."
+        Exit-RemoteCancelled "Remote startup cancelled while waiting for public readiness."
     }
-    throw "Cloudflare created the hostname but it was not reachable."
+    throw "Cloudflare tunnel exited while waiting for public readiness."
+}
+if (-not $Ready) {
+    Write-Host ""
+    Write-Host "[WARN] Public readiness was not confirmed within 60 seconds."
+    Write-Host "[WARN] Keeping this Remote tunnel alive; it may recover as connectivity improves."
 }
 
 Write-Host ""
@@ -191,21 +176,11 @@ Write-Host "EveOS stays in its current tab. Use the printed URL on the remote de
 Write-Host "Keep this launcher window open while remote access is needed."
 Write-Host ""
 
-$OriginMisses = 0
-while (-not $Tunnel.HasExited) {
-    Start-Sleep -Seconds 1
-    if (Test-WatchFusion) {
-        $OriginMisses = 0
-        continue
-    }
-    $OriginMisses += 1
-    if ($OriginMisses -lt 3) { continue }
-
-    Write-Host ""
-    Write-Host "WatchFusion origin stopped. Closing its Cloudflare tunnel..."
-    try { Stop-Process -Id $Tunnel.Id -Force -ErrorAction Stop } catch {}
-    try { $Tunnel.WaitForExit(3000) } catch {}
-    break
+# After startup, lifecycle ownership is explicit: only Stop WatchFusion, a mode
+# change away from Remote, or cloudflared itself exiting should end this session.
+# Do not infer a stop from transient /api/health failures on a slow connection.
+try { $Tunnel.WaitForExit() } catch {
+    while (-not $Tunnel.HasExited) { Start-Sleep -Seconds 1 }
 }
 
 Clear-OwnActiveTunnelState
