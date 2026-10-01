@@ -224,6 +224,7 @@ for (const relativePath of [
 
 for (const relativePath of [
     'tools/batch/eveos-control-protocol.bat',
+    'tools/batch/eveos-control-protocol.vbs',
     'tools/batch/install-eveos-control-protocol.bat',
     'tools/batch/install-eveos-control-protocol.ps1',
     'tools/batch/start-eveos-control.bat'
@@ -242,6 +243,18 @@ assert(geminiLauncherSource.includes('server-menu.bat'),
 const protocolSource = read(path.join(ROOT, 'tools', 'batch', 'eveos-control-protocol.bat'));
 assert(!/%1|%2|%\*/i.test(protocolSource),
     'Protocol entrypoint must not forward URI-controlled arguments');
+const protocolVbsSource = read(path.join(ROOT, 'tools', 'batch', 'eveos-control-protocol.vbs'));
+const protocolInstallerSource = read(path.join(ROOT, 'tools', 'batch', 'install-eveos-control-protocol.ps1'));
+assert(protocolVbsSource.includes('shell.Run command, 0, False'),
+    'Windowless protocol bootstrap must launch the fixed control script hidden');
+assert(protocolVbsSource.includes('eveos-control-protocol.bat'),
+    'Windowless protocol bootstrap must delegate to the fixed batch entrypoint');
+assert(!/WScript\.Arguments|Arguments\(/i.test(protocolVbsSource),
+    'Windowless protocol bootstrap must not consume URI-controlled arguments');
+assert(protocolInstallerSource.includes('wscript.exe'),
+    'Protocol installer must register the windowless wscript bootstrap');
+assert(protocolInstallerSource.includes('eveos-control-protocol.vbs'),
+    'Protocol installer must point at the windowless bootstrap');
 const controlLauncherSource = read(path.join(ROOT, 'tools', 'batch', 'start-eveos-control.bat'));
 assert(controlLauncherSource.includes('/api/control-plane/health'),
     'Local-control launcher does not use the fast identity probe');
