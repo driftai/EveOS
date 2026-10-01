@@ -186,10 +186,11 @@ window.EveAudioflixNexusQuick = window.EveAudioflixNexusQuick || {};
     function close() { if (dialog) dialog.hidden = true; }
 
     document.addEventListener('click', event => {
-        const trigger = event.target.closest?.('[data-af-action="open-nexus-quick"]');
+        const trigger = event.target.closest?.('[data-af-action="open-nexus-quick"], [data-af-action="toggle-nexus"]');
         if (!trigger) return;
         event.preventDefault(); event.stopPropagation();
-        open(trigger.dataset.afType || 'music');
+        if (trigger.dataset.afAction === 'toggle-nexus') window.EveAudioflix?.openNexus?.(trigger.dataset.afType || 'music');
+        else open(trigger.dataset.afType || 'music');
     }, true);
     document.addEventListener('keydown', event => {
         if (event.key === 'Escape' && dialog && !dialog.hidden) { event.preventDefault(); close(); }
