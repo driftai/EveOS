@@ -9,7 +9,9 @@ window.EveAudioflixAudioCodec = window.EveAudioflixAudioCodec || {};
     const MAX_CACHE_SAMPLES = 12_000_000;
     const MAX_CACHE_SECONDS = 90;
     const cache = new Map();
+    const pending = new Map();
     let cachedSamples = 0;
+    let cacheEpoch = 0;
 
     function bufferCost(buffer) {
         return Math.max(0, Number(buffer?.length || 0))
@@ -36,13 +38,20 @@ window.EveAudioflixAudioCodec = window.EveAudioflixAudioCodec || {};
             cache.set(url, cached);
             return cached.buffer;
         }
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Audio fetch failed (${response.status}).`);
-        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-        const context = getContext?.() || new AudioContextCtor();
-        const buffer = await context.decodeAudioData(await response.arrayBuffer());
-        remember(url, buffer);
-        return buffer;
+        if (pending.has(url)) return pending.get(url);
+        const epoch = cacheEpoch;
+        const task = (async () => {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Audio fetch failed (${response.status}).`);
+            const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+            const context = getContext?.() || new AudioContextCtor();
+            const buffer = await context.decodeAudioData(await response.arrayBuffer());
+            if (epoch === cacheEpoch) remember(url, buffer);
+            return buffer;
+        })();
+        pending.set(url, task);
+        try { return await task; }
+        finally { if (pending.get(url) === task) pending.delete(url); }
     }
 
     function encodeBufferToBase64(audioBuffer, startAt = 0) {
@@ -62,6 +71,8 @@ window.EveAudioflixAudioCodec = window.EveAudioflixAudioCodec || {};
     }
 
     function clearCache() {
+        cacheEpoch += 1;
+        pending.clear();
         cache.clear();
         cachedSamples = 0;
     }
@@ -71,6 +82,6 @@ window.EveAudioflixAudioCodec = window.EveAudioflixAudioCodec || {};
         getDecodedBuffer,
         encodeBufferToBase64,
         clearCache,
-        getCacheStats: () => ({ entries: cache.size, samples: cachedSamples })
+        getCacheStats: () => ({ entries: cache.size, samples: cachedSamples, pending: pending.size })
     });
 })();
