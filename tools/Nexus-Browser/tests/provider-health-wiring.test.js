@@ -18,8 +18,10 @@ test('every provider manifest content-script bundle loads the shared health sens
 
 test('service worker accepts health from non-selected supported tabs and republishes tab snapshots', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '../extension/service-worker.js'), 'utf8');
+  const targetList = fs.readFileSync(path.resolve(__dirname, '../extension/provider-target-list.js'), 'utf8');
   assert.match(source, /providerHealthApi\.handle\(msg, sender/);
-  assert.match(source, /health: providerHealthApi\.get\(tab\.id\)/);
+  assert.match(source, /healthFor:\s*\(tabId\)\s*=>\s*providerHealthApi\.get\(tabId\)/);
+  assert.match(targetList, /health:\s*healthFor\(tab\.id\)/);
   assert.match(source, /providerHealthApi\.forget\(tabId\)/);
   assert.match(source, /group\.expectedAdapter !== 'provider-health'/);
 });
