@@ -235,6 +235,8 @@ test('ChatGPT Windows adapter drives prompt into app and returns settled reply',
     tree({ text: ['Old answer', 'hello from nexus'], stop: true }),
     tree({ text: ['Old answer', 'hello from nexus', 'Draft reply'], stop: true }),
     tree({ text: ['Old answer', 'hello from nexus', 'Final app reply'] }),
+    tree({ text: ['Old answer', 'hello from nexus', 'Final app reply'] }),
+    tree({ text: ['Old answer', 'hello from nexus', 'Final app reply'] }),
     tree({ text: ['Old answer', 'hello from nexus', 'Final app reply'] })
   ];
   const calls = [];
