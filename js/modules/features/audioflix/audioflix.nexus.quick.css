@@ -1,0 +1,208 @@
+.audioflix-nexus-launch {
+    display: inline-flex;
+    align-items: stretch;
+    vertical-align: middle;
+}
+
+.audioflix-nexus-launch .audioflix-nexus-main {
+    margin: 0;
+    border-radius: 999px 0 0 999px;
+    border-right-width: 0;
+}
+
+.audioflix-nexus-launch .audioflix-nexus-quick-trigger {
+    margin: 0;
+    min-width: 36px;
+    padding-inline: 9px;
+    border-radius: 0 999px 999px 0;
+    font-size: 1rem;
+}
+
+.audioflix-nexus-quick {
+    position: fixed;
+    inset: 0;
+    z-index: 10120;
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    background: rgba(1, 5, 8, 0.72);
+    backdrop-filter: blur(5px);
+}
+
+.audioflix-nexus-quick[hidden] {
+    display: none;
+}
+
+.audioflix-nexus-quick-card {
+    width: min(780px, calc(100vw - 28px));
+    max-height: min(82dvh, 760px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid rgba(34, 211, 238, 0.42);
+    border-radius: 15px;
+    background: #071015;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+    color: #e2e8f0;
+}
+
+.audioflix-nexus-quick-card > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.audioflix-nexus-quick-card > header > div {
+    display: grid;
+    gap: 2px;
+}
+
+.audioflix-nexus-quick-card > header span {
+    color: #22d3ee;
+    font-size: 0.64rem;
+    letter-spacing: 0.12em;
+    font-weight: 800;
+}
+
+.audioflix-nexus-quick-card > header strong {
+    font-size: 1rem;
+}
+
+.audioflix-nexus-quick-card button {
+    border: 1px solid rgba(148, 163, 184, 0.34);
+    border-radius: 9px;
+    background: rgba(15, 23, 42, 0.75);
+    color: #e2e8f0;
+    cursor: pointer;
+}
+
+.audioflix-nexus-quick-card button:hover {
+    border-color: rgba(34, 211, 238, 0.58);
+    background: rgba(8, 145, 178, 0.16);
+}
+
+.audioflix-nexus-quick-scope,
+.audioflix-nexus-quick-status {
+    padding: 6px 14px 0;
+    color: #94a3b8;
+    font-size: 0.72rem;
+}
+
+.audioflix-nexus-quick-scope {
+    color: #67e8f9;
+    font-weight: 700;
+}
+
+.audioflix-nexus-quick-search {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 10px 14px 4px;
+}
+
+.audioflix-nexus-quick-search input {
+    width: 100%;
+    min-width: 0;
+    padding: 9px 11px;
+    border: 1px solid rgba(148, 163, 184, 0.34);
+    border-radius: 10px;
+    outline: none;
+    background: rgba(2, 6, 23, 0.75);
+    color: #f8fafc;
+}
+
+.audioflix-nexus-quick-search input:focus {
+    border-color: rgba(34, 211, 238, 0.72);
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.12);
+}
+
+.audioflix-nexus-quick-search button {
+    padding: 7px 10px;
+    color: #67e8f9;
+}
+
+.audioflix-nexus-quick-results {
+    flex: 1 1 auto;
+    min-height: 90px;
+    overflow-y: auto;
+    margin-top: 8px;
+    padding: 0 10px 12px;
+}
+
+.audioflix-nexus-quick-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    padding: 9px 8px;
+    border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.audioflix-nexus-quick-copy {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+}
+
+.audioflix-nexus-quick-copy strong,
+.audioflix-nexus-quick-copy span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.audioflix-nexus-quick-copy strong {
+    color: #f8fafc;
+    font-size: 0.82rem;
+}
+
+.audioflix-nexus-quick-copy span {
+    color: #94a3b8;
+    font-size: 0.7rem;
+}
+
+.audioflix-nexus-quick-queue {
+    color: #67e8f9;
+    font-weight: 700;
+}
+
+.audioflix-nexus-quick-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 5px;
+}
+
+.audioflix-nexus-quick-actions button {
+    padding: 5px 8px;
+    font-size: 0.7rem;
+    white-space: nowrap;
+}
+
+.audioflix-nexus-quick-empty {
+    padding: 18px 8px;
+    color: #94a3b8;
+    text-align: center;
+}
+
+.audioflix-item-card.is-nexus-jump-target {
+    outline: 2px solid rgba(34, 211, 238, 0.85);
+    outline-offset: 3px;
+    animation: audioflix-nexus-pulse 0.8s ease-in-out 2;
+}
+
+@keyframes audioflix-nexus-pulse {
+    50% { box-shadow: 0 0 0 7px rgba(34, 211, 238, 0.12); }
+}
+
+@media (max-width: 620px) {
+    .audioflix-nexus-quick { padding: 8px; }
+    .audioflix-nexus-quick-card { width: calc(100vw - 16px); max-height: 88dvh; }
+    .audioflix-nexus-quick-search { grid-template-columns: 1fr; }
+    .audioflix-nexus-quick-row { grid-template-columns: 1fr; }
+    .audioflix-nexus-quick-actions { justify-content: flex-start; }
+    .audioflix-nexus-launch .audioflix-nexus-main { padding-inline: 10px; }
+}
