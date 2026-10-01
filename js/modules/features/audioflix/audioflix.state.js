@@ -209,8 +209,10 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const state = ensure();
         if (saveTimer) window.clearTimeout(saveTimer);
         saveTimer = 0;
-        fallbackWrite(state);
-        if (typeof window.saveConfig === 'function') {
+        const persisted = fallbackWrite(state);
+        // If the dedicated Audioflix mirror rejected this state as a rollback, do not let the
+        // monolithic core config persist the rejected copy and make it authoritative on reload.
+        if (persisted?.written !== false && typeof window.saveConfig === 'function') {
             window.saveConfig({
                 source: reason || 'audioflix',
                 meta: { skipEditHistory: true }
