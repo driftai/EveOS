@@ -356,15 +356,19 @@ window.EveAudioflix = window.EveAudioflix || {};
     const { startHotkeyFeedbackPoll, stopHotkeyFeedbackPoll, handleHotkey } = window.EveAudioflixUiHotkeys.create(uiCtx);
 
     const open = () => { ensureOverlay(); overlay.hidden = false; overlay.classList.toggle('is-fullscreen', fullscreenOn); setButtonExpanded(true); loadPortedSounds().then(() => window.EveAudioflixLocalize?.auditScopeDiskStatus?.('library', '')).then(() => rerender()).catch(() => {}); startHotkeyFeedbackPoll(); };
-    const close = () => { if (overlay) { overlay.hidden = true; overlay.classList.remove('audioflix-info-over-internal'); } window.EveAudioflixSoundLabUi?.setVisible?.(false); window.EveAudioflixPianoUi?.setVisible?.(false); window.EveAudioflixAudio?.attachWaveform?.(null); window.EveAudioflixLinks?.clearPendingScope?.(); setButtonExpanded(false); stopHotkeyFeedbackPoll(); pushHotkeysToBridge(); };
+    const close = () => { if (overlay) { overlay.hidden = true; overlay.classList.remove('audioflix-info-over-internal', 'audioflix-nexus-over-internal'); } window.EveAudioflixSoundLabUi?.setVisible?.(false); window.EveAudioflixPianoUi?.setVisible?.(false); window.EveAudioflixAudio?.attachWaveform?.(null); window.EveAudioflixLinks?.clearPendingScope?.(); setButtonExpanded(false); stopHotkeyFeedbackPoll(); pushHotkeysToBridge(); };
     const openNexus = (type = 'music', forceOpen = false) => {
         const nextType = type === 'sound' ? 'sound' : 'music';
         if (!forceOpen && nexusState.open && nexusState.type === nextType) {
-            nexusState = { ...nexusState, open: false }; rerender(); return false;
+            nexusState = { ...nexusState, open: false };
+            overlay?.classList.remove('audioflix-nexus-over-internal');
+            rerender(); return false;
         }
         activeTab = nextType === 'sound' ? 'soundboard' : 'music';
         nexusState = { open: true, type: nextType, query: '', facet: '', selectedIds: [] };
-        open(); rerender(); return true;
+        open();
+        overlay?.classList.add('audioflix-nexus-over-internal');
+        rerender(); return true;
     };
 
     function updateStatusDOM() {
