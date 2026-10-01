@@ -159,11 +159,12 @@ test.describe('WatchFusion Nuvio Native Viewport Wrapper Shell, Media Stage & He
     await expect(page.locator('#findMediaPanel')).toBeVisible();
     await expect(page.locator('#nuvioFrame')).toBeVisible();
 
-    // 3. Load YouTube: Find Media drawer closes, Nuvio hides, YouTube occupies media box
+    // 3. Load YouTube: Find Media stays available beside the media stage, matching
+    // the normal Find / Load workflow; Nuvio hides and YouTube occupies the player.
     await page.fill('#sourceInput', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
     await page.click('#loadBtn');
     await expect(page.locator('#sourceModeLabel')).toHaveText('YouTube');
-    await expect(page.locator('#findMediaPanel')).toBeHidden();
+    await expect(page.locator('#findMediaPanel')).toBeVisible();
     await expect(page.locator('#nuvioFrame')).toBeHidden();
     await expect(page.locator('#nuvioToolbar')).toBeHidden();
     await expect(page.locator('#player')).toBeVisible();
