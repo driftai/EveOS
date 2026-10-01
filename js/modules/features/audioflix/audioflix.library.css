@@ -385,12 +385,19 @@
     max-width: 100%;
 }
 .audioflix-group-pill,
-.audioflix-scope-pill,
-.audioflix-group-tag {
+.audioflix-scope-pill {
     max-width: 100%;
     overflow-wrap: anywhere;
     word-break: break-word;
     white-space: normal;
+}
+.audioflix-group-tag {
+    max-width: min(100%, 180px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    overflow-wrap: normal;
+    word-break: normal;
+    white-space: nowrap;
 }
 .audioflix-item-title-row,
 .audioflix-item-title-row strong {
