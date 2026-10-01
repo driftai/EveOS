@@ -116,12 +116,14 @@ function toggleHeaderMode() {
 }
 
 function installTopbarWheelScroll() {
-    const strip = document.querySelector(".top-right");
-    if (!strip || strip.dataset.wheelScrollBound === "1") return;
+    if (document.documentElement.dataset.topbarWheelScrollBound === "1") return;
+    document.documentElement.dataset.topbarWheelScrollBound = "1";
 
-    strip.dataset.wheelScrollBound = "1";
-    strip.addEventListener("wheel", event => {
+    document.addEventListener("wheel", event => {
         if (event.ctrlKey || event.metaKey) return;
+        const target = event.target instanceof Element ? event.target : null;
+        const strip = target?.closest?.(".top-right");
+        if (!strip) return;
 
         const maxScroll = strip.scrollWidth - strip.clientWidth;
         if (maxScroll <= 1) return;
@@ -131,18 +133,13 @@ function installTopbarWheelScroll() {
             : event.deltaY;
         if (!delta) return;
 
-        const before = strip.scrollLeft;
-        const after = Math.max(0, Math.min(maxScroll, before + delta));
-        if (Math.abs(after - before) < 0.5) return;
-
-        strip.scrollLeft = after;
+        strip.scrollLeft = Math.max(0, Math.min(maxScroll, strip.scrollLeft + delta));
+        // While the pointer is over the horizontal action strip, wheel input
+        // belongs to that strip. Do not let it fall through and move the page,
+        // even when the strip is already at one of its ends.
         event.preventDefault();
-    }, { passive: false });
+    }, { passive: false, capture: true });
 }
 
-if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", installTopbarWheelScroll, { once: true });
-} else {
-    installTopbarWheelScroll();
-}
+installTopbarWheelScroll();
 
