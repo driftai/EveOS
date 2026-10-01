@@ -54,7 +54,8 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         const sources = list(source.musicPortConnections).length + list(source.musicPlaylists).length;
         const labels = unique(source.musicClassifiers).length
             + mapEdges(source.musicGroupMap) + mapEdges(source.soundGroupMap)
-            + Object.keys(object(source.localizeScopeDirs)).length;
+            + Object.keys(object(source.localizeScopeDirs)).length
+            + Object.keys(object(source.portVolumes)).length + Object.keys(object(source.portHotkeys)).length;
         const bindings = list(source.scopeBindings).length;
         const score = music + sounds + musicGroups + soundGroups + folders + ports + sources + labels + bindings;
         return { music, sounds, musicGroups, soundGroups, folders, ports, sources, labels, bindings, score };
@@ -90,7 +91,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         const fields = type === 'music'
             ? ['id', 'title', 'artist', 'sourceProvider', 'sourceId', 'playlistId', 'localPath',
                 'folder', 'card', 'classifiers', 'isMusicPort', 'musicPortGroup']
-            : ['id', 'title', 'category', 'localPath'];
+            : ['id', 'title', 'category', 'localPath', 'volume', 'exposed', 'hotkey'];
         const ref = safeRecord(item, fields);
         const membership = unique(groups);
         if (membership.length) ref.groups = membership;
@@ -115,6 +116,12 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
                 ['id', 'url', 'playlistId', 'title', 'provider', 'group', 'folder', 'owner',
                     'description', 'image', 'embedUrl', 'scrapeSource', 'lastSyncedAt', 'trackCount'])),
             localizeScopeDirs: { ...object(source.localizeScopeDirs) },
+            portVolumes: { ...object(source.portVolumes) },
+            exposedPortedSounds: { ...object(source.exposedPortedSounds) },
+            portHotkeys: { ...object(source.portHotkeys) },
+            scopeBindings: list(source.scopeBindings).map((entry) => safeRecord(entry,
+                ['id', 'audioId', 'audioType', 'scopeType', 'workspaceId', 'categoryName',
+                    'folderId', 'bookmarkId', 'label', 'createdAt'])),
             musicRefs: list(source.music).map((item) => trackRef(item, object(source.musicGroupMap)[item?.id], 'music')),
             soundRefs: list(source.soundboard).map((item) => trackRef(item, object(source.soundGroupMap)[item?.id], 'sound'))
         };
@@ -242,6 +249,19 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             if (groups.length) state.soundGroupMap[item.id] = groups;
             state.soundboardGroups = unique([...(state.soundboardGroups || []), ...groups]);
         }
+        state.scopeBindings = list(state.scopeBindings);
+        list(snapshot.scopeBindings).filter((binding) => (
+            text(binding.audioId) === text(ref.id) && (binding.audioType || type) === type
+        )).forEach((binding) => {
+            const next = { ...binding, audioId: item.id, audioType: type };
+            const key = [next.audioType, next.audioId, next.scopeType, next.workspaceId,
+                next.categoryName, next.folderId, next.bookmarkId].map(text).join('|');
+            const exists = state.scopeBindings.some((entry) => (
+                [entry.audioType, entry.audioId, entry.scopeType, entry.workspaceId,
+                    entry.categoryName, entry.folderId, entry.bookmarkId].map(text).join('|') === key
+            ));
+            if (!exists) state.scopeBindings.push(next);
+        });
         return changed;
     }
 
@@ -256,6 +276,9 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         state.musicPortConnections = mergeRecords(state.musicPortConnections, snapshot.musicPortConnections, 'music-port');
         state.musicPlaylists = mergeRecords(state.musicPlaylists, snapshot.musicPlaylists, 'playlist');
         state.localizeScopeDirs = { ...object(snapshot.localizeScopeDirs), ...object(state.localizeScopeDirs) };
+        state.portVolumes = { ...object(snapshot.portVolumes), ...object(state.portVolumes) };
+        state.exposedPortedSounds = { ...object(snapshot.exposedPortedSounds), ...object(state.exposedPortedSounds) };
+        state.portHotkeys = { ...object(snapshot.portHotkeys), ...object(state.portHotkeys) };
         list(state.music).forEach((item) => applyTrackStructure(state, snapshot, item, 'music'));
         list(state.soundboard).forEach((item) => applyTrackStructure(state, snapshot, item, 'sound'));
         return state;
