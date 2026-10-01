@@ -391,15 +391,21 @@ function syncMediaPlayer(options = {}) {
 
 function followAttachedMedia(metadata = {}, options = {}) {
   if (!mediaVideo || !mediaPlayerReady) return false;
-  const target=Math.max(0,Number(metadata.currentTime)||0),current=currentMediaPosition();
-  const rate=Math.min(2,Math.max(.25,Number(metadata.rate)||1)),drift=target-current;
-  mediaAttachedGuardUntil=performance.now()+550;
+  const plan=window.WatchFusionLinkedPlaybackSync?.mediaPlan?.(metadata,currentMediaPosition(),options);
+  if(!plan)return false;
+  const volume=Number(metadata.volume),targetVolume=Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):null;
+  const seek=plan.seek&&mediaVideo.readyState>=1;
+  const rateChanged=Math.abs((Number(mediaVideo.playbackRate)||1)-plan.rate)>.01;
+  const volumeChanged=targetVolume!==null&&Math.abs(mediaVideo.volume-targetVolume)>.01;
+  const pauseChanged=plan.paused?!mediaVideo.paused:mediaVideo.paused;
+  if(!seek&&!rateChanged&&!volumeChanged&&!pauseChanged)return true;
+  mediaAttachedGuardUntil=performance.now()+450;
   withMediaGuard(()=>{
-    if(((options.force&&Math.abs(drift)>.05)||Math.abs(drift)>.30)&&mediaVideo.readyState>=1)mediaVideo.currentTime=target;
-    if(Math.abs((Number(mediaVideo.playbackRate)||1)-rate)>.01)mediaVideo.playbackRate=rate;
-    const volume=Number(metadata.volume);
-    if(Number.isFinite(volume)&&Math.abs(mediaVideo.volume-Math.max(0,Math.min(1,volume)))>.01)mediaVideo.volume=Math.max(0,Math.min(1,volume));
-    if(metadata.paused)mediaVideo.pause();else mediaVideo.play()?.catch?.(()=>setStatus('Tap the video once to allow playback.'));
+    if(seek)mediaVideo.currentTime=plan.target;
+    if(rateChanged)mediaVideo.playbackRate=plan.rate;
+    if(volumeChanged)mediaVideo.volume=targetVolume;
+    if(plan.paused){if(!mediaVideo.paused)mediaVideo.pause();}
+    else if(mediaVideo.paused)mediaVideo.play()?.catch?.(()=>setStatus('Tap the video once to allow playback.'));
   });
   return true;
 }
