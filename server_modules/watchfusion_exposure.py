@@ -21,5 +21,6 @@ def reconcile_status(decorated: dict, *, local_url: str, remote_url: str = "",
             decorated.update(exposureMode="lan", publicUrl=lan_url, url=lan_url)
         return decorated
     if network and network.get("localOnly") is True:
-        decorated.update(exposureMode="local", publicUrl="", url=local_url)
+        host_url = str(network.get("localEmbedHost") or local_url).strip()
+        decorated.update(exposureMode="local", publicUrl="", url=host_url, hostUrl=host_url)
     return decorated
