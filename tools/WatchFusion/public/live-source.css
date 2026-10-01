@@ -4,6 +4,7 @@
 .live-pair-help input { width:100%; box-sizing:border-box; margin:8px 0; }
 #liveVideo { width:100%; height:100%; min-height:180px; object-fit:contain; background:#080c12; }
 .live-controls { padding:12px; background:var(--panel,#131923); border-top:1px solid var(--line,#39434e); max-height:40vh; overflow:auto; }
+.watch-shell.linked-tab-active .live-controls { max-height:150px; }
 .live-controls header, .live-transport, .live-queue-tools, .live-source-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
 .live-controls strong { flex:1; min-width:140px; }
 .live-controls output, #liveStatus, #liveGroup { color:var(--muted,#9ba7b8); font-size:13px; }

@@ -5,7 +5,16 @@
     window.__eveWatchFusionFrameCapabilitiesReady = true;
 
     const REQUIRED = ['autoplay', 'encrypted-media', 'fullscreen', 'picture-in-picture', 'web-share', 'webgpu'];
-    const READY_TIMEOUT_MS = 6500;
+    const LOCAL_READY_TIMEOUT_MS = 6500;
+    function exposureMode() {
+        return String(window.EveWatchFusion?.getState?.()?.exposureMode || 'local').toLowerCase();
+    }
+    function readyTimeoutMs() {
+        return exposureMode() === 'cloudflare' ? 22000 : exposureMode() === 'lan' ? 10000 : LOCAL_READY_TIMEOUT_MS;
+    }
+    function autoReloadLimit() {
+        return exposureMode() === 'cloudflare' ? 0 : exposureMode() === 'lan' ? 1 : 2;
+    }
     let activeFrame = null;
     let frameObserver = null;
     let readyTimer = 0;
@@ -53,16 +62,20 @@
             readyTimer = 0;
             if (frame !== activeFrame || frame.hidden) return;
             const direct = await window.EveWatchFusionRuntimeSensor?.probe?.(frame.src);
-            if (direct && reloadAttempts < 2) {
+            const reloadLimit = autoReloadLimit();
+            if (direct && reloadAttempts < reloadLimit) {
                 reloadAttempts += 1;
-                setFrameState(frame, 'loading', `The runtime is online. Retrying the embedded view (${reloadAttempts}/2)…`);
+                setFrameState(frame, 'loading', `The runtime is online. Retrying the embedded view (${reloadAttempts}/${reloadLimit})…`);
                 reloadFrame(frame);
                 return;
             }
+            const remote = exposureMode() === 'cloudflare';
             setFrameState(frame, 'error', direct
-                ? 'The embedded view did not finish loading. Retry it here; detached WatchFusion remains available.'
+                ? (remote
+                    ? 'Remote WatchFusion is online but still loading through the tunnel. The view was left intact; wait or press Retry manually.'
+                    : 'The embedded view did not finish loading. Retry it here; detached WatchFusion remains available.')
                 : 'Waiting for the WatchFusion runtime. The view will stay dark instead of showing a blank page.');
-        }, READY_TIMEOUT_MS);
+        }, readyTimeoutMs());
     }
 
     function reloadFrame(frame, manual = false) {

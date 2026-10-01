@@ -34,6 +34,11 @@ export async function runSourceTabSmokes() {
   const worker = readExtension('worker.js');
   const probe = readExtension('source-probe.js');
   const popup = readExtension('popup.js');
+  const linkedTab = readClient('linked-tab.js');
+  const linkedPlayback = readClient('linked-playback-sync.js');
+  const mediaPlayer = readClient('media-player.js');
+  const commands = readClient('commands.js');
+  const liveSourceCss = fs.readFileSync(path.resolve(CLIENT, '../live-source.css'), 'utf8');
 
   await record('ST-01:bootstrap-no-global-window-pointerdown-for-nuvio-tab', async () => {
     const hasGlobalCapture = /window\.addEventListener\s*\(\s*['"]pointerdown['"]/.test(bootstrap) && /closest.*shortcut(?:Nuvio|VoxelVision)Btn/.test(bootstrap);
@@ -123,6 +128,30 @@ export async function runSourceTabSmokes() {
     assert.match(mediaControls, /loadSelectedMedia\(\)[\s\S]{0,260}watchFusionLinkedTab\.stop\(\{quiet:true\}\)/);
     assert.match(worker, /message\.type==='start-pairing'/);
     assert.equal((worker.match(/startCurrentTab\(/g)||[]).length,2,'Only the public method and explicit start-pairing route may start a tab link.');
+  })();
+
+  await record('ST-13:linked-room-mirror-is-projected-and-bounded', async () => {
+    assert.match(linkedTab, /MIRROR_INTERVAL_MS=1500/);
+    assert.match(linkedTab, /projectedPosition\?\.\(metadata\)/);
+    assert.match(linkedTab, /positionJumped\?\.\(position,scheduleMirror\.sample,now\)/);
+    assert.match(linkedPlayback, /function mediaPlan/);
+  })();
+
+  await record('ST-14:linked-direct-media-does-not-permanently-mask-host-controls', async () => {
+    assert.match(mediaPlayer, /if\(!seek&&!rateChanged&&!volumeChanged&&!pauseChanged\)return true;[\s\S]{0,120}mediaAttachedGuardUntil=performance\.now\(\)\+450/);
+    assert.match(linkedTab, /CONTROL_ECHO_TTL_MS=2500/);
+    assert.match(linkedTab, /applyPendingControls/);
+  })();
+
+  await record('ST-15:linked-youtube-poll-detects-host-seeks-without-buffering-event', async () => {
+    assert.match(commands, /positionJumped\?\.\(position,linkedYoutubePositionSample,now\)/);
+    assert.match(commands, /if\(jumped&&isHost\(\)\)linked\.control\('seek',position\)/);
+  })();
+
+  await record('ST-16:linked-controls-stay-compact-over-the-normal-player', async () => {
+    assert.match(linkedTab, /classList\.add\('linked-tab-active'\)/);
+    assert.match(linkedTab, /classList\.remove\('linked-tab-active'\)/);
+    assert.match(liveSourceCss, /\.watch-shell\.linked-tab-active \.live-controls \{ max-height:150px; \}/);
   })();
 
   return results;

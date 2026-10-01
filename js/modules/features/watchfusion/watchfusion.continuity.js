@@ -26,7 +26,7 @@
     let detachedOrigin = '';
     let ownerRole = 'embedded';
     const pendingEmbeddedRelays = new Map();
-    const PENDING_RELAY_TTL_MS = 35000;
+    const PENDING_RELAY_TTL_MS = 100000;
 
     function frameWindow() {
         return document.querySelector('#watchfusion-overlay .watchfusion-frame')?.contentWindow || null;

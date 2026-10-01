@@ -49,6 +49,51 @@ function configureViewer(page, { current, target = 100, paused = false, rate = 1
 }
 
 test.describe('Adaptive playback drift regression', () => {
+  test('linked playback projects fresh running samples instead of chasing stale timestamps', async ({ page }) => {
+    await page.goto('/');
+    const result = await page.evaluate(() => {
+      const now = Date.now();
+      const sync = window.WatchFusionLinkedPlaybackSync;
+      return {
+        projected: sync.projectedPosition({ currentTime: 20, paused: false, sampledAt: now - 750, rate: 1 }, now),
+        paused: sync.projectedPosition({ currentTime: 20, paused: true, sampledAt: now - 750, rate: 1 }, now),
+        stale: sync.projectedPosition({ currentTime: 20, paused: false, sampledAt: now - 4000, rate: 1 }, now)
+      };
+    });
+    expect(result.projected).toBeGreaterThan(20.70);
+    expect(result.projected).toBeLessThan(20.80);
+    expect(result.paused).toBe(20);
+    expect(result.stale).toBe(20);
+  });
+
+  test('linked direct-media follower tolerates small drift without rearming its control guard', async ({ page }) => {
+    await page.goto('/');
+    const result = await page.evaluate(() => {
+      let current = 10, rate = 1, volume = 0.5, paused = false;
+      mediaPlayerReady = true;
+      mediaAttachedGuardUntil = 0;
+      mediaVideo = {
+        readyState: 4,
+        get currentTime(){ return current; }, set currentTime(value){ current = value; },
+        get playbackRate(){ return rate; }, set playbackRate(value){ rate = value; },
+        get volume(){ return volume; }, set volume(value){ volume = value; },
+        get paused(){ return paused; },
+        play(){ paused = false; return Promise.resolve(); },
+        pause(){ paused = true; }
+      };
+      const now = Date.now();
+      const steady = followAttachedMedia({ currentTime: 9.7, sampledAt: now - 300, paused: false, rate: 1, volume: 0.5 }, { now });
+      const guardAfterSteady = mediaAttachedGuardUntil;
+      const jumped = followAttachedMedia({ currentTime: 15, sampledAt: now, paused: false, rate: 1, volume: 0.5 }, { now });
+      return { steady, jumped, guardAfterSteady, guardAfterJump: mediaAttachedGuardUntil, current };
+    });
+    expect(result.steady).toBe(true);
+    expect(result.guardAfterSteady).toBe(0);
+    expect(result.jumped).toBe(true);
+    expect(result.guardAfterJump).toBeGreaterThan(0);
+    expect(result.current).toBe(15);
+  });
+
   test('one moderate drift sample never changes speed or seeks', async ({ page }) => {
     await page.goto('/');
     const calls = await configureViewer(page, { current: 99, target: 100 });

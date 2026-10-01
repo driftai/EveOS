@@ -402,10 +402,14 @@ function syncPlayer(options = {}) {
 }
 let linkedYoutubePositionSample=null;
 function sampleLinkedYoutubePosition(){
-  if(!window.watchFusionLinkedTab?.active?.()||!ytPlayer||!ytPlayerReady||window.watchFusionLinkedTab?.applying?.()){if(!window.watchFusionLinkedTab?.active?.())linkedYoutubePositionSample=null;return;}
+  const linked=window.watchFusionLinkedTab;
+  if(!linked?.active?.()||!ytPlayer||!ytPlayerReady||linked.applying?.()||playerInitializing){if(!linked?.active?.())linkedYoutubePositionSample=null;return;}
   const playerState=ytPlayer.getPlayerState?.();
   if(playerState===YT.PlayerState.BUFFERING)return;
-  linkedYoutubePositionSample={position:Number(ytPlayer.getCurrentTime?.())||0,at:performance.now(),playing:playerState===YT.PlayerState.PLAYING,rate:Number(ytPlayer.getPlaybackRate?.())||1};
+  const position=Number(ytPlayer.getCurrentTime?.())||0,now=performance.now(),rate=Number(ytPlayer.getPlaybackRate?.())||1;
+  const jumped=window.WatchFusionLinkedPlaybackSync?.positionJumped?.(position,linkedYoutubePositionSample,now)===true;
+  if(jumped&&isHost())linked.control('seek',position);
+  linkedYoutubePositionSample={position,at:now,playing:playerState===YT.PlayerState.PLAYING,rate};
 }
 setInterval(()=>{observeYouTubeAudio();sampleLinkedYoutubePosition();},250);
 
@@ -420,7 +424,7 @@ function followAttachedYouTube(metadata = {}, options = {}) {
   if(!plan.seek&&!plan.pause&&!plan.play&&!rateChanged&&!volumeChanged)return true;
   window.watchFusionLinkedTab?.setApplying?.(true);applyingRemote=true;
   try{
-    if(plan.seek)ytPlayer.seekTo?.(plan.target,true);
+    if(plan.seek){ytPlayer.seekTo?.(plan.target,true);linkedYoutubePositionSample={position:plan.target,at:performance.now(),playing:metadata.paused!==true,rate};}
     if(rateChanged)ytPlayer.setPlaybackRate?.(rate);
     if(volumeChanged)ytPlayer.setVolume?.(Math.max(0,Math.min(1,volume))*100);
     if(plan.pause)ytPlayer.pauseVideo?.();else if(plan.play)ytPlayer.playVideo?.();

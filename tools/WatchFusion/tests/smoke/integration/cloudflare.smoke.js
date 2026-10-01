@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../../..');
+const REPO_ROOT = path.resolve(PROJECT_ROOT, '../..');
 
 export async function runCloudflareSmoke() {
   const results = [];
@@ -62,6 +63,21 @@ export async function runCloudflareSmoke() {
     } catch (err) {
       return { skip: true, reason: `tools/cloudflared.exe execution check failed: ${err.message}` };
     }
+  })();
+
+  await record('INT-CF-03:remote-embed-keeps-slow-load-intact', async () => {
+    const frameCapabilities = fs.readFileSync(path.join(REPO_ROOT, 'js/modules/features/watchfusion/watchfusion.frame-capabilities.js'), 'utf8');
+    assert.match(frameCapabilities, /cloudflare' \? 22000/);
+    assert.match(frameCapabilities, /cloudflare' \? 0/);
+    assert.match(frameCapabilities, /left intact/);
+  })();
+
+  await record('INT-CF-04:remote-reattach-has-tunnel-latency-budget', async () => {
+    const hostContinuity = fs.readFileSync(path.join(REPO_ROOT, 'js/modules/features/watchfusion/watchfusion.continuity.js'), 'utf8');
+    const embedBridge = fs.readFileSync(path.join(PROJECT_ROOT, 'public/client/eveos-embed-bridge.js'), 'utf8');
+    assert.match(hostContinuity, /PENDING_RELAY_TTL_MS = 100000/);
+    assert.match(embedBridge, /shareMode === 'cloudflare'/);
+    assert.match(embedBridge, /\? 90000[\s\S]{0,40}: 30000/);
   })();
 
   return results;
