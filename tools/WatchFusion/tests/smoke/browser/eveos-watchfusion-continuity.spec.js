@@ -222,6 +222,16 @@ test.describe('WatchFusion EveOS Detach & Reattach Continuity', () => {
       return await frame?.evaluate(() => window.watchFusionEveContinuity?.isActive?.());
     }, { timeout: 10000 }).toBe(false);
 
+    await expect(detachedPage.locator('html')).toHaveClass(/eveos-detached/);
+    await expect(detachedPage.locator('.watch-shell-head')).toBeVisible();
+    const detachedLayout = await detachedPage.evaluate(() => {
+      const rect = document.querySelector('#app .grid')?.getBoundingClientRect();
+      return rect ? { bottom: rect.bottom, height: rect.height, viewport: innerHeight } : null;
+    });
+    expect(detachedLayout).not.toBeNull();
+    expect(detachedLayout.height).toBeGreaterThan(detachedLayout.viewport * 0.7);
+    expect(detachedLayout.bottom).toBeLessThanOrEqual(detachedLayout.viewport + 2);
+
     // 2. Reattach to embedded: click Reattach button in detached
     await detachedPage.click('#reattachEveOSBtn');
 
