@@ -145,8 +145,10 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                     window.EveAudioflixClassifiers?.toggleOnTrack?.(t.dataset.afId, t.dataset.afClassifier, t.checked);
                     rerender();
                 } else if (t.classList.contains('audioflix-group-cb')) {
-                    if (type === 'music') window.EveAudioflixState?.toggleMusicGroup?.(id, t.dataset.afGroup, t.checked);
-                    else window.EveAudioflixState?.toggleSoundGroup?.(id, t.dataset.afGroup, t.checked);
+                    if (type === 'music') {
+                        window.EveAudioflixState?.toggleMusicGroup?.(id, t.dataset.afGroup, t.checked);
+                        window.EveAudioflix?.queueConnection?.syncGroupMembership?.(id, t.dataset.afGroup, t.checked);
+                    } else window.EveAudioflixState?.toggleSoundGroup?.(id, t.dataset.afGroup, t.checked);
                     pushHotkeysToBridge();
                 } else if (t.classList.contains('audioflix-hotkey-input')) {
                     const val = t.value.trim().toLowerCase(), issue = hotkeyComboIssue(val);
