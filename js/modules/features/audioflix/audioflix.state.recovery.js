@@ -267,6 +267,13 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         const rootRev = Math.max(0, Number(root.durabilityRevision || 0) || 0);
         const mirrorRev = Math.max(0, Number(mirror.durabilityRevision || 0) || 0);
         if (key) revisionFloors.set(key, Math.max(Number(revisionFloors.get(key) || 0), rootRev, mirrorRev));
+        // A core-config snapshot with no music must never outrank a populated Audioflix
+        // mirror merely because an unrelated config save observed a newer revision number. A
+        // deliberate full clear writes the fallback immediately too, so a richer fallback here is
+        // evidence of an incomplete/partial rollback, not an intentional empty library.
+        const rootMusic = Array.isArray(root.music) ? root.music.length : 0;
+        const mirrorMusic = Array.isArray(mirror.music) ? mirror.music.length : 0;
+        if (rootMusic === 0 && mirrorMusic > 0 && structuralScore(mirror) > structuralScore(root)) return mirror;
         if (mirrorRev > rootRev) return mirror;
         if (rootRev > mirrorRev) return root;
         const rootTime = Math.max(0, Number(root.durabilityUpdatedAt || 0) || 0);
