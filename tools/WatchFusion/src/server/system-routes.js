@@ -44,11 +44,12 @@ export function handleSystemRoute(req, res, parts) {
   const localOnlyAddresses = all.filter(x => !x.shareable).map(x => x.address);
   const localAddress = `http://127.0.0.1:${PORT}`;
   const localHost = localCanonicalHostUrl(PORT);
-  const localEmbedHost = localEmbedHostUrl(PORT);
-  const lanAddresses = addresses.map(address => lanUrls(address, PORT).ip);
-  const lanHosts = addresses.map(address => lanUrls(address, PORT).host);
   const preferredAddress = preferredLanAddress();
   const preferredUrls = lanUrls(preferredAddress, PORT);
+  const loopbackEmbedHost = localEmbedHostUrl(PORT);
+  const localEmbedHost = LAN_MODE ? (preferredUrls.host || loopbackEmbedHost) : loopbackEmbedHost;
+  const lanAddresses = addresses.map(address => lanUrls(address, PORT).ip);
+  const lanHosts = addresses.map(address => lanUrls(address, PORT).host);
   const requestOriginHost = originForRequest(req);
   const requestUrls = lanUrls(requestOriginHost, PORT);
   const remoteUrl = remoteTunnelUrl();
