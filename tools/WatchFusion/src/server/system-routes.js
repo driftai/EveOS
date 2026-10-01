@@ -8,6 +8,7 @@ import {
   isVirtualAddress,
   lanUrls,
   localCanonicalHostUrl,
+  localEmbedHostUrl,
   networkAddresses,
   originForRequest,
   preferredLanAddress
@@ -43,6 +44,7 @@ export function handleSystemRoute(req, res, parts) {
   const localOnlyAddresses = all.filter(x => !x.shareable).map(x => x.address);
   const localAddress = `http://127.0.0.1:${PORT}`;
   const localHost = localCanonicalHostUrl(PORT);
+  const localEmbedHost = localEmbedHostUrl(PORT);
   const lanAddresses = addresses.map(address => lanUrls(address, PORT).ip);
   const lanHosts = addresses.map(address => lanUrls(address, PORT).host);
   const preferredAddress = preferredLanAddress();
@@ -61,6 +63,7 @@ export function handleSystemRoute(req, res, parts) {
     localAddress,
     localHost,
     localCanonicalHost: localHost,
+    localEmbedHost,
     preferredLanAddress: preferredUrls.ip,
     preferredLanIp: preferredAddress,
     preferredLanHost: preferredUrls.host,
