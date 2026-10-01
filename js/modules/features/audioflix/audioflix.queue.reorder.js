@@ -16,7 +16,7 @@ window.EveAudioflixQueueReorder = window.EveAudioflixQueueReorder || {};
         all.forEach((row, index) => {
             if (!(row instanceof HTMLElement)) return;
             row.dataset.queueIndex = String(index);
-            row.draggable = true;
+            row.draggable = false;
             const main = row.querySelector('[data-url-player-action="queue-jump"]');
             if (main) main.classList.add('audioflix-queue-entry-main');
             if (!row.querySelector('.audioflix-queue-drag-handle')) {
@@ -24,6 +24,7 @@ window.EveAudioflixQueueReorder = window.EveAudioflixQueueReorder || {};
                 grip.className = 'audioflix-queue-drag-handle';
                 grip.textContent = '⋮⋮';
                 grip.title = 'Drag to reorder';
+                grip.draggable = true;
                 grip.setAttribute('aria-hidden', 'true');
                 row.prepend(grip);
             }
@@ -52,10 +53,7 @@ window.EveAudioflixQueueReorder = window.EveAudioflixQueueReorder || {};
     document.addEventListener('dragstart', event => {
         const row = event.target.closest?.('.audioflix-provider-queue-list > li');
         if (!row) return;
-        if (!event.target.closest?.('.audioflix-queue-drag-handle')) {
-            event.preventDefault();
-            return;
-        }
+        if (!event.target.closest?.('.audioflix-queue-drag-handle')) return;
         dragIndex = rows().indexOf(row);
         row.classList.add('is-dragging');
         event.dataTransfer.effectAllowed = 'move';
