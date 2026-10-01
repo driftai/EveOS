@@ -69,6 +69,11 @@ window.EveDataStore.CaptureModules = window.EveDataStore.CaptureModules || {};
             }
         }
 
+        function cloneAudioflixStructure() {
+            const audioflix = cloneAudioflix();
+            return audioflix ? window.EveAudioflixStateRecovery?.captureStructure?.(audioflix) || null : null;
+        }
+
         function cloneBookmarkFolders() {
             try {
                 return JSON.parse(JSON.stringify(getBookmarkFolders() || {}));
@@ -208,7 +213,8 @@ window.EveDataStore.CaptureModules = window.EveDataStore.CaptureModules || {};
                     connections: cloneConnections()
                 },
                 knowledge: cloneKnowledgeState(),
-                audioflix: cloneAudioflix()
+                audioflix: cloneAudioflix(),
+                audioflixStructure: cloneAudioflixStructure()
             };
         }
 
@@ -229,6 +235,7 @@ window.EveDataStore.CaptureModules = window.EveDataStore.CaptureModules || {};
             cloneKnowledgeState,
             filterKnowledgeState,
             cloneAudioflix,
+            cloneAudioflixStructure,
             captureState
         };
     };
