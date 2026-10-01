@@ -69,6 +69,42 @@ function loadContext() {
     const connection = stored.musicPortConnections.find((entry) => entry.folder === 'Picked Music');
     assert.equal(connection?.browserFolderId, 'music-grant');
     assert.equal(connection?.browserRootName, 'Picked Music', 'browser Music Port reconnect metadata survives normalization');
+
+    // Preserve extra user organization in the structural journal, lose the song list, then rescan
+    // the same Music Port. The re-created track gets its old labels/group by stable local-path identity.
+    window.EveAudioflixState.addMusicGroup('Recovered Custom');
+    window.EveAudioflixState.toggleMusicGroup(nested.id, 'Recovered Custom', true);
+    window.EveAudioflixState.updateItem('music', nested.id, {
+        classifiers: [...new Set([...(nested.classifiers || []), 'Manual Recovery'])]
+    });
+    window.EveAudioflixState.flush('music-port-recovery-seed');
+    const structure = window.EveAudioflixStateRecovery.captureStructure(window.EveAudioflixState.ensure());
+
+    window.EveAudioflixState.replaceDatapackState({
+        soundboard: [], music: [], ports: [], browserFolders: [],
+        soundboardGroups: [], soundGroupMap: {},
+        musicFolders: [], musicGroups: [], musicGroupMap: {},
+        musicPlaylists: [], musicPortConnections: [], musicClassifiers: [],
+        localizeScopeDirs: {}, scopeBindings: []
+    }, 'simulated-loss');
+    window.localStorage.setItem(
+        'eveAudioflixFallbackState' + window.EveAudioflixStateRecovery.STRUCTURE_SUFFIX,
+        JSON.stringify(structure)
+    );
+    window.EveAudioflixStateRecovery.applyStructureSnapshot(window.EveAudioflixState.ensure(), structure);
+
+    const rebuiltResult = await window.EveAudioflixLocalize.importMusicPort('', 'Picked Music');
+    assert.equal(rebuiltResult.ok, true);
+    const rebuilt = window.EveAudioflixState.ensure();
+    const rebuiltNested = rebuilt.music.find((item) => item.title === 'Nested Offline');
+    assert.ok(rebuiltNested, 'Music Port rescan reconstructs the missing track from the source folder');
+    assert.ok(rebuiltNested.classifiers.includes('Manual Recovery'),
+        'reimported Music Port track reclaims its preserved manual label');
+    assert.ok((rebuilt.musicGroupMap[rebuiltNested.id] || []).includes('Recovered Custom'),
+        'reimported Music Port track reclaims preserved custom group membership under its new id');
+    assert.ok(rebuilt.musicPortConnections.some((entry) => entry.folder === 'Picked Music'),
+        'Music Port source provenance survives structural-only recovery');
+
     console.log('AUDIOFLIX_BROWSER_MUSIC_PORT_OK');
 })().catch((error) => {
     console.error(error);
