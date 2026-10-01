@@ -46,7 +46,10 @@ function renderMembers(){
   members.querySelectorAll('[data-transfer-host]').forEach(btn=>btn.addEventListener('click',async()=>{const targetMemberId=btn.getAttribute('data-transfer-host');if(!targetMemberId)return;btn.disabled=true;const ok=await command('transfer-host',{targetMemberId});if(!ok)btn.disabled=false;}));
   renderedMemberSignature=signature;
 }
-function roomImageUrl(attachment){const base=apiUrl(attachment?.url||'');const separator=base.includes('?')?'&':'?';return `${base}${separator}memberId=${encodeURIComponent(session?.memberId||'')}`;}
+const roomImagePreviews=new Map();
+function rememberRoomImagePreview(attachment,file){const id=String(attachment?.id||'');if(!id||!file)return false;const old=roomImagePreviews.get(id);if(old)URL.revokeObjectURL(old);roomImagePreviews.set(id,URL.createObjectURL(file));while(roomImagePreviews.size>6){const first=roomImagePreviews.keys().next().value;URL.revokeObjectURL(roomImagePreviews.get(first));roomImagePreviews.delete(first);}return true;}
+function roomImageUrl(attachment){const preview=roomImagePreviews.get(String(attachment?.id||''));if(preview)return preview;const base=apiUrl(attachment?.url||'');const separator=base.includes('?')?'&':'?';return `${base}${separator}memberId=${encodeURIComponent(session?.memberId||'')}`;}
+window.watchFusionRoomImages=Object.freeze({remember:rememberRoomImagePreview});
 async function imageBlobAsPng(blob){if(blob.type==='image/png')return blob;const bitmap=await createImageBitmap(blob);const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;canvas.getContext('2d').drawImage(bitmap,0,0);bitmap.close?.();return new Promise((resolve,reject)=>canvas.toBlob(result=>result?resolve(result):reject(new Error('Image conversion failed')),'image/png'));}
 function legacyCopyRoomImage(button){const msg=button?.closest('.msg');const image=msg?.querySelector('.message-image');if(!image)return false;const fileName=msg?.querySelector('.message-file-name');const selection=getSelection();const saved=[];for(let i=0;i<(selection?.rangeCount||0);i++)saved.push(selection.getRangeAt(i));const oldAlt=image.getAttribute('alt');const oldTitle=image.getAttribute('title');const oldDisplay=fileName?.style.display||'';try{if(fileName)fileName.style.display='none';image.setAttribute('alt','');image.removeAttribute('title');const range=document.createRange();range.selectNode(image);selection?.removeAllRanges();selection?.addRange(range);return document.execCommand('copy');}catch{return false;}finally{if(oldAlt===null)image.removeAttribute('alt');else image.setAttribute('alt',oldAlt);if(oldTitle===null)image.removeAttribute('title');else image.setAttribute('title',oldTitle);if(fileName)fileName.style.display=oldDisplay;selection?.removeAllRanges();saved.forEach(range=>selection?.addRange(range));}}
 async function copyRoomImageViaHost(attachment){const base=String(attachment?.url||'');if(!base||!session?.memberId)return false;try{const res=await fetch(apiUrl(`${base}/copy-local`),{method:'POST',headers:{'x-member-id':session.memberId},cache:'no-store'});return res.ok;}catch{return false;}}
@@ -55,12 +58,12 @@ function showImageCopyAssist(attachment,imageUrl){let assist=document.querySelec
 function setManualCopyFeedback(button){if(!button)return;const previousTimer=Number(button.dataset.copyFeedbackTimer||0);if(previousTimer)clearTimeout(previousTimer);button.textContent='Hold image';button.classList.remove('is-copied','is-copy-failed');button.setAttribute('aria-label','Press and hold the opened image, then choose Copy image');const timer=setTimeout(()=>{button.textContent='Copy';button.setAttribute('aria-label','Copy');delete button.dataset.copyFeedbackTimer;},2400);button.dataset.copyFeedbackTimer=String(timer);}
 async function copyRoomImage(attachment,button){const imageUrl=roomImageUrl(attachment);try{if(!navigator.clipboard?.write||typeof ClipboardItem==='undefined')throw new Error('Image clipboard unavailable');const response=await fetch(imageUrl,{cache:'no-store'});if(!response.ok)throw new Error('Image fetch failed');const png=await imageBlobAsPng(await response.blob());await navigator.clipboard.write([new ClipboardItem({'image/png':png})]);return'image';}catch{}if(isMobileImageClipboardClient()&&showImageCopyAssist(attachment,imageUrl))return'assist';if(legacyCopyRoomImage(button))return'image';if(await copyRoomImageViaHost(attachment))return'image';return false;}
 function chatMessageKey(message){return `${message.id}:${message.text?.length||0}:${message.attachment?.id||''}`;}
-function chatMessageHtml(message){
+function chatMessageHtml(message,priority=false){
   const text=String(message.text||'');
   const attachment=message.attachment;
   const imageUrl=attachment?roomImageUrl(attachment):'';
   const actions=`<span class="msg-actions">${text?`<button type="button" class="message-copy" data-copy-message="${escapeHtml(message.id)}">Copy</button>`:''}${attachment?`<button type="button" class="message-copy message-image-copy" data-copy-image="${escapeHtml(message.id)}">Copy</button>`:''}</span>`;
-  const image=attachment?`<a class="message-image-link" href="${escapeHtml(imageUrl)}" target="_blank" rel="noopener"><img class="message-image" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(attachment.name||'Shared room image')}" loading="lazy"></a><span class="message-file-name">${escapeHtml(attachment.name||'Shared image')}</span>`:'';
+  const image=attachment?`<a class="message-image-link" href="${escapeHtml(imageUrl)}" target="_blank" rel="noopener"><img class="message-image" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(attachment.name||'Shared room image')}" loading="${priority?'eager':'lazy'}" fetchpriority="${priority?'high':'auto'}" decoding="async"></a><span class="message-file-name">${escapeHtml(attachment.name||'Shared image')}</span>`:'';
   return `<div class="msg" data-message-id="${escapeHtml(message.id)}"><div class="msg-head"><b>${escapeHtml(message.name)}</b>${actions}</div>${text?`<p>${escapeHtml(text)}</p>`:''}${image}</div>`;
 }
 function bindChatActions(chat){
@@ -107,9 +110,9 @@ function renderChatMessages(){
     &&renderedChatMessageKeys.every((key,index)=>key===keys[index]);
   if(canAppend&&keys.length>renderedChatMessageKeys.length){
     const added=messages.slice(renderedChatMessageKeys.length);
-    chat.insertAdjacentHTML('beforeend',added.map(chatMessageHtml).join(''));
+    chat.insertAdjacentHTML('beforeend',added.map((message,index)=>chatMessageHtml(message,index>=added.length-2)).join(''));
   }else if(!canAppend||keys.length!==renderedChatMessageKeys.length){
-    chat.innerHTML=messages.map(chatMessageHtml).join('');
+    chat.innerHTML=messages.map((message,index)=>chatMessageHtml(message,index>=messages.length-2)).join('');
   }
   if(shouldStick){
     chat.scrollTop=chat.scrollHeight;
