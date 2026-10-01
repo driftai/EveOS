@@ -153,6 +153,7 @@
     flex-wrap: wrap;
     gap: 4px;
     margin-top: 2px;
+    min-width: 0; max-width: 100%;
 }
 
 .audioflix-group-tag {
@@ -164,7 +165,7 @@
     background: rgba(255, 202, 95, 0.14);
     border: 1px solid rgba(255, 202, 95, 0.4);
     color: #ffe6ad;
-    white-space: nowrap;
+    display: inline-block; min-width: 0; box-sizing: border-box;
 }
 
 .audioflix-info-groups {
