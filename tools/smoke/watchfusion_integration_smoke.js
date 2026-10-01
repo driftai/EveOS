@@ -291,12 +291,20 @@ function embeddedRuntime() {
         && fs.existsSync(path.join(TOOL, 'node_modules', 'hls.js'));
     if (!depsReady) return { state: 'SKIP', reason: 'WatchFusion is hydrated but npm ci has not been run' };
 
-    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     const script = security ? 'test:security' : 'test:smoke';
-    const result = spawnSync(npm, ['run', '--silent', script], {
+    const npmExecPath = process.env.npm_execpath;
+    const hasNodeCli = !!npmExecPath && fs.existsSync(npmExecPath);
+    const command = hasNodeCli
+        ? process.execPath
+        : (process.platform === 'win32' ? (process.env.ComSpec || 'cmd.exe') : 'npm');
+    const args = hasNodeCli
+        ? [npmExecPath, 'run', '--silent', script]
+        : (process.platform === 'win32'
+            ? ['/d', '/s', '/c', `npm run --silent ${script}`]
+            : ['run', '--silent', script]);
+    const result = spawnSync(command, args, {
         cwd: TOOL,
         encoding: 'utf8',
-        shell: process.platform === 'win32',
         windowsHide: true,
         maxBuffer: 3 * 1024 * 1024
     });
