@@ -147,7 +147,9 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
 
     function structureComparable(snapshot) {
         if (!snapshot) return '';
-        const copy = { ...snapshot, savedAt: 0, counts: undefined };
+        // Playback counters advance the full-state durability revision. Do not rewrite this small
+        // topology journal unless the topology itself changed.
+        const copy = { ...snapshot, durabilityRevision: 0, savedAt: 0, counts: undefined };
         return JSON.stringify(copy);
     }
 
