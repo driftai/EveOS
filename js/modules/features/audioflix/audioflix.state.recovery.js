@@ -14,6 +14,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
     const QUARANTINE_SUFFIX = '.corrupt';
     const STRUCTURE_SUFFIX = '.structure-v2';
     const STRUCTURE_VERSION = 2;
+    const revisionFloors = new Map();
     const text = (value) => String(value ?? '').trim();
     const clone = (value, fallback) => {
         try { return JSON.parse(JSON.stringify(value)); } catch { return fallback; }
@@ -254,11 +255,12 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         return true;
     }
 
-    function prefer(primary, fallback) {
+    function prefer(primary, fallback, key = '') {
         const root = primary && typeof primary === 'object' ? primary : {};
         const mirror = fallback && typeof fallback === 'object' ? fallback : {};
         const rootRev = Math.max(0, Number(root.durabilityRevision || 0) || 0);
         const mirrorRev = Math.max(0, Number(mirror.durabilityRevision || 0) || 0);
+        if (key) revisionFloors.set(key, Math.max(Number(revisionFloors.get(key) || 0), rootRev, mirrorRev));
         if (mirrorRev > rootRev) return mirror;
         if (rootRev > mirrorRev) return root;
         const rootTime = Math.max(0, Number(root.durabilityUpdatedAt || 0) || 0);
@@ -274,14 +276,19 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
     }
 
     function nextRevision(key, state) {
-        const fallback = read(key).state || {};
-        const structure = readStructure(key) || {};
-        return Math.max(
-            0,
-            Number(state?.durabilityRevision || 0) || 0,
-            Number(fallback?.durabilityRevision || 0) || 0,
-            Number(structure?.durabilityRevision || 0) || 0
-        ) + 1;
+        let floor = Number(revisionFloors.get(key) || 0);
+        if (!revisionFloors.has(key)) {
+            const fallback = read(key).state || {};
+            const structure = readStructure(key) || {};
+            floor = Math.max(
+                floor,
+                Number(fallback?.durabilityRevision || 0) || 0,
+                Number(structure?.durabilityRevision || 0) || 0
+            );
+        }
+        const next = Math.max(floor, Number(state?.durabilityRevision || 0) || 0) + 1;
+        revisionFloors.set(key, next);
+        return next;
     }
 
     function write(key, state, options = {}) {
@@ -308,6 +315,10 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         writeStructure(key, state);
         try {
             localStorage.setItem(key, JSON.stringify(state));
+            revisionFloors.set(key, Math.max(
+                Number(revisionFloors.get(key) || 0),
+                Number(state?.durabilityRevision || 0) || 0
+            ));
             return { written: true, reason: '' };
         } catch (error) {
             console.warn('[Audioflix] library write failed:', error);
