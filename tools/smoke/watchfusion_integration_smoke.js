@@ -125,6 +125,7 @@ function sourceContract() {
     const roomRoutes = read('tools/WatchFusion/src/server/room-routes.js');
     const liveStreams = read('tools/WatchFusion/src/server/live-streams.js');
     const lanLauncher = read('tools/WatchFusion/scripts/START-WATCHFUSION-LAN.bat');
+    const remoteTunnel = read('tools/WatchFusion/scripts/REMOTE-TUNNEL.ps1');
 
     check(!sensing.includes('127-0-0-1.sslip.io'), 'WF-SENSING-NO-SSLIP', 'watchfusion.runtime-sensing.js still includes sslip candidate origin');
     check(sensing.includes('http://127.0.0.1:'), 'WF-SENSING-LOOPBACK-CANONICAL', 'watchfusion.runtime-sensing.js missing literal loopback candidate origin');
@@ -141,8 +142,10 @@ function sourceContract() {
     check(helper.includes('"/api/watchfusion/setup"') && helper.includes('watchfusion_control.setup_component'), 'WF-CONTROL-SETUP', 'fresh-clone core setup route is missing');
     check(helper.includes('("watchFusion", watchfusion_control.stop_server)'), 'WF-STOP-ALL', 'global EveOS stop does not include WatchFusion');
     check(modes.includes('def stop_remote_helpers()') && control.includes('watchfusion_modes.stop_remote_helpers()')
-      && modes.includes('for name in ("cloudflared.pid", "server.pid")')
-      && modes.includes('["taskkill", "/F", "/T", "/PID", str(pid)]'),
+      && modes.includes('for name in ("cloudflared.pid", "cloudflared-terminal.pid", "server.pid")')
+      && modes.includes('["taskkill", "/F", "/T", "/PID", str(pid)]')
+      && remoteTunnel.includes("Join-Path $StateDir 'cloudflared-terminal.pid'")
+      && remoteTunnel.includes('Where-Object { $_.Name -ieq \'cloudflared.exe\' }'),
       'WF-STOP-REMOTE-HELPERS', 'stopping WatchFusion does not also terminate its owned Cloudflare/server helper process trees');
 
     const wfPort = Number(registry?.ports?.WATCHFUSION_PORT?.port);
