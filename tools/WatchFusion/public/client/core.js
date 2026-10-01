@@ -326,7 +326,10 @@ function lanRoomLink() {
   const base=lanBaseUrl||(runtimeExposureMode==='lan'?(runtimeShareBaseUrl||eveosShareBaseUrl):null);
   return roomLink(base);
 }
-function localRoomLink() { return roomLink(`http://127.0.0.1:${location.port||'9087'}`); }
+function localRoomLink() {
+  const host=lanNetworkInfo?.localEmbedHost||(isReachableLanHost(location.hostname)?location.origin:null);
+  return roomLink(host||`http://127.0.0.1:${location.port||'9087'}`);
+}
 function shareRoomLink() {
   const token = shareRoomToken();
   if (!token) return null;
