@@ -99,6 +99,10 @@ function main() {
         musicGroupMap: { 'music-a': ['Night'] },
         musicFolders: ['Port'],
         musicClassifiers: ['Manual'],
+        portVolumes: { 'sound-a': 0.4 },
+        portHotkeys: { 'sound-a': 'ctrl+1' },
+        exposedPortedSounds: { 'sound-a': true },
+        scopeBindings: [{ id: 'bind-a', audioId: 'music-a', audioType: 'music', scopeType: 'card', workspaceId: 'main', categoryName: 'Music Card' }],
         musicPortConnections: [{ id: 'port-a', path: 'C:/Music/Port', folder: 'Port', trackCount: 1 }]
     };
     const rolledBack = {
@@ -128,6 +132,9 @@ function main() {
     assert(structure.musicFolders.includes('Port') && structure.musicGroups.includes('Night')
         && structure.musicPortConnections.some((entry) => entry.id === 'port-a'),
         'folders, groups and music-port provenance survive in the structural journal');
+    assert(structure.portHotkeys['sound-a'] === 'ctrl+1' && structure.exposedPortedSounds['sound-a'] === true
+        && structure.scopeBindings.some((entry) => entry.id === 'bind-a'),
+        'ported-sound settings and Audioflix scope bindings survive in the structural journal');
     const rebuilt = {
         durabilityRevision: 0,
         soundboard: [],
@@ -141,6 +148,8 @@ function main() {
         'a reimported track regains its folder/classifier structure from stable identity');
     assert(rebuilt.musicGroupMap['reimported-a']?.includes('Night'),
         'a reimported track regains group membership under its new runtime id');
+    assert(rebuilt.scopeBindings.some((entry) => entry.audioId === 'reimported-a' && entry.categoryName === 'Music Card'),
+        'scope bindings follow a structurally matched track onto its new runtime id');
     assert(rebuilt.musicPortConnections.some((entry) => entry.id === 'port-a'),
         'source connection metadata returns so the port can be rescanned');
 
