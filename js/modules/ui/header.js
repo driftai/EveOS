@@ -114,3 +114,35 @@ function toggleHeaderMode() {
     saveConfig();
     updateTimeAndGreeting();
 }
+
+function installTopbarWheelScroll() {
+    const strip = document.querySelector(".top-right");
+    if (!strip || strip.dataset.wheelScrollBound === "1") return;
+
+    strip.dataset.wheelScrollBound = "1";
+    strip.addEventListener("wheel", event => {
+        if (event.ctrlKey || event.metaKey) return;
+
+        const maxScroll = strip.scrollWidth - strip.clientWidth;
+        if (maxScroll <= 1) return;
+
+        const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+            ? event.deltaX
+            : event.deltaY;
+        if (!delta) return;
+
+        const before = strip.scrollLeft;
+        const after = Math.max(0, Math.min(maxScroll, before + delta));
+        if (Math.abs(after - before) < 0.5) return;
+
+        strip.scrollLeft = after;
+        event.preventDefault();
+    }, { passive: false });
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", installTopbarWheelScroll, { once: true });
+} else {
+    installTopbarWheelScroll();
+}
+
