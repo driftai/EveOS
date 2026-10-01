@@ -209,7 +209,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const state = ensure();
         if (saveTimer) window.clearTimeout(saveTimer);
         saveTimer = 0;
-        fallbackWrite(state); window.EveAudioflixStateRecovery?.writeStructure?.(STORAGE_KEY, state);
+        fallbackWrite(state);
         if (typeof window.saveConfig === 'function') {
             window.saveConfig({
                 source: reason || 'audioflix',
@@ -255,7 +255,6 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const root = getConfigRoot();
         if (window.config && typeof window.config === 'object' && window.config !== root) window.config.audioflix = next;
         fallbackWrite(next, options.authoritative === true ? { allowEmpty: true, allowDestructive: true } : undefined);
-        if (options.authoritative === true) guard?.writeStructure?.(STORAGE_KEY, next, { allowEmpty: true });
         scheduleSave(reason || 'audioflix-replace');
         return next;
     }
