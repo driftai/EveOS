@@ -122,6 +122,9 @@ function main() {
     const stalePrimary = { ...rolledBack, durabilityRevision: 8 };
     assert(env.api.prefer(stalePrimary, newerFallback, KEY).durabilityRevision === 9,
         'a newer fallback revision wins over an older monolithic config snapshot');
+    const misleadingNewerPrimary = { ...rolledBack, durabilityRevision: 12, durabilityUpdatedAt: Date.now() };
+    assert(env.api.prefer(misleadingNewerPrimary, newerFallback, KEY).music?.length === 1,
+        'a newer config timestamp cannot make an empty music graph outrank a populated recovery mirror');
 
     // ---- structural journal: no playable song copies, but topology can rebuild around reimports ----
     env = load({});
