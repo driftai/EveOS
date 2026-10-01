@@ -35,7 +35,9 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
         window.EveAudioflixState.addPort({ nickname: 'JsonPort', path: 'C:/json/sounds' });
         window.EveAudioflixState.addSoundboardGroup('JsonGroup');
         window.EveAudioflixState.addItem('sound', { id: 'json-sound', title: 'JSON Sound', url: 'media/json.wav', volume: 0.4 });
-        window.EveAudioflixState.addItem('music', { id: 'json-music', title: 'JSON Music', url: 'https://example.com/watch?v=json', volume: 0.9 });
+        window.EveAudioflixState.addItem('music', { id: 'json-music', title: 'JSON Music', url: 'https://example.com/watch?v=json', volume: 0.9, folder: 'Json Folder', card: 'Json Folder', classifiers: ['Json Label'] });
+        window.EveAudioflixState.addMusicGroup('JsonMusicGroup');
+        window.EveAudioflixState.toggleMusicGroup('json-music', 'JsonMusicGroup', true);
         window.EveAudioflixState.addItem('music', {
             id: 'json-spotify',
             title: 'Spotify JSON Music',
@@ -50,6 +52,14 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
             sourceId: 'spotifyJson123'
         });
         window.EveAudioflixState.update({
+            musicPortConnections: [{
+                id: 'json-music-port',
+                path: 'C:/json/music',
+                folder: 'Json Folder',
+                browserFolderId: 'json-browser-folder',
+                browserRootName: 'music',
+                trackCount: 1
+            }],
             musicPlaylists: [{
                 id: 'json-spotify-playlist',
                 url: 'https://open.spotify.com/playlist/spotifyPlaylist123',
@@ -105,6 +115,20 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
     let parsed = null;
     try { parsed = JSON.parse(exportedText); } catch { parsed = null; }
     const inFile = parsed && parsed.audioflix ? parsed.audioflix : null;
+    const structure = parsed && parsed.audioflixStructure ? parsed.audioflixStructure : null;
+    const structureOk = !!(structure
+        && !Object.prototype.hasOwnProperty.call(structure, 'music')
+        && !Object.prototype.hasOwnProperty.call(structure, 'soundboard')
+        && (structure.musicFolders || []).includes('Json Folder')
+        && (structure.musicGroups || []).includes('JsonMusicGroup')
+        && (structure.musicPortConnections || []).some((entry) => entry.id === 'json-music-port')
+        && (structure.musicRefs || []).some((ref) => (
+            ref.id === 'json-music'
+            && ref.folder === 'Json Folder'
+            && (ref.classifiers || []).includes('Json Label')
+            && (ref.groups || []).includes('JsonMusicGroup')
+            && !Object.prototype.hasOwnProperty.call(ref, 'url')
+        )));
     const fileOk = !!(inFile
         && (inFile.ports || []).some((p) => p.nickname === 'JsonPort')
         && (inFile.soundboardGroups || []).includes('JsonGroup')
@@ -161,14 +185,44 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
         };
     }, exportedText);
 
+    // 4. A topology-only backup restores folders/groups/source provenance without manufacturing
+    // playable song records. Reimports can later reclaim their labels by source/path identity.
+    const structuralOnly = await page.evaluate((jsonText) => {
+        const state = JSON.parse(jsonText);
+        delete state.audioflix;
+        window.EveAudioflixState.replaceDatapackState({
+            soundboard: [], music: [], ports: [], browserFolders: [],
+            soundboardGroups: [], soundGroupMap: {},
+            musicFolders: [], musicGroups: [], musicGroupMap: {},
+            musicPlaylists: [], musicPortConnections: [], musicClassifiers: [],
+            localizeScopeDirs: {}, scopeBindings: []
+        }, 'json-structure-only-wipe');
+        const applied = window.EveDataStore.Store.applyState(state);
+        const live = window.EveAudioflixState.ensure();
+        return {
+            applied,
+            noSongCopies: live.music.length === 0 && live.soundboard.length === 0,
+            folders: live.musicFolders || [],
+            groups: live.musicGroups || [],
+            ports: live.musicPortConnections || []
+        };
+    }, exportedText);
+
     await browser.close();
     const fails = [];
     if (!parsed) fails.push('exportDataJsonOnly did not produce parseable JSON');
     if (!unifiedShapeOk) fails.push('JSON backup is not a unified backup the importer accepts');
     if (!fileOk) fails.push('JSON backup file did NOT contain the seeded Audioflix content');
+    if (!structureOk) fails.push('JSON backup did NOT contain a URL-free Audioflix structural recovery map');
     if (!restore.applied) fails.push('applyState rejected the restored JSON backup');
     if (!restore.liveOk) fails.push('Audioflix content was not restored into live state from the JSON backup');
     if (!restore.fallbackOk) fails.push('restored Audioflix was not persisted to the fallback store a reload reads');
+    if (!structuralOnly.applied || !structuralOnly.noSongCopies
+        || !structuralOnly.folders.includes('Json Folder')
+        || !structuralOnly.groups.includes('JsonMusicGroup')
+        || !structuralOnly.ports.some((entry) => entry.id === 'json-music-port')) {
+        fails.push('structural-only Audioflix restore did not preserve topology without song copies');
+    }
     if (fails.length) { console.error('FAIL: ' + fails.join('; ')); process.exit(1); }
     console.log('AUDIOFLIX_JSON_BACKUP_ROUNDTRIP_OK');
 })().catch((e) => { console.error(e); process.exit(1); });
