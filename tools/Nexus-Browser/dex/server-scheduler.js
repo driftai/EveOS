@@ -35,10 +35,7 @@ function createDexServerScheduler({
   function clearCurrent() { lease.clear(); current = null; }
   function processSoon(delay = 0) {
     if (retryTimer) clearTimer(retryTimer);
-    retryTimer = setTimer(() => {
-      retryTimer = null;
-      return process().catch((error) => failCurrent(error.message));
-    }, Math.max(0, delay));
+    retryTimer = setTimer(() => { retryTimer = null; return process().catch((error) => failCurrent(error.message)); }, Math.max(0, delay));
   }
   const recovery = createServerSchedulerRecovery({
     load, save, uid, nowMs,
