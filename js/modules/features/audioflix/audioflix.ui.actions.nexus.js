@@ -43,6 +43,16 @@ window.EveAudioflixUiActionsNexus = window.EveAudioflixUiActionsNexus || {};
                 return true;
             }
             const view = ctx.nexusState || {};
+            if (action === 'nexus-jump-card') {
+                const id = actionTarget.dataset.afId || '';
+                const type = actionTarget.dataset.afType === 'sound' ? 'sound' : 'music';
+                ctx.nexusState = Object.assign({}, view, { open: false });
+                ctx.rerender();
+                requestAnimationFrame(() => requestAnimationFrame(() =>
+                    window.EveAudioflixNexusQuick?.jumpToCard?.(id, { type, fallbackBackend: true })
+                ));
+                return true;
+            }
             if (action === 'nexus-select-all') {
                 ctx.nexusState = Object.assign({}, view, {
                     selectedIds: matchedMusic().map((track) => track.id)
