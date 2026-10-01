@@ -144,7 +144,31 @@ window.EveAudioflixFsPortsRegistry = window.EveAudioflixFsPortsRegistry || {};
                     && folder.nickname === record.nickname
                     && (folder.purpose || 'sound') === record.purpose
                 )));
-            if (!inSync) api.update({ browserFolders: registry }, 'audioflix-browser-folders');
+            const musicRecords = [...byId.values()].filter((record) => record.purpose === 'music');
+            const connections = Array.isArray(state.musicPortConnections) ? state.musicPortConnections.slice() : [];
+            const knownBrowserIds = new Set(connections.map((entry) => String(entry.browserFolderId || '')).filter(Boolean));
+            const recoveredConnections = musicRecords
+                .filter((record) => record.id && !knownBrowserIds.has(String(record.id)))
+                .map((record) => ({
+                    id: `port_recovered_${record.id}`,
+                    path: `fsport://${encodeURIComponent(record.id)}`,
+                    folder: String(record.nickname || record.handle?.name || 'Recovered Music Port'),
+                    browserFolderId: record.id,
+                    browserRootName: String(record.handle?.name || record.nickname || ''),
+                    lastSyncedAt: 0,
+                    trackCount: 0
+                }));
+            const recoveredFolders = [...new Set([
+                ...(state.musicFolders || []),
+                ...musicRecords.map((record) => String(record.nickname || record.handle?.name || '')).filter(Boolean)
+            ])];
+            if (!inSync || recoveredConnections.length || recoveredFolders.length !== (state.musicFolders || []).length) {
+                api.update({
+                    browserFolders: registry,
+                    musicFolders: recoveredFolders,
+                    musicPortConnections: connections.concat(recoveredConnections)
+                }, recoveredConnections.length ? 'audioflix-browser-music-port-recovery' : 'audioflix-browser-folders');
+            }
         } finally {
             db.close();
         }
