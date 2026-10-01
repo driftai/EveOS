@@ -81,8 +81,8 @@ Write-Host ""
 if (Test-WatchFusion) {
     Write-Host "WatchFusion is already running on port $Port. Reusing existing server."
 } else {
-    Write-Host "Starting WatchFusion origin on localhost:$Port..."
-    $ServerCommand = "cd /d `"$Root`" && set HOST=127.0.0.1&& set PORT=$Port&& node server.js"
+    Write-Host "Starting WatchFusion origin with LAN-capable host binding on port $Port..."
+    $ServerCommand = "cd /d `"$Root`" && set HOST=0.0.0.0&& set PORT=$Port&& node server.js"
     $Server = Start-Process -FilePath "cmd.exe" -ArgumentList "/k `"$ServerCommand`"" -WorkingDirectory $Root -PassThru
     $Server.Id | Set-Content -Encoding ASCII $ServerPidFile
     Write-Host "WatchFusion server terminal opened (PID $($Server.Id))."
@@ -166,7 +166,13 @@ Write-Host "REMOTE WATCHFUSION IS READY"
 Write-Host "============================================================"
 Write-Host "Remote WatchFusion URL:"
 Write-Host "    $Url"
-Write-Host "Origin:      http://127.0.0.1:$Port"
+$HostSurface = $null
+try {
+    $NetworkInfo = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/network-info" -Method Get -TimeoutSec 2
+    $HostSurface = [string]$NetworkInfo.localEmbedHost
+} catch {}
+Write-Host "Origin:      http://127.0.0.1:$Port (Cloudflare ingress)"
+if ($HostSurface) { Write-Host "Host surface: $HostSurface" }
 Write-Host "Tunnel:      Cloudflare Quick Tunnel"
 Write-Host "Status:      CONNECTED"
 Write-Host "Tunnel PID:  $($Tunnel.Id)"
