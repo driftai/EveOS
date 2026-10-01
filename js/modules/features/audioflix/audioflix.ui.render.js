@@ -250,7 +250,7 @@ window.EveAudioflixUiRender = window.EveAudioflixUiRender || {};
         const renderFrontendMusicActive = () => {
             const { name, items, entries, smart, classifiers, activeGroup, activeArtist, activeClassifier, displayName } = frontendActiveGroup('music');
             const musicItems = state().music || [];
-            const allFolders = [...new Set(musicItems.map((it) => String(it.folder || it.card || '').trim()).filter(Boolean))];
+            const allFolders = [...new Set([...(state().musicFolders || []), ...musicItems.map((it) => String(it.folder || it.card || '').trim())].filter(Boolean))];
             const activeScope = state().activeMusicFolderScope || '';
             const classifierRow = ctx.renderClassifierRow ? ctx.renderClassifierRow(activeClassifier, classifiers) : '';
             const scopePills = `<div class="audioflix-folder-scope-selector"><span class="audioflix-scope-label">Track Focus:</span><button type="button" class="audioflix-scope-pill${activeScope === '' ? ' is-active' : ''}" data-af-action="select-folder-scope" data-af-scope="">🌐 All Folders (No Focus)</button>${allFolders.map((folder) => `<button type="button" class="audioflix-scope-pill${activeScope === folder ? ' is-active' : ''}" data-af-action="select-folder-scope" data-af-scope="${esc(folder)}">📁 ${esc(folder)}</button>`).join('')}</div>`;
