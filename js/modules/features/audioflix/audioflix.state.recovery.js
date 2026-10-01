@@ -24,11 +24,8 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
 
     function countEntries(state) {
         if (!state || typeof state !== 'object') return 0;
-        return Object.values(state).reduce((total, value) => {
-            if (Array.isArray(value)) return total + value.length;
-            if (value && typeof value === 'object') return total + Object.keys(value).length;
-            return total;
-        }, 0);
+        return Object.values(state)
+            .reduce((total, value) => total + (Array.isArray(value) ? value.length : 0), 0);
     }
 
     function persistenceTime(state) {
