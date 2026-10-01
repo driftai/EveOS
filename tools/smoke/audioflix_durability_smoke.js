@@ -14,6 +14,26 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
     // 1. Seed every user-content surface that must travel with a datapack.
     await page.evaluate(seedDurabilityFixture);
 
+    // A stale monolithic config snapshot must not outrank the newer Audioflix mirror merely
+    // because Soundboard/recent-play data keeps the stale snapshot technically non-empty.
+    const staleConfigRecoveryOk = await page.evaluate(() => {
+        window.EveAudioflixState.flush('durability-stale-config-seed');
+        const rich = JSON.parse(localStorage.getItem('eveAudioflixFallbackState') || '{}');
+        const stale = {
+            durabilityRevision: Math.max(0, Number(rich.durabilityRevision || 0) - 1),
+            soundboard: [{ id: 'stale-sound', title: 'Stale Sound', url: 'media/stale.wav' }],
+            recentPlays: [{ id: 'stale-sound', type: 'sound', title: 'Stale Sound', at: Date.now() }],
+            music: [], musicGroups: [], musicGroupMap: {}, musicFolders: [],
+            musicPlaylists: [], musicPortConnections: []
+        };
+        window.eveState.config.audioflix = stale;
+        const recovered = window.EveAudioflixState.ensure();
+        return (recovered.music || []).some((item) => item.id === 'rt-music')
+            && (recovered.musicGroups || []).includes('Night')
+            && (recovered.musicPortConnections || []).some((entry) => entry.id === 'music-port-rt')
+            && !(recovered.soundboard || []).some((item) => item.id === 'stale-sound');
+    });
+
     // 2. Capture (the backup path) -> must include routing plus sound/music content.
     const captureOk = await page.evaluate(() => {
         const cap = window.EveDataStore.Store.captureState();
@@ -326,6 +346,7 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
 
     await browser.close();
     const fails = [];
+    if (!staleConfigRecoveryOk) fails.push('newer Audioflix fallback did not defeat a stale partial core-config rollback');
     if (!captureOk) fails.push('captureState() did NOT include audioflix ports/groups');
     if (!scopedResult.passed) {
         fails.push(`scoped Audioflix capture/merge leaked or replaced unrelated content: ${JSON.stringify(scopedResult)}`);
