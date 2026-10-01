@@ -93,7 +93,7 @@ function activeConversationTitle(snapshot = {}) {
   const candidates = [];
   for (const element of snapshot.elements || []) {
     const type = uia.controlType(element);
-    if (!/(text|heading|button|group|document)/.test(type)) continue;
+    if (!/(text|heading|button|group|document|custom|tabitem|listitem|pane)/.test(type)) continue;
     const text = uia.normalizeCandidate(nodeText(element));
     if (!text || text.length < 2 || text.length > 120) continue;
     if (/^(chatgpt|chat|work|new chat|share|search|library|projects|settings|home|back|forward)$/i.test(text)) continue;
@@ -103,19 +103,26 @@ function activeConversationTitle(snapshot = {}) {
     if (!rect.width || !rect.height || !frame.width || !frame.height) continue;
     const xRatio = ((rect.x + rect.width / 2) - frame.x) / frame.width;
     const yRatio = ((rect.y + rect.height / 2) - frame.y) / frame.height;
-    if (yRatio < 0.01 || yRatio > 0.19 || xRatio < 0.07 || xRatio > 0.88) continue;
 
     const automationId = uia.propertyText(element, 'automationId').toLowerCase();
     const className = uia.propertyText(element, 'className').toLowerCase();
     const semantic = /conversation|thread|chat[-_ ]?title|header[-_ ]?title/.test(automationId + ' ' + className);
+    const strictHeader = yRatio >= 0.01 && yRatio <= 0.12 && xRatio >= 0.09 && xRatio <= 0.90
+      && rect.height <= Math.max(72, frame.height * 0.11);
+    const semanticHeader = semantic && yRatio >= 0.01 && yRatio <= 0.20 && xRatio >= 0.06 && xRatio <= 0.92;
+    if (!strictHeader && !semanticHeader) continue;
+    if (!semantic && /^(group|document|pane)$/.test(type)) continue;
 
-    let score = type.includes('heading') ? 50
-      : type.includes('text') ? 30
-        : type.includes('button') ? 24 : 12;
-    if (semantic) score += 45;
-    if (xRatio >= 0.10 && xRatio <= 0.72) score += 14;
-    if (yRatio <= 0.11) score += 14;
-    if (rect.width >= 60 && rect.width <= frame.width * 0.65) score += 8;
+    let score = type.includes('heading') ? 58
+      : type.includes('text') ? 34
+        : type.includes('button') ? 30
+          : type.includes('tabitem') ? 26
+            : type.includes('custom') ? 20 : 12;
+    if (semantic) score += 48;
+    if (strictHeader) score += 24;
+    if (xRatio >= 0.12 && xRatio <= 0.74) score += 14;
+    if (yRatio <= 0.09) score += 14;
+    if (rect.width >= 50 && rect.width <= frame.width * 0.70) score += 8;
     if (text.length >= 4 && text.length <= 80) score += 5;
     candidates.push({ text, selector: uia.selectorOf(element), rect, type, automationId, score });
   }

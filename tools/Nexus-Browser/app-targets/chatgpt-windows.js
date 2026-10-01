@@ -1,7 +1,7 @@
 'use strict';
 
 const defaultRunner = require('./winapp-runner'), uia = require('./chatgpt-windows-uia');
-const conversation = require('./chatgpt-windows-conversation');
+const conversation = require('./chatgpt-windows-conversation'), titleResolver = require('./chatgpt-windows-title');
 const {
   windowsFromEnvelope, pickMainWindow, hwndOf, pidOf, selectorOf,
   composerScore, sendScore, rankCandidates, elementsFromSearch,
@@ -150,7 +150,7 @@ function createAdapter({
       let conversationTitle = '';
       try {
         const snapshot = await inspect(windowInfo);
-        conversationTitle = conversation.activeConversationTitle(snapshot)?.text || '';
+        conversationTitle = (await titleResolver.resolve({ runner, snapshot }))?.text || '';
       } catch {}
       return [{ id: TARGET_ID,
         title: conversationTitle

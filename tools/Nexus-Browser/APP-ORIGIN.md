@@ -107,6 +107,16 @@ same provider name.
 Base Mode may reconnect to the currently discovered app normally; the stricter identity
 pin is a Dex room execution invariant.
 
+## Exact native conversation identity
+
+Dex App-Origin bindings must include the active native ChatGPT conversation title in
+addition to process ID and window handle. The adapter first reads the ordinary UIA
+tree, then performs bounded UIA header/title searches only when the visible tree does
+not expose the active header. Message text in the conversation body is never accepted
+as the title. `npm run qualify:app-origin:live` fails closed when a concrete native
+conversation is not identifiable; `npm run doctor:apps` remains usable on the home
+screen for ordinary diagnostics.
+
 ## Base Mode qualification
 
 Base Mode is **live-proven** on the real ChatGPT Windows app.

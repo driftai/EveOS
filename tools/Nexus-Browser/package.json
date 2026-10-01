@@ -26,7 +26,7 @@
     "doctor:apps": "node scripts/app-origin-doctor.js",
     "restart": "node scripts/restart-bridge.js",
     "qualify:app-origin": "node scripts/qualify.js --area app-origin",
-    "qualify:app-origin:live": "npm run qualify:app-origin && npm run doctor:apps"
+    "qualify:app-origin:live": "npm run qualify:app-origin && node scripts/app-origin-doctor.js --require-conversation"
   },
   "engines": {
     "node": ">=18"

@@ -3,9 +3,11 @@
 const appTargets = require('../app-targets/manager');
 const chatgpt = require('../app-targets/chatgpt-windows');
 const conversation = require('../app-targets/chatgpt-windows-conversation');
+const titleResolver = require('../app-targets/chatgpt-windows-title');
 const winapp = require('../app-targets/winapp-runner');
 
 async function main() {
+  const requireConversation = process.argv.includes('--require-conversation');
   const helper = await winapp.availability();
   const targets = await appTargets.listAppTargets({ force: true });
   const report = {
@@ -33,7 +35,7 @@ async function main() {
         title: targets[0].title
       });
       const groupedReply = conversation.latestAssistantReply(snapshot);
-      const activeConversation = conversation.activeConversationTitle(snapshot);
+      const activeConversation = await titleResolver.resolve({ runner: winapp, snapshot });
       report.chatgptUi = {
         composerFound: !!snapshot.composerSelector,
         composerSelector: snapshot.composerSelector || null,
@@ -58,6 +60,7 @@ async function main() {
         groupedReplyLength: String(groupedReply?.text || '').length,
         activeConversationTitle: activeConversation?.text || null,
         activeConversationSelector: activeConversation?.selector || null,
+        activeConversationSource: activeConversation?.source || null,
         hwnd: snapshot.hwnd,
         pid: snapshot.pid
       };
@@ -69,6 +72,15 @@ async function main() {
       };
       report.ok = false;
     }
+  }
+
+  report.diagnostics = appTargets.discoveryDiagnostics();
+  if (requireConversation && !report.chatgptUi?.activeConversationTitle) {
+    report.ok = false;
+    report.requirementError = {
+      code: 'APP_CONVERSATION_IDENTITY_MISSING',
+      message: 'Open a concrete ChatGPT conversation before live App-Origin qualification.'
+    };
   }
 
   process.stdout.write(JSON.stringify(report, null, 2) + '\n');
