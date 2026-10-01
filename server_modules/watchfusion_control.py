@@ -424,6 +424,8 @@ def stop_server(*, persist: bool = False) -> dict:
                 except OSError:
                     pass
         _PROCESS = None
+    from . import watchfusion_modes
+    watchfusion_modes.stop_remote_helpers()
     eveos_exposure.clear_state("watchfusion")
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline and _health() is not None:
