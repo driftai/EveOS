@@ -89,6 +89,61 @@ function main() {
     assert(written.written === true, 'a smaller but non-empty save goes through');
     assert(env.api.countEntries(env.api.read(KEY).state) === 2, 'removing tracks still works');
 
+    // ---- partial rollback: non-empty Soundboard/recent-play data must not mask a lost music graph ----
+    const rich = {
+        durabilityRevision: 7,
+        soundboard: [{ id: 'sound-a', title: 'Sound A', url: 'sound.wav' }],
+        music: [{ id: 'music-a', title: 'Track A', localPath: 'C:/Music/Port/Track A.mp3', sourceId: 'src-a', playlistId: 'pl-a', folder: 'Port', classifiers: ['Manual'] }],
+        recentPlays: [{ id: 'sound-a' }],
+        musicGroups: ['Night'],
+        musicGroupMap: { 'music-a': ['Night'] },
+        musicFolders: ['Port'],
+        musicClassifiers: ['Manual'],
+        musicPortConnections: [{ id: 'port-a', path: 'C:/Music/Port', folder: 'Port', trackCount: 1 }]
+    };
+    const rolledBack = {
+        durabilityRevision: 7,
+        soundboard: [{ id: 'sound-a', title: 'Sound A', url: 'sound.wav' }],
+        music: [],
+        recentPlays: [{ id: 'sound-a' }]
+    };
+    env = load({ [KEY]: JSON.stringify(rich) });
+    written = env.api.write(KEY, rolledBack);
+    assert(written.written === false,
+        'a partial rollback cannot overwrite richer music structure just because Soundboard data remains');
+    assert(env.api.read(KEY).state.music.length === 1, 'the richer fallback music graph survives the refused rollback');
+
+    // ---- revision arbitration: a newer Audioflix mirror wins over an older config snapshot ----
+    const newerFallback = { ...rich, durabilityRevision: 9 };
+    const stalePrimary = { ...rolledBack, durabilityRevision: 8 };
+    assert(env.api.prefer(stalePrimary, newerFallback, KEY).durabilityRevision === 9,
+        'a newer fallback revision wins over an older monolithic config snapshot');
+
+    // ---- structural journal: no playable song copies, but topology can rebuild around reimports ----
+    env = load({});
+    assert(env.api.writeStructure(KEY, rich).written === true, 'structural journal is written independently');
+    const structure = env.api.readStructure(KEY);
+    assert(structure.musicRefs.length === 1 && !('url' in structure.musicRefs[0]),
+        'structural track refs carry identity/labels without copying playable URLs');
+    assert(structure.musicFolders.includes('Port') && structure.musicGroups.includes('Night')
+        && structure.musicPortConnections.some((entry) => entry.id === 'port-a'),
+        'folders, groups and music-port provenance survive in the structural journal');
+    const rebuilt = {
+        durabilityRevision: 0,
+        soundboard: [],
+        music: [{ id: 'reimported-a', title: 'Track A', localPath: 'C:/Music/Port/Track A.mp3', sourceId: 'src-a', playlistId: 'pl-a', folder: '', classifiers: [] }],
+        musicGroups: [], musicGroupMap: {}, musicFolders: [], musicClassifiers: [],
+        ports: [], browserFolders: [], musicPortConnections: [], musicPlaylists: [], localizeScopeDirs: {}
+    };
+    env.api.applyStructureSnapshot(rebuilt, structure);
+    assert(rebuilt.music.length === 1, 'structural recovery does not manufacture song copies');
+    assert(rebuilt.music[0].folder === 'Port' && rebuilt.music[0].classifiers.includes('Manual'),
+        'a reimported track regains its folder/classifier structure from stable identity');
+    assert(rebuilt.musicGroupMap['reimported-a']?.includes('Night'),
+        'a reimported track regains group membership under its new runtime id');
+    assert(rebuilt.musicPortConnections.some((entry) => entry.id === 'port-a'),
+        'source connection metadata returns so the port can be rescanned');
+
     // ---- a first run has nothing to protect ----
     env = load({});
     written = env.api.write(KEY, {});
