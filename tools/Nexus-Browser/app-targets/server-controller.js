@@ -36,13 +36,13 @@ function createAppTargetServerController({
     }
   }
 
-  async function refresh(destination = null, { force = false } = {}) {
-    lastTargets = await appTargets.listAppTargets({ force });
+  function announce(destination = null, { validateSelection = false, refreshing = false } = {}) {
     const destinations = destination ? [destination] : [...uiSockets];
     const diagnostics = appTargets.discoveryDiagnostics();
     const types = appTargets.publicAppTargetTypes();
     for (const ws of destinations) {
-      if (ws.appTargetId && !lastTargets.some((target) => target.id === ws.appTargetId)) {
+      if (validateSelection && ws.appTargetId
+          && !lastTargets.some((target) => target.id === ws.appTargetId)) {
         ws.appTargetId = null;
       }
       safeSend(ws, {
@@ -50,10 +50,17 @@ function createAppTargetServerController({
         types,
         targets: lastTargets,
         target: selected(ws),
-        diagnostics
+        diagnostics,
+        refreshing
       });
       if (ws.appTargetId) sendStatus(ws);
     }
+    return lastTargets;
+  }
+
+  async function refresh(destination = null, { force = false } = {}) {
+    lastTargets = await appTargets.listAppTargets({ force });
+    announce(destination, { validateSelection: true, refreshing: false });
     return lastTargets;
   }
 
@@ -221,6 +228,7 @@ function createAppTargetServerController({
   return {
     handle,
     refresh,
+    announce,
     selected,
     diagnostics,
     stop,

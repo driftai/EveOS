@@ -41,7 +41,7 @@ test('native title resolver recovers a header exposed only through UIA search', 
   const result = await titleResolver.resolve({ runner, snapshot });
   assert.equal(result?.text, 'Test response');
   assert.equal(result?.selector, 'btn-chat-title-live');
-  assert.equal(result?.source, 'uia-search');
+  assert.equal(result?.source, 'uia-search:title');
 });
 
 test('native title resolver does not mistake ordinary conversation text for the title', async () => {
