@@ -70,16 +70,6 @@ window.EveDataStore.CaptureModules = window.EveDataStore.CaptureModules || {};
         }
 
         function cloneAudioflixStructure() {
-            try {
-                const cfg = getConfig();
-                const state = cfg && cfg.audioflix ? cfg.audioflix : null;
-                return state ? (window.EveAudioflixStateRecovery?.snapshotStructure?.(state) || null) : null;
-            } catch (error) {
-                return null;
-            }
-        }
-
-        function cloneAudioflixStructure() {
             const audioflix = cloneAudioflix();
             return audioflix ? window.EveAudioflixStateRecovery?.captureStructure?.(audioflix) || null : null;
         }
@@ -224,7 +214,6 @@ window.EveDataStore.CaptureModules = window.EveDataStore.CaptureModules || {};
                 },
                 knowledge: cloneKnowledgeState(),
                 audioflix: cloneAudioflix(),
-                audioflixStructure: cloneAudioflixStructure(),
                 audioflixStructure: cloneAudioflixStructure()
             };
         }
