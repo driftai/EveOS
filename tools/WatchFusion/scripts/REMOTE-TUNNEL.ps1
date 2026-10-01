@@ -143,7 +143,22 @@ Write-Host "EveOS stays in its current tab. Use the printed URL on the remote de
 Write-Host "Keep this launcher window open while remote access is needed."
 Write-Host ""
 
-while (-not $Tunnel.HasExited) { Start-Sleep -Seconds 2 }
+$OriginMisses = 0
+while (-not $Tunnel.HasExited) {
+    Start-Sleep -Seconds 1
+    if (Test-WatchFusion) {
+        $OriginMisses = 0
+        continue
+    }
+    $OriginMisses += 1
+    if ($OriginMisses -lt 3) { continue }
+
+    Write-Host ""
+    Write-Host "WatchFusion origin stopped. Closing its Cloudflare tunnel..."
+    try { Stop-Process -Id $Tunnel.Id -Force -ErrorAction Stop } catch {}
+    try { $Tunnel.WaitForExit(3000) } catch {}
+    break
+}
 
 Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 Remove-Item $UrlFile -Force -ErrorAction SilentlyContinue
