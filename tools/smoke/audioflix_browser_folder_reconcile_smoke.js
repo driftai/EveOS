@@ -50,14 +50,24 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
         if (!window.EveAudioflixFsPorts.supported()) return { skip: 'showDirectoryPicker not a function' };
 
         // Simulate a restored backup: the mirror has a folder, IndexedDB has no handle for it.
-        window.EveAudioflixState.replaceState({ browserFolders: [{ id: 'fsp_echo', nickname: 'Echo-Like-Connect', addedAt: 7 }] }, 'reconcile-smoke');
+        window.EveAudioflixState.replaceState({
+            browserFolders: [{ id: 'fsp_echo', nickname: 'Echo-Like-Connect', purpose: 'music', addedAt: 7 }],
+            music: [], musicFolders: [], musicPortConnections: []
+        }, 'reconcile-smoke');
         await window.EveAudioflixFsPorts.reconcile();
 
         const states = await window.EveAudioflixFsPorts.folderStates();
         const records = await rawRecords();
         const sounds = await window.EveAudioflixFsPorts.listSounds();
-        const mirror = window.EveAudioflixState.ensure().browserFolders || [];
+        const liveState = window.EveAudioflixState.ensure();
+        const mirror = liveState.browserFolders || [];
         const surfaced = states.some((f) => f.id === 'fsp_echo' && f.nickname === 'Echo-Like-Connect' && f.permission === 'prompt');
+        const musicSourceRecovered = (liveState.musicFolders || []).includes('Echo-Like-Connect')
+            && (liveState.musicPortConnections || []).some((entry) => (
+                entry.browserFolderId === 'fsp_echo'
+                && entry.folder === 'Echo-Like-Connect'
+                && String(entry.path || '').startsWith('fsport://')
+            ));
         const stub = records.some((r) => r.id === 'fsp_echo' && !r.handle);
         const mirrorInSync = mirror.filter((f) => f.id === 'fsp_echo').length === 1;
         let liveRefreshes = 0;
@@ -77,6 +87,9 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
             stub,
             // ...the mirror stays in sync (no duplication)...
             mirrorInSync,
+            // A persisted music handle is enough to reconstruct a resync-able Music Port stub,
+            // even if the large Audioflix state lost its track/source arrays.
+            musicSourceRecovered,
             // ...and enumerating sounds skips the un-granted stub without throwing.
             listSafe: Array.isArray(sounds) && sounds.every((s) => !String(s.id).includes('fsp_echo')),
             removedLive: !afterRemoveRecords.some((r) => r.id === 'fsp_echo')
@@ -91,6 +104,7 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
     if (!result.surfaced) fails.push('restored folder did not surface as needs-reconnect');
     if (!result.stub) fails.push('no handle-less stub record was created for the restored folder');
     if (!result.mirrorInSync) fails.push('browserFolders mirror diverged / duplicated');
+    if (!result.musicSourceRecovered) fails.push('music folder handle did not reconstruct a Music Port source stub');
     if (!result.listSafe) fails.push('listSounds did not skip the un-granted stub');
     if (!result.removedLive) fails.push('remove action did not persist and refresh live folder state');
     if (fails.length) { console.error('FAIL: ' + fails.join('; ')); process.exit(1); }
