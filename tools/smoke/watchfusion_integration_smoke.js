@@ -195,9 +195,12 @@ function sourceContract() {
       && networkServer.includes('localEmbedHostUrl')
       && systemRoutes.includes('localEmbedHost')
       && exposureControl.includes('hostUrl=host_url')
+      && exposureControl.includes('exposureMode="local"')
       && ui.includes('snapshot?.directHostUrl || snapshot?.hostUrl || snapshot?.localUrl')
-      && ui.includes('directHostUrl: direct.url'),
-      'WF-REMOTE-LOCAL-SSLIP-SURFACE', 'Remote mode does not keep the host-side EveOS surface on a local sslip origin with loopback fallback while sharing through Cloudflare');
+      && ui.includes('directHostUrl: direct.url')
+      && sensing.indexOf('hostExposureOrigin') < sensing.indexOf('exposureOrigin) values.push(exposureOrigin)')
+      && clientCore.includes('lanNetworkInfo?.localEmbedHost'),
+      'WF-REMOTE-LOCAL-SSLIP-SURFACE', 'Local/Remote host traffic does not prefer the local sslip surface before loopback/public fallbacks while sharing remotely through Cloudflare');
     check(clientCore.includes("runtimeExposureMode !== 'local'") && clientCore.includes('return roomLink(runtimeShareBaseUrl)'), 'WF-SHARE-SCOPE-LINK', 'WatchFusion does not preserve the selected LAN/Cloudflare room-sharing scope');
     check(clientCore.includes('updateLanCopyVisibility') && clientCore.includes('roomId&&session&&serverLanMode&&base') && clientCore.includes('runtimeShareBaseUrl||eveosShareBaseUrl'), 'WF-LAN-LINK-STATE', 'Copy LAN link can appear outside a room or lose the EveOS-provided LAN fallback');
     check(lanLauncher.includes('LAN_HOST_URL=http://!LAN_IP:.=-!.sslip.io:') && lanLauncher.includes('-PublicUrl "!LAN_HOST_URL!"') && lanLauncher.includes('[FALLBACK] Direct LAN IP:'), 'WF-LAN-SSLIP-EXPOSURE', 'LAN launcher does not publish sslip.io as the canonical exposure URL while retaining the raw IP fallback');
