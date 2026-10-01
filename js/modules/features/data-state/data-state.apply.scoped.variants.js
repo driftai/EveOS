@@ -109,7 +109,10 @@ window.EveDataStore = window.EveDataStore || {};
                     window.EveAudioflixState?.update?.({}, 'audioflix-restore');
                 }
             }
-            if (restoredStructure && window.EveAudioflixState?.ensure) {
+            if (!restoredAudioflix && restoredStructure && window.EveAudioflixState?.ensure) {
+                // Structural-only recovery is additive. When a full Audioflix section exists it is
+                // authoritative (including an intentional empty library); its own persistence path
+                // regenerates the structural journal, so never rehydrate stale topology over it.
                 window.EveAudioflixStateRecovery?.applyStructureSnapshot?.(
                     window.EveAudioflixState.ensure(), restoredStructure
                 );
