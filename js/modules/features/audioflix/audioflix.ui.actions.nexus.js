@@ -46,9 +46,6 @@ window.EveAudioflixUiActionsNexus = window.EveAudioflixUiActionsNexus || {};
             if (action === 'nexus-jump-card') {
                 const id = actionTarget.dataset.afId || '';
                 const type = actionTarget.dataset.afType === 'sound' ? 'sound' : 'music';
-                ctx.nexusState = Object.assign({}, view, { open: false });
-                document.querySelector('#audioflix-overlay')?.classList.remove('audioflix-nexus-over-internal');
-                ctx.rerender();
                 requestAnimationFrame(() => requestAnimationFrame(() =>
                     window.EveAudioflixNexusQuick?.jumpToCard?.(id, { type, fallbackBackend: true })
                 ));
