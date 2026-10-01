@@ -94,6 +94,7 @@ async function main() {
     progress('Nexus Fast Track backend search + jump OK');
 
     await page.click('[data-af-action="toggle-view-mode"]');   // backend -> frontend
+    await page.click('[data-af-action="select-frontend-group"][data-af-type="music"][data-af-group="Vibes"]');
     await page.waitForSelector('[data-af-action="open-queue-view"]', { timeout: 10000 });
 
     // The new button sits with the other group controls, not on an individual song.
@@ -114,6 +115,27 @@ async function main() {
     await page.waitForSelector('.audioflix-provider-queue-list .audioflix-queue-order-buttons');
     const queueHeight = await page.$eval('.audioflix-provider-queue', element => element.getBoundingClientRect().height);
     assert(queueHeight >= 140, `queue workspace is tall enough to manage ordering (got ${queueHeight}px)`);
+
+    // Group membership is live queue membership: removing a non-current song drops it from this
+    // group's queue, and adding it back appends it without restarting the current track.
+    const gammaMembershipId = await page.evaluate(() =>
+        window.EveAudioflixState.getSnapshot().music.find((track) => track.title === 'Gamma')?.id || '');
+    await page.click('[data-url-player-action="collapse"]');
+    await page.click(`[data-af-action="item-info"][data-af-type="music"][data-af-id="${gammaMembershipId}"]`);
+    const gammaGroupBox = `.audioflix-info-modal .audioflix-group-cb[data-af-id="${gammaMembershipId}"][data-af-group="Vibes"]`;
+    await page.uncheck(gammaGroupBox);
+    await page.waitForFunction(() => {
+        const q = window.EveAudioflix?.queueConnection?.snapshot?.();
+        return q?.entries?.length === 2 && !q.entries.some((entry) => entry.title === 'Gamma');
+    });
+    await page.check(gammaGroupBox);
+    await page.waitForFunction(() => {
+        const q = window.EveAudioflix?.queueConnection?.snapshot?.();
+        return q?.entries?.length === 3 && q.entries[2]?.title === 'Gamma';
+    });
+    await page.click('.audioflix-info-close-btn');
+    await page.click('[data-url-player-action="collapse"]');
+    progress('group membership OK — queue removes and re-adds tracks live');
 
     // Up/down controls reorder without restarting the current song, and numbering follows.
     await page.click('.audioflix-provider-queue-list li:nth-child(2) [data-queue-move="1"]');
@@ -372,7 +394,7 @@ async function main() {
     await page.click('.audioflix-nexus-panel [data-af-action="nexus-jump-card"][data-af-type="music"]');
     await page.waitForFunction(() => [...document.querySelectorAll('.audioflix-item-card')].some(card =>
         card.classList.contains('is-nexus-jump-target') && /Beta/.test(card.textContent || '')), undefined, { timeout: 5000 });
-    assert(!document.querySelector('.audioflix-nexus-panel'), 'main Nexus Jump to card closes the manager panel before navigation');
+    assert(await page.locator('.audioflix-nexus-panel').count() === 0, 'main Nexus Jump to card closes the manager panel before navigation');
     progress('main Nexus result Jump to card OK');
 
     assert(pageErrors.length === 0, 'no uncaught page errors: ' + pageErrors.join(' | '));
