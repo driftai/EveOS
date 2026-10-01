@@ -83,7 +83,8 @@ window.EveAudioflixNexusUi = window.EveAudioflixNexusUi || {};
             const checkbox = type === 'music'
                 ? `<input class="audioflix-nexus-select" type="checkbox" data-af-id="${esc(it.id)}"${selected ? ' checked' : ''} aria-label="Select ${esc(it.title)}">`
                 : '';
-            return `<div class="audioflix-nexus-row${selected ? ' is-selected' : ''}">${checkbox}${actionBtn}<div style="flex:1; min-width:0;"><strong style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; ${isPlaying ? 'color:#38bdf8;' : ''}">${esc(it.title)}${dupBadge}${linkBadge}</strong><span style="font-size:0.75rem; color:#94a3b8;">${esc(meta) || '—'}</span></div><button type="button" class="audioflix-icon-btn" data-af-action="item-info" data-af-type="${esc(type)}" data-af-id="${esc(it.id)}" title="Settings / manage duplicate">⚙</button></div>`;
+            const jumpBtn = type === 'music' ? `<button type="button" class="audioflix-icon-btn" data-af-action="nexus-jump-card" data-af-type="music" data-af-id="${esc(it.id)}" title="Jump to this song in the library">⌖</button>` : '';
+            return `<div class="audioflix-nexus-row${selected ? ' is-selected' : ''}">${checkbox}${actionBtn}<div style="flex:1; min-width:0;"><strong style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; ${isPlaying ? 'color:#38bdf8;' : ''}">${esc(it.title)}${dupBadge}${linkBadge}</strong><span style="font-size:0.75rem; color:#94a3b8;">${esc(meta) || '—'}</span></div>${jumpBtn}<button type="button" class="audioflix-icon-btn" data-af-action="item-info" data-af-type="${esc(type)}" data-af-id="${esc(it.id)}" title="Settings / manage duplicate">⚙</button></div>`;
         }
 
         function renderResults(type, preparedList) {
