@@ -12,14 +12,14 @@
 
 $ErrorActionPreference = 'Stop'
 $StateDir = Join-Path $Root '.runtime'
+$SessionId = [guid]::NewGuid().ToString('N')
 
-Remove-Item $StateDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
 
 $UrlFile = Join-Path $StateDir 'remote-url.txt'
 $PidFile = Join-Path $StateDir 'cloudflared.pid'
 $ServerPidFile = Join-Path $StateDir 'server.pid'
-$CloudflareLog = Join-Path $StateDir 'cloudflared.log'
+$CloudflareLog = Join-Path $StateDir ("cloudflared-{0}.log" -f $SessionId)
 
 function Test-WatchFusion {
     try {
@@ -47,10 +47,26 @@ function Get-TunnelUrl {
     return $null
 }
 
+function Owns-ActiveTunnelState {
+    try {
+        return ([int](Get-Content $PidFile -Raw -ErrorAction Stop).Trim()) -eq $Tunnel.Id
+    } catch { return $false }
+}
+
+function Clear-OwnActiveTunnelState {
+    if (-not (Owns-ActiveTunnelState)) { return }
+    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+    if (Test-Path $UrlFile) {
+        $CurrentUrl = (Get-Content $UrlFile -Raw -ErrorAction SilentlyContinue).Trim()
+        if (-not $Url -or $CurrentUrl -eq $Url) {
+            Remove-Item $UrlFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Exit-RemoteCancelled {
     param([string]$Message = 'Remote startup cancelled because WatchFusion stopped.')
-    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
-    Remove-Item $UrlFile -Force -ErrorAction SilentlyContinue
+    Clear-OwnActiveTunnelState
     Write-Host ""
     Write-Host $Message
     Write-Host "Cloudflare tunnel session ended cleanly."
@@ -192,8 +208,7 @@ while (-not $Tunnel.HasExited) {
     break
 }
 
-Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
-Remove-Item $UrlFile -Force -ErrorAction SilentlyContinue
+Clear-OwnActiveTunnelState
 Write-Host ""
 Write-Host "Cloudflare tunnel session ended."
 Write-Host ""
