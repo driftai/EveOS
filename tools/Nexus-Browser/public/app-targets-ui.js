@@ -21,6 +21,8 @@
     let selectedTarget = null;
     let diagnostics = null;
     let targetStatus = null;
+    let restorePending = false;
+    let boundIdentity = null;
 
     function filteredTargets() {
       return targets.filter((target) => target.targetTypeId === selectedTypeId);
@@ -103,14 +105,33 @@
         types = Array.isArray(msg.types) && msg.types.length ? msg.types : types;
         targets = Array.isArray(msg.targets) ? msg.targets : [];
         diagnostics = msg.diagnostics || diagnostics;
-        if ('target' in msg) selectedTarget = msg.target || null;
+        if (msg.target) {
+          selectedTarget = msg.target;
+          restorePending = false;
+        } else if ('target' in msg && !msg.refreshing && selectedTarget) {
+          const candidate = targets.find((target) => target.id === selectedTarget.id);
+          if (candidate && state.uiConnectionPhase === 'connected' && !restorePending) {
+            restorePending = true;
+            send({ type: 'select_app_target', targetId: candidate.id,
+              expectedIdentity: boundIdentity || selectedTarget.concreteTargetIdentity || null });
+          } else if (!candidate) {
+            selectedTarget = null;
+            targetStatus = null;
+            boundIdentity = null;
+            restorePending = false;
+          }
+        }
         render();
         renderBaseStatus();
         log(`Detected ${targets.length} App-Origin target(s).`);
         return true;
       }
       if (msg.type === 'app_target_selected') {
+        const restoring = restorePending;
+        restorePending = false;
         selectedTarget = msg.target || null;
+        if (!restoring) boundIdentity = selectedTarget?.concreteTargetIdentity
+          ? { ...selectedTarget.concreteTargetIdentity } : null;
         targetStatus = msg.status || null;
         diagnostics = msg.diagnostics || diagnostics;
         render();
@@ -129,6 +150,27 @@
         }
         return true;
       }
+      if (msg.type === 'native_app_turn') {
+        const id = msg.fingerprint ? `native-app-${msg.fingerprint}` : null;
+        addMessage('assistant', msg.text || '', id, false,
+          msg.providerName || selectedTarget?.providerName || 'ChatGPT App');
+        send({ type: 'ack_native_app_turn', targetId: msg.targetId, fingerprint: msg.fingerprint });
+        log(`Observed passive ${msg.providerName || 'App-Origin'} native turn (${(msg.text || '').length} chars).`);
+        return true;
+      }
+      if (msg.type === 'app_target_rebind_required') {
+        restorePending = false;
+        if (!selectedTarget || !msg.targetId || selectedTarget.id === msg.targetId) {
+          selectedTarget = null;
+          targetStatus = null;
+          boundIdentity = null;
+        }
+        render();
+        renderBaseStatus();
+        addMessage('system', msg.message || 'Native app conversation changed; reconnect the App-Origin target.');
+        log('App-Origin rebind required.');
+        return true;
+      }
       return false;
     }
 
@@ -145,6 +187,8 @@
     el.connect?.addEventListener('click', () => {
       const targetId = el.target.value;
       if (!targetId) return addMessage('system', 'Choose a running app target first.');
+      restorePending = false;
+      boundIdentity = null;
       send({ type: 'select_app_target', targetId });
     });
 

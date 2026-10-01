@@ -74,3 +74,11 @@ test('ChatGPT App Mirror stays an Online-Origin transport while native apps use 
   assert.match(APP_TARGETS_UI, /request_app_targets/);
   assert.match(APP_TARGETS_UI, /select_app_target/);
 });
+
+
+test('Base Mode App-Origin renders passive native turns and ACKs durable fingerprints', () => {
+  assert.match(APP_TARGETS_UI, /native_app_turn/);
+  assert.match(APP_TARGETS_UI, /ack_native_app_turn/);
+  assert.match(APP_TARGETS_UI, /app_target_rebind_required/);
+  assert.match(APP_TARGETS_UI, /expectedIdentity/);
+});

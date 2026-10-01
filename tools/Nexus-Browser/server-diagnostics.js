@@ -13,7 +13,7 @@ function createDiagnosticsSnapshot(readContext) {
     assetRevision: ASSET_REVISION,
     extensionConnected: !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN,
     dexUiConnected: [...uiSockets].some((peer) => peer.clientKind === 'dex'),
-    uiClients: uiSockets.size, onlineTargets: lastTabs.length, localTargets: lastLocalTargets.length, appTargets: appTargetController?.diagnostics?.().targets || 0, localDiscovery: localTargets.discoveryDiagnostics(), appDiscovery: appTargetController?.diagnostics?.().discovery || null, extensionSessions: extensionSessions.diagnostics(),
+    uiClients: uiSockets.size, onlineTargets: lastTabs.length, localTargets: lastLocalTargets.length, appTargets: appTargetController?.diagnostics?.().targets || 0, localDiscovery: localTargets.discoveryDiagnostics(), appDiscovery: appTargetController?.diagnostics?.().discovery || null, appPassive: appTargetController?.diagnostics?.().passive || null, extensionSessions: extensionSessions.diagnostics(),
     dexRooms: rooms.length, postIdle: postIdleMaintenance?.diagnostics?.() || null, taskCompletion: taskCompletion?.diagnostics?.() || null, streamNudge: streamNudgeAuth?.diagnostics?.() || null, recoveryRooms: rooms.filter((room) => !!room.recovery).length, savedAt: snapshot?.savedAt || null,
     providerBlocks: lastTabs.filter((tab) => tab.health?.blocking).map((tab) => ({ tabId: tab.id, providerId: tab.providerId, health: tab.health })),
     durability: durability.diagnostics(), stateRepair: dexStateStore.diagnostics(), orchestration: dexScheduler?.diagnostics?.() || null,

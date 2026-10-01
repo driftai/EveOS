@@ -156,6 +156,42 @@ function conversationAnchorDigests(snapshot = {}, { limit = 8 } = {}) {
   return [...new Set(anchors)].slice(-Math.max(1, Number(limit) || 8));
 }
 
+function completedAssistantTurns(snapshot = {}, { limit = 64 } = {}) {
+  const groups = roleMessageGroups(snapshot);
+  const turns = [], occurrences = new Map();
+  for (let index = 1; index < groups.length; index += 1) {
+    const user = groups[index - 1], assistant = groups[index];
+    if (user.role !== 'user' || assistant.role !== 'assistant') continue;
+    const userText = uia.normalizeCandidate(user.parts.join('\n\n'));
+    const assistantText = uia.normalizeCandidate(assistant.parts.join('\n\n'));
+    if (!userText || !assistantText) continue;
+    const pairDigest = createHash('sha256')
+      .update('eveos-chatgpt-native-turn-pair-v1\0').update(userText).update('\0').update(assistantText).digest('hex');
+    const occurrence = Number(occurrences.get(pairDigest) || 0) + 1;
+    occurrences.set(pairDigest, occurrence);
+    const fingerprint = createHash('sha256')
+      .update('eveos-chatgpt-native-turn-fingerprint-v1\0').update(pairDigest).update('\0').update(String(occurrence)).digest('hex');
+    turns.push({
+      fingerprint,
+      text: assistant.parts.join('\n\n'),
+      selectors: [...assistant.selectors],
+      partCount: assistant.parts.length,
+      order: turns.length
+    });
+  }
+  return turns.slice(-Math.max(1, Number(limit) || 64));
+}
+
+function conversationIdentity(snapshot = {}) {
+  const conversationTitle = activeConversationTitle(snapshot)?.text || '';
+  const conversationAnchors = conversationAnchorDigests(snapshot);
+  return {
+    conversationTitle,
+    conversationAnchor: conversationAnchors.at(-1) || '',
+    conversationAnchors
+  };
+}
+
 function activeConversationTitle(snapshot = {}) {
   const frame = uia.windowRect(snapshot.windowInfo || {});
   const candidates = [];
@@ -220,6 +256,8 @@ module.exports = {
   latestAssistantReply,
   roleMessageGroups,
   conversationAnchorDigests,
+  completedAssistantTurns,
+  conversationIdentity,
   activeConversationTitle,
   preferExpandedReply
 };

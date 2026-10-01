@@ -1,18 +1,61 @@
 'use strict';
 
+const { createPassiveAppWatcher } = require('./passive-watcher');
+
 function createAppTargetServerController({
   appTargets,
   safeSend,
   uiSockets,
   getDurability,
-  maintenanceBusy = () => false
+  maintenanceBusy = () => false,
+  passiveWatcherFactory = createPassiveAppWatcher
 } = {}) {
   let lastTargets = [];
+  let passiveWatcher = null;
 
   function selected(ws) {
     if (!ws?.appTargetId) return null;
     return lastTargets.find((target) => target.id === ws.appTargetId) || null;
   }
+
+  function exactMatch(expected, actual) {
+    if (typeof appTargets.exactAppTargetMatch !== 'function') return true;
+    return appTargets.exactAppTargetMatch(expected, actual);
+  }
+
+  function passivePeers(targetId) {
+    return [...uiSockets].filter((peer) =>
+      peer.clientKind === 'browser' && peer.appTargetId === targetId);
+  }
+
+  function requireRebind(targetId, payload = {}) {
+    const event = {
+      type: 'app_target_rebind_required',
+      code: 'APP_TARGET_REBIND_REQUIRED',
+      targetClassId: 'app-origin',
+      targetId,
+      message: 'The native app identity changed; refresh and reconnect it explicitly.',
+      ...payload
+    };
+    for (const peer of passivePeers(targetId)) {
+      peer.appTargetId = null;
+      peer.appTargetBinding = null;
+      safeSend(peer, event);
+    }
+    passiveWatcher?.unwatch(targetId);
+    return event;
+  }
+
+  passiveWatcher = passiveWatcherFactory({
+    appTargets,
+    hasSubscribers: (targetId) => passivePeers(targetId).length > 0,
+    emit(payload) {
+      let sent = 0;
+      for (const peer of passivePeers(payload.targetId)) if (safeSend(peer, payload)) sent += 1;
+      return sent;
+    },
+    onRebind: (payload) => requireRebind(payload.targetId, payload)
+  });
 
   function statusPayload(targetId) {
     return {
@@ -41,9 +84,15 @@ function createAppTargetServerController({
     const diagnostics = appTargets.discoveryDiagnostics();
     const types = appTargets.publicAppTargetTypes();
     for (const ws of destinations) {
-      if (validateSelection && ws.appTargetId
-          && !lastTargets.some((target) => target.id === ws.appTargetId)) {
-        ws.appTargetId = null;
+      if (validateSelection && ws.appTargetId) {
+        const target = lastTargets.find((entry) => entry.id === ws.appTargetId) || null;
+        if (!target || (ws.appTargetBinding && !exactMatch(ws.appTargetBinding, target))) {
+          const targetId = ws.appTargetId;
+          requireRebind(targetId, {
+            providerId: ws.appTargetBinding?.providerId || target?.providerId || null,
+            providerName: ws.appTargetBinding?.providerName || target?.providerName || null
+          });
+        }
       }
       safeSend(ws, {
         type: 'app_targets_update',
@@ -68,6 +117,7 @@ function createAppTargetServerController({
     const appCommand = msg.type === 'request_app_targets'
       || msg.type === 'select_app_target'
       || msg.type === 'request_app_status'
+      || msg.type === 'ack_native_app_turn'
       || (msg.targetClassId === 'app-origin'
         && (msg.type === 'send_prompt' || msg.type === 'capture_latest'));
     if (!appCommand) return false;
@@ -90,12 +140,16 @@ function createAppTargetServerController({
     if (msg.type === 'request_app_status') {
       const targetId = String(msg.targetId || ws.appTargetId || '');
       if (!targetId || !sendStatus(ws, targetId)) {
-        safeSend(ws, {
-          type: 'error',
-          requestId: msg.requestId || null,
-          code: 'APP_TARGET_NOT_SELECTED',
-          message: 'No App-Origin target is selected.'
-        });
+        safeSend(ws, { type: 'error', requestId: msg.requestId || null,
+          code: 'APP_TARGET_NOT_SELECTED', message: 'No App-Origin target is selected.' });
+      }
+      return true;
+    }
+
+    if (msg.type === 'ack_native_app_turn') {
+      if (ws.clientKind === 'browser' && ws.appTargetId
+          && String(ws.appTargetId) === String(msg.targetId || '')) {
+        await passiveWatcher.ack({ targetId: ws.appTargetId, fingerprint: msg.fingerprint });
       }
       return true;
     }
@@ -103,15 +157,29 @@ function createAppTargetServerController({
     if (msg.type === 'select_app_target') {
       const target = await appTargets.getAppTarget(String(msg.targetId || ''), { force: true });
       if (!target) {
-        safeSend(ws, {
-          type: 'error',
-          requestId: msg.requestId || null,
-          code: 'APP_TARGET_NOT_FOUND',
-          message: 'That App-Origin target is not available.'
-        });
+        safeSend(ws, { type: 'error', requestId: msg.requestId || null,
+          code: 'APP_TARGET_NOT_FOUND', message: 'That App-Origin target is not available.' });
         return true;
       }
+      if (msg.expectedIdentity) {
+        const expected = { ...target, concreteTargetIdentity: { ...msg.expectedIdentity } };
+        if (!exactMatch(expected, target)) {
+          safeSend(ws, {
+            type: 'app_target_rebind_required',
+            code: 'APP_TARGET_REBIND_REQUIRED',
+            targetClassId: 'app-origin',
+            targetId: target.id,
+            providerId: target.providerId,
+            providerName: target.providerName,
+            message: 'The native ChatGPT conversation changed while Nexus was reconnecting; reconnect it explicitly.'
+          });
+          return true;
+        }
+      }
       ws.appTargetId = target.id;
+      const bindingIdentity = msg.expectedIdentity || target.concreteTargetIdentity || {};
+      ws.appTargetBinding = { ...target, concreteTargetIdentity: { ...bindingIdentity } };
+      passiveWatcher.watch(ws.appTargetBinding);
       safeSend(ws, {
         type: 'app_target_selected',
         target,
@@ -136,6 +204,7 @@ function createAppTargetServerController({
           providerName: result.target?.providerName
         });
       } catch (error) {
+        if (error.code === 'APP_TARGET_REBIND_REQUIRED') requireRebind(targetId);
         safeSend(ws, {
           type: 'error',
           requestId: msg.requestId || null,
@@ -156,21 +225,13 @@ function createAppTargetServerController({
       }
       const target = await appTargets.getAppTarget(targetId, { force: true });
       if (!target) {
-        safeSend(ws, {
-          type: 'error',
-          requestId: msg.requestId || null,
-          code: 'APP_TARGET_NOT_FOUND',
-          message: 'Selected App-Origin target is not available.'
-        });
+        safeSend(ws, { type: 'error', requestId: msg.requestId || null,
+          code: 'APP_TARGET_NOT_FOUND', message: 'Selected App-Origin target is not available.' });
         return true;
       }
 
       const durability = getDurability();
-      const meta = {
-        targetClassId: 'app-origin',
-        targetId,
-        providerId: target.providerId
-      };
+      const meta = { targetClassId: 'app-origin', targetId, providerId: target.providerId };
 
       try {
         await appTargets.sendAppPrompt({
@@ -192,9 +253,7 @@ function createAppTargetServerController({
         sendStatus(ws, targetId);
       } catch (error) {
         await durability.markFailed?.(msg.requestId, error.code || 'APP_TARGET_ERROR', {
-          targetClassId: 'app-origin',
-          targetId,
-          providerId: target.providerId
+          targetClassId: 'app-origin', targetId, providerId: target.providerId
         }).catch?.(() => {});
         sendEvent(targetId, ws, {
           type: 'error',
@@ -216,24 +275,19 @@ function createAppTargetServerController({
   function diagnostics() {
     return {
       targets: lastTargets.length,
-      discovery: appTargets.discoveryDiagnostics()
+      discovery: appTargets.discoveryDiagnostics(),
+      passive: passiveWatcher.diagnostics()
     };
   }
 
   function stop() {
+    passiveWatcher.stop();
     appTargets.stopAppTargets();
     lastTargets = [];
   }
 
-  return {
-    handle,
-    refresh,
-    announce,
-    selected,
-    diagnostics,
-    stop,
-    targets: () => lastTargets.map((target) => ({ ...target }))
-  };
+  return { handle, refresh, announce, selected, diagnostics, stop,
+    targets: () => lastTargets.map((target) => ({ ...target })) };
 }
 
 module.exports = { createAppTargetServerController };

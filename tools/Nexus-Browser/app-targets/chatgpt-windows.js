@@ -8,8 +8,7 @@ const {
   normalizeCandidate, latestResponseCandidate, latestCandidate, snapshotFromInspect
 } = uia;
 
-const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVIDER_NAME = 'ChatGPT App';
-const APP_MATCH = 'ChatGPT';
+const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVIDER_NAME = 'ChatGPT App', APP_MATCH = 'ChatGPT';
 const FIRST_POLL_MS = 100;
 const POLL_MS = 250;
 const SETTLE_MS = 900;
@@ -396,11 +395,13 @@ function createAdapter({
     throw error;
   }
   async function captureLatest({ target }) {
-    const snapshot = await inspect({
-      hwnd: target.windowHandle,
-      pid: target.pid,
-      title: target.title
-    }, { includeOffscreen: true });
+    const liveWindow = await findWindow();
+    if (!liveWindow || String(pidOf(liveWindow)) !== String(target.pid)
+        || String(hwndOf(liveWindow)) !== String(target.windowHandle)) {
+      const error = new Error('The bound ChatGPT app process/window changed; explicit rebind is required.');
+      error.code = 'APP_TARGET_REBIND_REQUIRED'; throw error;
+    }
+    const snapshot = await inspect(liveWindow, { includeOffscreen: true });
     const remembered = turnState.get(target.id)?.latestText || '';
     const grouped = conversation.latestAssistantReply(snapshot, { includeOffscreen: true });
     const live = grouped?.text || latestResponseCandidate(snapshot)?.text || snapshot.latestResponseText || '';
@@ -425,10 +426,9 @@ function createAdapter({
     sendPrompt,
     captureLatest,
     status,
-    diagnostics,
-    inspect,
-    probeControls,
-    findWindow
+    diagnostics, inspect, probeControls, findWindow,
+    completedTurns: conversation.completedAssistantTurns,
+    conversationIdentity: conversation.conversationIdentity
   };
 }
 const defaultAdapter = createAdapter();

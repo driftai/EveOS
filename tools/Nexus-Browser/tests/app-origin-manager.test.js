@@ -129,3 +129,50 @@ test('App-Origin manager releases a target lease after adapter failure', async (
     manager.invalidateAppTargetCache();
   }
 });
+
+
+test('App-Origin manager publishes active native-turn identity for passive dedupe', async () => {
+  const targetId = 'app-chatgpt-windows';
+  const adapter = manager.adapterForTarget(targetId);
+  const originalList = adapter.listTargets;
+  const originalSend = adapter.sendPrompt;
+  const originalCompleted = adapter.completedTurns;
+  const fingerprint = 'a'.repeat(64);
+  const observed = [];
+  const nativeTarget = {
+    id: targetId,
+    title: 'ChatGPT · Test response',
+    providerId: 'chatgpt-desktop',
+    providerName: 'ChatGPT App',
+    targetTypeId: 'desktop-app',
+    pid: 118148,
+    windowHandle: 4473474,
+    concreteTargetIdentity: {
+      kind: 'windows-app-window',
+      processId: 118148,
+      windowHandle: 4473474,
+      conversationAnchor: 'b'.repeat(64),
+      conversationAnchors: ['b'.repeat(64)]
+    }
+  };
+  const unsubscribe = manager.onAppTurnFinal((event) => observed.push(event));
+  adapter.listTargets = async () => [nativeTarget];
+  adapter.completedTurns = () => [{ fingerprint, text: 'same native final' }];
+  adapter.sendPrompt = async () => ({ text: 'same native final', snapshot: {} });
+  manager.invalidateAppTargetCache();
+
+  try {
+    await manager.sendAppPrompt({
+      targetId, requestId: 'active-native-turn', text: 'hello', emit() {}
+    });
+    assert.equal(observed.length, 1);
+    assert.equal(observed[0].source, 'active');
+    assert.equal(observed[0].turn.fingerprint, fingerprint);
+  } finally {
+    unsubscribe();
+    adapter.listTargets = originalList;
+    adapter.sendPrompt = originalSend;
+    adapter.completedTurns = originalCompleted;
+    manager.invalidateAppTargetCache();
+  }
+});

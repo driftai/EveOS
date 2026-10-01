@@ -80,6 +80,44 @@ full reply safely contains the visible tail. Capture Latest uses the same full
 reconstruction path. The expensive full-tree scan is therefore not performed on every
 250 ms poll.
 
+## Passive native-turn ingestion
+
+Base Mode now has a passive receiver for completed native ChatGPT turns that were not
+initiated by the currently running Nexus request. This covers manual messages typed
+directly in the ChatGPT Windows app and late replies that finish after the active
+request reader has stopped.
+
+The receiver is deliberately not a "latest text" poller. It uses the same role-group
+reader as active capture to reconstruct complete user/assistant turns, derives a
+privacy-safe SHA-256 native-turn fingerprint, scopes it to the immutable bound
+process/window/conversation proof, and compares that delivery fingerprint against a
+bounded durable seen-turn ledger. The ledger stores fingerprints and delivery state,
+never prompt/answer text. This prevents identical prompt/reply text in two explicitly
+rebound native chats from contaminating each other's dedupe history.
+
+Important invariants:
+
+- the first observation of an already-open conversation seeds history without replaying it;
+- active Nexus/Dex finals and Capture Latest seed the same fingerprint ledger, so passive
+  observation cannot deliver the same native answer a second time;
+- a pending passive event is marked delivered only after the Base UI ACKs its fingerprint;
+- after server restart, unchanged history produces no events, while a provably newer turn
+  after a known durable tail can be delivered once;
+- process/window changes and native conversation changes fail closed with
+  `APP_TARGET_REBIND_REQUIRED`;
+- reconnecting Base Mode may restore its selection only when the previously bound native
+  identity still matches; otherwise the user must reconnect explicitly;
+- the watcher runs only for a selected Base Mode app target, backs off when no subscriber
+  exists, and skips UIA reads while the active app send lease is held;
+- passive delivery uses the full offscreen-inclusive reconstruction path, so long
+  multi-paragraph/list answers are not reduced to the last visible paragraph.
+
+The passive event is `native_app_turn`. Its stable conversation-scoped fingerprint is
+also used as the Base transcript DOM identity, making an event retry idempotent if the socket drops between
+render and ACK. Passive events are currently surfaced to the selected Base Mode view;
+the same primitive can later feed unsolicited Dex routing without conflating it with
+ChatGPT App Mirror.
+
 ## Latency
 
 Current native response timing is deliberately low-latency but still stable:
@@ -279,6 +317,7 @@ Useful App-Origin errors include:
 - `APP_SEND_FAILED`
 - `APP_PROMPT_UNCONFIRMED`
 - `APP_RESPONSE_TIMEOUT`
+- `APP_TARGET_REBIND_REQUIRED`
 - `DEX_SERVER_SCHEDULER_OWNS_TRANSPORT`
 
 When a live failure occurs, capture `npm run doctor:apps`, the Nexus diagnostics tail,

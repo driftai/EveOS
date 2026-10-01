@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { snapshotFromInspect } = require('../app-targets/chatgpt-windows');
-const { latestAssistantReply, activeConversationTitle, conversationAnchorDigests, preferExpandedReply } = require('../app-targets/chatgpt-windows-conversation');
+const { latestAssistantReply, activeConversationTitle, conversationAnchorDigests, completedAssistantTurns, preferExpandedReply } = require('../app-targets/chatgpt-windows-conversation');
 
 test('native reply aggregation preserves multi-paragraph ChatGPT answers and ignores progress chrome', () => {
   const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 100, y: 20, width: 1200, height: 900 };
@@ -119,6 +119,30 @@ test('native conversation anchors remain valid as later turns are appended', () 
   assert.equal(later.length, 2);
   assert.ok(later.includes(first[0]), 'bound conversation anchor must survive later messages');
   assert.match(first[0], /^[a-f0-9]{64}$/);
+});
+
+test('completed native assistant turns have stable ordered fingerprints even when text repeats', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
+  const pair = (prefix, y) => [
+    { selector: `${prefix}-u-role`, type: 'Text', name: 'You said', x: 300, y, width: 1, height: 1, children: [] },
+    { selector: `${prefix}-u`, type: 'Text', name: 'repeat this exact prompt', x: 820, y: y + 20, width: 280, height: 30, children: [] },
+    { selector: `${prefix}-a-role`, type: 'Text', name: 'ChatGPT said', x: 300, y: y + 60, width: 1, height: 1, children: [] },
+    { selector: `${prefix}-a`, type: 'Text', name: 'same exact answer', x: 300, y: y + 80, width: 280, height: 30, children: [] }
+  ];
+  const snapshot = snapshotFromInspect({
+    windowInfo,
+    json: { windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Pane', x: 0, y: 0, width: 1200, height: 900,
+      children: [...pair('one', 100), ...pair('two', 300)]
+    }] }] }
+  });
+  const turns = completedAssistantTurns(snapshot);
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0].text, 'same exact answer');
+  assert.equal(turns[1].text, 'same exact answer');
+  assert.match(turns[0].fingerprint, /^[a-f0-9]{64}$/);
+  assert.match(turns[1].fingerprint, /^[a-f0-9]{64}$/);
+  assert.notEqual(turns[0].fingerprint, turns[1].fingerprint);
 });
 
 test('native conversation identity prefers the active main header over sidebar labels', () => {

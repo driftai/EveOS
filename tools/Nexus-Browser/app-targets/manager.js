@@ -22,6 +22,7 @@ let cachedTargets = null;
 let cachedAt = 0;
 let listInFlight = null;
 const activeSends = new Set();
+const appTurnListeners = new Set();
 
 function normalizeAppTarget(target = {}) {
   const pid = Number(target.pid || 0) || null;
@@ -104,6 +105,49 @@ function getAppTargetStatus(targetId) {
   catch { return null; }
 }
 
+function appConversationMatches(expected = {}, actual = {}) {
+  const titleMatches = !!expected.conversationTitle
+    && String(expected.conversationTitle) === String(actual.conversationTitle || '');
+  if (expected.conversationAnchor) {
+    const anchors = Array.isArray(actual.conversationAnchors)
+      ? actual.conversationAnchors.map(String)
+      : actual.conversationAnchor ? [String(actual.conversationAnchor)] : [];
+    if (anchors.includes(String(expected.conversationAnchor))) return true;
+    if (anchors.length) return false;
+    return titleMatches;
+  }
+  return titleMatches;
+}
+
+function exactAppTargetMatch(expected = {}, actual = {}) {
+  if (!expected?.id || String(expected.id) !== String(actual?.id || '')
+      || expected.providerId !== actual?.providerId) return false;
+  const bound = expected.concreteTargetIdentity || {}, live = actual.concreteTargetIdentity || {};
+  if (bound.processId && String(bound.processId) !== String(live.processId || '')) return false;
+  if (bound.windowHandle && String(bound.windowHandle) !== String(live.windowHandle || '')) return false;
+  if (expected.providerId === 'chatgpt-desktop') {
+    if (!bound.conversationAnchor && !bound.conversationTitle) return false;
+    if (!appConversationMatches(bound, live)) return false;
+  }
+  return true;
+}
+
+function onAppTurnFinal(listener) {
+  if (typeof listener !== 'function') return () => {};
+  appTurnListeners.add(listener);
+  return () => appTurnListeners.delete(listener);
+}
+
+function notifyObservedTurn(target, adapter, result, source) {
+  const turn = adapter?.completedTurns?.(result?.snapshot)?.at(-1);
+  if (!turn?.fingerprint) return null;
+  const event = { target, turn, source, observedAt: Date.now() };
+  for (const listener of appTurnListeners) {
+    try { Promise.resolve(listener(event)).catch(() => {}); } catch {}
+  }
+  return turn;
+}
+
 async function captureAppLatest({ targetId }) {
   if (!targetId) {
     const error = new Error('No App-Origin target is selected.');
@@ -123,6 +167,7 @@ async function captureAppLatest({ targetId }) {
     throw error;
   }
   const result = await adapter.captureLatest({ target });
+  notifyObservedTurn(target, adapter, result, 'capture');
   return { ...result, target };
 }
 
@@ -152,7 +197,9 @@ async function sendAppPrompt({ targetId, requestId, text, emit, beforeSend = nul
   activeSends.add(target.id);
   try {
     if (typeof beforeSend === 'function') await beforeSend(target);
-    return await adapter.sendPrompt({ requestId, text, target, emit });
+    const result = await adapter.sendPrompt({ requestId, text, target, emit });
+    notifyObservedTurn(target, adapter, result, 'active');
+    return result;
   } finally {
     activeSends.delete(target.id);
   }
@@ -194,6 +241,8 @@ module.exports = {
   getAppTarget,
   adapterForTarget,
   getAppTargetStatus,
+  exactAppTargetMatch,
+  onAppTurnFinal,
   captureAppLatest,
   sendAppPrompt,
   discoveryDiagnostics,
