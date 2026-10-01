@@ -305,8 +305,8 @@
 
 .audioflix-provider-stage.is-collapsed {
     width: min(390px, calc(100vw - 28px));
+    pointer-events: none;
 }
-.audioflix-provider-stage.is-collapsed header { pointer-events: none; }
 .audioflix-provider-stage.is-collapsed header button,
 .audioflix-provider-stage.is-collapsed header a { pointer-events: auto; }
 
