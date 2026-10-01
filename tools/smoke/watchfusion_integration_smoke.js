@@ -145,22 +145,22 @@ function sourceContract() {
     check(modes.includes('def stop_remote_helpers()') && control.includes('watchfusion_modes.stop_remote_helpers()')
       && modes.includes('for name in ("cloudflared.pid", "cloudflared-terminal.pid", "server.pid")')
       && modes.includes('["taskkill", "/F", "/T", "/PID", str(pid)]')
-      && modes.includes('def _watchfusion_remote_processes()')
-      && modes.includes('name == "cloudflared.exe"') && modes.includes('origin in cmd')
-      && modes.includes('"remote-tunnel.ps1" in cmd')
+      && !modes.includes('def _watchfusion_remote_processes()')
       && remoteTunnel.includes("Start-Process -FilePath $Cloudflared -ArgumentList $TunnelArgs")
       && remoteTunnel.includes("$Tunnel.Id | Set-Content -Encoding ASCII $PidFile")
-      && remoteTunnel.includes("WatchFusion origin stopped. Closing its Cloudflare tunnel...")
-      && remoteTunnel.includes("Stop-Process -Id $Tunnel.Id -Force")
       && remoteTunnel.includes("function Exit-RemoteCancelled")
       && remoteTunnel.includes("function Owns-ActiveTunnelState")
       && remoteTunnel.includes("function Clear-OwnActiveTunnelState")
       && remoteTunnel.includes("cloudflared-{0}.log")
       && !remoteTunnel.includes("Remove-Item $StateDir -Recurse")
-      && remoteTunnel.includes("Remote startup cancelled while waiting for public readiness.")
-      && remoteTunnel.includes("Cloudflare tunnel session ended cleanly.")
+      && remoteTunnel.includes("only Stop WatchFusion, a mode")
+      && remoteTunnel.includes("$Tunnel.WaitForExit()")
+      && !remoteTunnel.includes("$OriginMisses")
+      && !remoteTunnel.includes("WatchFusion origin stopped. Closing its Cloudflare tunnel...")
+      && !remoteTunnel.includes("Stop-Process -Id $Tunnel.Id -Force")
+      && remoteTunnel.includes("[WARN] Keeping this Remote tunnel alive; it may recover as connectivity improves.")
       && !remoteTunnel.includes("RUN-CLOUDFLARE.bat"),
-      'WF-STOP-REMOTE-HELPERS', 'stopping WatchFusion does not also terminate its owned Cloudflare/server helper process trees');
+      'WF-STOP-REMOTE-HELPERS', 'Remote tunnel ownership is not explicit/generation-safe or transient health loss can still terminate a live Cloudflare session');
 
     const wfPort = Number(registry?.ports?.WATCHFUSION_PORT?.port);
     const geminiPort = Number(registry?.ports?.GEMINI_WS_PORT?.port);
