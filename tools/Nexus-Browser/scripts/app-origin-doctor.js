@@ -32,9 +32,17 @@ async function main() {
       });
       report.chatgptUi = {
         composerFound: !!snapshot.composerSelector,
+        composerSelector: snapshot.composerSelector || null,
         sendFound: !!snapshot.sendSelector,
+        sendSelector: snapshot.sendSelector || null,
         generating: !!snapshot.generating,
         accessibleTextNodes: snapshot.texts.length,
+        composerCandidates: (snapshot.composerCandidates || []).map(({ selector, type, automationId, rect, score }) => ({
+          selector, type, automationId, rect, score
+        })),
+        sendCandidates: (snapshot.sendCandidates || []).map(({ selector, type, automationId, rect, score }) => ({
+          selector, type, automationId, rect, score
+        })),
         hwnd: snapshot.hwnd,
         pid: snapshot.pid
       };

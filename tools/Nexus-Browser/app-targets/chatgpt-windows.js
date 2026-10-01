@@ -3,7 +3,8 @@
 const defaultRunner = require('./winapp-runner');
 const uia = require('./chatgpt-windows-uia');
 const {
-  windowsFromEnvelope, pickMainWindow, hwndOf, pidOf,
+  windowsFromEnvelope, pickMainWindow, hwndOf, pidOf, selectorOf,
+  composerScore, sendScore, rankCandidates, elementsFromSearch,
   normalizeCandidate, latestCandidate, snapshotFromInspect
 } = uia;
 
@@ -80,6 +81,42 @@ function createAdapter({
     return snapshot;
   }
 
+  async function searchCandidates(hwnd, queries, scoreFn, context, minimumScore) {
+    const found = [];
+    for (const query of queries) {
+      const result = await runner.runJson(
+        ['ui', 'search', query, '-w', String(hwnd), '--max', '20'],
+        { allowFailure: true, timeoutMs: 8000 }
+      );
+      if (!result.ok) continue;
+      found.push(...elementsFromSearch(result.json));
+    }
+    const ranked = rankCandidates(found, scoreFn, context);
+    return ranked.find((entry) => entry.score >= minimumScore)?.element || null;
+  }
+
+  async function recoverComposer(snapshot) {
+    const found = await searchCandidates(
+      snapshot.hwnd,
+      ['Ask ChatGPT', 'Message ChatGPT', 'prompt', 'composer'],
+      composerScore,
+      { windowInfo: snapshot.windowInfo },
+      18
+    );
+    return found ? selectorOf(found) : '';
+  }
+
+  async function recoverSend(snapshot) {
+    const found = await searchCandidates(
+      snapshot.hwnd,
+      ['Send', 'Submit'],
+      sendScore,
+      { windowInfo: snapshot.windowInfo, composer: snapshot.composer },
+      20
+    );
+    return found ? selectorOf(found) : '';
+  }
+
   async function listTargets() {
     if (platform !== 'win32') return [];
     try {
@@ -112,23 +149,45 @@ function createAdapter({
   }
 
   async function stageAndSubmit(text, baselineSnapshot) {
-    const selector = baselineSnapshot.composerSelector;
+    let selector = baselineSnapshot.composerSelector;
+    if (!selector) selector = await recoverComposer(baselineSnapshot);
     if (!selector) {
       const error = new Error('ChatGPT app composer was not found in the UI Automation tree.');
       error.code = 'APP_COMPOSER_NOT_FOUND';
+      error.detail = {
+        composerCandidates: baselineSnapshot.composerCandidates || []
+      };
       throw error;
     }
+
     const hwnd = String(baselineSnapshot.hwnd);
-    let staged = await runner.runJson(
-      ['ui', 'set-value', selector, String(text), '-w', hwnd],
+    const setValue = (candidate) => runner.runJson(
+      ['ui', 'set-value', candidate, String(text), '-w', hwnd],
       { allowFailure: true, timeoutMs: 12000 }
     );
+
+    let staged = await setValue(selector);
     if (!staged.ok) {
-      staged = await runner.runJson(
-        ['ui', 'send-keys', String(text), '--verbatim', '--target', selector, '--via', 'send-input', '-w', hwnd],
-        { allowFailure: true, timeoutMs: 20000 }
-      );
+      const recovered = await recoverComposer(baselineSnapshot);
+      if (recovered && recovered !== selector) {
+        selector = recovered;
+        staged = await setValue(selector);
+      }
     }
+
+    if (!staged.ok) {
+      const focused = await runner.runJson(
+        ['ui', 'focus', selector, '-w', hwnd],
+        { allowFailure: true, timeoutMs: 10000 }
+      );
+      if (focused.ok) {
+        staged = await runner.runJson(
+          ['ui', 'send-keys', String(text), '--verbatim', '--target', selector, '--via', 'send-input', '-w', hwnd],
+          { allowFailure: true, timeoutMs: 20000 }
+        );
+      }
+    }
+
     if (!staged.ok) {
       const error = new Error('ChatGPT app composer rejected programmatic text entry.');
       error.code = 'APP_INPUT_FAILED';
@@ -141,9 +200,12 @@ function createAdapter({
       pid: baselineSnapshot.pid,
       title: baselineSnapshot.title
     });
-    if (stagedSnapshot.sendSelector) {
+    let sendSelector = stagedSnapshot.sendSelector;
+    if (!sendSelector) sendSelector = await recoverSend(stagedSnapshot);
+
+    if (sendSelector) {
       const invoked = await runner.runJson(
-        ['ui', 'invoke', stagedSnapshot.sendSelector, '-w', hwnd],
+        ['ui', 'invoke', sendSelector, '--action', 'invoke', '-w', hwnd],
         { allowFailure: true, timeoutMs: 10000 }
       );
       if (!invoked.ok) {
@@ -153,12 +215,29 @@ function createAdapter({
         throw error;
       }
     } else {
+      const currentComposer = stagedSnapshot.composerSelector || selector
+        || await recoverComposer(stagedSnapshot);
+      const focused = currentComposer
+        ? await runner.runJson(
+            ['ui', 'focus', currentComposer, '-w', hwnd],
+            { allowFailure: true, timeoutMs: 10000 }
+          )
+        : { ok: false };
+      if (!focused.ok) {
+        const error = new Error('ChatGPT app Send control was not found and the composer could not be focused safely.');
+        error.code = 'APP_SEND_CONTROL_NOT_FOUND';
+        error.detail = {
+          sendCandidates: stagedSnapshot.sendCandidates || [],
+          composerCandidates: stagedSnapshot.composerCandidates || []
+        };
+        throw error;
+      }
       const enter = await runner.runJson(
-        ['ui', 'send-keys', 'enter', '--target', selector, '--via', 'send-input', '-w', hwnd],
+        ['ui', 'send-keys', 'enter', '--target', currentComposer, '--via', 'send-input', '-w', hwnd],
         { allowFailure: true, timeoutMs: 10000 }
       );
       if (!enter.ok) {
-        const error = new Error('ChatGPT app has no invokable Send control and Enter fallback failed.');
+        const error = new Error('ChatGPT app has no invokable Send control and focused Enter fallback failed.');
         error.code = 'APP_SEND_FAILED';
         error.detail = enter.json || enter.stderr || null;
         throw error;
@@ -178,6 +257,10 @@ function createAdapter({
     if (!visiblePrompt && !composerCleared && !committed.generating) {
       const error = new Error('ChatGPT app input gesture was not confirmed by the app UI.');
       error.code = 'APP_PROMPT_UNCONFIRMED';
+      error.detail = {
+        composerSelector: committed.composerSelector || null,
+        sendSelector: committed.sendSelector || null
+      };
       throw error;
     }
     return committed;

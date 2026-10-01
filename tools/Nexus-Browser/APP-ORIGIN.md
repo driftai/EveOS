@@ -35,6 +35,15 @@ This first pass does not use a private ChatGPT API and does not require a browse
 
 ## Windows automation transport
 
+The ChatGPT adapter treats the composer and Send control as dynamic controls rather
+than fixed selectors. It scores editable controls by ChatGPT semantics plus their
+position/size near the bottom of the app, rejects sidebar/search fields, and only
+accepts a Send candidate when it is explicitly send-like or geometrically adjacent to
+the selected composer. This prevents a generic top navigation arrow from being invoked
+as Send. If programmatic `set-value` is unavailable, Nexus explicitly focuses the
+verified composer before using keyboard input, so it fails closed rather than typing
+into whichever window happens to be foreground.
+
 The adapter uses Microsoft's `winapp ui` automation surface. Nexus prefers UI
 Automation patterns:
 

@@ -70,6 +70,60 @@ test('App adapter discovers composer, Send and accessible conversation text', ()
   assert.equal(snapshot.generating, false);
 });
 
+test('App adapter prefers the active-chat composer over sidebar search controls', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
+  const json = {
+    windows: [{
+      ...windowInfo,
+      elements: [{
+        selector: 'pn-root', type: 'Pane', x: 0, y: 0, width: 1200, height: 900, children: [
+          { selector: 'txt-sidebar-search', type: 'Edit', name: 'Search', x: 30, y: 120, width: 230, height: 40, isKeyboardFocusable: true, children: [] },
+          { selector: 'doc-active-compose', type: 'Document', name: '', x: 320, y: 790, width: 800, height: 64, isKeyboardFocusable: true, children: [] }
+        ]
+      }]
+    }]
+  };
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  assert.equal(snapshot.composerSelector, 'doc-active-compose');
+});
+
+test('App adapter never mistakes a top navigation arrow for Send', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
+  const json = {
+    windows: [{
+      ...windowInfo,
+      elements: [{
+        selector: 'pn-root', type: 'Pane', x: 0, y: 0, width: 1200, height: 900, children: [
+          { selector: 'btn-back-arrow', type: 'Button', name: '', x: 18, y: 18, width: 42, height: 42, children: [] },
+          { selector: 'doc-compose', type: 'Document', name: 'Ask ChatGPT', x: 320, y: 790, width: 800, height: 64, isKeyboardFocusable: true, children: [] },
+          { selector: 'btn-send-arrow', type: 'Button', name: '', x: 1060, y: 800, width: 42, height: 42, children: [] }
+        ]
+      }]
+    }]
+  };
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  assert.equal(snapshot.sendSelector, 'btn-send-arrow');
+  assert.notEqual(snapshot.sendSelector, 'btn-back-arrow');
+});
+
+test('App adapter fails closed when only unrelated buttons are visible', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
+  const json = {
+    windows: [{
+      ...windowInfo,
+      elements: [{
+        selector: 'pn-root', type: 'Pane', x: 0, y: 0, width: 1200, height: 900, children: [
+          { selector: 'btn-back-arrow', type: 'Button', name: '', x: 18, y: 18, width: 42, height: 42, children: [] },
+          { selector: 'btn-menu', type: 'Button', name: 'Menu', x: 70, y: 18, width: 42, height: 42, children: [] },
+          { selector: 'doc-compose', type: 'Document', name: 'Ask ChatGPT', x: 320, y: 790, width: 800, height: 64, isKeyboardFocusable: true, children: [] }
+        ]
+      }]
+    }]
+  };
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  assert.equal(snapshot.sendSelector, '');
+});
+
 test('reply delta ignores baseline and the exact user prompt', () => {
   const baseline = new Set(['Old answer']);
   assert.equal(
@@ -132,7 +186,8 @@ test('ChatGPT Windows adapter drives prompt into app and returns settled reply',
 
   assert.equal(result.text, 'Final app reply');
   assert.ok(calls.some((args) => args[1] === 'set-value' && args.includes('hello from nexus')));
-  assert.ok(calls.some((args) => args[1] === 'invoke' && args.includes('btn-send')));
+  assert.ok(calls.some((args) => args[1] === 'invoke' && args.includes('btn-send')
+    && args.includes('--action') && args.includes('invoke')));
   assert.deepEqual(events.map((event) => event.type), [
     'prompt_accepted',
     'response_partial',
@@ -141,6 +196,72 @@ test('ChatGPT Windows adapter drives prompt into app and returns settled reply',
   ]);
   assert.equal(events.at(-1).text, 'Final app reply');
   assert.equal(events.at(-1).targetClassId, 'app-origin');
+});
+
+test('ChatGPT Windows adapter focuses the recovered composer before keyboard fallback', async () => {
+  let clock = 0, setAttempts = 0;
+  const inspectSequence = [
+    tree({ text: ['Old answer'] }),
+    tree({ composer: 'hello fallback', text: ['Old answer'], send: true }),
+    tree({ text: ['Old answer', 'hello fallback'], stop: true }),
+    tree({ text: ['Old answer', 'hello fallback', 'Fallback reply'] })
+  ];
+  const calls = [];
+  const runner = {
+    async availability() { return { available: true, command: 'winapp.exe' }; },
+    async runJson(args) {
+      calls.push(args);
+      if (args[1] === 'inspect') {
+        const json = inspectSequence.shift();
+        if (!json) throw new Error('Unexpected extra inspect');
+        return { ok: true, json, stderr: '', stdout: '' };
+      }
+      if (args[1] === 'set-value') {
+        setAttempts += 1;
+        return { ok: false, json: { error: { code: 'pattern_not_supported' } }, stderr: 'pattern_not_supported', stdout: '' };
+      }
+      if (args[1] === 'search') {
+        return {
+          ok: true,
+          json: { matches: [{
+            selector: 'doc-compose',
+            type: 'Document',
+            name: 'Ask ChatGPT',
+            automationId: 'prompt-textarea',
+            isKeyboardFocusable: true
+          }] },
+          stderr: '', stdout: ''
+        };
+      }
+      if (args[1] === 'focus' || args[1] === 'send-keys' || args[1] === 'invoke') {
+        return { ok: true, json: { ok: true }, stderr: '', stdout: '' };
+      }
+      throw new Error('Unexpected command: ' + args.join(' '));
+    }
+  };
+  const adapter = createAdapter({
+    runner,
+    platform: 'win32',
+    sleepFn: async () => {},
+    now: () => { clock += 1000; return clock; },
+    pollMs: 0,
+    settleMs: 0,
+    responseTimeoutMs: 30000
+  });
+  const events = [];
+  const result = await adapter.sendPrompt({
+    requestId: 'app-turn-fallback',
+    text: 'hello fallback',
+    target: { id: 'app-chatgpt-windows', title: 'ChatGPT', windowHandle: 501, pid: 9001 },
+    emit: (event) => events.push(event)
+  });
+
+  assert.equal(result.text, 'Fallback reply');
+  assert.equal(setAttempts, 1);
+  const focusIndex = calls.findIndex((args) => args[1] === 'focus' && args.includes('doc-compose'));
+  const keysIndex = calls.findIndex((args) => args[1] === 'send-keys' && args.includes('hello fallback'));
+  assert.ok(focusIndex >= 0 && keysIndex > focusIndex, 'keyboard fallback must focus ChatGPT before injecting text');
+  assert.equal(events.at(-1).type, 'response_final');
 });
 
 test('ChatGPT Windows adapter advertises one stable App-Origin target from winapp window discovery', async () => {

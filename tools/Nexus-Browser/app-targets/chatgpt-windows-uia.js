@@ -65,6 +65,17 @@ function flattenElements(json) {
   return out;
 }
 
+function elementsFromSearch(json) {
+  const matches = Array.isArray(json?.matches) ? json.matches
+    : Array.isArray(json?.result?.matches) ? json.result.matches : [];
+  return matches.map((match) => {
+    if (match?.element && typeof match.element === 'object') {
+      return { ...match.element, selector: match.element.selector || match.selector || match.elementId };
+    }
+    return match && typeof match === 'object' ? match : null;
+  }).filter(Boolean);
+}
+
 function controlType(element = {}) {
   if (!element || typeof element !== 'object') return '';
   return String(element.controlType || element.type || element.localizedControlType || '').toLowerCase();
@@ -93,40 +104,133 @@ function propertyText(element = {}, key) {
   return found ? String(found[1] ?? '') : '';
 }
 
-function composerScore(element = {}) {
+function rectOf(element = {}) {
+  if (!element || typeof element !== 'object') return { x: 0, y: 0, width: 0, height: 0 };
+  const bounds = element.bounds || element.boundingRectangle || element.rect || {};
+  const x = asNumber(element.x ?? bounds.x ?? bounds.left);
+  const y = asNumber(element.y ?? bounds.y ?? bounds.top);
+  const width = asNumber(element.width ?? bounds.width ?? (asNumber(bounds.right) - x));
+  const height = asNumber(element.height ?? bounds.height ?? (asNumber(bounds.bottom) - y));
+  return { x, y, width: Math.max(0, width), height: Math.max(0, height) };
+}
+
+function centerOf(element = {}) {
+  const rect = rectOf(element);
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+}
+
+function windowRect(windowInfo = {}) {
+  const rect = rectOf(windowInfo);
+  if (rect.width || rect.height) return rect;
+  return { x: 0, y: 0, width: asNumber(windowInfo.width), height: asNumber(windowInfo.height) };
+}
+
+function relativeGeometry(element, windowInfo = {}) {
+  const rect = rectOf(element), frame = windowRect(windowInfo);
+  const center = centerOf(element);
+  const right = rect.x + rect.width, bottom = rect.y + rect.height;
+  const fx = frame.x || 0, fy = frame.y || 0;
+  return {
+    rect, frame, center,
+    xRatio: frame.width ? (center.x - fx) / frame.width : 0,
+    yRatio: frame.height ? (center.y - fy) / frame.height : 0,
+    widthRatio: frame.width ? rect.width / frame.width : 0,
+    heightRatio: frame.height ? rect.height / frame.height : 0,
+    right, bottom
+  };
+}
+
+function candidateSummary(element, score = null) {
+  if (!element) return null;
+  return {
+    selector: selectorOf(element),
+    type: controlType(element),
+    name: textOf(element).slice(0, 120),
+    automationId: propertyText(element, 'automationId').slice(0, 120),
+    rect: rectOf(element),
+    ...(score == null ? {} : { score })
+  };
+}
+
+function composerScore(element = {}, context = {}) {
   const type = controlType(element);
   if (!/(edit|document|textbox|text box)/.test(type)) return -1;
+  if (element.isOffscreen === true || propertyText(element, 'IsOffscreen') === 'True') return -1;
+
   const name = textOf(element).toLowerCase();
   const automation = propertyText(element, 'automationId').toLowerCase();
   const className = propertyText(element, 'className').toLowerCase();
-  let score = 1;
-  if (/ask chatgpt|message chatgpt|send a message/.test(name)) score += 30;
-  if (/prompt|composer|textarea|chat-input/.test(automation)) score += 20;
-  if (/editor|textbox|rich|webview/.test(className)) score += 4;
-  if (element.isKeyboardFocusable === true || propertyText(element, 'IsKeyboardFocusable') === 'True') score += 3;
-  if (selectorOf(element)) score += 2;
+  const semantic = /ask chatgpt|message chatgpt|send a message|prompt/.test(name)
+    || /prompt|composer|textarea|chat[-_ ]?input/.test(automation);
+  if (/search|rename|filter|sidebar|title/.test(name + ' ' + automation)) return -1;
+
+  const geometry = relativeGeometry(element, context.windowInfo);
+  const bottomWide = geometry.widthRatio >= 0.28 && geometry.yRatio >= 0.55;
+  if (!semantic && !bottomWide) return -1;
+
+  let score = 0;
+  if (/ask chatgpt|message chatgpt|send a message/.test(name)) score += 60;
+  else if (/prompt/.test(name)) score += 28;
+  if (/prompt|composer|textarea|chat[-_ ]?input/.test(automation)) score += 55;
+  if (/editor|textbox|rich|webview|contenteditable/.test(className)) score += 8;
+  if (element.isKeyboardFocusable === true || propertyText(element, 'IsKeyboardFocusable') === 'True') score += 10;
+  if (type.includes('document')) score += 4;
+  if (selectorOf(element)) score += 3;
+  if (geometry.widthRatio >= 0.28) score += 18;
+  if (geometry.widthRatio >= 0.50) score += 8;
+  if (geometry.yRatio >= 0.55) score += 18;
+  if (geometry.yRatio >= 0.72) score += 10;
+  if (geometry.rect.height >= 24 && geometry.rect.height <= 220) score += 5;
   return score;
 }
 
-function sendScore(element = {}) {
+function sendScore(element = {}, context = {}) {
   const type = controlType(element);
   if (!type.includes('button')) return -1;
+  if (element.isOffscreen === true || propertyText(element, 'IsOffscreen') === 'True') return -1;
+
   const name = textOf(element).toLowerCase();
   const automation = propertyText(element, 'automationId').toLowerCase();
-  if (/voice|dictat|microphone|record|attach/.test(name)) return -1;
+  const combined = `${name} ${automation}`;
+  if (/voice|dictat|microphone|record|attach|back|previous|menu|sidebar|new chat/.test(combined)) return -1;
+
+  const semantic = /(^|\b)(send|submit)(\b|$)/.test(combined);
+  const geometry = relativeGeometry(element, context.windowInfo);
+  const composerRect = rectOf(context.composer);
+  const buttonRect = geometry.rect;
+  const buttonCenter = geometry.center;
+  const composerCenterY = composerRect.y + composerRect.height / 2;
+  const composerRight = composerRect.x + composerRect.width;
+  const nearComposer = composerRect.width > 0
+    && buttonRect.width > 0 && buttonRect.height > 0
+    && Math.abs(buttonCenter.y - composerCenterY) <= Math.max(48, composerRect.height * 0.85)
+    && buttonCenter.x >= composerRect.x + composerRect.width * 0.58
+    && buttonCenter.x <= composerRight + Math.max(96, composerRect.width * 0.18)
+    && buttonRect.width <= 112 && buttonRect.height <= 112;
+
+  if (!semantic && !nearComposer) return -1;
+
   let score = 0;
-  if (/^send(?: message)?$/.test(name)) score += 40;
-  else if (/send|submit/.test(name)) score += 12;
-  if (/send|submit/.test(automation)) score += 12;
-  if (selectorOf(element)) score += 2;
+  if (/^send(?: message| prompt)?$/.test(name)) score += 90;
+  else if (/\bsend\b|\bsubmit\b/.test(name)) score += 55;
+  if (/send|submit/.test(automation)) score += 55;
+  if (nearComposer) score += 52;
+  if (geometry.yRatio >= 0.60) score += 18;
+  if (geometry.xRatio >= 0.60) score += 10;
+  if (selectorOf(element)) score += 3;
   return score;
 }
 
-function chooseBest(elements, scoreFn) {
-  return elements.reduce((best, element) => {
-    const score = scoreFn(element);
-    return score > (best?.score ?? -1) ? { element, score } : best;
-  }, null)?.element || null;
+function rankCandidates(elements, scoreFn, context = {}) {
+  return elements
+    .map((element) => ({ element, score: scoreFn(element, context) }))
+    .filter((entry) => Number.isFinite(entry.score) && entry.score >= 0)
+    .sort((a, b) => b.score - a.score);
+}
+
+function chooseBest(elements, scoreFn, context = {}, minimumScore = 1) {
+  const best = rankCandidates(elements, scoreFn, context)[0] || null;
+  return best && best.score >= minimumScore ? best.element : null;
 }
 
 function isGenerating(elements = []) {
@@ -177,20 +281,29 @@ function latestCandidate(texts = [], { baseline = new Set(), prompt = '' } = {})
 }
 
 function snapshotFromInspect({ windowInfo, json }) {
+  const inspectedWindow = windowsFromEnvelope(json)[0] || windowInfo || {};
+  const frame = { ...windowInfo, ...inspectedWindow };
   const elements = flattenElements(json);
-  const composer = chooseBest(elements, composerScore);
-  const sendButton = chooseBest(elements, sendScore);
+  const composerContext = { windowInfo: frame };
+  const composerRanked = rankCandidates(elements, composerScore, composerContext);
+  const composer = composerRanked[0]?.score >= 18 ? composerRanked[0].element : null;
+  const sendContext = { windowInfo: frame, composer };
+  const sendRanked = rankCandidates(elements, sendScore, sendContext);
+  const sendButton = sendRanked[0]?.score >= 20 ? sendRanked[0].element : null;
   const texts = contentTexts(elements);
   return {
-    hwnd: hwndOf(windowInfo),
-    pid: pidOf(windowInfo),
-    title: String(windowInfo?.title || windowInfo?.name || 'ChatGPT'),
+    hwnd: hwndOf(frame),
+    pid: pidOf(frame),
+    title: String(frame?.title || frame?.name || 'ChatGPT'),
+    windowInfo: frame,
     elements,
     composer,
     composerSelector: selectorOf(composer),
     composerValue: composer ? normalizeCandidate(textOf(composer)) : '',
+    composerCandidates: composerRanked.slice(0, 5).map((entry) => candidateSummary(entry.element, entry.score)),
     sendButton,
     sendSelector: selectorOf(sendButton),
+    sendCandidates: sendRanked.slice(0, 5).map((entry) => candidateSummary(entry.element, entry.score)),
     generating: isGenerating(elements),
     texts,
     latestText: texts.at(-1) || ''
@@ -206,12 +319,19 @@ module.exports = {
   hwndOf,
   pidOf,
   flattenElements,
+  elementsFromSearch,
   controlType,
   selectorOf,
   textOf,
   propertyText,
+  rectOf,
+  centerOf,
+  windowRect,
+  relativeGeometry,
+  candidateSummary,
   composerScore,
   sendScore,
+  rankCandidates,
   chooseBest,
   isGenerating,
   normalizeCandidate,
