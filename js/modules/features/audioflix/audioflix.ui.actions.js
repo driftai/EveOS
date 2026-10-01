@@ -15,6 +15,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
             window.EveAudioflixSpotifyUi?.createActions?.(ctx),
             window.EveAudioflixInstagramUi?.createActions?.(ctx)
         ].filter(Boolean);
+        const playRequests = new Set(), layerRequests = new Set();
         const stopItemPlayback = (id, preserveProvider = false) => Promise.allSettled([window.EveAudioflixAudio?.stopItemLayers?.(id, preserveProvider), window.EveAudioflixNative?.clearVoices?.(id), window.EveAudioflixNative?.clearVoices?.('hk:' + id)]);
         async function deleteStoredItem(item, type, id) {
             if (!item) return false;
@@ -55,7 +56,12 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 else ctx.startRepeater(item, Math.max(100, parseFloat(document.getElementById('audioflix-rep-interval')?.value || 1.0) * 1000), parseInt(document.getElementById('audioflix-rep-count')?.value || 0, 10));
                 return;
             }
-            if (action === 'layer-play') return item && window.EveAudioflixAudio?.layerPlay?.({ ...item, type: type || item.type });
+            if (action === 'layer-play') {
+                if (!item || layerRequests.has(id)) return false;
+                layerRequests.add(id);
+                try { return await window.EveAudioflixAudio?.layerPlay?.({ ...item, type: type || item.type }); }
+                finally { layerRequests.delete(id); }
+            }
             if (action === 'internal-view') { if (item) try { await window.EveAudioflixAudio?.openInternalView?.(item); } catch (err) { ctx.playbackStatus = err.message || 'Internal player failed'; ctx.rerender(); } return; }
             if (action === 'item-info') {
                 ctx.overlay?.classList.remove('audioflix-info-over-internal');
@@ -389,17 +395,23 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 return;
             }
             if (action === 'pause') { window.EveAudioflixAudio?.pause?.(); return; }
-            if (action === 'play') { if (item) try {
-                ctx.stopRepeater(id);
-                if (type === 'music' && ctx.activeMusicQueue?.items?.includes(id)) {
-                    ctx.invalidateQueueRun?.();
-                    ctx.activeMusicQueue = { ...ctx.activeMusicQueue, currentIndex: ctx.activeMusicQueue.items.indexOf(id), isPlaying: true };
-                    window.EveAudioflixAudio?.syncQueueView?.();
-                }
-                const active = window.EveAudioflixAudio?.getPlaybackState?.();
-                await stopItemPlayback(id, active?.browserOnly === true && String(active.item?.id || active.item?.url || '') === String(id || ''));
-                await window.EveAudioflixAudio?.playItem?.({ ...item, type: type || item.type });
-            } catch (err) { ctx.playbackStatus = err.message || 'Playback failed'; ctx.rerender(); } return; }
+            if (action === 'play') {
+                if (!item || playRequests.has(id)) return;
+                playRequests.add(id);
+                try {
+                    ctx.stopRepeater(id);
+                    if (type === 'music' && ctx.activeMusicQueue?.items?.includes(id)) {
+                        ctx.invalidateQueueRun?.();
+                        ctx.activeMusicQueue = { ...ctx.activeMusicQueue, currentIndex: ctx.activeMusicQueue.items.indexOf(id), isPlaying: true };
+                        window.EveAudioflixAudio?.syncQueueView?.();
+                    }
+                    const active = window.EveAudioflixAudio?.getPlaybackState?.();
+                    await stopItemPlayback(id, active?.browserOnly === true && String(active.item?.id || active.item?.url || '') === String(id || ''));
+                    await window.EveAudioflixAudio?.playItem?.({ ...item, type: type || item.type });
+                } catch (err) { ctx.playbackStatus = err.message || 'Playback failed'; ctx.rerender(); }
+                finally { playRequests.delete(id); }
+                return;
+            }
             if (action === 'remove') { if (item) { ctx.activeInfoItem = item; ctx.activeInfoType = type; ctx.deleteConfirmId = id; ctx.rerenderModal(); } return; }
             if (await routingActions(actionTarget, action)) return;
             if (action === 'trigger-wpl-file-picker') {
