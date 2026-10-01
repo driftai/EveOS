@@ -319,8 +319,9 @@ async function main() {
 
     // Hiding Queue View must not stop or fork the queue. The next Ended advances while hidden;
     // reopening attaches the panel to that same #2 playback session.
-    const hiddenExpectedNext = await page.$$eval('.audioflix-provider-queue-list li', (rows) =>
-        (rows[1]?.textContent || '').replace(/^▶\s*/, '').trim());
+    const hiddenExpectedNext = await page.locator('.audioflix-provider-queue-list li').nth(1)
+        .locator('[data-url-player-action="queue-jump"]').textContent()
+        .then((text) => String(text || '').replace(/^▶\s*/, '').trim());
     await clickLibraryAction(page, '[data-af-action="open-queue-view"]');
     assert(await page.$eval('.audioflix-provider-stage', (stage) => stage.hidden), 'closing Queue View only hides the shared player');
     await page.evaluate(() => {
