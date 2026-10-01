@@ -7,11 +7,13 @@ const ROOT = path.resolve(__dirname, '..');
 const INDEX = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
 const APP = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
 const APP_MIRROR_UI = fs.readFileSync(path.join(ROOT, 'public', 'app-mirror-ui.js'), 'utf8');
+const APP_TARGETS_UI = fs.readFileSync(path.join(ROOT, 'public', 'app-targets-ui.js'), 'utf8');
 
-test('UI exposes Online-Origin and Local-Origin target classes', () => {
+test('UI exposes Online-Origin, Local-Origin and App-Origin target classes', () => {
   assert.match(INDEX, /id="targetClassSelect"/);
   assert.match(INDEX, /Online-Origin Targets/);
   assert.match(INDEX, /Local-Origin Targets/);
+  assert.match(INDEX, /App-Origin Targets/);
 });
 
 test('online and local target controls are separate panels', () => {
@@ -29,13 +31,15 @@ test('Local-Origin mode requests and selects local targets without browser tabs'
   assert.match(APP, /selectedTargetClassId === 'local-origin'/);
 });
 
-test('Capture latest remains online-only in first Local-Origin pass', () => {
+test('Capture latest stays hidden for Local-Origin while App-Origin can capture visible app replies', () => {
   assert.match(APP, /captureLatest\.hidden = local/);
+  assert.match(APP, /targetClassId:\s*state\.selectedTargetClassId/);
+  assert.match(APP, /selectedTargetClassId === 'app-origin'/);
   assert.match(APP, /Search-result capture is available only for connected Online-Origin targets/);
 });
 
 
-test('ChatGPT App Mirror UI is an Online-Origin transport option, not a new target class', () => {
+test('ChatGPT App Mirror stays an Online-Origin transport while native apps use App-Origin', () => {
   assert.match(INDEX, /id="appMirrorControls"/);
   assert.match(INDEX, /id="appMirrorUrl"/);
   assert.match(INDEX, /id="attachAppMirror"/);
@@ -43,5 +47,8 @@ test('ChatGPT App Mirror UI is an Online-Origin transport option, not a new targ
   assert.match(APP_MIRROR_UI, /ensure_app_mirror/);
   assert.match(APP_MIRROR_UI, /sync_app_mirror/);
   assert.match(APP_MIRROR_UI, /selectedProviderId === 'chatgpt'/);
-  assert.doesNotMatch(INDEX, /value="app-origin"/);
+  assert.match(INDEX, /value="app-origin"/);
+  assert.match(INDEX, /id="appTargetControls"/);
+  assert.match(APP_TARGETS_UI, /request_app_targets/);
+  assert.match(APP_TARGETS_UI, /select_app_target/);
 });

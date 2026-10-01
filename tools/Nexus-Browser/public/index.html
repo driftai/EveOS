@@ -31,6 +31,7 @@
           <select id="targetClassSelect">
             <option value="online-origin">Online-Origin Targets</option>
             <option value="local-origin">Local-Origin Targets</option>
+            <option value="app-origin">App-Origin Targets</option>
           </select>
         </div>
 
@@ -74,6 +75,26 @@
               <button id="refreshLocalTargets" class="secondary">Refresh local</button>
               <button id="connectLocalTarget">Connect target</button>
             </div>
+          </div>
+        </div>
+
+        <div id="appTargetControls" class="target-class-panel" hidden>
+          <div class="target-row">
+            <label for="appTypeSelect">Target type</label>
+            <select id="appTypeSelect">
+              <option value="desktop-app">Desktop App</option>
+            </select>
+          </div>
+          <div class="target-row">
+            <label for="appTargetSelect">Running app</label>
+            <div class="target-actions">
+              <select id="appTargetSelect"></select>
+              <button id="refreshAppTargets" class="secondary">Refresh apps</button>
+              <button id="connectAppTarget">Connect target</button>
+            </div>
+          </div>
+          <div id="appTargetStatus" class="subtle">
+            Open ChatGPT for Windows, then refresh and connect the detected app target.
           </div>
         </div>
 
@@ -214,6 +235,7 @@
   <script src="/activity-ui.js"></script>
   <script src="/ui-socket.js"></script>
   <script src="/app-mirror-ui.js"></script>
+  <script src="/app-targets-ui.js"></script>
   <script src="/app.js"></script>
   <script src="/diagnostics-copy.js"></script>
   <script src="/activity-code-renderer.js"></script>

@@ -22,7 +22,8 @@
     "extension:refresh": "npm run validate:shared && npm run extension:reload",
     "soak:headed": "node scripts/headed-soak.js",
     "diagnose": "node scripts/failure-snapshot.js",
-    "rooms:cleanup-disposable": "node scripts/dexctl.js cleanup-disposable-rooms"
+    "rooms:cleanup-disposable": "node scripts/dexctl.js cleanup-disposable-rooms",
+    "doctor:apps": "node scripts/app-origin-doctor.js"
   },
   "engines": {
     "node": ">=18"

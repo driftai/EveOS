@@ -1,7 +1,7 @@
 const state = {
   extensionConnected: false,
   uiConnectionPhase: 'connecting',
-  targetClasses: [{ id: 'online-origin', name: 'Online-Origin Targets' }, { id: 'local-origin', name: 'Local-Origin Targets' }],
+  targetClasses: [{ id: 'online-origin', name: 'Online-Origin Targets' }, { id: 'local-origin', name: 'Local-Origin Targets' }, { id: 'app-origin', name: 'App-Origin Targets' }],
   selectedTargetClassId: 'online-origin',
   providers: [],
   selectedProviderId: 'deepseek',
@@ -36,12 +36,13 @@ const el = {
 
 const searchUi = globalThis.BrowserAiBridgeSearchResultsUi, activityUi = globalThis.BrowserAiBridgeActivityUi;
 const socketApi = globalThis.BrowserAiBridgeUiSocket;
-const appMirrorUiApi = globalThis.BrowserAiBridgeAppMirrorUi;
-if (!searchUi || !socketApi || !appMirrorUiApi) throw new Error('Base UI helpers were not loaded before app.js.');
+const appMirrorUiApi = globalThis.BrowserAiBridgeAppMirrorUi, appTargetsUiApi = globalThis.BrowserAiBridgeAppTargetsUi;
+if (!searchUi || !socketApi || !appMirrorUiApi || !appTargetsUiApi) throw new Error('Base UI helpers were not loaded before app.js.');
 if (!activityUi) throw new Error('Activity UI module was not loaded before app.js.');
-let uiSocket = null, appMirrorUi = null;
+let uiSocket = null, appMirrorUi = null, appTargetsUi = null;
 function activeTarget() {
-  return state.selectedTargetClassId === 'local-origin' ? state.localTarget : state.onlineTarget;
+  return state.selectedTargetClassId === 'local-origin' ? state.localTarget
+    : state.selectedTargetClassId === 'app-origin' ? appTargetsUi?.target() : state.onlineTarget;
 }
 function providerMeta(providerId) {
   return state.providers.find((provider) => provider.id === providerId) || null;
@@ -124,7 +125,6 @@ function renderActivity(requestIdValue, activity, final = false, assistantName =
     requestSearchResults
   });
 }
-
 function renderTargetClasses() {
   const previous = state.selectedTargetClassId;
   el.targetClassSelect.replaceChildren();
@@ -138,7 +138,6 @@ function renderTargetClasses() {
   else if (state.targetClasses[0]) state.selectedTargetClassId = state.targetClasses[0].id;
   el.targetClassSelect.value = state.selectedTargetClassId;
 }
-
 function renderProviders() {
   const previous = state.selectedProviderId;
   el.providerSelect.replaceChildren();
@@ -152,11 +151,9 @@ function renderProviders() {
   else if (state.providers[0]) state.selectedProviderId = state.providers[0].id;
   el.providerSelect.value = state.selectedProviderId;
 }
-
 function providerTabs() {
   return state.tabs.filter((tab) => tab.providerId === state.selectedProviderId);
 }
-
 function renderTabs() {
   const oldValue = el.tabSelect.value;
   const tabs = providerTabs();
@@ -168,20 +165,17 @@ function renderTabs() {
     el.tabSelect.append(option);
     return;
   }
-
   for (const tab of tabs) {
     const option = document.createElement('option');
     option.value = String(tab.id);
     option.textContent = `${tab.title || tab.providerName || providerName()}${tab.health?.blocking ? ` · ${tab.health.summary || tab.health.state}` : ''} — ${tab.url || ''}`;
     el.tabSelect.append(option);
   }
-
   const wanted = state.onlineTarget?.providerId === state.selectedProviderId && state.onlineTarget?.id != null
     ? String(state.onlineTarget.id)
     : oldValue;
   if (wanted && tabs.some((tab) => String(tab.id) === wanted)) el.tabSelect.value = wanted;
 }
-
 function renderLocalTargetTypes() {
   el.localTypeSelect.replaceChildren();
   for (const type of state.localTargetTypes) {
@@ -195,11 +189,9 @@ function renderLocalTargetTypes() {
   }
   el.localTypeSelect.value = state.selectedLocalTypeId;
 }
-
 function filteredLocalTargets() {
   return state.localTargets.filter((target) => target.targetTypeId === state.selectedLocalTypeId);
 }
-
 function renderLocalTargets() {
   const oldValue = el.localTargetSelect.value;
   const targets = filteredLocalTargets();
@@ -220,46 +212,44 @@ function renderLocalTargets() {
   const wanted = state.localTarget?.id || oldValue;
   if (wanted && targets.some((target) => target.id === wanted)) el.localTargetSelect.value = wanted;
 }
-
 function renderStatus() {
-  const local = state.selectedTargetClassId === 'local-origin';
-  const uiConnected = state.uiConnectionPhase === 'connected';
-  el.onlineTargetControls.hidden = local;
+  const local = state.selectedTargetClassId === 'local-origin', app = state.selectedTargetClassId === 'app-origin';
+  const uiConnected = state.uiConnectionPhase === 'connected', browser = !local && !app;
+  el.onlineTargetControls.hidden = !browser;
   el.localTargetControls.hidden = !local;
   el.bridgeBadge.textContent = !uiConnected
     ? state.uiConnectionPhase === 'disconnected' ? 'Nexus disconnected' : 'Nexus reconnecting'
-    : local
-    ? 'Local bridge ready'
-    : state.extensionConnected ? 'Extension connected' : 'Extension offline';
-  el.bridgeBadge.classList.toggle('offline', !uiConnected || (!local && !state.extensionConnected));
-  el.bridgeBadge.classList.toggle('online', uiConnected && (local || state.extensionConnected));
+    : app ? 'App bridge ready' : local ? 'Local bridge ready'
+      : state.extensionConnected ? 'Extension connected' : 'Extension offline';
+  el.bridgeBadge.classList.toggle('offline', !uiConnected || (browser && !state.extensionConnected));
+  el.bridgeBadge.classList.toggle('online', uiConnected && (!browser || state.extensionConnected));
   const target = activeTarget();
   if (target) {
-    if (local) el.targetStatus.textContent = `Bound to local ${target.targetTypeName || 'target'}: ${target.title || target.id}`;
+    if (app) el.targetStatus.textContent = `Bound to app: ${target.providerName || target.title || target.id}`;
+    else if (local) el.targetStatus.textContent = `Bound to local ${target.targetTypeName || 'target'}: ${target.title || target.id}`;
     else el.targetStatus.textContent = `Bound to ${target.providerName} tab ${target.id}: ${target.title || target.url || ''}${target.health?.blocking ? ` · ${target.health.summary || target.health.state}` : ''}`;
   } else {
-    el.targetStatus.textContent = local ? 'No Local-Origin target selected.' : 'No Online-Origin target selected.';
+    el.targetStatus.textContent = app ? 'No App-Origin target selected.'
+      : local ? 'No Local-Origin target selected.' : 'No Online-Origin target selected.';
   }
-
-  const targetName = target?.providerName || (local ? 'local agent' : providerName());
+  const targetName = target?.providerName || (app ? 'desktop app' : local ? 'local agent' : providerName());
   el.sendPrompt.textContent = `Send to ${targetName}`;
-  el.prompt.placeholder = local
-    ? `Type here. Enter sends to the selected ${targetName} local target.`
-    : `Type here. Enter sends to the selected ${targetName} tab.`;
-  el.sendPrompt.disabled = !target || !uiConnected || (!local && (!state.extensionConnected || target.health?.blocking));
+  el.prompt.placeholder = app
+    ? `Type here. Enter sends to the selected ${targetName} app.`
+    : local ? `Type here. Enter sends to the selected ${targetName} local target.`
+      : `Type here. Enter sends to the selected ${targetName} tab.`;
+  el.sendPrompt.disabled = !target || !uiConnected || (browser && (!state.extensionConnected || target.health?.blocking));
   el.captureLatest.hidden = local;
-  el.captureLatest.disabled = local || !uiConnected || !state.extensionConnected || !state.onlineTarget;
-  appMirrorUi?.render();
+  el.captureLatest.disabled = local || !target || !uiConnected || (browser && !state.extensionConnected);
+  appMirrorUi?.render(); appTargetsUi?.render();
 }
-
 function hostAccessUiMessage(msg) {
   if (msg?.code !== 'HOST_ACCESS_REQUIRED') return null;
   const site = msg.detail?.pattern || 'this provider site';
   return msg?.detail?.allSitesDeclared ? `Chrome is withholding EveOS Nexus Browser's all-sites access for ${site}. Open the extension menu → This can read and change site data → On all sites once, then click Connect target again.` : `Chrome site access is required for ${site}. Allow EveOS Nexus Browser on this site in Chrome's extension Site access, then click Connect target again.`;
 }
-
 function handleMessage(msg) {
-  if (appMirrorUi?.handleMessage(msg)) return;
+  if (appMirrorUi?.handleMessage(msg) || appTargetsUi?.handleMessage(msg)) return;
   switch (msg.type) {
     case 'bridge_status':
       state.extensionConnected = !!msg.connected;
@@ -362,7 +352,7 @@ function connectSocket() {
     onMessage: handleMessage,
     onOpen: () => {
       log('Local UI socket connected.');
-      appMirrorUi?.requestStatus();
+      appMirrorUi?.requestStatus(); appTargetsUi?.requestTargets();
     },
     onMalformed: (error) => log('Invalid message from bridge.', error.message),
     onPhase: ({ phase }) => {
@@ -384,7 +374,7 @@ function submitPrompt() {
 
   const id = requestId();
   const payload = { type: 'send_prompt', requestId: id, text, targetClassId: state.selectedTargetClassId };
-  if (state.selectedTargetClassId === 'local-origin') payload.targetId = target.id;
+  if (state.selectedTargetClassId === 'local-origin' || state.selectedTargetClassId === 'app-origin') payload.targetId = target.id;
   if (!send(payload)) return;
 
   state.pending.set(id, { text, sentAt: Date.now(), providerId: target.providerId, targetClassId: state.selectedTargetClassId });
@@ -396,6 +386,7 @@ el.targetClassSelect.addEventListener('change', () => {
   state.selectedTargetClassId = el.targetClassSelect.value;
   renderStatus();
   if (state.selectedTargetClassId === 'local-origin') send({ type: 'request_local_targets' });
+  if (state.selectedTargetClassId === 'app-origin') appTargetsUi?.requestTargets();
 });
 el.providerSelect.addEventListener('change', () => {
   state.selectedProviderId = el.providerSelect.value;
@@ -426,12 +417,17 @@ el.prompt.addEventListener('keydown', (event) => {
     submitPrompt();
   }
 });
-el.captureLatest.addEventListener('click', () => send({ type: 'capture_latest', requestId: requestId() }));
+el.captureLatest.addEventListener('click', () => {
+  const target = activeTarget(), payload = { type: 'capture_latest', requestId: requestId(), targetClassId: state.selectedTargetClassId };
+  if (state.selectedTargetClassId === 'app-origin') payload.targetId = target?.id || '';
+  send(payload);
+});
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') searchUi.close();
 });
 
 appMirrorUi = appMirrorUiApi.create({ state, send, requestId, addMessage, log });
+appTargetsUi = appTargetsUiApi.create({ state, send, addMessage, log, renderBaseStatus: renderStatus });
 renderTargetClasses(); renderProviders(); renderTabs();
 renderLocalTargetTypes(); renderLocalTargets(); renderStatus();
 connectSocket();

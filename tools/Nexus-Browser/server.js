@@ -1,7 +1,7 @@
 const http = require('http');
 const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
-const localTargets = require('./local-targets/manager');
+const localTargets = require('./local-targets/manager'), appTargets = require('./app-targets/manager');
 const { createDexServerRouting } = require('./dex/server-routing'), { createProviderControlRouting } = require('./dex/provider-control-routing'), { createProviderTargetSpawnRouting } = require('./dex/provider-target-spawn-routing');
 const { createQualificationRestartHook } = require('./dex/qualification-restart'), { createQualificationRouting } = require('./dex/qualification-routing');
 const { createDexStateStore } = require('./dex/state-store'), { createDexServerScheduler } = require('./dex/server-scheduler'), { createDoneWatchDelivery } = require('./dex/done-watch-delivery');
@@ -12,7 +12,7 @@ const { createServerDurability } = require('./dex/server-durability');
 const { createExtensionSessionArbiter } = require('./dex/extension-session-arbiter');
 const { assetRevision } = require('./server-asset-revision');
 const { ADAPTER_REVISION: EXPECTED_ADAPTER_REVISION } = require('./extension/content/provider-adapter-revision');
-const { createDiagnosticsSnapshot } = require('./server-diagnostics'), { createServerLocalRelay } = require('./dex/server-local-relay');
+const { createDiagnosticsSnapshot } = require('./server-diagnostics'), { createServerLocalRelay } = require('./dex/server-local-relay'), { createAppTargetServerController } = require('./app-targets/server-controller');
 const { attachWebSocketHeartbeat } = require('./dex/ws-heartbeat'), { createDisposableRoomCleanup } = require('./dex/disposable-room-cleanup');
 const runtimeConfig = require('./runtime-config');
 const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
@@ -87,7 +87,7 @@ const streamNudgeAuth = createServerStreamNudgeAuth({ getState: () => dexStateSt
 const doneWatchDelivery = createDoneWatchDelivery({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, safeSend, getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null, getTabs: () => lastTabs });
 const qualificationRouting = createQualificationRouting({ safeSend, getExtensionSocket: () => extensionSocket, getDurability: () => durability, getStateStore: () => dexStateStore, restartHook: qualificationRestart, serverSessionId: SERVER_SESSION_ID });
 const serverDexSource = { clientKind: 'dex' };
-const serverLocalRelay = createServerLocalRelay({ localTargets, mirrorPrompt: (targetId, msg, target) => mirrorPromptToConsoles(targetId, serverDexSource, msg, target), emitEvent: (targetId, payload) => sendLocalEvent(targetId, serverDexSource, payload), broadcastStatus: (targetId) => broadcastLocalStatus(targetId, serverDexSource) });
+const serverLocalRelay = createServerLocalRelay({ localTargets, mirrorPrompt: (targetId, msg, target) => mirrorPromptToConsoles(targetId, serverDexSource, msg, target), emitEvent: (targetId, payload) => sendLocalEvent(targetId, serverDexSource, payload), broadcastStatus: (targetId) => broadcastLocalStatus(targetId, serverDexSource) }); const appTargetController = createAppTargetServerController({ appTargets, safeSend, uiSockets, getDurability: () => durability, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive() });
 const dexScheduler = createDexServerScheduler({ stateStore: { load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot) }, durability: { beforeDispatch: (...args) => durability.beforeDispatch(...args), observe: (...args) => durability.observe(...args), markFailed: (...args) => durability.markFailed(...args), query: (...args) => durability.query(...args) }, getOnlineTargets: () => lastTabs, getProviders: () => lastProviders, getSelectedOnlineTarget: () => lastTarget, getLocalTargets: async (force = false) => { if (force) await refreshLocalTargets(null, { force: true }); return lastLocalTargets; }, isExtensionAvailable: () => !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN && extensionSessions.current().ready, sendExtension: (payload) => safeSend(extensionSocket, payload), sendLocalPrompt: serverLocalRelay.sendLocalPrompt, captureLocalLatest: localTargets.captureLocalLatest, broadcastState: broadcastDexState, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(),
   onTurnSettled: () => { doneWatchDelivery.flush(); taskCompletion?.flush(); postIdleMaintenance?.tick().catch((error) => console.log('[bridge] post-idle tick: ' + error.message)); }, recordIncident: (input) => durability.recordIncident(input) });
 postIdleMaintenance = startPostIdleMaintenance({
@@ -96,13 +96,13 @@ postIdleMaintenance = startPostIdleMaintenance({
 });
 taskCompletion = startTaskCompletion({ dexStateStore, localTargets, safeSend, getTabs: () => lastTabs,
   getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null });
-const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, taskCompletion, streamNudgeAuth, SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
+const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, appTargetController, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, taskCompletion, streamNudgeAuth, SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
 function diagnosticsSnapshot() { return readDiagnostics(); }
 function extensionStatus() {
   return { type: 'bridge_status', connected: !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN, authorityReady: extensionSessions.current().ready };
 }
 function classSnapshot() {
-  return { type: 'target_classes_update', classes: localTargets.publicTargetClasses(), localTargetTypes: localTargets.publicLocalTargetTypes() };
+  return { type: 'target_classes_update', classes: [...localTargets.publicTargetClasses(), ...appTargets.publicTargetClasses()], localTargetTypes: localTargets.publicLocalTargetTypes(), appTargetTypes: appTargets.publicAppTargetTypes() };
 }
 function selectedLocalTarget(ws) {
   if (!ws?.localTargetId) return null;
@@ -232,7 +232,7 @@ async function handleLocalUiCommand(ws, msg) {
 wss.on('connection', (ws, req) => {
   ws.role = null; ws.remoteAddress = req?.socket?.remoteAddress || '';
   ws.clientKind = 'browser';
-  ws.localTargetId = null;
+  ws.localTargetId = null; ws.appTargetId = null;
   ws.on('message', async (raw) => {
     let msg;
     try { msg = JSON.parse(String(raw)); }
@@ -269,7 +269,7 @@ wss.on('connection', (ws, req) => {
         safeSend(ws, extensionStatus());
         safeSend(ws, classSnapshot());
         if (extensionSessions.current().ready) safeSend(ws, { type: 'tabs_update', providers: lastProviders, tabs: lastTabs, target: lastTarget });
-        await refreshLocalTargets(ws);
+        await refreshLocalTargets(ws); await appTargetController.refresh(ws);
         return;
       }
       safeSend(ws, { type: 'error', code: 'BAD_ROLE', message: 'Unsupported hello.role.' });
@@ -304,7 +304,7 @@ wss.on('connection', (ws, req) => {
         const result = msg.type === 'dex_relay_start' ? dexScheduler.startRelay(msg) : msg.type === 'dex_relay_stop' ? dexScheduler.stopRelay(msg) : dexScheduler.continueRelay(msg);
         safeSend(ws, { type: 'dex_relay_result', requestId: msg.requestId || null, result }); return;
       }
-      if (await providerControlRouting.handle(ws, msg)) return;
+      if (await providerControlRouting.handle(ws, msg) || await appTargetController.handle(ws, msg)) return;
       if (ws.clientKind === 'dex' && ['select_target', 'ensure_target', 'send_prompt', 'capture_latest'].includes(msg.type)) {
         safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'DEX_SERVER_SCHEDULER_OWNS_TRANSPORT', message: 'Localhost scheduler owns Dex provider transport.' }); return;
       }
@@ -428,7 +428,7 @@ server.on('upgrade', (req, socket, head) => {
   }
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
-server.on('close', () => { heartbeat.stop(); localTargets.stopLocalTargets(); });
+server.on('close', () => { heartbeat.stop(); localTargets.stopLocalTargets(); appTargetController.stop(); });
 if (require.main === module) {
   server.listen(PORT, HOST, () => {
     console.log(`[Nexus Browser] UI: http://${HOST}:${PORT}`);

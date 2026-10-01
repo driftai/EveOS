@@ -28,7 +28,7 @@ function waitMessage(ws, predicate, timeoutMs = 3000) {
   });
 }
 
-test('UI handshake advertises target classes and Local-Origin target types', async () => {
+test('UI handshake advertises Online, Local and App-Origin target classes', async () => {
   await new Promise((resolve) => server.listen(0, HOST, resolve));
   const port = server.address().port;
   const ws = new WebSocket(`ws://${HOST}:${port}/ws`);
@@ -37,15 +37,22 @@ test('UI handshake advertises target classes and Local-Origin target types', asy
     await new Promise((resolve) => ws.once('open', resolve));
     const classesPromise = waitMessage(ws, (message) => message.type === 'target_classes_update');
     const localTargetsPromise = waitMessage(ws, (message) => message.type === 'local_targets_update');
+    const appTargetsPromise = waitMessage(ws, (message) => message.type === 'app_targets_update');
     ws.send(JSON.stringify({ type: 'hello', role: 'ui' }));
 
     const classes = await classesPromise;
-    assert.deepEqual(classes.classes.map((entry) => entry.id), ['online-origin', 'local-origin']);
+    assert.deepEqual(classes.classes.map((entry) => entry.id), ['online-origin', 'local-origin', 'app-origin']);
     assert.deepEqual(classes.localTargetTypes.map((entry) => entry.id), ['terminal-agent']);
+    assert.deepEqual(classes.appTargetTypes.map((entry) => entry.id), ['desktop-app']);
 
     const localTargets = await localTargetsPromise;
     assert.ok(Array.isArray(localTargets.targets));
     assert.ok('target' in localTargets);
+
+    const appTargets = await appTargetsPromise;
+    assert.ok(Array.isArray(appTargets.targets));
+    assert.deepEqual(appTargets.types.map((entry) => entry.id), ['desktop-app']);
+    assert.ok('diagnostics' in appTargets);
   } finally {
     ws.close();
     await new Promise((resolve) => server.close(resolve));
