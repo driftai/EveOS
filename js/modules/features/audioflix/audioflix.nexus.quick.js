@@ -100,7 +100,7 @@ window.EveAudioflixNexusQuick = window.EveAudioflixNexusQuick || {};
         root.querySelector('.audioflix-nexus-quick-scope').textContent = `${scope.label} · ${scope.items.length} available`;
         root.querySelector('.audioflix-nexus-quick-status').textContent = query
             ? `${matches.length} match${matches.length === 1 ? '' : 'es'}${allowNext ? ' · Play next follows the active queue.' : ''}`
-            : 'Type to search titles, artists, folders, groups, and classifiers.';
+            : (type === 'sound' ? 'Type to search sound titles, audio titles, creators, categories, and groups.' : 'Type to search titles, artists, folders, groups, and classifiers.');
         const shown = matches.slice(0, 60);
         root.querySelector('.audioflix-nexus-quick-results').innerHTML = shown.length
             ? shown.map(item => resultHtml(item, allowNext, queue.entries || [])).join('')
@@ -183,6 +183,8 @@ window.EveAudioflixNexusQuick = window.EveAudioflixNexusQuick || {};
         query = '';
         const root = ensureDialog();
         root.hidden = false;
+        root.querySelector('#audioflix-nexus-quick-title').textContent = type === 'sound' ? 'Nexus sound search' : 'Nexus song search';
+        root.querySelector('input').placeholder = type === 'sound' ? 'Find a sound in this scope…' : 'Find a song in this scope…';
         root.querySelector('input').value = '';
         renderResults();
         requestAnimationFrame(() => root.querySelector('input')?.focus({ preventScroll: true }));
