@@ -84,7 +84,10 @@ async function main() {
     await page.click('.audioflix-nexus-panel [data-af-action="nexus-jump-card"][data-af-type="sound"]');
     await page.waitForFunction(() => [...document.querySelectorAll('.audioflix-item-card')].some(card =>
         card.classList.contains('is-nexus-jump-target') && /Thunder Snap/.test(card.textContent || '')));
+    assert(await page.locator('.audioflix-nexus-panel').count() === 1,
+        'Soundboard main Nexus stays open after Jump to card');
     progress('Soundboard Nexus Fast Track title search + main Jump to card OK');
+    await page.click('[data-af-action="toggle-nexus"][data-af-type="sound"]');
 
     await page.click('[data-af-action="tab"][data-af-tab="music"]');
 
@@ -419,8 +422,10 @@ async function main() {
     await page.click('.audioflix-nexus-panel [data-af-action="nexus-jump-card"][data-af-type="music"]');
     await page.waitForFunction(() => [...document.querySelectorAll('.audioflix-item-card')].some(card =>
         card.classList.contains('is-nexus-jump-target') && /Beta/.test(card.textContent || '')), undefined, { timeout: 5000 });
-    assert(await page.locator('.audioflix-nexus-panel').count() === 0, 'main Nexus Jump to card closes the manager panel before navigation');
-    progress('main Nexus result Jump to card OK');
+    assert(await page.locator('.audioflix-nexus-panel').count() === 1, 'main Nexus Jump to card keeps the manager panel open');
+    assert(await page.inputValue('.audioflix-nexus-panel [data-af-nexus-search][data-af-type="music"]') === 'Beta',
+        'main Nexus keeps its active search after Jump to card');
+    progress('main Nexus result Jump to card OK — panel stays open');
 
     assert(pageErrors.length === 0, 'no uncaught page errors: ' + pageErrors.join(' | '));
     await browser.close();
