@@ -92,7 +92,7 @@ async function main() {
     await page.click('[data-af-action="toggle-nexus"][data-af-type="sound"]');
 
     await page.click('[data-af-action="tab"][data-af-tab="music"]');
-    const groupTagFits = await page.$eval('.audioflix-item-card .audioflix-group-tag[data-af-group="Def-For-DriftAi-Account-Post-Waterworld"]', (tag) => { const tagRect = tag.getBoundingClientRect(), bodyRect = tag.closest('.audioflix-item-body').getBoundingClientRect(); return tagRect.left >= bodyRect.left - 0.5 && tagRect.right <= bodyRect.right + 0.5; });
+    const groupTagFits = await page.$eval('.audioflix-item-card .audioflix-group-tag[data-af-group="Def-For-DriftAi-Account-Post-Waterworld"]', (tag) => { const tagRect = tag.getBoundingClientRect(), bodyRect = tag.closest('.audioflix-item-body').getBoundingClientRect(); return tagRect.left >= bodyRect.left - 0.5 && tagRect.right <= bodyRect.right + 0.5 && tag.scrollWidth <= tag.clientWidth + 1; });
     assert(groupTagFits, 'long music group tags stay inside the card body');
 
     // The Nexus launcher is a real split control: primary opens the full panel, the compact side
