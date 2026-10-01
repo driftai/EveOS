@@ -126,6 +126,22 @@ async function main() {
     assert(layerEvents.at(-1)?.voices?.length === 0,
         'Stop immediately clears the visual layer stack');
 
+    // An autoclicker may intentionally layer a sound, but it must not create an unbounded number
+    // of decoded/native voices. Keep the newest 12 for one sound and retire older voices.
+    for (let index = 0; index < 20; index += 1) {
+        await layeredNativeController.layerPlay({ id: 'layer-cap', title: 'Layer Cap', url: 'cap.mp3' });
+    }
+    const cappedLayers = layeredNativeController.getSnapshot('layer-cap');
+    const capVoiceIds = playedVoiceIds.filter((id) => id.startsWith('layer-cap::layer:'));
+    const capClearsBeforeStop = clearedVoices.filter((id) => id.startsWith('layer-cap::layer:'));
+    assert(capVoiceIds.length === 20 && cappedLayers.length === 12,
+        'autoclick storm keeps only the newest 12 active layers for one sound');
+    assert(capClearsBeforeStop.length === 8,
+        'the eight oldest native voices are explicitly retired while enforcing the layer cap');
+    await Promise.allSettled(layeredNativeController.stopItemLayers('layer-cap'));
+    assert(capVoiceIds.every((id) => clearedVoices.includes(id)),
+        'Stop still clears every retained voice after cap eviction');
+
     window.EveAudioflixNative.shouldSuppressBrowserPlayback = () => false;
     const browserController = window.EveAudioflixAudioLayers.createController({
         state: () => ({}),
@@ -218,6 +234,38 @@ async function main() {
         'normal Play clears direct and hotkey owners before starting');
     assert(actionPlayCount === 1, 'one normal Play click creates exactly one playback owner');
     assert(actionPlayItem?.type === 'sound', 'normal Play preserves the UI sound type on file://');
+
+    // Same-item Play/Layer Play requests are coalesced while their async start is still pending,
+    // so a high-rate autoclicker cannot queue hundreds of overlapping decode/route operations.
+    const playStormGate = deferred();
+    let playStormCalls = 0;
+    actionWindow.EveAudioflixAudio.playItem = async () => {
+        playStormCalls += 1;
+        await playStormGate.promise;
+        return true;
+    };
+    const firstPlayStorm = actionHandler({ dataset: { afAction: 'play', afId: 'file-sound', afType: 'sound' } });
+    await tick();
+    const secondPlayStorm = actionHandler({ dataset: { afAction: 'play', afId: 'file-sound', afType: 'sound' } });
+    await tick();
+    assert(playStormCalls === 1, 'overlapping normal Play requests for one sound coalesce to one start');
+    playStormGate.resolve(true);
+    await Promise.all([firstPlayStorm, secondPlayStorm]);
+
+    const layerStormGate = deferred();
+    let layerStormCalls = 0;
+    actionWindow.EveAudioflixAudio.layerPlay = async () => {
+        layerStormCalls += 1;
+        await layerStormGate.promise;
+        return true;
+    };
+    const firstLayerStorm = actionHandler({ dataset: { afAction: 'layer-play', afId: 'file-sound', afType: 'sound' } });
+    await tick();
+    const secondLayerStorm = actionHandler({ dataset: { afAction: 'layer-play', afId: 'file-sound', afType: 'sound' } });
+    await tick();
+    assert(layerStormCalls === 1, 'overlapping Layer Play starts for one sound coalesce to one async start');
+    layerStormGate.resolve(true);
+    await Promise.all([firstLayerStorm, secondLayerStorm]);
 
     const analysers = [];
     const gains = [];
