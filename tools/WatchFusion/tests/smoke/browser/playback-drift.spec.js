@@ -66,6 +66,34 @@ test.describe('Adaptive playback drift regression', () => {
     expect(result.stale).toBe(20);
   });
 
+  test('steady linked playback does not republish equivalent room anchors', async ({ page }) => {
+    await page.goto('/');
+    const result = await page.evaluate(() => {
+      const sync = window.WatchFusionLinkedPlaybackSync;
+      const now = Date.now();
+      const anchor = {
+        position: 10,
+        sampledAt: now,
+        paused: false,
+        ended: false,
+        rate: 1,
+        volume: 0.5
+      };
+      return {
+        steady: sync.mirrorPlan({ currentTime: 11.5, sampledAt: now + 1500, paused: false, rate: 1, volume: 0.5 }, anchor, { now: now + 1500 }),
+        jitter: sync.mirrorPlan({ currentTime: 11.8, sampledAt: now + 1500, paused: false, rate: 1, volume: 0.5 }, anchor, { now: now + 1500 }),
+        seek: sync.mirrorPlan({ currentTime: 20, sampledAt: now + 1500, paused: false, rate: 1, volume: 0.5 }, anchor, { now: now + 1500 }),
+        pause: sync.mirrorPlan({ currentTime: 11.5, sampledAt: now + 1500, paused: true, rate: 1, volume: 0.5 }, anchor, { now: now + 1500 })
+      };
+    });
+    expect(result.steady.publish).toBe(false);
+    expect(result.jitter.publish).toBe(false);
+    expect(result.seek.publish).toBe(true);
+    expect(result.seek.reason).toBe('drift');
+    expect(result.pause.publish).toBe(true);
+    expect(result.pause.reason).toBe('state');
+  });
+
   test('linked direct-media follower tolerates small drift without rearming its control guard', async ({ page }) => {
     await page.goto('/');
     const result = await page.evaluate(() => {

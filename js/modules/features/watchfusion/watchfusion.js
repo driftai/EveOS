@@ -142,49 +142,13 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         }
     }
     function runtimeUrl(snapshot = status) {
-        const mode = String(snapshot?.exposureMode || 'local').toLowerCase();
-        const exposed = mode === 'lan' || mode === 'cloudflare';
-        const raw = String(mode === 'cloudflare'
-            ? (snapshot?.directHostUrl || snapshot?.hostUrl || snapshot?.localUrl || snapshot?.publicUrl || snapshot?.url || '')
-            : exposed ? (snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl || '')
-                : (snapshot?.localUrl || snapshot?.url || snapshot?.publicUrl || '')).trim();
-        if (!raw) return null;
-        try {
-            const parsed = new URL(raw);
-            return /^https?:$/.test(parsed.protocol) ? parsed : null;
-        } catch {
-            return null;
-        }
-    }
-    function applyShareContext(url, snapshot = status) {
-        const mode = String(snapshot?.exposureMode || 'local').toLowerCase();
-        const shareUrl = String(snapshot?.publicUrl || '').trim();
-        url.searchParams.set('eveosShareMode', ['lan', 'cloudflare'].includes(mode) ? mode : 'local');
-        if (shareUrl) url.searchParams.set('eveosShareUrl', shareUrl);
-        else url.searchParams.delete('eveosShareUrl');
-        return url;
+        return sensor()?.runtimeUrl?.(snapshot) || null;
     }
     function embeddedUrl() {
-        const url = runtimeUrl();
-        if (!url) return 'about:blank';
-        url.searchParams.set('eveos', '1');
-        url.searchParams.delete('eveosDetached');
-        return applyShareContext(url).href;
+        return sensor()?.workspaceUrl?.(status)?.href || 'about:blank';
     }
     function detachedUrl() {
-        const runtime = runtimeUrl();
-        if (!runtime) return null;
-        let url = runtime;
-        const heartbeat = sensor()?.heartbeatState?.();
-        const embeddedHref = heartbeat?.embedded ? heartbeat.embeddedUrl : '';
-        try {
-            const embedded = new URL(embeddedHref);
-            if (embedded.origin === runtime.origin && sensor()?.isCandidateOrigin?.(embedded.origin)) url = embedded;
-        } catch {}
-        url.searchParams.delete('eveos');
-        url.searchParams.delete('_wfReload');
-        url.searchParams.set('eveosDetached', '1');
-        return applyShareContext(url);
+        return sensor()?.workspaceUrl?.(status, { detached: true }) || null;
     }
     function detachedFeatures() {
         const availableWidth = Math.max(900, Number(window.screen?.availWidth) || 1440);

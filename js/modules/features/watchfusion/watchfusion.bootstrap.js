@@ -56,7 +56,7 @@
                     '__eveWatchFusionAudioflixLinkReady'
                 ),
                 companionReady(
-                    'js/modules/features/watchfusion/watchfusion.frame-capabilities.js?v=07fa4a299216',
+                    'js/modules/features/watchfusion/watchfusion.frame-capabilities.js?v=5337d963f1b9',
                     'data-eve-watchfusion-frame-capabilities',
                     '__eveWatchFusionFrameCapabilitiesReady'
                 ),
@@ -66,7 +66,7 @@
                     '__eveWatchFusionSelectiveStartReady'
                 ),
                 companionReady(
-                    'js/modules/features/watchfusion/watchfusion.continuity.js?v=e8b24b84047e',
+                    'js/modules/features/watchfusion/watchfusion.continuity.js?v=06d0d111c9cd',
                     'data-eve-watchfusion-continuity',
                     '__eveWatchFusionContinuityReady'
                 )

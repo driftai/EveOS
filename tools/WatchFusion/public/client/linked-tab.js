@@ -1,6 +1,7 @@
 (() => {
-  const MIRROR_INTERVAL_MS=1500,CONTROL_ECHO_TTL_MS=2500;
-  let link=null,peer=null,lastMetadata={},loadedPageUrl='',resolvingUrl='',pendingUrl='',resolveRevision=0,applying=false,lastMirrorAt=0,mirrorTimer=null;
+  const CONTROL_ECHO_TTL_MS=2500;
+  let link=null,peer=null,lastMetadata={},loadedPageUrl='',resolvingUrl='',pendingUrl='',resolveRevision=0,applying=false;
+  let lastMirrorAnchor=null,mirrorInFlight=false,queuedMirror=null;
   const pendingControls=new Map();
 
   function active(){return !!link;}
@@ -67,31 +68,33 @@
       else if(state.source.videoId||state.source.kind==='youtube')window.watchFusionYoutubeFollow?.(metadata,{force});
     }finally{setTimeout(()=>{applying=false;},320);}
   }
-  async function mirrorNow(metadata){
+  async function mirrorNow(metadata,force=false){
     if(!active()||!loadedPageUrl)return;
-    const projected=window.WatchFusionLinkedPlaybackSync?.projectedPosition?.(metadata)??(Number(metadata.currentTime)||0);
+    const plan=window.WatchFusionLinkedPlaybackSync?.mirrorPlan?.(metadata,lastMirrorAnchor,{force});
+    if(!plan?.publish)return false;
     if(!roomId){
-      if(state?.playback)state.playback={...state.playback,position:projected,paused:!!metadata.paused,ended:!!metadata.ended,
+      if(state?.playback)state.playback={...state.playback,position:plan.target,paused:!!metadata.paused,ended:!!metadata.ended,
         rate:Number(metadata.rate)||1,volume:Math.max(0,Math.min(100,(Number(metadata.volume)||0)*100)),muted:Number(metadata.volume)===0,updatedAt:Date.now()};
-      return;
+      lastMirrorAnchor=plan.anchor;return true;
     }
     if(!isHost())return;
-    await command('mirror',{position:projected,paused:!!metadata.paused,ended:!!metadata.ended,
-      rate:Number(metadata.rate)||1,volume:Math.max(0,Math.min(100,(Number(metadata.volume)||0)*100)),muted:Number(metadata.volume)===0});
+    if(mirrorInFlight){queuedMirror={metadata:{...metadata},force:queuedMirror?.force===true||force};return false;}
+    const activeLink=link;
+    mirrorInFlight=true;
+    try{
+      const ok=await command('mirror',{position:plan.target,paused:!!metadata.paused,ended:!!metadata.ended,
+        rate:Number(metadata.rate)||1,volume:Math.max(0,Math.min(100,(Number(metadata.volume)||0)*100)),muted:Number(metadata.volume)===0});
+      if(ok&&link===activeLink)lastMirrorAnchor=plan.anchor;
+      return ok;
+    }finally{
+      mirrorInFlight=false;
+      const queued=queuedMirror;queuedMirror=null;
+      if(queued)void mirrorNow(queued.metadata,queued.force);
+    }
   }
   function scheduleMirror(metadata,force=false){
     lastMetadata=metadata;if(!loadedPageUrl)return;
-    const now=performance.now(),position=Number(metadata.currentTime)||0,rate=Number(metadata.rate)||1,volume=Number(metadata.volume);
-    const jumped=window.WatchFusionLinkedPlaybackSync?.positionJumped?.(position,scheduleMirror.sample,now)===true;
-    scheduleMirror.sample={position,at:now,playing:metadata.paused!==true,rate};
-    const discrete=force||jumped||metadata.paused!==scheduleMirror.paused||metadata.ended!==scheduleMirror.ended
-      ||Math.abs(rate-(Number(scheduleMirror.rate)||1))>.01
-      ||Number.isFinite(volume)&&Number.isFinite(scheduleMirror.volume)&&Math.abs(volume-scheduleMirror.volume)>.02;
-    scheduleMirror.paused=metadata.paused;scheduleMirror.ended=metadata.ended;scheduleMirror.rate=rate;
-    if(Number.isFinite(volume))scheduleMirror.volume=volume;
-    clearTimeout(mirrorTimer);
-    if(discrete||now-lastMirrorAt>=MIRROR_INTERVAL_MS){lastMirrorAt=now;void mirrorNow(metadata);}
-    else mirrorTimer=setTimeout(()=>{lastMirrorAt=performance.now();void mirrorNow(lastMetadata);},Math.max(0,MIRROR_INTERVAL_MS-(now-lastMirrorAt)));
+    void mirrorNow(metadata,force);
   }
   async function followUrl(url){
     const value=String(url||'').trim();if(!/^https?:\/\//i.test(value)||value===loadedPageUrl||value===resolvingUrl)return;
@@ -100,7 +103,7 @@
     const ok=await window.watchFusionMediaResolver?.resolveAndLoad?.(value,{silent:true});
     if(revision!==resolveRevision)return;
     resolvingUrl='';
-    if(ok){loadedPageUrl=value;pendingControls.clear();renderControls(lastMetadata);followLocal(lastMetadata,true);scheduleMirror(lastMetadata,true);status('Attached tab state linked · WatchFusion is playing the resolved source.');}
+    if(ok){loadedPageUrl=value;lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();renderControls(lastMetadata);followLocal(lastMetadata,true);scheduleMirror(lastMetadata,true);status('Attached tab state linked · WatchFusion is playing the resolved source.');}
     else status('Attached tab is connected, but its playable source could not be resolved yet.');
     const queued=pendingUrl;pendingUrl='';
     if(queued&&queued!==loadedPageUrl)void followUrl(queued);
@@ -121,14 +124,14 @@
     if(roomId&&!isHost())return setStatus('Only the host can attach the room source.');
     if(active())return stop();
     if(state?.source?.kind==='live'&&state.source.mode==='audioflix')await window.unloadWatchFusionMedia?.();
-    const created=await post('/api/live',{});link=created;loadedPageUrl='';resolvingUrl='';pendingUrl='';lastMetadata={};pendingControls.clear();scheduleMirror.sample=null;resolveRevision++;
+    const created=await post('/api/live',{});link=created;loadedPageUrl='';resolvingUrl='';pendingUrl='';lastMetadata={};lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();resolveRevision++;
     const pairing=new URL(location.origin);pairing.hash=`live=${created.id}.${created.publisherToken}`;
     $('livePairLink').value=pairing.href;$('livePairHelp').hidden=false;$('findMediaPanel').hidden=false;renderControls({});
     status('Pair the source tab. WatchFusion will resolve its URL and keep only playback state attached.');connectPeer();
   }
   async function stop(options={}){
     if(!link)return true;
-    const old=link;link=null;resolveRevision++;resolvingUrl='';pendingUrl='';loadedPageUrl='';pendingControls.clear();scheduleMirror.sample=null;clearTimeout(mirrorTimer);mirrorTimer=null;
+    const old=link;link=null;resolveRevision++;resolvingUrl='';pendingUrl='';loadedPageUrl='';lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();
     peer?.stop();peer=null;await post(`/api/live/${old.id}/stop`,old).catch(()=>{});
     $('livePairHelp').hidden=true;restoreUi();if(!options.quiet)setStatus('Source tab unlinked · the page was restored to normal.');return true;
   }

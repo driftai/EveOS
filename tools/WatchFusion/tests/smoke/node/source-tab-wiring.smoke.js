@@ -131,10 +131,14 @@ export async function runSourceTabSmokes() {
   })();
 
   await record('ST-13:linked-room-mirror-is-projected-and-bounded', async () => {
-    assert.match(linkedTab, /MIRROR_INTERVAL_MS=1500/);
-    assert.match(linkedTab, /projectedPosition\?\.\(metadata\)/);
-    assert.match(linkedTab, /positionJumped\?\.\(position,scheduleMirror\.sample,now\)/);
+    assert.match(linkedTab, /mirrorPlan\?\.\(metadata,lastMirrorAnchor,\{force\}\)/);
+    assert.match(linkedTab, /if\(!plan\?\.publish\)return false/);
+    assert.match(linkedTab, /mirrorInFlight=true/);
+    assert.match(linkedTab, /queuedMirror=\{metadata:\{\.\.\.metadata\},force:/);
+    assert.match(linkedTab, /if\(ok&&link===activeLink\)lastMirrorAnchor=plan\.anchor/);
+    assert.doesNotMatch(linkedTab, /MIRROR_INTERVAL_MS/);
     assert.match(linkedPlayback, /function mediaPlan/);
+    assert.match(linkedPlayback, /function mirrorPlan/);
   })();
 
   await record('ST-14:linked-direct-media-does-not-permanently-mask-host-controls', async () => {

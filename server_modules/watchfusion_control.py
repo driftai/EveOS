@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import eveos_console_prefs, eveos_exposure, eveos_ports, watchfusion_exposure
+from . import eveos_console_prefs, eveos_exposure, eveos_ports, watchfusion_exposure, watchfusion_preferences
 from .watchfusion_extension import open_extension_folder
 
 
@@ -38,22 +38,6 @@ def _entry() -> Path:
 
 def _launcher() -> Path:
     return _tool_root() / "WatchFusion.bat"
-
-
-def _preference() -> Path:
-    return _root() / "data" / "runtime" / "watchfusion-service.json"
-
-
-def _write_desired(enabled: bool) -> None:
-    path = _preference()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps({
-        "desiredRunning": bool(enabled),
-        "port": WATCHFUSION_PORT,
-        "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }, indent=2), encoding="utf-8")
-    temporary.replace(path)
 
 
 def _node() -> str | None:
@@ -367,7 +351,7 @@ def start_server(*, persist: bool = False, host: str = "127.0.0.1") -> dict:
     eveos_exposure.clear_state("watchfusion")
     with _LOCK:
         if persist:
-            _write_desired(True)
+            watchfusion_preferences.write_desired(_root(), WATCHFUSION_PORT, True)
         current = _status()
         if current["running"]:
             return {**current, "message": "WatchFusion is already online."}
@@ -406,7 +390,7 @@ def stop_server(*, persist: bool = False) -> dict:
     global _PROCESS
     with _LOCK:
         if persist:
-            _write_desired(False)
+            watchfusion_preferences.write_desired(_root(), WATCHFUSION_PORT, False)
         verified = _health() is not None
         stopped = False
         if verified:

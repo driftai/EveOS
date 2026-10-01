@@ -80,6 +80,46 @@
         return hostExposureOrigin || exposureOrigin;
     }
 
+    function runtimeUrl(snapshot = {}) {
+        const mode = String(snapshot?.exposureMode || 'local').toLowerCase();
+        const exposed = mode === 'lan' || mode === 'cloudflare';
+        const raw = String(mode === 'cloudflare'
+            ? (snapshot?.directHostUrl || snapshot?.hostUrl || snapshot?.localUrl || snapshot?.publicUrl || snapshot?.url || '')
+            : exposed ? (snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl || '')
+                : (snapshot?.localUrl || snapshot?.url || snapshot?.publicUrl || '')).trim();
+        try {
+            const parsed = new URL(raw);
+            return /^https?:$/.test(parsed.protocol) ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function workspaceUrl(snapshot = {}, { detached = false } = {}) {
+        const runtime = runtimeUrl(snapshot);
+        if (!runtime) return null;
+        let url = runtime;
+        if (detached) {
+            const heartbeat = heartbeatState();
+            try {
+                const embedded = new URL(heartbeat.embedded ? heartbeat.embeddedUrl : '');
+                if (embedded.origin === runtime.origin && isCandidateOrigin(embedded.origin)) url = embedded;
+            } catch {}
+            url.searchParams.delete('eveos');
+            url.searchParams.delete('_wfReload');
+            url.searchParams.set('eveosDetached', '1');
+        } else {
+            url.searchParams.set('eveos', '1');
+            url.searchParams.delete('eveosDetached');
+        }
+        const mode = String(snapshot?.exposureMode || 'local').toLowerCase();
+        const shareUrl = String(snapshot?.publicUrl || '').trim();
+        url.searchParams.set('eveosShareMode', ['lan', 'cloudflare'].includes(mode) ? mode : 'local');
+        if (shareUrl) url.searchParams.set('eveosShareUrl', shareUrl);
+        else url.searchParams.delete('eveosShareUrl');
+        return url;
+    }
+
     async function probeOrigin(origin, timeoutMs = 900) {
         if (!origin) return null;
         const controller = new AbortController();
@@ -162,6 +202,8 @@
         port,
         matchesControlStatus,
         configureExposure,
+        runtimeUrl,
+        workspaceUrl,
         candidateOrigins,
         probe,
         probeOrigin,

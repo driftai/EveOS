@@ -190,13 +190,13 @@ function sourceContract() {
     check(!ui.includes('if (status?.dependenciesReady) await setRunning(true)'), 'WF-SETUP-NO-AUTOSTART', 'core dependency setup still starts WatchFusion automatically');
     check(ui.includes("DETACHED_WINDOW_NAME = 'eveWatchFusionWindow'") && ui.includes('function detach()'), 'WF-DETACH', 'WatchFusion does not have Matrix-style named-window detach');
     check(ui.includes('data-wf-action="detach"') && !ui.includes('Open separate'), 'WF-DETACH-UI', 'WatchFusion header still uses the old separate-window action');
-    check(ui.includes("mode === 'lan' || mode === 'cloudflare'") && ui.includes('snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl'), 'WF-SELECTED-EXPOSURE-URL', 'embedded and detached WatchFusion do not follow the selected Local/LAN/Cloudflare launch path');
+    check(sensing.includes("mode === 'lan' || mode === 'cloudflare'") && sensing.includes('snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl') && ui.includes('sensor()?.workspaceUrl?.(status'), 'WF-SELECTED-EXPOSURE-URL', 'embedded and detached WatchFusion do not follow the selected Local/LAN/Cloudflare launch path');
     check(networkServer.includes('127-0-0-1.sslip.io')
       && networkServer.includes('localEmbedHostUrl')
       && systemRoutes.includes('const localEmbedHost = LAN_MODE ? (preferredUrls.host || loopbackEmbedHost) : loopbackEmbedHost')
       && exposureControl.includes('hostUrl=host_url')
       && exposureControl.includes('exposureMode="local"')
-      && ui.includes('snapshot?.directHostUrl || snapshot?.hostUrl || snapshot?.localUrl')
+      && sensing.includes('snapshot?.directHostUrl || snapshot?.hostUrl || snapshot?.localUrl')
       && ui.includes('directHostUrl: direct.url')
       && sensing.indexOf('hostExposureOrigin') < sensing.indexOf('exposureOrigin) values.push(exposureOrigin)')
       && clientCore.includes('lanNetworkInfo?.localEmbedHost')
@@ -219,7 +219,7 @@ function sourceContract() {
     check(css.includes('.watchfusion-frame {') && css.includes('position: absolute;') && css.includes('inset: 0;'), 'WF-OUTER-FRAME-FILL', 'outer WatchFusion iframe is not pinned to the full remaining stage');
     check(css.includes('.watchfusion-frame-loading') && ui.includes('data-frame-state="idle"') && ui.includes('watchfusion-frame-loading') && frameCapabilities.includes("setFrameState(frame, 'loading'") && frameCapabilities.includes("setFrameState(activeFrame, 'ready')"), 'WF-OUTER-FRAME-LOADING-COVER', 'embedded WatchFusion can expose a blank frame before readiness');
     check(ui.includes("refresh({ reloadUi: true })") && ui.includes("EveWatchFusionFrameCapabilities?.reload?.(true)") && frameCapabilities.includes('window.EveWatchFusionFrameCapabilities') && frameCapabilities.includes('reloadFrame(activeFrame, manual)'), 'WF-REFRESH-UI-RELOAD', 'outer Refresh does not reload the embedded WatchFusion UI while background polling remains status-only');
-    check(ui.includes('const heartbeat = sensor()?.heartbeatState?.()') && ui.includes('heartbeat?.embedded ? heartbeat.embeddedUrl') && ui.includes('embedded.origin === runtime.origin') && ui.includes("url.searchParams.delete('_wfReload')"), 'WF-DETACH-ROOM-PATH', 'detached WatchFusion does not preserve the active room path on the selected exposure origin');
+    check(sensing.includes('const heartbeat = heartbeatState()') && sensing.includes('heartbeat.embedded ? heartbeat.embeddedUrl') && sensing.includes('embedded.origin === runtime.origin') && sensing.includes("url.searchParams.delete('_wfReload')") && ui.includes('detached: true'), 'WF-DETACH-ROOM-PATH', 'detached WatchFusion does not preserve the active room path on the selected exposure origin');
     check(roomRoutes.includes("type === 'volume'") && roomRoutes.includes('room.playback.muted = !!body.muted'), 'WF-ROOM-AUDIO-SERVER', 'room volume and mute are not authoritative server state');
     check(roomRoutes.includes("type === 'mirror'") && roomRoutes.includes("['play', 'pause', 'seek', 'rate', 'volume', 'source', 'mirror'"), 'WF-ATTACHED-ROOM-MIRROR', 'attached source state cannot atomically update the host room timeline');
     check(playbackCommands.includes('observeYouTubeAudio') && playbackSync.includes('applyRoomAudioState()'), 'WF-ROOM-AUDIO-CLIENT', 'YouTube host/viewer volume synchronization is incomplete');

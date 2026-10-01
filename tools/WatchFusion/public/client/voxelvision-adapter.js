@@ -177,4 +177,29 @@ function openVoxelVisionMode() {
   setStatus('Opening VoxelVision…');
 }
 
+function applyVoxelContinuitySettings(app, doc, snapshot) {
+  const settings = snapshot?.settings || {};
+  try {
+    if (snapshot?.title && doc?.getElementById('clipTitle')) doc.getElementById('clipTitle').textContent = snapshot.title;
+    if (Number.isFinite(Number(settings.grid))) app.setGridResolution?.(Number(settings.grid));
+    if (Number.isFinite(Number(settings.brightness))) {
+      app.brightness = Number(settings.brightness);
+      const slider = doc?.getElementById('brightnessSlider'); if (slider) slider.value = String(settings.brightness);
+    }
+    if (Number.isFinite(Number(settings.contrast))) {
+      app.contrast = Number(settings.contrast);
+      const slider = doc?.getElementById('contrastSlider'); if (slider) slider.value = String(settings.contrast);
+    }
+    if (settings.height != null) {
+      const slider = doc?.getElementById('heightSlider'); if (slider) slider.value = String(settings.height);
+      app.updateHeightScale?.();
+    }
+    if (settings.gap != null) {
+      const slider = doc?.getElementById('gapSlider'); if (slider) slider.value = String(settings.gap);
+    }
+  } catch {}
+}
+
+window.watchFusionVoxelContinuity = Object.freeze({ applySettings: applyVoxelContinuitySettings });
+
 initVoxelVisionProvider();

@@ -352,29 +352,6 @@
     if (video) await applyMediaState(video, snapshot.nuvio.media);
   }
 
-  function applyVoxelSettings(app, doc, snapshot) {
-    const settings = snapshot?.settings || {};
-    try {
-      if (snapshot?.title && doc?.getElementById('clipTitle')) doc.getElementById('clipTitle').textContent = snapshot.title;
-      if (Number.isFinite(Number(settings.grid))) app.setGridResolution?.(Number(settings.grid));
-      if (Number.isFinite(Number(settings.brightness))) {
-        app.brightness = Number(settings.brightness);
-        const s = doc?.getElementById('brightnessSlider'); if (s) s.value = String(settings.brightness);
-      }
-      if (Number.isFinite(Number(settings.contrast))) {
-        app.contrast = Number(settings.contrast);
-        const s = doc?.getElementById('contrastSlider'); if (s) s.value = String(settings.contrast);
-      }
-      if (settings.height != null) {
-        const s = doc?.getElementById('heightSlider'); if (s) s.value = String(settings.height);
-        app.updateHeightScale?.();
-      }
-      if (settings.gap != null) {
-        const s = doc?.getElementById('gapSlider'); if (s) s.value = String(settings.gap);
-      }
-    } catch {}
-  }
-
   async function restoreVoxel(snapshot) {
     if ((state?.source || snapshot?.source)?.kind !== 'voxelvision' || !snapshot?.voxel) return;
     const frame = await waitFor(() => document.getElementById('voxelVisionFrame'), 8000);
@@ -409,7 +386,7 @@
       }
     }
 
-    applyVoxelSettings(app, doc, voxel);
+    window.watchFusionVoxelContinuity?.applySettings?.(app, doc, voxel);
     await applyMediaState(app.video, voxel.playback);
   }
 
