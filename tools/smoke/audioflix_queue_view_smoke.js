@@ -102,9 +102,10 @@ async function main() {
     await page.click('[data-af-action="open-queue-view"]');
     await page.waitForSelector('.audioflix-provider-queue:not([hidden])', { timeout: 10000 });
 
-    const queued = await page.$$eval('.audioflix-provider-queue-list li', (li) => li.map((n) => n.textContent.trim()));
+    const queued = await page.$eval('.audioflix-provider-queue-list li', (li) => li.map((n) => n.textContent.trim()));
     assert(queued.length === 3, `queue lists every track in the group (got ${queued.length})`);
-    assert(/^▶/.test(queued[0]), `the current track is marked (got "${queued[0]}")`);
+    const currentLabel = await page.$eval('.audioflix-provider-queue-list li:first-child [data-url-player-action="queue-jump"]', (button) => button.textContent.trim());
+    assert(/^▶/.test(currentLabel), `the current track is marked on its queue-jump control (got "${currentLabel}")`);
     await page.waitForSelector('.audioflix-provider-queue-list .audioflix-queue-order-buttons');
     const queueHeight = await page.$eval('.audioflix-provider-queue', element => element.getBoundingClientRect().height);
     assert(queueHeight >= 140, `queue workspace is tall enough to manage ordering (got ${queueHeight}px)`);
