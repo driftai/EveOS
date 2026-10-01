@@ -53,6 +53,24 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
     // name and confirm by actually opening the file; failing that, accept any granted folder that
     // directly holds a file of that name.
     const pathBlobCache = new Map();
+    const MAX_PATH_BLOB_CACHE = 64;
+
+    function rememberPathBlob(cacheKey, url) {
+        if (pathBlobCache.has(cacheKey)) {
+            const previous = pathBlobCache.get(cacheKey);
+            if (previous && previous !== url) { try { URL.revokeObjectURL(previous); } catch {} }
+            pathBlobCache.delete(cacheKey);
+        }
+        while (pathBlobCache.size >= MAX_PATH_BLOB_CACHE) {
+            const oldestKey = pathBlobCache.keys().next().value;
+            const oldestUrl = pathBlobCache.get(oldestKey);
+            pathBlobCache.delete(oldestKey);
+            pathObjectUrls = pathObjectUrls.filter((entry) => entry !== oldestUrl);
+            try { URL.revokeObjectURL(oldestUrl); } catch {}
+        }
+        pathBlobCache.set(cacheKey, url);
+        pathObjectUrls.push(url);
+    }
 
     const paths = window.EveAudioflixPaths;
 
@@ -188,8 +206,7 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
             try {
                 const handle = await openRelativeFile(record.handle, browserPath.segments);
                 const url = URL.createObjectURL(await handle.getFile());
-                pathObjectUrls.push(url);
-                pathBlobCache.set(cacheKey, url);
+                rememberPathBlob(cacheKey, url);
                 return url;
             } catch {
                 return '';
@@ -217,8 +234,7 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
                 let handle = relative.length ? await openRelativeFile(rec.handle, relative) : null;
                 if (!handle) handle = await rec.handle.getFileHandle(file);
                 const url = URL.createObjectURL(await handle.getFile());
-                pathObjectUrls.push(url);
-                pathBlobCache.set(cacheKey, url);
+                rememberPathBlob(cacheKey, url);
                 return url;
             } catch { /* not in this folder — keep looking */ }
         }
@@ -227,8 +243,7 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
                 const handle = await findFileInTree(rec.handle, file);
                 if (!handle) continue;
                 const url = URL.createObjectURL(await handle.getFile());
-                pathObjectUrls.push(url);
-                pathBlobCache.set(cacheKey, url);
+                rememberPathBlob(cacheKey, url);
                 return url;
             } catch { /* unreadable tree - keep looking */ }
         }
