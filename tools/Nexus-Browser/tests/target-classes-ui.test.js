@@ -8,6 +8,7 @@ const INDEX = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
 const APP = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
 const APP_MIRROR_UI = fs.readFileSync(path.join(ROOT, 'public', 'app-mirror-ui.js'), 'utf8');
 const APP_TARGETS_UI = fs.readFileSync(path.join(ROOT, 'public', 'app-targets-ui.js'), 'utf8');
+const DEX_MODE = fs.readFileSync(path.join(ROOT, 'public', 'dex-mode.js'), 'utf8');
 
 test('Base Mode recognizes server-session lifecycle events instead of logging them as unhandled', () => {
   assert.match(APP, /case 'server_session':/);
@@ -47,9 +48,9 @@ test('Dex refuses ambiguous ChatGPT App bindings without native conversation ide
 
 test('Dex participant builder can refresh Online, Local and App-Origin targets in place', () => {
   assert.match(INDEX, /id="dexRefreshTargets"/);
-  assert.match(APP, /request_tabs/);
-  assert.match(APP, /request_local_targets/);
-  assert.match(APP, /request_app_targets/);
+  assert.match(DEX_MODE, /request_tabs/);
+  assert.match(DEX_MODE, /request_local_targets/);
+  assert.match(DEX_MODE, /request_app_targets/);
 });
 
 test('Capture latest stays hidden for Local-Origin while App-Origin can capture visible app replies', () => {
