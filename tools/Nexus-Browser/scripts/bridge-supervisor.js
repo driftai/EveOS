@@ -109,7 +109,11 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 (async () => {
   log('visible deterministic supervision active');
-  if (!(await healthy())) spawnServer();
-  else log('existing bridge server is already healthy');
-  setInterval(check, CHECK_MS);
+  if (!(await healthy())) {
+    spawnServer();
+    setInterval(check, CHECK_MS);
+    return;
+  }
+  log('existing bridge server is already healthy; extra supervisor exiting');
+  process.exit(0);
 })();

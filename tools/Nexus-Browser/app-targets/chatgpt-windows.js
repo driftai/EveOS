@@ -125,10 +125,15 @@ function createAdapter({
     return found ? selectorOf(found) : '';
   }
 
-  async function probeControls(windowInfo = null) {
+  async function probeControls(windowInfo = null, {
+    recoverComposer = true,
+    recoverSend = true
+  } = {}) {
     const snapshot = await inspect(windowInfo);
-    const composer = snapshot.composer || await recoverComposerElement(snapshot);
-    const sendButton = snapshot.sendButton || await recoverSendElement(snapshot, composer);
+    const composer = snapshot.composer
+      || (recoverComposer ? await recoverComposerElement(snapshot) : null);
+    const sendButton = snapshot.sendButton
+      || (recoverSend ? await recoverSendElement(snapshot, composer) : null);
     return {
       ...snapshot,
       composer,
@@ -294,7 +299,7 @@ function createAdapter({
       hwnd: target.windowHandle,
       pid: target.pid,
       title: target.title
-    });
+    }, { recoverComposer: true, recoverSend: false });
     const baselineSet = new Set(baseline.texts.map(normalizeCandidate));
     await stageAndSubmit(text, baseline);
 

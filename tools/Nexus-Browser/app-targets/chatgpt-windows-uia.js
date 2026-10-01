@@ -165,15 +165,20 @@ function composerScore(element = {}, context = {}) {
   if (/search|rename|filter|sidebar|title/.test(name + ' ' + automation)) return -1;
 
   const geometry = relativeGeometry(element, context.windowInfo);
+  const focusable = element.isKeyboardFocusable === true
+    || propertyText(element, 'IsKeyboardFocusable') === 'True';
   const bottomWide = geometry.widthRatio >= 0.28 && geometry.yRatio >= 0.55;
-  if (!semantic && !bottomWide) return -1;
+  const unnamedFocusableEditor = !name && !automation && focusable && !!selectorOf(element);
+  if (!semantic && !bottomWide && !unnamedFocusableEditor) return -1;
 
   let score = 0;
   if (/ask chatgpt|message chatgpt|send a message/.test(name)) score += 60;
   else if (/prompt/.test(name)) score += 28;
   if (/prompt|composer|textarea|chat[-_ ]?input/.test(automation)) score += 55;
   if (/editor|textbox|rich|webview|contenteditable/.test(className)) score += 8;
-  if (element.isKeyboardFocusable === true || propertyText(element, 'IsKeyboardFocusable') === 'True') score += 10;
+  if (focusable) score += 10;
+  if (unnamedFocusableEditor) score += 18;
+  if (Number(element.__depth) >= 4) score += Math.min(8, Number(element.__depth));
   if (type.includes('document')) score += 4;
   if (selectorOf(element)) score += 3;
   if (geometry.widthRatio >= 0.28) score += 18;

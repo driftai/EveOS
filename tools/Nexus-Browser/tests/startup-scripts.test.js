@@ -8,6 +8,7 @@ const ROOT = path.resolve(__dirname, '..');
 const START_BAT = path.join(ROOT, 'START.bat');
 const VERIFY_BAT = path.join(ROOT, 'VERIFY.bat');
 const BOOTSTRAP_BAT = path.join(ROOT, 'scripts', 'bootstrap.bat');
+const SUPERVISOR = path.join(ROOT, 'scripts', 'bridge-supervisor.js');
 
 const SCRIPTS = [
   { name: 'START.bat', path: START_BAT },
@@ -61,6 +62,12 @@ test('START.bat delegates to bootstrap and executes supervisor or server entry',
   assert.match(content, /scripts\\bootstrap\.bat|scripts\/bootstrap\.bat/, 'START.bat must delegate to bootstrap');
   assert.match(content, /node (?:scripts\\bridge-supervisor\.js|server\.js)/, 'START.bat must run bridge-supervisor or server.js');
   assert.match(content, /pause/, 'START.bat must pause on errorlevel 1');
+});
+
+test('bridge supervisor exits when another healthy Nexus runtime already owns the port', () => {
+  const content = fs.readFileSync(SUPERVISOR, 'utf8');
+  assert.match(content, /existing bridge server is already healthy; extra supervisor exiting/);
+  assert.match(content, /process\.exit\(0\)/);
 });
 
 test('VERIFY.bat delegates to bootstrap and executes npm test', () => {
