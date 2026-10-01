@@ -38,7 +38,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
             console.warn('[Audioflix] recovery guard missing — not persisting, to avoid data loss.');
             return { written: false, reason: 'recovery guard not loaded' };
         }
-        return guard.write(STORAGE_KEY, state, options);
+        const result = guard.write(STORAGE_KEY, state, options); if (result?.written) fallbackState = JSON.parse(JSON.stringify(state)); return result;
     }
 
     const { text, normalizeVolume, id, bool } = window.EveAudioflixStateSchema;
