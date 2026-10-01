@@ -66,14 +66,17 @@ function flattenElements(json) {
 }
 
 function controlType(element = {}) {
+  if (!element || typeof element !== 'object') return '';
   return String(element.controlType || element.type || element.localizedControlType || '').toLowerCase();
 }
 
 function selectorOf(element = {}) {
+  if (!element || typeof element !== 'object') return '';
   return String(element.elementId || element.slug || element.selector || element.id || '').trim();
 }
 
 function textOf(element = {}) {
+  if (!element || typeof element !== 'object') return '';
   for (const value of [element.text, element.value, element.name]) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     if (text) return text;
@@ -82,6 +85,7 @@ function textOf(element = {}) {
 }
 
 function propertyText(element = {}, key) {
+  if (!element || typeof element !== 'object') return '';
   const direct = element[key];
   if (direct != null) return String(direct);
   const props = element.properties || {};
