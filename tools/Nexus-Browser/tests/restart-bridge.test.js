@@ -35,3 +35,44 @@ test('restart helper verifies both EveOS checkout and expected command fragment'
     CommandLine: 'node  scripts\\bridge-supervisor.js'
   }, 'bridge-supervisor.js'), true);
 });
+
+
+test('restart helper trusts the verified live server parent over a stale supervisor pid file', () => {
+  const root = path.resolve(__dirname, '..').replace(///g, '\\');
+  const server = {
+    ProcessId: 116376,
+    ParentProcessId: 121672,
+    ExecutablePath: 'C:\\Program Files\\nodejs\\node.exe',
+    CommandLine: `"C:\\Program Files\\nodejs\\node.exe" "${root}\\server.js"`
+  };
+  const parent = {
+    ProcessId: 121672,
+    ParentProcessId: 555,
+    ExecutablePath: 'C:\\Program Files\\nodejs\\node.exe',
+    CommandLine: 'node  scripts\\bridge-supervisor.js'
+  };
+  const stale = {
+    ProcessId: 101424,
+    ParentProcessId: 555,
+    ExecutablePath: 'C:\\Program Files\\nodejs\\node.exe',
+    CommandLine: 'node scripts\\bridge-supervisor.js'
+  };
+  const selected = restart.chooseSupervisor({ server, parent, pidFile: stale });
+  assert.equal(selected.supervisor?.ProcessId, 121672);
+  assert.equal(selected.source, 'parent');
+  assert.equal(selected.stalePidFile, true);
+});
+
+test('restart helper rejects a non-node or non-supervisor parent even when it owns the server process', () => {
+  const server = { ProcessId: 10, ParentProcessId: 20 };
+  assert.equal(restart.verifiedSupervisorParent(server, {
+    ProcessId: 20,
+    ExecutablePath: 'C:\\Windows\\System32\\cmd.exe',
+    CommandLine: 'cmd.exe /c something'
+  }), false);
+  assert.equal(restart.chooseSupervisor({ server, parent: {
+    ProcessId: 20,
+    ExecutablePath: 'C:\\Program Files\\nodejs\\node.exe',
+    CommandLine: 'node scripts\\unrelated.js'
+  }}).supervisor, null);
+});

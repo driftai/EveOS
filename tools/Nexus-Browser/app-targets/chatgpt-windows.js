@@ -128,6 +128,9 @@ function createAdapter({
       || (recoverComposer ? await recoverComposerElement(snapshot) : null);
     const sendButton = snapshot.sendButton
       || (recoverSend ? await recoverSendElement(snapshot, composer) : null);
+    if (composer) {
+      lastDiagnostics = { ...lastDiagnostics, available: true, lastError: null, lastProbeAt: now() };
+    }
     return {
       ...snapshot,
       composer,

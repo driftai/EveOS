@@ -45,7 +45,7 @@ function listenerPidFromNetstat(text, port = PORT) {
 async function processInfo(pid) {
   const command = [
     `$p=Get-CimInstance Win32_Process -Filter 'ProcessId = ${Number(pid)}' -ErrorAction SilentlyContinue;`,
-    'if($p){[pscustomobject]@{ProcessId=$p.ProcessId;ParentProcessId=$p.ParentProcessId;CommandLine=$p.CommandLine}|ConvertTo-Json -Compress}'
+    'if($p){[pscustomobject]@{ProcessId=$p.ProcessId;ParentProcessId=$p.ParentProcessId;ExecutablePath=$p.ExecutablePath;CommandLine=$p.CommandLine}|ConvertTo-Json -Compress}'
   ].join('');
   const result = await execFileAsync('powershell.exe', [
     '-NoProfile', '-NonInteractive', '-Command', command
@@ -69,6 +69,48 @@ function readSupervisorPidFile() {
   } catch {
     return null;
   }
+}
+
+function writeSupervisorPidFile(pid) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 1) return false;
+  try {
+    const file = path.join(dataDir(), 'supervisor.pid');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, String(Number(pid)), 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function nodeProcess(info = {}) {
+  const executable = normalized(info?.ExecutablePath || '');
+  const command = normalized(info?.CommandLine || '');
+  return executable.endsWith('\\node.exe') || /(^|[\\\s"])node(?:\.exe)?([\s"]|$)/i.test(command);
+}
+
+function verifiedSupervisorParent(server, parent) {
+  if (!server || !parent) return false;
+  return Number(server.ParentProcessId || 0) === Number(parent.ProcessId || 0)
+    && nodeProcess(parent)
+    && commandHas(parent, 'bridge-supervisor.js');
+}
+
+function chooseSupervisor({
+  server,
+  parent = null,
+  reported = null,
+  pidFile = null
+} = {}) {
+  if (verifiedSupervisorParent(server, parent)) {
+    return { supervisor: parent, source: 'parent', stalePidFile: !!pidFile && Number(pidFile) !== Number(parent.ProcessId) };
+  }
+  for (const [source, candidate] of [['reported', reported], ['pid-file', pidFile]]) {
+    if (!candidate?.ProcessId || !nodeProcess(candidate) || !commandHas(candidate, 'bridge-supervisor.js')) continue;
+    if (Number(server?.ParentProcessId || 0) !== Number(candidate.ProcessId)) continue;
+    return { supervisor: candidate, source, stalePidFile: false };
+  }
+  return { supervisor: null, source: null, stalePidFile: false };
 }
 
 function ownsExpectedProcess(info, fragment) {
@@ -120,15 +162,23 @@ async function main() {
   const parentPid = Number(server?.ParentProcessId || 0) || null;
   const reportedSupervisorPid = Number(before.supervisorPid || 0) || null;
   const pidFileSupervisor = readSupervisorPidFile();
-  const expectedSupervisorPid = reportedSupervisorPid || pidFileSupervisor || parentPid;
-  const supervisor = expectedSupervisorPid ? await processInfo(expectedSupervisorPid) : null;
-  const parentMatches = !!parentPid && !!expectedSupervisorPid && parentPid === expectedSupervisorPid;
-  const pidFileMatches = !pidFileSupervisor || pidFileSupervisor === expectedSupervisorPid;
+  const [parent, reported, pidFileProcess] = await Promise.all([
+    parentPid ? processInfo(parentPid) : null,
+    reportedSupervisorPid && reportedSupervisorPid !== parentPid ? processInfo(reportedSupervisorPid) : null,
+    pidFileSupervisor && pidFileSupervisor !== parentPid && pidFileSupervisor !== reportedSupervisorPid
+      ? processInfo(pidFileSupervisor) : null
+  ]);
+  const selected = chooseSupervisor({
+    server,
+    parent,
+    reported: reportedSupervisorPid === parentPid ? parent : reported,
+    pidFile: pidFileSupervisor === parentPid ? parent
+      : pidFileSupervisor === reportedSupervisorPid ? reported : pidFileProcess
+  });
+  const supervisor = selected.supervisor;
   if (!before.supervised
       || !ownsExpectedProcess(server, 'server.js')
-      || !parentMatches
-      || !pidFileMatches
-      || !commandHas(supervisor, 'bridge-supervisor.js')) {
+      || !supervisor) {
     throw Object.assign(new Error(
       'Refusing to restart: port owner is not the verified EveOS Nexus server under its supervisor.'
     ), {
@@ -138,6 +188,7 @@ async function main() {
         serverPid,
         serverCommand: server?.CommandLine || null,
         parentPid,
+        parentCommand: parent?.CommandLine || null,
         reportedSupervisorPid,
         pidFileSupervisor,
         supervisorPid: supervisor?.ProcessId || null,
@@ -146,6 +197,10 @@ async function main() {
     });
   }
 
+  if (selected.stalePidFile) {
+    writeSupervisorPidFile(Number(supervisor.ProcessId));
+    console.log(`[Nexus Restart] repaired stale supervisor.pid (${pidFileSupervisor || 'missing'} -> ${supervisor.ProcessId}).`);
+  }
   console.log(`[Nexus Restart] recycling server PID ${serverPid} under supervisor PID ${supervisor.ProcessId}...`);
   const killed = await execFileAsync('taskkill.exe', ['/F', '/T', '/PID', String(serverPid)]);
   if (!killed.ok) {
@@ -186,6 +241,10 @@ module.exports = {
   listenerPidFromNetstat,
   commandHas,
   readSupervisorPidFile,
+  writeSupervisorPidFile,
+  nodeProcess,
+  verifiedSupervisorParent,
+  chooseSupervisor,
   ownsExpectedProcess,
   normalized,
   waitForReplacement

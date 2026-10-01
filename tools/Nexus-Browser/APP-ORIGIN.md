@@ -93,7 +93,10 @@ Current native response timing is deliberately low-latency but still stable:
 ## Process identity and safety
 
 A Dex App-Origin binding pins the stable target id/provider, concrete Windows
-process/window identity, and the active native ChatGPT conversation title. If ChatGPT
+process/window identity, and the active native ChatGPT conversation title. Native
+conversation-title discovery accepts the compact app header whether Windows UIA exposes
+it as Text, Heading, or a button-like header control; generic Back/Share/navigation
+chrome is excluded. If ChatGPT
 restarts, the PID/window changes, or the user switches to a different native
 conversation, the existing room binding fails closed and requires a human rebind.
 ChatGPT App targets without a detectable active conversation title are allowed in Base
@@ -237,7 +240,10 @@ npm run restart
 ```
 
 The visible supervisor self-registers `data/runtime/nexus-browser/supervisor.pid`
-with an exclusive claim and removes only its own PID on exit. This lets EveOS recognize
+with an exclusive claim and removes only its own PID on exit. `npm run restart`
+verifies the live server's actual parent process first; if an older run left a stale
+PID-file pointer, the verified parent wins and the PID file is repaired before the
+server child is recycled. This lets EveOS recognize
 and stop a Nexus instance launched through START.bat while also preventing simultaneous
 cold starts from creating two owners. A duplicate START invocation exits when another
 healthy supervisor/server already owns the port.

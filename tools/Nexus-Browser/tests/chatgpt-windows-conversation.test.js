@@ -110,3 +110,25 @@ test('native conversation identity prefers the active main header over sidebar l
   const snapshot = snapshotFromInspect({ windowInfo, json });
   assert.equal(activeConversationTitle(snapshot)?.text, 'Test response');
 });
+
+
+test('native conversation identity accepts the real app header when exposed as a button', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 100, y: 20, width: 1200, height: 900 };
+  const json = {
+    windows: [{
+      ...windowInfo,
+      elements: [{
+        selector: 'root', type: 'Pane', x: 100, y: 20, width: 1200, height: 900, children: [
+          { selector: 'btn-back', type: 'Button', name: 'Back', x: 112, y: 42, width: 36, height: 36, children: [] },
+          { selector: 'btn-chat-title', type: 'Button', name: 'Test response', x: 310, y: 58, width: 210, height: 32,
+            automationId: 'conversation-title', children: [] },
+          { selector: 'btn-share', type: 'Button', name: 'Share', x: 1080, y: 58, width: 70, height: 32, children: [] },
+          { selector: 'reply', type: 'Text', name: 'hello', x: 330, y: 260, width: 200, height: 30, children: [] }
+        ]
+      }]
+    }]
+  };
+  const title = activeConversationTitle(snapshotFromInspect({ windowInfo, json }));
+  assert.equal(title?.text, 'Test response');
+  assert.equal(title?.selector, 'btn-chat-title');
+});

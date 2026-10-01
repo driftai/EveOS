@@ -93,23 +93,33 @@ function activeConversationTitle(snapshot = {}) {
   const candidates = [];
   for (const element of snapshot.elements || []) {
     const type = uia.controlType(element);
-    if (!/(text|heading)/.test(type)) continue;
+    if (!/(text|heading|button|group|document)/.test(type)) continue;
     const text = uia.normalizeCandidate(nodeText(element));
     if (!text || text.length < 2 || text.length > 120) continue;
-    if (/^(chatgpt|chat|work|new chat|share|search|library|projects|settings)$/i.test(text)) continue;
+    if (/^(chatgpt|chat|work|new chat|share|search|library|projects|settings|home|back|forward)$/i.test(text)) continue;
     if (ASSISTANT_MARKER.test(text) || USER_MARKER.test(text) || uia.isChromeText(text)) continue;
+
     const rect = uia.rectOf(element);
     if (!rect.width || !rect.height || !frame.width || !frame.height) continue;
     const xRatio = ((rect.x + rect.width / 2) - frame.x) / frame.width;
     const yRatio = ((rect.y + rect.height / 2) - frame.y) / frame.height;
-    if (yRatio < 0.015 || yRatio > 0.16 || xRatio < 0.08 || xRatio > 0.86) continue;
-    let score = type.includes('heading') ? 40 : 20;
-    if (xRatio >= 0.12 && xRatio <= 0.65) score += 12;
-    if (yRatio <= 0.10) score += 10;
-    if (rect.width >= 70) score += 6;
-    candidates.push({ text, selector: uia.selectorOf(element), rect, score });
+    if (yRatio < 0.01 || yRatio > 0.19 || xRatio < 0.07 || xRatio > 0.88) continue;
+
+    const automationId = uia.propertyText(element, 'automationId').toLowerCase();
+    const className = uia.propertyText(element, 'className').toLowerCase();
+    const semantic = /conversation|thread|chat[-_ ]?title|header[-_ ]?title/.test(automationId + ' ' + className);
+
+    let score = type.includes('heading') ? 50
+      : type.includes('text') ? 30
+        : type.includes('button') ? 24 : 12;
+    if (semantic) score += 45;
+    if (xRatio >= 0.10 && xRatio <= 0.72) score += 14;
+    if (yRatio <= 0.11) score += 14;
+    if (rect.width >= 60 && rect.width <= frame.width * 0.65) score += 8;
+    if (text.length >= 4 && text.length <= 80) score += 5;
+    candidates.push({ text, selector: uia.selectorOf(element), rect, type, automationId, score });
   }
-  candidates.sort((a, b) => b.score - a.score || a.rect.y - b.rect.y);
+  candidates.sort((a, b) => b.score - a.score || a.rect.y - b.rect.y || a.rect.x - b.rect.x);
   return candidates[0] || null;
 }
 
