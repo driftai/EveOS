@@ -1,19 +1,19 @@
 'use strict';
 
-const defaultRunner = require('./winapp-runner');
-const uia = require('./chatgpt-windows-uia');
+const defaultRunner = require('./winapp-runner'), uia = require('./chatgpt-windows-uia');
+const conversation = require('./chatgpt-windows-conversation');
 const {
   windowsFromEnvelope, pickMainWindow, hwndOf, pidOf, selectorOf,
   composerScore, sendScore, rankCandidates, elementsFromSearch,
   normalizeCandidate, latestResponseCandidate, latestCandidate, snapshotFromInspect
 } = uia;
 
-const TARGET_ID = 'app-chatgpt-windows';
-const PROVIDER_ID = 'chatgpt-desktop';
-const PROVIDER_NAME = 'ChatGPT App';
+const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVIDER_NAME = 'ChatGPT App';
 const APP_MATCH = 'ChatGPT';
-const POLL_MS = 800;
-const SETTLE_MS = 3200;
+const FIRST_POLL_MS = 100;
+const POLL_MS = 250;
+const SETTLE_MS = 900;
+const POST_GENERATION_SETTLE_MS = 250;
 const RESPONSE_TIMEOUT_MS = 4 * 60 * 1000;
 
 let lastDiagnostics = {
@@ -31,8 +31,10 @@ function createAdapter({
   platform = process.platform,
   sleepFn = sleep,
   now = () => Date.now(),
+  firstPollMs = FIRST_POLL_MS,
   pollMs = POLL_MS,
   settleMs = SETTLE_MS,
+  postGenerationSettleMs = POST_GENERATION_SETTLE_MS,
   responseTimeoutMs = RESPONSE_TIMEOUT_MS
 } = {}) {
   async function helperStatus() {
@@ -40,7 +42,6 @@ function createAdapter({
     lastDiagnostics = { ...lastDiagnostics, available: !!helper.available, helper, lastProbeAt: now() };
     return helper;
   }
-
   async function findWindow() {
     const helper = await helperStatus();
     if (!helper.available || platform !== 'win32') return null;
@@ -62,8 +63,7 @@ function createAdapter({
     };
     return windowInfo;
   }
-
-  async function inspect(windowInfo = null) {
+  async function inspect(windowInfo = null, { includeOffscreen = false } = {}) {
     const resolved = windowInfo || await findWindow();
     if (!resolved) {
       const error = new Error('ChatGPT Windows app is not running or no visible app window was found.');
@@ -71,16 +71,15 @@ function createAdapter({
       throw error;
     }
     const hwnd = hwndOf(resolved);
-    const result = await runner.runJson([
-      'ui', 'inspect', '-w', String(hwnd), '--depth', '12', '--hide-offscreen'
-    ], { timeoutMs: 12000 });
+    const args = ['ui', 'inspect', '-w', String(hwnd), '--depth', '12'];
+    if (!includeOffscreen) args.push('--hide-offscreen');
+    const result = await runner.runJson(args, { timeoutMs: 12000 });
     const snapshot = snapshotFromInspect({ windowInfo: resolved, json: result.json });
     if (!snapshot.composerSelector) {
       lastDiagnostics = { ...lastDiagnostics, lastError: 'ChatGPT composer was not exposed through Windows UI Automation.' };
     }
     return snapshot;
   }
-
   async function searchCandidates(hwnd, queries, scoreFn, context, minimumScore) {
     const found = [];
     for (const query of queries) {
@@ -94,7 +93,6 @@ function createAdapter({
     const ranked = rankCandidates(found, scoreFn, context);
     return ranked.find((entry) => entry.score >= minimumScore)?.element || null;
   }
-
   async function recoverComposerElement(snapshot) {
     return searchCandidates(
       snapshot.hwnd,
@@ -104,7 +102,6 @@ function createAdapter({
       18
     );
   }
-
   async function recoverSendElement(snapshot, composer = snapshot.composer) {
     return searchCandidates(
       snapshot.hwnd,
@@ -114,17 +111,14 @@ function createAdapter({
       20
     );
   }
-
   async function recoverComposer(snapshot) {
     const found = await recoverComposerElement(snapshot);
     return found ? selectorOf(found) : '';
   }
-
   async function recoverSend(snapshot, composer = snapshot.composer) {
     const found = await recoverSendElement(snapshot, composer);
     return found ? selectorOf(found) : '';
   }
-
   async function probeControls(windowInfo = null, {
     recoverComposer = true,
     recoverSend = true
@@ -144,16 +138,21 @@ function createAdapter({
       recoveredSend: !snapshot.sendSelector && !!sendButton
     };
   }
-
   async function listTargets() {
     if (platform !== 'win32') return [];
     try {
       const windowInfo = await findWindow();
       if (!windowInfo) return [];
       const hwnd = hwndOf(windowInfo), pid = pidOf(windowInfo);
-      return [{
-        id: TARGET_ID,
-        title: String(windowInfo.title || windowInfo.name || 'ChatGPT'),
+      let conversationTitle = '';
+      try {
+        const snapshot = await inspect(windowInfo);
+        conversationTitle = conversation.activeConversationTitle(snapshot)?.text || '';
+      } catch {}
+      return [{ id: TARGET_ID,
+        title: conversationTitle
+          ? `ChatGPT · ${conversationTitle}`
+          : String(windowInfo.title || windowInfo.name || 'ChatGPT'),
         providerId: PROVIDER_ID,
         providerName: PROVIDER_NAME,
         targetTypeId: 'desktop-app',
@@ -166,16 +165,17 @@ function createAdapter({
           kind: 'windows-app-window',
           app: 'ChatGPT',
           processId: pid,
-          windowHandle: hwnd
+          windowHandle: hwnd,
+          ...(conversationTitle ? { conversationTitle } : {})
         },
-        capabilities: { chat: true, captureLatest: true, activity: false }
+        capabilities: { chat: true, captureLatest: true, activity: false,
+          exactConversationIdentity: !!conversationTitle }
       }];
     } catch (error) {
       lastDiagnostics = { ...lastDiagnostics, available: false, lastError: error.message, lastProbeAt: now() };
       return [];
     }
   }
-
   async function stageAndSubmit(text, baselineSnapshot) {
     let selector = baselineSnapshot.composerSelector;
     if (!selector) selector = await recoverComposer(baselineSnapshot);
@@ -187,7 +187,6 @@ function createAdapter({
       };
       throw error;
     }
-
     const hwnd = String(baselineSnapshot.hwnd);
     const setValue = (candidate) => runner.runJson(
       ['ui', 'set-value', candidate, String(text), '-w', hwnd],
@@ -202,7 +201,6 @@ function createAdapter({
         staged = await setValue(selector);
       }
     }
-
     if (!staged.ok) {
       const focused = await runner.runJson(
         ['ui', 'focus', selector, '-w', hwnd],
@@ -215,14 +213,12 @@ function createAdapter({
         );
       }
     }
-
     if (!staged.ok) {
       const error = new Error('ChatGPT app composer rejected programmatic text entry.');
       error.code = 'APP_INPUT_FAILED';
       error.detail = staged.json || staged.stderr || null;
       throw error;
     }
-
     let stagedSnapshot = await probeControls({
       hwnd: baselineSnapshot.hwnd,
       pid: baselineSnapshot.pid,
@@ -271,7 +267,6 @@ function createAdapter({
         throw error;
       }
     }
-
     await sleepFn(250);
     const committed = await inspect({
       hwnd: baselineSnapshot.hwnd,
@@ -293,7 +288,6 @@ function createAdapter({
     }
     return committed;
   }
-
   async function sendPrompt({ requestId, text, target, emit }) {
     const baseline = await probeControls({
       hwnd: target.windowHandle,
@@ -303,35 +297,36 @@ function createAdapter({
     const baselineSet = new Set(baseline.texts.map(normalizeCandidate));
     await stageAndSubmit(text, baseline);
 
-    emit?.({
-      type: 'prompt_accepted',
-      requestId,
-      targetClassId: 'app-origin',
-      targetId: target.id,
-      providerId: PROVIDER_ID,
-      providerName: PROVIDER_NAME,
-      observedAt: now()
-    });
+    const acceptedAt = now();
+    emit?.({ type: 'prompt_accepted', requestId, targetClassId: 'app-origin',
+      targetId: target.id, providerId: PROVIDER_ID, providerName: PROVIDER_NAME,
+      observedAt: acceptedAt });
 
-    const deadline = now() + responseTimeoutMs;
-    let lastText = '';
-    let lastChangedAt = now();
-    let lastSnapshot = null;
-    turnState.set(target.id, { phase: 'waiting', requestId, startedAt: now(), latestText: '' });
+    const deadline = acceptedAt + responseTimeoutMs;
+    let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null;
+    let sawGenerating = false, firstPoll = true, pollCount = 0;
+    turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
 
     while (now() < deadline) {
-      await sleepFn(pollMs);
+      await sleepFn(firstPoll ? firstPollMs : pollMs);
+      firstPoll = false;
       lastSnapshot = await inspect({
         hwnd: target.windowHandle,
         pid: target.pid,
         title: target.title
       });
-      const candidate = latestResponseCandidate(lastSnapshot, { baseline: baselineSet, prompt: text })?.text
+      pollCount += 1;
+      const observedAt = now();
+      if (lastSnapshot.generating) sawGenerating = true;
+      const candidate = conversation.latestAssistantReply(lastSnapshot, { baseline: baselineSet, prompt: text })?.text
+        || latestResponseCandidate(lastSnapshot, { baseline: baselineSet, prompt: text })?.text
         || latestCandidate(lastSnapshot.texts, { baseline: baselineSet, prompt: text });
       if (candidate && candidate !== lastText) {
         lastText = candidate;
-        lastChangedAt = now();
-        turnState.set(target.id, { phase: 'streaming', requestId, startedAt: turnState.get(target.id)?.startedAt || now(), latestText: candidate });
+        if (!firstResponseAt) firstResponseAt = observedAt;
+        lastChangedAt = observedAt;
+        turnState.set(target.id, { phase: 'streaming', requestId, startedAt: acceptedAt,
+          latestText: candidate, sawGenerating });
         emit?.({
           type: 'response_partial',
           requestId,
@@ -342,51 +337,71 @@ function createAdapter({
           providerName: PROVIDER_NAME
         });
       }
-      if (lastText && !lastSnapshot.generating && now() - lastChangedAt >= settleMs) {
-        turnState.set(target.id, { phase: 'idle', requestId, latestText: lastText, completedAt: now() });
+      const stableFor = observedAt - lastChangedAt;
+      const requiredSettle = sawGenerating ? postGenerationSettleMs : settleMs;
+      if (lastText && !lastSnapshot.generating && stableFor >= requiredSettle) {
+        try {
+          const fullSnapshot = await inspect({
+            hwnd: target.windowHandle, pid: target.pid, title: target.title
+          }, { includeOffscreen: true });
+          const expanded = conversation.latestAssistantReply(fullSnapshot, {
+            baseline: baselineSet, prompt: text, includeOffscreen: true
+          })?.text || '';
+          const reconstructed = conversation.preferExpandedReply(lastText, expanded);
+          if (reconstructed && reconstructed !== lastText) {
+            lastText = reconstructed;
+            lastSnapshot = fullSnapshot;
+            emit?.({ type: 'response_partial', requestId, text: lastText,
+              targetClassId: 'app-origin', targetId: target.id,
+              providerId: PROVIDER_ID, providerName: PROVIDER_NAME });
+          }
+        } catch {}
+        const finalizedAt = now();
+        const timing = {
+          timeToFirstResponseMs: firstResponseAt ? Math.max(0, firstResponseAt - acceptedAt) : null,
+          totalResponseMs: Math.max(0, finalizedAt - acceptedAt), adapterSettleMs: stableFor,
+          pollCount, sawGenerating
+        };
+        turnState.set(target.id, { phase: 'idle', requestId, latestText: lastText,
+          completedAt: finalizedAt, sawGenerating, timing });
         emit?.({
-          type: 'response_final',
-          requestId,
-          text: lastText,
-          observedAt: now(),
-          completenessHint: 'settled',
-          targetClassId: 'app-origin',
-          targetId: target.id,
-          providerId: PROVIDER_ID,
-          providerName: PROVIDER_NAME
+          type: 'response_final', requestId, text: lastText, observedAt: finalizedAt,
+          completenessHint: sawGenerating ? 'generation-ended' : 'settled',
+          detail: timing,
+          targetClassId: 'app-origin', targetId: target.id,
+          providerId: PROVIDER_ID, providerName: PROVIDER_NAME
         });
         return { text: lastText, snapshot: lastSnapshot };
       }
     }
-
     const error = new Error('Timed out waiting for a stable ChatGPT app reply.');
     error.code = 'APP_RESPONSE_TIMEOUT';
     turnState.set(target.id, { phase: 'error', requestId, latestText: lastText, error: error.message, at: now() });
     throw error;
   }
-
   async function captureLatest({ target }) {
     const snapshot = await inspect({
       hwnd: target.windowHandle,
       pid: target.pid,
       title: target.title
-    });
+    }, { includeOffscreen: true });
     const remembered = turnState.get(target.id)?.latestText || '';
-    const live = latestResponseCandidate(snapshot)?.text || snapshot.latestResponseText || '';
-    return { text: live || remembered || snapshot.latestText || '', snapshot };
+    const grouped = conversation.latestAssistantReply(snapshot, { includeOffscreen: true });
+    const live = grouped?.text || latestResponseCandidate(snapshot)?.text || snapshot.latestResponseText || '';
+    return { text: live || remembered || snapshot.latestText || '', snapshot,
+      replyParts: grouped?.partCount || (live ? 1 : 0), observedAt: now(),
+      isGenerating: !!snapshot.generating, generationState: snapshot.generating ? 'active' : 'idle',
+      completenessHint: snapshot.generating ? 'incomplete' : 'settled' };
   }
-
   function status(targetId = TARGET_ID) {
     return {
       ...(turnState.get(targetId) || { phase: 'idle' }),
       diagnostics: { ...lastDiagnostics }
     };
   }
-
   function diagnostics() {
     return { ...lastDiagnostics };
   }
-
   return {
     TARGET_ID,
     ownsTarget: (targetId) => targetId === TARGET_ID,
@@ -400,7 +415,6 @@ function createAdapter({
     findWindow
   };
 }
-
 const defaultAdapter = createAdapter();
 
 module.exports = {
@@ -408,8 +422,10 @@ module.exports = {
   PROVIDER_ID,
   PROVIDER_NAME,
   APP_MATCH,
+  FIRST_POLL_MS,
   POLL_MS,
   SETTLE_MS,
+  POST_GENERATION_SETTLE_MS,
   RESPONSE_TIMEOUT_MS,
   ...uia,
   createAdapter,

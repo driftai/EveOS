@@ -251,6 +251,9 @@ function hostAccessUiMessage(msg) {
 function handleMessage(msg) {
   if (appMirrorUi?.handleMessage(msg) || appTargetsUi?.handleMessage(msg)) return;
   switch (msg.type) {
+    case 'server_session':
+      log(`Bridge session ${msg.id || 'unknown'} · assets ${msg.assetRevision || 'unknown'}.`);
+      break;
     case 'bridge_status':
       state.extensionConnected = !!msg.connected;
       renderStatus();
@@ -315,7 +318,8 @@ function handleMessage(msg) {
       const node = addMessage('assistant', msg.text || '', `assistant-${msg.requestId}`, false, assistantDisplayName(msg));
       const activityPanel = node.querySelector('.activity-panel');
       if (activityPanel && !activityPanel.hidden) activityPanel.open = false;
-      log(`${assistantDisplayName(msg)} final response ${msg.requestId || ''} (${(msg.text || '').length} chars).`);
+      const timing = Number.isFinite(Number(msg.detail?.totalResponseMs)) ? ` · ${Number(msg.detail.totalResponseMs)} ms total · first ${Number(msg.detail?.timeToFirstResponseMs || 0)} ms · ${Number(msg.detail?.pollCount || 0)} poll(s)` : '';
+      log(`${assistantDisplayName(msg)} final response ${msg.requestId || ''} (${(msg.text || '').length} chars)${timing}.`);
       state.pending.delete(msg.requestId);
       break;
     }

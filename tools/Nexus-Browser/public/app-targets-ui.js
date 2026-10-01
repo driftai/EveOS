@@ -48,7 +48,9 @@
       }
       for (const target of visible) {
         const suffix = target.pid ? ` · PID ${target.pid}` : '';
-        el.target.add(new Option(`${target.providerName || target.title}${suffix}`, target.id));
+        const conversation = target.concreteTargetIdentity?.conversationTitle;
+        const label = `${target.providerName || target.title}${conversation ? ` — ${conversation}` : ''}${suffix}`;
+        el.target.add(new Option(label, target.id));
       }
       if (visible.some((target) => target.id === previous)) el.target.value = previous;
     }

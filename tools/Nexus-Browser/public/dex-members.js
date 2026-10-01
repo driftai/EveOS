@@ -5,7 +5,16 @@
     if (binding.targetClassId !== source.targetClassId
       || binding.providerId !== source.providerId) return false;
     if (binding.targetClassId === 'local-origin')
-      return !!binding.targetId && String(binding.targetId) === String(source.targetId ?? '');
+      return !!binding.targetId && String(binding.targetId) === String(source.targetId ?? source.id ?? '');
+    if (binding.targetClassId === 'app-origin') {
+      if (!binding.targetId || String(binding.targetId) !== String(source.targetId ?? source.id ?? '')) return false;
+      const bound = binding.concreteTargetIdentity || {}, live = source.concreteTargetIdentity || {};
+      if (binding.providerId === 'chatgpt-desktop' && !bound.conversationTitle) return false;
+      if (bound.processId && String(bound.processId) !== String(live.processId || '')) return false;
+      if (bound.windowHandle && String(bound.windowHandle) !== String(live.windowHandle || '')) return false;
+      if (bound.conversationTitle && String(bound.conversationTitle) !== String(live.conversationTitle || '')) return false;
+      return true;
+    }
     if (binding.targetClassId !== 'online-origin') return false;
     const hasId = binding.targetId != null && String(binding.targetId) !== '';
     if (hasId && (source.targetId == null
@@ -28,9 +37,12 @@
   }
 
   function memberFingerprint(binding = {}) {
-    return binding.targetClassId === 'online-origin'
-      ? `online:${binding.providerId}:${binding.url || binding.targetId}`
-      : `local:${binding.providerId}:${binding.targetId}`;
+    if (binding.targetClassId === 'online-origin') return `online:${binding.providerId}:${binding.url || binding.targetId}`;
+    if (binding.targetClassId === 'app-origin') {
+      const identity = binding.concreteTargetIdentity || {};
+      return `app:${binding.providerId}:${binding.targetId}:${identity.processId || ''}:${identity.windowHandle || ''}:${identity.conversationTitle || ''}`;
+    }
+    return `local:${binding.providerId}:${binding.targetId}`;
   }
 
   function stableMemberId(binding) {
@@ -66,14 +78,19 @@
   }
 
   function memberTypeId(binding = {}) {
-    return binding.targetClassId === 'local-origin'
+    return ['local-origin', 'app-origin'].includes(binding.targetClassId)
       ? binding.targetTypeId || ''
       : binding.providerId || '';
   }
 
-  function availableTargetId(binding = {}, tabs = [], localTargets = []) {
+  function availableTargetId(binding = {}, tabs = [], localTargets = [], appTargets = []) {
     if (binding.targetClassId === 'local-origin') {
       return String(localTargets.find((target) => target.id === binding.targetId)?.id || '');
+    }
+    if (binding.targetClassId === 'app-origin') {
+      const target = appTargets.find((item) => exactBinding(binding, { ...item,
+        targetClassId: 'app-origin', targetId: item.id }));
+      return String(target?.id || '');
     }
     const target = tabs.find(tab => exactBinding(binding, { targetClassId: 'online-origin',
       targetId: tab.id, providerId: tab.providerId, url: tab.url }))
@@ -113,7 +130,7 @@
       el.dexMemberType.replaceChildren();
       const typeOptions = targetClass === 'online-origin'
         ? (state.providers.length ? state.providers : [...new Map(state.tabs.map((tab) => [tab.providerId, { id: tab.providerId, name: tab.providerName }])).values()])
-        : state.localTypes;
+        : targetClass === 'app-origin' ? state.appTypes : state.localTypes;
       for (const type of typeOptions) el.dexMemberType.add(new Option(type.name, type.id));
       if ([...el.dexMemberType.options].some((option) => option.value === previousType)) {
         el.dexMemberType.value = previousType;
@@ -122,11 +139,15 @@
       const selectedType = el.dexMemberType.value;
       const targets = targetClass === 'online-origin'
         ? state.tabs.filter((tab) => tab.providerId === selectedType)
-        : state.localTargets.filter((target) => !selectedType || target.targetTypeId === selectedType);
+        : targetClass === 'app-origin'
+          ? state.appTargets.filter((target) => !selectedType || target.targetTypeId === selectedType)
+          : state.localTargets.filter((target) => !selectedType || target.targetTypeId === selectedType);
       for (const target of targets) {
         const label = targetClass === 'online-origin'
           ? `${target.title || target.providerName} — ${target.url}`
-          : target.title;
+          : targetClass === 'app-origin'
+            ? `${target.providerName || 'App'}${target.concreteTargetIdentity?.conversationTitle ? ` — ${target.concreteTargetIdentity.conversationTitle}` : ''}${target.pid ? ` · PID ${target.pid}` : ''}`
+            : target.title;
         el.dexMemberTarget.add(new Option(label, String(target.id)));
       }
       if ([...el.dexMemberTarget.options].some((option) => option.value === previousTarget)) {
@@ -147,7 +168,7 @@
       renderBuilder({
         targetClassId: binding.targetClassId || 'online-origin',
         typeId: memberTypeId(binding),
-        targetId: availableTargetId(binding, state.tabs, state.localTargets)
+        targetId: availableTargetId(binding, state.tabs, state.localTargets, state.appTargets)
       });
       renderAll();
     }
@@ -161,8 +182,10 @@
         text.innerHTML = `<strong></strong><span></span>`;
         text.querySelector('strong').textContent = member.name;
         const binding = member.binding || {};
-        const surface = binding.targetTypeName || binding.targetTypeId || (binding.targetClassId === 'local-origin' ? 'Local target' : 'Browser tab');
-        text.querySelector('span').textContent = ` ${binding.targetClassId === 'local-origin' ? 'Local' : 'Online'} · ${surface} · ${binding.providerName || binding.providerId} · ${member.relayEnabled === false ? 'Observer · ' : ''}${binding.title || binding.url || binding.targetId}`;
+        const surface = binding.targetTypeName || binding.targetTypeId
+          || (binding.targetClassId === 'local-origin' ? 'Local target' : binding.targetClassId === 'app-origin' ? 'Desktop app' : 'Browser tab');
+        const origin = binding.targetClassId === 'local-origin' ? 'Local' : binding.targetClassId === 'app-origin' ? 'App' : 'Online';
+        text.querySelector('span').textContent = ` ${origin} · ${surface} · ${binding.providerName || binding.providerId} · ${member.relayEnabled === false ? 'Observer · ' : ''}${binding.title || binding.url || binding.targetId}`;
         const actions = document.createElement('div');
         actions.className = 'dex-member-actions';
         const edit = document.createElement('button');
@@ -196,8 +219,14 @@
       const targetId = el.dexMemberTarget.value;
       const source = targetClassId === 'online-origin'
         ? state.tabs.find((tab) => String(tab.id) === targetId)
-        : state.localTargets.find((target) => target.id === targetId);
+        : targetClassId === 'app-origin'
+          ? state.appTargets.find((target) => target.id === targetId)
+          : state.localTargets.find((target) => target.id === targetId);
       if (!source) return log('Choose an available target first.');
+      if (targetClassId === 'app-origin' && source.providerId === 'chatgpt-desktop'
+          && !source.concreteTargetIdentity?.conversationTitle) {
+        return log('Open the intended ChatGPT conversation first, refresh App-Origin targets, then bind it.');
+      }
       const binding = bindingFromSource(targetClassId, source);
       const existing = room.members.find((member) => member.id === editingMemberId) || null;
       if (hasBindingConflict(room.members, binding, existing?.id || null)) {

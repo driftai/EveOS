@@ -21,6 +21,7 @@ const CACHE_MS = Number(process.env.NEXUS_BROWSER_APP_TARGET_CACHE_MS
 let cachedTargets = null;
 let cachedAt = 0;
 let listInFlight = null;
+const activeSends = new Set();
 
 function normalizeAppTarget(target = {}) {
   const pid = Number(target.pid || 0) || null;
@@ -60,10 +61,13 @@ async function adapterTargets(adapter) {
 }
 
 async function listAppTargets({ force = false, now = Date.now() } = {}) {
+  if (listInFlight) {
+    const targets = await listInFlight;
+    return targets.map((target) => ({ ...target }));
+  }
   if (!force && cachedTargets && now - cachedAt < CACHE_MS) {
     return cachedTargets.map((target) => ({ ...target }));
   }
-  if (!force && listInFlight) return listInFlight;
   listInFlight = (async () => {
     const targets = [];
     for (const adapter of adapters) {
@@ -72,9 +76,14 @@ async function listAppTargets({ force = false, now = Date.now() } = {}) {
     }
     cachedTargets = targets;
     cachedAt = Date.now();
+    return targets;
+  })();
+  try {
+    const targets = await listInFlight;
     return targets.map((target) => ({ ...target }));
-  })().finally(() => { listInFlight = null; });
-  return listInFlight;
+  } finally {
+    listInFlight = null;
+  }
 }
 
 async function getAppTarget(targetId, { force = false } = {}) {
@@ -117,7 +126,7 @@ async function captureAppLatest({ targetId }) {
   return { ...result, target };
 }
 
-async function sendAppPrompt({ targetId, requestId, text, emit }) {
+async function sendAppPrompt({ targetId, requestId, text, emit, beforeSend = null }) {
   if (!targetId) {
     const error = new Error('No App-Origin target is selected.');
     error.code = 'APP_TARGET_NOT_SELECTED';
@@ -135,7 +144,18 @@ async function sendAppPrompt({ targetId, requestId, text, emit }) {
     error.code = 'APP_SEND_UNSUPPORTED';
     throw error;
   }
-  return adapter.sendPrompt({ requestId, text, target, emit });
+  if (activeSends.has(target.id)) {
+    const error = new Error('That App-Origin target is already handling another prompt.');
+    error.code = 'APP_TARGET_BUSY';
+    throw error;
+  }
+  activeSends.add(target.id);
+  try {
+    if (typeof beforeSend === 'function') await beforeSend(target);
+    return await adapter.sendPrompt({ requestId, text, target, emit });
+  } finally {
+    activeSends.delete(target.id);
+  }
 }
 
 function discoveryDiagnostics() {
@@ -146,6 +166,10 @@ function discoveryDiagnostics() {
     catch (error) { result[name] = { available: false, lastError: error.message }; }
   }
   return result;
+}
+
+function appTargetBusy(targetId) {
+  return activeSends.has(String(targetId || ''));
 }
 
 function invalidateAppTargetCache() {
@@ -174,5 +198,6 @@ module.exports = {
   sendAppPrompt,
   discoveryDiagnostics,
   invalidateAppTargetCache,
-  stopAppTargets
+  stopAppTargets,
+  appTargetBusy
 };

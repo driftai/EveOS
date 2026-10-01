@@ -17,6 +17,8 @@ const agentSource = fs.readFileSync(agentPath, 'utf8');
 const manifest = fs.readFileSync(manifestPath, 'utf8');
 const cssFacade = fs.readFileSync(cssFacadePath, 'utf8');
 const css = fs.readFileSync(cssPath, 'utf8');
+const detachedSource = fs.readFileSync(path.join(ROOT, 'tools', 'Nexus-Browser', 'public', 'detached-state.js'), 'utf8');
+const nexusIndex = fs.readFileSync(path.join(ROOT, 'tools', 'Nexus-Browser', 'public', 'index.html'), 'utf8');
 const requests = [];
 const listeners = {};
 const rootMock = {
@@ -35,6 +37,7 @@ const windowMock = {
     }
   },
   open() {},
+  addEventListener() {},
   setTimeout,
   clearTimeout
 };
@@ -45,6 +48,17 @@ const markup = windowMock.EveOSNexusBrowser.markup();
 assert.match(markup, /data-agent-tool-id="nexus-browser"/);
 assert.match(markup, /data-nexus-browser-action="(?:setup|start|stop|extension|detached)"/);
 assert.match(markup, /data-nexus-browser-frame/);
+assert.match(markup, /data-nexus-browser-detached>Closed/);
+assert.match(source, /popup=yes,width=1280,height=900/);
+assert.match(source, /eveosDetached/);
+assert.match(source, /Date\.now\(\) - detachedSeenAt < DETACHED_HEARTBEAT_MS/,
+  'Detached-open state must expire without child heartbeats');
+assert.match(source, /!running && detachedWindow && !detachedWindow\.closed\) closeDetached\(\)/,
+  'Stopping Nexus must close its detached popup instead of leaving a stale window');
+assert.match(nexusIndex, /detached-state\.js/);
+assert.match(detachedSource, /eveos:nexus-detached-state/);
+assert.match(detachedSource, /beforeunload/);
+assert.doesNotMatch(source, /window\.open\([^\n]*'_blank'/, 'Detached Nexus must not open as a generic browser tab');
 assert.doesNotMatch(source, /localStorage|sessionStorage|\/api\/nexus-browser\/start[^']*activate/);
 assert.match(source, /frame\.src = 'about:blank'/, 'Stop must unload the embedded runtime');
 windowMock.EveOSNexusBrowser.bind(rootMock);

@@ -172,6 +172,7 @@
           <section class="dex-card">
             <div class="dex-section-head">
               <h2>Participants</h2>
+              <button id="dexRefreshTargets" class="secondary" type="button">Refresh targets</button>
             </div>
             <div class="dex-member-builder">
               <div class="dex-field">
@@ -179,6 +180,7 @@
                 <select id="dexMemberClass">
                   <option value="online-origin">Online-Origin</option>
                   <option value="local-origin">Local-Origin</option>
+                  <option value="app-origin">App-Origin</option>
                 </select>
               </div>
               <div class="dex-field">
@@ -186,7 +188,7 @@
                 <select id="dexMemberType"></select>
               </div>
               <div class="dex-field">
-                <label for="dexMemberTarget">Specific chat / agent</label>
+                <label for="dexMemberTarget">Specific target</label>
                 <select id="dexMemberTarget"></select>
               </div>
               <div class="dex-field">
@@ -234,6 +236,7 @@
   <script src="/search-results.js"></script>
   <script src="/activity-ui.js"></script>
   <script src="/ui-socket.js"></script>
+  <script src="/detached-state.js"></script>
   <script src="/app-mirror-ui.js"></script>
   <script src="/app-targets-ui.js"></script>
   <script src="/app.js"></script>

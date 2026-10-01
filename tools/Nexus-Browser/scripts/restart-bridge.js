@@ -1,8 +1,9 @@
 'use strict';
 
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
-const { urls, servicePort } = require('../runtime-config');
+const { urls, servicePort, dataDir } = require('../runtime-config');
 
 const ROOT = path.resolve(__dirname, '..');
 const PORT = servicePort();
@@ -57,6 +58,19 @@ function normalized(value) {
   return String(value || '').replace(/\//g, '\\').toLowerCase();
 }
 
+function commandHas(info, fragment) {
+  return normalized(info?.CommandLine).includes(normalized(fragment));
+}
+
+function readSupervisorPidFile() {
+  try {
+    const pid = Number(fs.readFileSync(path.join(dataDir(), 'supervisor.pid'), 'utf8').trim());
+    return Number.isInteger(pid) && pid > 1 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
 function ownsExpectedProcess(info, fragment) {
   if (!info?.CommandLine) return false;
   const command = normalized(info.CommandLine);
@@ -91,8 +105,11 @@ async function main() {
     });
   }
 
-  const netstat = await execFileAsync('netstat.exe', ['-ano', '-p', 'tcp']);
-  const serverPid = listenerPidFromNetstat(netstat.stdout);
+  let serverPid = Number(before.serverPid || 0) || null;
+  if (!serverPid) {
+    const netstat = await execFileAsync('netstat.exe', ['-ano', '-p', 'tcp']);
+    serverPid = listenerPidFromNetstat(netstat.stdout);
+  }
   if (!serverPid) {
     throw Object.assign(new Error(`No listener PID was found for Nexus port ${PORT}.`), {
       code: 'NEXUS_RESTART_LISTENER_NOT_FOUND'
@@ -100,16 +117,29 @@ async function main() {
   }
 
   const server = await processInfo(serverPid);
-  const supervisor = server?.ParentProcessId ? await processInfo(server.ParentProcessId) : null;
-  if (!ownsExpectedProcess(server, 'server.js')
-      || !ownsExpectedProcess(supervisor, 'bridge-supervisor.js')) {
+  const parentPid = Number(server?.ParentProcessId || 0) || null;
+  const reportedSupervisorPid = Number(before.supervisorPid || 0) || null;
+  const pidFileSupervisor = readSupervisorPidFile();
+  const expectedSupervisorPid = reportedSupervisorPid || pidFileSupervisor || parentPid;
+  const supervisor = expectedSupervisorPid ? await processInfo(expectedSupervisorPid) : null;
+  const parentMatches = !!parentPid && !!expectedSupervisorPid && parentPid === expectedSupervisorPid;
+  const pidFileMatches = !pidFileSupervisor || pidFileSupervisor === expectedSupervisorPid;
+  if (!before.supervised
+      || !ownsExpectedProcess(server, 'server.js')
+      || !parentMatches
+      || !pidFileMatches
+      || !commandHas(supervisor, 'bridge-supervisor.js')) {
     throw Object.assign(new Error(
       'Refusing to restart: port owner is not the verified EveOS Nexus server under its supervisor.'
     ), {
       code: 'NEXUS_RESTART_OWNERSHIP_MISMATCH',
       detail: {
+        supervised: !!before.supervised,
         serverPid,
         serverCommand: server?.CommandLine || null,
+        parentPid,
+        reportedSupervisorPid,
+        pidFileSupervisor,
         supervisorPid: supervisor?.ProcessId || null,
         supervisorCommand: supervisor?.CommandLine || null
       }
@@ -154,6 +184,8 @@ if (require.main === module) {
 
 module.exports = {
   listenerPidFromNetstat,
+  commandHas,
+  readSupervisorPidFile,
   ownsExpectedProcess,
   normalized,
   waitForReplacement

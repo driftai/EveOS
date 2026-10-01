@@ -198,6 +198,24 @@ test('native reply extraction ignores Latest response chrome and right-aligned u
   assert.equal(snapshot.latestResponseText, "Test received, Drift. Eve's here 😋");
 });
 
+test('native reply extraction ignores the Windows app disclaimer footer', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
+  const json = {
+    windows: [{
+      ...windowInfo,
+      elements: [{
+        selector: 'pn-root', type: 'Pane', x: 0, y: 0, width: 1200, height: 900, children: [
+          { selector: 'txt-assistant', type: 'Text', name: 'NATIVE_EVE_OK', x: 300, y: 510, width: 160, height: 30, children: [] },
+          { selector: 'txt-footer', type: 'Text', name: 'ChatGPT is AI and can make mistakes. Check important info.', x: 420, y: 820, width: 400, height: 18, children: [] },
+          { selector: 'doc-compose', type: 'Document', name: 'Ask ChatGPT', x: 320, y: 790, width: 800, height: 64, isKeyboardFocusable: true, children: [] }
+        ]
+      }]
+    }]
+  };
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  assert.equal(snapshot.latestResponseText, 'NATIVE_EVE_OK');
+});
+
 test('reply delta ignores baseline and the exact user prompt', () => {
   const baseline = new Set(['Old answer']);
   assert.equal(
@@ -270,6 +288,53 @@ test('ChatGPT Windows adapter drives prompt into app and returns settled reply',
   ]);
   assert.equal(events.at(-1).text, 'Final app reply');
   assert.equal(events.at(-1).targetClassId, 'app-origin');
+  assert.ok(Number.isFinite(events.at(-1).detail?.adapterSettleMs));
+  assert.ok(Number.isFinite(events.at(-1).detail?.totalResponseMs));
+  assert.ok(Number.isFinite(events.at(-1).detail?.timeToFirstResponseMs));
+  assert.ok(Number(events.at(-1).detail?.pollCount) >= 1);
+});
+
+test('ChatGPT Windows adapter uses a fast first poll and short post-generation settle', async () => {
+  let clock = 0;
+  const sleeps = [];
+  const inspectSequence = [
+    tree({ text: ['Old answer'] }),
+    tree({ composer: 'speed test', text: ['Old answer'], send: true }),
+    tree({ text: ['Old answer', 'speed test'], stop: true }),
+    tree({ text: ['Old answer', 'speed test', 'Fast reply'], stop: true }),
+    tree({ text: ['Old answer', 'speed test', 'Fast reply'] })
+  ];
+  const runner = {
+    async availability() { return { available: true, command: 'winapp.exe' }; },
+    async runJson(args) {
+      if (args[1] === 'inspect') {
+        const json = inspectSequence.shift();
+        if (!json) throw new Error('Unexpected extra inspect');
+        return { ok: true, json, stderr: '', stdout: '' };
+      }
+      if (args[1] === 'set-value' || args[1] === 'invoke') {
+        return { ok: true, json: { ok: true }, stderr: '', stdout: '' };
+      }
+      throw new Error('Unexpected command: ' + args.join(' '));
+    }
+  };
+  const adapter = createAdapter({
+    runner,
+    platform: 'win32',
+    sleepFn: async (ms) => { sleeps.push(ms); clock += ms; },
+    now: () => clock,
+    responseTimeoutMs: 30000
+  });
+  const result = await adapter.sendPrompt({
+    requestId: 'app-speed-1',
+    text: 'speed test',
+    target: { id: 'app-chatgpt-windows', title: 'ChatGPT', windowHandle: 501, pid: 9001 },
+    emit: () => {}
+  });
+  assert.equal(result.text, 'Fast reply');
+  assert.equal(sleeps[0], 250);
+  assert.equal(sleeps[1], 100);
+  assert.ok(sleeps.slice(2).every((ms) => ms === 250));
 });
 
 test('ChatGPT Windows adapter focuses the recovered composer before keyboard fallback', async () => {
@@ -338,17 +403,27 @@ test('ChatGPT Windows adapter focuses the recovered composer before keyboard fal
   assert.equal(events.at(-1).type, 'response_final');
 });
 
-test('ChatGPT Windows adapter advertises one stable App-Origin target from winapp window discovery', async () => {
+test('ChatGPT Windows adapter advertises exact app process and active conversation identity', async () => {
+  const windowInfo = { hwnd: 777, pid: 4242, title: 'ChatGPT', x: 0, y: 0, width: 1000, height: 700 };
   const runner = {
     async availability() { return { available: true, command: 'winapp.exe' }; },
     async runJson(args) {
-      assert.equal(args[1], 'list-windows');
-      return {
-        ok: true,
-        json: { windows: [{ hwnd: 777, pid: 4242, title: 'ChatGPT', width: 1000, height: 700 }] },
-        stderr: '',
-        stdout: ''
-      };
+      if (args[1] === 'list-windows') {
+        return { ok: true, json: { windows: [windowInfo] }, stderr: '', stdout: '' };
+      }
+      if (args[1] === 'inspect') {
+        return {
+          ok: true,
+          json: { windows: [{ ...windowInfo, elements: [{
+            selector: 'root', type: 'Pane', x: 0, y: 0, width: 1000, height: 700, children: [
+              { selector: 'chat-title', type: 'Heading', name: 'Native Eve Test',
+                x: 180, y: 45, width: 240, height: 26, children: [] }
+            ]
+          }] }] },
+          stderr: '', stdout: ''
+        };
+      }
+      throw new Error('Unexpected command: ' + args.join(' '));
     }
   };
   const adapter = createAdapter({ runner, platform: 'win32' });
@@ -358,4 +433,6 @@ test('ChatGPT Windows adapter advertises one stable App-Origin target from winap
   assert.equal(targets[0].providerId, 'chatgpt-desktop');
   assert.equal(targets[0].transport, 'windows-uia-winapp');
   assert.equal(targets[0].concreteTargetIdentity.windowHandle, 777);
+  assert.equal(targets[0].concreteTargetIdentity.conversationTitle, 'Native Eve Test');
+  assert.match(targets[0].title, /Native Eve Test/);
 });

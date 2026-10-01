@@ -70,6 +70,14 @@ test('bridge supervisor exits when another healthy Nexus runtime already owns th
   assert.match(content, /process\.exit\(0\)/);
 });
 
+test('bridge supervisor self-registers one owned supervisor PID and releases it on exit', () => {
+  const content = fs.readFileSync(SUPERVISOR, 'utf8');
+  assert.match(content, /supervisor\.pid/);
+  assert.match(content, /fs\.openSync\(PID_FILE, 'wx'\)/);
+  assert.match(content, /another Nexus supervisor PID/);
+  assert.match(content, /process\.on\('exit', releaseSupervisor\)/);
+});
+
 test('VERIFY.bat delegates to bootstrap and executes npm test', () => {
   const content = fs.readFileSync(VERIFY_BAT, 'utf8');
   assert.match(content, /scripts\\bootstrap\.bat|scripts\/bootstrap\.bat/, 'VERIFY.bat must delegate to bootstrap');

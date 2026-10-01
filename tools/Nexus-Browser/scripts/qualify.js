@@ -12,6 +12,12 @@ const AREA_TESTS = {
   recovery: ['tests/server-scheduler-recovery.test.js', 'tests/server-state-merge.test.js', 'tests/antigravity-recovery-capture.test.js', 'tests/online-target-recovery.test.js'],
   extension: ['tests/extension-wiring.test.js', 'tests/online-target-recovery.test.js', 'tests/target-state.test.js', 'tests/dex-ui-ensure.test.js'],
   local: ['tests/local-targets.test.js', 'tests/antigravity-existing.test.js', 'tests/antigravity-recovery-capture.test.js'],
+  'app-origin': [
+    'tests/chatgpt-windows-app.test.js', 'tests/chatgpt-windows-conversation.test.js',
+    'tests/chatgpt-windows-full-reply.test.js', 'tests/app-origin-manager.test.js',
+    'tests/app-origin-server.test.js', 'tests/app-origin-dex.test.js',
+    'tests/app-origin-recovery.test.js', 'tests/restart-bridge.test.js'
+  ],
   resilience: [
     'tests/muse-input.test.js', 'tests/muse-submit.test.js', 'tests/chatgpt-input.test.js',
     'tests/server-scheduler.test.js', 'tests/server-scheduler-recovery.test.js', 'tests/server-scheduler-state.test.js',

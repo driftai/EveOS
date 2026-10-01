@@ -32,7 +32,8 @@ function harness() {
     async getAppTarget(id) { return id === target.id ? target : null; },
     getAppTargetStatus() { return { phase: 'idle' }; },
     async captureAppLatest() { return { text: 'captured app reply', target }; },
-    async sendAppPrompt({ requestId, emit }) {
+    async sendAppPrompt({ requestId, emit, beforeSend }) {
+      await beforeSend?.(target);
       for (const payload of [
         { type: 'prompt_accepted', requestId },
         { type: 'response_partial', requestId, text: 'app par' },
@@ -84,6 +85,29 @@ test('Base Mode App-Origin send flows through durability and returns app respons
     entry.payload.type === 'response_final' && entry.payload.text === 'app final'));
 });
 
+test('Base Mode busy rejection happens before the durable dispatch boundary', async () => {
+  const h = harness();
+  h.ws.appTargetId = h.target.id;
+  h.appTargets.sendAppPrompt = async () => {
+    const error = new Error('native target busy');
+    error.code = 'APP_TARGET_BUSY';
+    throw error;
+  };
+
+  await h.controller.handle(h.ws, {
+    type: 'send_prompt',
+    requestId: 'app-busy-1',
+    text: 'do not claim me',
+    targetClassId: 'app-origin',
+    targetId: h.target.id
+  });
+
+  assert.equal(h.observed.some((entry) => entry.kind === 'before'), false,
+    'busy native target must fail before durable dispatch is claimed');
+  const error = h.messages.find((entry) => entry.payload.code === 'APP_TARGET_BUSY');
+  assert.ok(error, 'Base Mode should surface APP_TARGET_BUSY directly');
+});
+
 test('Base Mode can capture the latest native app reply', async () => {
   const h = harness();
   h.ws.appTargetId = h.target.id;
@@ -98,16 +122,21 @@ test('Base Mode can capture the latest native app reply', async () => {
   assert.equal(capture.payload.providerName, 'ChatGPT App');
 });
 
-test('Dex transport cannot silently use unqualified App-Origin targets yet', async () => {
+test('Dex viewer can discover App-Origin targets but direct transport stays scheduler-owned', async () => {
   const h = harness();
-  const dex = { clientKind: 'dex', appTargetId: h.target.id };
+  const dex = { clientKind: 'dex', appTargetId: null };
+
+  await h.controller.handle(dex, { type: 'request_app_targets' });
+  const discovery = h.messages.find((entry) => entry.peer === dex && entry.payload.type === 'app_targets_update');
+  assert.equal(discovery.payload.targets[0].id, h.target.id);
+
   await h.controller.handle(dex, {
     type: 'send_prompt',
     requestId: 'dex-app-1',
-    text: 'no',
+    text: 'no direct send',
     targetClassId: 'app-origin',
     targetId: h.target.id
   });
   const error = h.messages.find((entry) => entry.peer === dex && entry.payload.type === 'error');
-  assert.equal(error.payload.code, 'APP_ORIGIN_BASE_MODE_ONLY');
+  assert.equal(error.payload.code, 'DEX_SERVER_SCHEDULER_OWNS_TRANSPORT');
 });

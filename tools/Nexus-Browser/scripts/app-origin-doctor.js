@@ -2,6 +2,7 @@
 
 const appTargets = require('../app-targets/manager');
 const chatgpt = require('../app-targets/chatgpt-windows');
+const conversation = require('../app-targets/chatgpt-windows-conversation');
 const winapp = require('../app-targets/winapp-runner');
 
 async function main() {
@@ -18,6 +19,7 @@ async function main() {
       title: target.title,
       pid: target.pid || null,
       windowHandle: target.windowHandle || null,
+      conversationTitle: target.concreteTargetIdentity?.conversationTitle || null,
       transport: target.transport
     })),
     diagnostics: appTargets.discoveryDiagnostics()
@@ -30,6 +32,8 @@ async function main() {
         pid: targets[0].pid,
         title: targets[0].title
       });
+      const groupedReply = conversation.latestAssistantReply(snapshot);
+      const activeConversation = conversation.activeConversationTitle(snapshot);
       report.chatgptUi = {
         composerFound: !!snapshot.composerSelector,
         composerSelector: snapshot.composerSelector || null,
@@ -50,6 +54,10 @@ async function main() {
         })),
         latestResponseSelector: snapshot.responseCandidates?.find?.((entry) => entry.text === snapshot.latestResponseText)?.selector || null,
         latestResponseLength: String(snapshot.latestResponseText || '').length,
+        groupedReplyParts: groupedReply?.partCount || 0,
+        groupedReplyLength: String(groupedReply?.text || '').length,
+        activeConversationTitle: activeConversation?.text || null,
+        activeConversationSelector: activeConversation?.selector || null,
         hwnd: snapshot.hwnd,
         pid: snapshot.pid
       };

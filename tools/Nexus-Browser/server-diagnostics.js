@@ -5,7 +5,12 @@ function createDiagnosticsSnapshot(readContext) {
     const { dexStateStore, durability, localTargets, appTargetController, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, taskCompletion, streamNudgeAuth, SERVER_SESSION_ID, ASSET_REVISION, WebSocket } = readContext();
   const snapshot = dexStateStore.load(), rooms = Array.isArray(snapshot?.rooms) ? snapshot.rooms : [];
   return {
-    ok: true, supervised: (process.env.NEXUS_BROWSER_SUPERVISED || process.env.BROWSER_AI_BRIDGE_SUPERVISED) === '1', serverSessionId: SERVER_SESSION_ID, assetRevision: ASSET_REVISION,
+    ok: true,
+    supervised: (process.env.NEXUS_BROWSER_SUPERVISED || process.env.BROWSER_AI_BRIDGE_SUPERVISED) === '1',
+    serverPid: process.pid,
+    supervisorPid: process.ppid || null,
+    serverSessionId: SERVER_SESSION_ID,
+    assetRevision: ASSET_REVISION,
     extensionConnected: !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN,
     dexUiConnected: [...uiSockets].some((peer) => peer.clientKind === 'dex'),
     uiClients: uiSockets.size, onlineTargets: lastTabs.length, localTargets: lastLocalTargets.length, appTargets: appTargetController?.diagnostics?.().targets || 0, localDiscovery: localTargets.discoveryDiagnostics(), appDiscovery: appTargetController?.diagnostics?.().discovery || null, extensionSessions: extensionSessions.diagnostics(),

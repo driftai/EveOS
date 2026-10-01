@@ -65,12 +65,12 @@ function createAppTargetServerController({
         && (msg.type === 'send_prompt' || msg.type === 'capture_latest'));
     if (!appCommand) return false;
 
-    if (ws?.clientKind === 'dex') {
+    if (ws?.clientKind === 'dex' && !['request_app_targets', 'request_app_status'].includes(msg.type)) {
       safeSend(ws, {
         type: 'error',
         requestId: msg.requestId || null,
-        code: 'APP_ORIGIN_BASE_MODE_ONLY',
-        message: 'App-Origin transport is currently qualified for Base Mode only.'
+        code: 'DEX_SERVER_SCHEDULER_OWNS_TRANSPORT',
+        message: 'Localhost scheduler owns Dex App-Origin dispatch; the Dex viewer may only discover/status app targets.'
       });
       return true;
     }
@@ -159,32 +159,26 @@ function createAppTargetServerController({
       }
 
       const durability = getDurability();
-      const gate = await durability.beforeDispatch(msg, {
+      const meta = {
         targetClassId: 'app-origin',
         targetId,
         providerId: target.providerId
-      });
-      if (!gate.ok) {
-        safeSend(ws, {
-          type: 'error',
-          requestId: msg.requestId || null,
-          code: 'DUPLICATE_DISPATCH_BLOCKED',
-          message: 'Durable turn ledger blocked a duplicate app dispatch.'
-        });
-        return true;
-      }
+      };
 
       try {
         await appTargets.sendAppPrompt({
           targetId,
           requestId: msg.requestId,
           text: msg.text,
+          beforeSend: async () => {
+            const gate = await durability.beforeDispatch(msg, meta);
+            if (gate.ok) return;
+            const error = new Error('Durable turn ledger blocked a duplicate app dispatch.');
+            error.code = 'DUPLICATE_DISPATCH_BLOCKED';
+            throw error;
+          },
           emit: (payload) => {
-            durability.observe(payload, {
-              targetClassId: 'app-origin',
-              targetId,
-              providerId: target.providerId
-            }).catch(() => {});
+            durability.observe(payload, meta).catch(() => {});
             sendEvent(targetId, ws, payload);
           }
         });

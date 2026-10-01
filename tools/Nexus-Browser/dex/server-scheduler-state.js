@@ -158,6 +158,23 @@ function resolveLocal(member, targets = []) {
     ? matches[0] : null;
 }
 
+function resolveApp(member, targets = []) {
+  const binding = member?.binding || {};
+  if (binding.targetClassId !== 'app-origin' || !binding.providerId || !binding.targetId
+    || !Array.isArray(targets)) return null;
+  const matches = targets.filter((target) => target && String(target.id) === String(binding.targetId)
+    && target.providerId === binding.providerId);
+  if (matches.length !== 1) return null;
+  const target = matches[0], expected = binding.concreteTargetIdentity || {};
+  const actual = target.concreteTargetIdentity || {};
+  if (binding.providerId === 'chatgpt-desktop' && !expected.conversationTitle) return null;
+  if (expected.processId && String(expected.processId) !== String(actual.processId || '')) return null;
+  if (expected.windowHandle && String(expected.windowHandle) !== String(actual.windowHandle || '')) return null;
+  if (expected.conversationTitle
+      && String(expected.conversationTitle) !== String(actual.conversationTitle || '')) return null;
+  return (!target.targetClassId || target.targetClassId === 'app-origin') ? target : null;
+}
+
 function priorReply(room, member, sourceMessageId) {
   const messages = Array.isArray(room?.messages) ? room.messages : [];
   const sourceIndex = messages.findIndex((message) => message.id === sourceMessageId);
@@ -196,6 +213,6 @@ function supportsOperation(providers, providerId, operation) {
 module.exports = {
   roomById, memberById, messageById, addMessage, rememberFinalReceipt, findFinalReceipt, requestStop, setStopped,
   validPending, queueTurn, enqueueNext, pendingRooms, duePendingRooms, nextPendingDelay,
-  createRecoveryJournal, resolveOnline, resolveLocal, priorReply, safeBudget, extendBudget,
+  createRecoveryJournal, resolveOnline, resolveLocal, resolveApp, priorReply, safeBudget, extendBudget,
   providerById, supportsOperation
 };

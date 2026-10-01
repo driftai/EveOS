@@ -52,3 +52,15 @@ test('prompt send failure enters capture recovery instead of stopping the room',
   assert.equal(value.action, 'recover');
   assert.equal(value.retry, false);
 });
+
+
+test('native App-Origin busy retries only before dispatch ownership is claimed', () => {
+  const preDispatch = policy.decision('APP_TARGET_BUSY', { dispatched: false, retryCount: 0 });
+  assert.equal(preDispatch.action, 'retry');
+  assert.equal(preDispatch.retry, true);
+  assert.equal(preDispatch.delayMs, 300);
+
+  const afterDispatch = policy.decision('APP_TARGET_BUSY', { dispatched: true, retryCount: 0 });
+  assert.equal(afterDispatch.action, 'recover');
+  assert.equal(afterDispatch.retry, false);
+});

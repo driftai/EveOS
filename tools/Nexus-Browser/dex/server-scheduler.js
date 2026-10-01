@@ -13,10 +13,10 @@ function createDexServerScheduler({
   durability,
   getOnlineTargets = () => [], getProviders = () => [],
   getSelectedOnlineTarget = () => null,
-  getLocalTargets = async () => [], isExtensionAvailable = () => true,
+  getLocalTargets = async () => [], getAppTargets = async () => [], isExtensionAvailable = () => true,
   sendExtension = () => false,
-  sendLocalPrompt,
-  captureLocalLatest,
+  sendLocalPrompt, sendAppPrompt,
+  captureLocalLatest, captureAppLatest,
   broadcastState = () => {},
   broadcastEvent = () => {}, onTurnSettled = () => {}, maintenanceBusy = () => false,
   recordIncident = (input) => durability?.recordIncident?.(input),
@@ -39,8 +39,8 @@ function createDexServerScheduler({
   }
   const recovery = createServerSchedulerRecovery({
     load, save, uid, nowMs,
-    getOnlineTargets, getProviders, getSelectedOnlineTarget, getLocalTargets,
-    isExtensionAvailable, sendExtension, captureLocalLatest, recordIncident,
+    getOnlineTargets, getProviders, getSelectedOnlineTarget, getLocalTargets, getAppTargets,
+    isExtensionAvailable, sendExtension, captureLocalLatest, captureAppLatest, recordIncident,
     markTimedOut: (journal) => durability?.markFailed?.(
       journal?.requestId, 'RECOVERY_TIMEOUT',
       { targetClassId: journal?.targetClassId || null, providerId: journal?.providerId || null }),
@@ -53,6 +53,7 @@ function createDexServerScheduler({
   const lease = createServerTurnLease({ load, save, roomById: stateApi.roomById,
     getCurrent: () => current, onTimeout: handleTurnError, now, nowMs, setTimer, clearTimer });
   async function localTarget(member) { return stateApi.resolveLocal(member, await getLocalTargets(true)); }
+  async function appTarget(member) { return stateApi.resolveApp(member, await getAppTargets(true)); }
   function writeRecovery(snapshot, room, member) {
     room.recovery = stateApi.createRecoveryJournal(current, member, room, now());
     save(snapshot);
@@ -87,35 +88,29 @@ function createDexServerScheduler({
     broadcastEvent({ type: 'dex_scheduler_event', event: 'dispatch', requestId: current.requestId, roomId: current.roomId, memberId: current.memberId });
     return true;
   }
-  async function dispatchLocal(target) {
+  async function dispatchDirect(target, targetClassId, sender) {
     if (!current) return false;
-    const turn = { ...current };
-    const gate = await durability.beforeDispatch(
-      { type: 'send_prompt', requestId: turn.requestId },
-      { targetClassId: 'local-origin', targetId: target.id, providerId: target.providerId }
-    );
-    if (!gate.ok) return failCurrent('Durable turn ledger blocked a duplicate local dispatch.', 'Duplicate dispatch blocked');
-    markDispatched();
-    current.phase = 'waiting';
-    current.targetId = target.id;
-    lease.begin();
+    const turn = { ...current }, label = targetClassId === 'app-origin' ? 'app' : 'local';
+    const meta = { targetClassId, targetId: target.id, providerId: target.providerId };
+    const beginDispatch = async () => {
+      const gate = await durability.beforeDispatch({ type: 'send_prompt', requestId: turn.requestId }, meta);
+      if (!gate.ok) { const error = new Error(`Durable turn ledger blocked a duplicate ${label} dispatch.`);
+        error.code = 'DUPLICATE_DISPATCH_BLOCKED'; throw error; }
+      markDispatched(); current.phase = 'waiting'; current.targetId = target.id; lease.begin();
+    };
     try {
-      await sendLocalPrompt({
-        targetId: target.id,
-        requestId: turn.requestId,
-        text: turn.prompt,
-        emit: async (payload) => {
-          await durability.observe(payload, {
-            targetClassId: 'local-origin', targetId: target.id, providerId: target.providerId
-          }).catch(() => {});
-          await handleTransportEvent(payload);
-          broadcastEvent(payload);
-        }
+      if (targetClassId !== 'app-origin') await beginDispatch();
+      await sender({
+        targetId: target.id, requestId: turn.requestId, text: turn.prompt,
+        ...(targetClassId === 'app-origin' ? { beforeSend: beginDispatch } : {}),
+        emit: async (payload) => { await durability.observe(payload, meta).catch(() => {});
+          await handleTransportEvent(payload); broadcastEvent(payload); }
       });
     } catch (error) {
-      const payload = { type: 'error', requestId: turn.requestId, code: error.code || 'LOCAL_TARGET_ERROR', message: error.message };
-      await durability.observe?.(payload, { targetClassId: 'local-origin', targetId: target.id, providerId: target.providerId }).catch(() => {});
-      await handleTransportEvent(payload);
+      const payload = { type: 'error', requestId: turn.requestId,
+        code: error.code || (targetClassId === 'app-origin' ? 'APP_TARGET_ERROR' : 'LOCAL_TARGET_ERROR'),
+        message: error.message };
+      await durability.observe?.(payload, meta).catch(() => {}); await handleTransportEvent(payload);
     }
     return true;
   }
@@ -138,7 +133,13 @@ function createDexServerScheduler({
     if (member.binding?.targetClassId === 'local-origin') {
       const target = await localTarget(member);
       if (!target) return handleTurnError({ code: 'LOCAL_TARGET_NOT_FOUND', message: 'Local agent target is unavailable.' });
-      return dispatchLocal(target);
+      return dispatchDirect(target, 'local-origin', sendLocalPrompt);
+    }
+    if (member.binding?.targetClassId === 'app-origin') {
+      const target = await appTarget(member);
+      if (!target) return handleTurnError({ code: 'APP_TARGET_NOT_FOUND',
+        message: 'Bound desktop app process/window/conversation is unavailable or changed; rebind it before relaying.' });
+      return dispatchDirect(target, 'app-origin', sendAppPrompt);
     }
     if (!stateApi.supportsOperation(getProviders() || [], member.binding?.providerId, 'send')) {
       return handleTurnError({ code: 'PROVIDER_OPERATION_UNSUPPORTED', message: 'Bound provider does not declare send support in the active adapter contract.' });
@@ -277,8 +278,7 @@ function createDexServerScheduler({
       retryCount: Number(current.retryCount || 0)
     });
     if (decision.retry && !room.recovery?.dispatched) {
-      const retryCount = Number(current.retryCount || 0) + 1, delayMs = Number(decision.delayMs || 0);
-      clearCurrent(); delete room.recovery;
+      const retryCount = Number(current.retryCount || 0) + 1, delayMs = Number(decision.delayMs || 0); clearCurrent(); delete room.recovery;
       room.relay.lastStopReason = `Transient ${msg.code} · retry ${retryCount}/${decision.maxAttempts}`;
       stateApi.queueTurn(room, member, source, now(), retryCount, new Date(nowMs() + delayMs).toISOString());
       save(snapshot); processSoon(delayMs); return true;

@@ -21,6 +21,8 @@ test('HTTP diagnostics derive fresh state and preserve the source snapshot', () 
   const first = read();
   assert.equal(first.dexRooms, 2);
   assert.equal(first.recoveryRooms, 1);
+  assert.equal(first.serverPid, process.pid);
+  assert.equal(first.supervisorPid, process.ppid || null);
   assert.equal(first.controlPlane.controlReceiptsPending, 1);
   assert.equal(first.localDiscovery.antigravityExisting.rejected[0].pid, 10872);
   tabs = [{ id: 5, providerId: 'chatgpt', health: { blocking: true } }];

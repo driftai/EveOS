@@ -175,7 +175,8 @@
 
   function memberSummary(member) {
     const binding = member?.binding || {};
-    const origin = binding.targetClassId === 'local-origin' ? 'Local-Origin' : 'Online-Origin';
+    const origin = binding.targetClassId === 'local-origin' ? 'Local-Origin'
+      : binding.targetClassId === 'app-origin' ? 'App-Origin' : 'Online-Origin';
     const provider = binding.providerName || binding.providerId || 'Provider';
     const mode = member?.relayEnabled === false ? ' · observer' : '';
     return `${cleanName(member?.name, 'Agent')} [${origin} / ${provider}${mode}]`;
@@ -341,7 +342,7 @@
       '- Do not add a "From" label; Dex attaches speaker identity automatically.',
       `- End with ${DONE_TOKEN} only when the room task is complete and no other agent must receive or acknowledge your reply. DONE records this reply in the transcript and STOPS relay before the next agent gets a turn.`,
       `- Optional exact-turn delivery receipt: append [[DEX:RETURN:${requestId || 'dex-turn-EXACT_ID'}]] at the end of your reply, before any HEADSUP/DONE/USER/NOTE marker. RETURN confirms durable delivery into Dex, not delivery to another agent.`,
-      '- Optional outgoing heads-up: only if one other named ONLINE room participant needs your completed result, end with [[DEX:HEADSUP:<unique member name or ID>]] [[DEX:DONE]]. If combining RETURN, put RETURN before HEADSUP. DONE still stops relay; HEADSUP requests ONE separate out-of-band notification to that exact member, never a round-robin turn. No automatic ACK or chaining; skip HEADSUP when nobody needs notification. Local-Origin recipient heads-ups are not yet supported.',
+      '- Optional outgoing heads-up: only if one other named ONLINE room participant needs your completed result, end with [[DEX:HEADSUP:<unique member name or ID>]] [[DEX:DONE]]. If combining RETURN, put RETURN before HEADSUP. DONE still stops relay; HEADSUP requests ONE separate out-of-band notification to that exact member, never a round-robin turn. No automatic ACK or chaining; skip HEADSUP when nobody needs notification. Local-Origin and App-Origin recipient heads-ups are not yet supported.',
       '- For a two-agent request that asks for direct confirmation, the responder must reply WITHOUT a control marker so Dex relays the acknowledgement to the requesting agent. The requester can then end its confirmation turn with [[DEX:DONE]]. Do not exchange extra acknowledgements.',
       `- Active one-shot DONE subscribers for your response: ${doneSubscribers}. If a requester subscribed, DONE still stops relay but sends them a separate background notification, not another Dex relay turn. With no subscription, use the direct-return rule above when confirmation is required.`,
       '- Without a trailing marker, Dex continues to the NEXT participating agent in room order, not necessarily the original requester if the room has more than two agents.',
@@ -349,6 +350,7 @@
       `- End with ${NOTE_TOKEN} only when no immediate agent reply is needed. NOTE stops round-robin relay, but NEW authorized incoming reports still enter the durable FIFO and will be routed after the current turn settles.`,
       '- Before NOTE/DONE while another agent is still working: first secure the result in the room or register an explicit background task-completion watch. NOTE does not monitor disconnected terminal jobs; only captured turns or authenticated new sends enter the durable inbox.',
       '- Control markers are interpreted only when they trail the reply.',
+      '- App-Origin recipients: do not emit [[DEX:CMD ...]] yet. Native app relay supports DONE/USER/NOTE/RETURN/HEADSUP/CONTEXT/BUDGET, but provider-control CMD execution still requires an Online/Local control-capable transport.',
       '- Recent room context defaults to one latest prior message PER room agent, excluding the current source. Fresh authorized incoming messages queued during another turn appear separately in FIFO order. Older room history remains durable.',
        '- Current message is the authoritative unabridged source for this relay turn; earlier context is projected, while NEW INCOMING updates remain independently authoritative.',
       '- For THIS outgoing reply only, put [[DEX:CONTEXT:12]] BEFORE RETURN/DONE to attach up to 12 prior room messages to the next recipient; valid range 1–40. Read your own backlog without a new room message: [[DEX:CMD {"action":"room_log","limit":10}]] (a CMD pauses relay).',

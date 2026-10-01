@@ -12,8 +12,9 @@ const MAX_RECOVERY_MS = 11 * 60 * 1000;
 function createServerSchedulerRecovery({
   load, save, uid, nowMs = () => Date.now(),
   getOnlineTargets = () => [], getProviders = () => [], getSelectedOnlineTarget = () => null,
-  getLocalTargets = async () => [], isExtensionAvailable = () => true, sendExtension = () => false,
-  captureLocalLatest, recordIncident = () => {}, markTimedOut = () => Promise.resolve(),
+  getLocalTargets = async () => [], getAppTargets = async () => [],
+  isExtensionAvailable = () => true, sendExtension = () => false,
+  captureLocalLatest, captureAppLatest, recordIncident = () => {}, markTimedOut = () => Promise.resolve(),
   addMessage, enqueueNext, setStopped, processSoon, onRecovered = () => {}, onTurnSettled = () => {}
 } = {}) {
   let active = null;
@@ -49,9 +50,9 @@ function createServerSchedulerRecovery({
     Promise.resolve(markTimedOut(recovery)).catch(() => {});
     processSoon(passiveLife.PASSIVE_GRACE_MS);
   }
-  async function resolveLocal(member) {
-    const targets = await getLocalTargets(true);
-    return stateApi.resolveLocal(member, targets);
+  async function resolveDirect(member, targetClassId) {
+    const targets = targetClassId === 'app-origin' ? await getAppTargets(true) : await getLocalTargets(true);
+    return targetClassId === 'app-origin' ? stateApi.resolveApp(member, targets) : stateApi.resolveLocal(member, targets);
   }
   function clearActive() { active = null; }
   const liveness = createRecoveryLiveness({ load, save, nowMs, schedule: processSoon,
@@ -130,17 +131,16 @@ function createServerSchedulerRecovery({
       clearActive();
       return false;
     }
-    if (recovery.targetClassId === 'local-origin') {
-      const worker = active, target = await resolveLocal(member);
+    if (recovery.targetClassId === 'local-origin' || recovery.targetClassId === 'app-origin') {
+      const worker = active, target = await resolveDirect(member, recovery.targetClassId);
       if (active !== worker) return false;
-      if (!target) {
-        clearActive();
-        processSoon(RETRY_MS);
-        return false;
-      }
+      if (!target) { clearActive(); processSoon(RETRY_MS); return false; }
       try {
-        const result = await captureLocalLatest({ targetId: target.id });
-        return active === worker ? finish(result || { text: '' }, true) : false;
+        const capture = recovery.targetClassId === 'app-origin' ? captureAppLatest : captureLocalLatest;
+        const result = await capture({ targetId: target.id });
+        return active === worker
+          ? finish(result || { text: '' }, recovery.targetClassId === 'local-origin')
+          : false;
       } catch {
         if (active !== worker) return false;
         clearActive(); processSoon(RETRY_MS); return false;

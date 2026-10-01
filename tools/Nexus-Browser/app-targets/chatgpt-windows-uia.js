@@ -3,6 +3,7 @@
 const CHROME_TEXT = new Set([
   'chatgpt', 'chat', 'work', 'new chat', 'share', 'ask chatgpt',
   'chatgpt can make mistakes. check important info.', 'chatgpt can make mistakes. check important info',
+  'chatgpt is ai and can make mistakes. check important info.', 'chatgpt is ai and can make mistakes. check important info',
   'home', 'search', 'library', 'projects', 'settings', 'send', 'send message',
   'stop', 'stop generating', 'stop streaming', 'copy', 'good response', 'bad response',
   'read aloud', 'regenerate', 'retry', 'edit message',
@@ -256,7 +257,7 @@ function isChromeText(text) {
   if (!normalized) return true;
   const lower = normalized.toLowerCase();
   if (CHROME_TEXT.has(lower)) return true;
-  if (/^(thinking|working|searching|reading|analyzing|generating)(\.\.\.)?$/i.test(normalized)) return true;
+  if (/^(thinking|working|searching|reading|analyzing|generating|chatgpt is responding)(?:\.\.\.|…)?$/i.test(normalized)) return true;
   if (/^thought for \d+(?:\.\d+)?s$/i.test(normalized)) return true;
   if (/^\d+\s*\/\s*\d+$/.test(normalized)) return true;
   return false;

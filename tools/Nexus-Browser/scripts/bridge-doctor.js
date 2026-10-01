@@ -34,6 +34,8 @@ function verdict(data, { serverLogAvailable = null, serverLogPath = defaultLogPa
     ok: issues.length === 0,
     serverSessionId: data.serverSessionId,
     supervised: data.supervised === true,
+    serverPid: Number(data.serverPid || 0) || null,
+    supervisorPid: Number(data.supervisorPid || 0) || null,
     runtimeLog: { available: serverLogAvailable, filePath: serverLogPath },
     extensionConnected: !!data.extensionConnected,
     dexUiConnected: !!data.dexUiConnected,

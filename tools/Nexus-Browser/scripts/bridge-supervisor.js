@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
 const { createQualificationSupervisorControl } = require('./qualification-supervisor');
 const { createRuntimeLog } = require('./runtime-log');
-const { urls } = require('../runtime-config');
+const { urls, dataDir } = require('../runtime-config');
 
 const ROOT = path.resolve(__dirname, '..');
 const SERVER = path.join(ROOT, 'server.js');
@@ -11,6 +12,7 @@ const HEALTH = process.env.NEXUS_BROWSER_HEALTH || process.env.BROWSER_AI_BRIDGE
 const CHECK_MS = Number(process.env.NEXUS_BROWSER_SUPERVISOR_INTERVAL || process.env.BROWSER_AI_BRIDGE_SUPERVISOR_INTERVAL || 5000);
 const FAIL_LIMIT = Number(process.env.NEXUS_BROWSER_SUPERVISOR_FAIL_LIMIT || process.env.BROWSER_AI_BRIDGE_SUPERVISOR_FAIL_LIMIT || 3);
 const runtimeLog = createRuntimeLog();
+const PID_FILE = path.join(dataDir(), 'supervisor.pid');
 runtimeLog.append(`\n--- supervisor session ${new Date().toISOString()} ---\n`);
 
 let child = null;
@@ -28,6 +30,42 @@ function log(message) {
 function mirror(stream, chunk) {
   try { stream.write(chunk); } catch {}
   runtimeLog.append(chunk);
+}
+
+function readSupervisorPid() {
+  try {
+    const pid = Number(fs.readFileSync(PID_FILE, 'utf8').trim());
+    return Number.isInteger(pid) && pid > 1 ? pid : 0;
+  } catch { return 0; }
+}
+
+function pidAlive(pid) {
+  if (!pid) return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+function claimSupervisor() {
+  fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const fd = fs.openSync(PID_FILE, 'wx');
+      fs.writeFileSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      return true;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      const existing = readSupervisorPid();
+      if (existing === process.pid) return true;
+      if (pidAlive(existing)) return false;
+      try { fs.unlinkSync(PID_FILE); } catch {}
+    }
+  }
+  return false;
+}
+
+function releaseSupervisor() {
+  if (readSupervisorPid() !== process.pid) return;
+  try { fs.unlinkSync(PID_FILE); } catch {}
 }
 
 function spawnServer() {
@@ -98,6 +136,7 @@ function shutdown(signal) {
   stopping = true;
   clearTimeout(restartTimer);
   log(`stopping on ${signal}`);
+  releaseSupervisor();
   if (child) {
     try { child.kill(); } catch {}
   }
@@ -107,13 +146,18 @@ function shutdown(signal) {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
+process.on('exit', releaseSupervisor);
+
 (async () => {
   log('visible deterministic supervision active');
-  if (!(await healthy())) {
-    spawnServer();
-    setInterval(check, CHECK_MS);
-    return;
+  if (await healthy()) {
+    log('existing bridge server is already healthy; extra supervisor exiting');
+    process.exit(0);
   }
-  log('existing bridge server is already healthy; extra supervisor exiting');
-  process.exit(0);
+  if (!claimSupervisor()) {
+    log(`another Nexus supervisor PID ${readSupervisorPid()} already owns startup; extra supervisor exiting`);
+    process.exit(0);
+  }
+  spawnServer();
+  setInterval(check, CHECK_MS);
 })();

@@ -12,6 +12,14 @@ test('restart helper parses the Nexus listener PID from netstat', () => {
   assert.equal(restart.listenerPidFromNetstat(sample, 9088), 123456);
 });
 
+test('restart helper keeps netstat parsing only as a compatibility fallback', () => {
+  assert.equal(restart.listenerPidFromNetstat(
+    'TCP    127.0.0.1:9088    0.0.0.0:0    LISTENING    77777',
+    9088
+  ), 77777);
+  assert.equal(typeof restart.readSupervisorPidFile, 'function');
+});
+
 test('restart helper verifies both EveOS checkout and expected command fragment', () => {
   const root = path.resolve(__dirname, '..').replace(/\//g, '\\');
   assert.equal(restart.ownsExpectedProcess({
@@ -22,5 +30,8 @@ test('restart helper verifies both EveOS checkout and expected command fragment'
   }, 'server.js'), false);
   assert.equal(restart.ownsExpectedProcess({
     CommandLine: `node "${root}\\scripts\\bridge-supervisor.js"`
+  }, 'bridge-supervisor.js'), true);
+  assert.equal(restart.commandHas({
+    CommandLine: 'node  scripts\\bridge-supervisor.js'
   }, 'bridge-supervisor.js'), true);
 });

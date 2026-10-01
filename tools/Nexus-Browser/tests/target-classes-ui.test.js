@@ -9,6 +9,10 @@ const APP = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
 const APP_MIRROR_UI = fs.readFileSync(path.join(ROOT, 'public', 'app-mirror-ui.js'), 'utf8');
 const APP_TARGETS_UI = fs.readFileSync(path.join(ROOT, 'public', 'app-targets-ui.js'), 'utf8');
 
+test('Base Mode recognizes server-session lifecycle events instead of logging them as unhandled', () => {
+  assert.match(APP, /case 'server_session':/);
+});
+
 test('UI exposes Online-Origin, Local-Origin and App-Origin target classes', () => {
   assert.match(INDEX, /id="targetClassSelect"/);
   assert.match(INDEX, /Online-Origin Targets/);
@@ -29,6 +33,23 @@ test('Local-Origin mode requests and selects local targets without browser tabs'
   assert.match(APP, /select_local_target/);
   assert.match(APP, /targetClassId:\s*state\.selectedTargetClassId/);
   assert.match(APP, /selectedTargetClassId === 'local-origin'/);
+});
+
+test('Dex participant builder exposes App-Origin as a first-class target class', () => {
+  assert.match(INDEX, /id="dexMemberClass"[\s\S]*value="app-origin">App-Origin/);
+});
+
+test('Dex refuses ambiguous ChatGPT App bindings without native conversation identity', () => {
+  const members = fs.readFileSync(path.join(ROOT, 'public', 'dex-members.js'), 'utf8');
+  assert.match(members, /providerId === 'chatgpt-desktop'[\s\S]*conversationTitle/);
+  assert.match(members, /Open the intended ChatGPT conversation first/);
+});
+
+test('Dex participant builder can refresh Online, Local and App-Origin targets in place', () => {
+  assert.match(INDEX, /id="dexRefreshTargets"/);
+  assert.match(APP, /request_tabs/);
+  assert.match(APP, /request_local_targets/);
+  assert.match(APP, /request_app_targets/);
 });
 
 test('Capture latest stays hidden for Local-Origin while App-Origin can capture visible app replies', () => {
