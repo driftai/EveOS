@@ -144,6 +144,9 @@ function sourceContract() {
     check(modes.includes('def stop_remote_helpers()') && control.includes('watchfusion_modes.stop_remote_helpers()')
       && modes.includes('for name in ("cloudflared.pid", "cloudflared-terminal.pid", "server.pid")')
       && modes.includes('["taskkill", "/F", "/T", "/PID", str(pid)]')
+      && modes.includes('def _watchfusion_remote_processes()')
+      && modes.includes('name == "cloudflared.exe"') && modes.includes('origin in cmd')
+      && modes.includes('"remote-tunnel.ps1" in cmd')
       && remoteTunnel.includes("Join-Path $StateDir 'cloudflared-terminal.pid'")
       && remoteTunnel.includes('Where-Object { $_.Name -ieq \'cloudflared.exe\' }'),
       'WF-STOP-REMOTE-HELPERS', 'stopping WatchFusion does not also terminate its owned Cloudflare/server helper process trees');
