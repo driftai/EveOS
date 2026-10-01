@@ -18,6 +18,7 @@ New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
 
 $UrlFile = Join-Path $StateDir 'remote-url.txt'
 $PidFile = Join-Path $StateDir 'cloudflared.pid'
+$TerminalPidFile = Join-Path $StateDir 'cloudflared-terminal.pid'
 $ServerPidFile = Join-Path $StateDir 'server.pid'
 $CloudflareBat = Join-Path $StateDir 'RUN-CLOUDFLARE.bat'
 $CloudflareLog = Join-Path $StateDir 'cloudflared.log'
@@ -106,8 +107,23 @@ pause
 "@ | Set-Content -Encoding ASCII $CloudflareBat
 
 $Tunnel = Start-Process -FilePath "cmd.exe" -ArgumentList "/k `"$CloudflareBat`"" -WorkingDirectory $Root -PassThru
-$Tunnel.Id | Set-Content -Encoding ASCII $PidFile
-Write-Host "Cloudflare terminal opened (PID $($Tunnel.Id))."
+$Tunnel.Id | Set-Content -Encoding ASCII $TerminalPidFile
+$CloudflaredProcess = $null
+for ($i = 0; $i -lt 40; $i++) {
+    $CloudflaredProcess = Get-CimInstance Win32_Process -Filter "ParentProcessId = $($Tunnel.Id)" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ieq 'cloudflared.exe' } | Select-Object -First 1
+    if ($CloudflaredProcess) { break }
+    if ($Tunnel.HasExited) { break }
+    Start-Sleep -Milliseconds 125
+}
+if ($CloudflaredProcess) {
+    $CloudflaredProcess.ProcessId | Set-Content -Encoding ASCII $PidFile
+    Write-Host "Cloudflare terminal opened (PID $($Tunnel.Id)); tunnel PID $($CloudflaredProcess.ProcessId)."
+} else {
+    # Backward-compatible fallback: stop logic can still terminate the owned terminal tree.
+    $Tunnel.Id | Set-Content -Encoding ASCII $PidFile
+    Write-Host "Cloudflare terminal opened (PID $($Tunnel.Id)); tunnel child PID was not resolved."
+}
 Write-Host "Waiting for Cloudflare to assign a public hostname..."
 
 $Url = $null
@@ -169,6 +185,7 @@ Write-Host ""
 while (-not $Tunnel.HasExited) { Start-Sleep -Seconds 2 }
 
 Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+Remove-Item $TerminalPidFile -Force -ErrorAction SilentlyContinue
 Remove-Item $UrlFile -Force -ErrorAction SilentlyContinue
 Remove-Item $CloudflareBat -Force -ErrorAction SilentlyContinue
 Write-Host ""
