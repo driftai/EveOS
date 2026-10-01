@@ -73,6 +73,7 @@ function sourceContract() {
     const css = read('css/modules/watchfusion.css');
     const setupRoutes = read('tools/WatchFusion/src/server/setup-routes.js');
     const systemRoutes = read('tools/WatchFusion/src/server/system-routes.js');
+    const networkServer = read('tools/WatchFusion/src/server/network.js');
     const roomImageRoutes = read('tools/WatchFusion/src/server/room-image-routes.js');
     const localRequest = read('tools/WatchFusion/src/server/local-request.js');
     const httpUtils = read('tools/WatchFusion/src/server/http-utils.js');
@@ -127,9 +128,9 @@ function sourceContract() {
     const lanLauncher = read('tools/WatchFusion/scripts/START-WATCHFUSION-LAN.bat');
     const remoteTunnel = read('tools/WatchFusion/scripts/REMOTE-TUNNEL.ps1');
 
-    check(!sensing.includes('127-0-0-1.sslip.io'), 'WF-SENSING-NO-SSLIP', 'watchfusion.runtime-sensing.js still includes sslip candidate origin');
-    check(sensing.includes('http://127.0.0.1:'), 'WF-SENSING-LOOPBACK-CANONICAL', 'watchfusion.runtime-sensing.js missing literal loopback candidate origin');
-    check(sensing.includes('function configureExposure(snapshot)') && sensing.includes('parsed.origin === exposureOrigin'), 'WF-SENSING-EXPOSURE-ORIGIN', 'LAN/Cloudflare iframe heartbeats are not restricted to the selected exposure origin');
+    check(!sensing.includes('127-0-0-1.sslip.io'), 'WF-SENSING-NO-HARDCODED-SSLIP', 'runtime sensing should accept the controller-provided host surface instead of hard-coding an sslip origin');
+    check(sensing.includes('http://127.0.0.1:'), 'WF-SENSING-LOOPBACK-CANONICAL', 'watchfusion.runtime-sensing.js missing literal loopback fallback origin');
+    check(sensing.includes('hostExposureOrigin') && sensing.includes('snapshot?.hostUrl') && sensing.includes('parsed.origin === exposureOrigin'), 'WF-SENSING-EXPOSURE-ORIGIN', 'LAN/Cloudflare iframe heartbeats are not restricted to the selected public/host exposure origins');
 
     check(/^from \. import .*\bwatchfusion_control\b/m.test(helper), 'WF-CONTROL-IMPORT', 'control plane does not import WatchFusion lifecycle');
     check(helper.includes('"/api/watchfusion/status"'), 'WF-CONTROL-STATUS', 'WatchFusion status route is missing');
@@ -190,6 +191,13 @@ function sourceContract() {
     check(ui.includes("DETACHED_WINDOW_NAME = 'eveWatchFusionWindow'") && ui.includes('function detach()'), 'WF-DETACH', 'WatchFusion does not have Matrix-style named-window detach');
     check(ui.includes('data-wf-action="detach"') && !ui.includes('Open separate'), 'WF-DETACH-UI', 'WatchFusion header still uses the old separate-window action');
     check(ui.includes("mode === 'lan' || mode === 'cloudflare'") && ui.includes('snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl'), 'WF-SELECTED-EXPOSURE-URL', 'embedded and detached WatchFusion do not follow the selected Local/LAN/Cloudflare launch path');
+    check(networkServer.includes('127-0-0-1.sslip.io')
+      && networkServer.includes('localEmbedHostUrl')
+      && systemRoutes.includes('localEmbedHost')
+      && exposureControl.includes('hostUrl=host_url')
+      && ui.includes('snapshot?.directHostUrl || snapshot?.hostUrl || snapshot?.localUrl')
+      && ui.includes('directHostUrl: direct.url'),
+      'WF-REMOTE-LOCAL-SSLIP-SURFACE', 'Remote mode does not keep the host-side EveOS surface on a local sslip origin with loopback fallback while sharing through Cloudflare');
     check(clientCore.includes("runtimeExposureMode !== 'local'") && clientCore.includes('return roomLink(runtimeShareBaseUrl)'), 'WF-SHARE-SCOPE-LINK', 'WatchFusion does not preserve the selected LAN/Cloudflare room-sharing scope');
     check(clientCore.includes('updateLanCopyVisibility') && clientCore.includes('roomId&&session&&serverLanMode&&base') && clientCore.includes('runtimeShareBaseUrl||eveosShareBaseUrl'), 'WF-LAN-LINK-STATE', 'Copy LAN link can appear outside a room or lose the EveOS-provided LAN fallback');
     check(lanLauncher.includes('LAN_HOST_URL=http://!LAN_IP:.=-!.sslip.io:') && lanLauncher.includes('-PublicUrl "!LAN_HOST_URL!"') && lanLauncher.includes('[FALLBACK] Direct LAN IP:'), 'WF-LAN-SSLIP-EXPOSURE', 'LAN launcher does not publish sslip.io as the canonical exposure URL while retaining the raw IP fallback');
