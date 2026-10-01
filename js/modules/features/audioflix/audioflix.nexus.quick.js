@@ -70,7 +70,8 @@ window.EveAudioflixNexusQuick = window.EveAudioflixNexusQuick || {};
     function currentMatches() {
         const scope = scopeFor(type);
         scopeMode = scope.mode;
-        const matches = window.EveAudioflixNexus?.search?.(query, type, scope.items) || [];
+        const matches = String(query || '').trim()
+            ? (window.EveAudioflixNexus?.search?.(query, type, scope.items) || []) : [];
         return { scope, matches };
     }
 
@@ -194,6 +195,9 @@ window.EveAudioflixNexusQuick = window.EveAudioflixNexusQuick || {};
     }, true);
     document.addEventListener('keydown', event => {
         if (event.key === 'Escape' && dialog && !dialog.hidden) { event.preventDefault(); close(); }
+    });
+    window.addEventListener('eve:audioflix-queue-changed', () => {
+        if (dialog && !dialog.hidden) renderResults();
     });
 
     Object.assign(ns, { ready: true, open, close, render: renderResults });
