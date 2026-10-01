@@ -153,13 +153,13 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         return JSON.stringify(copy);
     }
 
-    function writeStructure(key, state) {
+    function writeStructure(key, state, options = {}) {
         const snapshot = captureStructure(state);
         const currentSlot = \`\${key}\${STRUCTURE_SUFFIX}\`;
         const previousSlot = \`\${key}\${STRUCTURE_PREV_SUFFIX}\`;
         const current = readJsonSlot(currentSlot);
         if (current && structureComparable(current) === structureComparable(snapshot)) return { written: false, reason: 'unchanged' };
-        if (current && Number(current?.counts?.score || 0) > 0 && Number(snapshot?.counts?.score || 0) === 0) {
+        if (options.allowEmpty !== true && current && Number(current?.counts?.score || 0) > 0 && Number(snapshot?.counts?.score || 0) === 0) {
             return { written: false, reason: 'preserving non-empty structural journal' };
         }
         try {
