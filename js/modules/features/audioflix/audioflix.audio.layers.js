@@ -12,6 +12,8 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
         let globalEpoch = 0;
         let layerSequence = 0;
         let progressTimer = 0;
+        const MAX_LAYERS_PER_ITEM = 12;
+        const MAX_LAYERS_TOTAL = 32;
 
         const itemId = (item) => String(item?.id || item?.url || '');
         const epoch = (id) => Number(itemEpochs.get(id) || 0);
@@ -107,7 +109,35 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             };
         }
 
+        function totalLayers() {
+            let total = 0;
+            activeLayers.forEach((records) => { total += records.length; });
+            return total;
+        }
+
+        function evictLayer(id, record) {
+            const result = stopLayer(record);
+            if (result?.then) Promise.resolve(result).catch(() => false);
+            removeLayer(id, record);
+        }
+
+        function pruneForAdd(id) {
+            const own = activeLayers.get(id) || [];
+            while (own.length >= MAX_LAYERS_PER_ITEM) evictLayer(id, own[0]);
+            while (totalLayers() >= MAX_LAYERS_TOTAL) {
+                let oldestId = '', oldest = null;
+                activeLayers.forEach((records, key) => records.forEach((record) => {
+                    if (!oldest || Number(record.startedAt || 0) < Number(oldest.startedAt || 0)) {
+                        oldest = record; oldestId = key;
+                    }
+                }));
+                if (!oldest) break;
+                evictLayer(oldestId, oldest);
+            }
+        }
+
         function addLayer(id, record) {
+            pruneForAdd(id);
             if (!activeLayers.has(id)) activeLayers.set(id, []);
             activeLayers.get(id).push(record);
             ensureProgressTimer();
