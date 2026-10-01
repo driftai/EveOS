@@ -95,26 +95,49 @@ function createAdapter({
     return ranked.find((entry) => entry.score >= minimumScore)?.element || null;
   }
 
-  async function recoverComposer(snapshot) {
-    const found = await searchCandidates(
+  async function recoverComposerElement(snapshot) {
+    return searchCandidates(
       snapshot.hwnd,
-      ['Ask ChatGPT', 'Message ChatGPT', 'prompt', 'composer'],
+      ['Ask ChatGPT', 'Message ChatGPT', 'prompt', 'composer', 'Edit', 'TextBox', 'Document'],
       composerScore,
       { windowInfo: snapshot.windowInfo },
       18
     );
+  }
+
+  async function recoverSendElement(snapshot, composer = snapshot.composer) {
+    return searchCandidates(
+      snapshot.hwnd,
+      ['Send', 'Submit', 'Button'],
+      sendScore,
+      { windowInfo: snapshot.windowInfo, composer },
+      20
+    );
+  }
+
+  async function recoverComposer(snapshot) {
+    const found = await recoverComposerElement(snapshot);
     return found ? selectorOf(found) : '';
   }
 
-  async function recoverSend(snapshot) {
-    const found = await searchCandidates(
-      snapshot.hwnd,
-      ['Send', 'Submit'],
-      sendScore,
-      { windowInfo: snapshot.windowInfo, composer: snapshot.composer },
-      20
-    );
+  async function recoverSend(snapshot, composer = snapshot.composer) {
+    const found = await recoverSendElement(snapshot, composer);
     return found ? selectorOf(found) : '';
+  }
+
+  async function probeControls(windowInfo = null) {
+    const snapshot = await inspect(windowInfo);
+    const composer = snapshot.composer || await recoverComposerElement(snapshot);
+    const sendButton = snapshot.sendButton || await recoverSendElement(snapshot, composer);
+    return {
+      ...snapshot,
+      composer,
+      composerSelector: selectorOf(composer),
+      sendButton,
+      sendSelector: selectorOf(sendButton),
+      recoveredComposer: !snapshot.composerSelector && !!composer,
+      recoveredSend: !snapshot.sendSelector && !!sendButton
+    };
   }
 
   async function listTargets() {
@@ -195,13 +218,13 @@ function createAdapter({
       throw error;
     }
 
-    let stagedSnapshot = await inspect({
+    let stagedSnapshot = await probeControls({
       hwnd: baselineSnapshot.hwnd,
       pid: baselineSnapshot.pid,
       title: baselineSnapshot.title
     });
     let sendSelector = stagedSnapshot.sendSelector;
-    if (!sendSelector) sendSelector = await recoverSend(stagedSnapshot);
+    if (!sendSelector) sendSelector = await recoverSend(stagedSnapshot, stagedSnapshot.composer);
 
     if (sendSelector) {
       const invoked = await runner.runJson(
@@ -267,7 +290,7 @@ function createAdapter({
   }
 
   async function sendPrompt({ requestId, text, target, emit }) {
-    const baseline = await inspect({
+    const baseline = await probeControls({
       hwnd: target.windowHandle,
       pid: target.pid,
       title: target.title
@@ -366,6 +389,7 @@ function createAdapter({
     status,
     diagnostics,
     inspect,
+    probeControls,
     findWindow
   };
 }

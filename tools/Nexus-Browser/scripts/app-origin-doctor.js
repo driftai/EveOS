@@ -25,7 +25,7 @@ async function main() {
 
   if (targets[0]) {
     try {
-      const snapshot = await chatgpt.inspect({
+      const snapshot = await chatgpt.probeControls({
         hwnd: targets[0].windowHandle,
         pid: targets[0].pid,
         title: targets[0].title
@@ -35,6 +35,8 @@ async function main() {
         composerSelector: snapshot.composerSelector || null,
         sendFound: !!snapshot.sendSelector,
         sendSelector: snapshot.sendSelector || null,
+        recoveredComposer: !!snapshot.recoveredComposer,
+        recoveredSend: !!snapshot.recoveredSend,
         generating: !!snapshot.generating,
         accessibleTextNodes: snapshot.texts.length,
         composerCandidates: (snapshot.composerCandidates || []).map(({ selector, type, automationId, rect, score }) => ({

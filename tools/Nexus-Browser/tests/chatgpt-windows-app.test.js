@@ -124,6 +124,54 @@ test('App adapter fails closed when only unrelated buttons are visible', () => {
   assert.equal(snapshot.sendSelector, '');
 });
 
+test('App adapter recovers unnamed live composer and send arrow through typed UIA search', async () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
+  const runner = {
+    async availability() { return { available: true, command: 'winapp.exe' }; },
+    async runJson(args) {
+      if (args[1] === 'inspect') {
+        return {
+          ok: true,
+          json: { windows: [{ ...windowInfo, elements: [
+            { selector: 'txt-title', type: 'Text', name: 'Where should we begin?', x: 470, y: 360, width: 300, height: 40, children: [] }
+          ] }] },
+          stderr: '', stdout: ''
+        };
+      }
+      if (args[1] === 'search') {
+        const query = String(args[2]);
+        if (['Edit', 'TextBox', 'Document'].includes(query)) {
+          return {
+            ok: true,
+            json: { matches: [
+              { selector: 'doc-compose-live', type: 'Document', name: '', x: 320, y: 790, width: 800, height: 64, isKeyboardFocusable: true }
+            ] },
+            stderr: '', stdout: ''
+          };
+        }
+        if (query === 'Button') {
+          return {
+            ok: true,
+            json: { matches: [
+              { selector: 'btn-back-live', type: 'Button', name: '', x: 18, y: 18, width: 42, height: 42 },
+              { selector: 'btn-send-live', type: 'Button', name: '', x: 1060, y: 800, width: 42, height: 42 }
+            ] },
+            stderr: '', stdout: ''
+          };
+        }
+        return { ok: false, json: { matchCount: 0 }, stderr: '', stdout: '' };
+      }
+      throw new Error('Unexpected command: ' + args.join(' '));
+    }
+  };
+  const adapter = createAdapter({ runner, platform: 'win32' });
+  const snapshot = await adapter.probeControls(windowInfo);
+  assert.equal(snapshot.composerSelector, 'doc-compose-live');
+  assert.equal(snapshot.sendSelector, 'btn-send-live');
+  assert.equal(snapshot.recoveredComposer, true);
+  assert.equal(snapshot.recoveredSend, true);
+});
+
 test('reply delta ignores baseline and the exact user prompt', () => {
   const baseline = new Set(['Old answer']);
   assert.equal(
