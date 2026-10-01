@@ -64,10 +64,28 @@ async function main() {
             const added = S.addItem('music', { title, url: src, folder: 'Vibes' });
             S.toggleMusicGroup(added.id, 'Vibes', true);
         });
+        S.addItem('sound', { title: 'Thunder Snap', audioTitle: 'Sonic Alias', url: src, category: 'Effects', exposed: true });
     }, silentWav());
 
     await page.click('.topbar-audioflix-btn');
     await page.waitForSelector('#audioflix-overlay:not([hidden]) .audioflix-panel', { timeout: 10000 });
+
+    // Soundboard parity: Fast Track indexes sound-specific title metadata, and the main Nexus panel
+    // can jump from a sound result back to its existing Soundboard card.
+    await page.click('[data-af-action="open-nexus-quick"][data-af-type="sound"]');
+    await page.fill('.audioflix-nexus-quick input[type="search"]', 'Sonic Alias');
+    await page.waitForFunction(() => document.querySelectorAll('.audioflix-nexus-quick-row').length === 1);
+    assert(/Thunder Snap/.test(await page.locator('.audioflix-nexus-quick-row strong').textContent()),
+        'Soundboard Fast Track finds a sound from its title metadata');
+    await page.click('.audioflix-nexus-quick [data-quick-action="close"]');
+    await page.click('[data-af-action="toggle-nexus"][data-af-type="sound"]');
+    await page.fill('.audioflix-nexus-panel [data-af-nexus-search][data-af-type="sound"]', 'Thunder Snap');
+    await page.waitForSelector('.audioflix-nexus-panel [data-af-action="nexus-jump-card"][data-af-type="sound"]');
+    await page.click('.audioflix-nexus-panel [data-af-action="nexus-jump-card"][data-af-type="sound"]');
+    await page.waitForFunction(() => [...document.querySelectorAll('.audioflix-item-card')].some(card =>
+        card.classList.contains('is-nexus-jump-target') && /Thunder Snap/.test(card.textContent || '')));
+    progress('Soundboard Nexus Fast Track title search + main Jump to card OK');
+
     await page.click('[data-af-action="tab"][data-af-tab="music"]');
 
     // The Nexus launcher is a real split control: primary opens the full panel, the compact side
