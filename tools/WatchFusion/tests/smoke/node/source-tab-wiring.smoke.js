@@ -101,15 +101,15 @@ export async function runSourceTabSmokes() {
   await record('ST-10:extension-keeps-one-companion-owned-state-link-runtime', async () => {
     assert.match(worker, /globalThis\.WatchFusionMediaLink\s*=\s*Object\.freeze/);
     assert.match(worker, /startCurrentTab/);
-    assert.match(worker, /allFrames:\\s*true/);
+    assert.match(worker, /allFrames:\s*true/);
     assert.match(worker, /source-page-adapter\.js/);
-    assert.match(worker, /world:\\s*'MAIN'/);
+    assert.match(worker, /world:\s*'MAIN'/);
     assert.match(worker, /controlFrameId/);
     assert.match(worker, /relayVideoMode:'state-only'/);
     assert.match(worker, /importScripts\('live-peer\.js'\)/);
     assert.doesNotMatch(worker, /importScripts\(asset\('live-peer\.js'\)\)/);
     assert.doesNotMatch(worker, /tabCapture|getMediaStreamId|offscreen/);
-    assert.match(popup, /type:\\s*'start-pairing'/);
+    assert.match(popup, /type:\s*'start-pairing'/);
     assert.doesNotMatch(popup, /tabCapture|getMediaStreamId|source-probe\.js/);
   })();
 
