@@ -187,18 +187,18 @@ async function main() {
 
     // Step forward twice, then back once — the marked track must follow.
     await page.click('[data-url-player-action="next"]');
-    await page.waitForFunction(() => /^▶/.test(document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.textContent.trim() || ''), undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.classList.contains('is-current'), undefined, { timeout: 5000 });
     await page.click('[data-url-player-action="next"]');
-    await page.waitForFunction(() => /^▶/.test(document.querySelectorAll('.audioflix-provider-queue-list li')[2]?.textContent.trim() || ''), undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelectorAll('.audioflix-provider-queue-list li')[2]?.classList.contains('is-current'), undefined, { timeout: 5000 });
     assert(await page.$eval('[data-url-player-action="next"]', (b) => b.disabled), 'next is disabled on the last queue track');
 
     await page.click('[data-url-player-action="prev"]');
-    await page.waitForFunction(() => /^▶/.test(document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.textContent.trim() || ''), undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.classList.contains('is-current'), undefined, { timeout: 5000 });
     progress('queue view OK — lists the group queue and steps both directions');
 
     // Jumping straight to an entry works too.
     await page.click('.audioflix-provider-queue-list li:first-child button');
-    await page.waitForFunction(() => /^▶/.test(document.querySelectorAll('.audioflix-provider-queue-list li')[0]?.textContent.trim() || ''), undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelectorAll('.audioflix-provider-queue-list li')[0]?.classList.contains('is-current'), undefined, { timeout: 5000 });
 
     // Speed: the picker drives the real element, and the choice carries to the next queue track.
     await page.selectOption('.audioflix-provider-rate', '2');
