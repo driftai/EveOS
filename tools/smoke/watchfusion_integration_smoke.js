@@ -152,6 +152,10 @@ function sourceContract() {
       && remoteTunnel.includes("WatchFusion origin stopped. Closing its Cloudflare tunnel...")
       && remoteTunnel.includes("Stop-Process -Id $Tunnel.Id -Force")
       && remoteTunnel.includes("function Exit-RemoteCancelled")
+      && remoteTunnel.includes("function Owns-ActiveTunnelState")
+      && remoteTunnel.includes("function Clear-OwnActiveTunnelState")
+      && remoteTunnel.includes("cloudflared-{0}.log")
+      && !remoteTunnel.includes("Remove-Item $StateDir -Recurse")
       && remoteTunnel.includes("Remote startup cancelled while waiting for public readiness.")
       && remoteTunnel.includes("Cloudflare tunnel session ended cleanly.")
       && !remoteTunnel.includes("RUN-CLOUDFLARE.bat"),
