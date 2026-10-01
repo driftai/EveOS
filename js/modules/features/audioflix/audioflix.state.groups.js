@@ -205,6 +205,7 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
                     ? Object.assign({}, localized, { folder: '', card: '' })
                     : localized;
             });
+            state.musicFolders = (state.musicFolders || []).filter((folder) => !sameName(folder, clean));
             state.musicPortConnections = (state.musicPortConnections || [])
                 .filter((entry) => !sameName(entry.folder, clean));
             state.musicFolders = (state.musicFolders || []).filter((name) => !sameName(name, clean));
