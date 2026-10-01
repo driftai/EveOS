@@ -134,7 +134,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
     }
 
     function readStructure(key) {
-        const slots = [readJsonSlot(\`\${key}\${STRUCTURE_SUFFIX}\`), readJsonSlot(\`\${key}\${STRUCTURE_PREV_SUFFIX}\`)]
+        const slots = [readJsonSlot(`${key}${STRUCTURE_SUFFIX}`), readJsonSlot(`${key}${STRUCTURE_PREV_SUFFIX}`)]
             .filter(Boolean);
         if (!slots.length) return null;
         slots.sort((a, b) => {
@@ -155,8 +155,8 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
 
     function writeStructure(key, state, options = {}) {
         const snapshot = captureStructure(state);
-        const currentSlot = \`\${key}\${STRUCTURE_SUFFIX}\`;
-        const previousSlot = \`\${key}\${STRUCTURE_PREV_SUFFIX}\`;
+        const currentSlot = `${key}${STRUCTURE_SUFFIX}`;
+        const previousSlot = `${key}${STRUCTURE_PREV_SUFFIX}`;
         const current = readJsonSlot(currentSlot);
         if (current && structureComparable(current) === structureComparable(snapshot)) return { written: false, reason: 'unchanged' };
         if (options.allowEmpty !== true && current && Number(current?.counts?.score || 0) > 0 && Number(snapshot?.counts?.score || 0) === 0) {
@@ -177,8 +177,8 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         if (!entry || typeof entry !== 'object') return '';
         if (kind === 'port') return text(entry.id) || text(entry.path).toLowerCase();
         if (kind === 'browser') return text(entry.id);
-        if (kind === 'playlist') return text(entry.id) || \`\${text(entry.provider)}|\${text(entry.playlistId) || text(entry.url)}\`;
-        if (kind === 'music-port') return text(entry.id) || \`\${text(entry.path).toLowerCase()}|\${text(entry.folder).toLowerCase()}\`;
+        if (kind === 'playlist') return text(entry.id) || `${text(entry.provider)}|${text(entry.playlistId) || text(entry.url)}`;
+        if (kind === 'music-port') return text(entry.id) || `${text(entry.path).toLowerCase()}|${text(entry.folder).toLowerCase()}`;
         return text(entry.id);
     }
 
@@ -305,10 +305,10 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
 
     function quarantine(key, raw) {
         if (!raw) return null;
-        const slot = \`\${key}\${QUARANTINE_SUFFIX}\`;
+        const slot = `${key}${QUARANTINE_SUFFIX}`;
         try {
             localStorage.setItem(slot, raw);
-            console.warn(\`[Audioflix] Unreadable library data preserved at "\${slot}" — it was NOT deleted.\`);
+            console.warn(`[Audioflix] Unreadable library data preserved at "${slot}" — it was NOT deleted.`);
             return slot;
         } catch (error) {
             console.error('[Audioflix] Could not preserve unreadable library data:', error);
