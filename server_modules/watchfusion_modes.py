@@ -105,9 +105,9 @@ def stop_remote_helpers() -> None:
             pass
     _MODE_PROCESS = None
     runtime = _runtime_dir()
-    for name in ("cloudflared.pid", "server.pid"):
+    for name in ("cloudflared.pid", "cloudflared-terminal.pid", "server.pid"):
         _kill_owned_pid_file(runtime / name)
-    for name in ("cloudflared.pid", "server.pid", "remote-url.txt", "RUN-CLOUDFLARE.bat"):
+    for name in ("cloudflared.pid", "cloudflared-terminal.pid", "server.pid", "remote-url.txt", "RUN-CLOUDFLARE.bat"):
         try:
             (runtime / name).unlink()
         except OSError:
