@@ -11,6 +11,24 @@ async function main() {
         browser = await chromium.launch({ headless: true });
         const page = await browser.newPage({ viewport: { width: 725, height: 520 } });
         await prepareSeededPage(page, buildSeedPayload());
+
+        const topbarBefore = await page.evaluate(() => {
+            const strip = document.querySelector('.top-right');
+            if (!strip) return null;
+            strip.scrollLeft = 0;
+            return { left: strip.scrollLeft, max: strip.scrollWidth - strip.clientWidth };
+        });
+        if (!topbarBefore || topbarBefore.max <= 0) {
+            throw new Error(`Top action strip is not horizontally scrollable: ${JSON.stringify(topbarBefore)}`);
+        }
+        await page.locator('.top-right').hover();
+        await page.mouse.wheel(0, 160);
+        await page.waitForTimeout(40);
+        const topbarAfter = await page.locator('.top-right').evaluate(strip => strip.scrollLeft);
+        if (topbarAfter <= topbarBefore.left) {
+            throw new Error(`Mouse wheel did not move the top action strip: before=${topbarBefore.left} after=${topbarAfter}`);
+        }
+
         await clickAndWaitForMap(page, () => (
             page.locator('.topbar-constellation-btn').click()
         ));
