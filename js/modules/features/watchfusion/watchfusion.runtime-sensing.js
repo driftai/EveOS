@@ -11,6 +11,7 @@
     let embeddedUrl = '';
     let embeddedStorageAccess = null;
     let exposureOrigin = '';
+    let hostExposureOrigin = '';
 
     function port() {
         return Number(window.EveOSPortRegistry?.get?.('WATCHFUSION_PORT')) || 0;
@@ -28,7 +29,7 @@
 
     function candidateOrigins() {
         const targetPort = port();
-        const values = exposureOrigin ? [exposureOrigin] : [];
+        const values = [hostExposureOrigin, exposureOrigin].filter(Boolean);
         if (!targetPort) return values;
         const pageIsLoopback = /^(127\.0\.0\.1|localhost)$/i.test(location.hostname || '');
         if (/^https?:$/.test(location.protocol) && location.hostname && !pageIsLoopback) {
@@ -47,7 +48,7 @@
     function isCandidateOrigin(origin) {
         try {
             const parsed = new URL(origin);
-            if (exposureOrigin && parsed.origin === exposureOrigin) return true;
+            if ((hostExposureOrigin && parsed.origin === hostExposureOrigin) || (exposureOrigin && parsed.origin === exposureOrigin)) return true;
             return parsed.protocol === 'http:'
                 && Number(parsed.port) === port()
                 && candidateOrigins().some((value) => new URL(value).origin === parsed.origin);
@@ -65,7 +66,13 @@
         } catch {
             exposureOrigin = '';
         }
-        return exposureOrigin;
+        try {
+            const parsed = new URL(mode === 'cloudflare' ? String(snapshot?.hostUrl || '') : '');
+            hostExposureOrigin = /^https?:$/.test(parsed.protocol) ? parsed.origin : '';
+        } catch {
+            hostExposureOrigin = '';
+        }
+        return hostExposureOrigin || exposureOrigin;
     }
 
     async function probeOrigin(origin, timeoutMs = 900) {
