@@ -202,7 +202,7 @@ function sourceContract() {
       && clientCore.includes('lanNetworkInfo?.localEmbedHost')
       && remoteTunnel.includes('set HOST=0.0.0.0')
       && remoteTunnel.includes('Host surface:')
-      && remoteTunnel.includes('--url', "http://127.0.0.1:$Port"),
+      && remoteTunnel.includes("'--url', \"http://127.0.0.1:$Port\""),
       'WF-REMOTE-LOCAL-SSLIP-SURFACE', 'Remote mode does not bind a LAN-capable origin, advertise the physical-LAN sslip host to EveOS, and keep Cloudflare ingress on loopback');
     check(clientCore.includes("runtimeExposureMode !== 'local'") && clientCore.includes('return roomLink(runtimeShareBaseUrl)'), 'WF-SHARE-SCOPE-LINK', 'WatchFusion does not preserve the selected LAN/Cloudflare room-sharing scope');
     check(clientCore.includes('updateLanCopyVisibility') && clientCore.includes('roomId&&session&&serverLanMode&&base') && clientCore.includes('runtimeShareBaseUrl||eveosShareBaseUrl'), 'WF-LAN-LINK-STATE', 'Copy LAN link can appear outside a room or lose the EveOS-provided LAN fallback');
