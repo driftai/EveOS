@@ -44,8 +44,7 @@ html.eveos-detached #app {
   min-height: 0;
   overflow: hidden;
 }
-html.eveos-detached.watchfusion-room-active .grid,
-html.eveos-detached .grid:has(#partyPanel:not([hidden])) {
+html.eveos-detached .grid {
   width: calc(100% - 16px);
   height: calc(100dvh - 74px);
   max-width: none;
