@@ -41,6 +41,7 @@ export function lanUrls(address, port) {
 }
 
 export const localCanonicalHostUrl = port => `http://127.0.0.1:${port}`;
+export const localEmbedHostUrl = port => `http://127-0-0-1.sslip.io:${port}`;
 export const preferredLanHostUrl = port => lanUrls(preferredLanAddress(), port).host;
 
 export function originForRequest(req) {
