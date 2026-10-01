@@ -45,6 +45,11 @@ async function main() {
         sendCandidates: (snapshot.sendCandidates || []).map(({ selector, type, automationId, rect, score }) => ({
           selector, type, automationId, rect, score
         })),
+        responseCandidates: (snapshot.responseCandidates || []).slice(0, 8).map(({ selector, type, rect, score, text }) => ({
+          selector, type, rect, score, textLength: String(text || '').length
+        })),
+        latestResponseSelector: snapshot.responseCandidates?.find?.((entry) => entry.text === snapshot.latestResponseText)?.selector || null,
+        latestResponseLength: String(snapshot.latestResponseText || '').length,
         hwnd: snapshot.hwnd,
         pid: snapshot.pid
       };

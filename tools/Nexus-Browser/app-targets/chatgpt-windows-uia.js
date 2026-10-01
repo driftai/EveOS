@@ -5,7 +5,9 @@ const CHROME_TEXT = new Set([
   'chatgpt can make mistakes. check important info.', 'chatgpt can make mistakes. check important info',
   'home', 'search', 'library', 'projects', 'settings', 'send', 'send message',
   'stop', 'stop generating', 'stop streaming', 'copy', 'good response', 'bad response',
-  'read aloud', 'regenerate', 'retry', 'edit message'
+  'read aloud', 'regenerate', 'retry', 'edit message',
+  'latest response', 'previous response', 'next response', 'response actions',
+  'more actions', 'more options', 'open message actions'
 ]);
 
 function asNumber(value) {
@@ -274,6 +276,73 @@ function contentTexts(elements = []) {
   return values;
 }
 
+function responseScore(element = {}, context = {}) {
+  const type = controlType(element);
+  if (!/(text|document|paragraph)/.test(type)) return -1;
+  if (element.isOffscreen === true || propertyText(element, 'IsOffscreen') === 'True') return -1;
+
+  const text = normalizeCandidate(textOf(element));
+  if (!text || isChromeText(text)) return -1;
+  const prompt = normalizeCandidate(context.prompt || '');
+  if (prompt && (text === prompt || (text.startsWith(prompt) && text.length <= prompt.length + 8))) return -1;
+  if (context.baseline?.has(text)) return -1;
+
+  const geometry = relativeGeometry(element, context.windowInfo);
+  const rect = geometry.rect;
+  if (!rect.width || !rect.height) return -1;
+
+  let score = 0;
+  if (type.includes('text')) score += 20;
+  if (type.includes('paragraph')) score += 18;
+  if (type.includes('document')) score += 10;
+
+  // ChatGPT assistant messages are rendered in the main conversation column,
+  // while user bubbles are normally right-aligned. Prefer the conversation-left
+  // region but keep the range broad enough for narrow/resized windows.
+  if (geometry.xRatio >= 0.07 && geometry.xRatio <= 0.76) score += 28;
+  else if (geometry.xRatio > 0.82) score -= 24;
+  else score += 4;
+
+  if (geometry.yRatio >= 0.10 && geometry.yRatio <= 0.88) score += 12;
+  else if (geometry.yRatio > 0.93) score -= 20;
+
+  if (geometry.widthRatio >= 0.08) score += 8;
+  if (text.length >= 8) score += 8;
+  if (text.length >= 24) score += 4;
+  score += Math.min(12, Math.max(0, geometry.yRatio * 12));
+  return score;
+}
+
+function contentCandidates(elements = [], windowInfo = {}) {
+  return elements
+    .map((element) => ({
+      element,
+      text: normalizeCandidate(textOf(element)),
+      score: responseScore(element, { windowInfo }),
+      rect: rectOf(element),
+      type: controlType(element),
+      selector: selectorOf(element)
+    }))
+    .filter((entry) => entry.score >= 0 && entry.text && !isChromeText(entry.text));
+}
+
+function latestResponseCandidate(snapshot = {}, { baseline = new Set(), prompt = '' } = {}) {
+  const candidates = (snapshot.responseCandidates || contentCandidates(snapshot.elements || [], snapshot.windowInfo || {}))
+    .map((entry) => ({
+      ...entry,
+      score: responseScore(entry.element, {
+        windowInfo: snapshot.windowInfo || {},
+        baseline,
+        prompt
+      })
+    }))
+    .filter((entry) => entry.score >= 0)
+    .sort((a, b) => b.score - a.score
+      || (b.rect?.y || 0) - (a.rect?.y || 0)
+      || b.text.length - a.text.length);
+  return candidates[0] || null;
+}
+
 function latestCandidate(texts = [], { baseline = new Set(), prompt = '' } = {}) {
   const promptNormalized = normalizeCandidate(prompt);
   const candidates = texts.filter((text) => {
@@ -296,6 +365,8 @@ function snapshotFromInspect({ windowInfo, json }) {
   const sendRanked = rankCandidates(elements, sendScore, sendContext);
   const sendButton = sendRanked[0]?.score >= 20 ? sendRanked[0].element : null;
   const texts = contentTexts(elements);
+  const responseCandidates = contentCandidates(elements, frame);
+  const latestResponse = latestResponseCandidate({ elements, windowInfo: frame, responseCandidates });
   return {
     hwnd: hwndOf(frame),
     pid: pidOf(frame),
@@ -311,7 +382,9 @@ function snapshotFromInspect({ windowInfo, json }) {
     sendCandidates: sendRanked.slice(0, 5).map((entry) => candidateSummary(entry.element, entry.score)),
     generating: isGenerating(elements),
     texts,
-    latestText: texts.at(-1) || ''
+    responseCandidates,
+    latestResponseText: latestResponse?.text || '',
+    latestText: latestResponse?.text || texts.at(-1) || ''
   };
 }
 
@@ -342,6 +415,9 @@ module.exports = {
   normalizeCandidate,
   isChromeText,
   contentTexts,
+  responseScore,
+  contentCandidates,
+  latestResponseCandidate,
   latestCandidate,
   snapshotFromInspect
 };

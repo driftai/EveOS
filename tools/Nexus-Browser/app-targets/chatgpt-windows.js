@@ -5,7 +5,7 @@ const uia = require('./chatgpt-windows-uia');
 const {
   windowsFromEnvelope, pickMainWindow, hwndOf, pidOf, selectorOf,
   composerScore, sendScore, rankCandidates, elementsFromSearch,
-  normalizeCandidate, latestCandidate, snapshotFromInspect
+  normalizeCandidate, latestResponseCandidate, latestCandidate, snapshotFromInspect
 } = uia;
 
 const TARGET_ID = 'app-chatgpt-windows';
@@ -326,7 +326,8 @@ function createAdapter({
         pid: target.pid,
         title: target.title
       });
-      const candidate = latestCandidate(lastSnapshot.texts, { baseline: baselineSet, prompt: text });
+      const candidate = latestResponseCandidate(lastSnapshot, { baseline: baselineSet, prompt: text })?.text
+        || latestCandidate(lastSnapshot.texts, { baseline: baselineSet, prompt: text });
       if (candidate && candidate !== lastText) {
         lastText = candidate;
         lastChangedAt = now();
@@ -371,7 +372,8 @@ function createAdapter({
       title: target.title
     });
     const remembered = turnState.get(target.id)?.latestText || '';
-    return { text: remembered || snapshot.latestText || '', snapshot };
+    const live = latestResponseCandidate(snapshot)?.text || snapshot.latestResponseText || '';
+    return { text: live || remembered || snapshot.latestText || '', snapshot };
   }
 
   function status(targetId = TARGET_ID) {

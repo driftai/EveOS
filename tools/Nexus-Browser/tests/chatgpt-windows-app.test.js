@@ -5,6 +5,7 @@ const {
   windowsFromEnvelope,
   pickMainWindow,
   snapshotFromInspect,
+  latestResponseCandidate,
   latestCandidate,
   createAdapter
 } = require('../app-targets/chatgpt-windows');
@@ -170,6 +171,31 @@ test('App adapter recovers unnamed live composer and send arrow through typed UI
   assert.equal(snapshot.sendSelector, 'btn-send-live');
   assert.equal(snapshot.recoveredComposer, true);
   assert.equal(snapshot.recoveredSend, true);
+});
+
+test('native reply extraction ignores Latest response chrome and right-aligned user bubbles', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
+  const json = {
+    windows: [{
+      ...windowInfo,
+      elements: [{
+        selector: 'pn-root', type: 'Pane', x: 0, y: 0, width: 1200, height: 900, children: [
+          { selector: 'txt-old', type: 'Text', name: 'Older assistant answer', x: 300, y: 300, width: 420, height: 28, children: [] },
+          { selector: 'txt-user', type: 'Text', name: 'test', x: 930, y: 430, width: 150, height: 32, children: [] },
+          { selector: 'txt-assistant', type: 'Text', name: 'Test received, Drift. Eve\'s here 😋', x: 300, y: 510, width: 520, height: 34, children: [] },
+          { selector: 'txt-latest-status', type: 'Text', name: 'Latest response', x: 300, y: 560, width: 140, height: 22, children: [] },
+          { selector: 'doc-compose', type: 'Document', name: 'Ask ChatGPT', x: 320, y: 790, width: 800, height: 64, isKeyboardFocusable: true, children: [] }
+        ]
+      }]
+    }]
+  };
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  const candidate = latestResponseCandidate(snapshot, {
+    baseline: new Set(['Older assistant answer']),
+    prompt: 'test'
+  });
+  assert.equal(candidate?.text, "Test received, Drift. Eve's here 😋");
+  assert.equal(snapshot.latestResponseText, "Test received, Drift. Eve's here 😋");
 });
 
 test('reply delta ignores baseline and the exact user prompt', () => {
