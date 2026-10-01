@@ -7,6 +7,7 @@
   const embedded = window.parent && window.parent !== window;
   const detached = !embedded && window.opener && !window.opener.closed;
   const role = embedded ? 'embedded' : detached ? 'detached' : 'standalone';
+  document.documentElement.classList.toggle('eveos-detached', role === 'detached');
   const eveHost = embedded ? window.parent : detached ? window.opener : null;
   const stateBridge = window.watchFusionContinuityState;
   const shareMode = new URLSearchParams(location.search).get('eveosShareMode');
