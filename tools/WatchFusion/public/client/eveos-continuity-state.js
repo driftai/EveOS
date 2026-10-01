@@ -425,9 +425,7 @@
       else if (source.kind === 'youtube' || source.videoId) await restoreYoutube(snapshot);
       else if (source.kind === 'nuvio') await restoreNuvio(snapshot);
       else if (source.kind === 'voxelvision') await restoreVoxel(snapshot);
-      render?.();
-      window.watchFusionRoomResize?.refresh?.();
-      window.watchFusionYoutubeLayout?.refresh?.();
+      render?.(); window.watchFusionRoomResize?.refresh?.(); window.watchFusionYoutubeLayout?.refresh?.();
       document.documentElement.classList.remove('watchfusion-continuity-parked');
       setStatus?.(role === 'detached'
         ? 'Detached from EveOS · state continued here'
