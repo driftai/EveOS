@@ -67,6 +67,7 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
                 && item.lastPlayedAt === 303
             ))
             && a.musicGroupMap?.['rt-music']?.includes('Night')
+            && (a.musicFolders || []).includes('Sleep')
             && a.soundGroupMap?.['rt-sound']?.includes('RTGroup')
             && (a.musicClassifiers || []).includes('Manual')
             && (a.musicPlaylists || []).some(item => item.id === 'playlist-rt')
@@ -306,6 +307,7 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
                 && a.ports.length === 0
                 && a.scopeBindings.length === 0
                 && a.musicGroups.length === 0
+                && (a.musicFolders || []).length === 0
                 && Object.keys(a.musicGroupMap).length === 0
                 && a.musicPlaylists.length === 0
                 && a.musicPortConnections.length === 0
