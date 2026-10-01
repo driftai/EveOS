@@ -86,25 +86,34 @@ window.EveDataStore = window.EveDataStore || {};
         const restoredAudioflix = hasTopLevelAudioflix
             ? state.audioflix
             : (hasLegacyAudioflix ? legacyConfig.audioflix : null);
+        const restoredStructure = state.audioflixStructure && typeof state.audioflixStructure === 'object'
+            ? state.audioflixStructure : null;
         try {
-            // Backups created before Audioflix existed do not contain an Audioflix section. That is
-            // different from an explicitly empty Audioflix backup and must never erase a current
-            // soundboard/music library during restore.
-            if (!restoredAudioflix) return true;
-            const stopPromise = window.EveAudioflixAudio?.stopAll?.();
-            stopPromise?.catch?.((error) => {
-                console.warn('[DataState] Previous Audioflix playback did not stop cleanly:', error);
-            });
-            window.EveAudioflixAudioCodec?.clearCache?.();
-            if (window.EveAudioflixState?.replaceDatapackState) {
-                window.EveAudioflixState.replaceDatapackState(restoredAudioflix, 'audioflix-restore');
-            } else if (window.EveAudioflixState?.replaceState) {
-                window.EveAudioflixState.replaceState(restoredAudioflix || {}, 'audioflix-restore');
-            } else {
-                const fallbackAudioflix = restoredAudioflix || {};
-                if (window.eveState && window.eveState.config) window.eveState.config.audioflix = fallbackAudioflix;
-                if (window.config && typeof window.config === 'object') window.config.audioflix = fallbackAudioflix;
-                window.EveAudioflixState?.update?.({}, 'audioflix-restore');
+            // Backups created before Audioflix existed contain neither section. A structural-only
+            // backup may restore folders/groups/source connections without carrying song records.
+            if (!restoredAudioflix && !restoredStructure) return true;
+            if (restoredAudioflix) {
+                const stopPromise = window.EveAudioflixAudio?.stopAll?.();
+                stopPromise?.catch?.((error) => {
+                    console.warn('[DataState] Previous Audioflix playback did not stop cleanly:', error);
+                });
+                window.EveAudioflixAudioCodec?.clearCache?.();
+                if (window.EveAudioflixState?.replaceDatapackState) {
+                    window.EveAudioflixState.replaceDatapackState(restoredAudioflix, 'audioflix-restore');
+                } else if (window.EveAudioflixState?.replaceState) {
+                    window.EveAudioflixState.replaceState(restoredAudioflix || {}, 'audioflix-restore');
+                } else {
+                    const fallbackAudioflix = restoredAudioflix || {};
+                    if (window.eveState && window.eveState.config) window.eveState.config.audioflix = fallbackAudioflix;
+                    if (window.config && typeof window.config === 'object') window.config.audioflix = fallbackAudioflix;
+                    window.EveAudioflixState?.update?.({}, 'audioflix-restore');
+                }
+            }
+            if (restoredStructure && window.EveAudioflixState?.ensure) {
+                window.EveAudioflixStateRecovery?.applyStructureSnapshot?.(
+                    window.EveAudioflixState.ensure(), restoredStructure
+                );
+                window.EveAudioflixState.update?.({}, 'audioflix-restore-structure');
             }
             // Recreate stub records for any backed-up Browser Folder so it appears as
             // "Needs reconnect" (its granted handle can't cross into a fresh browser/incognito).
