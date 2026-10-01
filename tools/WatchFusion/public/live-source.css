@@ -11,7 +11,10 @@
 #liveSeek { flex:1; min-width:100px; }
 #liveVolume { width:95px; }
 #liveQueue { max-height:150px; overflow:auto; padding-left:24px; }
-#liveQueue button { background:transparent; color:inherit; width:100%; text-align:left; border:0; padding:6px; }
+#liveQueue li { display:flex; align-items:center; gap:4px; min-width:0; }
+#liveQueue .live-queue-jump { background:transparent; color:inherit; flex:1 1 auto; min-width:0; text-align:left; border:0; padding:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#liveQueue .live-queue-order { display:inline-flex; gap:3px; }
+#liveQueue .live-queue-order button { width:28px; min-width:28px; padding:5px 0; text-align:center; }
 #liveQueue button:hover, .live-controls [aria-pressed="true"] { background:rgba(0,212,255,.15); }
 .live-controls button:disabled { opacity:.5; cursor:default; }
 [hidden] { display:none!important; }
