@@ -171,7 +171,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         const controllable = snapshot.controllerAvailable === true;
         const canBootstrap = snapshot.installed !== false;
 
-        if (status) status.textContent = snapshot.message || (running ? 'World Book online' : 'World Book stopped');
+        if (status && currentView() !== 'notes') status.textContent = snapshot.message || (running ? 'World Book online' : 'World Book stopped');
         if (pill) {
             pill.dataset.state = snapshot.serverState || 'stopped';
             pill.textContent = running
@@ -199,6 +199,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         if (offlineStart) {
             offlineStart.disabled = snapshot.busy === true || !canBootstrap;
             offlineStart.textContent = 'Start World Book';
+            offlineStart.dataset.action = 'start';
             offlineStart.title = controllable
                 ? 'Start the World Book server'
                 : 'Start local control and World Book';
@@ -234,20 +235,24 @@ window.EveWorldBook = window.EveWorldBook || {};
     async function setView(view) {
         const overlay = ensureOverlay();
         const next = ['world', 'portal'].includes(view) ? view : 'notes';
+        if (currentView() === 'notes' && next !== 'notes' && !(await ns.notesWorkspace?.canLeave?.())) return;
         overlay.dataset.view = next;
         writePreference(VIEW_KEY, next);
         syncViewButtons(overlay, next);
         if (next === 'notes') {
             await hydrateNotes();
             await ns.notesWorkspace?.activate?.(overlay);
-            requestAnimationFrame(() => overlay.querySelector('[data-world-book-notes]')?.focus());
+            ns.notesLifecycle?.render?.();
+            requestAnimationFrame(() => ns.notesWorkspace?.focusActive?.());
         } else {
             await refreshStatus();
         }
     }
 
-    async function toggleServer() {
-        const snapshot = ns.client.state.running ? await ns.client.stop() : await ns.client.start();
+    async function toggleServer(event) {
+        const requested = event?.currentTarget?.dataset.action;
+        const shouldStart = requested ? requested === 'start' : !ns.client.state.running;
+        const snapshot = shouldStart ? await ns.client.start() : await ns.client.stop();
         renderStatus(snapshot);
     }
 
@@ -302,6 +307,9 @@ window.EveWorldBook = window.EveWorldBook || {};
         });
         ns.offline?.bind?.(overlay, { onNotes: () => void setView('notes') });
         document.body.appendChild(overlay);
+        ns.notesLifecycle?.bind?.(overlay);
+        ns.notesEditorTools?.bind?.(overlay);
+        ns.notesOperations?.bind?.(overlay);
         ns.notesWorkspace?.bind?.(overlay);
         syncViewButtons(overlay, overlay.dataset.view || 'notes');
         setHeaderHidden(readPreference(HEADER_KEY, '0') === '1');
@@ -344,9 +352,10 @@ window.EveWorldBook = window.EveWorldBook || {};
         statusTimer = window.setInterval(refreshStatus, 5000);
     };
 
-    ns.close = function closeNotesWorldBook() {
+    ns.close = async function closeNotesWorldBook() {
         const overlay = document.getElementById(OVERLAY_ID);
         if (!overlay || !isOpen()) return;
+        if (currentView() === 'notes' && !(await ns.notesWorkspace?.canLeave?.())) return;
         overlay.classList.remove('is-open');
         overlay.setAttribute('aria-hidden', 'true');
         document.body.classList.remove('notes-world-book-open');
@@ -362,11 +371,14 @@ window.EveWorldBook = window.EveWorldBook || {};
     };
 
     ns.detach = function detachWorldBook() {
+        const view = currentView();
         return ns.detached.open({
-            view: currentView(),
+            view,
             onSnapshot: renderStatus,
             onMessage: setOverlayStatus,
-            onReady: ns.close
+            onReady: () => {
+                if (view !== 'notes' || !ns.notesWorkspace?.isDirty?.()) void ns.close();
+            }
         });
     };
 
@@ -396,7 +408,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         if (event.key !== 'Escape' || !isOpen()) return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        ns.close();
+        void ns.close();
     }, true);
 
     window.dispatchEvent(new CustomEvent('eve:world-book-ready'));
@@ -404,5 +416,11 @@ window.EveWorldBook = window.EveWorldBook || {};
     if (window.__eveWorldBookOpenPending) {
         window.__eveWorldBookOpenPending = false;
         window.setTimeout(ns.open, 0);
+    }
+    if (new URLSearchParams(window.location.search).get('eveNotesDetached') === '1') {
+        window.setTimeout(() => {
+            document.body.classList.add('eve-notes-detached-window');
+            void ns.open('notes');
+        }, 0);
     }
 })(window.EveWorldBook);

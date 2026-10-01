@@ -40,7 +40,7 @@ for (const [port, owners] of byPort) {
 }
 
 for (const required of [
-    'EVEOS_WEB_PORT', 'WORLD_BOOK_PORT', 'PIANO_PLAYER_PORT',
+    'EVEOS_WEB_PORT', 'WORLD_BOOK_PORT', 'NOTES_PORT', 'PIANO_PLAYER_PORT',
     'GEMINI_CONTROL_PORT', 'GEMINI_WS_PORT', 'GEMINI_STATUS_PORT',
     'WATCHFUSION_PORT', 'NEXUS_BROWSER_PORT', 'LIGHTPANDA_BRIDGE_PORT', 'CAMOFOX_BRIDGE_PORT',
     'WIKIMEDIA_BRIDGE_PORT', 'POPUP_BRIDGE_PORT'
@@ -89,6 +89,7 @@ const managedPythonPortConsumers = [
     ['server_modules/gemini_control.py', 'GEMINI_WS_PORT'],
     ['server_modules/gemini_control.py', 'GEMINI_STATUS_PORT'],
     ['server_modules/world_book_control.py', 'WORLD_BOOK_PORT'],
+    ['server_modules/notes_control.py', 'NOTES_PORT'],
     ['server_modules/piano_player_control.py', 'PIANO_PLAYER_PORT'],
     ['server_modules/watchfusion_control.py', 'WATCHFUSION_PORT'],
     ['server_modules/nexus_browser_control.py', 'NEXUS_BROWSER_PORT']

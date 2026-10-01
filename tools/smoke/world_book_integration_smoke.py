@@ -190,8 +190,12 @@ def assert_static_contract() -> None:
     assert "launch.ps1" in control
     assert 'headless_for("worldBook")' in control
     assert '"CREATE_NO_WINDOW" if headless else "CREATE_NEW_CONSOLE"' in control
-    assert "notes_workspace.handle_get_request" in control
-    assert "notes_workspace.handle_post_request" in control
+    assert "notes_workspace" not in control
+    notes_control = (ROOT / "server_modules" / "notes_control.py").read_text(encoding="utf-8")
+    assert 'service_port("NOTES_PORT")' in notes_control
+    assert '"service": "eveos-notes"' in notes_control
+    local_control = (ROOT / "server_modules" / "eveos_control_helper.py").read_text(encoding="utf-8")
+    assert 'notes_control.restore_desired_state_async()' in local_control
     notes_backend = (ROOT / "server_modules" / "notes_workspace.py").read_text(encoding="utf-8")
     assert 'SPATIAL_ROOT_ID = "spatial"' in notes_backend
     assert "expected_revision != current_revision" in notes_backend
@@ -211,6 +215,7 @@ def assert_static_contract() -> None:
 
     ports_cfg = json.loads((ROOT / "config" / "eveos-ports.json").read_text(encoding="utf-8"))
     assert ports_cfg.get("ports", {}).get("WORLD_BOOK_PORT", {}).get("port") == 8766
+    assert ports_cfg.get("ports", {}).get("NOTES_PORT", {}).get("port") == 8767
     assert 'service_port("WORLD_BOOK_PORT")' in control
 
     frontend_version = (tool / "app" / "assets" / "js" / "state.js").read_text(encoding="utf-8")

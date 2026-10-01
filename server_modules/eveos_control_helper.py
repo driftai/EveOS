@@ -15,7 +15,7 @@ from urllib.request import urlopen
 
 from . import bookmark_intel_control, eveos_console_prefs, eveos_ports, eveos_web_control
 from . import gemini_control, gemini_credentials, local_moe_control, matrix_window_control, nexus_browser_control
-from . import notes_workspace, piano_player_control, watchfusion_control, watchfusion_modes, world_book_control
+from . import notes_control, piano_player_control, watchfusion_control, watchfusion_modes, world_book_control
 from .eveos_http_cors import eveos_cors_origin
 from . import eveos_control_requests
 
@@ -56,8 +56,6 @@ def _file_mode_discovery_candidates() -> list[int]:
         if port is not None and port not in ordered:
             ordered.append(port)
     return ordered
-
-
 def _discover_file_web_port() -> int | None:
     """Find a verified EveOS web surface when file:// cannot provide an origin port.
 
@@ -71,12 +69,8 @@ def _discover_file_web_port() -> int | None:
         except Exception:  # noqa: BLE001
             continue
     return None
-
-
 def _request_web_port(handler) -> int | None:
     return eveos_control_requests.request_web_port(handler, _discover_file_web_port)
-
-
 def wait_for_control(port: int, timeout: float) -> int:
     deadline = time.monotonic() + max(0.1, timeout)
     url = f"http://127.0.0.1:{port}/api/control-plane/health"
@@ -121,6 +115,8 @@ def _console_overview(web_port=None) -> dict:
         ("gemini", "Gemini Live Link", gemini_control.get_status,
          lambda s: [s.get("websocketPort"), s.get("statusPort")]),
         ("worldBook", "World Book", world_book_control.get_status,
+         lambda s: [s.get("port")]),
+        ("notes", "EveOS Notes", notes_control.get_status,
          lambda s: [s.get("port")]),
         ("piano", "Piano Auto Player", piano_player_control.get_status,
          lambda s: [s.get("port")]),
@@ -179,6 +175,7 @@ def _stop_everything(web_port=None) -> dict:
                        ("nexusBrowser", nexus_browser_control.stop_server),
                        ("watchFusion", watchfusion_control.stop_server),
                        ("piano", piano_player_control.stop_server),
+                       ("notes", notes_control.stop_server),
                        ("worldBook", world_book_control.stop_server),
                        ("gemini", gemini_control.stop_server),
                        ("bookmarkIntel", bookmark_intel_control.stop_server)):
@@ -266,6 +263,9 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/world-book/status":
             self._send(world_book_control.get_status())
             return
+        if path == "/api/notes-service/status":
+            self._send(notes_control.get_status())
+            return
         if path == "/api/piano-player/status":
             self._send(piano_player_control.get_status())
             return
@@ -288,16 +288,15 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
                 return
             self._send(gemini_credentials.get_status())
             return
-        if notes_workspace.handle_get_request(self, path): return
         self._send({"ok": False, "error": "Unknown endpoint"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self):
         path = urlparse(self.path).path
-        if notes_workspace.handle_post_request(self, path): return
         controlled_paths = {
             "/api/eveos-server/start", "/api/eveos-server/stop", "/api/eveos-server/stop-web",
             "/api/gemini-server/start", "/api/gemini-server/stop",
             "/api/world-book/start", "/api/world-book/stop", "/api/world-book/launch",
+            "/api/notes-service/start", "/api/notes-service/stop",
             "/api/piano-player/start", "/api/piano-player/stop", "/api/piano-player/launch", "/api/piano-player/setup",
             "/api/watchfusion/start", "/api/watchfusion/stop", "/api/watchfusion/launch", "/api/watchfusion/setup", "/api/watchfusion/extension", "/api/watchfusion/mode",
             "/api/bookmark-intel/start", "/api/bookmark-intel/stop",
@@ -327,6 +326,8 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             "/api/world-book/start": world_book_control.start_server,
             "/api/world-book/stop": lambda: _stop_tool(world_book_control.stop_server),
             "/api/world-book/launch": world_book_control.open_launcher,
+            "/api/notes-service/start": notes_control.start_server,
+            "/api/notes-service/stop": lambda: _stop_tool(notes_control.stop_server),
             "/api/piano-player/start": piano_player_control.start_server,
             "/api/piano-player/stop": lambda: _stop_tool(piano_player_control.stop_server),
             "/api/piano-player/launch": piano_player_control.open_launcher,
@@ -419,10 +420,11 @@ def main() -> int:
     print(f"  Consoles: {'headless' if eveos_web_control.headless_mode() else 'visible'}"
           " (set EVEOS_HEADLESS=1 to hide spawned servers)")
     print(f"  Control: http://127.0.0.1:{args.port}/api/control-plane/status")
-    print("  Manages EveOS localhost, Gemini, Local MoE, Nexus Browser, World Book, Piano, WatchFusion, and Bookmark Intel independently.")
+    print("  Manages EveOS localhost, Notes, Gemini, Local MoE, Nexus Browser, World Book, Piano, WatchFusion, and Bookmark Intel independently.")
     print("  Press Ctrl+C to stop the control plane")
     eveos_web_control.restore_desired_state_async()
     world_book_control.restore_desired_state_async()
+    notes_control.restore_desired_state_async()
     piano_player_control.restore_desired_state_async()
     watchfusion_control.restore_desired_state_async()
     bookmark_intel_control.restore_desired_state_async()

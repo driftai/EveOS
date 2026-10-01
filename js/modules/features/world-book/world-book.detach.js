@@ -103,6 +103,19 @@ window.EveWorldBook = window.EveWorldBook || {};
     }
 
     async function prepare(target, options) {
+        if (options.view === 'notes') {
+            if (!target || target.closed || target !== detachedWindow) return null;
+            detachedReady = true;
+            detachedView = 'notes';
+            emitState(true);
+            const targetUrl = new URL(window.location.href);
+            targetUrl.searchParams.set('eveNotesDetached', '1');
+            targetUrl.hash = '';
+            target.location.href = targetUrl.href;
+            target.focus();
+            notify(options.onReady, { running: true, service: 'eveos-notes' });
+            return target;
+        }
         const snapshot = await ns.client.refresh();
         notify(options.onSnapshot, snapshot);
         if (!target || target.closed || target !== detachedWindow) return null;
@@ -155,8 +168,8 @@ window.EveWorldBook = window.EveWorldBook || {};
 
         renderPlaceholder(
             detachedWindow,
-            options.view === 'portal' ? 'Opening World Portal' : 'Opening World Book',
-            'Verifying the local World Book service...',
+            options.view === 'notes' ? 'Opening Notes' : options.view === 'portal' ? 'Opening World Portal' : 'Opening World Book',
+            options.view === 'notes' ? 'Opening the independent Notes workspace…' : 'Verifying the local World Book service...',
             false
         );
         detachedWindow.focus();

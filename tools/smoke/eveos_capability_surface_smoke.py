@@ -19,6 +19,7 @@ from server_modules import (  # noqa: E402
     gemini_control,
     local_moe_control,
     nexus_browser_control,
+    notes_control,
     piano_player_control,
     watchfusion_control,
     world_book_control,
@@ -44,6 +45,11 @@ TOOLS = {
         "status": world_book_control.get_status,
         "ports": {"port": "WORLD_BOOK_PORT"},
         "required": {"installed", "desiredRunning", "appVersion", "pids"},
+    },
+    "notes": {
+        "status": notes_control.get_status,
+        "ports": {"port": "NOTES_PORT"},
+        "required": {"installed", "desiredRunning", "pids"},
     },
     "piano": {
         "status": piano_player_control.get_status,

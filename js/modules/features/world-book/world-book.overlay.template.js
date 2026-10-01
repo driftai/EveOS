@@ -51,6 +51,7 @@ window.EveWorldBook = window.EveWorldBook || {};
                                 <div class="notes-world-book-notes-tools">
                                     <button type="button" data-world-book-notes-read
                                         title="Read the current Scratchpad with EveOS Reader; Gemini Link is used directly when the Reader engine is Gemini">Read aloud</button>
+                                    <button type="button" data-eve-notes-dictate>Dictate</button>
                                     <button type="button" data-world-book-notes-copy>Copy</button>
                                     <button type="button" data-world-book-notes-download>Download .txt</button>
                                 </div>
@@ -60,6 +61,10 @@ window.EveWorldBook = window.EveWorldBook || {};
                         </section>
                         <section class="eve-notes-workspace" data-eve-notes-panel="workspace">
                             <div class="eve-notes-sourcebar">
+                                <span class="eve-notes-service-pill" data-notes-service-pill data-state="checking">Notes checking</span>
+                                <button type="button" data-notes-service-toggle>Start Notes</button>
+                                <button type="button" data-eve-notes-collection="favorites">Favorites</button>
+                                <button type="button" data-eve-notes-collection="recent">Recent</button>
                                 <select data-eve-notes-root aria-label="Tracked note location"></select>
                                 <label class="eve-notes-md-toggle"><input type="checkbox" data-eve-notes-markdown> Show .md</label>
                                 <button type="button" data-eve-notes-refresh>Refresh</button>
@@ -84,6 +89,7 @@ window.EveWorldBook = window.EveWorldBook || {};
                                         <span data-eve-notes-path>Workspace root</span>
                                     </div>
                                     <input type="search" data-eve-notes-filter placeholder="Filter this folder">
+                                    <button type="button" data-eve-notes-search-all>Search all</button>
                                     <div class="eve-notes-list" data-eve-notes-list></div>
                                 </aside>
                                 <article class="eve-notes-editor-pane">
@@ -93,6 +99,12 @@ window.EveWorldBook = window.EveWorldBook || {};
                                             <button type="button" data-eve-notes-favorite disabled>&#9734; Favorite</button>
                                             <button type="button" data-eve-notes-copy-ref disabled>Copy link</button>
                                             <button type="button" data-eve-notes-link disabled>Link note</button>
+                                            <button type="button" data-eve-notes-related disabled>Linked</button>
+                                            <button type="button" data-eve-notes-rename disabled>Rename</button>
+                                            <button type="button" data-eve-notes-move disabled>Move</button>
+                                            <button type="button" class="is-danger" data-eve-notes-delete disabled>Delete</button>
+                                            <button type="button" data-eve-notes-preview disabled>Preview</button>
+                                            <button type="button" data-eve-notes-dictate>Dictate</button>
                                             <button type="button" data-eve-notes-revert disabled>Revert</button>
                                             <button type="button" data-eve-notes-save disabled>Save</button>
                                         </div>
@@ -102,6 +114,7 @@ window.EveWorldBook = window.EveWorldBook || {};
                                         <label>Size <input type="range" min="12" max="28" value="16" data-eve-notes-font-size><span data-eve-notes-font-size-label>16px</span></label>
                                     </div>
                                     <textarea data-eve-notes-editor disabled spellcheck="true" placeholder="Choose a note from the left."></textarea>
+                                    <div class="eve-notes-markdown-preview" data-eve-notes-markdown-preview hidden></div>
                                     <div class="eve-notes-status" data-eve-notes-status>Connect a path or open Spatial Notes.</div>
                                 </article>
                             </div>

@@ -7,6 +7,7 @@
     "POPUP_BRIDGE_PORT": { "port": 3040, "service": "Popup + Wikimedia bridge" },
     "EVEOS_WEB_PORT": { "port": 8765, "service": "EveOS web surface" },
     "WORLD_BOOK_PORT": { "port": 8766, "service": "World Book" },
+    "NOTES_PORT": { "port": 8767, "service": "EveOS Notes" },
     "PIANO_PLAYER_PORT": { "port": 8771, "service": "Piano Auto Player" },
     "BOOKMARK_INTEL_PORT": { "port": 9077, "service": "Bookmark Intel" },
     "FREETOKEN_PORT": { "port": 1919, "service": "FreeToken local inference runtime" },

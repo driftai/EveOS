@@ -14,7 +14,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import eveos_console_prefs, eveos_exposure, eveos_ports, gemini_control, notes_workspace
+from . import eveos_console_prefs, eveos_exposure, eveos_ports, gemini_control
 
 
 WORLD_BOOK_PORT = eveos_ports.service_port("WORLD_BOOK_PORT")
@@ -317,8 +317,6 @@ def restore_desired_state_async() -> None:
 
 
 def handle_get_request(handler, path: str) -> bool:
-    if notes_workspace.handle_get_request(handler, path):
-        return True
     if path != "/api/world-book/status":
         return False
     gemini_control.send_json(handler, get_status())
@@ -326,8 +324,6 @@ def handle_get_request(handler, path: str) -> bool:
 
 
 def handle_post_request(handler, path: str) -> bool:
-    if notes_workspace.handle_post_request(handler, path):
-        return True
     if path not in {"/api/world-book/start", "/api/world-book/stop", "/api/world-book/launch"}:
         return False
     if not gemini_control.request_can_control(handler):

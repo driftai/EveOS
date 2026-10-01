@@ -13,13 +13,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import gemini_control
+from . import gemini_control, notes_workspace_ops
 
 
 NOTE_EXTENSIONS = {".txt", ".md"}
 MAX_TEXT_BYTES = 2 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 12 * 1024 * 1024
 MAX_REQUEST_BYTES = 18 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 2000
+MAX_ARCHIVE_EXPANDED_BYTES = 64 * 1024 * 1024
 SPATIAL_ROOT_ID = "spatial"
 
 
@@ -38,7 +40,7 @@ def _state_path() -> Path:
 
 
 def _default_state() -> dict:
-    return {"version": 1, "tracked": [], "favorites": [], "links": {}}
+    return {"version": 1, "tracked": [], "favorites": [], "recent": [], "links": {}}
 
 
 def _load_state() -> dict:
@@ -50,6 +52,7 @@ def _load_state() -> dict:
         payload = _default_state()
     payload.setdefault("tracked", [])
     payload.setdefault("favorites", [])
+    payload.setdefault("recent", [])
     payload.setdefault("links", {})
     return payload
 
@@ -199,6 +202,9 @@ def read_note(root_id: str, relative_path: str) -> dict:
     if target.stat().st_size > MAX_TEXT_BYTES:
         raise ValueError("This note is too large to edit in EveOS.")
     state = _load_state()
+    key = _note_key(root_id, normalized)
+    state["recent"] = [key, *[value for value in state["recent"] if value != key]][:50]
+    _save_state(state)
     return {"ok": True, "entry": _entry(target, normalized, root_id, state), "content": target.read_text(encoding="utf-8-sig")}
 
 
@@ -287,7 +293,13 @@ def import_spatial(encoded: str) -> dict:
     root = _spatial_root()
     imported = 0
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-        for member in archive.infolist():
+        members = archive.infolist()
+        if len(members) > MAX_ARCHIVE_MEMBERS:
+            raise ValueError("Spatial Notes backup contains too many files.")
+        expanded = sum(max(0, member.file_size) for member in members)
+        if expanded > MAX_ARCHIVE_EXPANDED_BYTES:
+            raise ValueError("Spatial Notes backup expands beyond the safe import limit.")
+        for member in members:
             relative = Path(member.filename.replace("\\", "/"))
             if member.is_dir() or relative.is_absolute() or ".." in relative.parts or relative.suffix.lower() not in NOTE_EXTENSIONS:
                 continue
@@ -356,6 +368,12 @@ def handle_post_request(handler, path: str) -> bool:
             "/api/notes/favorite": lambda: toggle_favorite(str(body.get("rootId") or ""), str(body.get("path") or "")),
             "/api/notes/link": lambda: link_notes(str(body.get("source") or ""), str(body.get("target") or "")),
             "/api/notes/import": lambda: import_spatial(str(body.get("base64") or "")),
+            "/api/notes/search": lambda: notes_workspace_ops.search(str(body.get("rootId") or ""), str(body.get("query") or ""), body.get("includeContent") is not False),
+            "/api/notes/related": lambda: notes_workspace_ops.related(str(body.get("noteRef") or "")),
+            "/api/notes/collection": lambda: notes_workspace_ops.collection(str(body.get("kind") or "favorites")),
+            "/api/notes/rename": lambda: notes_workspace_ops.rename(str(body.get("rootId") or ""), str(body.get("path") or ""), str(body.get("name") or ""), str(body.get("revision") or "")),
+            "/api/notes/move": lambda: notes_workspace_ops.move(str(body.get("rootId") or ""), str(body.get("path") or ""), str(body.get("destination") or ""), str(body.get("revision") or "")),
+            "/api/notes/delete": lambda: notes_workspace_ops.delete(str(body.get("rootId") or ""), str(body.get("path") or ""), str(body.get("confirmation") or ""), str(body.get("revision") or "")),
         }
         if path == "/api/notes/write":
             payload, status = write_note(str(body.get("rootId") or ""), str(body.get("path") or ""), str(body.get("content") or ""), str(body.get("revision") or ""))
@@ -364,5 +382,9 @@ def handle_post_request(handler, path: str) -> bool:
         if not action:
             return False
         return _send(handler, action())
+    except RuntimeError as exc:
+        if str(exc) == "revision-conflict":
+            return _send(handler, {"ok": False, "conflict": True, "message": "This note changed on disk."}, 409)
+        return _send(handler, {"ok": False, "message": str(exc)}, 400)
     except (OSError, ValueError, TypeError, json.JSONDecodeError, zipfile.BadZipFile, binascii.Error) as exc:
         return _send(handler, {"ok": False, "message": str(exc)}, 400)

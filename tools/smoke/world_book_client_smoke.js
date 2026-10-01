@@ -11,9 +11,14 @@ const source = fs.readFileSync(
     path.join(ROOT, 'js', 'modules', 'features', 'world-book', 'world-book.client.js'),
     'utf8'
 );
+const notesSource = fs.readFileSync(
+    path.join(ROOT, 'js', 'modules', 'features', 'world-book', 'world-book.notes.client.js'),
+    'utf8'
+);
 
 let controllerOnline = false;
 let worldRunning = true;
+let notesRunning = false;
 let protocolLaunches = 0;
 const events = [];
 
@@ -42,6 +47,28 @@ function worldStatus() {
 }
 
 async function fetchMock(url, options) {
+    if (url.includes(':8767/api/health')) {
+        if (!notesRunning) throw new Error('Notes offline');
+        return response({ ok: true, service: 'eveos-notes', appVersion: 'smoke', port: 8767 });
+    }
+    if (url.endsWith('/api/notes-service/status')) {
+        if (!controllerOnline) throw new Error('controller offline');
+        return response({ ok: true, service: 'eveos-notes', controllerAvailable: true,
+            running: notesRunning, state: notesRunning ? 'running' : 'stopped', port: 8767,
+            url: 'http://127.0.0.1:8767', message: notesRunning ? 'EveOS Notes is ready.' : 'EveOS Notes is stopped.' });
+    }
+    if (url.endsWith('/api/notes-service/start') && options?.method === 'POST') {
+        notesRunning = true;
+        return fetchMock('http://127.0.0.1:9082/api/notes-service/status');
+    }
+    if (url.endsWith('/api/notes-service/stop') && options?.method === 'POST') {
+        notesRunning = false;
+        return fetchMock('http://127.0.0.1:9082/api/notes-service/status');
+    }
+    if (url.includes(':8767/api/notes/workspace')) {
+        if (!notesRunning) throw new Error('Notes offline');
+        return response({ ok: true, roots: [{ id: 'spatial', name: 'Spatial Notes' }] });
+    }
     if (url.endsWith('/api/control-plane/health')) {
         if (!controllerOnline) throw new Error('controller offline');
         return response({
@@ -120,7 +147,7 @@ const documentMock = {
 
 const windowMock = {
     EveWorldBook: {},
-    config: { bridges: { localControlPort: 9082 } },
+    config: { bridges: { localControlPort: 9082, notesPort: 8767 } },
     location: {
         protocol: 'file:',
         hostname: '',
@@ -143,6 +170,7 @@ const context = {
 
 vm.runInNewContext(localControlSource, context, { filename: 'eveos-local-control.js' });
 vm.runInNewContext(source, context, { filename: 'world-book.client.js' });
+vm.runInNewContext(notesSource, context, { filename: 'world-book.notes.client.js' });
 
 (async () => {
     const client = windowMock.EveWorldBook.client;
@@ -191,6 +219,17 @@ vm.runInNewContext(source, context, { filename: 'world-book.client.js' });
 
     if (!events.some((event) => event.type === 'eve:world-book-status')) {
         throw new Error('status events were not published');
+    }
+
+    const notesClient = windowMock.EveWorldBook.notesClient;
+    const workspace = await notesClient.workspace();
+    if (!notesRunning || workspace.roots[0]?.id !== 'spatial') {
+        throw new Error(`Notes did not start and route independently: ${JSON.stringify(workspace)}`);
+    }
+    if (worldRunning) throw new Error('Starting Notes unexpectedly started World Book');
+    await notesClient.stop();
+    if (notesRunning || !events.some((event) => event.type === 'eve:notes-status')) {
+        throw new Error('Notes stop/status event contract failed');
     }
 
     console.log('WORLD_BOOK_CLIENT_SMOKE_OK');

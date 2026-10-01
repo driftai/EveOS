@@ -17,6 +17,7 @@ window.EveWorldBook = window.EveWorldBook || {};
     let opened = null;
     let originalContent = '';
     let loading = false;
+    let requestGeneration = 0;
 
     function read(key, fallback) {
         try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -33,6 +34,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         if (!target) return;
         target.textContent = message;
         target.dataset.state = state;
+        overlay?.classList.toggle('has-unsaved-notes', isDirty());
     }
 
     function isDirty() {
@@ -86,7 +88,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         const meta = one('[data-eve-notes-meta]');
         if (title) title.textContent = 'Select a note';
         if (meta) meta.textContent = 'Files stay on disk.';
-        overlay.querySelectorAll('[data-eve-notes-favorite], [data-eve-notes-copy-ref], [data-eve-notes-link], [data-eve-notes-revert], [data-eve-notes-save]').forEach(button => { button.disabled = true; });
+        overlay.querySelectorAll('.eve-notes-editor-actions button').forEach(button => { button.disabled = true; });
         status(message);
     }
 
@@ -130,6 +132,10 @@ window.EveWorldBook = window.EveWorldBook || {};
             button.className = 'eve-notes-entry';
             button.dataset.path = entry.path;
             button.dataset.kind = entry.kind;
+            button.dataset.rootId = entry.rootId || currentRoot;
+            button.addEventListener('click', event => { event.stopPropagation(); void (
+                button.dataset.rootId !== currentRoot ? openReference(button.dataset.rootId, button.dataset.path)
+                    : openEntry(button.dataset.path, button.dataset.kind)); });
             if (opened?.path === entry.path && opened?.rootId === currentRoot) button.classList.add('is-active');
             const icon = entry.kind === 'folder' ? '\uD83D\uDCC1' : entry.favorite ? '\u2605' : '\uD83D\uDCC4';
             button.textContent = `${icon} ${entry.name}`;
@@ -141,17 +147,20 @@ window.EveWorldBook = window.EveWorldBook || {};
     }
 
     async function loadList(path = currentPath) {
-        if (!currentRoot || loading) {
+        if (!currentRoot) {
             entries = [];
             renderEntries();
             if (!currentRoot) status(mode === 'files' ? 'Track a .txt, .md, or folder path to begin.' : 'Spatial Notes is unavailable.', mode === 'files' ? '' : 'error');
             return;
         }
+        const generation = ++requestGeneration;
+        const requestedRoot = currentRoot;
         loading = true;
         status('Loading note files…');
         try {
             const includeMarkdown = one('[data-eve-notes-markdown]')?.checked === true;
             const payload = await ns.notesClient.list(currentRoot, path, includeMarkdown);
+            if (generation !== requestGeneration || requestedRoot !== currentRoot) return;
             currentPath = payload.path || '';
             entries = payload.entries || [];
             const pathLabel = one('[data-eve-notes-path]');
@@ -165,15 +174,17 @@ window.EveWorldBook = window.EveWorldBook || {};
             renderEntries();
             status(error.message, 'error');
         } finally {
-            loading = false;
+            if (generation === requestGeneration) loading = false;
         }
     }
 
     async function refreshWorkspace(options = {}) {
         if (mode === 'scratchpad') return;
+        const generation = ++requestGeneration;
         status('Connecting to EveOS Notes…');
         try {
             const payload = await ns.notesClient.workspace();
+            if (generation !== requestGeneration) return;
             roots = payload.roots || [];
             const oldRoot = options.preserve ? currentRoot : '';
             renderRoots(oldRoot);
@@ -204,9 +215,12 @@ window.EveWorldBook = window.EveWorldBook || {};
             return;
         }
         if (!(await allowDiscard())) return;
+        const generation = ++requestGeneration;
+        const requestedRoot = currentRoot;
         status('Opening note…');
         try {
             const payload = await ns.notesClient.read(currentRoot, path);
+            if (generation !== requestGeneration || requestedRoot !== currentRoot) return;
             opened = { ...payload.entry, rootId: currentRoot };
             originalContent = payload.content || '';
             const editor = one('[data-eve-notes-editor]');
@@ -214,7 +228,7 @@ window.EveWorldBook = window.EveWorldBook || {};
             editor.value = originalContent;
             one('[data-eve-notes-title]').textContent = payload.entry.name;
             one('[data-eve-notes-meta]').textContent = `${payload.entry.extension.slice(1).toUpperCase()} · ${Number(payload.entry.size || 0).toLocaleString()} bytes`;
-            overlay.querySelectorAll('[data-eve-notes-favorite], [data-eve-notes-copy-ref], [data-eve-notes-link], [data-eve-notes-revert], [data-eve-notes-save]').forEach(button => { button.disabled = false; });
+            overlay.querySelectorAll('.eve-notes-editor-actions button').forEach(button => { button.disabled = false; });
             const favorite = one('[data-eve-notes-favorite]');
             favorite.textContent = payload.entry.favorite ? '\u2605 Favorited' : '\u2606 Favorite';
             renderEntries();
@@ -224,7 +238,12 @@ window.EveWorldBook = window.EveWorldBook || {};
             status(error.message, 'error');
         }
     }
-
+    async function openReference(rootId, path) {
+        if (!(await allowDiscard())) return;
+        mode = rootId === 'spatial' ? 'spatial' : 'files'; write(MODE_KEY, mode); applyMode();
+        renderRoots(rootId); currentPath = String(path || '').split('/').slice(0, -1).join('/');
+        await loadList(currentPath); await openEntry(path, 'file');
+    }
     async function saveNote() {
         if (!opened) return;
         status('Saving…');
@@ -236,7 +255,12 @@ window.EveWorldBook = window.EveWorldBook || {};
             status(payload.message || 'Saved.', 'success');
             await loadList(currentPath);
         } catch (error) {
-            status(error.payload?.conflict ? error.payload.message : error.message, 'error');
+            if (error.payload?.conflict) {
+                status('Disk changed. Your draft is preserved; reload only if you choose.', 'error');
+                if (await confirmAction('This note changed on disk. Reload the disk version and discard your draft?', {
+                    title: 'Revision conflict', confirmLabel: 'Reload disk version'
+                })) await openEntry(opened.path, 'file');
+            } else status(error.message, 'error');
         }
     }
 
@@ -309,23 +333,10 @@ window.EveWorldBook = window.EveWorldBook || {};
         } catch (error) { status(error.message, 'error'); }
     }
 
-    function downloadBackup(payload) {
-        const raw = atob(payload.base64 || '');
-        const bytes = new Uint8Array(raw.length);
-        for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
-        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = payload.filename || 'EveOS-Spatial-Notes.zip';
-        anchor.click();
-        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
-
     async function exportBackup() {
         try {
             status('Building Spatial Notes backup…');
-            downloadBackup(await ns.notesClient.exportSpatial());
-            status('Spatial Notes backup exported.', 'success');
+            status(await ns.notesBackup.exportSpatial(), 'success');
         } catch (error) { status(error.message, 'error'); }
     }
 
@@ -333,10 +344,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         if (!file) return;
         try {
             status('Importing Spatial Notes backup…');
-            const bytes = new Uint8Array(await file.arrayBuffer());
-            let binary = '';
-            for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-            const payload = await ns.notesClient.importSpatial(btoa(binary));
+            const payload = await ns.notesBackup.importSpatial(file);
             await loadList(currentPath);
             status(payload.message, 'success');
         } catch (error) { status(error.message, 'error'); }
@@ -367,10 +375,8 @@ window.EveWorldBook = window.EveWorldBook || {};
         applyMode();
         overlay.addEventListener('click', event => {
             const modeButton = event.target.closest?.('[data-eve-notes-mode]');
-            const entry = event.target.closest?.('[data-eve-notes-list] [data-path]');
             const create = event.target.closest?.('[data-eve-notes-create]');
             if (modeButton) void setMode(modeButton.dataset.eveNotesMode);
-            else if (entry) void openEntry(entry.dataset.path, entry.dataset.kind);
             else if (event.target.closest?.('[data-eve-notes-refresh]')) void refreshWorkspace({ preserve: true });
             else if (event.target.closest?.('[data-eve-notes-track]')) void trackPath();
             else if (event.target.closest?.('[data-eve-notes-untrack]')) void removePath();
@@ -395,6 +401,11 @@ window.EveWorldBook = window.EveWorldBook || {};
         one('[data-eve-notes-markdown]').addEventListener('change', event => { write(MARKDOWN_KEY, event.target.checked ? '1' : '0'); void loadList(currentPath); });
         one('[data-eve-notes-filter]').addEventListener('input', renderEntries);
         one('[data-eve-notes-editor]').addEventListener('input', () => status(isDirty() ? 'Unsaved changes.' : 'Ready.'));
+        overlay.addEventListener('keydown', event => {
+            if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's' || mode === 'scratchpad') return;
+            event.preventDefault();
+            void saveNote();
+        });
         one('[data-eve-notes-font]').addEventListener('change', applyFont);
         one('[data-eve-notes-font-size]').addEventListener('input', applyFont);
         one('[data-eve-notes-import-file]').addEventListener('change', event => { void importBackup(event.target.files?.[0]); event.target.value = ''; });
@@ -411,5 +422,19 @@ window.EveWorldBook = window.EveWorldBook || {};
         if (overlay?.classList.contains('is-open') && mode !== 'scratchpad' && !isDirty()) await refreshWorkspace({ preserve: true });
     }
 
-    ns.notesWorkspace = Object.freeze({ bind, activate, resume });
+    window.addEventListener('beforeunload', event => {
+        if (!isDirty()) return;
+        event.preventDefault();
+        event.returnValue = '';
+    });
+
+    ns.notesWorkspace = Object.freeze({
+        bind, activate, resume, isDirty, canLeave: allowDiscard, openEntry, openReference,
+        context: () => ({ opened: opened ? { ...opened } : null, rootId: currentRoot, path: currentPath, mode }),
+        showEntries(next, message) { entries = Array.isArray(next) ? next : []; renderEntries(); status(message); },
+        refreshList: () => loadList(currentPath), clearEditor, status,
+        focusActive() {
+            one(mode === 'scratchpad' ? '[data-world-book-notes]' : '[data-eve-notes-editor]')?.focus();
+        }
+    });
 })(window.EveWorldBook);

@@ -19,6 +19,7 @@
         ['web', 'EveOS localhost', [['EVEOS_WEB_PORT', 8765]]],
         ['gemini', 'Gemini Live Link', [['GEMINI_WS_PORT', 9085], ['GEMINI_STATUS_PORT', 9086]]],
         ['worldBook', 'World Book', [['WORLD_BOOK_PORT', 8766]]],
+        ['notes', 'EveOS Notes', [['NOTES_PORT', 8767]]],
         ['piano', 'Piano Auto Player', [['PIANO_PLAYER_PORT', 8771]]],
         ['watchFusion', 'WatchFusion', [['WATCHFUSION_PORT', 9087]]],
         ['bookmarkIntel', 'Bookmark Intel', [['BOOKMARK_INTEL_PORT', 9077]]],

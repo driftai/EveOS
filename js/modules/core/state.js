@@ -108,6 +108,7 @@ let config = {
         localControlPort: 9082,
         geminiControlPort: 9082,
         worldBookPort: 8766,
+        notesPort: 8767,
         worldPortalPort: 8770,
         pianoPlayerPort: 8771,
         corsProxyUrl: "",

@@ -23,6 +23,8 @@ if (!window.AudioProcessingControlsAgentic.SpeechRecognitionHandler) {
         let lastSubmittedText = '';
         let lastSubmittedAt = 0;
         let transcriptionHideTimer = 0;
+        let sessionAutoSend = true;
+        const transcriptListeners = new Set();
         const TRANSCRIPTION_PREVIEW_MAX_CHARS = 180;
 
         // Configuration
@@ -90,7 +92,11 @@ if (!window.AudioProcessingControlsAgentic.SpeechRecognitionHandler) {
                 }
 
                 if (finalParts.length) {
-                    queueFinalTranscriptSubmit(finalParts.join(' '));
+                    const text = finalParts.join(' ');
+                    transcriptListeners.forEach(listener => {
+                        try { listener(text); } catch (error) { console.error('[SpeechRecognition] Listener failed:', error); }
+                    });
+                    queueFinalTranscriptSubmit(text);
                 }
             };
 
@@ -100,8 +106,9 @@ if (!window.AudioProcessingControlsAgentic.SpeechRecognitionHandler) {
         /**
          * Start recognition
          */
-        function start() {
+        function start(options = {}) {
             if (recognition && !isRecognizing) {
+                sessionAutoSend = options.autoSend !== false;
                 finalTranscript = ''; // Reset for new turn
                 interimTranscript = '';
                 pendingFinalText = '';
@@ -132,7 +139,7 @@ if (!window.AudioProcessingControlsAgentic.SpeechRecognitionHandler) {
         }
 
         function queueFinalTranscriptSubmit(text) {
-            if (!config.autoSendFinalTranscript) return;
+            if (!config.autoSendFinalTranscript || !sessionAutoSend) return;
             const normalized = normalizeTranscript(text);
             if (!normalized) return;
             pendingFinalText = normalizeTranscript([pendingFinalText, normalized].filter(Boolean).join(' '));
@@ -225,6 +232,11 @@ if (!window.AudioProcessingControlsAgentic.SpeechRecognitionHandler) {
             start: start,
             stop: stop,
             flushPendingFinalTranscript: flushPendingFinalTranscript,
+            subscribe(listener) {
+                if (typeof listener !== 'function') return () => {};
+                transcriptListeners.add(listener);
+                return () => transcriptListeners.delete(listener);
+            },
             isSupported: function () { return !!recognition; }
         };
 

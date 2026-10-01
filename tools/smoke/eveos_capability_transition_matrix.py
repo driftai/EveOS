@@ -26,6 +26,7 @@ from server_modules import (  # noqa: E402
     gemini_control,
     local_moe_control,
     nexus_browser_control,
+    notes_control,
     piano_player_control,
     watchfusion_control,
     watchfusion_exposure,
@@ -36,6 +37,7 @@ EXPECTED = {
     "web": {"stopped", "starting", "blocked", "running"},
     "gemini": {"stopped", "starting", "conflict", "running"},
     "worldBook": {"stopped", "starting", "blocked", "running"},
+    "notes": {"stopped", "starting", "blocked", "running"},
     "piano": {"stopped", "starting", "blocked", "running", "needsSetup"},
     "watchFusion": {"stopped", "starting", "blocked", "running", "needsSetup"},
     "bookmarkIntel": {"stopped", "starting", "blocked", "running"},
@@ -152,6 +154,27 @@ def world_matrix(root):
         "starting": one(process=FakeProcess()),
         "blocked": one(busy=True),
         "running": one(health={"appVersion": "smoke"}),
+    }
+
+def notes_matrix(root):
+    entry = fake_file(root, "notes/server.py")
+
+    def one(*, health=None, busy=False, process=None):
+        with (
+            patch.object(notes_control, "_health_payload", return_value=health),
+            patch.object(notes_control, "_port_open", return_value=busy),
+            patch.object(notes_control, "_entry_point", return_value=entry),
+            patch.object(notes_control, "_read_desired_state", return_value=False),
+            patch.object(notes_control, "_listener_pids", return_value=[223] if health else []),
+            patch.object(notes_control, "_PROCESS", process),
+        ):
+            return compact(notes_control.get_status())
+
+    return {
+        "stopped": one(),
+        "starting": one(process=FakeProcess()),
+        "blocked": one(busy=True),
+        "running": one(health={"service": "eveos-notes"}),
     }
 
 
@@ -387,6 +410,7 @@ def main():
             "web": web_matrix(root),
             "gemini": gemini_matrix(),
             "worldBook": world_matrix(root),
+            "notes": notes_matrix(root),
             "piano": piano_matrix(root),
             "watchFusion": watchfusion_matrix(root),
             "bookmarkIntel": bookmark_matrix(root),

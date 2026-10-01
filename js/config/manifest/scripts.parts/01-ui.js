@@ -85,7 +85,7 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/features/modular-state-sync/modular-state-sync.core.js?v=ba1f53ca15ae",
     "js/modules/ui/inline-prompt.js?v=703cffcc073b",
     "js/modules/ui/visuals.js?v=c3eb2e86fed9",
-    "js/modules/ui/header.js?v=wheelcapture01",
+    "js/modules/ui/header.js?v=968edfcc454c",
     "js/modules/features/header-controls/hc-state.js?v=d101ea252e35",
     "js/modules/features/header-controls/hc-ui.form.js?v=e3c34ba6bb7d",
     "js/modules/features/header-controls/hc-ui.js?v=ce2db1bb68ce",

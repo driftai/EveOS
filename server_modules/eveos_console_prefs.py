@@ -33,7 +33,7 @@ from pathlib import Path
 
 # Services that spawn their own process and can therefore own a console. The UI lists these, so a
 # service missing here is invisible in settings even if it is running.
-KNOWN_SERVICES = ("web", "gemini", "localMoe", "worldBook", "bookmarkIntel", "piano", "watchFusion", "nexusBrowser")
+KNOWN_SERVICES = ("web", "gemini", "localMoe", "notes", "worldBook", "bookmarkIntel", "piano", "watchFusion", "nexusBrowser")
 _TRUE = {"1", "true", "yes", "on"}
 DEFAULT_HEADLESS = False
 

@@ -17,6 +17,6 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/gemini/server_control/geminiServerControl.js?v=ae8d384d9691",
     "js/modules/gemini/server_control/geminiServerInspector.js?v=9b814834ac9b",
     "js/modules/gemini/server_control/geminiCredentialWorkflow.js?v=344f1a5fb09d",
-    "js/modules/gemini/Script_Loader/Script_Loader.js?v=b37ff70395a7",
+    "js/modules/gemini/Script_Loader/Script_Loader.js?v=6ec346c36a77",
     "js/modules/gemini/ui/geminiSectionCollapse.js?v=c16eefaac0ce"
 ]);
