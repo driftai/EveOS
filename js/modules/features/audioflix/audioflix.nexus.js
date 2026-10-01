@@ -50,6 +50,11 @@ window.EveAudioflixNexus = window.EveAudioflixNexus || {};
             item,
             haystack: [
                 item.title,
+                item.audioTitle,
+                item.audioArtist,
+                item.creatorDisplayName,
+                item.creator,
+                item.caption,
                 item.artist,
                 item.folder,
                 item.card,
@@ -69,6 +74,11 @@ window.EveAudioflixNexus = window.EveAudioflixNexus || {};
             if (!q) return list;
             return list.filter((item) => [
                 item.title,
+                item.audioTitle,
+                item.audioArtist,
+                item.creatorDisplayName,
+                item.creator,
+                item.caption,
                 item.artist,
                 item.folder,
                 item.card,
