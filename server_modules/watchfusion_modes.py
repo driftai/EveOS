@@ -78,22 +78,74 @@ def _pid_command_line(pid: int) -> str:
         return ""
 
 
-def _kill_owned_pid_file(path: Path) -> None:
-    if os.name != "nt":
-        return
-    try:
-        pid = int(path.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        return
-    command = _pid_command_line(pid).lower()
-    root = str(_tool_root()).lower()
-    if not command or (root not in command and "cloudflared" not in command):
-        return
-    subprocess.run(
+def _taskkill(pid: int) -> bool:
+    if os.name != "nt" or pid <= 0:
+        return False
+    result = subprocess.run(
         ["taskkill", "/F", "/T", "/PID", str(pid)],
         capture_output=True, text=True, check=False,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    return result.returncode == 0
+
+
+def _kill_owned_pid_file(path: Path) -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        pid = int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return False
+    command = _pid_command_line(pid).lower()
+    root = str(_tool_root()).lower()
+    if not command or (root not in command and "cloudflared" not in command):
+        return False
+    return _taskkill(pid)
+
+
+def _watchfusion_remote_processes() -> list[int]:
+    if os.name != "nt":
+        return []
+    root = str(_tool_root()).lower()
+    runtime_bat = str(_runtime_dir() / "RUN-CLOUDFLARE.bat").lower()
+    origin = f"http://127.0.0.1:{watchfusion_control.WATCHFUSION_PORT}".lower()
+    command = (
+        "Get-CimInstance Win32_Process | "
+        "ForEach-Object { "
+        "$c=[string]$_.CommandLine; "
+        "if ($c) { [pscustomobject]@{ Id=$_.ProcessId; Name=$_.Name; CommandLine=$c } } "
+        "} | ConvertTo-Json -Compress"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", command],
+            capture_output=True, text=True, check=False, timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        raw = (result.stdout or "").strip()
+        if not raw:
+            return []
+        rows = json.loads(raw)
+        if isinstance(rows, dict):
+            rows = [rows]
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        return []
+
+    owned = []
+    for row in rows if isinstance(rows, list) else []:
+        try:
+            pid = int(row.get("Id") or 0)
+        except (TypeError, ValueError):
+            continue
+        name = str(row.get("Name") or "").lower()
+        cmd = str(row.get("CommandLine") or "").lower()
+        if pid <= 0:
+            continue
+        if name == "cloudflared.exe" and " tunnel " in f" {cmd} " and origin in cmd:
+            owned.append(pid)
+        elif name in {"cmd.exe", "powershell.exe", "pwsh.exe"} and (runtime_bat in cmd or root in cmd and "remote-tunnel.ps1" in cmd):
+            owned.append(pid)
+    return sorted(set(owned))
 
 
 def stop_remote_helpers() -> None:
@@ -107,6 +159,10 @@ def stop_remote_helpers() -> None:
     runtime = _runtime_dir()
     for name in ("cloudflared.pid", "cloudflared-terminal.pid", "server.pid"):
         _kill_owned_pid_file(runtime / name)
+    # PID files can be stale or can predate newer ownership tracking. Fall back to
+    # process discovery using only WatchFusion's exact tunnel origin/runtime paths.
+    for pid in _watchfusion_remote_processes():
+        _taskkill(pid)
     for name in ("cloudflared.pid", "cloudflared-terminal.pid", "server.pid", "remote-url.txt", "RUN-CLOUDFLARE.bat"):
         try:
             (runtime / name).unlink()
