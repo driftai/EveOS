@@ -147,15 +147,26 @@ function createAdapter({
       const windowInfo = await findWindow();
       if (!windowInfo) return [];
       const hwnd = hwndOf(windowInfo), pid = pidOf(windowInfo);
-      let conversationTitle = '';
+      let conversationTitle = '', conversationAnchors = [];
       try {
-        const snapshot = await inspect(windowInfo);
-        conversationTitle = (await titleResolver.resolve({ runner, snapshot }))?.text || '';
+        let snapshot = await inspect(windowInfo);
+        conversationTitle = conversation.activeConversationTitle(snapshot)?.text || '';
+        conversationAnchors = conversation.conversationAnchorDigests(snapshot);
+        if (!conversationTitle && !conversationAnchors.length) {
+          conversationTitle = (await titleResolver.resolve({ runner, snapshot }))?.text || '';
+        }
+        if (!conversationAnchors.length && !conversationTitle) {
+          snapshot = await inspect(windowInfo, { includeOffscreen: true });
+          conversationAnchors = conversation.conversationAnchorDigests(snapshot);
+        }
       } catch {}
+      const conversationAnchor = conversationAnchors.at(-1) || '';
+      const exactConversationIdentity = !!conversationTitle || !!conversationAnchor;
       return [{ id: TARGET_ID,
         title: conversationTitle
           ? `ChatGPT · ${conversationTitle}`
-          : String(windowInfo.title || windowInfo.name || 'ChatGPT'),
+          : exactConversationIdentity ? 'ChatGPT · verified native conversation'
+            : String(windowInfo.title || windowInfo.name || 'ChatGPT'),
         providerId: PROVIDER_ID,
         providerName: PROVIDER_NAME,
         targetTypeId: 'desktop-app',
@@ -169,10 +180,12 @@ function createAdapter({
           app: 'ChatGPT',
           processId: pid,
           windowHandle: hwnd,
-          ...(conversationTitle ? { conversationTitle } : {})
+          ...(conversationTitle ? { conversationTitle } : {}),
+          ...(conversationAnchor ? { conversationAnchor } : {}),
+          ...(conversationAnchors.length ? { conversationAnchors } : {})
         },
         capabilities: { chat: true, captureLatest: true, activity: false,
-          exactConversationIdentity: !!conversationTitle }
+          exactConversationIdentity }
       }];
     } catch (error) {
       lastDiagnostics = { ...lastDiagnostics, available: false, lastError: error.message, lastProbeAt: now() };

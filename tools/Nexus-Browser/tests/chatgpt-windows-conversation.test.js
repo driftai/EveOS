@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { snapshotFromInspect } = require('../app-targets/chatgpt-windows');
-const { latestAssistantReply, activeConversationTitle, preferExpandedReply } = require('../app-targets/chatgpt-windows-conversation');
+const { latestAssistantReply, activeConversationTitle, conversationAnchorDigests, preferExpandedReply } = require('../app-targets/chatgpt-windows-conversation');
 
 test('native reply aggregation preserves multi-paragraph ChatGPT answers and ignores progress chrome', () => {
   const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 100, y: 20, width: 1200, height: 900 };
@@ -92,6 +92,34 @@ test('expanded native reply replaces a visible tail only when it safely contains
   assert.equal(preferExpandedReply('', expanded), expanded);
 });
 
+
+test('native conversation anchors remain valid as later turns are appended', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
+  const build = (includeLater) => snapshotFromInspect({
+    windowInfo,
+    json: { windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Pane', x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'u1-role', type: 'Text', name: 'You said', x: 300, y: 100, width: 1, height: 1, children: [] },
+        { selector: 'u1', type: 'Text', name: 'APP_ORIGIN_TEST_003 — Reply exactly with: NATIVE_EVE_OK', x: 850, y: 120, width: 280, height: 30, children: [] },
+        { selector: 'a1-role', type: 'Text', name: 'ChatGPT said', x: 300, y: 170, width: 1, height: 1, children: [] },
+        { selector: 'a1', type: 'Text', name: 'NATIVE_EVE_OK', x: 300, y: 190, width: 180, height: 28, children: [] },
+        ...(includeLater ? [
+          { selector: 'u2-role', type: 'Text', name: 'You said', x: 300, y: 250, width: 1, height: 1, children: [] },
+          { selector: 'u2', type: 'Text', name: 'Another unique native prompt for the same conversation', x: 820, y: 270, width: 310, height: 30, children: [] },
+          { selector: 'a2-role', type: 'Text', name: 'ChatGPT said', x: 300, y: 320, width: 1, height: 1, children: [] },
+          { selector: 'a2', type: 'Text', name: 'Another unique native answer in the same conversation', x: 300, y: 340, width: 420, height: 30, children: [] }
+        ] : [])
+      ]
+    }] }] }
+  });
+
+  const first = conversationAnchorDigests(build(false));
+  const later = conversationAnchorDigests(build(true));
+  assert.equal(first.length, 1);
+  assert.equal(later.length, 2);
+  assert.ok(later.includes(first[0]), 'bound conversation anchor must survive later messages');
+  assert.match(first[0], /^[a-f0-9]{64}$/);
+});
 
 test('native conversation identity prefers the active main header over sidebar labels', () => {
   const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 100, y: 20, width: 1200, height: 900 };

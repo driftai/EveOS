@@ -93,29 +93,38 @@ Current native response timing is deliberately low-latency but still stable:
 ## Process identity and safety
 
 A Dex App-Origin binding pins the stable target id/provider, concrete Windows
-process/window identity, and the active native ChatGPT conversation title. Native
-conversation-title discovery accepts the compact app header whether Windows UIA exposes
-it as Text, Heading, or a button-like header control; generic Back/Share/navigation
-chrome is excluded. If ChatGPT
-restarts, the PID/window changes, or the user switches to a different native
-conversation, the existing room binding fails closed and requires a human rebind.
-ChatGPT App targets without a detectable active conversation title are allowed in Base
-Mode but cannot be committed as Dex participants. Nexus must not silently send a room
-turn into a newly-created process or a different conversation just because it has the
-same provider name.
+process/window identity, and an exact native-conversation proof. Nexus prefers the
+active ChatGPT conversation title when Windows UIA exposes it. When the native header
+is not exposed, Nexus falls back to a privacy-safe SHA-256 anchor derived from a
+completed user/assistant exchange that is already visible in that conversation. Raw
+message text is never stored in the binding.
+
+The live target publishes a bounded set of currently accessible conversation anchors,
+so a bound anchor remains valid as later turns are appended. If the anchor is no longer
+observable (for example after aggressive UI virtualization), the binding fails closed
+and requires a human refresh/rebind rather than guessing. If ChatGPT restarts, the
+PID/window changes, or the user switches to a different native conversation, the
+existing room binding likewise fails closed. Nexus must not silently send a room turn
+into a newly-created process or a different conversation just because it has the same
+provider name.
 
 Base Mode may reconnect to the currently discovered app normally; the stricter identity
 pin is a Dex room execution invariant.
 
 ## Exact native conversation identity
 
-Dex App-Origin bindings must include the active native ChatGPT conversation title in
-addition to process ID and window handle. The adapter first reads the ordinary UIA
-tree, then performs bounded UIA header/title searches only when the visible tree does
-not expose the active header. Message text in the conversation body is never accepted
-as the title. `npm run qualify:app-origin:live` fails closed when a concrete native
-conversation is not identifiable; `npm run doctor:apps` remains usable on the home
-screen for ordinary diagnostics.
+Dex App-Origin bindings must include one of two exact native ChatGPT conversation
+proofs in addition to process ID and window handle:
+
+1. the active conversation title, when UIA exposes the compact native header; or
+2. a hashed completed-turn anchor when the header is not exposed.
+
+The adapter first reads the ordinary UIA tree and performs bounded title/header
+recovery. Conversation body text is never re-labeled as a title. Separately, role
+markers (`You said` / `ChatGPT said`) can produce a SHA-256 anchor without storing
+the underlying prompt or answer. `npm run qualify:app-origin:live` accepts either
+proof and fails closed when neither is available; `npm run doctor:apps` remains
+usable on the home screen for ordinary diagnostics.
 
 ## Base Mode qualification
 
@@ -150,7 +159,7 @@ browser viewer to send directly.
 The Dex participant builder can discover and bind App-Origin targets. For a scheduled
 App-Origin turn the server:
 
-1. resolves the exact bound app target, process/window identity, and native conversation title;
+1. resolves the exact bound app target, process/window identity, and native conversation proof;
 2. passes through the same durable turn ledger used by Online/Local origins;
 3. dispatches through `appTargets.sendAppPrompt()`;
 4. consumes native `prompt_accepted`, partial and final events through the scheduler;
@@ -196,8 +205,8 @@ native ChatGPT conversation and a one-turn Dex room first:
 
 1. Open the exact intended native conversation and refresh App-Origin targets.
 2. Bind one Dex participant to **App-Origin → Desktop App → ChatGPT App**. The picker
-   must show the active conversation title and the binding must contain process,
-   window, and conversation identity.
+   may show the active title or **verified native conversation**; the binding must
+   contain process, window, and exact conversation proof.
 3. Use a one-turn budget and send a unique harmless prompt.
 4. Confirm the native app receives the prompt exactly once.
 5. Confirm the complete native reply appears in the Dex room exactly once.
@@ -207,7 +216,7 @@ native ChatGPT conversation and a one-turn Dex room first:
 8. Only after the single-participant test passes, add a second Online- or Local-Origin
    participant and qualify cross-origin handoff.
 
-If the native conversation title changes before dispatch, refresh targets and rebind.
+If the native conversation proof no longer matches before dispatch, refresh targets and rebind.
 If a dispatched turn becomes uncertain, do **not** manually resend it: preserve the
 room/recovery state and let capture recovery or the late-final path reconcile it.
 

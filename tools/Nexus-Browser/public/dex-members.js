@@ -1,6 +1,24 @@
 (() => {
   // One policy for browser UI, localhost commands, receipt correlation and
   // terminal sources. Matching only an ID OR URL can select the wrong chat.
+  function appConversationIdentity(identity = {}) {
+    return String(identity.conversationAnchor || identity.conversationTitle || '');
+  }
+
+  function appConversationMatches(bound = {}, live = {}) {
+    const titleMatches = !!bound.conversationTitle
+      && String(bound.conversationTitle) === String(live.conversationTitle || '');
+    if (bound.conversationAnchor) {
+      const anchors = Array.isArray(live.conversationAnchors)
+        ? live.conversationAnchors.map(String)
+        : live.conversationAnchor ? [String(live.conversationAnchor)] : [];
+      if (anchors.includes(String(bound.conversationAnchor))) return true;
+      if (anchors.length) return false;
+      return titleMatches;
+    }
+    return titleMatches;
+  }
+
   function exactBinding(binding = {}, source = {}) {
     if (binding.targetClassId !== source.targetClassId
       || binding.providerId !== source.providerId) return false;
@@ -9,10 +27,10 @@
     if (binding.targetClassId === 'app-origin') {
       if (!binding.targetId || String(binding.targetId) !== String(source.targetId ?? source.id ?? '')) return false;
       const bound = binding.concreteTargetIdentity || {}, live = source.concreteTargetIdentity || {};
-      if (binding.providerId === 'chatgpt-desktop' && !bound.conversationTitle) return false;
+      if (binding.providerId === 'chatgpt-desktop' && !appConversationIdentity(bound)) return false;
       if (bound.processId && String(bound.processId) !== String(live.processId || '')) return false;
       if (bound.windowHandle && String(bound.windowHandle) !== String(live.windowHandle || '')) return false;
-      if (bound.conversationTitle && String(bound.conversationTitle) !== String(live.conversationTitle || '')) return false;
+      if (binding.providerId === 'chatgpt-desktop' && !appConversationMatches(bound, live)) return false;
       return true;
     }
     if (binding.targetClassId !== 'online-origin') return false;
@@ -40,7 +58,7 @@
     if (binding.targetClassId === 'online-origin') return `online:${binding.providerId}:${binding.url || binding.targetId}`;
     if (binding.targetClassId === 'app-origin') {
       const identity = binding.concreteTargetIdentity || {};
-      return `app:${binding.providerId}:${binding.targetId}:${identity.processId || ''}:${identity.windowHandle || ''}:${identity.conversationTitle || ''}`;
+      return `app:${binding.providerId}:${binding.targetId}:${identity.processId || ''}:${identity.windowHandle || ''}:${appConversationIdentity(identity)}`;
     }
     return `local:${binding.providerId}:${binding.targetId}`;
   }
@@ -146,7 +164,9 @@
         const label = targetClass === 'online-origin'
           ? `${target.title || target.providerName} — ${target.url}`
           : targetClass === 'app-origin'
-            ? `${target.providerName || 'App'}${target.concreteTargetIdentity?.conversationTitle ? ` — ${target.concreteTargetIdentity.conversationTitle}` : ''}${target.pid ? ` · PID ${target.pid}` : ''}`
+            ? `${target.providerName || 'App'}${target.concreteTargetIdentity?.conversationTitle
+              ? ` — ${target.concreteTargetIdentity.conversationTitle}`
+              : target.capabilities?.exactConversationIdentity ? ' — verified native conversation' : ''}${target.pid ? ` · PID ${target.pid}` : ''}`
             : target.title;
         el.dexMemberTarget.add(new Option(label, String(target.id)));
       }
@@ -224,7 +244,7 @@
           : state.localTargets.find((target) => target.id === targetId);
       if (!source) return log('Choose an available target first.');
       if (targetClassId === 'app-origin' && source.providerId === 'chatgpt-desktop'
-          && !source.concreteTargetIdentity?.conversationTitle) {
+          && !source.capabilities?.exactConversationIdentity) {
         return log('Open the intended ChatGPT conversation first, refresh App-Origin targets, then bind it.');
       }
       const binding = bindingFromSource(targetClassId, source);
@@ -274,6 +294,7 @@
   }
 
   const api = {
+    appConversationIdentity, appConversationMatches,
     memberFingerprint,
     exactBinding, staleBinding, staleRoomCount,
     stableMemberId,

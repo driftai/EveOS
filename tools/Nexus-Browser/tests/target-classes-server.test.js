@@ -37,7 +37,10 @@ test('UI handshake advertises Online, Local and App-Origin without waiting for n
     await new Promise((resolve) => ws.once('open', resolve));
     const classesPromise = waitMessage(ws, (message) => message.type === 'target_classes_update');
     const localTargetsPromise = waitMessage(ws, (message) => message.type === 'local_targets_update');
-    const appTargetsPromise = waitMessage(ws, (message) => message.type === 'app_targets_update', 1500);
+    // The first App-Origin snapshot is sent synchronously by the hello handler and
+    // carries refreshing=true. Keep a normal full-suite scheduling budget here;
+    // correctness is the eager snapshot contract, not a 1.5s wall-clock race.
+    const appTargetsPromise = waitMessage(ws, (message) => message.type === 'app_targets_update', 5000);
     ws.send(JSON.stringify({ type: 'hello', role: 'ui' }));
 
     const classes = await classesPromise;

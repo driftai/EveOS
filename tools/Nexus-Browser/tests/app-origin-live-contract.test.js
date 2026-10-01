@@ -13,6 +13,8 @@ test('live App-Origin qualification requires an exact native conversation identi
   assert.match(pkg.scripts['qualify:app-origin:live'], /--require-conversation/);
   assert.match(doctor, /APP_CONVERSATION_IDENTITY_MISSING/);
   assert.match(doctor, /activeConversationTitle/);
+  assert.match(doctor, /activeConversationAnchor/);
+  assert.match(doctor, /content-anchor/);
 });
 
 test('ordinary app doctor remains usable without forcing a conversation', () => {

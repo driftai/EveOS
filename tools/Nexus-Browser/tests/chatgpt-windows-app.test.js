@@ -402,37 +402,3 @@ test('ChatGPT Windows adapter focuses the recovered composer before keyboard fal
   assert.ok(focusIndex >= 0 && keysIndex > focusIndex, 'keyboard fallback must focus ChatGPT before injecting text');
   assert.equal(events.at(-1).type, 'response_final');
 });
-
-test('ChatGPT Windows adapter advertises exact app process and active conversation identity', async () => {
-  const windowInfo = { hwnd: 777, pid: 4242, title: 'ChatGPT', x: 0, y: 0, width: 1000, height: 700 };
-  const runner = {
-    async availability() { return { available: true, command: 'winapp.exe' }; },
-    async runJson(args) {
-      if (args[1] === 'list-windows') {
-        return { ok: true, json: { windows: [windowInfo] }, stderr: '', stdout: '' };
-      }
-      if (args[1] === 'inspect') {
-        return {
-          ok: true,
-          json: { windows: [{ ...windowInfo, elements: [{
-            selector: 'root', type: 'Pane', x: 0, y: 0, width: 1000, height: 700, children: [
-              { selector: 'chat-title', type: 'Heading', name: 'Native Eve Test',
-                x: 180, y: 45, width: 240, height: 26, children: [] }
-            ]
-          }] }] },
-          stderr: '', stdout: ''
-        };
-      }
-      throw new Error('Unexpected command: ' + args.join(' '));
-    }
-  };
-  const adapter = createAdapter({ runner, platform: 'win32' });
-  const targets = await adapter.listTargets();
-  assert.equal(targets.length, 1);
-  assert.equal(targets[0].id, 'app-chatgpt-windows');
-  assert.equal(targets[0].providerId, 'chatgpt-desktop');
-  assert.equal(targets[0].transport, 'windows-uia-winapp');
-  assert.equal(targets[0].concreteTargetIdentity.windowHandle, 777);
-  assert.equal(targets[0].concreteTargetIdentity.conversationTitle, 'Native Eve Test');
-  assert.match(targets[0].title, /Native Eve Test/);
-});

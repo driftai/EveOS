@@ -1,5 +1,6 @@
 'use strict';
 
+const { createHash } = require('node:crypto');
 const uia = require('./chatgpt-windows-uia');
 
 const ASSISTANT_MARKER = /^(?:chatgpt|assistant)\s+said\s*:?$/i;
@@ -88,6 +89,73 @@ function latestAssistantReply(snapshot = {}, options = {}) {
   };
 }
 
+function roleMessageGroups(snapshot = {}) {
+  const groups = [];
+  let current = null;
+  for (const element of snapshot.elements || []) {
+    const normalized = uia.normalizeCandidate(nodeText(element));
+    if (USER_MARKER.test(normalized)) {
+      current = { role: 'user', parts: [], normalizedParts: [], selectors: [] };
+      groups.push(current);
+      continue;
+    }
+    if (ASSISTANT_MARKER.test(normalized)) {
+      current = { role: 'assistant', parts: [], normalizedParts: [], selectors: [] };
+      groups.push(current);
+      continue;
+    }
+    if (!current) continue;
+
+    const type = uia.controlType(element);
+    if (!/(text|paragraph|document|listitem|heading)/.test(type)) continue;
+    const rawText = nodeText(element);
+    const text = uia.normalizeCandidate(rawText);
+    if (!text || uia.isChromeText(text) || LIVE_STATUS.test(text)
+        || USER_MARKER.test(text) || ASSISTANT_MARKER.test(text)) continue;
+    const selector = uia.selectorOf(element);
+    if (/rootwebarea/i.test(selector)) continue;
+    if (Array.isArray(element.children) && element.children.length
+        && !type.includes('paragraph') && !type.includes('listitem')) continue;
+
+    if (current.normalizedParts.includes(text)) continue;
+    if (current.normalizedParts.some((part) => part.length > text.length && part.includes(text))) continue;
+    const retained = current.normalizedParts.map((part, index) => ({
+      part,
+      text: current.parts[index],
+      selector: current.selectors[index]
+    })).filter((entry) => !(text.length > entry.part.length && text.includes(entry.part)));
+    current.normalizedParts = retained.map((entry) => entry.part);
+    current.parts = retained.map((entry) => entry.text);
+    current.selectors = retained.map((entry) => entry.selector);
+    current.normalizedParts.push(text);
+    current.parts.push(rawText);
+    current.selectors.push(selector);
+  }
+  return groups
+    .filter((group) => group.parts.length)
+    .map(({ normalizedParts, ...group }) => group);
+}
+
+function conversationAnchorDigests(snapshot = {}, { limit = 8 } = {}) {
+  const groups = roleMessageGroups(snapshot);
+  const anchors = [];
+  for (let index = 1; index < groups.length; index += 1) {
+    const user = groups[index - 1], assistant = groups[index];
+    if (user.role !== 'user' || assistant.role !== 'assistant') continue;
+    const userText = uia.normalizeCandidate(user.parts.join('\n\n'));
+    const assistantText = uia.normalizeCandidate(assistant.parts.join('\n\n'));
+    if (!userText || !assistantText || userText.length + assistantText.length < 24) continue;
+    const digest = createHash('sha256')
+      .update('eveos-chatgpt-native-conversation-anchor-v1\0')
+      .update(userText)
+      .update('\0')
+      .update(assistantText)
+      .digest('hex');
+    anchors.push(digest);
+  }
+  return [...new Set(anchors)].slice(-Math.max(1, Number(limit) || 8));
+}
+
 function activeConversationTitle(snapshot = {}) {
   const frame = uia.windowRect(snapshot.windowInfo || {});
   const candidates = [];
@@ -150,6 +218,8 @@ module.exports = {
   eligibleReplyNode,
   assistantReplyGroups,
   latestAssistantReply,
+  roleMessageGroups,
+  conversationAnchorDigests,
   activeConversationTitle,
   preferExpandedReply
 };

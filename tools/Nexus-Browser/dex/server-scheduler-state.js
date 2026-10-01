@@ -146,6 +146,20 @@ function resolveOnline(member, tabs = []) {
     || null;
 }
 
+function appConversationMatches(expected = {}, actual = {}) {
+  const titleMatches = !!expected.conversationTitle
+    && String(expected.conversationTitle) === String(actual.conversationTitle || '');
+  if (expected.conversationAnchor) {
+    const liveAnchors = Array.isArray(actual.conversationAnchors)
+      ? actual.conversationAnchors.map(String)
+      : actual.conversationAnchor ? [String(actual.conversationAnchor)] : [];
+    if (liveAnchors.includes(String(expected.conversationAnchor))) return true;
+    if (liveAnchors.length) return false;
+    return titleMatches;
+  }
+  return titleMatches;
+}
+
 function resolveLocal(member, targets = []) {
   const binding = member?.binding || {};
   if (binding.targetClassId !== 'local-origin' || !binding.providerId || !binding.targetId
@@ -167,11 +181,9 @@ function resolveApp(member, targets = []) {
   if (matches.length !== 1) return null;
   const target = matches[0], expected = binding.concreteTargetIdentity || {};
   const actual = target.concreteTargetIdentity || {};
-  if (binding.providerId === 'chatgpt-desktop' && !expected.conversationTitle) return null;
+  if (binding.providerId === 'chatgpt-desktop' && !appConversationMatches(expected, actual)) return null;
   if (expected.processId && String(expected.processId) !== String(actual.processId || '')) return null;
   if (expected.windowHandle && String(expected.windowHandle) !== String(actual.windowHandle || '')) return null;
-  if (expected.conversationTitle
-      && String(expected.conversationTitle) !== String(actual.conversationTitle || '')) return null;
   return (!target.targetClassId || target.targetClassId === 'app-origin') ? target : null;
 }
 
@@ -213,6 +225,6 @@ function supportsOperation(providers, providerId, operation) {
 module.exports = {
   roomById, memberById, messageById, addMessage, rememberFinalReceipt, findFinalReceipt, requestStop, setStopped,
   validPending, queueTurn, enqueueNext, pendingRooms, duePendingRooms, nextPendingDelay,
-  createRecoveryJournal, resolveOnline, resolveLocal, resolveApp, priorReply, safeBudget, extendBudget,
+  createRecoveryJournal, resolveOnline, resolveLocal, resolveApp, appConversationMatches, priorReply, safeBudget, extendBudget,
   providerById, supportsOperation
 };

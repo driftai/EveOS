@@ -22,6 +22,7 @@ async function main() {
       pid: target.pid || null,
       windowHandle: target.windowHandle || null,
       conversationTitle: target.concreteTargetIdentity?.conversationTitle || null,
+      conversationAnchor: target.concreteTargetIdentity?.conversationAnchor || null,
       transport: target.transport
     })),
     diagnostics: appTargets.discoveryDiagnostics()
@@ -35,7 +36,24 @@ async function main() {
         title: targets[0].title
       });
       const groupedReply = conversation.latestAssistantReply(snapshot);
-      const activeConversation = await titleResolver.resolve({ runner: winapp, snapshot });
+      const discoveredAnchors = conversation.conversationAnchorDigests(snapshot);
+      const targetAnchors = Array.isArray(targets[0].concreteTargetIdentity?.conversationAnchors)
+        ? targets[0].concreteTargetIdentity.conversationAnchors
+        : targets[0].concreteTargetIdentity?.conversationAnchor
+          ? [targets[0].concreteTargetIdentity.conversationAnchor] : [];
+      const conversationAnchors = discoveredAnchors.length ? discoveredAnchors : targetAnchors;
+      const activeConversationAnchor = conversationAnchors.at(-1) || null;
+      let activeConversation = conversation.activeConversationTitle(snapshot);
+      if (!activeConversation && targets[0].concreteTargetIdentity?.conversationTitle) {
+        activeConversation = {
+          text: targets[0].concreteTargetIdentity.conversationTitle,
+          selector: null,
+          source: 'target-discovery:title'
+        };
+      }
+      if (!activeConversation && !activeConversationAnchor) {
+        activeConversation = await titleResolver.resolve({ runner: winapp, snapshot });
+      }
       report.chatgptUi = {
         composerFound: !!snapshot.composerSelector,
         composerSelector: snapshot.composerSelector || null,
@@ -59,8 +77,11 @@ async function main() {
         groupedReplyParts: groupedReply?.partCount || 0,
         groupedReplyLength: String(groupedReply?.text || '').length,
         activeConversationTitle: activeConversation?.text || null,
+        activeConversationAnchor,
+        activeConversationAnchorCount: conversationAnchors.length,
         activeConversationSelector: activeConversation?.selector || null,
-        activeConversationSource: activeConversation?.source || null,
+        activeConversationSource: activeConversation?.source
+          || (discoveredAnchors.length ? 'content-anchor' : activeConversationAnchor ? 'target-discovery-anchor' : null),
         hwnd: snapshot.hwnd,
         pid: snapshot.pid
       };
@@ -75,11 +96,13 @@ async function main() {
   }
 
   report.diagnostics = appTargets.discoveryDiagnostics();
-  if (requireConversation && !report.chatgptUi?.activeConversationTitle) {
+  if (requireConversation
+      && !report.chatgptUi?.activeConversationTitle
+      && !report.chatgptUi?.activeConversationAnchor) {
     report.ok = false;
     report.requirementError = {
       code: 'APP_CONVERSATION_IDENTITY_MISSING',
-      message: 'Open a concrete ChatGPT conversation before live App-Origin qualification.'
+      message: 'Open a concrete ChatGPT conversation with at least one completed user/assistant exchange before live App-Origin qualification.'
     };
   }
 

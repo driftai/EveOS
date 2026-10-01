@@ -145,6 +145,35 @@ test('App-Origin binding pins the exact desktop process/window identity', () => 
     'ChatGPT Dex binding must fail closed without a native conversation identity');
 });
 
+test('App-Origin binding can pin a privacy-safe conversation anchor when the native title is unavailable', () => {
+  const anchorDigest = 'a'.repeat(64);
+  const target = {
+    ...appTarget,
+    title: 'ChatGPT · verified native conversation',
+    concreteTargetIdentity: {
+      ...appTarget.concreteTargetIdentity,
+      conversationTitle: undefined,
+      conversationAnchor: anchorDigest,
+      conversationAnchors: [anchorDigest]
+    },
+    capabilities: { ...appTarget.capabilities, exactConversationIdentity: true }
+  };
+  const binding = appBinding(target);
+  assert.equal(members.exactBinding(binding, { ...target, targetId: target.id }), true);
+  assert.equal(stateApi.resolveApp({ binding }, [target])?.id, target.id);
+
+  const moved = {
+    ...target,
+    concreteTargetIdentity: {
+      ...target.concreteTargetIdentity,
+      conversationAnchor: 'b'.repeat(64),
+      conversationAnchors: ['b'.repeat(64)]
+    }
+  };
+  assert.equal(members.exactBinding(binding, { ...moved, targetId: moved.id }), false);
+  assert.equal(stateApi.resolveApp({ binding }, [moved]), null);
+});
+
 test('localhost Dex scheduler dispatches App-Origin directly without browser extension', async () => {
   const h = harness();
   assert.equal(h.scheduler.startRelay({ roomId: 'room-app', sourceMessageId: 'm1', budget: 1 }).ok, true);

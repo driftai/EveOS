@@ -14,7 +14,8 @@ const AREA_TESTS = {
   local: ['tests/local-targets.test.js', 'tests/antigravity-existing.test.js', 'tests/antigravity-recovery-capture.test.js'],
   'app-origin': [
     'tests/chatgpt-windows-app.test.js', 'tests/chatgpt-windows-conversation.test.js',
-    'tests/chatgpt-windows-title.test.js', 'tests/chatgpt-windows-full-reply.test.js',
+    'tests/chatgpt-windows-title.test.js', 'tests/chatgpt-windows-identity.test.js',
+    'tests/chatgpt-windows-full-reply.test.js',
     'tests/app-origin-live-contract.test.js', 'tests/app-origin-manager.test.js',
     'tests/app-origin-server.test.js', 'tests/app-origin-dex.test.js',
     'tests/app-origin-recovery.test.js', 'tests/target-classes-ui.test.js',
