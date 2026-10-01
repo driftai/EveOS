@@ -151,6 +151,9 @@ function sourceContract() {
       && remoteTunnel.includes("$Tunnel.Id | Set-Content -Encoding ASCII $PidFile")
       && remoteTunnel.includes("WatchFusion origin stopped. Closing its Cloudflare tunnel...")
       && remoteTunnel.includes("Stop-Process -Id $Tunnel.Id -Force")
+      && remoteTunnel.includes("function Exit-RemoteCancelled")
+      && remoteTunnel.includes("Remote startup cancelled while waiting for public readiness.")
+      && remoteTunnel.includes("Cloudflare tunnel session ended cleanly.")
       && !remoteTunnel.includes("RUN-CLOUDFLARE.bat"),
       'WF-STOP-REMOTE-HELPERS', 'stopping WatchFusion does not also terminate its owned Cloudflare/server helper process trees');
 
