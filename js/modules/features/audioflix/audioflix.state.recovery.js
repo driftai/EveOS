@@ -1,10 +1,8 @@
 /**
- * Guarded persistence + structural recovery for the Audioflix library.
+ * Guarded persistence + structural recovery for Audioflix.
  *
- * The full fallback remains the authoritative emergency copy. A second, deliberately smaller
- * structural shadow records where the library came from and how it was organized without copying
- * media bytes: ports, folders, playlist/port connections, groups/classifiers and membership anchors.
- * This gives Audioflix something useful to rebuild from even if a large state/config write is lost.
+ * Full fallback data remains recoverable, while a separate small structural journal records
+ * topology/provenance without copying playable song URLs or media bytes.
  */
 window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
 (function () {
@@ -28,14 +26,6 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             .reduce((total, value) => total + (Array.isArray(value) ? value.length : 0), 0);
     }
 
-    function persistenceTime(state) {
-        return Math.max(
-            0,
-            Number(state?.durabilityUpdatedAt || 0) || 0,
-            Number(state?.persistence?.savedAt || 0) || 0
-        );
-    }
-
     function folderRegistry(state) {
         const source = state && typeof state === 'object' ? state : {};
         return uniq([
@@ -54,148 +44,6 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         score += Object.keys(state.musicGroupMap || {}).length;
         score += Object.keys(state.soundGroupMap || {}).length;
         return score;
-    }
-
-    function itemAnchor(item, groups = []) {
-        return {
-            id: text(item?.id),
-            title: text(item?.title),
-            localPath: text(item?.localPath),
-            playlistId: text(item?.playlistId),
-            sourceId: text(item?.sourceId),
-            folder: text(item?.folder || item?.card),
-            groups: uniq(groups),
-            classifiers: uniq(item?.classifiers),
-            musicPortGroup: text(item?.musicPortGroup)
-        };
-    }
-
-    function snapshotStructure(state) {
-        const source = state && typeof state === 'object' ? state : {};
-        const music = Array.isArray(source.music) ? source.music : [];
-        const soundboard = Array.isArray(source.soundboard) ? source.soundboard : [];
-        const musicFolders = folderRegistry(source);
-        return {
-            schemaVersion: STRUCTURE_VERSION,
-            savedAt: Date.now(),
-            ports: clone(source.ports || [], []),
-            browserFolders: clone(source.browserFolders || [], []),
-            musicPortConnections: clone(source.musicPortConnections || [], []),
-            musicPlaylists: clone(source.musicPlaylists || [], []),
-            soundboardGroups: uniq(source.soundboardGroups),
-            musicGroups: uniq(source.musicGroups),
-            musicFolders,
-            musicClassifiers: uniq(source.musicClassifiers),
-            localizeScopeDirs: clone(source.localizeScopeDirs || {}, {}),
-            soundGroupMap: clone(source.soundGroupMap || {}, {}),
-            musicMemberships: music.map((item) => itemAnchor(item, source.musicGroupMap?.[item.id] || []))
-                .filter((entry) => entry.id && (entry.folder || entry.groups.length || entry.classifiers.length
-                    || entry.musicPortGroup || entry.localPath || entry.sourceId)),
-            soundMemberships: soundboard.map((item) => ({
-                id: text(item?.id),
-                title: text(item?.title),
-                groups: uniq(source.soundGroupMap?.[item?.id] || [])
-            })).filter((entry) => entry.id && entry.groups.length)
-        };
-    }
-
-    function writeStructure(key, state) {
-        const slot = `${key}${STRUCTURE_SUFFIX}`;
-        const structure = snapshotStructure(state);
-        try {
-            structure.durabilityRevision = Math.max(0, Number(state?.durabilityRevision || 0) || 0);
-            structure.durabilityUpdatedAt = Math.max(0, Number(state?.durabilityUpdatedAt || 0) || Date.now());
-            localStorage.setItem(slot, JSON.stringify(structure));
-            return { written: true, slot, structure };
-        } catch (error) {
-            console.warn('[Audioflix] structural recovery write failed:', error);
-            return { written: false, slot, structure, reason: String(error?.message || error) };
-        }
-    }
-
-    function readStructure(key) {
-        const slot = `${key}${STRUCTURE_SUFFIX}`;
-        try {
-            const raw = localStorage.getItem(slot);
-            if (!raw) return { state: null, damaged: false, slot };
-            const parsed = JSON.parse(raw);
-            return {
-                state: parsed && typeof parsed === 'object' ? parsed : null,
-                damaged: !(parsed && typeof parsed === 'object'),
-                slot
-            };
-        } catch {
-            return { state: null, damaged: true, slot };
-        }
-    }
-
-    function mergeNamed(base, incoming, identity) {
-        const out = Array.isArray(base) ? clone(base, []) : [];
-        const seen = new Set(out.map((entry) => identity(entry)));
-        (Array.isArray(incoming) ? incoming : []).forEach((entry) => {
-            const key = identity(entry);
-            if (!key || seen.has(key)) return;
-            seen.add(key);
-            out.push(clone(entry, entry));
-        });
-        return out;
-    }
-
-    function findMusic(items, anchor) {
-        const by = (predicate) => items.find((item) => predicate(item)) || null;
-        if (anchor.id) {
-            const exact = by((item) => text(item?.id) === anchor.id);
-            if (exact) return exact;
-        }
-        if (anchor.localPath) {
-            const exact = by((item) => text(item?.localPath).toLowerCase() === anchor.localPath.toLowerCase());
-            if (exact) return exact;
-        }
-        if (anchor.playlistId && anchor.sourceId) {
-            const exact = by((item) => text(item?.playlistId) === anchor.playlistId && text(item?.sourceId) === anchor.sourceId);
-            if (exact) return exact;
-        }
-        return null;
-    }
-
-    function mergeStructure(rawState, structure) {
-        const state = clone(rawState && typeof rawState === 'object' ? rawState : {}, {});
-        const shadow = structure && typeof structure === 'object' ? structure : null;
-        if (!shadow) return state;
-
-        state.ports = mergeNamed(state.ports, shadow.ports, (entry) => text(entry?.id || entry?.path).toLowerCase());
-        state.browserFolders = mergeNamed(state.browserFolders, shadow.browserFolders, (entry) => text(entry?.id).toLowerCase());
-        state.musicPortConnections = mergeNamed(state.musicPortConnections, shadow.musicPortConnections,
-            (entry) => text(entry?.id || entry?.folder || entry?.path).toLowerCase());
-        state.musicPlaylists = mergeNamed(state.musicPlaylists, shadow.musicPlaylists,
-            (entry) => text(entry?.id || entry?.url).toLowerCase());
-        state.soundboardGroups = uniq([...(state.soundboardGroups || []), ...(shadow.soundboardGroups || [])]);
-        state.musicGroups = uniq([...(state.musicGroups || []), ...(shadow.musicGroups || [])]);
-        state.musicFolders = uniq([...(state.musicFolders || []), ...(shadow.musicFolders || [])]);
-        state.musicClassifiers = uniq([...(state.musicClassifiers || []), ...(shadow.musicClassifiers || [])]);
-        state.localizeScopeDirs = { ...(shadow.localizeScopeDirs || {}), ...(state.localizeScopeDirs || {}) };
-        state.soundGroupMap = { ...(shadow.soundGroupMap || {}), ...(state.soundGroupMap || {}) };
-        state.musicGroupMap = { ...(state.musicGroupMap || {}) };
-
-        const music = Array.isArray(state.music) ? state.music : [];
-        (shadow.musicMemberships || []).forEach((anchor) => {
-            const match = findMusic(music, anchor);
-            if (!match?.id) return;
-            const groups = uniq([...(state.musicGroupMap[match.id] || []), ...(anchor.groups || [])]);
-            if (groups.length) state.musicGroupMap[match.id] = groups;
-            if (!text(match.folder || match.card) && anchor.folder) {
-                match.folder = anchor.folder;
-                match.card = anchor.folder;
-            }
-            match.classifiers = uniq([...(match.classifiers || []), ...(anchor.classifiers || [])]);
-            if (!text(match.musicPortGroup) && anchor.musicPortGroup) match.musicPortGroup = anchor.musicPortGroup;
-        });
-        (shadow.soundMemberships || []).forEach((anchor) => {
-            if (!anchor?.id) return;
-            const groups = uniq([...(state.soundGroupMap[anchor.id] || []), ...(anchor.groups || [])]);
-            if (groups.length) state.soundGroupMap[anchor.id] = groups;
-        });
-        return state;
     }
 
     function quarantine(key, raw) {
@@ -223,68 +71,203 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         return { state: {}, damaged: true, quarantinedAt: quarantine(key, raw) };
     }
 
-    function chooseInitial(key, datapackState, fallbackState) {
-        const root = datapackState && typeof datapackState === 'object' ? datapackState : {};
-        const fallback = fallbackState && typeof fallbackState === 'object' ? fallbackState : {};
-        const rootTime = persistenceTime(root);
-        const fallbackTime = persistenceTime(fallback);
-        const rootScore = structuralScore(root);
-        const fallbackScore = structuralScore(fallback);
-        let state = root;
-        let source = 'config';
-
-        if (fallbackTime > rootTime) {
-            state = fallback;
-            source = 'fallback-newer';
-        } else if (!rootTime && !fallbackTime && fallbackScore > 0 && rootScore === 0) {
-            state = fallback;
-            source = 'fallback-migration';
-        } else if (!rootTime && !fallbackTime
-            && (root.music || []).length === 0 && (fallback.music || []).length > 0
-            && fallbackScore > rootScore) {
-            state = fallback;
-            source = 'fallback-music-recovery';
-        }
-
-        const structural = readStructure(key).state;
-        const before = structuralScore(state);
-        state = mergeStructure(state, structural);
-        const structureRecovered = structuralScore(state) > before;
-        if (source !== 'config' || structureRecovered) {
-            console.warn('[Audioflix] recovered durable state', { source, structureRecovered });
-        }
-        return { state, source, structureRecovered };
+    function musicRef(item, state) {
+        return {
+            id: text(item?.id),
+            title: text(item?.title),
+            localPath: text(item?.localPath),
+            playlistId: text(item?.playlistId),
+            sourceId: text(item?.sourceId),
+            folder: text(item?.folder || item?.card),
+            classifiers: uniq(item?.classifiers),
+            groups: uniq(state?.musicGroupMap?.[item?.id] || []),
+            musicPortGroup: text(item?.musicPortGroup)
+        };
     }
 
-    function prefer(datapackState, fallbackState, key) {
-        const root = datapackState && typeof datapackState === 'object' ? datapackState : {};
-        const fallback = fallbackState && typeof fallbackState === 'object' ? fallbackState : {};
-        const rootTime = persistenceTime(root);
-        const fallbackTime = persistenceTime(fallback);
-        const rootScore = structuralScore(root);
-        const fallbackScore = structuralScore(fallback);
-        if (fallbackTime > rootTime) return fallback;
-        if (!rootTime && !fallbackTime && fallbackScore > 0 && rootScore === 0) return fallback;
-        if (!rootTime && !fallbackTime
-            && (root.music || []).length === 0 && (fallback.music || []).length > 0
-            && fallbackScore > rootScore) return fallback;
-        return root;
+    function captureStructure(state) {
+        const source = state && typeof state === 'object' ? state : {};
+        return {
+            schemaVersion: STRUCTURE_VERSION,
+            savedAt: Date.now(),
+            durabilityRevision: Math.max(0, Number(source.durabilityRevision || 0) || 0),
+            durabilityUpdatedAt: Math.max(0, Number(source.durabilityUpdatedAt || 0) || 0),
+            ports: clone(source.ports || [], []),
+            browserFolders: clone(source.browserFolders || [], []),
+            musicPortConnections: clone(source.musicPortConnections || [], []),
+            musicPlaylists: clone(source.musicPlaylists || [], []),
+            soundboardGroups: uniq(source.soundboardGroups),
+            musicGroups: uniq(source.musicGroups),
+            musicFolders: folderRegistry(source),
+            musicClassifiers: uniq(source.musicClassifiers),
+            localizeScopeDirs: clone(source.localizeScopeDirs || {}, {}),
+            portVolumes: clone(source.portVolumes || {}, {}),
+            portHotkeys: clone(source.portHotkeys || {}, {}),
+            exposedPortedSounds: clone(source.exposedPortedSounds || {}, {}),
+            scopeBindings: clone(source.scopeBindings || [], []),
+            soundGroupMap: clone(source.soundGroupMap || {}, {}),
+            musicRefs: (source.music || []).map((item) => musicRef(item, source))
+                .filter((ref) => ref.id && (ref.localPath || ref.sourceId || ref.folder
+                    || ref.groups.length || ref.classifiers.length || ref.musicPortGroup))
+        };
+    }
+
+    function writeStructure(key, state) {
+        const slot = `${key}${STRUCTURE_SUFFIX}`;
+        const structure = captureStructure(state);
+        try {
+            localStorage.setItem(slot, JSON.stringify(structure));
+            return { written: true, slot, structure };
+        } catch (error) {
+            console.warn('[Audioflix] structural recovery write failed:', error);
+            return { written: false, slot, structure, reason: String(error?.message || error) };
+        }
+    }
+
+    function readStructure(key) {
+        const slot = `${key}${STRUCTURE_SUFFIX}`;
+        try {
+            const raw = localStorage.getItem(slot);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function mergeNamed(base, incoming, identity) {
+        const out = Array.isArray(base) ? clone(base, []) : [];
+        const seen = new Set(out.map((entry) => identity(entry)));
+        (Array.isArray(incoming) ? incoming : []).forEach((entry) => {
+            const key = identity(entry);
+            if (!key || seen.has(key)) return;
+            seen.add(key);
+            out.push(clone(entry, entry));
+        });
+        return out;
+    }
+
+    function findMusic(items, ref) {
+        if (ref.id) {
+            const exact = items.find((item) => text(item?.id) === ref.id);
+            if (exact) return exact;
+        }
+        if (ref.localPath) {
+            const path = ref.localPath.toLowerCase();
+            const exact = items.find((item) => text(item?.localPath).toLowerCase() === path);
+            if (exact) return exact;
+        }
+        if (ref.playlistId && ref.sourceId) {
+            const exact = items.find((item) => (
+                text(item?.playlistId) === ref.playlistId && text(item?.sourceId) === ref.sourceId
+            ));
+            if (exact) return exact;
+        }
+        return null;
+    }
+
+    function applyStructureSnapshot(state, structure) {
+        if (!state || typeof state !== 'object' || !structure || typeof structure !== 'object') return state;
+        state.ports = mergeNamed(state.ports, structure.ports, (entry) => text(entry?.id || entry?.path).toLowerCase());
+        state.browserFolders = mergeNamed(state.browserFolders, structure.browserFolders, (entry) => text(entry?.id).toLowerCase());
+        state.musicPortConnections = mergeNamed(state.musicPortConnections, structure.musicPortConnections,
+            (entry) => text(entry?.id || entry?.folder || entry?.path).toLowerCase());
+        state.musicPlaylists = mergeNamed(state.musicPlaylists, structure.musicPlaylists,
+            (entry) => text(entry?.id || entry?.url).toLowerCase());
+        state.soundboardGroups = uniq([...(state.soundboardGroups || []), ...(structure.soundboardGroups || [])]);
+        state.musicGroups = uniq([...(state.musicGroups || []), ...(structure.musicGroups || [])]);
+        state.musicFolders = uniq([...(state.musicFolders || []), ...(structure.musicFolders || [])]);
+        state.musicClassifiers = uniq([...(state.musicClassifiers || []), ...(structure.musicClassifiers || [])]);
+        state.localizeScopeDirs = { ...(structure.localizeScopeDirs || {}), ...(state.localizeScopeDirs || {}) };
+        state.portVolumes = { ...(structure.portVolumes || {}), ...(state.portVolumes || {}) };
+        state.portHotkeys = { ...(structure.portHotkeys || {}), ...(state.portHotkeys || {}) };
+        state.exposedPortedSounds = { ...(structure.exposedPortedSounds || {}), ...(state.exposedPortedSounds || {}) };
+        state.soundGroupMap = { ...(structure.soundGroupMap || {}), ...(state.soundGroupMap || {}) };
+        state.musicGroupMap = state.musicGroupMap || {};
+
+        const music = Array.isArray(state.music) ? state.music : [];
+        const idRemap = new Map();
+        (structure.musicRefs || []).forEach((ref) => {
+            const match = findMusic(music, ref);
+            if (!match?.id) return;
+            if (ref.id) idRemap.set(ref.id, match.id);
+            const groups = uniq([...(state.musicGroupMap[match.id] || []), ...(ref.groups || [])]);
+            if (groups.length) state.musicGroupMap[match.id] = groups;
+            state.musicGroups = uniq([...(state.musicGroups || []), ...groups]);
+            match.classifiers = uniq([...(match.classifiers || []), ...(ref.classifiers || [])]);
+            state.musicClassifiers = uniq([...(state.musicClassifiers || []), ...(ref.classifiers || [])]);
+            if (!text(match.folder || match.card) && ref.folder) match.folder = match.card = ref.folder;
+            if (!text(match.musicPortGroup) && ref.musicPortGroup) match.musicPortGroup = ref.musicPortGroup;
+        });
+
+        const bindings = (structure.scopeBindings || []).map((binding) => {
+            const next = clone(binding, binding);
+            const remapped = idRemap.get(text(next?.audioId));
+            if (remapped) next.audioId = remapped;
+            return next;
+        });
+        state.scopeBindings = mergeNamed(state.scopeBindings, bindings, (entry) => [
+            text(entry?.audioType), text(entry?.audioId), text(entry?.scopeType), text(entry?.workspaceId),
+            text(entry?.categoryName), text(entry?.folderId), text(entry?.bookmarkId)
+        ].join('::').toLowerCase());
+        state.musicFolders = folderRegistry(state);
+        return state;
     }
 
     function restoreStructure(key, state) {
-        const shadow = readStructure(key).state;
-        if (!shadow) return state;
-        const before = structuralScore(state);
-        const merged = mergeStructure(state, shadow);
-        if (structuralScore(merged) > before) {
-            console.warn('[Audioflix] restored library structure from the recovery ledger.');
+        const structure = readStructure(key);
+        if (!structure) return state;
+        const target = clone(state && typeof state === 'object' ? state : {}, {});
+        return applyStructureSnapshot(target, structure);
+    }
+
+    function applyTrackStructure(key, state, item, type) {
+        if (!state || !item?.id) return false;
+        const structure = readStructure(key);
+        if (!structure) return false;
+        if (type === 'sound') {
+            const groups = structure.soundGroupMap?.[item.id] || [];
+            if (!groups.length) return false;
+            state.soundGroupMap = state.soundGroupMap || {};
+            state.soundGroupMap[item.id] = uniq([...(state.soundGroupMap[item.id] || []), ...groups]);
+            state.soundboardGroups = uniq([...(state.soundboardGroups || []), ...groups]);
+            return true;
         }
-        return merged;
+        const ref = (structure.musicRefs || []).find((entry) => (
+            (entry.id && entry.id === item.id)
+            || (entry.localPath && text(item.localPath).toLowerCase() === entry.localPath.toLowerCase())
+            || (entry.playlistId && entry.sourceId
+                && text(item.playlistId) === entry.playlistId && text(item.sourceId) === entry.sourceId)
+        ));
+        if (!ref) return false;
+        const synthetic = { ...structure, musicRefs: [ref], scopeBindings: structure.scopeBindings || [] };
+        applyStructureSnapshot(state, synthetic);
+        return true;
+    }
+
+    function prefer(primary, fallback) {
+        const root = primary && typeof primary === 'object' ? primary : {};
+        const mirror = fallback && typeof fallback === 'object' ? fallback : {};
+        const rootRev = Math.max(0, Number(root.durabilityRevision || 0) || 0);
+        const mirrorRev = Math.max(0, Number(mirror.durabilityRevision || 0) || 0);
+        if (mirrorRev > rootRev) return mirror;
+        if (rootRev > mirrorRev) return root;
+        const rootTime = Math.max(0, Number(root.durabilityUpdatedAt || 0) || 0);
+        const mirrorTime = Math.max(0, Number(mirror.durabilityUpdatedAt || 0) || 0);
+        if (mirrorTime > rootTime) return mirror;
+        if (rootTime > mirrorTime) return root;
+        const rootScore = structuralScore(root);
+        const mirrorScore = structuralScore(mirror);
+        if ((rootRev > 0 || mirrorRev > 0) && mirrorScore > rootScore) return mirror;
+        if (!rootRev && !mirrorRev && (root.music || []).length === 0 && (mirror.music || []).length > 0
+            && mirrorScore > rootScore) return mirror;
+        return root;
     }
 
     function nextRevision(key, state) {
         const fallback = read(key).state || {};
-        const structure = readStructure(key).state || {};
+        const structure = readStructure(key) || {};
         return Math.max(
             0,
             Number(state?.durabilityRevision || 0) || 0,
@@ -293,50 +276,27 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         ) + 1;
     }
 
-    function applyTrackStructure(key, state, item, type) {
-        if (!state || !item?.id) return false;
-        const shadow = readStructure(key).state;
-        if (!shadow) return false;
-        if (type === 'sound') {
-            const anchor = (shadow.soundMemberships || []).find((entry) => entry.id === item.id);
-            if (!anchor?.groups?.length) return false;
-            state.soundGroupMap = state.soundGroupMap || {};
-            state.soundGroupMap[item.id] = uniq([...(state.soundGroupMap[item.id] || []), ...anchor.groups]);
-            state.soundboardGroups = uniq([...(state.soundboardGroups || []), ...anchor.groups]);
-            return true;
-        }
-        const anchor = (shadow.musicMemberships || []).find((entry) => {
-            if (entry.id && entry.id === item.id) return true;
-            if (entry.localPath && text(item.localPath).toLowerCase() === entry.localPath.toLowerCase()) return true;
-            return entry.playlistId && entry.sourceId
-                && text(item.playlistId) === entry.playlistId
-                && text(item.sourceId) === entry.sourceId;
-        });
-        if (!anchor) return false;
-        state.musicGroupMap = state.musicGroupMap || {};
-        const groups = uniq([...(state.musicGroupMap[item.id] || []), ...(anchor.groups || [])]);
-        if (groups.length) state.musicGroupMap[item.id] = groups;
-        state.musicGroups = uniq([...(state.musicGroups || []), ...groups]);
-        item.classifiers = uniq([...(item.classifiers || []), ...(anchor.classifiers || [])]);
-        state.musicClassifiers = uniq([...(state.musicClassifiers || []), ...(anchor.classifiers || [])]);
-        if (!text(item.folder || item.card) && anchor.folder) item.folder = item.card = anchor.folder;
-        if (!text(item.musicPortGroup) && anchor.musicPortGroup) item.musicPortGroup = anchor.musicPortGroup;
-        state.musicFolders = folderRegistry(state);
-        return true;
-    }
-
     function write(key, state, options = {}) {
         const incoming = countEntries(state);
+        const existing = read(key);
         if (incoming === 0 && options.allowEmpty !== true) {
-            const existing = read(key);
             if (existing.damaged) return { written: false, reason: 'stored data is unreadable; refusing to overwrite it' };
             if (countEntries(existing.state) > 0) {
                 console.warn('[Audioflix] Refused to save an empty library over populated stored data.');
                 return { written: false, reason: 'empty state would have replaced stored entries' };
             }
         }
-        // Save the smaller structural ledger first. If a large JSON write later hits quota, the
-        // source/organization map still has a chance to survive.
+
+        const existingRev = Math.max(0, Number(existing.state?.durabilityRevision || 0) || 0);
+        const incomingRev = Math.max(0, Number(state?.durabilityRevision || 0) || 0);
+        if (options.allowDestructive !== true && existingRev > 0 && incomingRev <= existingRev
+            && structuralScore(state) < structuralScore(existing.state)
+            && (existing.state?.music || []).length > (state?.music || []).length) {
+            console.warn('[Audioflix] Refused a stale partial rollback over richer music structure.');
+            return { written: false, reason: 'stale state would have rolled back richer music structure' };
+        }
+
+        // The small journal is written first so topology can survive even if the large state hits quota.
         writeStructure(key, state);
         try {
             localStorage.setItem(key, JSON.stringify(state));
@@ -352,16 +312,16 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         read,
         write,
         countEntries,
-        snapshotStructure,
-        readStructure,
+        captureStructure,
+        snapshotStructure: captureStructure,
         writeStructure,
-        mergeStructure,
-        chooseInitial,
-        prefer,
+        readStructure,
+        applyStructureSnapshot,
         restoreStructure,
+        applyTrackStructure,
+        prefer,
         nextRevision,
         folderRegistry,
-        applyTrackStructure,
         STRUCTURE_SUFFIX,
         STRUCTURE_VERSION,
         QUARANTINE_SUFFIX
