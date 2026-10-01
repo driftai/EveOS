@@ -156,3 +156,44 @@ test('chat history stays put when a new message arrives while reading older mess
   expect(Math.abs(result.after - result.before)).toBeLessThanOrEqual(1);
   expect(result.after).toBeLessThan(result.max - 20);
 });
+
+
+test('fresh room images are prioritized while older history remains lazy', async ({ page }) => {
+  await page.goto('/');
+
+  const result = await page.evaluate(() => {
+    roomId = 'IMGFAST1';
+    session = { memberId: 'viewer-member', publicId: 'viewer-public' };
+    const now = Date.now();
+    const image = index => ({
+      id: `img-msg-${index}`,
+      memberId: 'viewer-public',
+      name: 'Phone',
+      text: '',
+      attachment: { id: `att-${index}`, name: `shot-${index}.png`, type: 'image/png', size: 128, url: `/api/rooms/IMGFAST1/attachments/att-${index}` },
+      at: now + index
+    });
+    state = {
+      roomId,
+      hostId: 'viewer-public',
+      revision: 1,
+      source: { kind: 'ready' },
+      playback: { paused: true, ended: false, position: 0, rate: 1, updatedAt: now, projectedAt: now },
+      members: [{ id: 'viewer-public', name: 'Phone', isOwner: true }],
+      messages: [image(1), image(2), image(3)]
+    };
+    render();
+    const images = [...document.querySelectorAll('#chat .message-image')];
+    return images.map(node => ({
+      loading: node.getAttribute('loading'),
+      priority: node.getAttribute('fetchpriority'),
+      decoding: node.getAttribute('decoding')
+    }));
+  });
+
+  expect(result).toEqual([
+    { loading: 'lazy', priority: 'auto', decoding: 'async' },
+    { loading: 'eager', priority: 'high', decoding: 'async' },
+    { loading: 'eager', priority: 'high', decoding: 'async' }
+  ]);
+});
