@@ -131,7 +131,6 @@ function broadcastLocalStatus(targetId, source = null) {
     safeSend(peer, payload);
   }
 }
-
 function mirrorPromptToConsoles(targetId, source, msg, target) {
   for (const peer of uiSockets) {
     if (peer === source || peer.localTargetId !== targetId || peer.clientKind !== 'console') continue;
@@ -141,7 +140,6 @@ function mirrorPromptToConsoles(targetId, source, msg, target) {
     });
   }
 }
-
 async function refreshLocalTargets(destination = null, { force = false } = {}) {
   lastLocalTargets = await localTargets.listLocalTargets({ force });
   const destinations = destination ? [destination] : [...uiSockets];
@@ -152,7 +150,6 @@ async function refreshLocalTargets(destination = null, { force = false } = {}) {
   }
   return lastLocalTargets;
 }
-
 function forwardToExtension(payload, source) {
   if (!safeSend(extensionSocket, payload)) {
     safeSend(source, { type: 'error', requestId: payload.requestId || null, code: 'EXTENSION_OFFLINE', message: 'The browser extension bridge is not connected.' });
@@ -314,10 +311,11 @@ wss.on('connection', (ws, req) => {
       const allowed = new Set([
         'request_tabs', 'select_target', 'ensure_target', 'send_prompt', 'capture_latest',
         'request_search_results', 'request_local_targets', 'select_local_target', 'request_local_status',
+        'ensure_app_mirror', 'sync_app_mirror', 'request_app_mirror_status',
         'reload_extension', 'reload_tab'
       ]);
       if (ws.clientKind === 'dex' && !dexRouting.isPrimaryDex(ws)
-          && !['request_tabs', 'request_local_targets', 'request_local_status'].includes(msg.type)) {
+          && !['request_tabs', 'request_local_targets', 'request_local_status', 'request_app_mirror_status'].includes(msg.type)) {
         safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'DEX_RUNTIME_STANDBY', message: 'Standby Dex tab cannot dispatch or mutate runtime state.' });
         return;
       }
@@ -325,7 +323,7 @@ wss.on('connection', (ws, req) => {
         safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'BAD_UI_COMMAND', message: `Unsupported UI command: ${msg.type}` });
         return;
       }
-      if (postIdleMaintenance.leaseActive() && ['send_prompt','reload_extension','reload_tab','select_target','ensure_target'].includes(msg.type)) {
+      if (postIdleMaintenance.leaseActive() && ['send_prompt','reload_extension','reload_tab','select_target','ensure_target','ensure_app_mirror','sync_app_mirror'].includes(msg.type)) {
         safeSend(ws, { type: 'error', code: 'POST_IDLE_LEASE_BUSY', message: 'Post-idle maintenance holds the exclusive dispatch lease.' }); return;
       }
       dexRouting.noteUiCommand(ws, msg);
@@ -349,6 +347,8 @@ wss.on('connection', (ws, req) => {
         console.log(`[bridge] ui send_prompt [${msg.requestId}]: ${msg.text.slice(0, 80)}`);
       }
       else if (msg.type === 'select_target') console.log(`[bridge] ui select_target: tab ${msg.tabId}`);
+      else if (msg.type === 'ensure_app_mirror') console.log('[bridge] ui ensure_app_mirror');
+      else if (msg.type === 'sync_app_mirror') console.log(`[bridge] ui sync_app_mirror hard=${msg.hard !== false}`);
       else if (msg.type === 'reload_extension') console.log('[bridge] ui reload_extension');
       else if (msg.type === 'reload_tab') console.log(`[bridge] ui reload_tab: tab ${msg.tabId}`);
       else if (msg.type === 'request_search_results') console.log(`[bridge] ui request_search_results [${msg.requestId}] stage ${msg.searchIndex ?? 0}`);

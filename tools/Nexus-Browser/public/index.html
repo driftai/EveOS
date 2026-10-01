@@ -47,6 +47,19 @@
               <button id="connectTarget">Connect target</button>
             </div>
           </div>
+
+          <div id="appMirrorControls" class="target-row" hidden>
+            <label for="appMirrorUrl">ChatGPT App Mirror</label>
+            <div class="target-actions">
+              <input id="appMirrorUrl" type="url" inputmode="url"
+                placeholder="https://chatgpt.com/c/..." autocomplete="off" spellcheck="false">
+              <button id="syncAppMirror" class="secondary" type="button">Sync mirror</button>
+              <button id="attachAppMirror" type="button">Attach mirror</button>
+            </div>
+            <div id="appMirrorStatus" class="subtle">
+              Mirror an exact ChatGPT conversation so Nexus and the desktop app share the same server-side chat.
+            </div>
+          </div>
         </div>
 
         <div id="localTargetControls" class="target-class-panel" hidden>
@@ -200,6 +213,7 @@
   <script src="/search-results.js"></script>
   <script src="/activity-ui.js"></script>
   <script src="/ui-socket.js"></script>
+  <script src="/app-mirror-ui.js"></script>
   <script src="/app.js"></script>
   <script src="/diagnostics-copy.js"></script>
   <script src="/activity-code-renderer.js"></script>

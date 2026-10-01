@@ -21,10 +21,12 @@ const qualificationControlApi = globalThis.BrowserAiBridgeQualificationControl |
 const adapterReadinessApi = globalThis.BrowserAiBridgeAdapterReadinessCache || (typeof module !== 'undefined' && module.exports ? require('./adapter-readiness-cache.js') : null); const adapterFreshnessApi = globalThis.BrowserAiBridgeProviderAdapterFreshness || (typeof module !== 'undefined' && module.exports ? require('./provider-adapter-freshness.js') : null);
 const dexUiEnsureApi = globalThis.BrowserAiBridgeDexUiEnsure || (typeof module !== 'undefined' && module.exports ? require('./dex-ui-ensure.js') : null); const providerTargetSpawnApi = globalThis.BrowserAiBridgeProviderTargetSpawn || (typeof module !== 'undefined' && module.exports ? require('./provider-target-spawn.js') : null);
 const chatgptNavigationRecoveryApi = globalThis.BrowserAiBridgeChatGptNavigationRecovery || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-navigation-recovery.js') : null);
+const providerTargetListApi = globalThis.BrowserAiBridgeProviderTargetList || (typeof module !== 'undefined' && module.exports ? require('./provider-target-list.js') : null);
+const chatgptAppMirrorWorkerApi = globalThis.BrowserAiBridgeChatGptAppMirrorWorker || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-app-mirror-worker.js') : null);
 const backgroundDispatchApi = globalThis.BrowserAiBridgeBackgroundDispatch || (typeof module !== 'undefined' && module.exports ? require('./background-dispatch.js') : null);
 const finalWiringApi = globalThis.BrowserAiBridgeDexFinalDeliveryWiring || (typeof module !== 'undefined' && module.exports ? require('./dex-final-delivery-wiring.js') : null);
 const tabReadinessApi = globalThis.BrowserAiBridgeTabReadiness || (typeof module !== 'undefined' && module.exports ? require('./tab-readiness.js') : null);
-if (!tabPublishApi || !providerApi || !providerHealthApi || !geminiPollApi || !geminiStudioWindowApi || !geminiStudioSubmitApi || !hostAccessApi || !targetStateApi || !targetResurrectionApi || !qualificationControlApi || !adapterReadinessApi || !adapterFreshnessApi || !dexUiEnsureApi || !providerTargetSpawnApi || !chatgptNavigationRecoveryApi || !backgroundDispatchApi || !tabReadinessApi || !finalWiringApi) {
+if (!tabPublishApi || !providerApi || !providerHealthApi || !geminiPollApi || !geminiStudioWindowApi || !geminiStudioSubmitApi || !hostAccessApi || !targetStateApi || !targetResurrectionApi || !qualificationControlApi || !adapterReadinessApi || !adapterFreshnessApi || !dexUiEnsureApi || !providerTargetSpawnApi || !chatgptNavigationRecoveryApi || !providerTargetListApi || !chatgptAppMirrorWorkerApi || !backgroundDispatchApi || !tabReadinessApi || !finalWiringApi) {
   throw new Error('Bridge extension modules failed to load.');
 }
 const { createTabPublishController } = tabPublishApi; const { PROVIDERS, getProvider, providerForUrl, publicProviders } = providerApi;
@@ -62,28 +64,10 @@ function safeSend(payload) {
 function emitError(code, message, requestId = null, detail = null) {
   safeSend({ type: 'error', code, message, requestId, detail });
 }
+let loadProviderTargets = null;
 async function getProviderTabs() {
-  const all = [];
-  let popupWindowIds = new Set();
-  try {
-    const windows = await chrome.windows?.getAll?.({ populate: true });
-    if (Array.isArray(windows)) {
-      for (const w of windows) {
-        if (w.type === 'popup' || (Array.isArray(w.tabs) && w.tabs.length <= 1)) {
-          popupWindowIds.add(w.id);
-        }
-      }
-    }
-  } catch {}
-  for (const provider of PROVIDERS) {
-    const tabs = await chrome.tabs.query({ url: provider.matchPatterns });
-    for (const tab of tabs) {
-      const isPopup = popupWindowIds.has(tab.windowId);
-      const titlePrefix = isPopup ? '[Popup] ' : '';
-      all.push(targetMetadataApi.formatTarget(tab, provider, { titlePrefix, health: providerHealthApi.get(tab.id) }));
-    }
-  }
-  return all;
+  if (!loadProviderTargets) throw new Error('Provider target loader is not initialized.');
+  return loadProviderTargets();
 }
 function currentTargetFromTabs(tabs) {
   if (targetTabId == null || !targetProviderId) return null;
@@ -158,7 +142,16 @@ async function prepareProviderTab(provider, tab) {
   const prepared = await ensureAiStudioBridgePopup(tab);
   return prepared?.tab || tab;
 }
-const formatTarget = targetMetadataApi.formatTarget;
+const rawFormatTarget = targetMetadataApi.formatTarget;
+const appMirrorWorker = chatgptAppMirrorWorkerApi.createIntegration({
+  chromeApi: globalThis.chrome, getProvider, ensureProviderAdapter, waitForTabComplete,
+  publishTabs: (options) => publishTabs(options), safeSend, rawFormatTarget
+});
+const formatTarget = appMirrorWorker.formatTarget;
+loadProviderTargets = providerTargetListApi.createLoader({
+  chromeApi: globalThis.chrome, providers: PROVIDERS, formatTarget: rawFormatTarget,
+  healthFor: (tabId) => providerHealthApi.get(tabId), decorateTarget: appMirrorWorker.decorateTarget
+});
 async function selectTarget(tabId, requestedProviderId = null, options = {}) {
   if (!Number.isInteger(tabId)) throw new Error('Invalid tab ID.');
   if (!options.readyOnly) stopAllResponsePolls();
@@ -261,6 +254,7 @@ async function handleBridgeCommand(msg) {
       safeSend({ type: 'target_ensured', requestId: msg.requestId || null, target: formatTarget(tab, provider) });
       return;
     }
+    if (await appMirrorWorker.handleBridgeCommand(msg, { selectTarget })) return;
     if (msg.type === 'select_target') {
       return await selectTarget(Number(msg.tabId), msg.providerId || null, { requestId: msg.requestId || null });
     }
@@ -293,6 +287,7 @@ async function handleBridgeCommand(msg) {
         const initialUrl = tab.url || tab.pendingUrl || '';
         const result = await sendToTarget({ type: 'send_prompt', requestId: msg.requestId, text: msg.text, qualification: msg.qualification || null }, { readyOnly: warmQualification, tabId: qualificationClaim ? authorizedTabId : null, providerId: qualificationClaim?.providerId || null });
         if (!result?.ok) throw Object.assign(new Error(result?.error || `${provider.name} adapter rejected the prompt.`), { code: result?.code || 'PROMPT_SEND_FAILED', detail: result?.detail || null }); deliveryProof = result.deliveryProof || null; submissionMode = result.submissionMode || null; if (deliveryProof && deliveryProof.committed !== true) throw Object.assign(new Error('Provider adapter returned an uncommitted prompt delivery proof.'), { code: 'PROMPT_DELIVERY_UNCOMMITTED', detail: { deliveryProof } });
+        if (!qualificationClaim) appMirrorWorker.noteCommittedPrompt(provider.id, tab.id, msg.requestId);
         if (!qualificationClaim && provider.id === 'chatgpt') chatgptNavigationRecoveryApi.start({ requestId: msg.requestId, tabId: tab.id, initialUrl, chromeApi: chrome, send: (payload) => finalDelivery.onCaptured(payload, tab.id, provider), completed: hasCompletedRequest, rememberCompleted: () => {} });
       }
       if (msg.qualification?.runId) { await qualificationControl.notePrompt({ runId: msg.qualification.runId, providerId: provider.id, tabId: authorizedTabId, requestId: msg.requestId, text: msg.text }); safeSend({ type: 'qualification_dispatch_committed', requestId: msg.requestId, runId: msg.qualification.runId, tabId: authorizedTabId, providerId: provider.id }); }
@@ -349,6 +344,7 @@ async function connect() {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
   connectInFlight = true;
   try {
+    await appMirrorWorker.restore();
     await restoreSelectedTarget();
     if (!(await localRelayReady())) {
       reconnectTimer = setTimeout(connect, 1200);
@@ -381,6 +377,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
     if (!allowed.has(msg.type)) return;
     const provider = getProvider(targetProviderId);
     if (!provider) return;
+    appMirrorWorker.noteRuntimeMessage(msg, sender);
     if (/^dex-(?:done-watch|heads-up)-/.test(String(msg.requestId || ''))) { if (msg.type === 'response_final') { rememberCompletedRequest(msg.requestId); sendResponse({ ok: true, notification: true }); } return; }
     if (msg.type === 'adapter_error') {
       if (msg.requestId) { stopResponsePoll(msg.requestId); chatgptNavigationRecoveryApi.stop(msg.requestId); }
@@ -393,6 +390,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
     safeSend({ ...msg, providerId: provider.id, providerName: provider.name });
   });
   chrome.tabs.onRemoved.addListener(async (tabId) => {
+    await appMirrorWorker.onTabRemoved(tabId);
     adapterReadiness.invalidate(tabId); providerHealthApi.forget(tabId);
     if (qualificationControl.consumeClosingTab(tabId)) return;
     if (tabId === targetTabId) {
@@ -418,7 +416,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
     }
     scheduleTabPublish();
   });
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    appMirrorWorker.onTabUpdated(tabId, changeInfo, tab);
     if (changeInfo.status === 'loading' || changeInfo.url) { adapterReadiness.invalidate(tabId); providerHealthApi.forget(tabId); }
     if (tabId === targetTabId && changeInfo.url) {
       const provider = getProvider(targetProviderId);

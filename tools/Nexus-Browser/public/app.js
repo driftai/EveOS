@@ -36,21 +36,19 @@ const el = {
 
 const searchUi = globalThis.BrowserAiBridgeSearchResultsUi, activityUi = globalThis.BrowserAiBridgeActivityUi;
 const socketApi = globalThis.BrowserAiBridgeUiSocket;
-if (!searchUi || !socketApi) throw new Error('Base UI helpers were not loaded before app.js.');
+const appMirrorUiApi = globalThis.BrowserAiBridgeAppMirrorUi;
+if (!searchUi || !socketApi || !appMirrorUiApi) throw new Error('Base UI helpers were not loaded before app.js.');
 if (!activityUi) throw new Error('Activity UI module was not loaded before app.js.');
-let uiSocket = null;
+let uiSocket = null, appMirrorUi = null;
 function activeTarget() {
   return state.selectedTargetClassId === 'local-origin' ? state.localTarget : state.onlineTarget;
 }
-
 function providerMeta(providerId) {
   return state.providers.find((provider) => provider.id === providerId) || null;
 }
-
 function providerName(providerId = null) {
   return providerMeta(providerId || state.selectedProviderId)?.name || 'Provider';
 }
-
 function assistantDisplayName(msg = {}) {
   const target = activeTarget();
   const base = msg.providerName || target?.providerName || providerName(msg.providerId);
@@ -62,18 +60,15 @@ function assistantDisplayName(msg = {}) {
   }
   return base;
 }
-
 function requestId() {
   return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
 }
-
 function log(message, detail = '') {
   const stamp = new Date().toLocaleTimeString();
   const line = `[${stamp}] ${message}${detail ? `\n${detail}` : ''}`;
   const current = el.diagnostics.textContent.trim();
   el.diagnostics.textContent = `${line}\n${current}`.slice(0, 12000);
 }
-
 function ensureMessage(role, id = null, assistantName = null) {
   let node = id ? document.querySelector(`[data-message-id="${CSS.escape(id)}"]`) : null;
   if (node) return node;
@@ -92,7 +87,6 @@ function ensureMessage(role, id = null, assistantName = null) {
   el.transcript.append(node);
   return node;
 }
-
 function addMessage(role, text, id = null, partial = false, assistantName = null) {
   const node = ensureMessage(role, id, assistantName);
   node.querySelector('.message-body').textContent = text;
@@ -100,7 +94,6 @@ function addMessage(role, text, id = null, partial = false, assistantName = null
   el.transcript.scrollTop = el.transcript.scrollHeight;
   return node;
 }
-
 function send(payload) {
   if (!uiSocket?.send(payload)) {
     addMessage('system', 'Local bridge socket is not connected.');
@@ -108,7 +101,6 @@ function send(payload) {
   }
   return true;
 }
-
 function requestSearchResults(requestIdValue, searchIndex, event) {
   const target = activeTarget();
   if (state.selectedTargetClassId !== 'online-origin' || !target || !state.extensionConnected) {
@@ -121,7 +113,6 @@ function requestSearchResults(requestIdValue, searchIndex, event) {
   }
   log(`Requesting ${target.providerName || 'Provider'} search results stage ${searchIndex}.`);
 }
-
 function renderActivity(requestIdValue, activity, final = false, assistantName = null) {
   activityUi.render({
     requestId: requestIdValue,
@@ -258,6 +249,7 @@ function renderStatus() {
   el.sendPrompt.disabled = !target || !uiConnected || (!local && (!state.extensionConnected || target.health?.blocking));
   el.captureLatest.hidden = local;
   el.captureLatest.disabled = local || !uiConnected || !state.extensionConnected || !state.onlineTarget;
+  appMirrorUi?.render();
 }
 
 function hostAccessUiMessage(msg) {
@@ -267,6 +259,7 @@ function hostAccessUiMessage(msg) {
 }
 
 function handleMessage(msg) {
+  if (appMirrorUi?.handleMessage(msg)) return;
   switch (msg.type) {
     case 'bridge_status':
       state.extensionConnected = !!msg.connected;
@@ -283,6 +276,7 @@ function handleMessage(msg) {
     case 'tabs_update':
       state.providers = Array.isArray(msg.providers) ? msg.providers : state.providers;
       state.tabs = Array.isArray(msg.tabs) ? msg.tabs : [];
+      appMirrorUi?.observeTabs(state.tabs);
       if ('target' in msg) state.onlineTarget = msg.target || null;
       if (state.onlineTarget?.providerId) state.selectedProviderId = state.onlineTarget.providerId;
       renderProviders();
@@ -366,7 +360,10 @@ function connectSocket() {
     url: `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`,
     hello: { type: 'hello', role: 'ui' },
     onMessage: handleMessage,
-    onOpen: () => log('Local UI socket connected.'),
+    onOpen: () => {
+      log('Local UI socket connected.');
+      appMirrorUi?.requestStatus();
+    },
     onMalformed: (error) => log('Invalid message from bridge.', error.message),
     onPhase: ({ phase }) => {
       const previous = state.uiConnectionPhase;
@@ -434,6 +431,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') searchUi.close();
 });
 
+appMirrorUi = appMirrorUiApi.create({ state, send, requestId, addMessage, log });
 renderTargetClasses(); renderProviders(); renderTabs();
 renderLocalTargetTypes(); renderLocalTargets(); renderStatus();
 connectSocket();

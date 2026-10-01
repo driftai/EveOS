@@ -47,3 +47,14 @@ test('service worker loads background dispatch before provider routing', () => {
   const worker = serviceWorkerEntry.indexOf("importScripts('service-worker.js')");
   assert.ok(dispatch >= 0 && readiness > dispatch && worker > readiness);
 });
+
+test('service worker loads ChatGPT App Mirror modules before provider-control and transport startup', () => {
+  const mirror = serviceWorkerEntry.indexOf("importScripts('chatgpt-app-mirror.js')");
+  const dedupe = serviceWorkerEntry.indexOf("importScripts('chatgpt-app-mirror-dedupe.js')");
+  const mirrorWorker = serviceWorkerEntry.indexOf("importScripts('chatgpt-app-mirror-worker.js')");
+  const providerList = serviceWorkerEntry.indexOf("importScripts('provider-target-list.js')");
+  const providerControl = serviceWorkerEntry.indexOf("importScripts('dex-provider-control-bridge.js')");
+  const worker = serviceWorkerEntry.indexOf("importScripts('service-worker.js')");
+  assert.ok(providerList >= 0 && mirror >= 0 && dedupe > mirror && mirrorWorker > dedupe
+    && providerControl > mirrorWorker && worker > providerControl);
+});
