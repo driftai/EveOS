@@ -201,6 +201,10 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             if (!text(match.musicPortGroup) && ref.musicPortGroup) match.musicPortGroup = ref.musicPortGroup;
         });
 
+        state.scopeBindings = (state.scopeBindings || []).map((binding) => {
+            const remapped = idRemap.get(text(binding?.audioId));
+            return remapped ? { ...binding, audioId: remapped } : binding;
+        });
         const bindings = (structure.scopeBindings || []).map((binding) => {
             const next = clone(binding, binding);
             const remapped = idRemap.get(text(next?.audioId));
@@ -241,7 +245,11 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
                 && text(item.playlistId) === entry.playlistId && text(item.sourceId) === entry.sourceId)
         ));
         if (!ref) return false;
-        const synthetic = { ...structure, musicRefs: [ref], scopeBindings: structure.scopeBindings || [] };
+        const synthetic = {
+            ...structure,
+            musicRefs: [ref],
+            scopeBindings: (structure.scopeBindings || []).filter((binding) => text(binding?.audioId) === ref.id)
+        };
         applyStructureSnapshot(state, synthetic);
         return true;
     }
