@@ -1,7 +1,10 @@
-async function join(id, name, roomCodeHint = null) {
+async function join(id, name, roomCodeHint = null, options = {}) {
   await networkInfoReady;
   const requestedId = String(id || '').trim().toUpperCase();
-  if (!/^[A-Z0-9_-]{3,32}$/.test(requestedId)) return alert('Enter a valid room code');
+  const quiet=options.quiet===true,attempts=Math.max(1,Math.min(4,Number(options.attempts)||1));
+  const retryDelayMs=Math.max(0,Number(options.retryDelayMs)||0),timeoutMs=Math.max(0,Number(options.timeoutMs)||0);
+  const fail=(message,status='Connection failed')=>{setStatus(status);if(!quiet)alert(message);return false;};
+  if (!/^[A-Z0-9_-]{3,32}$/.test(requestedId)) return fail('Enter a valid room code');
   roomId = requestedId;
   roomCode = roomCodeHint || (/^[0-9]{1,12}$/.test(requestedId) ? requestedId : null);
   replaceRoomHistory(requestedId);
@@ -10,22 +13,31 @@ async function join(id, name, roomCodeHint = null) {
   window.watchPartyRealtime?.stop?.();
   setStatus('Connecting to room…');
 
-  let saved = null, res = null, data = null;
-  try {
-    saved = loadSavedSession(requestedId) || loadSavedSession(roomCodeHint);
-    const startedAt = Date.now();
-    res = await fetch(apiUrl(`/api/rooms/${encodeURIComponent(requestedId)}/join`), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:currentName(),accountId,memberId:saved?.memberId||undefined,roomCode:roomCode||undefined}),cache:'no-store'});
-    const receivedAt = Date.now();
-    data = await res.json().catch(() => ({}));
-    if (data?.state?.serverTime) updateServerClock(data.state.serverTime, startedAt, receivedAt);
-  } catch {
-    setStatus('Connection failed');
-    return alert('Could not reach WatchParty.');
+  let saved = loadSavedSession(requestedId) || loadSavedSession(roomCodeHint), res = null, data = null;
+  for(let attempt=0;attempt<attempts;attempt+=1){
+    const controller=timeoutMs?new AbortController():null;
+    const timer=controller?setTimeout(()=>controller.abort(),timeoutMs):null;
+    try {
+      const startedAt = Date.now();
+      res = await fetch(apiUrl(`/api/rooms/${encodeURIComponent(requestedId)}/join`), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:currentName(),accountId,memberId:saved?.memberId||undefined,roomCode:roomCode||undefined}),cache:'no-store',signal:controller?.signal});
+      const receivedAt = Date.now();
+      data = await res.json().catch(() => ({}));
+      if (data?.state?.serverTime) updateServerClock(data.state.serverTime, startedAt, receivedAt);
+      if(res.ok||res.status<500)break;
+    } catch {
+      res=null;data=null;
+    } finally {
+      if(timer)clearTimeout(timer);
+    }
+    if(attempt+1<attempts){
+      setStatus('Reconnecting to room…');
+      if(retryDelayMs)await new Promise(resolve=>setTimeout(resolve,retryDelayMs));
+    }
   }
+  if (!res) return fail('Could not reach WatchParty.');
   if (!res.ok) {
     if (saved) storage.remove(sessionKey(requestedId));
-    setStatus('Room not found');
-    return alert(data.error || 'Could not join room.');
+    return fail(data?.error || 'Could not join room.','Room not found');
   }
   session = data.session;
   state = data.state;
@@ -43,8 +55,8 @@ async function join(id, name, roomCodeHint = null) {
   const joinedMemberId = session.memberId;
   requestAnimationFrame(() => { if (session?.memberId === joinedMemberId) hydrateRoomUi(); });
   if (state?.source?.videoId) { setStatus('Joining current playback…'); ensurePlayer(state.source.videoId); }
+  return true;
 }
-
 function hydrateRoomUi() {
   if (!state) return;
   renderedChatSignature = '';
