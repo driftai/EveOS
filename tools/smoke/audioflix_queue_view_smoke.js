@@ -102,7 +102,7 @@ async function main() {
     await page.click('[data-af-action="open-queue-view"]');
     await page.waitForSelector('.audioflix-provider-queue:not([hidden])', { timeout: 10000 });
 
-    const queued = await page.$eval('.audioflix-provider-queue-list li', (li) => li.map((n) => n.textContent.trim()));
+    const queued = (await page.locator('.audioflix-provider-queue-list li').allTextContents()).map((text) => text.trim());
     assert(queued.length === 3, `queue lists every track in the group (got ${queued.length})`);
     const currentLabel = await page.$eval('.audioflix-provider-queue-list li:first-child [data-url-player-action="queue-jump"]', (button) => button.textContent.trim());
     assert(/^▶/.test(currentLabel), `the current track is marked on its queue-jump control (got "${currentLabel}")`);
