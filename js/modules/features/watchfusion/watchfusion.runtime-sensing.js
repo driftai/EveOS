@@ -29,19 +29,24 @@
 
     function candidateOrigins() {
         const targetPort = port();
-        const values = [hostExposureOrigin, exposureOrigin].filter(Boolean);
-        if (!targetPort) return values;
+        const values = [];
+        if (hostExposureOrigin) values.push(hostExposureOrigin);
+        if (!targetPort) {
+            if (exposureOrigin) values.push(exposureOrigin);
+            return unique(values);
+        }
         const pageIsLoopback = /^(127\.0\.0\.1|localhost)$/i.test(location.hostname || '');
         if (/^https?:$/.test(location.protocol) && location.hostname && !pageIsLoopback) {
             values.push(`http://${location.hostname}:${targetPort}`);
         }
-        // Literal loopback is the canonical host-side WatchFusion origin. Do not
-        // route through sslip.io: DNS/filtering failures there broke VoxelVision
-        // and also fragmented Nuvio's browser storage across different origins.
+        // Host-side WatchFusion prefers the controller-selected sslip surface, then
+        // literal loopback fallbacks. Public Cloudflare is only a last-resort probe;
+        // it must never outrank local host surfaces inside EveOS.
         values.push(
             `http://127.0.0.1:${targetPort}`,
             `http://localhost:${targetPort}`
         );
+        if (exposureOrigin) values.push(exposureOrigin);
         return unique(values);
     }
 
