@@ -147,8 +147,9 @@ function sourceContract() {
       && modes.includes('def _watchfusion_remote_processes()')
       && modes.includes('name == "cloudflared.exe"') && modes.includes('origin in cmd')
       && modes.includes('"remote-tunnel.ps1" in cmd')
-      && remoteTunnel.includes("Join-Path $StateDir 'cloudflared-terminal.pid'")
-      && remoteTunnel.includes('Where-Object { $_.Name -ieq \'cloudflared.exe\' }'),
+      && remoteTunnel.includes("Start-Process -FilePath $Cloudflared -ArgumentList $TunnelArgs")
+      && remoteTunnel.includes("$Tunnel.Id | Set-Content -Encoding ASCII $PidFile")
+      && !remoteTunnel.includes("RUN-CLOUDFLARE.bat"),
       'WF-STOP-REMOTE-HELPERS', 'stopping WatchFusion does not also terminate its owned Cloudflare/server helper process trees');
 
     const wfPort = Number(registry?.ports?.WATCHFUSION_PORT?.port);
