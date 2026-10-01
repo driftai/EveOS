@@ -99,7 +99,7 @@ export async function runSourceTabSmokes() {
   })();
 
   await record('ST-10:extension-keeps-one-companion-owned-state-link-runtime', async () => {
-    assert.match(worker, /globalThis\.WatchFusionMediaLink = Object\.freeze/);
+    assert.match(worker, /globalThis\.WatchFusionMediaLink\s*=\s*Object\.freeze/);
     assert.match(worker, /startCurrentTab/);
     assert.match(worker, /allFrames: true/);
     assert.match(worker, /source-page-adapter\.js/);
