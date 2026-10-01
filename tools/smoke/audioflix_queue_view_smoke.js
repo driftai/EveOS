@@ -121,6 +121,8 @@ async function main() {
     const gammaMembershipId = await page.evaluate(() =>
         window.EveAudioflixState.getSnapshot().music.find((track) => track.title === 'Gamma')?.id || '');
     await page.click('[data-url-player-action="collapse"]');
+    assert(await page.$eval('.audioflix-provider-stage', (stage) => stage.classList.contains('is-collapsed')),
+        'Internal Player is collapsed before interacting with the library beneath it');
     await page.click(`[data-af-action="item-info"][data-af-type="music"][data-af-id="${gammaMembershipId}"]`);
     const gammaGroupBox = `.audioflix-info-modal .audioflix-group-cb[data-af-id="${gammaMembershipId}"][data-af-group="Vibes"]`;
     await page.uncheck(gammaGroupBox);
