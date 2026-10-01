@@ -37,7 +37,7 @@
         const { playback, player } = playable();
         const q = queue()?.snapshot?.() || {};
         return { title: playback.item.title || 'Music Library', group: q.groupName || '', queue: q.entries || [], index: q.currentIndex,
-            shuffle: q.shuffle, loop: q.loop, actions: q.actions || [], paused: playback.paused, currentTime: playback.currentTime,
+            shuffle: q.shuffle, loop: q.loop, canReorder: typeof queue()?.move === 'function', actions: q.actions || [], paused: playback.paused, currentTime: playback.currentTime,
             duration: playback.duration, rate: player.playbackRate || 1, volume: player.volume ?? 1 };
     }
     function publish() {
@@ -59,6 +59,10 @@
             }
             if (action === 'prev' || action === 'next') await queue()?.step?.(action === 'prev' ? -1 : 1);
             if (action === 'jump') await queue()?.jump?.(Math.floor(value));
+            if (action === 'queue-move-up' || action === 'queue-move-down') {
+                const from = Math.floor(value), delta = action === 'queue-move-up' ? -1 : 1;
+                queue()?.move?.(from, from + delta);
+            }
             if (action === 'shuffle' || action === 'loop') await queue()?.action?.(`${action}-music-group`);
             else if ((queue()?.snapshot?.()?.actions || []).some(item => item.id === action)) await queue()?.action?.(action);
             publish();
