@@ -51,7 +51,7 @@ window.EveAudioflixNexusUi = window.EveAudioflixNexusUi || {};
         function renderButton(type) {
             const st = getNexus();
             const active = st.open && st.type === type;
-            return `<button type="button" class="audioflix-add-toggle${active ? ' is-active' : ''}" data-af-action="toggle-nexus" data-af-type="${esc(type)}" style="margin-left: 8px;" title="Nexus Audio Link — search & manage duplicates">🔎 Nexus Audio Link</button>`;
+            return `<span class="audioflix-nexus-launch" style="margin-left:8px;"><button type="button" class="audioflix-add-toggle audioflix-nexus-main${active ? ' is-active' : ''}" data-af-action="toggle-nexus" data-af-type="${esc(type)}" title="Open Nexus Audio Link">🔎 Nexus Audio Link</button><button type="button" class="audioflix-add-toggle audioflix-nexus-quick-trigger" data-af-action="open-nexus-quick" data-af-type="${esc(type)}" title="Fast Track search this visible scope" aria-label="Fast Track Nexus search">⌕</button></span>`;
         }
 
         function filteredList(type) {
