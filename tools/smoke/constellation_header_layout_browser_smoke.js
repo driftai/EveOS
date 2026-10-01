@@ -28,6 +28,15 @@ async function main() {
         if (topbarAfter <= topbarBefore.left) {
             throw new Error(`Mouse wheel did not move the top action strip: before=${topbarBefore.left} after=${topbarAfter}`);
         }
+        const wheelCapture = await page.locator('.top-right').evaluate(strip => {
+            strip.scrollLeft = strip.scrollWidth;
+            const event = new WheelEvent('wheel', { deltaY: 160, bubbles: true, cancelable: true });
+            const dispatchAllowed = strip.dispatchEvent(event);
+            return { dispatchAllowed, defaultPrevented: event.defaultPrevented };
+        });
+        if (wheelCapture.dispatchAllowed || !wheelCapture.defaultPrevented) {
+            throw new Error(`Top action strip leaked wheel input to page scrolling: ${JSON.stringify(wheelCapture)}`);
+        }
 
         await clickAndWaitForMap(page, () => (
             page.locator('.topbar-constellation-btn').click()
