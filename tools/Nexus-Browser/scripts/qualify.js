@@ -16,7 +16,8 @@ const AREA_TESTS = {
     'tests/chatgpt-windows-app.test.js', 'tests/chatgpt-windows-conversation.test.js',
     'tests/chatgpt-windows-full-reply.test.js', 'tests/app-origin-manager.test.js',
     'tests/app-origin-server.test.js', 'tests/app-origin-dex.test.js',
-    'tests/app-origin-recovery.test.js', 'tests/restart-bridge.test.js'
+    'tests/app-origin-recovery.test.js', 'tests/target-classes-ui.test.js',
+    'tests/restart-bridge.test.js', 'tests/startup-scripts.test.js'
   ],
   resilience: [
     'tests/muse-input.test.js', 'tests/muse-submit.test.js', 'tests/chatgpt-input.test.js',
