@@ -32,7 +32,21 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
     }
 
     function persistenceTime(state) {
-        return Math.max(0, Number(state?.persistence?.savedAt || 0) || 0);
+        return Math.max(
+            0,
+            Number(state?.durabilityUpdatedAt || 0) || 0,
+            Number(state?.persistence?.savedAt || 0) || 0
+        );
+    }
+
+    function folderRegistry(state) {
+        const source = state && typeof state === 'object' ? state : {};
+        return uniq([
+            ...(source.musicFolders || []),
+            ...(source.music || []).map((item) => item?.folder || item?.card),
+            ...(source.musicPortConnections || []).map((entry) => entry?.folder),
+            ...(source.musicPlaylists || []).map((entry) => entry?.folder)
+        ]);
     }
 
     function structuralScore(state) {
@@ -63,12 +77,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         const source = state && typeof state === 'object' ? state : {};
         const music = Array.isArray(source.music) ? source.music : [];
         const soundboard = Array.isArray(source.soundboard) ? source.soundboard : [];
-        const musicFolders = uniq([
-            ...(source.musicFolders || []),
-            ...music.map((item) => item?.folder || item?.card),
-            ...(source.musicPortConnections || []).map((entry) => entry?.folder),
-            ...(source.musicPlaylists || []).map((entry) => entry?.folder)
-        ]);
+        const musicFolders = folderRegistry(source);
         return {
             schemaVersion: STRUCTURE_VERSION,
             savedAt: Date.now(),
@@ -97,6 +106,8 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         const slot = `${key}${STRUCTURE_SUFFIX}`;
         const structure = snapshotStructure(state);
         try {
+            structure.durabilityRevision = Math.max(0, Number(state?.durabilityRevision || 0) || 0);
+            structure.durabilityUpdatedAt = Math.max(0, Number(state?.durabilityUpdatedAt || 0) || Date.now());
             localStorage.setItem(slot, JSON.stringify(structure));
             return { written: true, slot, structure };
         } catch (error) {
@@ -248,6 +259,75 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         return { state, source, structureRecovered };
     }
 
+    function prefer(datapackState, fallbackState, key) {
+        const root = datapackState && typeof datapackState === 'object' ? datapackState : {};
+        const fallback = fallbackState && typeof fallbackState === 'object' ? fallbackState : {};
+        const rootTime = persistenceTime(root);
+        const fallbackTime = persistenceTime(fallback);
+        const rootScore = structuralScore(root);
+        const fallbackScore = structuralScore(fallback);
+        if (fallbackTime > rootTime) return fallback;
+        if (!rootTime && !fallbackTime && fallbackScore > 0 && rootScore === 0) return fallback;
+        if (!rootTime && !fallbackTime
+            && (root.music || []).length === 0 && (fallback.music || []).length > 0
+            && fallbackScore > rootScore) return fallback;
+        return root;
+    }
+
+    function restoreStructure(key, state) {
+        const shadow = readStructure(key).state;
+        if (!shadow) return state;
+        const before = structuralScore(state);
+        const merged = mergeStructure(state, shadow);
+        if (structuralScore(merged) > before) {
+            console.warn('[Audioflix] restored library structure from the recovery ledger.');
+        }
+        return merged;
+    }
+
+    function nextRevision(key, state) {
+        const fallback = read(key).state || {};
+        const structure = readStructure(key).state || {};
+        return Math.max(
+            0,
+            Number(state?.durabilityRevision || 0) || 0,
+            Number(fallback?.durabilityRevision || 0) || 0,
+            Number(structure?.durabilityRevision || 0) || 0
+        ) + 1;
+    }
+
+    function applyTrackStructure(key, state, item, type) {
+        if (!state || !item?.id) return false;
+        const shadow = readStructure(key).state;
+        if (!shadow) return false;
+        if (type === 'sound') {
+            const anchor = (shadow.soundMemberships || []).find((entry) => entry.id === item.id);
+            if (!anchor?.groups?.length) return false;
+            state.soundGroupMap = state.soundGroupMap || {};
+            state.soundGroupMap[item.id] = uniq([...(state.soundGroupMap[item.id] || []), ...anchor.groups]);
+            state.soundboardGroups = uniq([...(state.soundboardGroups || []), ...anchor.groups]);
+            return true;
+        }
+        const anchor = (shadow.musicMemberships || []).find((entry) => {
+            if (entry.id && entry.id === item.id) return true;
+            if (entry.localPath && text(item.localPath).toLowerCase() === entry.localPath.toLowerCase()) return true;
+            return entry.playlistId && entry.sourceId
+                && text(item.playlistId) === entry.playlistId
+                && text(item.sourceId) === entry.sourceId;
+        });
+        if (!anchor) return false;
+        state.musicGroupMap = state.musicGroupMap || {};
+        const groups = uniq([...(state.musicGroupMap[item.id] || []), ...(anchor.groups || [])]);
+        if (groups.length) state.musicGroupMap[item.id] = groups;
+        state.musicGroups = uniq([...(state.musicGroups || []), ...groups]);
+        item.classifiers = uniq([...(item.classifiers || []), ...(anchor.classifiers || [])]);
+        state.musicClassifiers = uniq([...(state.musicClassifiers || []), ...(anchor.classifiers || [])]);
+        if (!text(item.folder || item.card) && anchor.folder) item.folder = item.card = anchor.folder;
+        if (!text(item.musicPortGroup) && anchor.musicPortGroup) item.musicPortGroup = anchor.musicPortGroup;
+        state.musicFolders = folderRegistry(state);
+        return true;
+    }
+
     function write(key, state, options = {}) {
         const incoming = countEntries(state);
         if (incoming === 0 && options.allowEmpty !== true) {
@@ -277,8 +357,14 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         countEntries,
         snapshotStructure,
         readStructure,
+        writeStructure,
         mergeStructure,
         chooseInitial,
+        prefer,
+        restoreStructure,
+        nextRevision,
+        folderRegistry,
+        applyTrackStructure,
         STRUCTURE_SUFFIX,
         STRUCTURE_VERSION,
         QUARANTINE_SUFFIX
