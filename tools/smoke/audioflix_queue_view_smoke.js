@@ -69,6 +69,25 @@ async function main() {
     await page.click('.topbar-audioflix-btn');
     await page.waitForSelector('#audioflix-overlay:not([hidden]) .audioflix-panel', { timeout: 10000 });
     await page.click('[data-af-action="tab"][data-af-tab="music"]');
+
+    // The Nexus launcher is a real split control: primary opens the full panel, the compact side
+    // opens Fast Track search without taking over the library.
+    assert(await page.locator('[data-af-action="toggle-nexus"][data-af-type="music"]').count() === 1,
+        'Nexus Audio Link keeps its normal primary button');
+    assert(await page.locator('[data-af-action="open-nexus-quick"][data-af-type="music"]').count() === 1,
+        'Nexus Audio Link exposes a dedicated Fast Track search segment');
+    await page.click('[data-af-action="open-nexus-quick"][data-af-type="music"]');
+    await page.fill('.audioflix-nexus-quick input[type="search"]', 'Beta');
+    await page.waitForFunction(() => document.querySelectorAll('.audioflix-nexus-quick-row').length === 1);
+    assert(/Backend · whole library/.test(await page.locator('.audioflix-nexus-quick-scope').textContent()),
+        'backend Fast Track searches the whole music library');
+    assert(/Beta/.test(await page.locator('.audioflix-nexus-quick-row strong').textContent()),
+        'backend Fast Track returns the matching song');
+    await page.click('.audioflix-nexus-quick-row [data-quick-action="jump"]');
+    await page.waitForFunction(() => [...document.querySelectorAll('.audioflix-item-card')].some(card =>
+        card.classList.contains('is-nexus-jump-target') && /Beta/.test(card.textContent || '')));
+    progress('Nexus Fast Track backend search + jump OK');
+
     await page.click('[data-af-action="toggle-view-mode"]');   // backend -> frontend
     await page.waitForSelector('[data-af-action="open-queue-view"]', { timeout: 10000 });
 
@@ -83,9 +102,47 @@ async function main() {
     await page.click('[data-af-action="open-queue-view"]');
     await page.waitForSelector('.audioflix-provider-queue:not([hidden])', { timeout: 10000 });
 
-    const queued = await page.$$eval('.audioflix-provider-queue-list li', (li) => li.map((n) => n.textContent.trim()));
+    const queued = await page.$eval('.audioflix-provider-queue-list li', (li) => li.map((n) => n.textContent.trim()));
     assert(queued.length === 3, `queue lists every track in the group (got ${queued.length})`);
     assert(/^▶/.test(queued[0]), `the current track is marked (got "${queued[0]}")`);
+    await page.waitForSelector('.audioflix-provider-queue-list .audioflix-queue-order-buttons');
+    const queueHeight = await page.$eval('.audioflix-provider-queue', element => element.getBoundingClientRect().height);
+    assert(queueHeight >= 140, `queue workspace is tall enough to manage ordering (got ${queueHeight}px)`);
+
+    // Up/down controls reorder without restarting the current song, and numbering follows.
+    await page.click('.audioflix-provider-queue-list li:nth-child(2) [data-queue-move="1"]');
+    await page.waitForFunction(() => /Gamma/.test(document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.textContent || ''));
+    await page.click('.audioflix-provider-queue-list li:nth-child(3) [data-queue-move="-1"]');
+    await page.waitForFunction(() => /Beta/.test(document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.textContent || ''));
+
+    // Dragging uses the same single queue mutation path.
+    await page.dragAndDrop(
+        '.audioflix-provider-queue-list li:nth-child(3) .audioflix-queue-drag-handle',
+        '.audioflix-provider-queue-list li:nth-child(2)'
+    );
+    await page.waitForFunction(() => /Gamma/.test(document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.textContent || ''));
+    await page.evaluate(() => window.EveAudioflix.queueConnection.move(1, 2));
+    await page.waitForFunction(() => /Beta/.test(document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.textContent || ''));
+    progress('queue manual ordering OK — arrows and drag share one queue owner');
+
+    // Frontend Fast Track is bounded to the visible scope and can promote a result to Play next.
+    await page.click('[data-af-action="open-nexus-quick"][data-af-type="music"]');
+    await page.fill('.audioflix-nexus-quick input[type="search"]', 'Gamma');
+    await page.waitForFunction(() => document.querySelectorAll('.audioflix-nexus-quick-row').length === 1);
+    assert(/Frontend/.test(await page.locator('.audioflix-nexus-quick-scope').textContent()),
+        'frontend Fast Track reports its current frontend scope');
+    assert(await page.locator('.audioflix-nexus-quick-row [data-quick-action="next"]').count() === 1,
+        'frontend Fast Track exposes Play next while a group queue is active');
+    await page.click('.audioflix-nexus-quick-row [data-quick-action="next"]');
+    await page.waitForFunction(() => /Gamma/.test(document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.textContent || ''));
+    const gammaId = await page.evaluate(() => window.EveAudioflixState.getSnapshot().music.find(track => track.title === 'Gamma')?.id || '');
+    assert(await page.$eval(`.audioflix-item-card [data-af-id="${gammaId}"]`, button =>
+        /#2\s+Queued/.test(button.closest('.audioflix-item-card')?.textContent || '')),
+        'Play next updates the queue number on the frontend song card');
+    await page.evaluate(() => window.EveAudioflix.queueConnection.move(1, 2));
+    await page.waitForFunction(() => /Beta/.test(document.querySelectorAll('.audioflix-provider-queue-list li')[1]?.textContent || ''));
+    await page.click('.audioflix-nexus-quick [data-quick-action="close"]');
+    progress('Nexus Fast Track frontend scope + Play next OK');
 
     const playerUi = await page.evaluate(() => {
         const rect = selector => document.querySelector(selector)?.getBoundingClientRect();
@@ -289,6 +346,14 @@ async function main() {
     }
     assert(reopened, 'reopening Queue View attaches to the live queue');
     progress('queue ownership OK - loop wrap advances once and hidden/internal views stay synchronized');
+
+    // Fast Track can hand its exact query to the full Nexus Audio Link panel for deeper facets/tools.
+    await page.click('[data-af-action="open-nexus-quick"][data-af-type="music"]');
+    await page.fill('.audioflix-nexus-quick input[type="search"]', 'Beta');
+    await page.click('.audioflix-nexus-quick [data-quick-action="open-nexus"]');
+    await page.waitForSelector('.audioflix-nexus-panel [data-af-nexus-search][data-af-type="music"]', { timeout: 5000 });
+    assert(await page.inputValue('.audioflix-nexus-panel [data-af-nexus-search][data-af-type="music"]') === 'Beta',
+        'Fast Track transfers the current query into the main Nexus Audio Link panel');
 
     assert(pageErrors.length === 0, 'no uncaught page errors: ' + pageErrors.join(' | '));
     await browser.close();
