@@ -100,6 +100,9 @@ def assert_static_contract() -> None:
     assert "notesNarration?.readAloud" in overlay
     assert "notesNarration?.notifyChanged" in overlay
     assert "ensureNarrationTarget" not in overlay
+    notes_workspace = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.notes.workspace.js").read_text(encoding="utf-8")
+    assert "window.confirm(" not in notes_workspace and "window.prompt(" not in notes_workspace
+    assert "window.showConfirm" in notes_workspace and "window.showPrompt" in notes_workspace
     notes_narration = (ROOT / "js" / "modules" / "features" / "world-book" / "world-book.notes.narration.js").read_text(encoding="utf-8")
     read_aloud = notes_narration[notes_narration.index("async function readAloud"):notes_narration.index("ns.notesNarration")]
     assert "ns.client.start" not in read_aloud
