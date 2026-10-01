@@ -149,6 +149,10 @@ window.EveAudioflixUiActionsNexus = window.EveAudioflixUiActionsNexus || {};
             }
 
             const result = window.EveAudioflixBulk?.applyMusicChanges?.(selectedIds, changes);
+            if (result?.ok && Number(result.changed) > 0) {
+                changes.addGroups.forEach((group) => selectedIds.forEach((id) => window.EveAudioflix?.queueConnection?.syncGroupMembership?.(id, group, true)));
+                changes.removeGroups.forEach((group) => selectedIds.forEach((id) => window.EveAudioflix?.queueConnection?.syncGroupMembership?.(id, group, false)));
+            }
             let message = '';
             let toastType = 'info';
             if (result?.ok) {
