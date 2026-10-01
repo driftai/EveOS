@@ -158,8 +158,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
             showPlaylistMarkersOnCard: source.showPlaylistMarkersOnCard === true,
             showLocalMissingMarkersOnCard: source.showLocalMissingMarkersOnCard === true,
             localizeDir: text(source.localizeDir, ''), // last folder used to save localized mp3s (reused as the prompt default)
-            // Per-scope remembered localization folders, keyed "scope:key" (e.g. "folder:Chill").
-            // Without this in normalize the per-scope path memory was stripped on every ensure().
+            // Per-scope remembered localization folders; preserve them through normalize().
             localizeScopeDirs: (source.localizeScopeDirs && typeof source.localizeScopeDirs === 'object' && !Array.isArray(source.localizeScopeDirs))
                 ? Object.fromEntries(Object.entries(source.localizeScopeDirs).map(([k, v]) => [text(k), text(v)]).filter(([k, v]) => k && v))
                 : {},
@@ -250,19 +249,19 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         return next;
     }
 
-    function replaceState(rawState, reason) {
-        const next = installState(rawState);
+    function replaceState(rawState, reason, options = {}) {
+        const next = installState(rawState), guard = window.EveAudioflixStateRecovery;
+        if (options.authoritative === true) { next.durabilityRevision = guard?.nextRevision?.(STORAGE_KEY, next) || (Number(next.durabilityRevision || 0) + 1); next.durabilityUpdatedAt = Date.now(); }
         const root = getConfigRoot();
-        if (window.config && typeof window.config === 'object' && window.config !== root) {
-            window.config.audioflix = next;
-        }
-        fallbackWrite(next);
+        if (window.config && typeof window.config === 'object' && window.config !== root) window.config.audioflix = next;
+        fallbackWrite(next, options.authoritative === true ? { allowEmpty: true, allowDestructive: true } : undefined);
+        if (options.authoritative === true) guard?.writeStructure?.(STORAGE_KEY, next, { allowEmpty: true });
         scheduleSave(reason || 'audioflix-replace');
         return next;
     }
 
     function replaceDatapackState(rawState, reason) {
-        if (rawState && typeof rawState === 'object') return replaceState(rawState, reason);
+        if (rawState && typeof rawState === 'object') return replaceState(rawState, reason, { authoritative: true });
         const current = ensure();
         return replaceState(Object.assign({}, current, {
             soundboard: [],
@@ -291,7 +290,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
             localizeScopeDirs: {},
             scopeBindings: [],
             counters: Object.assign({}, current.counters, { plays: 0 })
-        }), reason);
+        }), reason, { authoritative: true });
     }
 
     function addItem(type, item) {
