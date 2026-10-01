@@ -165,12 +165,21 @@
     }
     if (sourceActionHost) sourceActionHost.hidden = state?.source?.mode !== 'audioflix' || !sourceActions.length;
     const queue = metadata.queue || [];
-    const signature = JSON.stringify([queue, metadata.index]);
+    const signature = JSON.stringify([queue, metadata.index, !!metadata.canReorder]);
     if ($('liveQueue').dataset.signature !== signature) {
       $('liveQueue').replaceChildren(...queue.map((item, index) => {
-        const li = document.createElement('li'), button = document.createElement('button');
-        button.type = 'button'; button.textContent = `${index === metadata.index ? '▶ ' : ''}${item.title || 'Untitled'}`;
-        button.dataset.liveAction = 'jump'; button.dataset.value = index; li.append(button); return li;
+        const li = document.createElement('li'), jump = document.createElement('button');
+        jump.type = 'button'; jump.className = 'live-queue-jump'; jump.textContent = `${index === metadata.index ? '▶ ' : ''}${item.title || 'Untitled'}`;
+        jump.dataset.liveAction = 'jump'; jump.dataset.value = index; li.append(jump);
+        if (metadata.canReorder) {
+          const tools = document.createElement('span'); tools.className = 'live-queue-order';
+          for (const [action, label, disabled] of [['queue-move-up', '↑', index === 0], ['queue-move-down', '↓', index === queue.length - 1]]) {
+            const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+            button.dataset.liveAction = action; button.dataset.value = index; button.disabled = disabled; tools.append(button);
+          }
+          li.append(tools);
+        }
+        return li;
       }));
       $('liveQueue').dataset.signature = signature;
     }
