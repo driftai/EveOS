@@ -144,9 +144,10 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     function runtimeUrl(snapshot = status) {
         const mode = String(snapshot?.exposureMode || 'local').toLowerCase();
         const exposed = mode === 'lan' || mode === 'cloudflare';
-        const raw = String(exposed
-            ? (snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl || '')
-            : (snapshot?.localUrl || snapshot?.url || snapshot?.publicUrl || '')).trim();
+        const raw = String(mode === 'cloudflare'
+            ? (snapshot?.directHostUrl || snapshot?.hostUrl || snapshot?.localUrl || snapshot?.publicUrl || snapshot?.url || '')
+            : exposed ? (snapshot?.publicUrl || snapshot?.url || snapshot?.localUrl || '')
+                : (snapshot?.localUrl || snapshot?.url || snapshot?.publicUrl || '')).trim();
         if (!raw) return null;
         try {
             const parsed = new URL(raw);
@@ -304,7 +305,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             status = {
                 ...(status || {}), ...(controlPortCurrent === false ? {} : (controlled || {})),
                 ok: true, running: true, state: 'running', controllerAvailable,
-                controlPortCurrent, directRuntime: true, port: direct.port, url: direct.url,
+                controlPortCurrent, directRuntime: true, port: direct.port, url: direct.url, directHostUrl: direct.url,
                 message: controlPortCurrent === false
                     ? 'WatchFusion is online on its registered port. Restart EveOS local control before using lifecycle/setup actions.'
                     : controllerAvailable
