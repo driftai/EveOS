@@ -9,7 +9,10 @@
   const role = embedded ? 'embedded' : detached ? 'detached' : 'standalone';
   const eveHost = embedded ? window.parent : detached ? window.opener : null;
   const stateBridge = window.watchFusionContinuityState;
-  const TRANSFER_TIMEOUT_MS = 30000;
+  const shareMode = new URLSearchParams(location.search).get('eveosShareMode');
+  const TRANSFER_TIMEOUT_MS = shareMode === 'cloudflare' || /(^|\.)trycloudflare\.com$/i.test(location.hostname)
+    ? 90000
+    : 30000;
 
   let storageAccess = null;
   let sessionId = '';
