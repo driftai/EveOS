@@ -19,8 +19,11 @@ window.EveAudioflixUiForms = window.EveAudioflixUiForms || {};
                     ctx.rerender();
                 }
                 else if (fName === 'assign-new-group') {
-                    if (type === 'music') window.EveAudioflixState?.toggleMusicGroup?.(id, data.get('name'), true);
-                    else window.EveAudioflixState?.toggleSoundGroup?.(id, data.get('name'), true);
+                    if (type === 'music') {
+                        const group = data.get('name');
+                        window.EveAudioflixState?.toggleMusicGroup?.(id, group, true);
+                        window.EveAudioflix?.queueConnection?.syncGroupMembership?.(id, group, true);
+                    } else window.EveAudioflixState?.toggleSoundGroup?.(id, data.get('name'), true);
                     ctx.pushHotkeysToBridge(); ctx.rerender();
                 }
                 else if (fName === 'import-playlist') {
