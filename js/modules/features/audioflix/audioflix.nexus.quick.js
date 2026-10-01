@@ -164,7 +164,7 @@ window.EveAudioflixNexusQuick = window.EveAudioflixNexusQuick || {};
     function openInNexus() {
         const value = query;
         close();
-        window.EveAudioflix?.openNexus?.(type);
+        window.EveAudioflix?.openNexus?.(type, true);
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const input = document.querySelector(`#audioflix-overlay [data-af-nexus-search][data-af-type="${type}"]`);
             if (!input) return;
