@@ -78,6 +78,25 @@ async function main() {
     assert(await pendingDecode === false, 'Stop cancels a layer still waiting for decode');
     assert(clearedVoices.length === 0, 'cancelled decode never reaches native playback');
 
+    const spamDecode = deferred();
+    let spamDecodeCalls = 0;
+    const spamController = window.EveAudioflixAudioLayers.createController({
+        state: () => ({}),
+        shouldPreferUrl: () => false,
+        tryNativePlayback: async () => false,
+        getDecodedBuffer: () => { spamDecodeCalls += 1; return spamDecode.promise; },
+        encodeBufferToBase64: () => 'pcm'
+    });
+    const spamAttempts = Array.from({ length: 40 }, () => spamController.layerPlay({
+        id: 'autoclick-spam', title: 'Autoclick Spam', type: 'sound', url: 'spam.wav'
+    }));
+    await tick();
+    assert(spamDecodeCalls <= 2,
+        'autoclick storms keep at most two in-flight starts for one layered sound');
+    spamController.stopItemLayers('autoclick-spam');
+    spamDecode.resolve({ sampleRate: 48000, duration: 1 });
+    await Promise.all(spamAttempts);
+
     const voice = deferred();
     playVoiceResult = voice.promise;
     const nativeController = window.EveAudioflixAudioLayers.createController({
