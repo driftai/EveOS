@@ -215,6 +215,7 @@
 }
 
 
-.audioflix-overlay.audioflix-info-over-internal {
+.audioflix-overlay.audioflix-info-over-internal,
+.audioflix-overlay.audioflix-nexus-over-internal {
     z-index: 10090;
 }
