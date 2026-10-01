@@ -282,7 +282,7 @@
         storage.set('wp-account-id', accountId);
       }
       if (snapshot.room.session) saveSession(snapshot.room.id, snapshot.room.session);
-      await join(snapshot.room.id, snapshot.room.name || 'Guest', snapshot.room.code || null);
+      if (!(await join(snapshot.room.id, snapshot.room.name || 'Guest', snapshot.room.code || null, { quiet:true, attempts:isTryCloudflare?4:2, retryDelayMs:isTryCloudflare?700:200, timeoutMs:isTryCloudflare?15000:8000 }))) throw new Error('Could not reach WatchParty during continuity restore.');
       return;
     }
 
