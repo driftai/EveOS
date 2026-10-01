@@ -12,8 +12,12 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
         let globalEpoch = 0;
         let layerSequence = 0;
         let progressTimer = 0;
+        let pendingTotal = 0;
+        const pendingByItem = new Map();
         const MAX_LAYERS_PER_ITEM = 12;
         const MAX_LAYERS_TOTAL = 32;
+        const MAX_PENDING_PER_ITEM = 2;
+        const MAX_PENDING_TOTAL = 6;
 
         const itemId = (item) => String(item?.id || item?.url || '');
         const epoch = (id) => Number(itemEpochs.get(id) || 0);
@@ -145,6 +149,21 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             return record;
         }
 
+        function reserveStart(id) {
+            const ownPending = Number(pendingByItem.get(id) || 0);
+            if (ownPending >= MAX_PENDING_PER_ITEM || pendingTotal >= MAX_PENDING_TOTAL) return false;
+            pendingByItem.set(id, ownPending + 1);
+            pendingTotal += 1;
+            return true;
+        }
+
+        function releaseStart(id) {
+            const ownPending = Number(pendingByItem.get(id) || 0);
+            if (ownPending <= 1) pendingByItem.delete(id);
+            else pendingByItem.set(id, ownPending - 1);
+            pendingTotal = Math.max(0, pendingTotal - 1);
+        }
+
         async function cancelStartedUrl(id) {
             try { await deps.stopUrlPlayback?.(id); } catch {}
         }
@@ -153,6 +172,8 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             if (!item?.url) return false;
             let safeItem = typeof item === 'object' ? { ...item } : { url: item };
             const id = itemId(safeItem);
+            if (!reserveStart(id)) return false;
+            try {
             const itemStartEpoch = epoch(id);
             const globalStartEpoch = globalEpoch;
             const cancelled = () => isCancelled(id, itemStartEpoch, globalStartEpoch);
@@ -255,6 +276,9 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
                 return false;
             }
             return true;
+            } finally {
+                releaseStart(id);
+            }
         }
 
         function stopLayer(layer) {
