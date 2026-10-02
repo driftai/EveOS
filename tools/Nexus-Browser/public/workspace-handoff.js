@@ -1,6 +1,6 @@
 (() => {
-  const OWNER_KEY = 'browser-ai-bridge.workspace-owner.v2';
-  const SNAPSHOT_KEY = 'browser-ai-bridge.workspace-snapshot.v2';
+  const OWNER_KEY = 'browser-ai-bridge.workspace-owner.v3';
+  const SNAPSHOT_KEY = 'browser-ai-bridge.workspace-snapshot.v3';
   const CONTROL_TYPE = 'eveos:nexus-workspace-control';
 
   function parse(value) {

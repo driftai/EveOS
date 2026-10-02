@@ -77,11 +77,41 @@ function assistantReplyGroups(snapshot = {}, options = {}) {
   return groups.filter((group) => group.parts.length).map(({ normalizedParts, ...group }) => group);
 }
 
+function joinInlineFragments(left = '', right = '') {
+  const a = String(left || ''), b = String(right || '');
+  if (!a) return b;
+  if (!b) return a;
+  const noSpaceAfter = /[-_\/(]$/.test(a) || a.endsWith('[') || a.endsWith('{');
+  const noSpaceBefore = /^[,.;:!?%)]/.test(b) || b.startsWith(']') || b.startsWith('}');
+  return noSpaceAfter || noSpaceBefore ? a + b : a + ' ' + b;
+}
+
+function normalizeSyntheticFragmentBreaks(text = '') {
+  const raw = String(text || '').replace(/\r/g, '').trim();
+  const parts = raw.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length <= 1) return raw;
+  const out = [parts[0]];
+  for (let index = 1; index < parts.length; index += 1) {
+    const previous = out.at(-1), next = parts[index];
+    const explicitBlock = /\n/.test(previous) || /\n/.test(next)
+      || /^(?:[-*•]|\d+[.)]|#{1,6}\s|\x60\x60\x60)/.test(next)
+      || ((previous.length >= 32 || next.length >= 32)
+        && /[.!?]["')\]]?$/.test(previous) && next.length >= 20);
+    if (explicitBlock) out.push(next);
+    else out[out.length - 1] = joinInlineFragments(previous, next);
+  }
+  return out.join('\n\n');
+}
+
+function groupedMessageText(group = {}) {
+  return normalizeSyntheticFragmentBreaks((group.parts || []).join('\n\n'));
+}
+
 function latestAssistantReply(snapshot = {}, options = {}) {
   const group = assistantReplyGroups(snapshot, options).at(-1);
   if (!group) return null;
   return {
-    text: group.parts.join('\n\n'),
+    text: groupedMessageText(group),
     selectors: group.selectors,
     partCount: group.parts.length,
     firstY: group.firstY,
@@ -172,8 +202,8 @@ function completedAssistantTurnForPrompt(snapshot = {}, prompt = '') {
   for (let index = 1; index < groups.length; index += 1) {
     const user = groups[index - 1], assistant = groups[index];
     if (user.role !== 'user' || assistant.role !== 'assistant') continue;
-    const userText = uia.normalizeCandidate(user.parts.join('\n\n'));
-    const assistantRaw = expandGroupedText(snapshot, assistant.parts.join('\n\n'));
+    const userText = uia.normalizeCandidate(groupedMessageText(user));
+    const assistantRaw = normalizeSyntheticFragmentBreaks(expandGroupedText(snapshot, groupedMessageText(assistant)));
     const assistantText = uia.normalizeCandidate(assistantRaw);
     if (!userText || !assistantText) continue;
     const pairDigest = createHash('sha256')
@@ -208,8 +238,9 @@ function conversationAnchorDigests(snapshot = {}, { limit = 8 } = {}) {
   for (let index = 1; index < groups.length; index += 1) {
     const user = groups[index - 1], assistant = groups[index];
     if (user.role !== 'user' || assistant.role !== 'assistant') continue;
-    const userText = uia.normalizeCandidate(user.parts.join('\n\n'));
-    const assistantText = uia.normalizeCandidate(expandGroupedText(snapshot, assistant.parts.join('\n\n')));
+    const userText = uia.normalizeCandidate(groupedMessageText(user));
+    const assistantText = uia.normalizeCandidate(normalizeSyntheticFragmentBreaks(
+      expandGroupedText(snapshot, groupedMessageText(assistant))));
     if (!userText || !assistantText || userText.length + assistantText.length < 24) continue;
     const digest = createHash('sha256')
       .update('eveos-chatgpt-native-conversation-anchor-v1\0')
@@ -228,8 +259,8 @@ function completedAssistantTurns(snapshot = {}, { limit = 64 } = {}) {
   for (let index = 1; index < groups.length; index += 1) {
     const user = groups[index - 1], assistant = groups[index];
     if (user.role !== 'user' || assistant.role !== 'assistant') continue;
-    const userText = uia.normalizeCandidate(user.parts.join('\n\n'));
-    const assistantRaw = expandGroupedText(snapshot, assistant.parts.join('\n\n'));
+    const userText = uia.normalizeCandidate(groupedMessageText(user));
+    const assistantRaw = normalizeSyntheticFragmentBreaks(expandGroupedText(snapshot, groupedMessageText(assistant)));
     const assistantText = uia.normalizeCandidate(assistantRaw);
     if (!userText || !assistantText) continue;
     const pairDigest = createHash('sha256')
@@ -332,5 +363,7 @@ module.exports = {
   completedAssistantTurns,
   conversationIdentity,
   activeConversationTitle,
-  preferExpandedReply
+  preferExpandedReply,
+  normalizeSyntheticFragmentBreaks,
+  groupedMessageText
 };

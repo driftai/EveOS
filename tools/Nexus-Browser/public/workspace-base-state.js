@@ -38,6 +38,7 @@
     function snapshot() {
       return {
         version: 1,
+        serverSessionId: state.serverSessionId || null,
         selectedTargetClassId: state.selectedTargetClassId,
         selectedProviderId: state.selectedProviderId,
         selectedLocalTypeId: state.selectedLocalTypeId,
@@ -52,6 +53,7 @@
     }
 
     function restore(value = {}) {
+      state.serverSessionId = value.serverSessionId || state.serverSessionId || null;
       if (typeof value.selectedTargetClassId === 'string') state.selectedTargetClassId = value.selectedTargetClassId;
       if (typeof value.selectedProviderId === 'string') state.selectedProviderId = value.selectedProviderId;
       if (typeof value.selectedLocalTypeId === 'string') state.selectedLocalTypeId = value.selectedLocalTypeId;
@@ -68,6 +70,23 @@
       }
     }
 
+    function onServerSession(sessionId) {
+      const next = String(sessionId || '').trim() || null;
+      const previous = state.serverSessionId || null;
+      state.serverSessionId = next;
+      if (!previous || !next || previous === next) return false;
+      state.onlineTarget = null;
+      state.localTarget = null;
+      restoredAppTarget = null;
+      restoredAppBinding = null;
+      restoreAppTarget(null, null);
+      state.pending?.clear?.();
+      if (el.prompt) el.prompt.value = '';
+      restoreMessages(el.transcript, []);
+      render();
+      return true;
+    }
+
     function onOpen() {
       if (state.selectedTargetClassId === 'online-origin' && state.onlineTarget?.id != null) {
         send({ type: 'select_target', tabId: Number(state.onlineTarget.id), providerId: state.onlineTarget.providerId });
@@ -79,7 +98,7 @@
       }
     }
 
-    return { snapshot, restore, onOpen, resume: connect, suspend: disconnect };
+    return { snapshot, restore, onServerSession, onOpen, resume: connect, suspend: disconnect };
   }
 
   const api = { create, messageSnapshot, restoreMessages };

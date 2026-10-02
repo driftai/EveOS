@@ -3,7 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { snapshotFromInspect } = require('../app-targets/chatgpt-windows');
-const { latestAssistantReply, activeConversationTitle, conversationAnchorDigests, completedAssistantTurns, preferExpandedReply } = require('../app-targets/chatgpt-windows-conversation');
+const { latestAssistantReply, activeConversationTitle, conversationAnchorDigests, completedAssistantTurns,
+  preferExpandedReply, normalizeSyntheticFragmentBreaks } = require('../app-targets/chatgpt-windows-conversation');
 
 test('native reply aggregation preserves multi-paragraph ChatGPT answers and ignores progress chrome', () => {
   const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 100, y: 20, width: 1200, height: 900 };
@@ -183,4 +184,21 @@ test('native conversation identity accepts the real app header when exposed as a
   const title = activeConversationTitle(snapshotFromInspect({ windowInfo, json }));
   assert.equal(title?.text, 'Test response');
   assert.equal(title?.selector, 'btn-chat-title');
+});
+
+
+test('synthetic UIA blank-line fragmentation is collapsed into normal readable prose', () => {
+  assert.equal(normalizeSyntheticFragmentBreaks('TEST_\n\n123_\n\nOK'), 'TEST_123_OK');
+  assert.equal(
+    normalizeSyntheticFragmentBreaks('Good —\n\nthat’s\n\nthe\n\nsignal\n\nI\n\nwanted.'),
+    'Good — that’s the signal I wanted.'
+  );
+});
+
+test('semantic paragraph boundaries remain paragraphs while short accessibility fragments collapse', () => {
+  const text = [
+    'This is a complete first paragraph with enough semantic content to stand on its own.',
+    'This is a complete second paragraph that should remain visually separate.'
+  ].join('\n\n');
+  assert.equal(normalizeSyntheticFragmentBreaks(text), text);
 });

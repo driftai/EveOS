@@ -131,10 +131,7 @@
         types = Array.isArray(msg.types) && msg.types.length ? msg.types : types;
         targets = Array.isArray(msg.targets) ? msg.targets : [];
         diagnostics = msg.diagnostics || diagnostics;
-        if (msg.target) {
-          selectedTarget = msg.target;
-          restorePending = false;
-        } else if ('target' in msg && !msg.refreshing && selectedTarget) {
+        if ('target' in msg && !msg.refreshing && selectedTarget) {
           const candidate = targets.find((target) => target.id === selectedTarget.id);
           if (candidate && state.uiConnectionPhase === 'connected' && !restorePending) {
             restorePending = true;
@@ -187,10 +184,15 @@
         return true;
       }
       if (msg.type === 'native_app_turn') {
+        const bound = !!selectedTarget && (!msg.targetId || msg.targetId === selectedTarget.id);
+        send({ type: 'ack_native_app_turn', targetId: msg.targetId, fingerprint: msg.fingerprint });
+        if (!bound) {
+          log(`Suppressed passive ${msg.providerName || 'App-Origin'} history before manual Base connection.`);
+          return true;
+        }
         const id = msg.fingerprint ? `native-app-${msg.fingerprint}` : null;
         addMessage('assistant', msg.text || '', id, false,
           msg.providerName || selectedTarget?.providerName || 'ChatGPT App');
-        send({ type: 'ack_native_app_turn', targetId: msg.targetId, fingerprint: msg.fingerprint });
         log(`Observed passive ${msg.providerName || 'App-Origin'} native turn (${(msg.text || '').length} chars).`);
         return true;
       }

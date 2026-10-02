@@ -106,3 +106,11 @@ test('intentional handoff suspension is not mislabeled as a transport reconnect'
   assert.match(APP, /closeCode/);
   assert.match(DEX_MODE, /closeCode/);
 });
+
+
+test('fresh App-Origin discovery is manual-connect only and does not backfill native history', () => {
+  assert.doesNotMatch(APP_TARGETS_UI, /if \(msg\.target\)\s*\{\s*selectedTarget = msg\.target/);
+  assert.match(APP_TARGETS_UI, /el\.connect\?\.addEventListener\('click'/);
+  assert.match(APP_TARGETS_UI, /send\(\{ type: 'select_app_target', targetId \}\)/);
+  assert.match(APP_TARGETS_UI, /Suppressed passive .* history before manual Base connection/);
+});

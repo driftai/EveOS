@@ -172,6 +172,18 @@ ChatGPT App App-Origin target. Its controls are collapsed by default in a
 `<details>` section so native App-Origin send/capture stays the normal path and users
 only expand server-side synchronization when they actually need it.
 
+## Native reply presentation
+
+Windows UI Automation can expose one ChatGPT reply as many tiny sibling text nodes. Base
+Mode normalizes only the synthetic blank-line boundaries created between those nodes:
+short fragments are reassembled into readable prose, and identifier fragments such as
+`TEST_` + `123_` + `OK` become `TEST_123_OK`. Explicit line breaks that exist
+inside one accessible reply node are preserved, and substantial sentence/paragraph
+blocks remain separated.
+
+This normalization is applied before active correlation and passive-turn fingerprinting
+so the text shown in Base Mode and the text used for exact-once identity agree.
+
 ## Transient Windows UIA recovery
 
 The Windows bridge treats `stale_element` / UIA element-unavailable failures from

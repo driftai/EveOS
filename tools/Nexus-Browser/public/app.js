@@ -10,7 +10,7 @@ const state = {
   localTargetTypes: [{ id: 'terminal-agent', name: 'Terminal Agent' }], selectedLocalTypeId: 'terminal-agent',
   localTargets: [],
   localTarget: null,
-  pending: new Map()
+  pending: new Map(), serverSessionId: null
 };
 
 const el = {
@@ -253,6 +253,7 @@ function handleMessage(msg) {
   if (appMirrorUi?.handleMessage(msg) || appTargetsUi?.handleMessage(msg)) return;
   switch (msg.type) {
     case 'server_session':
+      if (baseWorkspace?.onServerSession?.(msg.id)) log('New Nexus server session · Base transcript and target selection reset.');
       log(`Bridge session ${msg.id || 'unknown'} · assets ${msg.assetRevision || 'unknown'}.`);
       break;
     case 'bridge_status':

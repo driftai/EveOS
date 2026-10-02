@@ -111,6 +111,24 @@ identity keeps the runtime classified as running while HTTP health recovers, and
 zero unnecessarily. An open port with no verified EveOS-owned listener remains blocked
 and is never adopted.
 
+## Base transcript and connection session boundary
+
+Base Mode transcript is ephemeral UI state scoped to one Nexus server session. Detach /
+reattach inside the same server session preserves the Base transcript, draft, mode, and
+selected target. A new `server_session` identity clears the Base transcript, pending
+requests, and target binding. This matches the runtime model: restarting Nexus creates a
+new Base connection session rather than resurrecting an old chat log.
+
+App-Origin discovery is separate from connection. Entering **App-Origin Targets** or
+refreshing the running-app list only populates the dropdown. A fresh Base viewer does not
+adopt the server's previous App target automatically; the user must press **Connect
+target**. Same-session detach/reattach may restore the target because that is the same
+logical viewer session.
+
+Passive native turns received before a manual Base App-Origin connection are
+acknowledged but not rendered, preventing current ChatGPT desktop history from
+backfilling a fresh Nexus transcript after restart.
+
 ## Workspace ownership and reload boundary
 
 Search Monitor may retain more than one historical UI container while views are rebuilt.
