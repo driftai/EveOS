@@ -22,6 +22,7 @@ let cachedTargets = null;
 let cachedAt = 0;
 let listInFlight = null;
 const activeSends = new Set();
+const sendFailures = new Map();
 const appTurnListeners = new Set();
 
 function normalizeAppTarget(target = {}) {
@@ -61,14 +62,14 @@ async function adapterTargets(adapter) {
   return Array.isArray(targets) ? targets.filter(Boolean).map(normalizeAppTarget) : [];
 }
 
+function cloneTargets(targets = []) {
+  return targets.map((target) => ({ ...target }));
+}
+
 async function listAppTargets({ force = false, now = Date.now() } = {}) {
-  if (listInFlight) {
-    const targets = await listInFlight;
-    return targets.map((target) => ({ ...target }));
-  }
-  if (!force && cachedTargets && now - cachedAt < CACHE_MS) {
-    return cachedTargets.map((target) => ({ ...target }));
-  }
+  if (listInFlight) return cloneTargets(await listInFlight);
+  if (activeSends.size && cachedTargets) return cloneTargets(cachedTargets);
+  if (!force && cachedTargets && now - cachedAt < CACHE_MS) return cloneTargets(cachedTargets);
   listInFlight = (async () => {
     const targets = [];
     for (const adapter of adapters) {
@@ -80,8 +81,7 @@ async function listAppTargets({ force = false, now = Date.now() } = {}) {
     return targets;
   })();
   try {
-    const targets = await listInFlight;
-    return targets.map((target) => ({ ...target }));
+    return cloneTargets(await listInFlight);
   } finally {
     listInFlight = null;
   }
@@ -101,8 +101,16 @@ function adapterForTarget(targetId) {
 
 function getAppTargetStatus(targetId) {
   const adapter = adapterForTarget(targetId);
-  try { return adapter?.status?.(targetId) || null; }
-  catch { return null; }
+  let status = null;
+  try { status = adapter?.status?.(targetId) || null; }
+  catch { status = null; }
+  const failure = sendFailures.get(String(targetId || ''));
+  if (!failure || activeSends.has(String(targetId || ''))) return status;
+  return {
+    ...(status || {}),
+    ...failure,
+    diagnostics: status?.diagnostics || null
+  };
 }
 
 function conversationAnchors(identity = {}) {
@@ -124,8 +132,7 @@ function reliableConversationTitle(value = '') {
 function appConversationMatches(expected = {}, actual = {}) {
   const expectedTitle = String(expected.conversationTitle || '').trim();
   const actualTitle = String(actual.conversationTitle || '').trim();
-  const titleMatches = reliableConversationTitle(expectedTitle)
-    && expectedTitle === actualTitle;
+  const titleMatches = reliableConversationTitle(expectedTitle) && expectedTitle === actualTitle;
   const expectedAnchors = conversationAnchors(expected);
   const actualAnchors = conversationAnchors(actual);
   if (expectedAnchors.length) {
@@ -141,8 +148,12 @@ function appConversationMatches(expected = {}, actual = {}) {
 
 function advanceAppTargetBinding(expected = {}, actual = {}) {
   if (!exactAppTargetMatch(expected, actual)) return null;
-  const bound = expected.concreteTargetIdentity || {}, live = actual.concreteTargetIdentity || {};
-  const anchors = [...new Set([...conversationAnchors(bound), ...conversationAnchors(live)])].slice(-16);
+  const bound = expected.concreteTargetIdentity || {};
+  const live = actual.concreteTargetIdentity || {};
+  const anchors = [...new Set([
+    ...conversationAnchors(bound),
+    ...conversationAnchors(live)
+  ])].slice(-16);
   const liveTitle = reliableConversationTitle(live.conversationTitle) ? live.conversationTitle : '';
   const boundTitle = reliableConversationTitle(bound.conversationTitle) ? bound.conversationTitle : '';
   const concreteTargetIdentity = {
@@ -159,7 +170,8 @@ function advanceAppTargetBinding(expected = {}, actual = {}) {
 function exactAppTargetMatch(expected = {}, actual = {}) {
   if (!expected?.id || String(expected.id) !== String(actual?.id || '')
       || expected.providerId !== actual?.providerId) return false;
-  const bound = expected.concreteTargetIdentity || {}, live = actual.concreteTargetIdentity || {};
+  const bound = expected.concreteTargetIdentity || {};
+  const live = actual.concreteTargetIdentity || {};
   if (bound.processId && String(bound.processId) !== String(live.processId || '')) return false;
   if (bound.windowHandle && String(bound.windowHandle) !== String(live.windowHandle || '')) return false;
   if (expected.providerId === 'chatgpt-desktop') {
@@ -186,12 +198,19 @@ function notifyObservedTurn(target, adapter, result, source) {
   return turn;
 }
 
+function busyError() {
+  const error = new Error('That App-Origin target is already handling another prompt.');
+  error.code = 'APP_TARGET_BUSY';
+  return error;
+}
+
 async function captureAppLatest({ targetId }) {
   if (!targetId) {
     const error = new Error('No App-Origin target is selected.');
     error.code = 'APP_TARGET_NOT_SELECTED';
     throw error;
   }
+  if (activeSends.has(String(targetId))) throw busyError();
   const target = await getAppTarget(targetId, { force: true });
   if (!target) {
     const error = new Error('Selected App-Origin target is no longer available.');
@@ -205,6 +224,7 @@ async function captureAppLatest({ targetId }) {
     throw error;
   }
   const result = await adapter.captureLatest({ target });
+  sendFailures.delete(target.id);
   notifyObservedTurn(target, adapter, result, 'capture');
   return { ...result, target };
 }
@@ -227,17 +247,24 @@ async function sendAppPrompt({ targetId, requestId, text, emit, beforeSend = nul
     error.code = 'APP_SEND_UNSUPPORTED';
     throw error;
   }
-  if (activeSends.has(target.id)) {
-    const error = new Error('That App-Origin target is already handling another prompt.');
-    error.code = 'APP_TARGET_BUSY';
-    throw error;
-  }
+  if (activeSends.has(target.id)) throw busyError();
+  sendFailures.delete(target.id);
   activeSends.add(target.id);
   try {
     if (typeof beforeSend === 'function') await beforeSend(target);
     const result = await adapter.sendPrompt({ requestId, text, target, emit });
+    sendFailures.delete(target.id);
     notifyObservedTurn(target, adapter, result, 'active');
     return result;
+  } catch (error) {
+    sendFailures.set(target.id, {
+      phase: 'error',
+      requestId: requestId || null,
+      code: error.code || 'APP_TARGET_ERROR',
+      error: error.message,
+      at: Date.now()
+    });
+    throw error;
   } finally {
     activeSends.delete(target.id);
   }
@@ -264,6 +291,7 @@ function invalidateAppTargetCache() {
 
 function stopAppTargets() {
   invalidateAppTargetCache();
+  sendFailures.clear();
   for (const adapter of adapters) {
     try { adapter.stop?.(); } catch {}
   }
