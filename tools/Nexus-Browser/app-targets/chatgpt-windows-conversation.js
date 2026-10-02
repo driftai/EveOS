@@ -293,10 +293,10 @@ function completedAssistantTurnForPrompt(snapshot = {}, prompt = '') {
 function responseForPrompt(snapshot = {}, { prompt = '', baseline = new Set(), includeOffscreen = false } = {}) {
   const turn = completedAssistantTurnForPrompt(snapshot, prompt);
   if (turn) return { text: turn.text, nativeTurn: turn, correlated: true };
-  if (hasRoleMarkers(snapshot)) return { text: '', nativeTurn: null, correlated: true };
   const markerlessTurn = markerless.completedTurnForPrompt(snapshot, prompt, { includeOffscreen });
   if (markerlessTurn) return { text: markerlessTurn.text, nativeTurn: markerlessTurn, correlated: true };
   if (markerless.hasPrompt(snapshot, prompt, { includeOffscreen })) return { text: '', nativeTurn: null, correlated: true };
+  if (hasRoleMarkers(snapshot)) return { text: '', nativeTurn: null, correlated: true };
   const grouped = latestAssistantReply(snapshot, { baseline, prompt, includeOffscreen });
   const fallback = grouped?.text
     || uia.latestResponseCandidate(snapshot, { baseline, prompt })?.text

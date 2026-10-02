@@ -51,6 +51,23 @@ later than the assistant node. A visually lower assistant block may still be the
 reply and must not be discarded merely because its raw accessibility-array index is
 smaller.
 
+## Mixed-surface role-marker rule
+
+The ChatGPT desktop accessibility tree may expose stale or unrelated normal-ChatGPT
+role markers while the active conversation is Codex. Global presence of `You said:`
+or `ChatGPT said:` must not suppress a Codex reply.
+
+Active correlation therefore uses prompt ownership:
+
+1. an exact role-marked turn for the injected prompt wins;
+2. otherwise an exact markerless prompt/reply pair may win even if unrelated role markers
+   exist elsewhere in the tree;
+3. only after neither reader owns the prompt may global role-marker presence block generic
+   fallback capture.
+
+This preserves normal ChatGPT semantics while preventing stale cross-surface markers from
+short-circuiting Codex capture.
+
 ## Passive turns and identity
 
 The same markerless prompt/assistant pairs feed `completedAssistantTurns()` and

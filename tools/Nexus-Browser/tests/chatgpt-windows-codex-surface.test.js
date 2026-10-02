@@ -164,3 +164,37 @@ test('Codex correlation follows visual geometry when UIA flattening lists the an
   assert.equal(observed.text, answer);
   assert.equal(observed.nativeTurn?.text, answer);
 });
+
+
+test('Codex exact prompt wins over unrelated role markers elsewhere in the UIA tree', () => {
+  const prompt = 'NOVA_CODEX_TEST_003 — Reply exactly with: NOVA_CODEX_OK_003';
+  const answer = 'NOVA_CODEX_OK_003';
+  const json = {
+    windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Pane', name: '',
+      x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'stale-user-role', type: 'Text', name: 'You said:',
+          x: 250, y: 120, width: 80, height: 20, children: [] },
+        { selector: 'stale-user-text', type: 'Text', name: 'old normal chat prompt',
+          x: 760, y: 150, width: 250, height: 30, children: [] },
+        { selector: 'stale-assistant-role', type: 'Text', name: 'ChatGPT said:',
+          x: 250, y: 190, width: 110, height: 20, children: [] },
+        { selector: 'stale-assistant-text', type: 'Text', name: 'old normal chat reply',
+          x: 350, y: 220, width: 280, height: 30, children: [] },
+        { selector: 'codex-mode', type: 'Text', name: 'Codex',
+          x: 160, y: 105, width: 80, height: 22, children: [] },
+        { selector: 'codex-prompt', type: 'Text', name: prompt,
+          x: 780, y: 360, width: 320, height: 54, children: [] },
+        { selector: 'codex-answer', type: 'Text', name: answer,
+          x: 360, y: 450, width: 300, height: 36, children: [] },
+        { selector: 'compose-codex', type: 'Edit', name: 'Do anything',
+          x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
+      ]
+    }] }]
+  };
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  const observed = responseForPrompt(snapshot, { prompt });
+  assert.equal(observed.correlated, true);
+  assert.equal(observed.text, answer);
+  assert.equal(observed.nativeTurn?.text, answer);
+});
