@@ -213,3 +213,121 @@ test('plain Codex Text siblings preserve visual paragraph spacing without splitt
   assert.equal(observed.text, expected);
   assert.equal(observed.nativeTurn?.text, expected);
 });
+
+
+test('real noisy collapsed prompt fragment owns all five live Codex paragraphs', () => {
+  const prompt = 'ok its working now, next is the next test, [Worked for 4m 25s YES fixed that last presentation issue too and this continues as a deliberately long prompt with enough unique words to stay safely correlated.]';
+  const paragraphs = [
+    'This is the paragraph-spacing qualification for the Nexus markerless Codex formatter. This opening paragraph contains several sentences that should remain together as ordinary prose even if UI Automation exposes them as multiple tightly stacked Text nodes. Nexus should join wrapped fragments with normal spaces while preserving the paragraph as a single block.',
+    'This is the second paragraph. It is intentionally separated from the first by a blank line, and that separation should survive inside the captured reply itself rather than being simulated by Nexus styling.',
+    'The third paragraph is another independent text block in the same assistant column. Nexus should use the meaningful vertical gap between blocks as supporting evidence that this is a new paragraph, while continuing to treat tightly wrapped lines inside this block as one continuous piece of prose.',
+    'This fourth paragraph confirms that the completed reply should preserve both content and structure across the normal App-Origin result, Capture Latest, passive capture, and eventually Dex. None of those paths should need to reconstruct paragraph spacing differently after the reply has already been captured.',
+    'This is the final paragraph. If Nexus displays five distinct paragraphs with exactly one blank line between each, no collapsed giant block, and no artificial line break inside the sentences, then the live formatter behavior matches the new regression coverage.'
+  ];
+  const realWindow = { hwnd: 3880200, pid: 95192, title: 'ChatGPT', x: 1384, y: 13, width: 534, height: 831 };
+  const json = {
+    windows: [{ ...realWindow, elements: [{
+      selector: 'root-window', type: 'Window', name: 'ChatGPT',
+      x: 1384, y: 13, width: 534, height: 831, children: [
+        { selector: 'prompt-fragment', type: 'Text',
+          name: 'andok its working now, next is the next test, [Worked for 4m 25s',
+          x: 1605, y: -471, width: 246, height: 42, isOffscreen: true, children: [] },
+        { selector: 'p1', type: 'Text', name: paragraphs[0],
+          x: 1462, y: 71, width: 424, height: 134, children: [] },
+        { selector: 'p2', type: 'Text', name: paragraphs[1],
+          x: 1462, y: 222, width: 408, height: 65, children: [] },
+        { selector: 'p3', type: 'Text', name: paragraphs[2],
+          x: 1462, y: 304, width: 422, height: 111, children: [] },
+        { selector: 'p4', type: 'Text', name: paragraphs[3],
+          x: 1462, y: 432, width: 414, height: 111, children: [] },
+        { selector: 'p5', type: 'Text', name: paragraphs[4],
+          x: 1462, y: 560, width: 417, height: 88, children: [] },
+        { selector: 'composer', type: 'Edit', name: 'Do anything',
+          x: 1464, y: 740, width: 422, height: 44, isKeyboardFocusable: true, children: [] }
+      ]
+    }] }]
+  };
+  const snapshot = snapshotFromInspect({ windowInfo: realWindow, json });
+  const observed = responseForPrompt(snapshot, { prompt, includeOffscreen: true });
+  assert.equal(observed.correlated, true);
+  assert.equal(observed.text, paragraphs.join('\n\n'));
+  assert.equal(observed.nativeTurn?.text, paragraphs.join('\n\n'));
+});
+
+test('active finalization expands a visible tail into the full noisy-fragment Codex turn', async () => {
+  let clock = 0;
+  const prompt = 'ok its working now, next is the next test, [Worked for 4m 25s YES fixed that last presentation issue too and this continues as a deliberately long prompt with enough unique words to stay safely correlated.]';
+  const paragraphs = [
+    'Opening paragraph survives even when the visible poll only retains the tail.',
+    'Second paragraph remains part of the same assistant turn.',
+    'Third paragraph remains ordered after the second.',
+    'Fourth paragraph is restored by the offscreen-inclusive reconstruction.',
+    'Final paragraph is the only paragraph visible in the fast polling snapshot.'
+  ];
+  const tailOnly = {
+    windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Window', name: 'ChatGPT',
+      x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'tail', type: 'Text', name: paragraphs[4],
+          x: 330, y: 430, width: 540, height: 48, children: [] },
+        { selector: 'composer', type: 'Edit', name: 'Do anything',
+          x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
+      ]
+    }] }]
+  };
+  const full = {
+    windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Window', name: 'ChatGPT',
+      x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'prompt-fragment', type: 'Text',
+          name: 'andok its working now, next is the next test, [Worked for 4m 25s',
+          x: 760, y: -180, width: 330, height: 52, isOffscreen: true, children: [] },
+        ...paragraphs.map((name, index) => ({
+          selector: 'p' + index, type: 'Text', name,
+          x: 330, y: 120 + index * 110, width: 540, height: 72,
+          isOffscreen: index < 1, children: []
+        })),
+        { selector: 'composer', type: 'Edit', name: 'Do anything',
+          x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
+      ]
+    }] }]
+  };
+  const sequence = [
+    codexTree({ prompt: 'older prompt', answer: 'Older reply.' }),
+    codexTree({ prompt, answer: '', send: true }),
+    tailOnly,
+    tailOnly,
+    full
+  ];
+  const runner = {
+    async availability() { return { available: true, command: 'winapp.exe' }; },
+    async runJson(args) {
+      if (args[1] === 'inspect') {
+        const json = sequence.shift();
+        if (!json) throw new Error('Unexpected extra inspect');
+        return { ok: true, json, stderr: '', stdout: '' };
+      }
+      if (args[1] === 'set-value' || args[1] === 'invoke') {
+        return { ok: true, json: { ok: true }, stderr: '', stdout: '' };
+      }
+      throw new Error('Unexpected command: ' + args.join(' '));
+    }
+  };
+  const adapter = createAdapter({
+    runner, platform: 'win32', sleepFn: async () => {},
+    now: () => { clock += 1000; return clock; },
+    pollMs: 0, settleMs: 0, shortReplySettleMs: 0, responseTimeoutMs: 30000
+  });
+  const events = [];
+  const result = await adapter.sendPrompt({
+    requestId: 'real-noisy-fragment-final',
+    text: prompt,
+    target: { id: 'app-chatgpt-windows', title: 'ChatGPT', windowHandle: 501, pid: 9001 },
+    emit: (event) => events.push(event)
+  });
+  const expected = paragraphs.join('\n\n');
+  assert.equal(result.text, expected);
+  assert.equal(events.at(-1).type, 'response_final');
+  assert.equal(events.at(-1).text, expected);
+  assert.equal((result.text.match(/Final paragraph/g) || []).length, 1);
+});

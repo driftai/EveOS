@@ -40,6 +40,25 @@ function promptOwnsVisibleText(visible = '', expected = '') {
   return compactShown.length >= 72 && compactFull.startsWith(compactShown);
 }
 
+function normalizedWords(text = '') {
+  return promptComparable(text).toLowerCase().match(/[a-z0-9]+(?:['_-][a-z0-9]+)*/g) || [];
+}
+
+function hasPromptTokenRun(visible = '', expected = '') {
+  const shownWords = normalizedWords(visible), fullWords = normalizedWords(expected);
+  if (shownWords.length < 6 || fullWords.length < shownWords.length) return false;
+  for (let trimStart = 0; trimStart <= 2; trimStart += 1) {
+    for (let trimEnd = 0; trimEnd <= 2; trimEnd += 1) {
+      const run = shownWords.slice(trimStart, shownWords.length - trimEnd);
+      if (run.length < 6 || run.join(' ').length < 36) continue;
+      for (let offset = 0; offset <= fullWords.length - run.length; offset += 1) {
+        if (run.every((word, index) => word === fullWords[offset + index])) return true;
+      }
+    }
+  }
+  return false;
+}
+
 function promptOwnsFragment(visible = '', expected = '') {
   if (promptOwnsVisibleText(visible, expected)) return true;
   const shown = promptComparable(visible), full = promptComparable(expected);
@@ -47,7 +66,8 @@ function promptOwnsFragment(visible = '', expected = '') {
   const words = shown.split(/\s+/).filter(Boolean);
   if (shown.length >= 24 && words.length >= 4 && full.includes(shown)) return true;
   const compactShown = shown.replace(/\s+/g, ''), compactFull = full.replace(/\s+/g, '');
-  return compactShown.length >= 24 && words.length >= 4 && compactFull.includes(compactShown);
+  if (compactShown.length >= 24 && words.length >= 4 && compactFull.includes(compactShown)) return true;
+  return hasPromptTokenRun(shown, full);
 }
 
 function markerlessChrome(text = '') {
@@ -189,7 +209,10 @@ function findPromptRecord(snapshot = {}, prompt = '', options = {}) {
   const exact = all.filter((record) => sameText(record.normalized, expected));
   if (exact.length) return exact.at(-1);
   const collapsed = all.filter((record) => promptOwnsVisibleText(record.normalized, expected));
-  return collapsed.at(-1) || null;
+  if (collapsed.length) return collapsed.at(-1);
+  const fragments = all.filter((record) => isLikelyUser(record)
+    && promptOwnsFragment(record.normalized, expected));
+  return fragments.at(-1) || null;
 }
 
 function answerAfterPrompt(snapshot = {}, prompt = '', options = {}) {
@@ -325,6 +348,7 @@ module.exports = {
   promptComparable,
   promptOwnsVisibleText,
   promptOwnsFragment,
+  hasPromptTokenRun,
   WORK_STATUS_CHROME,
   markerlessChrome,
   recordFor,
