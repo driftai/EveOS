@@ -1,7 +1,8 @@
 'use strict';
 
 const defaultRunner = require('./winapp-runner'), uia = require('./chatgpt-windows-uia'),
-  conversation = require('./chatgpt-windows-conversation'), titleResolver = require('./chatgpt-windows-title');
+  conversation = require('./chatgpt-windows-conversation'), replyProgress = require('./chatgpt-windows-reply-progress'),
+  titleResolver = require('./chatgpt-windows-title');
 const {
   windowsFromEnvelope, pickMainWindow, hwndOf, pidOf, selectorOf,
   composerScore, sendScore, rankCandidates, elementsFromSearch,
@@ -10,7 +11,7 @@ const {
 
 const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVIDER_NAME = 'ChatGPT App', APP_MATCH = 'ChatGPT';
 const FIRST_POLL_MS = 75, POLL_MS = 180, SETTLE_MS = 850, POST_GENERATION_SETTLE_MS = 650;
-const RESPONSE_TIMEOUT_MS = 4 * 60 * 1000;
+const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000;
 
 let lastDiagnostics = { available: false, helper: null, lastError: null, lastProbeAt: 0, lastWindow: null };
 const turnState = new Map();
@@ -329,8 +330,9 @@ function createAdapter({
       if (lastSnapshot.generating) sawGenerating = true;
       const observed = conversation.responseForPrompt(lastSnapshot, { baseline: baselineSet, prompt: text });
       const candidate = observed.text; if (observed.nativeTurn) nativeTurn = observed.nativeTurn;
-      if (candidate && candidate !== lastText) {
-        lastText = candidate;
+      const mergedText = replyProgress.mergeReplyProgress(lastText, candidate);
+      if (candidate && mergedText !== lastText) {
+        lastText = mergedText;
         if (!firstResponseAt) firstResponseAt = observedAt;
         lastChangedAt = observedAt;
         turnState.set(target.id, { phase: 'streaming', requestId, startedAt: acceptedAt,
@@ -403,7 +405,8 @@ function createAdapter({
     const remembered = turnState.get(target.id)?.latestText || '';
     const grouped = conversation.latestAssistantReply(snapshot, { includeOffscreen: true });
     const live = grouped?.text || latestResponseCandidate(snapshot)?.text || snapshot.latestResponseText || '';
-    return { text: live || remembered || snapshot.latestText || '', snapshot,
+    const stored = replyProgress.mergeReplyProgress(remembered, live);
+    return { text: stored || snapshot.latestText || '', snapshot,
       replyParts: grouped?.partCount || (live ? 1 : 0), observedAt: now(),
       isGenerating: !!snapshot.generating, generationState: snapshot.generating ? 'active' : 'idle',
       completenessHint: snapshot.generating ? 'incomplete' : 'settled' };

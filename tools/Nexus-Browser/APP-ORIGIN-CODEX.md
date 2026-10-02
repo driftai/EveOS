@@ -147,6 +147,27 @@ the adapter can replace a visible tail with the complete prompt-owned assistant 
 The regression in `tests/chatgpt-windows-codex-surface.test.js` covers a prompt plus the
 first two Nova paragraphs above the viewport with only the final paragraph visible.
 
+## Monotonic long-turn storage
+
+Active Codex replies are stored monotonically across polling snapshots. A later viewport
+slice may extend the stored reply, but it must never shrink or replace earlier assistant
+content simply because the user or app scrolled.
+
+The merge rules are:
+
+1. identical or already-contained text is ignored;
+2. a larger candidate that contains the stored reply may replace it;
+3. overlapping paragraph/character tails are merged without duplication;
+4. a genuinely new later slice is appended after the stored content;
+5. scrolling back to an earlier slice leaves the stored reply unchanged.
+
+The Base transcript therefore represents the accumulated turn, not the current viewport.
+`Capture latest` also merges the live view with the remembered active-turn text instead
+of preferring whichever paragraph happens to be visible at that instant.
+
+The default active response deadline is eight minutes so long Codex reasoning plus final
+generation is not forced into passive recovery at the old four-minute boundary.
+
 ## Passive turns and identity
 
 The same markerless prompt/assistant pairs feed `completedAssistantTurns()` and
