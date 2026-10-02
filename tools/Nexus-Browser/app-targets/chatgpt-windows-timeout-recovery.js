@@ -9,7 +9,7 @@ async function recoverAuthoritativeReply({ inspect, target, baseline, prompt } =
       hwnd: target.windowHandle,
       pid: target.pid,
       title: target.title
-    }, { includeOffscreen: true });
+    }, { includeOffscreen: true, depth: 32 });
     if (snapshot.generating) return null;
     const observed = conversation.responseForPrompt(snapshot, {
       baseline,

@@ -50,7 +50,7 @@ function createAdapter({
     };
     return windowInfo;
   }
-  async function inspect(windowInfo = null, { includeOffscreen = false } = {}) {
+  async function inspect(windowInfo = null, { includeOffscreen = false, depth = 12 } = {}) {
     const resolved = windowInfo || await findWindow();
     if (!resolved) {
       const error = new Error('ChatGPT Windows app is not running or no visible app window was found.');
@@ -58,7 +58,7 @@ function createAdapter({
       throw error;
     }
     const hwnd = hwndOf(resolved);
-    const args = ['ui', 'inspect', '-w', String(hwnd), '--depth', '12'];
+    const args = ['ui', 'inspect', '-w', String(hwnd), '--depth', String(depth)];
     if (!includeOffscreen) args.push('--hide-offscreen');
     const result = await runner.runJson(args, { timeoutMs: 12000 });
     return snapshotFromInspect({ windowInfo: resolved, json: result.json });
@@ -341,7 +341,7 @@ function createAdapter({
         try {
           const fullSnapshot = await inspect({
             hwnd: target.windowHandle, pid: target.pid, title: target.title
-          }, { includeOffscreen: true });
+          }, { includeOffscreen: true, depth: 32 });
           const full = conversation.responseForPrompt(fullSnapshot, {
             baseline: baselineSet, prompt: text, includeOffscreen: true
           });
