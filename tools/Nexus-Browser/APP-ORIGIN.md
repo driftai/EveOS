@@ -106,6 +106,9 @@ Important invariants:
 - automatic server reconnect preserves that delivery scope plus a durable native-turn cursor,
   so unchanged history produces no events while a genuinely newer turn after the cursor can
   still be delivered once;
+- on every steady-state scan, Nexus considers only turns strictly after the durable cursor;
+  previously hidden/offscreen historical turns that become newly visible before that cursor
+  remain baseline history and are never emitted;
 - if the old cursor has been virtualized out of the accessible history, Nexus resynchronizes
   by baselining the currently visible turns instead of guessing and replaying history;
 - active Nexus/Dex finals and Capture Latest seed the same fingerprint ledger/cursor, so passive

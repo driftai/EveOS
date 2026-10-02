@@ -110,6 +110,26 @@ test('active Nexus final shares passive dedupe identity and is not emitted twice
   } finally { h.cleanup(); }
 });
 
+test('newly exposed historical turns before the cursor never replay after priming', async () => {
+  const current = { fingerprint: fp('3'), text: 'current visible reply', partCount: 1, order: 1 };
+  const h = makeHarness({ initialTurns: [oldTurn, current] });
+  try {
+    await h.watcher.scanNow(target.id);
+    assert.equal(h.events.length, 0);
+
+    const hiddenA = { fingerprint: fp('4'), text: 'older hidden answer A', partCount: 1, order: 1 };
+    const hiddenB = { fingerprint: fp('5'), text: 'older hidden answer B', partCount: 1, order: 2 };
+    h.setSnapshot({ ...h.snapshot(), turns: [oldTurn, hiddenA, hiddenB, current] });
+    await h.watcher.scanNow(target.id);
+    assert.equal(h.events.length, 0, 'historical turns inserted before cursor must stay baseline-only');
+
+    const fresh = { fingerprint: fp('6'), text: 'genuinely new passive answer', partCount: 1, order: 4 };
+    h.setSnapshot({ ...h.snapshot(), turns: [oldTurn, hiddenA, hiddenB, current, fresh] });
+    await h.watcher.scanNow(target.id);
+    assert.deepEqual(h.events.map((event) => event.text), [fresh.text]);
+  } finally { h.cleanup(); }
+});
+
 test('restart with unchanged native conversation emits no historical turns', async () => {
   const first = makeHarness();
   const filePath = first.filePath;

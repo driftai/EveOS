@@ -344,6 +344,7 @@ test('ChatGPT Windows adapter focuses the recovered composer before keyboard fal
     tree({ text: ['Old answer'] }),
     tree({ composer: 'hello fallback', text: ['Old answer'], send: true }),
     tree({ text: ['Old answer', 'hello fallback'], stop: true }),
+    tree({ text: ['Old answer', 'hello fallback', 'Fallback reply'] }),
     tree({ text: ['Old answer', 'hello fallback', 'Fallback reply'] })
   ];
   const calls = [];
@@ -386,6 +387,7 @@ test('ChatGPT Windows adapter focuses the recovered composer before keyboard fal
     now: () => { clock += 1000; return clock; },
     pollMs: 0,
     settleMs: 0,
+    shortReplySettleMs: 0,
     responseTimeoutMs: 30000
   });
   const events = [];

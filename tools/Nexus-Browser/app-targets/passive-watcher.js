@@ -268,9 +268,31 @@ function createPassiveAppWatcher({
         state.primed = true;
       }
 
-      for (const turn of turns) await emitTurn(state, turn);
+      const cursor = ledger.cursor(state.scope);
+      const cursorIndex = cursor
+        ? turns.findIndex((turn) => turn.fingerprint === cursor.nativeFingerprint)
+        : -1;
+      if (!cursor || cursorIndex < 0) {
+        for (const turn of turns) {
+          await ledger.seed(deliveryFingerprint(state.target, turn.fingerprint), {
+            targetId: state.target.id, providerId: state.target.providerId,
+            source: cursor ? 'steady-resync' : 'steady-baseline',
+            scope: state.scope, nativeFingerprint: turn.fingerprint
+          });
+        }
+        if (turns.length) {
+          await ledger.setCursor(state.scope, turns.at(-1).fingerprint, {
+            targetId: state.target.id, providerId: state.target.providerId,
+            source: cursor ? 'steady-resync' : 'steady-baseline'
+          });
+        }
+        state.lastError = null;
+        return { ok: true, turns: turns.length, resynced: true };
+      }
+
+      for (const turn of turns.slice(cursorIndex + 1)) await emitTurn(state, turn);
       state.lastError = null;
-      return { ok: true, turns: turns.length };
+      return { ok: true, turns: turns.length, cursorIndex };
     } catch (error) {
       state.lastError = error?.code || error?.message || 'APP_PASSIVE_WATCH_FAILED';
       nextDelay = idleMs;
