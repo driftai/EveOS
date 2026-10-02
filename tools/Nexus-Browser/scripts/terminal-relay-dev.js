@@ -9,12 +9,88 @@ const appTargets = require('../app-targets/manager');
 const appTargetBinding = require('../app-targets/app-target-binding');
 const storage = require('./terminal-relay-storage');
 
+const TOTAL_STEPS = 6;
+
 function failed(ctx) {
   return ctx.results.some((result) => result.status === 'FAIL');
 }
 
 function manualConnectRequested(argv = process.argv.slice(2)) {
   return argv.includes('--manual-connect');
+}
+
+function createProgress(storageApi = storage) {
+  const startedAt = new Date().toISOString();
+  let current = {
+    active: true,
+    status: 'RUNNING',
+    stage: 'validation',
+    label: 'Validation',
+    detail: 'Preparing repository checks.',
+    step: 1,
+    totalSteps: TOTAL_STEPS,
+    startedAt,
+    stageStartedAt: startedAt,
+    etaKind: 'estimate',
+    etaMs: 9000,
+    targetClassId: 'app-origin'
+  };
+
+  function write(patch = {}) {
+    current = { ...current, ...patch };
+    storageApi.writeProgress(current);
+    return current;
+  }
+
+  function stage(stageName, label, step, {
+    detail = '', etaMs = null, etaKind = etaMs == null ? 'unknown' : 'estimate'
+  } = {}) {
+    return write({
+      active: true,
+      status: 'RUNNING',
+      stage: stageName,
+      label,
+      detail,
+      step,
+      totalSteps: TOTAL_STEPS,
+      stageStartedAt: new Date().toISOString(),
+      etaMs,
+      etaKind
+    });
+  }
+
+  function fail(detail, code = null) {
+    return write({
+      active: false,
+      status: 'FAILED',
+      stage: 'failed',
+      label: 'Stopped',
+      detail: String(detail || 'Terminal Relay stopped.'),
+      code,
+      etaMs: 0,
+      etaKind: 'none',
+      finishedAt: new Date().toISOString()
+    });
+  }
+
+  function complete(relay = {}) {
+    return write({
+      active: false,
+      status: relay.status === 'PASS' || relay.status === 'LOCAL_ONLY' ? 'COMPLETE' : relay.status || 'COMPLETE',
+      stage: 'complete',
+      label: relay.status === 'LOCAL_ONLY' ? 'Local validation complete' : 'Relay complete',
+      detail: relay.reason || 'Terminal Relay workflow completed.',
+      step: TOTAL_STEPS,
+      totalSteps: TOTAL_STEPS,
+      etaMs: 0,
+      etaKind: 'none',
+      replyChars: Number(relay.replyLength || current.replyChars || 0),
+      finishedAt: new Date().toISOString()
+    });
+  }
+
+  write();
+  return { write, stage, fail, complete, snapshot: () => ({ ...current }) };
 }
 
 async function waitForReconnect() {
@@ -67,30 +143,76 @@ async function autoConnect({
   return result;
 }
 
+function bindingProgress(bindingResult = {}) {
+  const binding = bindingResult.binding || {};
+  const identity = binding.concreteTargetIdentity || {};
+  return {
+    targetClassId: 'app-origin',
+    targetId: binding.id || null,
+    providerId: binding.providerId || null,
+    providerName: binding.providerName || null,
+    targetTitle: binding.title || null,
+    pid: identity.processId || binding.pid || null,
+    windowHandle: identity.windowHandle || binding.windowHandle || null,
+    bindMode: bindingResult.mode || null
+  };
+}
+
 async function main(argv = process.argv.slice(2)) {
+  const progress = createProgress();
   const ctx = core.createContext(argv);
+  ctx.onStepStart = ({ label }) => {
+    const current = progress.snapshot();
+    if (label === 'verified Nexus restart') {
+      progress.stage('restart', 'Restarting Nexus', 2, {
+        detail: 'Recycling the bridge under the existing supervisor.', etaMs: 7000
+      });
+    } else if (current.stage === 'validation') {
+      progress.write({ detail: label });
+    }
+  };
+  ctx.onStepFinish = (result) => {
+    const current = progress.snapshot();
+    if (current.stage === 'validation' && result?.label) {
+      progress.write({ detail: `${result.status} · ${result.label}` });
+    }
+  };
+  ctx.onRelayEvent = (event = {}) => {
+    if (event.type === 'target_verified') {
+      progress.write({ detail: 'Exact native conversation verified; dispatch lease acquired.' });
+    } else if (event.type === 'prompt_accepted') {
+      progress.write({ detail: 'ChatGPT App accepted the sanitized report; waiting for reply.', accepted: true });
+    } else if (event.type === 'response_partial') {
+      progress.write({ detail: `Capturing provider reply · ${String(event.text || '').length} chars`,
+        replyChars: String(event.text || '').length });
+    } else if (event.type === 'response_final') {
+      progress.write({ detail: `Final provider reply captured · ${String(event.text || '').length} chars`,
+        replyChars: String(event.text || '').length });
+    }
+  };
+
   let meta = { branch: '', head: '', dirty: false };
   try {
     meta = await validation.execute(ctx);
   } catch (error) {
     ctx.results.push({
-      label: 'relay:dev validation',
-      status: 'FAIL',
-      exitCode: null,
-      durationMs: 0,
-      stdout: '',
-      stderr: '',
-      error: error?.stack || String(error)
+      label: 'relay:dev validation', status: 'FAIL', exitCode: null, durationMs: 0,
+      stdout: '', stderr: '', error: error?.stack || String(error)
     });
   }
   if (failed(ctx)) {
+    progress.fail('Validation failed before Nexus restart.', 'VALIDATION_FAILED');
     console.error('\nrelay:dev stopped before restart because validation failed.');
     process.exitCode = 2;
     return { meta, ctx, doctor: null, relay: null, binding: null };
   }
 
+  progress.stage('restart', 'Restarting Nexus', 2, {
+    detail: 'Validation passed; restarting the bridge.', etaMs: 7000
+  });
   const restart = await processTools.runNpm(ctx, ['run', 'restart'], 'verified Nexus restart');
   if (restart.status !== 'PASS') {
+    progress.fail('Verified Nexus restart failed.', 'RESTART_FAILED');
     console.error('\nrelay:dev stopped because the verified Nexus restart failed.');
     process.exitCode = 2;
     return { meta, ctx, doctor: null, relay: null, binding: null };
@@ -98,11 +220,22 @@ async function main(argv = process.argv.slice(2)) {
 
   let binding = null;
   if (manualConnectRequested(argv)) {
+    progress.stage('manual-connect', 'Waiting for Base Mode', 3, {
+      detail: 'Manual target selection requested.', etaKind: 'user'
+    });
     await waitForReconnect();
   } else {
+    progress.stage('auto-bind', 'Auto-binding ChatGPT App', 3, {
+      detail: 'Discovering and proving the exact native conversation.', etaMs: 3000
+    });
     try {
       binding = await autoConnect();
+      progress.write({
+        ...bindingProgress(binding),
+        detail: `Bound automatically · ${binding.mode}`
+      });
     } catch (error) {
+      progress.fail(error.message, error.code || 'AUTO_BIND_FAILED');
       console.error('\nAutomatic App-Origin binding failed:', error.code || 'AUTO_BIND_FAILED');
       console.error(error.message);
       console.error('Use --manual-connect only when you intentionally want interactive Base Mode selection.');
@@ -111,21 +244,32 @@ async function main(argv = process.argv.slice(2)) {
     }
   }
 
+  progress.stage('doctor', 'Verifying binding', 4, {
+    detail: 'Checking PID/HWND and native conversation continuity.', etaMs: 2500
+  });
   const report = await doctor.inspectBinding();
   console.log('');
   doctor.printDoctorReport(report);
   if (!report.ok) {
+    progress.fail(`Binding unhealthy · ${report.binding}: ${report.reason}`, report.binding);
     console.error('\nrelay:dev will not send while Terminal Relay binding is unhealthy.');
     process.exitCode = 3;
     return { meta, ctx, doctor: report, relay: null, binding };
   }
 
+  progress.write({ detail: 'Binding healthy; preparing sanitized provider payload.' });
+  progress.stage('relay', 'Relaying to ChatGPT App', 5, {
+    detail: 'Preparing provider transmission.', etaKind: 'provider'
+  });
   const result = await core.runRelayAfterValidation(meta, ctx);
+  progress.complete(result.relay);
   return { ...result, doctor: report, binding };
 }
 
 if (require.main === module) {
   main().catch((error) => {
+    try { storage.writeProgress({ active: false, status: 'FAILED', stage: 'failed', label: 'Stopped',
+      detail: error.message, code: error.code || 'UNHANDLED_ERROR', finishedAt: new Date().toISOString() }); } catch {}
     console.error(error?.stack || error);
     process.exitCode = 2;
   });
@@ -134,7 +278,9 @@ if (require.main === module) {
 module.exports = {
   failed,
   manualConnectRequested,
+  createProgress,
   waitForReconnect,
   autoConnect,
+  bindingProgress,
   main
 };
