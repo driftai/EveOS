@@ -15,7 +15,6 @@ const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000;
 let lastDiagnostics = { available: false, helper: null, lastError: null, lastProbeAt: 0, lastWindow: null };
 const turnState = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 function createAdapter({
   runner = defaultRunner,
   platform = process.platform,
