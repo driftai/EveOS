@@ -68,6 +68,16 @@ Active correlation therefore uses prompt ownership:
 This preserves normal ChatGPT semantics while preventing stale cross-surface markers from
 short-circuiting Codex capture.
 
+## Completion-announcement filtering
+
+Codex may expose an accessibility live-region announcement such as
+`Response complete: <assistant text>` in addition to the real visible assistant
+message node. The markerless reader treats that completion announcement as UI chrome
+and keeps the visible reply as the canonical assistant text.
+
+This prevents a completed turn from being reconstructed as
+`Response complete: ANSWER ANSWER` when the accessibility tree contains both nodes.
+
 ## Passive turns and identity
 
 The same markerless prompt/assistant pairs feed `completedAssistantTurns()` and

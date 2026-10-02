@@ -198,3 +198,34 @@ test('Codex exact prompt wins over unrelated role markers elsewhere in the UIA t
   assert.equal(observed.text, answer);
   assert.equal(observed.nativeTurn?.text, answer);
 });
+
+
+test('Codex completion announcement is chrome and does not duplicate the visible Nova reply', () => {
+  const prompt = 'NOVA_CODEX_TEST_004 — Reply exactly with: NOVA_CODEX_OK_004';
+  const answer = 'NOVA_CODEX_OK_004';
+  const json = {
+    windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Pane', name: '',
+      x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'codex-prompt', type: 'Text', name: prompt,
+          x: 780, y: 330, width: 320, height: 54, children: [] },
+        { selector: 'completion-live-region', type: 'Text',
+          name: 'Response complete: ' + answer,
+          x: 350, y: 410, width: 420, height: 26, children: [] },
+        { selector: 'codex-answer', type: 'Text', name: answer,
+          x: 350, y: 450, width: 300, height: 36, children: [] },
+        { selector: 'compose-codex', type: 'Edit', name: 'Do anything',
+          x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
+      ]
+    }] }]
+  };
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  const observed = responseForPrompt(snapshot, { prompt });
+  assert.equal(observed.correlated, true);
+  assert.equal(observed.text, answer);
+  assert.equal(observed.nativeTurn?.text, answer);
+
+  const turns = completedAssistantTurns(snapshot);
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0].text, answer);
+});
