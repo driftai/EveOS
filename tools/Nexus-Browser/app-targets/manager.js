@@ -114,8 +114,11 @@ function conversationAnchors(identity = {}) {
 
 function reliableConversationTitle(value = '') {
   const title = String(value || '').trim();
-  return title.length >= 4
-    && !/^(?:chatgpt|codex|chat|work|new chat|minimize|maximize|restore(?: down)?|close(?: window)?|fullscreen|full screen|enter full screen|exit full screen|(?:show|hide|open|close|toggle) sidebar)$/i.test(title);
+  if (title.length < 4 || title.length > 120) return false;
+  if (/^(?:worked|working)\s+for\b/i.test(title)) return false;
+  if (/^(?:chatgpt\s+is\s+responding|responding|generating)(?:\.{3}|…)?$/i.test(title)) return false;
+  if (/^,\s*expected\s*=*\s*$/i.test(title)) return false;
+  return !/^(?:chatgpt|codex|chat|work|new chat|minimize|maximize|restore(?: down)?|close(?: window)?|fullscreen|full screen|enter full screen|exit full screen|(?:show|hide|open|close|toggle) sidebar)$/i.test(title);
 }
 
 function appConversationMatches(expected = {}, actual = {}) {
