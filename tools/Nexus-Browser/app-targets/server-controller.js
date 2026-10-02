@@ -82,6 +82,18 @@ function createAppTargetServerController({
     }
   }
 
+  function persistedAdvancedBinding(target) {
+    if (!target || typeof appTargets.advanceAppTargetBinding !== 'function') return null;
+    const persisted = terminalRelayStorage.readTargetSelection?.()?.target || null;
+    if (!persisted || String(persisted.id || '') !== String(target.id || '')
+        || String(persisted.providerId || '') !== String(target.providerId || '')) return null;
+    try {
+      return appTargets.advanceAppTargetBinding(persisted, target) || null;
+    } catch {
+      return null;
+    }
+  }
+
   function requireRebind(targetId, payload = {}) {
     const event = {
       type: 'app_target_rebind_required',
@@ -167,9 +179,10 @@ function createAppTargetServerController({
             providerName: ws.appTargetBinding?.providerName || null
           });
         } else if (ws.appTargetBinding) {
-          const advanced = typeof appTargets.advanceAppTargetBinding === 'function'
+          const persistedAdvanced = persistedAdvancedBinding(target);
+          const advanced = persistedAdvanced || (typeof appTargets.advanceAppTargetBinding === 'function'
             ? appTargets.advanceAppTargetBinding(ws.appTargetBinding, target)
-            : exactMatch(ws.appTargetBinding, target) ? ws.appTargetBinding : null;
+            : exactMatch(ws.appTargetBinding, target) ? ws.appTargetBinding : null);
           if (!advanced) {
             const targetId = ws.appTargetId;
             requireRebind(targetId, {
@@ -177,8 +190,22 @@ function createAppTargetServerController({
               providerName: ws.appTargetBinding?.providerName || target?.providerName || null
             });
           } else {
+            const changedByPersisted = !!persistedAdvanced
+              && JSON.stringify(ws.appTargetBinding.concreteTargetIdentity || {})
+                !== JSON.stringify(persistedAdvanced.concreteTargetIdentity || {});
             ws.appTargetBinding = advanced;
             terminalRelayStorage.refreshTargetSelection?.(ws.appTargetBinding);
+            if (changedByPersisted) {
+              safeSend(ws, {
+                type: 'app_target_selected',
+                target: ws.appTargetBinding,
+                bindingIdentity: { ...(ws.appTargetBinding.concreteTargetIdentity || {}) },
+                status: appTargets.getAppTargetStatus(ws.appTargetBinding.id),
+                diagnostics,
+                restored: true,
+                source: 'terminal-relay-auto-bind'
+              });
+            }
           }
         }
       }
