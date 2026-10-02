@@ -137,6 +137,18 @@ render and ACK. Passive events are currently surfaced to the selected Base Mode 
 the same primitive can later feed unsolicited Dex routing without conflating it with
 ChatGPT App Mirror.
 
+## Bridge connection failure containment
+
+Nexus server WebSocket commands are guarded at the EventEmitter boundary. A rejected
+async command is logged and returned to that client as `SERVER_COMMAND_FAILED`; it does
+not become an unhandled rejection that terminates the localhost server. WebSocket sends
+also fail closed if the peer closes between the ready-state check and the actual write.
+
+Base/Dex clients reconnect to localhost with a fast bounded backoff (300 ms initial,
+capped at 2 seconds) and retain an 8-second visual recovery grace period. In-flight AI
+prompts are never blindly resent after a reconnect because the original prompt may have
+already reached the provider.
+
 ## Latency
 
 Current native response timing is deliberately low-latency but still stable:

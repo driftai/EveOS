@@ -16,6 +16,7 @@ const { createDiagnosticsSnapshot } = require('./server-diagnostics'), { createS
 const { attachWebSocketHeartbeat } = require('./dex/ws-heartbeat'), { createDisposableRoomCleanup } = require('./dex/disposable-room-cleanup');
 const runtimeConfig = require('./runtime-config');
 const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
+const { createSafeSend, guardAsyncHandler, requestIdFromRaw } = require('./server-socket-safety');
 const HOST = process.env.HOST || '127.0.0.1', PORT = runtimeConfig.servicePort();
 const RUNTIME_URLS = runtimeConfig.urls(PORT);
 const PUBLIC_DIR = path.join(__dirname, 'public'), SERVER_SESSION_ID = `${process.pid}-${Date.now().toString(36)}`;
@@ -42,11 +43,10 @@ let dexStateStore = createDexStateStore();
 let postIdleMaintenance = null, taskCompletion = null;
 let durability = createServerDurability();
 function configureDurability(o = {}) { const prev = { durability, dexStateStore }; if (o.durability) durability = o.durability; if (o.dexStateStore) dexStateStore = o.dexStateStore; return prev; }
-function safeSend(ws, payload) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
-  ws.send(JSON.stringify(payload));
-  return true;
-}
+const safeSend = createSafeSend({
+  openState: WebSocket.OPEN,
+  onError: (error, detail) => console.error(`[bridge] websocket send ${detail?.phase || 'error'}: ${error.message}`)
+});
 function broadcastUi(payload) { for (const ws of uiSockets) safeSend(ws, payload); }
 function syncExtensionAuthority(state = extensionSessions.current()) {
   extensionSocket = state.socket;
@@ -233,7 +233,7 @@ wss.on('connection', (ws, req) => {
   ws.role = null; ws.remoteAddress = req?.socket?.remoteAddress || '';
   ws.clientKind = 'browser';
   ws.localTargetId = null; ws.appTargetId = null;
-  ws.on('message', async (raw) => {
+  ws.on('message', guardAsyncHandler(async (raw) => {
     let msg;
     try { msg = JSON.parse(String(raw)); }
     catch { safeSend(ws, { type: 'error', code: 'BAD_JSON', message: 'Bridge received invalid JSON.' }); return; }
@@ -393,8 +393,14 @@ wss.on('connection', (ws, req) => {
       return;
     }
     safeSend(ws, { type: 'error', code: 'HELLO_REQUIRED', message: 'Send hello before other bridge messages.' });
-  });
-  ws.on('close', (code, reason) => {
+  }, { onError: (error, raw) => {
+    const requestId = requestIdFromRaw(raw);
+    console.error(`[bridge] websocket command failed [${ws.clientKind || ws.role || 'unknown'}] ${requestId || 'n/a'}: ${error.stack || error.message}`);
+    try { durability.recordIncident({ code: 'SERVER_COMMAND_FAILED', requestId, source: 'websocket-command', message: error.message }); } catch {}
+    safeSend(ws, { type: 'error', requestId, code: 'SERVER_COMMAND_FAILED',
+      message: 'Nexus recovered from a transient command failure; the bridge remains online.' });
+  } }));
+  ws.on('close', guardAsyncHandler(async (code, reason) => {
     providerControlRouting.dropSocket(ws); qualificationRouting.dropSocket(ws);
     if (doneWatchControlSocket === ws) doneWatchControlSocket = null;
     if (ws.role === 'extension') {
@@ -416,7 +422,7 @@ wss.on('connection', (ws, req) => {
     if (ws.role === 'ui') console.log(`[bridge] ui disconnected [${ws.clientKind}]`);
     uiSockets.delete(ws);
     if (ws.clientKind === 'dex') dexRouting.unregisterDex(ws);
-  });
+  }, { onError: (error) => console.error(`[bridge] websocket close cleanup failed: ${error.stack || error.message}`) }));
   ws.on('error', (err) => console.error('[bridge] websocket error:', err.message));
 });
 server.on('upgrade', (req, socket, head) => {
@@ -428,6 +434,7 @@ server.on('upgrade', (req, socket, head) => {
   }
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
+wss.on('error', (error) => console.error('[bridge] websocket server error:', error.message));
 server.on('close', () => { heartbeat.stop(); localTargets.stopLocalTargets(); appTargetController.stop(); });
 if (require.main === module) {
   server.listen(PORT, HOST, () => {

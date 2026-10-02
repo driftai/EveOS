@@ -158,7 +158,10 @@ test('App-Origin manager publishes active native-turn identity for passive dedup
   const unsubscribe = manager.onAppTurnFinal((event) => observed.push(event));
   adapter.listTargets = async () => [nativeTarget];
   adapter.completedTurns = () => [{ fingerprint, text: 'same native final' }];
-  adapter.sendPrompt = async () => ({ text: 'same native final', snapshot: {} });
+  adapter.sendPrompt = async () => ({
+    text: 'same native final', snapshot: {},
+    nativeTurn: { fingerprint, text: 'same native final' }
+  });
   manager.invalidateAppTargetCache();
 
   try {

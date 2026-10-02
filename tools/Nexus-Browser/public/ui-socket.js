@@ -2,7 +2,7 @@
   function createClient({
     url, hello, onMessage = () => {}, onOpen = () => {},
     onPhase = () => {}, onMalformed = () => {},
-    reconnectDelayMs = 1200, disconnectGraceMs = 4000,
+    reconnectDelayMs = 300, reconnectMaxDelayMs = 2000, disconnectGraceMs = 8000,
     WebSocketImpl = globalThis.WebSocket, timers = globalThis
   } = {}) {
     let socket = null;
@@ -10,6 +10,7 @@
     let disconnectTimer = null;
     let phase = 'connecting';
     let epoch = 0;
+    let reconnectAttempt = 0;
     let stopped = false;
 
     function snapshot(extra = {}) {
@@ -41,6 +42,7 @@
       next.addEventListener('open', () => {
         if (socket !== next) return;
         clearDisconnectTimer();
+        reconnectAttempt = 0;
         epoch += 1;
         transition('connected');
         if (hello) send(typeof hello === 'function' ? hello() : hello);
@@ -53,15 +55,21 @@
       next.addEventListener('close', (event = {}) => {
         if (socket !== next) return;
         socket = null;
+        if (stopped) return;
         transition('reconnecting', { closeCode: event.code || null, closeReason: String(event.reason || '') });
         clearDisconnectTimer();
         disconnectTimer = timers.setTimeout(() => {
           disconnectTimer = null;
           if (phase !== 'connected') transition('disconnected');
         }, disconnectGraceMs);
-        reconnectTimer = timers.setTimeout(connect, reconnectDelayMs);
+        const delay = Math.min(reconnectMaxDelayMs,
+          reconnectDelayMs * (2 ** Math.min(reconnectAttempt, 3)));
+        reconnectAttempt += 1;
+        reconnectTimer = timers.setTimeout(connect, delay);
       });
-      next.addEventListener('error', () => {});
+      next.addEventListener('error', () => {
+        try { if (next.readyState !== WebSocketImpl.CLOSED) next.close(); } catch {}
+      });
       return true;
     }
     function stop() {
