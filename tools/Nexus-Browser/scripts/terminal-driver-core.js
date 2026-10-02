@@ -76,7 +76,7 @@ async function runRelayAfterValidation(meta, ctx) {
     };
     console.log('\nLOCAL-ONLY MODE: provider relay skipped.');
   } else {
-    relay = await delivery.relayReport(providerReport);
+    relay = await delivery.relayReport(providerReport, { onEvent: ctx.onRelayEvent });
   }
 
   storage.writeMetadata(run, metadataFor(meta, ctx, relay, providerReport));
