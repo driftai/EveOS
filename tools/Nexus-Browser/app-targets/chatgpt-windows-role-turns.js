@@ -3,7 +3,7 @@
 const uia = require('./chatgpt-windows-uia');
 
 const RESPONSE_ACTION = /^(?:copy|read aloud|regenerate|retry|good response|bad response|response actions|more actions)$/i;
-const TOOL_ACTIVITY = /^(?:(?:check|search|read|look|review|analy[sz]|inspect|fetch|open|brows|run|test|verif|compar|gather|prepar|load|process|investigat)(?:ing|ed)?|ran)\b[^.!?]{0,100}(?:\.{3}|…)?$/i;
+const TOOL_ACTIVITY = /^(?:(?:check|search|read|look|review|analy[sz]|inspect|fetch|open|brows|run|test|verif|compar|gather|prepar|load|process|investigat|work|us|call|consult)(?:ing|ed)?|ran|used|called)\b[^.!?]{0,100}(?:\.{3}|…)?$/i;
 
 function roleTurnPairs(groups = []) {
   const pairs = [];
@@ -43,7 +43,15 @@ function hasCompletionActions(snapshot = {}, group = {}, nodeText = () => '') {
 function isToolActivityElement(element = {}, nodeText = () => '') {
   if (/(paragraph|listitem|heading)/.test(uia.controlType(element))) return false;
   const text = uia.normalizeCandidate(nodeText(element));
-  return !!text && text.length <= 120 && TOOL_ACTIVITY.test(text);
+  if (!text || text.length > 120) return false;
+  if (TOOL_ACTIVITY.test(text)) return true;
+  const meta = [
+    uia.selectorOf(element),
+    uia.propertyText(element, 'automationId'),
+    uia.propertyText(element, 'className')
+  ].join(' ').toLowerCase();
+  return /(?:tool|status|activity|progress|reason|thinking|search|browse)/.test(meta)
+    && !RESPONSE_ACTION.test(text);
 }
 
 function hasToolActivity(snapshot = {}, nodeText = () => '') {

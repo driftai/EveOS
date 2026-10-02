@@ -125,6 +125,20 @@ test('substantial role-marked ChatGPT reply waits for repeated authoritative sta
 });
 
 
+test('tool status metadata stays provisional even when wording is provider-specific', () => {
+  const tree = normalTree({
+    prompt: 'use a tool',
+    answer: 'Commentary before tool work.',
+    status: 'Consulting connected source',
+    commentaryComplete: true
+  });
+  const root = tree.windows[0].elements[0];
+  const status = root.children.find((entry) => entry.selector === 'tool-status');
+  assert.equal(require('../app-targets/chatgpt-windows-role-turns').isToolActivityElement(
+    status, (element) => element.name || ''
+  ), true);
+});
+
 test('tool commentary stays provisional until the later assistant role segment arrives', async () => {
   let clock = 0;
   const prompt = 'inspect the implementation and then answer';
