@@ -9,10 +9,10 @@ const {
 } = uia;
 
 const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVIDER_NAME = 'ChatGPT App', APP_MATCH = 'ChatGPT';
-const FIRST_POLL_MS = 100;
-const POLL_MS = 250;
-const SETTLE_MS = 900;
-const POST_GENERATION_SETTLE_MS = 250;
+const FIRST_POLL_MS = 75;
+const POLL_MS = 180;
+const SETTLE_MS = 850;
+const POST_GENERATION_SETTLE_MS = 650;
 const RESPONSE_TIMEOUT_MS = 4 * 60 * 1000;
 
 let lastDiagnostics = {
@@ -84,9 +84,10 @@ function createAdapter({
       );
       if (!result.ok) continue;
       found.push(...elementsFromSearch(result.json));
+      const match = rankCandidates(found, scoreFn, context).find((entry) => entry.score >= minimumScore);
+      if (match) return match.element;
     }
-    const ranked = rankCandidates(found, scoreFn, context);
-    return ranked.find((entry) => entry.score >= minimumScore)?.element || null;
+    return null;
   }
   async function recoverComposerElement(snapshot) {
     return searchCandidates(
@@ -233,13 +234,13 @@ function createAdapter({
       error.detail = staged.json || staged.stderr || null;
       throw error;
     }
-    let stagedSnapshot = await probeControls({
+    let stagedSnapshot = await inspect({
       hwnd: baselineSnapshot.hwnd,
       pid: baselineSnapshot.pid,
       title: baselineSnapshot.title
     });
     let sendSelector = stagedSnapshot.sendSelector;
-    if (!sendSelector) sendSelector = await recoverSend(stagedSnapshot, stagedSnapshot.composer);
+    if (!sendSelector) sendSelector = await recoverSend(stagedSnapshot, stagedSnapshot.composer || baselineSnapshot.composer);
 
     if (sendSelector) {
       const invoked = await runner.runJson(
@@ -281,7 +282,7 @@ function createAdapter({
         throw error;
       }
     }
-    await sleepFn(250);
+    await sleepFn(80);
     const committed = await inspect({
       hwnd: baselineSnapshot.hwnd,
       pid: baselineSnapshot.pid,
@@ -362,9 +363,9 @@ function createAdapter({
             baseline: baselineSet, prompt: text, includeOffscreen: true
           })?.text || '';
           const reconstructed = conversation.preferExpandedReply(lastText, expanded);
+          lastSnapshot = fullSnapshot;
           if (reconstructed && reconstructed !== lastText) {
             lastText = reconstructed;
-            lastSnapshot = fullSnapshot;
             emit?.({ type: 'response_partial', requestId, text: lastText,
               targetClassId: 'app-origin', targetId: target.id,
               providerId: PROVIDER_ID, providerName: PROVIDER_NAME });

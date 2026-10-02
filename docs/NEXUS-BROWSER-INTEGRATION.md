@@ -78,6 +78,13 @@ The Windows 0.7.0 source checkpoint passed 27 focused Dex/Antigravity/diagnostic
 
 Still pending: headed-provider send/capture, direct existing-Antigravity TUI probe/send/capture without spawning a replacement process, owned supervisor start/stop and Global Stop confirmation for the current checkpoint, and the complete uncached `npm run verify` run. A static passing test is not a substitute for any of these live checks.
 
+## Detached workspace return path
+
+When the Nexus workspace is opened in its detached popup, that popup exposes a
+**Reattach to EveOS** control. It uses the existing detached-state heartbeat channel to
+ask the EveOS opener to regain focus and scroll the embedded Nexus workspace back into
+view, then closes the popup. It does not start a second Nexus runtime or copy room state.
+
 ## Delete-readiness boundary
 
 The original POC is safe to delete only after all of these are true:

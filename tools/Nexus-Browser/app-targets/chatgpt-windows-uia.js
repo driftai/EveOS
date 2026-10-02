@@ -7,7 +7,7 @@ const CHROME_TEXT = new Set([
   'home', 'search', 'library', 'projects', 'settings', 'send', 'send message',
   'stop', 'stop generating', 'stop streaming', 'copy', 'good response', 'bad response',
   'read aloud', 'regenerate', 'retry', 'edit message',
-  'latest response', 'previous response', 'next response', 'response actions',
+  'latest response', 'previous response', 'next response', 'response actions', 'response complete',
   'more actions', 'more options', 'open message actions'
 ]);
 

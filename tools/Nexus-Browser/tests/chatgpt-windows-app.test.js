@@ -294,7 +294,7 @@ test('ChatGPT Windows adapter drives prompt into app and returns settled reply',
   assert.ok(Number(events.at(-1).detail?.pollCount) >= 1);
 });
 
-test('ChatGPT Windows adapter uses a fast first poll and short post-generation settle', async () => {
+test('ChatGPT Windows adapter uses fast confirmation/polling with guarded post-generation settle', async () => {
   let clock = 0;
   const sleeps = [];
   const inspectSequence = [
@@ -302,7 +302,7 @@ test('ChatGPT Windows adapter uses a fast first poll and short post-generation s
     tree({ composer: 'speed test', text: ['Old answer'], send: true }),
     tree({ text: ['Old answer', 'speed test'], stop: true }),
     tree({ text: ['Old answer', 'speed test', 'Fast reply'], stop: true }),
-    tree({ text: ['Old answer', 'speed test', 'Fast reply'] })
+    ...Array.from({ length: 5 }, () => tree({ text: ['Old answer', 'speed test', 'Fast reply'] }))
   ];
   const runner = {
     async availability() { return { available: true, command: 'winapp.exe' }; },
@@ -332,9 +332,9 @@ test('ChatGPT Windows adapter uses a fast first poll and short post-generation s
     emit: () => {}
   });
   assert.equal(result.text, 'Fast reply');
-  assert.equal(sleeps[0], 250);
-  assert.equal(sleeps[1], 100);
-  assert.ok(sleeps.slice(2).every((ms) => ms === 250));
+  assert.equal(sleeps[0], 80);
+  assert.equal(sleeps[1], 75);
+  assert.ok(sleeps.slice(2).every((ms) => ms === 180));
 });
 
 test('ChatGPT Windows adapter focuses the recovered composer before keyboard fallback', async () => {

@@ -130,11 +130,18 @@ ChatGPT App Mirror.
 
 Current native response timing is deliberately low-latency but still stable:
 
-- first response poll: 100 ms
-- subsequent poll: 250 ms
-- normal no-generation settle: 900 ms
-- after generation was observed and then ended: 250 ms
+- first response poll: 75 ms
+- subsequent poll: 180 ms
+- normal no-generation settle: 850 ms
+- after generation was observed and then ended: 650 ms
+- post-send confirmation delay: 80 ms
+- semantic composer/Send recovery short-circuits as soon as a verified control is found
 - absolute response timeout: 4 minutes
+
+The longer post-generation settle is intentional: the live Windows app can briefly expose
+split UIA fragments after its Stop control disappears. Finalization then performs one
+offscreen-inclusive reconstruction pass and preserves that full snapshot for the shared
+active/passive turn fingerprint, preventing a later passive duplicate.
 
 ## Process identity and safety
 
@@ -145,10 +152,10 @@ is not exposed, Nexus falls back to a privacy-safe SHA-256 anchor derived from a
 completed user/assistant exchange that is already visible in that conversation. Raw
 message text is never stored in the binding.
 
-The live target publishes a bounded set of currently accessible conversation anchors,
-so a bound anchor remains valid as later turns are appended. If the anchor is no longer
-observable (for example after aggressive UI virtualization), the binding fails closed
-and requires a human refresh/rebind rather than guessing. If ChatGPT restarts, the
+The live target publishes a bounded set of currently accessible conversation anchors.
+The binding advances only when the old and new anchor windows overlap, so aggressive UI
+virtualization can roll older anchors away without forcing a false rebind. A disjoint
+anchor set still fails closed rather than guessing. If ChatGPT restarts, the
 PID/window changes, or the user switches to a different native conversation, the
 existing room binding likewise fails closed. Nexus must not silently send a room turn
 into a newly-created process or a different conversation just because it has the same

@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { latestCandidate, createAdapter } = require('../app-targets/chatgpt-windows');
+const { preferExpandedReply } = require('../app-targets/chatgpt-windows-conversation');
 
 function tree({ composer = 'Ask ChatGPT', text = [], send = false } = {}) {
   const children = [
@@ -42,6 +43,19 @@ test('native role labels never become fallback assistant output', () => {
       baseline, prompt: 'hello from nexus'
     }),
     'actual native answer'
+  );
+});
+
+test('native completion chrome is excluded and full reconstruction heals split UIA chunks', () => {
+  assert.equal(
+    latestCandidate(['LIVE_NATIVE_OK_002', 'Response complete'], {
+      baseline: new Set(), prompt: 'Testing LIVE_APP_ORIGIN_002'
+    }),
+    'LIVE_NATIVE_OK_002'
+  );
+  assert.equal(
+    preferExpandedReply('LIVE_\n\nNA', 'LIVE_NATIVE_OK_002'),
+    'LIVE_NATIVE_OK_002'
   );
 });
 

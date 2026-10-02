@@ -130,7 +130,12 @@
             const expected = new URL(runtimeUrl()).origin;
             if (event.origin !== expected) return;
         } catch { return; }
-        if (event.data.state === 'closed') {
+        if (event.data.state === 'reattach') {
+            detachedSeenAt = 0;
+            detachedWindow = null;
+            try { window.focus(); } catch {}
+            try { root?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {}
+        } else if (event.data.state === 'closed') {
             detachedSeenAt = 0;
             if (detachedWindow?.closed) detachedWindow = null;
         } else {

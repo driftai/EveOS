@@ -241,8 +241,9 @@ function preferExpandedReply(currentText = '', expandedText = '') {
   if (!current) return expandedText;
   const flatCurrent = current.replace(/\s+/g, ' ');
   const flatExpanded = expanded.replace(/\s+/g, ' ');
-  if (flatExpanded === flatCurrent || flatExpanded.includes(flatCurrent)) return expandedText;
-  if (flatCurrent.includes(flatExpanded)) return currentText;
+  const compactCurrent = flatCurrent.replace(/\s+/g, ''), compactExpanded = flatExpanded.replace(/\s+/g, '');
+  if (flatExpanded === flatCurrent || flatExpanded.includes(flatCurrent) || compactExpanded.includes(compactCurrent)) return expandedText;
+  if (flatCurrent.includes(flatExpanded) || compactCurrent.includes(compactExpanded)) return currentText;
   return currentText;
 }
 
