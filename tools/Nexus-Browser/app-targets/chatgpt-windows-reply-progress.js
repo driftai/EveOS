@@ -122,8 +122,13 @@ function mergeObservedProgress(currentText = '', candidateText = '', mode = 'rep
 }
 
 function needsCompletionGuard(text = '', mode = 'replace') {
-  if (mode === 'accumulate') return needsTailGuard(text);
   const value = tidy(text);
+  if (mode === 'accumulate') {
+    // Incomplete native role turns use accumulate mode so viewport tails cannot
+    // replace a fuller reply. A substantial single-block opening still needs
+    // repeated authoritative confirmation before it can be finalized.
+    return needsTailGuard(value) || compact(value).length >= 160;
+  }
   return mode === 'role'
     && (blocks(value).length >= 2 || compact(value).length >= 220);
 }
