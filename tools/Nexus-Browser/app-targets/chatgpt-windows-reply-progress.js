@@ -114,6 +114,13 @@ function transitionProgressMode(current = 'replace', observed = {}) {
   return current;
 }
 
+function mergeObservedProgress(currentText = '', candidateText = '', mode = 'replace') {
+  if (mode === 'native') return currentText;
+  if (mode === 'role') return preferFinalReply(currentText, candidateText);
+  if (mode === 'accumulate') return mergeReplyProgress(currentText, candidateText);
+  return candidateText || currentText;
+}
+
 function needsCompletionGuard(text = '', mode = 'replace') {
   if (mode === 'accumulate') return needsTailGuard(text);
   const value = tidy(text);
@@ -131,6 +138,7 @@ module.exports = {
   preferFinalReply,
   needsTailGuard,
   transitionProgressMode,
+  mergeObservedProgress,
   needsCompletionGuard,
   mergeReplyProgress
 };
