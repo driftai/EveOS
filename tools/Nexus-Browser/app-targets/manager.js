@@ -17,7 +17,10 @@ const APP_TARGET_TYPES = [
 const adapters = [chatgptWindows];
 const CACHE_MS = Number(process.env.NEXUS_BROWSER_APP_TARGET_CACHE_MS
   || process.env.BROWSER_AI_BRIDGE_APP_TARGET_CACHE_MS
-  || 800);
+  || 2500);
+const DISCOVERY_GRACE_MS = Number(process.env.NEXUS_BROWSER_APP_TARGET_DISCOVERY_GRACE_MS
+  || process.env.BROWSER_AI_BRIDGE_APP_TARGET_DISCOVERY_GRACE_MS
+  || 12000);
 let cachedTargets = null;
 let cachedAt = 0;
 let listInFlight = null;
@@ -67,17 +70,27 @@ function cloneTargets(targets = []) {
 }
 
 async function listAppTargets({ force = false, now = Date.now() } = {}) {
-  if (listInFlight) return cloneTargets(await listInFlight);
+  if (listInFlight) {
+    const pending = await listInFlight;
+    if (!force) return cloneTargets(pending);
+  }
   if (activeSends.size && cachedTargets) return cloneTargets(cachedTargets);
   if (!force && cachedTargets && now - cachedAt < CACHE_MS) return cloneTargets(cachedTargets);
+  const previousTargets = cachedTargets ? cloneTargets(cachedTargets) : [];
+  const previousAt = cachedAt;
   listInFlight = (async () => {
     const targets = [];
     for (const adapter of adapters) {
       try { targets.push(...await adapterTargets(adapter)); }
       catch {}
     }
+    const observedAt = Date.now();
+    if (!force && !targets.length && previousTargets.length
+        && observedAt - previousAt < DISCOVERY_GRACE_MS) {
+      return previousTargets;
+    }
     cachedTargets = targets;
-    cachedAt = Date.now();
+    cachedAt = observedAt;
     return targets;
   })();
   try {
@@ -304,6 +317,8 @@ function stopAppTargets() {
 module.exports = {
   TARGET_CLASSES,
   APP_TARGET_TYPES,
+  CACHE_MS,
+  DISCOVERY_GRACE_MS,
   publicTargetClasses,
   publicAppTargetTypes,
   normalizeAppTarget,
