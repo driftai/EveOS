@@ -132,6 +132,21 @@ virtualized history can rotate the visible anchor set; a stable real thread titl
 as `Merger Work and Stabilization - Greet` provides continuity without weakening the
 explicit-rebind guard for genuine conversation switches.
 
+## Full long-reply reconstruction
+
+Long Codex responses can scroll the submitted prompt and earlier assistant paragraphs above
+the visible viewport before generation settles. The final offscreen-inclusive UIA read must
+therefore relax both vertical viewport cutoffs. Horizontal conversation-column bounds stay
+enforced, but negative/above-viewport and below-viewport y positions are valid during that
+one reconstruction pass.
+
+Fast visible polling keeps its normal y-range filter. Only the final
+`includeOffscreen=true` reconstruction admits vertically offscreen prompt/reply nodes, so
+the adapter can replace a visible tail with the complete prompt-owned assistant block.
+
+The regression in `tests/chatgpt-windows-codex-surface.test.js` covers a prompt plus the
+first two Nova paragraphs above the viewport with only the final paragraph visible.
+
 ## Passive turns and identity
 
 The same markerless prompt/assistant pairs feed `completedAssistantTurns()` and

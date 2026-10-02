@@ -395,3 +395,33 @@ test('active long collapsed Codex prompt waits through Show more and progress ch
   assert.equal(events.at(-1).type, 'response_final');
   assert.equal(events.at(-1).text, answer);
 });
+
+
+test('offscreen-inclusive Codex reconstruction restores the full long reply above the viewport', () => {
+  const prompt = 'Ok we made it back, try the long reply again?';
+  const head = 'Yes—this is the longer Nova reply test after Eve’s App-Origin identity fix.';
+  const middle = 'Nexus should keep the current Codex conversation bound throughout this response while generation continues.';
+  const tail = 'If this full reply reaches Nexus intact and the target remains connected afterward, both fixes are cooperating.';
+  const json = {
+    windows: [{ ...windowInfo, elements: [{
+      selector: 'root-window', type: 'Window', name: 'ChatGPT',
+      x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'codex-prompt', type: 'Text', name: prompt,
+          x: 780, y: -260, width: 320, height: 90, isOffscreen: true, children: [] },
+        { selector: 'reply-head', type: 'Paragraph', name: head,
+          x: 330, y: -170, width: 540, height: 70, isOffscreen: true, children: [] },
+        { selector: 'reply-middle', type: 'Paragraph', name: middle,
+          x: 330, y: -70, width: 540, height: 90, isOffscreen: true, children: [] },
+        { selector: 'reply-tail', type: 'Paragraph', name: tail,
+          x: 330, y: 430, width: 540, height: 90, isOffscreen: false, children: [] },
+        { selector: 'compose-codex', type: 'Edit', name: 'Do anything',
+          x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
+      ]
+    }] }]
+  };
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  const observed = responseForPrompt(snapshot, { prompt, includeOffscreen: true });
+  assert.equal(observed.correlated, true);
+  assert.equal(observed.text, [head, middle, tail].join('\n\n'));
+  assert.equal(observed.nativeTurn?.text, [head, middle, tail].join('\n\n'));
+});

@@ -76,7 +76,8 @@ function recordFor(element, index, snapshot = {}, { includeOffscreen = false } =
   const xRatio = ((rect.x + rect.width / 2) - frame.x) / frame.width;
   const yRatio = ((rect.y + rect.height / 2) - frame.y) / frame.height;
   const widthRatio = rect.width / frame.width;
-  if (xRatio < 0.22 || xRatio > 0.87 || yRatio < 0.12 || (!includeOffscreen && yRatio > 0.93)) return null;
+  if (xRatio < 0.22 || xRatio > 0.87) return null;
+  if (!includeOffscreen && (yRatio < 0.12 || yRatio > 0.93)) return null;
   return {
     index, element, selector, type, text,
     normalized: uia.normalizeCandidate(text),
