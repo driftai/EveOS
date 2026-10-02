@@ -61,16 +61,16 @@ test('Capture latest stays hidden for Local-Origin while App-Origin can capture 
 });
 
 
-test('ChatGPT App Mirror stays an Online-Origin transport while native apps use App-Origin', () => {
-  assert.match(INDEX, /id="appMirrorControls"/);
+test('ChatGPT conversation sync is an App-Origin capability, not a separate Online-Origin target', () => {
+  assert.match(INDEX, /id="appTargetControls"[\s\S]*id="appMirrorControls"/);
+  assert.match(INDEX, /Conversation sync/);
   assert.match(INDEX, /id="appMirrorUrl"/);
-  assert.match(INDEX, /id="attachAppMirror"/);
-  assert.match(INDEX, /id="syncAppMirror"/);
   assert.match(APP_MIRROR_UI, /ensure_app_mirror/);
   assert.match(APP_MIRROR_UI, /sync_app_mirror/);
-  assert.match(APP_MIRROR_UI, /selectedProviderId === 'chatgpt'/);
-  assert.match(INDEX, /value="app-origin"/);
-  assert.match(INDEX, /id="appTargetControls"/);
+  assert.match(APP_MIRROR_UI, /selectedTargetClassId === 'app-origin'/);
+  assert.match(APP_MIRROR_UI, /providerId === 'chatgpt-desktop'/);
+  assert.match(APP, /tab\.appMirror !== true/);
+  assert.match(DEX_MODE, /tab\.appMirror !== true/);
   assert.match(APP_TARGETS_UI, /request_app_targets/);
   assert.match(APP_TARGETS_UI, /select_app_target/);
 });
@@ -83,4 +83,13 @@ test('Base Mode App-Origin renders passive native turns and ACKs durable fingerp
   assert.match(APP_TARGETS_UI, /app_target_binding_update/);
   assert.match(APP_TARGETS_UI, /bindingIdentity/);
   assert.match(APP_TARGETS_UI, /expectedIdentity/);
+});
+
+
+test('App-Origin exposes the latest native transport stage timings in the target panel', () => {
+  assert.match(INDEX, /id="appTargetTiming"/);
+  assert.match(APP_TARGETS_UI, /Send→app/);
+  assert.match(APP_TARGETS_UI, /App→first/);
+  assert.match(APP_TARGETS_UI, /App→final/);
+  assert.match(APP_TARGETS_UI, /Round trip/);
 });

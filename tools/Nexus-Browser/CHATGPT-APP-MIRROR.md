@@ -1,8 +1,12 @@
-# ChatGPT App Mirror
+# ChatGPT Conversation Sync
 
-ChatGPT App Mirror is an experimental Nexus Browser transport for binding a specific
-ChatGPT conversation used by the desktop app without introducing a private ChatGPT
-API or a second ChatGPT adapter.
+Conversation Sync is an optional support capability for the App-Origin **ChatGPT App**
+target. It preserves the useful part of the former ChatGPT App Mirror—binding and
+rescanning an exact authenticated `https://chatgpt.com/c/<conversation-id>`—without
+presenting that browser helper as a second ChatGPT App target.
+
+Normal send/capture remains native Windows UI Automation. Conversation Sync is only for
+server-side synchronization/recovery and does not introduce a private ChatGPT API.
 
 ## Architecture
 
@@ -23,14 +27,15 @@ EveOS Nexus Browser extension
 Nexus localhost / Dex
 ```
 
-The desktop process is not remotely controlled and Nexus does not inject into native
-ChatGPT application windows. Instead, the extension keeps an inactive browser tab
-bound to the same conversation. Messages sent by Nexus through that tab should become
-part of the same ChatGPT conversation and therefore be visible in the desktop app once
-ChatGPT synchronizes the conversation.
+Conversation Sync itself does not drive the desktop process. Native send/capture is
+owned by the App-Origin Windows adapter. The sync helper only keeps an inactive browser
+tab bound to the same server-side conversation so Nexus can rescan or hard-refresh that
+exact authenticated chat when server/native state needs reconciliation.
 
-The target remains an `online-origin` ChatGPT provider internally so it can reuse the
-qualified ChatGPT adapter and Dex exact-target rules. It is visibly distinguished by:
+The hidden helper tab still reuses the qualified `online-origin` ChatGPT content
+adapter internally. However, mirror-decorated tabs are filtered from Base/Dex
+Online-Origin pickers, and attaching Conversation Sync no longer selects that browser
+tab as the user's active target. Internally it remains distinguished by:
 
 - `targetTypeId: chatgpt-app-mirror`
 - `targetTypeName: ChatGPT App Mirror`
@@ -44,17 +49,19 @@ targets because Dex binds exact tab/url identities.
 
 ## First-pass behavior
 
-Base Mode exposes **ChatGPT App Mirror** controls when ChatGPT is selected.
+Base Mode exposes **Conversation sync** controls only while a native ChatGPT App
+App-Origin target is selected.
 
 1. Paste an exact `https://chatgpt.com/c/<conversation-id>` URL.
-2. Choose **Attach mirror**.
+2. Choose **Attach sync**.
 3. Nexus reuses that exact browser conversation if already open, otherwise it opens an
    inactive mirror tab.
-4. The mirror is selected as the current ChatGPT target and is published to Dex.
-5. Nexus can send through the existing ChatGPT adapter.
-6. The mirror performs a lightweight provider-control rescan while idle.
+4. The helper remains hidden from normal Online-Origin and Dex target pickers; the
+   selected target stays the native ChatGPT App.
+5. Normal Nexus sends continue through App-Origin Windows UI Automation.
+6. The helper performs a lightweight provider-control rescan while idle.
 
-**Sync mirror** performs an explicit hard reload of only the mirror tab. This is the
+**Sync conversation** performs an explicit hard reload of only the hidden helper tab. This is the
 recovery path when a turn created in the desktop app has reached ChatGPT's server but
 has not appeared in the background web DOM yet. Hard sync is refused while the mirror
 owns an active Nexus turn.
@@ -90,18 +97,17 @@ a live test with the authenticated desktop app and browser account.
 
 Recommended live sequence:
 
-1. Attach the exact desktop conversation.
-2. From Nexus, send a unique sentence to the mirror and confirm that the new turn
-   appears in the desktop app conversation.
-3. In the desktop app, produce an assistant reply ending in a harmless Dex command
-   such as `status`.
-4. If it does not arrive in Nexus automatically, press **Sync mirror** once.
-5. Confirm the command is admitted exactly once.
-6. Hard-sync again and confirm the same old command is deduplicated.
-7. Send a Dex relay turn to the mirror and confirm its final response returns through
-   the normal Nexus response pipeline.
-8. Keep a normal ChatGPT browser target open at the same time and confirm selecting one
-   never routes to the other.
+1. Connect the native ChatGPT App through App-Origin and attach the exact server-side
+   conversation URL under **Conversation sync**.
+2. Send a unique sentence through the native App-Origin target and confirm the normal
+   native round trip remains authoritative.
+3. Create a new native turn and confirm the hidden helper sees it after an ordinary
+   rescan; if not, press **Sync conversation** once.
+4. Confirm any provider-control command discovered through the helper is admitted
+   exactly once.
+5. Hard-sync again and confirm the same old command is deduplicated.
+6. Keep a normal ChatGPT browser target open simultaneously and confirm the hidden sync
+   helper never appears as a selectable Online-Origin/Dex target or changes selection.
 
 If desktop-created turns do not become visible even after an exact conversation reload,
 capture the mirror tab URL, latest visible user/assistant message IDs, provider-control

@@ -31,12 +31,9 @@
       return decorateTarget(rawFormatTarget(tab, provider, options));
     }
 
-    async function handleBridgeCommand(msg, { selectTarget } = {}) {
+    async function handleBridgeCommand(msg) {
       if (msg?.type === 'ensure_app_mirror') {
         const ensured = await controller.ensure(String(msg.url || ''), {
-          requestId: msg.requestId || null
-        });
-        await selectTarget(Number(ensured.tab.id), 'chatgpt', {
           requestId: msg.requestId || null
         });
         safeSend({

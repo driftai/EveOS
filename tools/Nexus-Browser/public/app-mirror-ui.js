@@ -4,7 +4,8 @@
     send,
     requestId,
     addMessage,
-    log
+    log,
+    appTarget = () => null
   } = {}) {
     const el = {
       controls: document.querySelector('#appMirrorControls'),
@@ -27,8 +28,9 @@
 
     function render() {
       if (!el.controls) return;
-      const visible = state.selectedTargetClassId === 'online-origin'
-        && state.selectedProviderId === 'chatgpt';
+      const selectedApp = appTarget();
+      const visible = state.selectedTargetClassId === 'app-origin'
+        && selectedApp?.providerId === 'chatgpt-desktop';
       el.controls.hidden = !visible;
       if (!visible) return;
 
@@ -40,14 +42,14 @@
       el.sync.disabled = !ready || !(mirrorStatus?.configured || target);
 
       if (mirrorStatus?.busy) {
-        el.status.textContent = 'Mirror connected · Nexus turn in flight · hard sync waits for the turn to finish.';
+        el.status.textContent = 'Conversation sync connected · a sync waits for the active ChatGPT turn to finish.';
       } else if (mirrorStatus?.configured || target) {
         const hardSync = mirrorStatus?.lastHardSyncAt
           ? ' · last hard sync ' + new Date(mirrorStatus.lastHardSyncAt).toLocaleTimeString()
           : '';
-        el.status.textContent = `Mirror connected to ${url || 'this ChatGPT conversation'}${hardSync}.`;
+        el.status.textContent = `Conversation sync attached to ${url || 'this ChatGPT conversation'}${hardSync}.`;
       } else {
-        el.status.textContent = 'Paste the exact ChatGPT conversation URL from the desktop app, then attach it.';
+        el.status.textContent = 'Optional: attach the exact chatgpt.com/c/... conversation for server-side sync/recovery.';
       }
     }
 
@@ -73,8 +75,8 @@
           tabId: msg.status?.tabId ?? msg.target?.id ?? null
         };
         render();
-        addMessage('system', `ChatGPT App Mirror attached to ${mirrorStatus.url || 'the selected conversation'}.`);
-        log('ChatGPT App Mirror ready', JSON.stringify(mirrorStatus));
+        addMessage('system', `ChatGPT conversation sync attached to ${mirrorStatus.url || 'the selected conversation'}.`);
+        log('ChatGPT conversation sync ready', JSON.stringify(mirrorStatus));
         return true;
       }
       if (msg.type === 'app_mirror_synced') {
@@ -87,8 +89,8 @@
           lastHardSyncAt: msg.hard ? (msg.syncedAt || Date.now()) : (mirrorStatus?.lastHardSyncAt || 0)
         };
         render();
-        addMessage('system', `ChatGPT App Mirror ${msg.hard ? 'hard-' : ''}synced.`);
-        log('ChatGPT App Mirror synced', JSON.stringify(msg));
+        addMessage('system', `ChatGPT conversation sync ${msg.hard ? 'hard-' : ''}synced.`);
+        log('ChatGPT conversation sync synced', JSON.stringify(msg));
         return true;
       }
       if (msg.type === 'app_mirror_status') {

@@ -114,7 +114,12 @@ and its viewer sockets are suspended.
 
 **Reattach to EveOS** snapshots the detached view, relinquishes its lease, closes the
 popup, restores the latest snapshot into the still-loaded embedded iframe, and resumes
-that iframe as sole socket owner. Dex room/transcript durability remains localhost-owned;
+that iframe as sole socket owner. Base App-Origin selection/binding is restored
+immediately before reconnect. Dex keeps a deferred desired room ID and reapplies it
+after the authoritative localhost room snapshot arrives, so reattach cannot silently
+fall back to a different room just because room data arrived later.
+
+Dex room/transcript durability remains localhost-owned;
 the handoff snapshot carries viewer position and Base UI state rather than creating a
 second room store. Closing/crashing the detached view releases or expires the lease so
 the embedded workspace can reclaim ownership.

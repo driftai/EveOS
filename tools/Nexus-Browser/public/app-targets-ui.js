@@ -12,7 +12,8 @@
       target: document.querySelector('#appTargetSelect'),
       refresh: document.querySelector('#refreshAppTargets'),
       connect: document.querySelector('#connectAppTarget'),
-      status: document.querySelector('#appTargetStatus')
+      status: document.querySelector('#appTargetStatus'),
+      timing: document.querySelector('#appTargetTiming')
     };
 
     let types = [{ id: 'desktop-app', name: 'Desktop App' }];
@@ -23,6 +24,7 @@
     let targetStatus = null;
     let restorePending = false;
     let boundIdentity = null;
+    let lastTiming = null;
 
     function filteredTargets() {
       return targets.filter((target) => target.targetTypeId === selectedTypeId);
@@ -72,6 +74,20 @@
       return lastError ? String(lastError) : '';
     }
 
+    function ms(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return '—';
+      return number >= 1000 ? `${(number / 1000).toFixed(number >= 10000 ? 1 : 2)} s` : `${Math.round(number)} ms`;
+    }
+
+    function renderTiming() {
+      if (!el.timing) return;
+      const value = lastTiming;
+      el.timing.hidden = !value;
+      if (!value) return;
+      el.timing.textContent = `Send→app ${ms(value.dispatchToAppMs)} · App→first ${ms(value.timeToFirstResponseMs)} · App→final ${ms(value.totalResponseMs)} · Round trip ${ms(value.nexusRoundTripMs)}`;
+    }
+
     function renderStatusText() {
       if (!el.status) return;
       const hint = helperHint();
@@ -98,9 +114,19 @@
       el.refresh.disabled = !ready;
       el.connect.disabled = !ready || !el.target.value;
       renderStatusText();
+      renderTiming();
     }
 
     function handleMessage(msg = {}) {
+      if (msg.targetClassId === 'app-origin' && (!selectedTarget || !msg.targetId || msg.targetId === selectedTarget.id)) {
+        if (msg.type === 'prompt_accepted' && Number.isFinite(Number(msg.detail?.dispatchToAppMs))) {
+          lastTiming = { dispatchToAppMs: Number(msg.detail.dispatchToAppMs) };
+          renderTiming();
+        } else if (msg.type === 'response_final' && msg.detail) {
+          lastTiming = { ...msg.detail };
+          renderTiming();
+        }
+      }
       if (msg.type === 'app_targets_update') {
         types = Array.isArray(msg.types) && msg.types.length ? msg.types : types;
         targets = Array.isArray(msg.targets) ? msg.targets : [];
@@ -182,6 +208,15 @@
       return false;
     }
 
+    function restoreSelection(target = null, bindingIdentity = null) {
+      selectedTarget = target ? { ...target } : null;
+      boundIdentity = bindingIdentity ? { ...bindingIdentity }
+        : selectedTarget?.concreteTargetIdentity ? { ...selectedTarget.concreteTargetIdentity } : null;
+      restorePending = !!selectedTarget;
+      render();
+      renderBaseStatus();
+    }
+
     function requestTargets(force = false) {
       return send({ type: 'request_app_targets', force });
     }
@@ -207,6 +242,7 @@
       target: () => selectedTarget,
       status: () => targetStatus,
       bindingIdentity: () => boundIdentity ? { ...boundIdentity } : null,
+      restoreSelection,
       diagnostics: () => diagnostics,
       targets: () => targets.map((target) => ({ ...target }))
     };

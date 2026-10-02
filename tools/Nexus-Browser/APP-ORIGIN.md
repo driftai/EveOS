@@ -7,9 +7,13 @@ The first provider is **ChatGPT App** on Windows.
 
 ## Architecture
 
-ChatGPT App Mirror is still an Online-Origin target because it controls an authenticated
-`chatgpt.com` browser conversation. App-Origin instead drives the actual running
-desktop application:
+The native **ChatGPT App** is the user-facing target. The former ChatGPT App Mirror is
+now treated as an optional **Conversation Sync** helper inside this App-Origin target:
+it may keep an exact authenticated `chatgpt.com/c/<conversation-id>` background tab
+for server-side synchronization/recovery, but that helper tab is not user-selectable as
+an Online-Origin target and never replaces the native Windows transport.
+
+App-Origin drives the actual running desktop application:
 
 ```text
 Nexus / Dex localhost scheduler
@@ -138,8 +142,8 @@ Important invariants:
 The passive event is `native_app_turn`. Its stable delivery-scope fingerprint is
 also used as the Base transcript DOM identity, making an event retry idempotent if the socket drops between
 render and ACK. Passive events are currently surfaced to the selected Base Mode view;
-the same primitive can later feed unsolicited Dex routing without conflating it with
-ChatGPT App Mirror.
+the same primitive can later feed unsolicited Dex routing independently of the optional
+Conversation Sync helper.
 
 ## Supervised restart discovery
 
@@ -172,6 +176,17 @@ Current native response timing is deliberately low-latency but still stable:
 - post-send confirmation delay: 80 ms
 - semantic composer/Send recovery short-circuits as soon as a verified control is found
 - absolute response timeout: 4 minutes
+
+Each active App-Origin turn now publishes separate performance stages:
+
+- `dispatchToAppMs`: native-adapter start → confirmed prompt submission in ChatGPT;
+- `timeToFirstResponseMs`: native acceptance → first captured assistant text;
+- `totalResponseMs`: native acceptance → stable final reply;
+- `nexusRoundTripMs`: native-adapter start → stable final reply.
+
+Base Mode also measures UI request time, so diagnostics can compare UI→accept and total UI
+round trip against the adapter stages. The App-Origin panel displays the latest
+Send→app, App→first, App→final and Round trip values directly.
 
 The longer post-generation settle is intentional: the live Windows app can briefly expose
 split UIA fragments after its Stop control disappears. Finalization then performs one

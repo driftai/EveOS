@@ -30,6 +30,7 @@
   function create({
     state, el, render = () => {}, send = () => false,
     appTarget = () => null, appBindingIdentity = () => null,
+    restoreAppTarget = () => {},
     connect = () => {}, disconnect = () => {}
   } = {}) {
     let restoredAppTarget = null, restoredAppBinding = null;
@@ -58,6 +59,7 @@
       state.localTarget = value.localTarget || null;
       restoredAppTarget = value.appTarget || null;
       restoredAppBinding = value.appBindingIdentity || restoredAppTarget?.concreteTargetIdentity || null;
+      restoreAppTarget(restoredAppTarget, restoredAppBinding);
       if (typeof value.prompt === 'string' && el.prompt) el.prompt.value = value.prompt;
       restoreMessages(el.transcript, value.transcript);
       render();

@@ -12,13 +12,7 @@ const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVID
 const FIRST_POLL_MS = 75, POLL_MS = 180, SETTLE_MS = 850, POST_GENERATION_SETTLE_MS = 650;
 const RESPONSE_TIMEOUT_MS = 4 * 60 * 1000;
 
-let lastDiagnostics = {
-  available: false,
-  helper: null,
-  lastError: null,
-  lastProbeAt: 0,
-  lastWindow: null
-};
+let lastDiagnostics = { available: false, helper: null, lastError: null, lastProbeAt: 0, lastWindow: null };
 const turnState = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -302,6 +296,7 @@ function createAdapter({
     return committed;
   }
   async function sendPrompt({ requestId, text, target, emit }) {
+    const dispatchStartedAt = now();
     const baseline = await probeControls({
       hwnd: target.windowHandle,
       pid: target.pid,
@@ -310,10 +305,10 @@ function createAdapter({
     const baselineSet = new Set(baseline.texts.map(normalizeCandidate));
     await stageAndSubmit(text, baseline);
 
-    const acceptedAt = now();
+    const acceptedAt = now(), dispatchToAppMs = Math.max(0, acceptedAt - dispatchStartedAt);
     emit?.({ type: 'prompt_accepted', requestId, targetClassId: 'app-origin',
       targetId: target.id, providerId: PROVIDER_ID, providerName: PROVIDER_NAME,
-      observedAt: acceptedAt });
+      observedAt: acceptedAt, detail: { dispatchToAppMs } });
 
     const deadline = acceptedAt + responseTimeoutMs;
     let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null;
@@ -373,9 +368,11 @@ function createAdapter({
         } catch {}
         const finalizedAt = now();
         const timing = {
+          dispatchToAppMs,
           timeToFirstResponseMs: firstResponseAt ? Math.max(0, firstResponseAt - acceptedAt) : null,
-          totalResponseMs: Math.max(0, finalizedAt - acceptedAt), adapterSettleMs: stableFor,
-          pollCount, sawGenerating
+          totalResponseMs: Math.max(0, finalizedAt - acceptedAt),
+          nexusRoundTripMs: Math.max(0, finalizedAt - dispatchStartedAt),
+          adapterSettleMs: stableFor, pollCount, sawGenerating
         };
         turnState.set(target.id, { phase: 'idle', requestId, latestText: lastText,
           completedAt: finalizedAt, sawGenerating, timing });

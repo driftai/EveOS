@@ -34,9 +34,9 @@ const el = {
   diagnostics: document.querySelector('#diagnostics')
 };
 
-const searchUi = globalThis.BrowserAiBridgeSearchResultsUi, activityUi = globalThis.BrowserAiBridgeActivityUi;
-const socketApi = globalThis.BrowserAiBridgeUiSocket, handoff = globalThis.BrowserAiBridgeWorkspaceHandoff;
-const baseWorkspaceApi = globalThis.BrowserAiBridgeBaseWorkspace;
+const searchUi = globalThis.BrowserAiBridgeSearchResultsUi, activityUi = globalThis.BrowserAiBridgeActivityUi,
+  socketApi = globalThis.BrowserAiBridgeUiSocket, handoff = globalThis.BrowserAiBridgeWorkspaceHandoff,
+  baseWorkspaceApi = globalThis.BrowserAiBridgeBaseWorkspace;
 const appMirrorUiApi = globalThis.BrowserAiBridgeAppMirrorUi, appTargetsUiApi = globalThis.BrowserAiBridgeAppTargetsUi;
 if (!searchUi || !socketApi || !appMirrorUiApi || !appTargetsUiApi) throw new Error('Base UI helpers were not loaded before app.js.');
 if (!activityUi) throw new Error('Activity UI module was not loaded before app.js.');
@@ -153,7 +153,7 @@ function renderProviders() {
   el.providerSelect.value = state.selectedProviderId;
 }
 function providerTabs() {
-  return state.tabs.filter((tab) => tab.providerId === state.selectedProviderId);
+  return state.tabs.filter((tab) => tab.providerId === state.selectedProviderId && tab.appMirror !== true);
 }
 function renderTabs() {
   const oldValue = el.tabSelect.value;
@@ -271,7 +271,7 @@ function handleMessage(msg) {
       state.providers = Array.isArray(msg.providers) ? msg.providers : state.providers;
       state.tabs = Array.isArray(msg.tabs) ? msg.tabs : [];
       appMirrorUi?.observeTabs(state.tabs);
-      if ('target' in msg) state.onlineTarget = msg.target || null;
+      if ('target' in msg) state.onlineTarget = msg.target?.appMirror === true ? null : (msg.target || null);
       if (state.onlineTarget?.providerId) state.selectedProviderId = state.onlineTarget.providerId;
       renderProviders();
       renderTabs();
@@ -286,7 +286,7 @@ function handleMessage(msg) {
       log(`Detected ${state.localTargets.length} supported local agent target(s).`);
       break;
     case 'target_selected':
-      state.onlineTarget = msg.target || null;
+      state.onlineTarget = msg.target?.appMirror === true ? null : (msg.target || null);
       if (state.onlineTarget?.providerId) state.selectedProviderId = state.onlineTarget.providerId;
       renderProviders();
       renderTabs();
@@ -305,9 +305,12 @@ function handleMessage(msg) {
       addMessage('system', msg.message || 'The selected online target was lost.');
       log('Target lost', msg.message || '');
       break;
-    case 'prompt_accepted':
-      log(`${msg.providerName || 'Target'} accepted prompt ${msg.requestId || ''}.`);
+    case 'prompt_accepted': {
+      const pending = state.pending.get(msg.requestId), clientMs = pending ? Date.now() - pending.sentAt : null;
+      const dispatchMs = Number.isFinite(Number(msg.detail?.dispatchToAppMs)) ? Number(msg.detail.dispatchToAppMs) : null;
+      log(`${msg.providerName || 'Target'} accepted prompt ${msg.requestId || ''}${dispatchMs != null ? ` · send→app ${dispatchMs} ms` : ''}${clientMs != null ? ` · UI→accept ${clientMs} ms` : ''}.`);
       break;
+    }
     case 'activity_update':
       renderActivity(msg.requestId, msg.activity || { events: [] }, !!msg.final, assistantDisplayName(msg));
       if (msg.activity?.events?.length) log(`Activity update ${msg.requestId || ''}: ${msg.activity.events.length} event(s).`);
@@ -319,7 +322,9 @@ function handleMessage(msg) {
       const node = addMessage('assistant', msg.text || '', `assistant-${msg.requestId}`, false, assistantDisplayName(msg));
       const activityPanel = node.querySelector('.activity-panel');
       if (activityPanel && !activityPanel.hidden) activityPanel.open = false;
-      const timing = Number.isFinite(Number(msg.detail?.totalResponseMs)) ? ` · ${Number(msg.detail.totalResponseMs)} ms total · first ${Number(msg.detail?.timeToFirstResponseMs || 0)} ms · ${Number(msg.detail?.pollCount || 0)} poll(s)` : '';
+      const pending = state.pending.get(msg.requestId), uiRound = pending ? Date.now() - pending.sentAt : null;
+      const timing = Number.isFinite(Number(msg.detail?.totalResponseMs))
+        ? ` · send→app ${Number(msg.detail?.dispatchToAppMs || 0)} ms · app→first ${Number(msg.detail?.timeToFirstResponseMs || 0)} ms · app→final ${Number(msg.detail.totalResponseMs)} ms · adapter round trip ${Number(msg.detail?.nexusRoundTripMs || 0)} ms · UI round trip ${uiRound ?? '?'} ms · ${Number(msg.detail?.pollCount || 0)} poll(s)` : '';
       log(`${assistantDisplayName(msg)} final response ${msg.requestId || ''} (${(msg.text || '').length} chars)${timing}.`);
       state.pending.delete(msg.requestId);
       break;
@@ -380,9 +385,9 @@ function submitPrompt() {
   const id = requestId();
   const payload = { type: 'send_prompt', requestId: id, text, targetClassId: state.selectedTargetClassId };
   if (state.selectedTargetClassId === 'local-origin' || state.selectedTargetClassId === 'app-origin') payload.targetId = target.id;
-  if (!send(payload)) return;
-
   state.pending.set(id, { text, sentAt: Date.now(), providerId: target.providerId, targetClassId: state.selectedTargetClassId });
+  if (!send(payload)) { state.pending.delete(id); return; }
+
   addMessage('user', text, `user-${id}`);
   el.prompt.value = '';
 }
@@ -431,11 +436,12 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') searchUi.close();
 });
 
-appMirrorUi = appMirrorUiApi.create({ state, send, requestId, addMessage, log });
 appTargetsUi = appTargetsUiApi.create({ state, send, addMessage, log, renderBaseStatus: renderStatus });
+appMirrorUi = appMirrorUiApi.create({ state, send, requestId, addMessage, log, appTarget: () => appTargetsUi?.target() });
 renderTargetClasses(); renderProviders(); renderTabs(); renderLocalTargetTypes(); renderLocalTargets(); renderStatus();
 baseWorkspace = baseWorkspaceApi?.create({ state, el, send,
   appTarget: () => appTargetsUi?.target(), appBindingIdentity: () => appTargetsUi?.bindingIdentity?.(),
+  restoreAppTarget: (target, binding) => appTargetsUi?.restoreSelection?.(target, binding),
   render: () => { renderTargetClasses(); renderProviders(); renderTabs(); renderLocalTargetTypes(); renderLocalTargets(); renderStatus(); },
   connect: connectSocket, disconnect: () => { uiSocket?.stop(); uiSocket = null; state.uiConnectionPhase = 'suspended'; renderStatus(); } });
 if (handoff && baseWorkspace) handoff.register('base', baseWorkspace); else connectSocket();

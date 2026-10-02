@@ -15,6 +15,7 @@
   const STORAGE_KEY = 'browser-ai-bridge.dex.rooms.v1';
   const VIEW_KEY = 'browser-ai-bridge.dex.viewer-state.v1';
   const RELOAD_REASON_KEY = 'browser-ai-bridge.dex.reload-reason.v1';
+  let dexWorkspace = null;
   const state = {
     uiConnectionPhase: 'connecting',
     rooms: [],
@@ -182,6 +183,7 @@
       if (previousRoomId && state.rooms.some((room) => room.id === previousRoomId)) {
         state.activeRoomId = previousRoomId;
       }
+      dexWorkspace?.afterStateSync?.();
       // A fresh authoritative scheduler snapshot, never an open socket alone,
       // permits new dispatch after reconnect. Pending turns are not replayed.
       state.uiConnectionPhase = 'connected';
@@ -199,9 +201,9 @@
     }
     if (msg.type === 'provider_health_update') { updateHealth(msg); return; }
     if (msg.type === 'tabs_update') {
-      state.tabs = Array.isArray(msg.tabs) ? msg.tabs : [];
+      state.tabs = Array.isArray(msg.tabs) ? msg.tabs.filter((tab) => tab.appMirror !== true) : [];
       if (Array.isArray(msg.providers)) state.providers = msg.providers;
-      if ('target' in msg) state.onlineTarget = msg.target || null;
+      if ('target' in msg) state.onlineTarget = msg.target?.appMirror === true ? null : (msg.target || null);
       memberController.renderBuilder();
       return;
     }
@@ -436,7 +438,7 @@
     sessionStorage.removeItem(RELOAD_REASON_KEY);
     log(reloadReason);
   }
-  const dexWorkspace = dexWorkspaceApi?.create({ state, el, setMode, renderAll, connect: connectSocket,
+  dexWorkspace = dexWorkspaceApi?.create({ state, el, setMode, renderAll, connect: connectSocket,
     disconnect: () => { dexSocket?.stop(); dexSocket = null; state.uiConnectionPhase = 'suspended'; renderAll(); } });
   if (handoff && dexWorkspace) handoff.register('dex', dexWorkspace); else connectSocket();
 })();

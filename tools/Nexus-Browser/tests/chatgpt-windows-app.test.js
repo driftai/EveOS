@@ -288,9 +288,13 @@ test('ChatGPT Windows adapter drives prompt into app and returns settled reply',
   ]);
   assert.equal(events.at(-1).text, 'Final app reply');
   assert.equal(events.at(-1).targetClassId, 'app-origin');
+  assert.ok(Number.isFinite(events[0].detail?.dispatchToAppMs));
+  assert.ok(Number.isFinite(events.at(-1).detail?.dispatchToAppMs));
   assert.ok(Number.isFinite(events.at(-1).detail?.adapterSettleMs));
   assert.ok(Number.isFinite(events.at(-1).detail?.totalResponseMs));
+  assert.ok(Number.isFinite(events.at(-1).detail?.nexusRoundTripMs));
   assert.ok(Number.isFinite(events.at(-1).detail?.timeToFirstResponseMs));
+  assert.ok(events.at(-1).detail.nexusRoundTripMs >= events.at(-1).detail.totalResponseMs);
   assert.ok(Number(events.at(-1).detail?.pollCount) >= 1);
 });
 
