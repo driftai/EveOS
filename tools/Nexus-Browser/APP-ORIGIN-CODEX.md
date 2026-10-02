@@ -243,6 +243,21 @@ conservatively than short replies:
 This rule is scoped to markerless accumulated replies. Short Codex acknowledgements and
 normal role-marked ChatGPT replies keep their existing fast finalization path.
 
+## Timeout recovery
+
+`APP_RESPONSE_TIMEOUT` remains a safety ceiling, not a normal completion signal.
+When the deadline is reached, Nexus performs one final offscreen-inclusive,
+prompt-owned reconstruction before failing.
+
+If the app is no longer generating and that final snapshot exposes a correlated native
+turn for the exact prompt, Nexus finalizes that authoritative turn with
+`completenessHint: timeout-recovered` instead of discarding a reply the app already
+finished. If generation is still active or no prompt-owned native turn exists, the
+timeout remains fail-closed.
+
+This recovery does not add latency to normal replies; it only runs on the path that
+would otherwise throw `APP_RESPONSE_TIMEOUT`.
+
 ## Qualification
 
 `tests/chatgpt-windows-codex-surface.test.js` covers:

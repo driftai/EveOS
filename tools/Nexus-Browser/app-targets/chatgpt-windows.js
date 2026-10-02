@@ -1,14 +1,12 @@
 'use strict';
-
 const defaultRunner = require('./winapp-runner'), uia = require('./chatgpt-windows-uia'),
   conversation = require('./chatgpt-windows-conversation'), replyProgress = require('./chatgpt-windows-reply-progress'),
-  titleResolver = require('./chatgpt-windows-title');
+  titleResolver = require('./chatgpt-windows-title'), timeoutRecovery = require('./chatgpt-windows-timeout-recovery');
 const {
   windowsFromEnvelope, pickMainWindow, hwndOf, pidOf, selectorOf,
   composerScore, sendScore, rankCandidates, elementsFromSearch,
   normalizeCandidate, latestResponseCandidate, latestCandidate, snapshotFromInspect
 } = uia;
-
 const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVIDER_NAME = 'ChatGPT App', APP_MATCH = 'ChatGPT';
 const FIRST_POLL_MS = 75, POLL_MS = 180, SETTLE_MS = 850, POST_GENERATION_SETTLE_MS = 650;
 const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000;
@@ -198,7 +196,6 @@ function createAdapter({
       ['ui', 'set-value', candidate, String(text), '-w', hwnd],
       { allowFailure: true, timeoutMs: 12000 }
     );
-
     let staged = await setValue(selector);
     if (!staged.ok) {
       const recovered = await recoverComposer(baselineSnapshot);
@@ -232,7 +229,6 @@ function createAdapter({
     });
     let sendSelector = stagedSnapshot.sendSelector;
     if (!sendSelector) sendSelector = await recoverSend(stagedSnapshot, stagedSnapshot.composer || baselineSnapshot.composer);
-
     if (sendSelector) {
       const invoked = await runner.runJson(
         ['ui', 'invoke', sendSelector, '--action', 'invoke', '-w', hwnd],
@@ -304,17 +300,14 @@ function createAdapter({
     }, { recoverComposer: true, recoverSend: false });
     const baselineSet = new Set(baseline.texts.map(normalizeCandidate));
     const committedSnapshot = await stageAndSubmit(text, baseline);
-
     const acceptedAt = now(), dispatchToAppMs = Math.max(0, acceptedAt - dispatchStartedAt);
     emit?.({ type: 'prompt_accepted', requestId, targetClassId: 'app-origin',
       targetId: target.id, providerId: PROVIDER_ID, providerName: PROVIDER_NAME,
       observedAt: acceptedAt, detail: { dispatchToAppMs } });
-
     const deadline = acceptedAt + responseTimeoutMs;
     let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null, accumulating = false;
     let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
-
     while (now() < deadline) {
       if (committedPending) { lastSnapshot = committedSnapshot; committedPending = false; }
       else {
@@ -388,6 +381,14 @@ function createAdapter({
         return { text: lastText, snapshot: lastSnapshot, nativeTurn };
       }
     }
+    const recovered = await timeoutRecovery.recoverAuthoritativeReply({ inspect, target, baseline: baselineSet, prompt: text });
+    if (recovered) {
+      const finalizedAt = now(), firstAt = firstResponseAt || finalizedAt;
+      const timing = { dispatchToAppMs, timeToFirstResponseMs: Math.max(0, firstAt - acceptedAt), totalResponseMs: Math.max(0, finalizedAt - acceptedAt), nexusRoundTripMs: Math.max(0, finalizedAt - dispatchStartedAt), adapterSettleMs: Math.max(0, finalizedAt - lastChangedAt), pollCount, sawGenerating, timeoutRecovered: true };
+      turnState.set(target.id, { phase: 'idle', requestId, latestText: recovered.text, completedAt: finalizedAt, sawGenerating, timing });
+      emit?.({ type: 'response_final', requestId, text: recovered.text, observedAt: finalizedAt, completenessHint: 'timeout-recovered', detail: timing, targetClassId: 'app-origin', targetId: target.id, providerId: PROVIDER_ID, providerName: PROVIDER_NAME });
+      return recovered;
+    }
     const error = new Error('Timed out waiting for a stable ChatGPT app reply.');
     error.code = 'APP_RESPONSE_TIMEOUT';
     turnState.set(target.id, { phase: 'error', requestId, latestText: lastText, error: error.message, at: now() });
@@ -432,7 +433,6 @@ function createAdapter({
   };
 }
 const defaultAdapter = createAdapter();
-
 module.exports = {
   TARGET_ID,
   PROVIDER_ID,
