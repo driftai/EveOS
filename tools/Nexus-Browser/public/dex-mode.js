@@ -263,12 +263,12 @@
         log('Dex transport connected; awaiting localhost scheduler snapshot.');
       },
       onMalformed: (error) => log(`Bad Dex bridge event: ${error.message}`),
-      onPhase: ({ phase }) => {
+      onPhase: ({ phase, closeCode, closeReason }) => {
         const previous = state.uiConnectionPhase;
         state.uiConnectionPhase = phase;
         renderAll();
         if (phase === 'reconnecting' && previous === 'connected') {
-          log('Dex viewer/controller reconnecting; relay controls paused.');
+          log(`Dex viewer/controller reconnecting · code ${closeCode ?? '?'}${closeReason ? ` · ${closeReason}` : ''}; relay controls paused.`);
         }
         if (phase === 'disconnected') log('Dex viewer/controller disconnected; retrying in background.');
       }

@@ -61,3 +61,11 @@ test('Dex handoff defers active-room restoration until authoritative rooms arriv
     global.document = previousDocument;
   }
 });
+
+
+test('App-Origin restore path does not treat a restore acknowledgement as a new transcript event', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'app-targets-ui.js'), 'utf8');
+  assert.match(source, /if \(!restoring && \(selectedTarget\?\.id \|\| null\) !== previousTargetId\)/);
+});

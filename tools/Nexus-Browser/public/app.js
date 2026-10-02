@@ -219,10 +219,10 @@ function renderStatus() {
   el.onlineTargetControls.hidden = !browser;
   el.localTargetControls.hidden = !local;
   el.bridgeBadge.textContent = !uiConnected
-    ? state.uiConnectionPhase === 'disconnected' ? 'Nexus disconnected' : 'Nexus reconnecting'
+    ? state.uiConnectionPhase === 'suspended' ? 'Workspace standby' : state.uiConnectionPhase === 'disconnected' ? 'Nexus disconnected' : 'Nexus reconnecting'
     : app ? 'App bridge ready' : local ? 'Local bridge ready'
       : state.extensionConnected ? 'Extension connected' : 'Extension offline';
-  el.bridgeBadge.classList.toggle('offline', !uiConnected || (browser && !state.extensionConnected));
+  el.bridgeBadge.classList.toggle('offline', (state.uiConnectionPhase !== 'suspended' && !uiConnected) || (browser && !state.extensionConnected));
   el.bridgeBadge.classList.toggle('online', uiConnected && (!browser || state.extensionConnected));
   const target = activeTarget();
   if (target) {
@@ -365,11 +365,11 @@ function connectSocket() {
       appMirrorUi?.requestStatus(); appTargetsUi?.requestTargets(); baseWorkspace?.onOpen?.();
     },
     onMalformed: (error) => log('Invalid message from bridge.', error.message),
-    onPhase: ({ phase }) => {
+    onPhase: ({ phase, closeCode, closeReason }) => {
       const previous = state.uiConnectionPhase;
       state.uiConnectionPhase = phase;
       renderStatus();
-      if (phase === 'reconnecting' && previous === 'connected') log('Local UI socket reconnecting; selections preserved and dispatch paused.');
+      if (phase === 'reconnecting' && previous === 'connected') log(`Local UI socket reconnecting · code ${closeCode ?? '?'}${closeReason ? ` · ${closeReason}` : ''}; selections preserved and dispatch paused.`);
       if (phase === 'disconnected') log('Local UI socket disconnected; retrying in background.');
     }
   });

@@ -100,6 +100,26 @@ identity keeps the runtime classified as running while HTTP health recovers, and
 zero unnecessarily. An open port with no verified EveOS-owned listener remains blocked
 and is never adopted.
 
+## Workspace ownership and reload boundary
+
+Search Monitor may retain more than one historical UI container while views are rebuilt.
+Only the currently bound/visible Nexus iframe is allowed to own Base/Dex viewer sockets:
+binding a new Search Monitor root puts the previous iframe in handoff standby, and the
+newly loaded visible iframe explicitly claims fresh ownership. This prevents hidden
+retained Nexus views from cycling socket ownership behind the active workspace.
+
+The handoff snapshot is **detach-scoped**, not a general session restore mechanism.
+Detach/reattach preserves Base mode, App-Origin target/binding, transcript/draft/scroll,
+and Dex mode/room/view state. An ordinary attached iframe/tool reload starts a fresh UI
+session and clears the old handoff snapshot instead of resurrecting prior transcript
+cards, old `APP_TARGET_BUSY` errors, or stale rebind notices. A fresh detached owner is
+the exception: while the popup owns the lease, a newly loaded embedded standby view
+must preserve that live detach snapshot until reattach.
+
+An intentional handoff suspension is displayed as **Workspace standby** rather than
+**Nexus reconnecting**. Actual WebSocket reconnect diagnostics include the close code
+and reason so transport loss can be distinguished from ownership transfer.
+
 ## Detached workspace single-owner handoff
 
 Attached and detached Nexus are two views of one logical workspace, not two concurrent

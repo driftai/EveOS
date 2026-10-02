@@ -86,8 +86,9 @@
           </div>
           <div id="appTargetTiming" class="subtle" hidden></div>
 
-          <div id="appMirrorControls" class="target-row" hidden>
-            <label for="appMirrorUrl">Conversation sync</label>
+          <details id="appMirrorControls" class="target-row app-conversation-sync" hidden>
+            <summary>Conversation sync</summary>
+            <label for="appMirrorUrl">Exact ChatGPT conversation URL</label>
             <div class="target-actions">
               <input id="appMirrorUrl" type="url" inputmode="url"
                 placeholder="https://chatgpt.com/c/..." autocomplete="off" spellcheck="false">
@@ -97,7 +98,7 @@
             <div id="appMirrorStatus" class="subtle">
               Optional server-side sync/recovery for the selected ChatGPT App conversation.
             </div>
-          </div>
+          </details>
         </div>
 
         <div id="targetStatus" class="subtle">No target selected.</div>

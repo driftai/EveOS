@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createCoordinator } = require('../public/workspace-handoff');
+const { createCoordinator, SNAPSHOT_KEY } = require('../public/workspace-handoff');
 
 function sharedStorageBus() {
   const values = new Map(), listeners = new Set();
@@ -91,4 +91,33 @@ test('a second embedded view cannot steal a fresh detached ownership lease', () 
   secondEmbedded.start();
   assert.equal(detached.isOwner(), true);
   assert.equal(secondEmbedded.isOwner(), false);
+});
+
+
+test('fresh attached startup clears a stale persisted workspace snapshot', () => {
+  const bus = sharedStorageBus();
+  bus.storage.setItem(SNAPSHOT_KEY, JSON.stringify({
+    version: 1,
+    at: 1,
+    source: 'old-session',
+    parts: { base: { transcript: [{ role: 'user', text: 'old message' }] } }
+  }));
+  const embedded = coordinator(bus, { id: 'fresh-embedded', detached: false });
+  embedded.start();
+  assert.equal(embedded.snapshot(), null);
+});
+
+test('a fresh detached owner preserves the detach snapshot from a newly loaded embedded standby view', () => {
+  const bus = sharedStorageBus();
+  const embedded = coordinator(bus, { id: 'embedded', detached: false });
+  embedded.start();
+  embedded.register('base', { snapshot: () => ({ transcript: ['current detach state'] }) });
+  embedded.snapshotNow('detach');
+  const detached = coordinator(bus, { id: 'detached', detached: true });
+  detached.start();
+  const before = detached.snapshot();
+  const standby = coordinator(bus, { id: 'new-embedded', detached: false });
+  standby.start();
+  assert.equal(standby.isOwner(), false);
+  assert.deepEqual(standby.snapshot(), before);
 });

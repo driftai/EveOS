@@ -1,6 +1,6 @@
 (() => {
-  const OWNER_KEY = 'browser-ai-bridge.workspace-owner.v1';
-  const SNAPSHOT_KEY = 'browser-ai-bridge.workspace-snapshot.v1';
+  const OWNER_KEY = 'browser-ai-bridge.workspace-owner.v2';
+  const SNAPSHOT_KEY = 'browser-ai-bridge.workspace-snapshot.v2';
   const CONTROL_TYPE = 'eveos:nexus-workspace-control';
 
   function parse(value) {
@@ -20,10 +20,11 @@
     ownerTtlMs = 5500
   } = {}) {
     const clients = new Map();
-    let owned = false, started = false, timer = null;
+    let owned = false, started = false, timer = null, eligible = !detached;
 
     function readOwner() { return parse(storage?.getItem?.(OWNER_KEY)); }
     function readSnapshot() { return parse(storage?.getItem?.(SNAPSHOT_KEY)); }
+    function clearSnapshot() { try { storage?.removeItem?.(SNAPSHOT_KEY); } catch {} }
     function ownerFresh(owner = readOwner()) {
       return !!owner?.id && Number.isFinite(Number(owner.at)) && now() - Number(owner.at) <= ownerTtlMs;
     }
@@ -69,8 +70,9 @@
       applyOwnership(true);
       return true;
     }
-    function relinquish(reason = 'handoff') {
-      if (owned) snapshotNow(reason);
+    function relinquish(reason = 'handoff', { snapshot = true, disable = false } = {}) {
+      if (owned && snapshot) snapshotNow(reason);
+      if (disable) eligible = false;
       const current = readOwner();
       if (current?.id === instanceId) {
         try { storage?.removeItem?.(OWNER_KEY); } catch {}
@@ -93,7 +95,7 @@
         if (owned) {
           if (current?.id === instanceId) writeOwner();
           else applyOwnership(false);
-        } else if (!detached && !ownerFresh(current)) {
+        } else if (eligible && !detached && !ownerFresh(current)) {
           claim({ force: true });
         }
         scheduleTick();
@@ -105,7 +107,7 @@
         if (current?.id === instanceId) applyOwnership(true);
         else {
           applyOwnership(false);
-          if (!current && !detached) claim({ force: true });
+          if (!current && eligible && !detached) claim({ force: true });
         }
       }
       if (event.key === SNAPSHOT_KEY && owned) {
@@ -115,10 +117,21 @@
     function onMessage(event = {}) {
       if (event.source !== globalThis.parent || event.data?.type !== CONTROL_TYPE) return;
       if (event.data.action === 'snapshot') snapshotNow(event.data.reason || 'parent-request');
-      if (event.data.action === 'claim') claim({ force: true });
+      if (event.data.action === 'standby') relinquish(event.data.reason || 'host-standby', { snapshot: false, disable: true });
+      if (event.data.action === 'claim-fresh') {
+        const current = readOwner();
+        if (current?.detached && ownerFresh(current)) return;
+        clearSnapshot();
+        eligible = true;
+        claim({ force: true });
+      }
+      if (event.data.action === 'claim') {
+        eligible = true;
+        claim({ force: true });
+      }
     }
     function onUnload() {
-      if (owned) relinquish(detached ? 'detached-unload' : 'embedded-unload');
+      if (owned) relinquish(detached ? 'detached-unload' : 'embedded-unload', { snapshot: detached });
     }
     function start() {
       if (started) return;
@@ -126,6 +139,8 @@
       addEvent?.('storage', onStorage);
       addEvent?.('message', onMessage);
       addEvent?.('beforeunload', onUnload);
+      const current = readOwner();
+      if (!detached && !ownerFresh(current)) clearSnapshot();
       claim({ force: !!detached });
       scheduleTick();
     }
@@ -136,11 +151,11 @@
       removeEvent?.('storage', onStorage);
       removeEvent?.('message', onMessage);
       removeEvent?.('beforeunload', onUnload);
-      relinquish('coordinator-stop');
+      relinquish('coordinator-stop', { snapshot: false, disable: true });
     }
 
     return {
-      register, start, stop, claim, relinquish, snapshotNow,
+      register, start, stop, claim, relinquish, snapshotNow, clearSnapshot,
       isOwner: () => owned, instanceId, detached,
       owner: () => readOwner(), snapshot: () => readSnapshot(),
       keys: { owner: OWNER_KEY, snapshot: SNAPSHOT_KEY }

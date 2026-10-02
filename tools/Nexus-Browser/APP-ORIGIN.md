@@ -165,6 +165,13 @@ capped at 2 seconds) and retain an 8-second visual recovery grace period. In-fli
 prompts are never blindly resent after a reconnect because the original prompt may have
 already reached the provider.
 
+## Conversation Sync UI
+
+Conversation Sync remains an optional server-side recovery helper under the selected
+ChatGPT App App-Origin target. Its controls are collapsed by default in a
+`<details>` section so native App-Origin send/capture stays the normal path and users
+only expand server-side synchronization when they actually need it.
+
 ## Latency
 
 Current native response timing is deliberately low-latency but still stable:

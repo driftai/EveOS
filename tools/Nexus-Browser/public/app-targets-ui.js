@@ -153,7 +153,7 @@
         return true;
       }
       if (msg.type === 'app_target_selected') {
-        const restoring = restorePending;
+        const restoring = restorePending, previousTargetId = selectedTarget?.id || null;
         restorePending = false;
         selectedTarget = msg.target || null;
         if (msg.bindingIdentity) boundIdentity = { ...msg.bindingIdentity };
@@ -163,9 +163,11 @@
         diagnostics = msg.diagnostics || diagnostics;
         render();
         renderBaseStatus();
-        addMessage('system', selectedTarget
-          ? `Connected to app target ${selectedTarget.providerName || selectedTarget.title}.`
-          : 'App target selection cleared.');
+        if (!restoring && (selectedTarget?.id || null) !== previousTargetId) {
+          addMessage('system', selectedTarget
+            ? `Connected to app target ${selectedTarget.providerName || selectedTarget.title}.`
+            : 'App target selection cleared.');
+        }
         return true;
       }
       if (msg.type === 'app_target_status') {

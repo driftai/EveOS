@@ -7,3 +7,7 @@
   #targetClassSelect { max-width: none; }
   .target-actions { grid-template-columns: 1fr; }
 }
+
+.app-conversation-sync { border-top: 1px solid #252e3b; padding-top: 10px; }
+.app-conversation-sync summary { cursor: pointer; color: #aab6c7; font-size: 13px; font-weight: 700; user-select: none; }
+.app-conversation-sync[open] summary { margin-bottom: 9px; }

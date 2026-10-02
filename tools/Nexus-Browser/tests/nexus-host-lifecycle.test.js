@@ -31,3 +31,10 @@ test('detached Nexus is a single-workspace handoff rather than a second persiste
   assert.match(HOST, /if \(detachedOpen\(\) && detachedWindow && !detachedWindow\.closed\)/);
   assert.match(HOST, /detachedWindow\.focus\(\)/);
 });
+
+
+test('Search Monitor retires an older embedded Nexus root and explicitly owns the current visible frame', () => {
+  assert.match(HOST, /workspaceControlFor\(previous, 'standby', 'host-root-replaced'\)/);
+  assert.match(HOST, /workspaceControlFor\(container, 'claim-fresh', 'host-frame-load'\)/);
+  assert.match(HOST, /workspaceControl\('claim', 'host-activate'\)/);
+});

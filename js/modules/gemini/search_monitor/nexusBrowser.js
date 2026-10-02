@@ -98,8 +98,8 @@
         }
     }
 
-    function workspaceControl(action, reason = '') {
-        const frame = root?.querySelector('[data-nexus-browser-frame]');
+    function workspaceControlFor(container, action, reason = '') {
+        const frame = container?.querySelector?.('[data-nexus-browser-frame]');
         const target = runtimeUrl();
         if (!frame?.contentWindow || !target) return false;
         try {
@@ -108,6 +108,10 @@
             }, new URL(target).origin);
             return true;
         } catch { return false; }
+    }
+
+    function workspaceControl(action, reason = '') {
+        return workspaceControlFor(root, action, reason);
     }
 
     function renderDetached() {
@@ -272,14 +276,31 @@
     }
 
     function bind(container) {
+        const previous = root;
+        if (previous && previous !== container) {
+            workspaceControlFor(previous, 'standby', 'host-root-replaced');
+            const oldInline = previous.querySelector?.('[data-nexus-browser-inline]');
+            if (oldInline) oldInline.hidden = true;
+        }
         root = container;
-        if (boundRoots.has(container)) return;
+        if (boundRoots.has(container)) {
+            if (status?.running === true && !detachedOpen()) workspaceControl('claim', 'host-rebind');
+            return;
+        }
         boundRoots.add(container);
         container.addEventListener('click', handleClick);
+        const frame = container.querySelector?.('[data-nexus-browser-frame]');
+        frame?.addEventListener('load', () => {
+            if (root === container && status?.running === true && !detachedOpen()) {
+                workspaceControlFor(container, 'claim-fresh', 'host-frame-load');
+            }
+        });
     }
 
-    function activate() {
-        return refresh();
+    async function activate() {
+        const snapshot = await refresh();
+        if (snapshot?.running === true && !detachedOpen()) workspaceControl('claim', 'host-activate');
+        return snapshot;
     }
 
     window.EveOSNexusBrowser = Object.freeze({ markup, bind, activate, refresh });

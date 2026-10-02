@@ -93,3 +93,16 @@ test('App-Origin exposes the latest native transport stage timings in the target
   assert.match(APP_TARGETS_UI, /App→final/);
   assert.match(APP_TARGETS_UI, /Round trip/);
 });
+
+
+test('Conversation sync is optional and collapsed by default', () => {
+  assert.match(INDEX, /<details id="appMirrorControls"[^>]*>/);
+  assert.doesNotMatch(INDEX, /<details id="appMirrorControls"[^>]*\sopen(?:\s|>)/);
+  assert.match(INDEX, /<summary>Conversation sync<\/summary>/);
+});
+
+test('intentional handoff suspension is not mislabeled as a transport reconnect', () => {
+  assert.match(APP, /state\.uiConnectionPhase === 'suspended' \? 'Workspace standby'/);
+  assert.match(APP, /closeCode/);
+  assert.match(DEX_MODE, /closeCode/);
+});
