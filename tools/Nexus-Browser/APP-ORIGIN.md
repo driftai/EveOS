@@ -428,9 +428,7 @@ server child is recycled. This lets EveOS recognize
 and stop a Nexus instance launched through START.bat while also preventing simultaneous
 cold starts from creating two owners. A duplicate START invocation exits when another
 healthy supervisor/server already owns the port.
-
 ## Failure evidence
-
 Useful App-Origin errors include:
 
 - `APP_BRIDGE_HELPER_MISSING`
