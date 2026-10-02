@@ -337,9 +337,9 @@ function createAdapter({
           providerName: PROVIDER_NAME
         });
       }
-      const stableFor = observedAt - lastChangedAt;
-      const baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
-      const requiredSettle = progressState === 'role' && !observed.nativeTurn?.completeHint ? Math.max(baseSettle, 7000) : progressState === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
+      if (observed.activityHint && !observed.nativeTurn?.completeHint) { lastChangedAt = observedAt; continue; }
+      const stableFor = observedAt - lastChangedAt, baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
+      const requiredSettle = progressState === 'role' && !observed.nativeTurn?.completeHint ? Math.max(baseSettle, 15000) : progressState === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
       if (lastText && !lastSnapshot.generating && (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0)) {
         try {
           const fullSnapshot = await inspect({

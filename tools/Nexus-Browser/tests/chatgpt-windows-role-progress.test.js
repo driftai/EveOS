@@ -10,7 +10,7 @@ const windowInfo = {
   x: 0, y: 0, width: 1200, height: 900
 };
 
-function normalTree({ prompt = '', answer = '', followup = '', complete = false, composer = 'Ask ChatGPT', send = false } = {}) {
+function normalTree({ prompt = '', answer = '', status = '', followup = '', complete = false, composer = 'Ask ChatGPT', send = false } = {}) {
   const children = [
     ...(prompt ? [
       { selector: 'user-role', type: 'Text', name: 'You said:', x: 850, y: 150, width: 1, height: 2, children: [] },
@@ -20,6 +20,8 @@ function normalTree({ prompt = '', answer = '', followup = '', complete = false,
       { selector: 'assistant-role', type: 'Text', name: 'ChatGPT said:', x: 280, y: 240, width: 1, height: 2, children: [] },
       { selector: 'assistant-text', type: 'Paragraph', name: answer, x: 280, y: 270, width: 650, height: 90, children: [] }
     ] : []),
+    ...(status ? [{ selector: 'tool-status', type: 'Text', name: status,
+      x: 280, y: 365, width: 420, height: 28, children: [] }] : []),
     ...(followup ? [
       { selector: 'assistant-role-2', type: 'Text', name: 'ChatGPT said:', x: 280, y: 380, width: 1, height: 2, children: [] },
       { selector: 'assistant-text-2', type: 'Paragraph', name: followup, x: 280, y: 410, width: 650, height: 90, children: [] }
@@ -131,14 +133,14 @@ test('tool commentary stays provisional until the later assistant role segment a
     normalTree(),
     normalTree({ composer: prompt, send: true }),
     normalTree({ prompt }),
-    normalTree({ prompt, answer: commentary }),
-    normalTree({ prompt, answer: commentary }),
-    normalTree({ prompt, answer: commentary }),
-    normalTree({ prompt, answer: commentary, followup: final, complete: true })
+    normalTree({ prompt, answer: commentary, status: 'Checking the implementation' }),
+    normalTree({ prompt, answer: commentary, status: 'Checking the implementation' }),
+    normalTree({ prompt, answer: commentary, status: 'Checking the implementation' }),
+    normalTree({ prompt, answer: commentary, status: 'Checking the implementation', followup: final, complete: true })
   ];
   const full = [
-    normalTree({ prompt, answer: commentary }),
-    normalTree({ prompt, answer: commentary, followup: final, complete: true })
+    normalTree({ prompt, answer: commentary, status: 'Checking the implementation' }),
+    normalTree({ prompt, answer: commentary, status: 'Checking the implementation', followup: final, complete: true })
   ];
   const runner = {
     async availability() { return { available: true, command: 'winapp.exe' }; },
@@ -171,6 +173,6 @@ test('tool commentary stays provisional until the later assistant role segment a
   assert.equal(result.text, final);
   assert.equal(events.at(-1).type, 'response_final');
   assert.equal(events.at(-1).text, final);
-  assert.ok(events.some((event) => event.type === 'response_partial' && event.text === commentary));
+  assert.ok(events.some((event) => event.type === 'response_partial' && event.text.includes(commentary)));
   assert.equal(events.filter((event) => event.type === 'response_final').length, 1);
 });
