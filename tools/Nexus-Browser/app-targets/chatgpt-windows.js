@@ -330,7 +330,8 @@ function createAdapter({
       if (lastSnapshot.generating) sawGenerating = true;
       const observed = conversation.responseForPrompt(lastSnapshot, { baseline: baselineSet, prompt: text });
       const candidate = observed.text; if (observed.nativeTurn) nativeTurn = observed.nativeTurn;
-      const mergedText = replyProgress.mergeReplyProgress(lastText, candidate);
+      const mergedText = observed.progressMode === 'accumulate'
+        ? replyProgress.mergeReplyProgress(lastText, candidate) : (candidate || lastText);
       if (candidate && mergedText !== lastText) {
         lastText = mergedText;
         if (!firstResponseAt) firstResponseAt = observedAt;

@@ -292,16 +292,16 @@ function completedAssistantTurnForPrompt(snapshot = {}, prompt = '') {
 
 function responseForPrompt(snapshot = {}, { prompt = '', baseline = new Set(), includeOffscreen = false } = {}) {
   const turn = completedAssistantTurnForPrompt(snapshot, prompt);
-  if (turn) return { text: turn.text, nativeTurn: turn, correlated: true };
+  if (turn) return { text: turn.text, nativeTurn: turn, correlated: true, progressMode: 'replace' };
   const markerlessTurn = markerless.completedTurnForPrompt(snapshot, prompt, { includeOffscreen });
-  if (markerlessTurn) return { text: markerlessTurn.text, nativeTurn: markerlessTurn, correlated: true };
-  if (markerless.hasPrompt(snapshot, prompt, { includeOffscreen })) return { text: '', nativeTurn: null, correlated: true };
-  if (hasRoleMarkers(snapshot)) return { text: '', nativeTurn: null, correlated: true };
+  if (markerlessTurn) return { text: markerlessTurn.text, nativeTurn: markerlessTurn, correlated: true, progressMode: 'accumulate' };
+  if (markerless.hasPrompt(snapshot, prompt, { includeOffscreen })) return { text: '', nativeTurn: null, correlated: true, progressMode: 'accumulate' };
+  if (hasRoleMarkers(snapshot)) return { text: '', nativeTurn: null, correlated: true, progressMode: 'replace' };
   const grouped = latestAssistantReply(snapshot, { baseline, prompt, includeOffscreen });
   const fallback = grouped?.text
     || uia.latestResponseCandidate(snapshot, { baseline, prompt })?.text
     || uia.latestCandidate(snapshot.texts || [], { baseline, prompt });
-  return { text: fallback || '', nativeTurn: null, correlated: false };
+  return { text: fallback || '', nativeTurn: null, correlated: false, progressMode: 'replace' };
 }
 
 function conversationAnchorDigests(snapshot = {}, { limit = 8 } = {}) {
