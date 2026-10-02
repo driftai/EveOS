@@ -1,7 +1,7 @@
 'use strict';
 
 const { createPassiveAppWatcher, bindingScope } = require('./passive-watcher');
-const terminalRelayStorage = require('../scripts/terminal-relay-storage');
+const defaultTerminalRelayStorage = require('../scripts/terminal-relay-storage');
 
 function createAppTargetServerController({
   appTargets,
@@ -9,7 +9,8 @@ function createAppTargetServerController({
   uiSockets,
   getDurability,
   maintenanceBusy = () => false,
-  passiveWatcherFactory = createPassiveAppWatcher
+  passiveWatcherFactory = createPassiveAppWatcher,
+  terminalRelayStorage = defaultTerminalRelayStorage
 } = {}) {
   let lastTargets = [];
   let passiveWatcher = null;
@@ -88,6 +89,7 @@ function createAppTargetServerController({
           targetId,
           bindingIdentity: { ...bindingIdentity }
         });
+        terminalRelayStorage.refreshTargetSelection?.(peer.appTargetBinding);
       }
     }
   });
@@ -141,6 +143,7 @@ function createAppTargetServerController({
             });
           } else {
             ws.appTargetBinding = advanced;
+            terminalRelayStorage.refreshTargetSelection?.(ws.appTargetBinding);
           }
         }
       }
