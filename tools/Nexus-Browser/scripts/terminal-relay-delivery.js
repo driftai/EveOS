@@ -52,10 +52,6 @@ function verifyAndAdvance(selection, liveTarget) {
     throw relayError('TERMINAL_RELAY_CONVERSATION_CHANGED',
       'The selected ChatGPT App conversation changed. Reconnect the intended native conversation in Base Mode.');
   }
-  if (!storage.refreshTargetSelection(advanced)) {
-    throw relayError('TERMINAL_RELAY_BINDING_STALE',
-      'Terminal Relay selection changed while the send lease was being acquired. Reconnect it before relaying.');
-  }
   return advanced;
 }
 
@@ -82,6 +78,10 @@ async function relayReport(report) {
       text: report,
       beforeSend: async (liveTarget) => {
         const advanced = verifyAndAdvance(selection, liveTarget);
+        if (!storage.refreshTargetSelection(advanced)) {
+          throw relayError('TERMINAL_RELAY_BINDING_STALE',
+            'Terminal Relay selection changed while the send lease was being acquired. Reconnect it before relaying.');
+        }
         console.log('Target:', advanced.title, 'PID', advanced.pid, 'HWND', advanced.windowHandle);
       },
       emit(event) {
