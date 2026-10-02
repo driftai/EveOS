@@ -349,7 +349,7 @@ function createAdapter({
       const stableFor = observedAt - lastChangedAt;
       const baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
       const requiredSettle = lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
-      if (lastText && !lastSnapshot.generating && stableFor >= requiredSettle) {
+      if (lastText && !lastSnapshot.generating && (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0)) {
         try {
           const fullSnapshot = await inspect({
             hwnd: target.windowHandle, pid: target.pid, title: target.title
@@ -359,7 +359,7 @@ function createAdapter({
           });
           if (full.correlated && !full.nativeTurn) { lastSnapshot = fullSnapshot; lastChangedAt = now(); continue; }
           nativeTurn = full.nativeTurn || nativeTurn;
-          const reconstructed = full.nativeTurn?.text || (full.progressMode === 'replace' && full.text ? full.text : full.progressMode === 'accumulate' ? replyProgress.preferFinalReply(lastText, full.text) : conversation.preferExpandedReply(lastText, full.text));
+          const reconstructed = full.progressMode === 'accumulate' ? replyProgress.preferFinalReply(lastText, full.nativeTurn?.text || full.text) : full.nativeTurn?.text || (full.progressMode === 'replace' && full.text ? full.text : conversation.preferExpandedReply(lastText, full.text));
           lastSnapshot = fullSnapshot;
           if (reconstructed && reconstructed !== lastText) {
             lastText = reconstructed;
