@@ -107,3 +107,32 @@ test('active send reuses cached discovery and blocks competing explicit capture'
     restoreAdapter(saved);
   }
 });
+
+test('non-forced discovery keeps a recent proven target through one transient empty probe', async () => {
+  const saved = saveAdapter();
+  let listCalls = 0;
+  try {
+    chatgpt.listTargets = async () => {
+      listCalls += 1;
+      return listCalls === 1 ? [target] : [];
+    };
+    manager.invalidateAppTargetCache();
+
+    const initial = await manager.listAppTargets({ force: true });
+    assert.equal(initial.length, 1);
+    assert.equal(listCalls, 1);
+
+    const smoothed = await manager.listAppTargets({
+      now: Date.now() + manager.CACHE_MS + 100
+    });
+    assert.equal(listCalls, 2);
+    assert.equal(smoothed.length, 1);
+    assert.equal(smoothed[0].id, target.id);
+
+    const forced = await manager.listAppTargets({ force: true });
+    assert.equal(listCalls, 3);
+    assert.deepEqual(forced, [], 'forced verification must bypass discovery grace and fail closed');
+  } finally {
+    restoreAdapter(saved);
+  }
+});
