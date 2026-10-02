@@ -24,6 +24,7 @@ const shellSource = fs.readFileSync(
 
 let webRunning = false;
 let directRunning = false;
+let controlPlaneReachable = true;
 const events = [];
 const seenUrls = [];
 const statusNode = { textContent: '' };
@@ -62,6 +63,9 @@ let simulateLifecycleError = false;
 
 async function fetchJson(url, options, timeoutMs) {
     seenUrls.push(url);
+    if (!controlPlaneReachable && url.includes('/api/control-plane/')) {
+        throw new Error('simulated control plane offline');
+    }
     if (url.includes('/api/control-plane/health')) {
         return {
             ok: true, service: 'eveos-control-plane', controllerAvailable: true,
@@ -317,6 +321,26 @@ vm.runInNewContext(source, context, { filename: 'eveosControlPlane.js' });
     }
     if (errorState.busy) {
         throw new Error('Lifecycle error handling left control plane in busy state');
+    }
+
+    controlPlaneReachable = false;
+    const bootstrapBefore = windowMock.EveOSLocalControl.getBootstrapAttemptedAt();
+    let manualStartError = null;
+    try {
+        await windowMock.EveOSLocalControl.ensure({ probeTimeoutMs: 10, statusTimeoutMs: 10, timeoutMs: 25 });
+    } catch (error) {
+        manualStartError = error;
+    } finally {
+        controlPlaneReachable = true;
+    }
+    if (manualStartError?.code !== 'EVEOS_LOCAL_CONTROL_MANUAL_START_REQUIRED') {
+        throw new Error(`automatic ensure did not preserve manual-off Local Control: ${manualStartError?.code || manualStartError?.message}`);
+    }
+    if (windowMock.EveOSLocalControl.getBootstrapAttemptedAt() !== bootstrapBefore) {
+        throw new Error('automatic ensure invoked the file-mode Local Control launcher');
+    }
+    if (!localControlSource.includes('options?.userInitiated === true || launchAlreadyRequested')) {
+        throw new Error('Local Control no longer requires an explicit user launch grant');
     }
 
     console.log('EVEOS_CONTROL_PLANE_UI_SMOKE_OK');

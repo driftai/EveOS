@@ -90,6 +90,17 @@ instead of replacing it with `about:blank`. Only a confirmed stopped state or an
 explicit Stop action tears the embedded workspace down. This prevents healthy Base/Dex
 WebSocket sessions from cycling simply because the host status probe briefly missed.
 
+## Manual Local Control cold-start policy
+
+A `file://` EveOS load is observation-only. `EveOSLocalControl.ensure()` may probe an
+already-running loopback controller automatically, but it will not invoke the
+`eveos-control://start` protocol unless an explicit user action grants the launch.
+Reloading EveOS therefore cannot resurrect Local Control after the user turned it off.
+
+Search Monitor lifecycle buttons are explicit user actions and may cold-start Local
+Control when needed. Passive status refreshes and automatic recovery paths may only
+observe an existing controller.
+
 ## Control-plane ownership during transient health misses
 
 Search Monitor no longer treats one failed `/health` read as proof that port 9088
@@ -119,6 +130,19 @@ must preserve that live detach snapshot until reattach.
 An intentional handoff suspension is displayed as **Workspace standby** rather than
 **Nexus reconnecting**. Actual WebSocket reconnect diagnostics include the close code
 and reason so transport loss can be distinguished from ownership transfer.
+
+## Deterministic reattach transfer
+
+Reattach no longer depends only on same-origin `localStorage` event ordering. The
+detached owner snapshots Base/Dex state at the moment **Reattach to EveOS** is clicked
+and includes that snapshot in the detached-state message to the EveOS opener. Search
+Monitor forwards the snapshot directly to the embedded Nexus iframe with a
+`restore-and-claim` workspace command. The embedded coordinator adopts that exact
+snapshot and restores registered Base/Dex clients even if storage ownership events
+arrive in a different order.
+
+The deliberate reattach path suppresses the popup's normal unload/closed handoff so a
+second late claim cannot overwrite or race the direct restore.
 
 ## Detached workspace single-owner handoff
 

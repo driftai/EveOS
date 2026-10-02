@@ -38,6 +38,18 @@ async function resolveCommand({ env = process.env, now = Date.now(), exec = exec
   return resolved;
 }
 
+const TRANSIENT_INSPECT_CODES = new Set([
+  'stale_element', 'element_not_available', 'uia_element_not_available', 'rpc_e_call_rejected'
+]);
+
+function transientInspectFailure(args, result, json) {
+  if (result?.ok || args?.[0] !== 'ui' || args?.[1] !== 'inspect') return false;
+  const code = String(json?.code || json?.error?.code || '').toLowerCase();
+  const message = String(json?.message || json?.error?.message || result?.stderr || result?.stdout || '').toLowerCase();
+  return TRANSIENT_INSPECT_CODES.has(code)
+    || /stale[_ ]element|no longer accessible|element.+not available|rpc.+rejected/.test(message);
+}
+
 function parseJson(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return null;
@@ -56,7 +68,8 @@ async function runJson(args, {
   env = process.env,
   exec = execFileAsync,
   command = null,
-  allowFailure = false
+  allowFailure = false,
+  transientRetries = null
 } = {}) {
   const executable = command || await resolveCommand({ env, exec });
   if (!executable) {
@@ -67,8 +80,15 @@ async function runJson(args, {
   }
   const argv = [...args];
   if (!argv.includes('--json')) argv.push('--json');
-  const result = await exec(executable, argv, { timeoutMs, env });
-  const json = parseJson(result.stdout);
+  const defaultRetries = args?.[0] === 'ui' && args?.[1] === 'inspect' ? 3 : 0;
+  const retries = transientRetries == null ? defaultRetries : Math.max(0, Number(transientRetries) || 0);
+  let result = null, json = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    result = await exec(executable, argv, { timeoutMs, env });
+    json = parseJson(result.stdout);
+    if (!transientInspectFailure(args, result, json) || attempt >= retries) break;
+    await new Promise((resolve) => setTimeout(resolve, 80 * (attempt + 1)));
+  }
   if (!result.ok && !allowFailure) {
     const message = json?.message || json?.error?.message || result.stderr.trim()
       || result.stdout.trim() || `winapp exited with code ${result.exitCode}`;
@@ -104,6 +124,7 @@ module.exports = {
   execFileAsync,
   resolveCommand,
   parseJson,
+  transientInspectFailure,
   runJson,
   availability,
   resetCache

@@ -112,7 +112,16 @@
             await health(options?.probeTimeoutMs || 1000);
             return await status(options?.statusTimeoutMs || 5000);
         } catch (error) {
-            // The fixed Windows URI launcher is the file-mode cold-start path.
+            // Offline is observational unless an explicit user action grants one launch.
+        }
+
+        const userInitiated = options?.userInitiated === true || launchAlreadyRequested;
+        if (!userInitiated) {
+            const error = new Error(
+                'EveOS Local Control is off. Start it manually from Search Monitor when you want local tools online.'
+            );
+            error.code = 'EVEOS_LOCAL_CONTROL_MANUAL_START_REQUIRED';
+            throw error;
         }
 
         if (!ensurePromise) {
@@ -124,10 +133,8 @@
                     return await waitUntilReady(options?.timeoutMs, options?.onProgress);
                 } catch (error) {
                     throw new Error(
-                        'This browser will not start EveOS local control from a file:// page. Run '
-                        + 'tools\\batch\\install-eveos-autostart.bat once — local control then runs '
-                        + 'from sign-in and this page connects to it straight away. To start it just '
-                        + 'for now, run tools\\batch\\start-eveos-control.bat.'
+                        'EveOS Local Control did not start. Use the Search Monitor Local Control button '
+                        + 'or run tools\\batch\\start-eveos-control.bat when you want it online.'
                     );
                 }
             })().finally(function () {

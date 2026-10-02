@@ -98,20 +98,20 @@
         }
     }
 
-    function workspaceControlFor(container, action, reason = '') {
+    function workspaceControlFor(container, action, reason = '', extra = {}) {
         const frame = container?.querySelector?.('[data-nexus-browser-frame]');
         const target = runtimeUrl();
         if (!frame?.contentWindow || !target) return false;
         try {
             frame.contentWindow.postMessage({
-                type: WORKSPACE_CONTROL_TYPE, action, reason, at: Date.now()
+                type: WORKSPACE_CONTROL_TYPE, action, reason, at: Date.now(), ...extra
             }, new URL(target).origin);
             return true;
         } catch { return false; }
     }
 
-    function workspaceControl(action, reason = '') {
-        return workspaceControlFor(root, action, reason);
+    function workspaceControl(action, reason = '', extra = {}) {
+        return workspaceControlFor(root, action, reason, extra);
     }
 
     function renderDetached() {
@@ -163,7 +163,11 @@
         if (event.data.state === 'reattach') {
             detachedSeenAt = 0;
             detachedWindow = null;
-            workspaceControl('claim', 'reattach');
+            if (event.data.snapshot) {
+                workspaceControl('restore-and-claim', 'reattach', { snapshot: event.data.snapshot });
+            } else {
+                workspaceControl('claim', 'reattach');
+            }
             try { window.focus(); } catch {}
             try { root?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {}
         } else if (event.data.state === 'closed') {
@@ -250,7 +254,7 @@
         busy = true;
         render(status || { state: 'stopped', running: false }, `${action === 'setup' ? 'Installing' : `${action}ing`} Nexus Browser…`);
         try {
-            await window.EveOSLocalControl?.ensure?.({ timeoutMs: 45000 });
+            await window.EveOSLocalControl?.ensure?.({ timeoutMs: 45000, userInitiated: true });
             const timeout = action === 'setup' ? 10 * 60 * 1000 : action === 'stop' ? 30000 : 15000;
             const snapshot = await controlRequest(ACTION_PATHS[action], { method: 'POST' }, timeout);
             render(snapshot);

@@ -121,3 +121,28 @@ test('a fresh detached owner preserves the detach snapshot from a newly loaded e
   assert.equal(standby.isOwner(), false);
   assert.deepEqual(standby.snapshot(), before);
 });
+
+
+test('explicit reattach adopts the detached snapshot directly even if storage ownership timing races', () => {
+  const bus = sharedStorageBus();
+  let embeddedValue = 'attached-old';
+  const embedded = coordinator(bus, { id: 'embedded-direct', detached: false });
+  embedded.start();
+  embedded.register('base', {
+    snapshot: () => ({ value: embeddedValue }),
+    restore: (value) => { if (value?.value) embeddedValue = value.value; }
+  });
+
+  const detachedSnapshot = {
+    version: 1,
+    at: 2000,
+    source: 'detached-direct',
+    detached: true,
+    reason: 'reattach',
+    parts: { base: { value: 'latest-detached-state' } }
+  };
+  assert.equal(embedded.adoptSnapshot(detachedSnapshot, 'reattach-direct'), true);
+  assert.equal(embeddedValue, 'latest-detached-state');
+  assert.equal(embedded.isOwner(), true);
+  assert.equal(embedded.snapshot().reason, 'reattach-direct');
+});

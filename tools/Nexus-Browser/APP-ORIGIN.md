@@ -172,6 +172,17 @@ ChatGPT App App-Origin target. Its controls are collapsed by default in a
 `<details>` section so native App-Origin send/capture stays the normal path and users
 only expand server-side synchronization when they actually need it.
 
+## Transient Windows UIA recovery
+
+The Windows bridge treats `stale_element` / UIA element-unavailable failures from
+read-only `ui inspect` operations as transient tree invalidation. The shared winapp
+runner retries only those inspect calls with a short bounded backoff. Mutating actions
+such as set-value, invoke, focus, and send-keys are never automatically replayed, so
+recovery cannot duplicate a prompt or Send gesture.
+
+This specifically protects the accepted-prompt → response-polling window where the
+ChatGPT desktop app may replace its WebView/UIA nodes while beginning a response.
+
 ## Latency
 
 Current native response timing is deliberately low-latency but still stable:

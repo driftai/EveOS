@@ -6,14 +6,16 @@
   document.documentElement.dataset.eveosDetached = 'true';
   if (!/Detached/i.test(document.title)) document.title = `${document.title} · Detached`;
 
-  function publish(state = 'open') {
+  let reattaching = false;
+  function publish(state = 'open', extra = {}) {
     try {
       if (window.opener && !window.opener.closed) {
         window.opener.postMessage({
           type: MESSAGE_TYPE,
           state,
           href: location.href,
-          at: Date.now()
+          at: Date.now(),
+          ...extra
         }, '*');
       }
     } catch {}
@@ -30,9 +32,12 @@
     cursor: 'pointer', boxShadow: '0 6px 22px rgba(0,0,0,.28)'
   });
   reattach.addEventListener('click', () => {
-    handoff?.relinquish?.('reattach');
-    publish('reattach');
-    try { window.close(); } catch {}
+    if (reattaching) return;
+    reattaching = true;
+    const snapshot = handoff?.snapshotNow?.('reattach') || handoff?.snapshot?.() || null;
+    publish('reattach', { snapshot });
+    handoff?.relinquish?.('reattach', { snapshot: false, disable: true });
+    setTimeout(() => { try { window.close(); } catch {} }, 80);
   });
   document.body?.append(reattach);
 
@@ -42,6 +47,7 @@
   addEventListener('visibilitychange', () => publish('open'));
   addEventListener('beforeunload', () => {
     clearInterval(heartbeat);
+    if (reattaching) return;
     handoff?.relinquish?.('detached-close');
     publish('closed');
   });

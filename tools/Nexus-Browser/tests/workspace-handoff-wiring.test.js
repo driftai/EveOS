@@ -26,9 +26,11 @@ test('Base and Dex register with the same single-owner handoff coordinator', () 
   assert.match(DEX, /dexSocket\?\.stop\(\)/);
 });
 
-test('detach snapshots the embedded workspace and reattach relinquishes detached ownership', () => {
+test('reattach sends the latest detached snapshot directly to the embedded owner', () => {
   assert.match(HOST, /workspaceControl\('snapshot', 'detach'\)/);
-  assert.match(HOST, /workspaceControl\('claim', 'reattach'\)/);
+  assert.match(HOST, /workspaceControl\('restore-and-claim', 'reattach', \{ snapshot: event\.data\.snapshot \}\)/);
   assert.match(HOST, /inline\.hidden = !running \|\| detachedOpen\(\)/);
-  assert.match(DETACHED, /handoff\?\.relinquish\?\.\('reattach'\)/);
+  assert.match(DETACHED, /handoff\?\.snapshotNow\?\.\('reattach'\)/);
+  assert.match(DETACHED, /publish\('reattach', \{ snapshot \}\)/);
+  assert.match(DETACHED, /snapshot: false, disable: true/);
 });

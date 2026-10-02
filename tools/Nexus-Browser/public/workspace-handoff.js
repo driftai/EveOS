@@ -60,6 +60,17 @@
       try { storage?.setItem?.(SNAPSHOT_KEY, JSON.stringify(value)); } catch {}
       return value;
     }
+    function adoptSnapshot(value, reason = 'direct-handoff') {
+      if (!value || typeof value !== 'object' || !value.parts || typeof value.parts !== 'object') return false;
+      const next = { ...value, at: now(), reason };
+      try { storage?.setItem?.(SNAPSHOT_KEY, JSON.stringify(next)); } catch {}
+      eligible = true;
+      const current = readOwner();
+      if (current?.id !== instanceId) writeOwner();
+      if (!owned) applyOwnership(true);
+      else for (const [name, client] of clients) restoreClient(name, client);
+      return true;
+    }
     function claim({ force = false } = {}) {
       const current = readOwner();
       if (!force && current?.id !== instanceId && ownerFresh(current)) {
@@ -117,6 +128,9 @@
     function onMessage(event = {}) {
       if (event.source !== globalThis.parent || event.data?.type !== CONTROL_TYPE) return;
       if (event.data.action === 'snapshot') snapshotNow(event.data.reason || 'parent-request');
+      if (event.data.action === 'restore-and-claim') {
+        adoptSnapshot(event.data.snapshot, event.data.reason || 'reattach');
+      }
       if (event.data.action === 'standby') relinquish(event.data.reason || 'host-standby', { snapshot: false, disable: true });
       if (event.data.action === 'claim-fresh') {
         const current = readOwner();
@@ -155,7 +169,7 @@
     }
 
     return {
-      register, start, stop, claim, relinquish, snapshotNow, clearSnapshot,
+      register, start, stop, claim, relinquish, snapshotNow, adoptSnapshot, clearSnapshot,
       isOwner: () => owned, instanceId, detached,
       owner: () => readOwner(), snapshot: () => readSnapshot(),
       keys: { owner: OWNER_KEY, snapshot: SNAPSHOT_KEY }

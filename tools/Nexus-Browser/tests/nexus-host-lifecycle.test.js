@@ -38,3 +38,8 @@ test('Search Monitor retires an older embedded Nexus root and explicitly owns th
   assert.match(HOST, /workspaceControlFor\(container, 'claim-fresh', 'host-frame-load'\)/);
   assert.match(HOST, /workspaceControl\('claim', 'host-activate'\)/);
 });
+
+
+test('Nexus lifecycle cold-starts Local Control only from an explicit Nexus action', () => {
+  assert.match(HOST, /ensure\?\.\(\{ timeoutMs: 45000, userInitiated: true \}\)/);
+});
