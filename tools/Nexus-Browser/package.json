@@ -29,7 +29,9 @@
     "qualify:app-origin:live": "npm run qualify:app-origin && node scripts/app-origin-doctor.js --require-conversation",
     "diagnose:app-ui": "node scripts/app-uia-info.js",
     "smoke:app-ui-info": "node ../smoke/nexus_app_uia_info_smoke.js",
-    "smoke:terminal-driver": "node scripts/terminal-driver.js",\n    "relay:doctor": "node scripts/terminal-relay-doctor.js",\n    "relay:dev": "node scripts/terminal-relay-dev.js"
+    "smoke:terminal-driver": "node scripts/terminal-driver.js",
+    "relay:doctor": "node scripts/terminal-relay-doctor.js",
+    "relay:dev": "node scripts/terminal-relay-dev.js"
   },
   "engines": {
     "node": ">=18"
