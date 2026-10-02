@@ -305,7 +305,7 @@ function createAdapter({
       title: target.title
     }, { recoverComposer: true, recoverSend: false });
     const baselineSet = new Set(baseline.texts.map(normalizeCandidate));
-    await stageAndSubmit(text, baseline);
+    const committedSnapshot = await stageAndSubmit(text, baseline);
 
     const acceptedAt = now(), dispatchToAppMs = Math.max(0, acceptedAt - dispatchStartedAt);
     emit?.({ type: 'prompt_accepted', requestId, targetClassId: 'app-origin',
@@ -314,17 +314,17 @@ function createAdapter({
 
     const deadline = acceptedAt + responseTimeoutMs;
     let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null;
-    let sawGenerating = false, firstPoll = true, pollCount = 0;
+    let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
 
     while (now() < deadline) {
-      await sleepFn(firstPoll ? firstPollMs : pollMs);
-      firstPoll = false;
-      lastSnapshot = await inspect({
-        hwnd: target.windowHandle,
-        pid: target.pid,
-        title: target.title
-      });
+      if (committedPending) { lastSnapshot = committedSnapshot; committedPending = false; }
+      else {
+        await sleepFn(firstPoll ? firstPollMs : pollMs); firstPoll = false;
+        lastSnapshot = await inspect({
+          hwnd: target.windowHandle, pid: target.pid, title: target.title
+        });
+      }
       pollCount += 1;
       const observedAt = now();
       if (lastSnapshot.generating) sawGenerating = true;
