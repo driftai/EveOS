@@ -14,7 +14,7 @@ const windowInfo = {
   x: 0, y: 0, width: 1200, height: 900
 };
 
-function codexTree({ prompt = 'test', answer = '', generating = false, send = false } = {}) {
+function codexTree({ prompt = 'test', answer = '', progress = '', generating = false, send = false } = {}) {
   const children = [
     { selector: 'mode-chatgpt', type: 'Text', name: 'ChatGPT',
       x: 160, y: 70, width: 100, height: 22, children: [] },
@@ -28,6 +28,10 @@ function codexTree({ prompt = 'test', answer = '', generating = false, send = fa
       x: 565, y: 275, width: 90, height: 20, children: [] },
     { selector: 'user-prompt', type: 'Text', name: prompt,
       x: 900, y: 330, width: 180, height: 42, children: [] },
+    ...(progress ? [{
+      selector: 'work-status', type: 'Text', name: progress,
+      x: 360, y: 392, width: 160, height: 24, children: []
+    }] : []),
     ...(answer ? [{
       selector: 'assistant-answer', type: 'Paragraph', name: answer,
       x: 360, y: 410, width: 520, height: 60, children: []
@@ -228,4 +232,67 @@ test('Codex completion announcement is chrome and does not duplicate the visible
   const turns = completedAssistantTurns(snapshot);
   assert.equal(turns.length, 1);
   assert.equal(turns[0].text, answer);
+});
+
+
+test('Codex Working/Worked duration banners are transient chrome, not assistant replies', () => {
+  for (const progress of ['Working for 5s', 'Worked for 6s', 'Working for 3m 24s']) {
+    const snapshot = snapshotFromInspect({
+      windowInfo,
+      json: codexTree({ prompt: 'long turn', progress })
+    });
+    const observed = responseForPrompt(snapshot, { prompt: 'long turn' });
+    assert.equal(observed.correlated, true);
+    assert.equal(observed.text, '');
+    assert.equal(observed.nativeTurn, null);
+  }
+});
+
+test('active long Codex turn waits through Working/Worked banners for the real answer', async () => {
+  let clock = 0;
+  const prompt = 'long Nova handoff';
+  const answer = 'Synced. I will preserve the working App-Origin transport and continue from the current checkout.';
+  const sequence = [
+    codexTree({ prompt: 'old visible prompt', answer: 'Older Nova answer.' }),
+    codexTree({ prompt, answer: '', send: true }),
+    codexTree({ prompt, progress: 'Working for 5s' }),
+    codexTree({ prompt, progress: 'Worked for 6s' }),
+    codexTree({ prompt, answer }),
+    codexTree({ prompt, answer })
+  ];
+  const runner = {
+    async availability() { return { available: true, command: 'winapp.exe' }; },
+    async runJson(args) {
+      if (args[1] === 'inspect') {
+        const json = sequence.shift();
+        if (!json) throw new Error('Unexpected extra inspect');
+        return { ok: true, json, stderr: '', stdout: '' };
+      }
+      if (args[1] === 'set-value' || args[1] === 'invoke') {
+        return { ok: true, json: { ok: true }, stderr: '', stdout: '' };
+      }
+      throw new Error('Unexpected command: ' + args.join(' '));
+    }
+  };
+  const adapter = createAdapter({
+    runner,
+    platform: 'win32',
+    sleepFn: async () => {},
+    now: () => { clock += 1000; return clock; },
+    pollMs: 0,
+    settleMs: 0,
+    shortReplySettleMs: 0,
+    responseTimeoutMs: 30000
+  });
+  const events = [];
+  const result = await adapter.sendPrompt({
+    requestId: 'codex-long-active',
+    text: prompt,
+    target: { id: 'app-chatgpt-windows', title: 'ChatGPT', windowHandle: 501, pid: 9001 },
+    emit: (event) => events.push(event)
+  });
+  assert.equal(result.text, answer);
+  assert.equal(events.some((event) => /^(?:Working|Worked) for /i.test(event.text || '')), false);
+  assert.equal(events.at(-1).type, 'response_final');
+  assert.equal(events.at(-1).text, answer);
 });

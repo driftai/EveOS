@@ -7,6 +7,7 @@ const TIME_CHROME = /^(?:(?:today|yesterday)(?:\s+at)?\s*)?\d{1,2}:\d{2}\s*(?:am
 const DATE_CHROME = /^(?:today|yesterday|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)$/i;
 const SURFACE_CHROME = /^(?:codex|chatgpt|do anything|create, learn, and explore|build, debug, and ship)$/i;
 const COMPLETION_CHROME = /^(?:response complete|response completed|generation complete)(?:\s*[:—-].*)?$/i;
+const WORK_STATUS_CHROME = /^(?:working|worked)\s+for\s+(?:(?:\d+(?:\.\d+)?\s*(?:ms|s|sec(?:ond)?s?|m|min(?:ute)?s?|h|hr(?:s)?|hour(?:s)?))\s*)+$/i;
 
 function rawText(element = {}) {
   for (const value of [element?.text, element?.value, element?.name]) {
@@ -26,6 +27,7 @@ function markerlessChrome(text = '') {
   const value = uia.normalizeCandidate(text);
   return !value || uia.isChromeText(value) || TIME_CHROME.test(value)
     || DATE_CHROME.test(value) || SURFACE_CHROME.test(value) || COMPLETION_CHROME.test(value)
+    || WORK_STATUS_CHROME.test(value)
     || /^today\s+\d{1,2}:\d{2}\s*(?:am|pm)$/i.test(value);
 }
 
@@ -266,6 +268,7 @@ function conversationAnchors(snapshot = {}, { limit = 8 } = {}) {
 module.exports = {
   TIME_CHROME,
   COMPLETION_CHROME,
+  WORK_STATUS_CHROME,
   markerlessChrome,
   recordFor,
   records,

@@ -39,7 +39,7 @@ message even though the UIA text nodes themselves were correct.
 
 The regression lives in `tests/chatgpt-windows-frame-origin.test.js`.
 
-## Visual order, not UIA array order## Visual order, not UIA array order
+## Visual order, not UIA array order
 
 Codex WebView accessibility flattening is not guaranteed to list message nodes in the
 same order they appear on screen. Markerless correlation therefore orders eligible
@@ -67,6 +67,17 @@ Active correlation therefore uses prompt ownership:
 
 This preserves normal ChatGPT semantics while preventing stale cross-surface markers from
 short-circuiting Codex capture.
+
+## Long-turn progress filtering
+
+Longer Codex turns may expose temporary accessibility text such as `Working for 5s`,
+`Worked for 6s`, or multi-unit variants such as `Working for 3m 24s`. These strings
+are generation-status chrome, not assistant content.
+
+The markerless reader filters both ongoing and completed work-duration banners so active
+send/capture continues polling until real assistant message content appears. The same
+filter applies to passive turn reconstruction so a progress banner cannot become a
+native-turn fingerprint.
 
 ## Completion-announcement filtering
 
