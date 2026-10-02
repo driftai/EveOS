@@ -16,6 +16,12 @@ function harness() {
   const observed = [];
   const ws = { clientKind: 'browser', appTargetId: null, closed: false };
   const uiSockets = new Set([ws]);
+  const terminalRelayStorage = {
+    writes: [], clears: [], refreshes: [],
+    writeTargetSelection(target) { this.writes.push({ ...target }); return target; },
+    clearTargetSelection(targetId) { this.clears.push(targetId); return true; },
+    refreshTargetSelection(target) { this.refreshes.push({ ...target }); return target; }
+  };
   const durability = {
     async beforeDispatch(msg, meta) {
       observed.push({ kind: 'before', requestId: msg.requestId, meta });
@@ -52,9 +58,10 @@ function harness() {
       return true;
     },
     uiSockets,
-    getDurability: () => durability
+    getDurability: () => durability,
+    terminalRelayStorage
   });
-  return { controller, appTargets, durability, target, ws, uiSockets, messages, observed };
+  return { controller, appTargets, durability, terminalRelayStorage, target, ws, uiSockets, messages, observed };
 }
 
 test('App-Origin discovery and selection stay independent from browser tabs', async () => {
@@ -75,6 +82,15 @@ test('App-Origin discovery and selection stay independent from browser tabs', as
     expectedIdentity: h.messages.at(-1).payload.bindingIdentity
   });
   assert.equal(h.messages.at(-1).payload.bindingIdentity.deliveryScope, scope);
+});
+
+test('App-Origin server tests persist synthetic selections only through injected storage', async () => {
+  const h = harness();
+  await h.controller.handle(h.ws, { type: 'select_app_target', targetId: h.target.id });
+  assert.equal(h.relayStorage, undefined);
+  assert.equal(h.terminalRelayStorage.writes.length, 1);
+  assert.equal(h.terminalRelayStorage.writes[0].id, h.target.id);
+  assert.equal(h.terminalRelayStorage.writes[0].providerId, 'chatgpt-desktop');
 });
 
 test('Base Mode App-Origin send flows through durability and returns app response events', async () => {
