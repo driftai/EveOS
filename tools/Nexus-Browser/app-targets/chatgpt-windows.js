@@ -84,7 +84,7 @@ function createAdapter({
   async function recoverComposerElement(snapshot) {
     return searchCandidates(
       snapshot.hwnd,
-      ['Ask ChatGPT', 'Message ChatGPT', 'prompt', 'composer', 'Edit', 'TextBox', 'Document'],
+      ['Do anything', 'Ask ChatGPT', 'Message ChatGPT', 'prompt', 'composer', 'Edit', 'TextBox', 'Document', 'Pane', 'Group', 'Custom'],
       composerScore,
       { windowInfo: snapshot.windowInfo },
       18
@@ -282,8 +282,9 @@ function createAdapter({
     });
     const prompt = normalizeCandidate(text);
     const visiblePrompt = committed.texts.some((candidate) => normalizeCandidate(candidate) === prompt);
-    const composerCleared = !normalizeCandidate(committed.composerValue)
-      || normalizeCandidate(committed.composerValue) === 'Ask ChatGPT';
+    const committedComposer = normalizeCandidate(committed.composerValue);
+    const composerCleared = !committedComposer
+      || /^(?:Ask ChatGPT|Message ChatGPT|Do anything)$/i.test(committedComposer);
     if (!visiblePrompt && !composerCleared && !committed.generating) {
       const error = new Error('ChatGPT app input gesture was not confirmed by the app UI.');
       error.code = 'APP_PROMPT_UNCONFIRMED';

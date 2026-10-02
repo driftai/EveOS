@@ -13,7 +13,8 @@ const AREA_TESTS = {
   extension: ['tests/extension-wiring.test.js', 'tests/online-target-recovery.test.js', 'tests/target-state.test.js', 'tests/dex-ui-ensure.test.js'],
   local: ['tests/local-targets.test.js', 'tests/antigravity-existing.test.js', 'tests/antigravity-recovery-capture.test.js'],
   'app-origin': [
-    'tests/chatgpt-windows-app.test.js', 'tests/chatgpt-windows-conversation.test.js',
+    'tests/chatgpt-windows-app.test.js', 'tests/chatgpt-windows-composer-shape.test.js',
+    'tests/chatgpt-windows-conversation.test.js',
     'tests/chatgpt-windows-title.test.js', 'tests/chatgpt-windows-identity.test.js',
     'tests/chatgpt-windows-full-reply.test.js', 'tests/chatgpt-windows-live-shape.test.js',
     'tests/winapp-runner-retry.test.js',

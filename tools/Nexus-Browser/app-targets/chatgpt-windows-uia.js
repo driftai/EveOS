@@ -1,7 +1,7 @@
 'use strict';
 
 const CHROME_TEXT = new Set([
-  'chatgpt', 'chat', 'work', 'new chat', 'share', 'ask chatgpt',
+  'chatgpt', 'chat', 'work', 'new chat', 'share', 'ask chatgpt', 'do anything', 'message chatgpt',
   'chatgpt can make mistakes. check important info.', 'chatgpt can make mistakes. check important info',
   'chatgpt is ai and can make mistakes. check important info.', 'chatgpt is ai and can make mistakes. check important info',
   'home', 'search', 'library', 'projects', 'settings', 'send', 'send message',
@@ -157,13 +157,15 @@ function candidateSummary(element, score = null) {
 
 function composerScore(element = {}, context = {}) {
   const type = controlType(element);
-  if (!/(edit|document|textbox|text box)/.test(type)) return -1;
+  const classicType = /(edit|document|textbox|text box)/.test(type);
+  const shellType = /(pane|group|custom)/.test(type);
+  if (!classicType && !shellType) return -1;
   if (element.isOffscreen === true || propertyText(element, 'IsOffscreen') === 'True') return -1;
 
   const name = textOf(element).toLowerCase();
   const automation = propertyText(element, 'automationId').toLowerCase();
   const className = propertyText(element, 'className').toLowerCase();
-  const semantic = /ask chatgpt|message chatgpt|send a message|prompt/.test(name)
+  const semantic = /ask chatgpt|message chatgpt|send a message|do anything|prompt/.test(name)
     || /prompt|composer|textarea|chat[-_ ]?input/.test(automation);
   if (/search|rename|filter|sidebar|title/.test(name + ' ' + automation)) return -1;
 
@@ -171,11 +173,14 @@ function composerScore(element = {}, context = {}) {
   const focusable = element.isKeyboardFocusable === true
     || propertyText(element, 'IsKeyboardFocusable') === 'True';
   const bottomWide = geometry.widthRatio >= 0.28 && geometry.yRatio >= 0.55;
-  const unnamedFocusableEditor = !name && !automation && focusable && !!selectorOf(element);
+  const sizedLikeComposer = geometry.rect.height >= 24 && geometry.rect.height <= 220;
+  const selectable = !!selectorOf(element);
+  const unnamedFocusableEditor = !name && !automation && focusable && selectable;
+  if (shellType && (!focusable || !selectable || (!semantic && !(bottomWide && sizedLikeComposer)))) return -1;
   if (!semantic && !bottomWide && !unnamedFocusableEditor) return -1;
 
   let score = 0;
-  if (/ask chatgpt|message chatgpt|send a message/.test(name)) score += 60;
+  if (/ask chatgpt|message chatgpt|send a message|do anything/.test(name)) score += 60;
   else if (/prompt/.test(name)) score += 28;
   if (/prompt|composer|textarea|chat[-_ ]?input/.test(automation)) score += 55;
   if (/editor|textbox|rich|webview|contenteditable/.test(className)) score += 8;
@@ -183,6 +188,7 @@ function composerScore(element = {}, context = {}) {
   if (unnamedFocusableEditor) score += 18;
   if (Number(element.__depth) >= 4) score += Math.min(8, Number(element.__depth));
   if (type.includes('document')) score += 4;
+  if (shellType && focusable) score += 4;
   if (selectorOf(element)) score += 3;
   if (geometry.widthRatio >= 0.28) score += 18;
   if (geometry.widthRatio >= 0.50) score += 8;
