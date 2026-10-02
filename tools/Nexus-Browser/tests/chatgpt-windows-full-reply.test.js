@@ -110,3 +110,77 @@ test('native send finalizes from one offscreen-inclusive reconstruction without 
   assert.ok(events.some((event) => event.type === 'response_partial' && event.text === expected));
   assert.equal(fullInspectCount, 1, 'full offscreen UIA tree should be fetched only once at finalization');
 });
+
+
+test('completed offscreen role turn replaces a damaged visible fragment authoritatively', async () => {
+  let clock = 0;
+  const prompt = 'tool-backed live capture';
+  const damaged = 'FINAL_BEGIN backed test passed on my side. Remote eve/nexus-machine-spaces is still:';
+  const fullText = [
+    'TEST_FINAL_BEGIN',
+    'Tool-backed test passed on my side. Remote eve/nexus-machine-spaces is still:',
+    '2b04438c450f54da6b849211290a2c404dfd39a5',
+    'LIVE_TOOL_CAPTURE_OK',
+    'TEST_FINAL_END'
+  ].join('\n\n');
+  const visibleInspects = [
+    snapshot([{ selector: 'old', type: 'Text', name: 'Old answer', x: 300, y: 300, width: 300, height: 30, children: [] }]),
+    snapshot([
+      { selector: 'old', type: 'Text', name: 'Old answer', x: 300, y: 300, width: 300, height: 30, children: [] },
+      { selector: 'send', type: 'Button', name: 'Send', x: 1060, y: 800, width: 42, height: 42, children: [] }
+    ]),
+    snapshot([{ selector: 'prompt', type: 'Text', name: prompt, x: 780, y: 175, width: 320, height: 30, children: [] }]),
+    snapshot([
+      { selector: 'user-role', type: 'Text', name: 'You said:', x: 850, y: 150, width: 1, height: 2, children: [] },
+      { selector: 'prompt', type: 'Text', name: prompt, x: 780, y: 175, width: 320, height: 30, children: [] },
+      { selector: 'assistant-role', type: 'Text', name: 'ChatGPT said', x: 280, y: 210, width: 1, height: 2, children: [] },
+      { selector: 'reply-visible', type: 'Paragraph', name: damaged, x: 280, y: 250, width: 650, height: 80, children: [] },
+      { selector: 'copy-response', type: 'Button', name: 'Copy', x: 280, y: 350, width: 36, height: 28, children: [] }
+    ])
+  ];
+  const fullInspect = snapshot([
+    { selector: 'user-role', type: 'Text', name: 'You said:', x: 850, y: 150, width: 1, height: 2, children: [] },
+    { selector: 'prompt', type: 'Text', name: prompt, x: 780, y: 175, width: 320, height: 30, children: [] },
+    { selector: 'assistant-role', type: 'Text', name: 'ChatGPT said', x: 280, y: 210, width: 1, height: 2, children: [] },
+    { selector: 'reply-full', type: 'Paragraph', name: fullText, x: 280, y: 240, width: 650, height: 360, children: [] },
+    { selector: 'copy-response', type: 'Button', name: 'Copy', x: 280, y: 620, width: 36, height: 28, children: [] }
+  ]);
+  let fullInspectCount = 0;
+  const runner = {
+    async availability() { return { available: true, command: 'winapp.exe' }; },
+    async runJson(args) {
+      if (args[1] === 'inspect') {
+        if (!args.includes('--hide-offscreen')) {
+          fullInspectCount += 1;
+          return { ok: true, json: fullInspect, stdout: '', stderr: '' };
+        }
+        const json = visibleInspects.shift();
+        if (!json) throw new Error('Unexpected extra visible inspect');
+        return { ok: true, json, stdout: '', stderr: '' };
+      }
+      if (args[1] === 'set-value' || args[1] === 'invoke') {
+        return { ok: true, json: { ok: true }, stdout: '', stderr: '' };
+      }
+      throw new Error('Unexpected command: ' + args.join(' '));
+    }
+  };
+  const adapter = createAdapter({
+    runner, platform: 'win32', sleepFn: async () => {},
+    now: () => { clock += 1000; return clock; },
+    firstPollMs: 0, pollMs: 0, settleMs: 0, shortReplySettleMs: 0,
+    responseTimeoutMs: 30000
+  });
+  const events = [];
+  const result = await adapter.sendPrompt({
+    requestId: 'authoritative-full-role',
+    text: prompt,
+    target: { id: 'app-chatgpt-windows', title: 'ChatGPT', windowHandle: 501, pid: 9001 },
+    emit: (event) => events.push(event)
+  });
+  assert.equal(result.text, fullText);
+  assert.equal(events.at(-1).type, 'response_final');
+  assert.equal(events.at(-1).text, fullText);
+  assert.ok(events.some((event) => event.type === 'response_partial' && event.text === damaged));
+  assert.ok(events.some((event) => event.type === 'response_partial' && event.text === fullText));
+  assert.equal(fullInspectCount, 1);
+});

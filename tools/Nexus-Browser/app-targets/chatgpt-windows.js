@@ -347,7 +347,7 @@ function createAdapter({
           });
           if (full.correlated && !full.nativeTurn) { lastSnapshot = fullSnapshot; lastChangedAt = now(); continue; }
           nativeTurn = full.nativeTurn || nativeTurn; progressState = replyProgress.transitionProgressMode(progressState, full);
-          const fullText = full.nativeTurn?.text || full.text; const reconstructed = full.progressMode === 'accumulate' ? replyProgress.preferFinalReply(lastText, fullText) : observed.nativeTurn?.completeHint ? conversation.preferExpandedReply(lastText, fullText) : fullText || conversation.preferExpandedReply(lastText, full.text);
+          const fullText = full.nativeTurn?.text || full.text; const reconstructed = full.progressMode === 'accumulate' ? replyProgress.preferFinalReply(lastText, fullText) : full.nativeTurn?.completeHint ? fullText : observed.nativeTurn?.completeHint ? conversation.preferExpandedReply(lastText, fullText) : fullText || conversation.preferExpandedReply(lastText, full.text);
           lastSnapshot = fullSnapshot; if (full.progressMode === 'accumulate' && full.nativeTurn?.text && reconstructed === full.nativeTurn.text && !replyProgress.needsTailGuard(reconstructed)) progressState = 'native';
           if (reconstructed && reconstructed !== lastText) {
             lastText = reconstructed; lastChangedAt = now(); tailStablePasses = 0;
