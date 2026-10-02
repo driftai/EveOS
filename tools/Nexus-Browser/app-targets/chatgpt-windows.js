@@ -305,7 +305,7 @@ function createAdapter({
       targetId: target.id, providerId: PROVIDER_ID, providerName: PROVIDER_NAME,
       observedAt: acceptedAt, detail: { dispatchToAppMs } });
     const deadline = acceptedAt + responseTimeoutMs;
-    let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null, accumulating = false;
+    let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null, progressState = 'replace';
     let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
     while (now() < deadline) {
@@ -320,8 +320,9 @@ function createAdapter({
       const observedAt = now();
       if (lastSnapshot.generating) sawGenerating = true;
       const observed = conversation.responseForPrompt(lastSnapshot, { baseline: baselineSet, prompt: text });
-      const candidate = observed.text; if (observed.nativeTurn) nativeTurn = observed.nativeTurn; if (observed.progressMode === 'accumulate' && accumulating !== 'native') accumulating = true;
-      const mergedText = accumulating === 'native' ? lastText : accumulating
+      const candidate = observed.text; if (observed.nativeTurn) nativeTurn = observed.nativeTurn;
+      progressState = replyProgress.transitionProgressMode(progressState, observed);
+      const mergedText = progressState === 'native' ? lastText : progressState === 'accumulate'
         ? replyProgress.mergeReplyProgress(lastText, candidate) : (candidate || lastText);
       if (candidate && mergedText !== lastText) {
         lastText = mergedText; tailStablePasses = 0;
@@ -339,7 +340,7 @@ function createAdapter({
       }
       const stableFor = observedAt - lastChangedAt;
       const baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
-      const requiredSettle = accumulating && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
+      const requiredSettle = progressState === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
       if (lastText && !lastSnapshot.generating && (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0)) {
         try {
           const fullSnapshot = await inspect({
@@ -349,9 +350,9 @@ function createAdapter({
             baseline: baselineSet, prompt: text, includeOffscreen: true
           });
           if (full.correlated && !full.nativeTurn) { lastSnapshot = fullSnapshot; lastChangedAt = now(); continue; }
-          nativeTurn = full.nativeTurn || nativeTurn; if (full.progressMode === 'accumulate' && !accumulating) accumulating = true;
+          nativeTurn = full.nativeTurn || nativeTurn; progressState = replyProgress.transitionProgressMode(progressState, full);
           const reconstructed = full.progressMode === 'accumulate' ? replyProgress.preferFinalReply(lastText, full.nativeTurn?.text || full.text) : full.nativeTurn?.text || (full.progressMode === 'replace' && full.text ? full.text : conversation.preferExpandedReply(lastText, full.text));
-          lastSnapshot = fullSnapshot; if (full.nativeTurn?.text && reconstructed === full.nativeTurn.text) accumulating = 'native';
+          lastSnapshot = fullSnapshot; if (full.progressMode === 'accumulate' && full.nativeTurn?.text && reconstructed === full.nativeTurn.text) progressState = 'native';
           if (reconstructed && reconstructed !== lastText) {
             lastText = reconstructed; lastChangedAt = now(); tailStablePasses = 0;
             emit?.({ type: 'response_partial', requestId, text: lastText,
@@ -359,7 +360,7 @@ function createAdapter({
               providerId: PROVIDER_ID, providerName: PROVIDER_NAME });
             if (full.progressMode === 'accumulate') continue;
           }
-          if (full.progressMode === 'accumulate' && replyProgress.needsTailGuard(lastText) && ++tailStablePasses < 3) continue;
+          if (replyProgress.needsCompletionGuard(lastText, progressState, sawGenerating) && ++tailStablePasses < 3) continue;
         } catch {}
         const finalizedAt = now();
         const timing = {
@@ -405,7 +406,7 @@ function createAdapter({
     const remembered = turnState.get(target.id)?.latestText || '';
     const grouped = conversation.latestAssistantReply(snapshot, { includeOffscreen: true });
     const live = grouped?.text || latestResponseCandidate(snapshot)?.text || snapshot.latestResponseText || '';
-    const stored = replyProgress.mergeReplyProgress(remembered, live);
+    const stored = conversation.hasRoleMarkers(snapshot) ? (live || remembered) : replyProgress.mergeReplyProgress(remembered, live);
     return { text: stored || snapshot.latestText || '', snapshot,
       replyParts: grouped?.partCount || (live ? 1 : 0), observedAt: now(),
       isGenerating: !!snapshot.generating, generationState: snapshot.generating ? 'active' : 'idle',

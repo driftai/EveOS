@@ -1,0 +1,115 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { createAdapter } = require('../app-targets/chatgpt-windows');
+const progress = require('../app-targets/chatgpt-windows-reply-progress');
+
+const windowInfo = {
+  hwnd: 501, pid: 9001, title: 'ChatGPT',
+  x: 0, y: 0, width: 1200, height: 900
+};
+
+function normalTree({ prompt = '', answer = '', composer = 'Ask ChatGPT', send = false } = {}) {
+  const children = [
+    ...(prompt ? [
+      { selector: 'user-role', type: 'Text', name: 'You said:', x: 850, y: 150, width: 1, height: 2, children: [] },
+      { selector: 'user-text', type: 'Text', name: prompt, x: 760, y: 175, width: 340, height: 48, children: [] }
+    ] : []),
+    ...(answer ? [
+      { selector: 'assistant-role', type: 'Text', name: 'ChatGPT said:', x: 280, y: 240, width: 1, height: 2, children: [] },
+      { selector: 'assistant-text', type: 'Paragraph', name: answer, x: 280, y: 270, width: 650, height: 90, children: [] }
+    ] : []),
+    { selector: 'composer', type: 'Document', name: composer, automationId: 'prompt-textarea',
+      x: 320, y: 790, width: 800, height: 64, isKeyboardFocusable: true, children: [] },
+    ...(send ? [{ selector: 'send', type: 'Button', name: 'Send',
+      x: 1060, y: 800, width: 42, height: 42, children: [] }] : [])
+  ];
+  return { windows: [{ ...windowInfo, elements: [{
+    selector: 'root', type: 'Pane', x: 0, y: 0, width: 1200, height: 900, children
+  }] }] };
+}
+
+test('authoritative role-owned ChatGPT turn exits Codex accumulation mode', () => {
+  let state = 'replace';
+  state = progress.transitionProgressMode(state, { progressMode: 'accumulate', nativeTurn: null });
+  assert.equal(state, 'accumulate');
+  state = progress.transitionProgressMode(state, {
+    progressMode: 'replace',
+    nativeTurn: { fingerprint: 'f'.repeat(64), text: 'Final app reply' }
+  });
+  assert.equal(state, 'role');
+  state = progress.transitionProgressMode(state, { progressMode: 'accumulate', nativeTurn: null });
+  assert.equal(state, 'role');
+  assert.equal(progress.mergeReplyProgress('Draft reply', 'Final app reply'),
+    'Draft reply\n\nFinal app reply');
+});
+
+test('substantial role-marked ChatGPT reply waits for repeated authoritative stability before finalizing', async () => {
+  let clock = 0;
+  const prompt = 'give me a structured stress reply';
+  const opening = 'Opening paragraph intentionally exceeds the quick-finalization threshold so Nexus must not treat this first visible block as the complete answer. '.repeat(2).trim();
+  const final = opening + '\n\nCAPTURE_OK\n\nSecond paragraph with "quotes", <angle brackets>, [square brackets], and an emoji 😈.\n\nEND_OF_RESPONSE_TEST';
+
+  const visible = [
+    normalTree(),
+    normalTree({ composer: prompt, send: true }),
+    normalTree({ prompt }),
+    normalTree({ prompt, answer: opening }),
+    normalTree({ prompt, answer: opening }),
+    normalTree({ prompt, answer: opening }),
+    normalTree({ prompt, answer: final }),
+    normalTree({ prompt, answer: final }),
+    normalTree({ prompt, answer: final }),
+    normalTree({ prompt, answer: final })
+  ];
+  const full = [
+    normalTree({ prompt, answer: opening }),
+    normalTree({ prompt, answer: opening }),
+    normalTree({ prompt, answer: final }),
+    normalTree({ prompt, answer: final }),
+    normalTree({ prompt, answer: final })
+  ];
+
+  const runner = {
+    async availability() { return { available: true, command: 'winapp.exe' }; },
+    async runJson(args) {
+      if (args[1] === 'inspect') {
+        const pool = args.includes('--hide-offscreen') ? visible : full;
+        const json = pool.shift();
+        if (!json) throw new Error('Unexpected extra inspect');
+        return { ok: true, json, stderr: '', stdout: '' };
+      }
+      if (args[1] === 'set-value' || args[1] === 'invoke') {
+        return { ok: true, json: { ok: true }, stderr: '', stdout: '' };
+      }
+      throw new Error('Unexpected command: ' + args.join(' '));
+    }
+  };
+
+  const adapter = createAdapter({
+    runner,
+    platform: 'win32',
+    sleepFn: async () => {},
+    now: () => { clock += 1000; return clock; },
+    firstPollMs: 0,
+    pollMs: 0,
+    settleMs: 0,
+    shortReplySettleMs: 0,
+    responseTimeoutMs: 60000
+  });
+  const events = [];
+  const result = await adapter.sendPrompt({
+    requestId: 'role-long-stability',
+    text: prompt,
+    target: { id: 'app-chatgpt-windows', title: 'ChatGPT', windowHandle: 501, pid: 9001 },
+    emit: (event) => events.push(event)
+  });
+
+  assert.equal(result.text, final);
+  assert.equal(events.at(-1).type, 'response_final');
+  assert.equal(events.at(-1).text, final);
+  assert.match(result.text, /CAPTURE_OK/);
+  assert.match(result.text, /END_OF_RESPONSE_TEST$/);
+  assert.equal(result.text.includes('Opening paragraph') && result.text.includes('Second paragraph'), true);
+});

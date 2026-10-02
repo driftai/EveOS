@@ -106,6 +106,21 @@ function mergeReplyProgress(currentText = '', candidateText = '') {
   return current + '\n\n' + candidate;
 }
 
+function transitionProgressMode(current = 'replace', observed = {}) {
+  if (current === 'native') return 'native';
+  if (observed.progressMode === 'replace' && observed.nativeTurn) return 'role';
+  if (current === 'role') return 'role';
+  if (observed.progressMode === 'accumulate') return 'accumulate';
+  return current;
+}
+
+function needsCompletionGuard(text = '', mode = 'replace', sawGenerating = false) {
+  if (mode === 'accumulate') return needsTailGuard(text);
+  const value = tidy(text);
+  return mode === 'role' && !sawGenerating
+    && (blocks(value).length >= 2 || compact(value).length >= 220);
+}
+
 module.exports = {
   tidy,
   flat,
@@ -115,5 +130,7 @@ module.exports = {
   mergeCharacterOverlap,
   preferFinalReply,
   needsTailGuard,
+  transitionProgressMode,
+  needsCompletionGuard,
   mergeReplyProgress
 };

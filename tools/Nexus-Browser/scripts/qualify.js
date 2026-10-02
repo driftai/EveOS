@@ -16,7 +16,7 @@ const AREA_TESTS = {
     'tests/chatgpt-windows-app.test.js', 'tests/chatgpt-windows-composer-shape.test.js',
     'tests/chatgpt-windows-codex-surface.test.js', 'tests/chatgpt-windows-codex-long-reply.test.js',
     'tests/chatgpt-windows-codex-long-reply-tail.test.js', 'tests/chatgpt-windows-frame-origin.test.js',
-    'tests/chatgpt-windows-conversation.test.js',
+    'tests/chatgpt-windows-conversation.test.js', 'tests/chatgpt-windows-role-progress.test.js',
     'tests/chatgpt-windows-title.test.js', 'tests/chatgpt-windows-identity.test.js',
     'tests/chatgpt-windows-full-reply.test.js', 'tests/chatgpt-windows-timeout-recovery.test.js',
     'tests/chatgpt-windows-live-shape.test.js',
