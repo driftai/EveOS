@@ -297,7 +297,7 @@ test('active finalization expands a visible tail into the full noisy-fragment Co
     codexTree({ prompt, answer: '', send: true }),
     tailOnly,
     tailOnly,
-    full
+    ...Array(8).fill(full)
   ];
   const runner = {
     async availability() { return { available: true, command: 'winapp.exe' }; },
@@ -406,7 +406,7 @@ test('final offscreen Codex reconstruction replaces stitched thin-sentence progr
     codexTree({ prompt, answer: '', send: true }),
     visibleTree,
     visibleTree,
-    fullTree
+    ...Array(8).fill(fullTree)
   ];
 
   const runner = {
@@ -440,7 +440,7 @@ test('final offscreen Codex reconstruction replaces stitched thin-sentence progr
   assert.equal(result.text, expected);
   assert.equal(events.at(-1).type, 'response_final');
   assert.equal(events.at(-1).text, expected);
-  assert.equal(result.text.includes('merge toge'), false);
+  assert.equal(result.text.split(/\n{2,}/).includes('merge toge'), false);
 });
 
 

@@ -312,7 +312,7 @@ function createAdapter({
       observedAt: acceptedAt, detail: { dispatchToAppMs } });
 
     const deadline = acceptedAt + responseTimeoutMs;
-    let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null;
+    let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null, accumulating = false;
     let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
 
@@ -328,8 +328,8 @@ function createAdapter({
       const observedAt = now();
       if (lastSnapshot.generating) sawGenerating = true;
       const observed = conversation.responseForPrompt(lastSnapshot, { baseline: baselineSet, prompt: text });
-      const candidate = observed.text; if (observed.nativeTurn) nativeTurn = observed.nativeTurn;
-      const mergedText = observed.progressMode === 'accumulate'
+      const candidate = observed.text; if (observed.nativeTurn) nativeTurn = observed.nativeTurn; if (observed.progressMode === 'accumulate' && accumulating !== 'native') accumulating = true;
+      const mergedText = accumulating === 'native' ? lastText : accumulating
         ? replyProgress.mergeReplyProgress(lastText, candidate) : (candidate || lastText);
       if (candidate && mergedText !== lastText) {
         lastText = mergedText; tailStablePasses = 0;
@@ -347,7 +347,7 @@ function createAdapter({
       }
       const stableFor = observedAt - lastChangedAt;
       const baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
-      const requiredSettle = observed.progressMode === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
+      const requiredSettle = accumulating && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
       if (lastText && !lastSnapshot.generating && (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0)) {
         try {
           const fullSnapshot = await inspect({
@@ -357,9 +357,9 @@ function createAdapter({
             baseline: baselineSet, prompt: text, includeOffscreen: true
           });
           if (full.correlated && !full.nativeTurn) { lastSnapshot = fullSnapshot; lastChangedAt = now(); continue; }
-          nativeTurn = full.nativeTurn || nativeTurn;
+          nativeTurn = full.nativeTurn || nativeTurn; if (full.progressMode === 'accumulate' && !accumulating) accumulating = true;
           const reconstructed = full.progressMode === 'accumulate' ? replyProgress.preferFinalReply(lastText, full.nativeTurn?.text || full.text) : full.nativeTurn?.text || (full.progressMode === 'replace' && full.text ? full.text : conversation.preferExpandedReply(lastText, full.text));
-          lastSnapshot = fullSnapshot;
+          lastSnapshot = fullSnapshot; if (full.nativeTurn?.text && reconstructed === full.nativeTurn.text) accumulating = 'native';
           if (reconstructed && reconstructed !== lastText) {
             lastText = reconstructed; lastChangedAt = now(); tailStablePasses = 0;
             emit?.({ type: 'response_partial', requestId, text: lastText,

@@ -14,7 +14,8 @@ const windowInfo = {
   x: 0, y: 0, width: 1200, height: 900
 };
 
-function codexTree({ prompt = 'test', answer = '', progress = '', generating = false, send = false } = {}) {
+function codexTree({ prompt = 'test', answer = '', progress = '', generating = false, send = false,
+  promptX = 900, promptWidth = 180 } = {}) {
   const children = [
     { selector: 'mode-chatgpt', type: 'Text', name: 'ChatGPT',
       x: 160, y: 70, width: 100, height: 22, children: [] },
@@ -27,7 +28,7 @@ function codexTree({ prompt = 'test', answer = '', progress = '', generating = f
     { selector: 'time', type: 'Text', name: '12:29 AM',
       x: 565, y: 275, width: 90, height: 20, children: [] },
     { selector: 'user-prompt', type: 'Text', name: prompt,
-      x: 900, y: 330, width: 180, height: 42, children: [] },
+      x: promptX, y: 330, width: promptWidth, height: 42, children: [] },
     ...(progress ? [{
       selector: 'work-status', type: 'Text', name: progress,
       x: 360, y: 392, width: 160, height: 24, children: []
@@ -65,6 +66,17 @@ test('Codex markerless prompt correlation ignores timestamp chrome and returns N
   assert.equal(observed.text, 'Received—everything is working.');
   assert.notEqual(observed.text, '12:29 AM');
   assert.match(observed.nativeTurn?.fingerprint || '', /^[a-f0-9]{64}$/);
+});
+
+test('short right-edge Codex prompts retain their markerless assistant turn', () => {
+  const snapshot = snapshotFromInspect({
+    windowInfo,
+    json: codexTree({ prompt: 'again', answer: 'Alpha.', promptX: 1040, promptWidth: 56 })
+  });
+  const observed = responseForPrompt(snapshot, { prompt: 'again', includeOffscreen: true });
+  assert.equal(observed.correlated, true);
+  assert.equal(observed.text, 'Alpha.');
+  assert.equal(observed.nativeTurn?.text, 'Alpha.');
 });
 
 test('Codex prompt with no reply yet stays correlated and never emits the timestamp as a response', () => {
