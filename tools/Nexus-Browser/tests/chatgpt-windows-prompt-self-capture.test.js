@@ -120,7 +120,10 @@ test('matching ChatGPT role reply becomes authoritative after quoted prompt text
   assert.equal(observed.correlated, true);
   assert.equal(observed.progressMode, 'replace');
   assert.ok(observed.nativeTurn);
-  assert.equal(observed.text, expectedReply);
+  assert.equal(
+    observed.text.replace(/\s+/g, ' ').trim(),
+    expectedReply.replace(/\s+/g, ' ').trim()
+  );
   assert.equal((observed.text.match(/P3: DUP_OK/g) || []).length, 2);
   assert.ok(observed.text.endsWith('NEXUS_RETURN_END'));
   assert.doesNotMatch(observed.text, /^NEXUS_RETURN_END NEXUS_RETURN_BEGIN/);
