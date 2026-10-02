@@ -1,7 +1,7 @@
 'use strict';
 
 const { createHash } = require('node:crypto');
-const uia = require('./chatgpt-windows-uia');
+const uia = require('./chatgpt-windows-uia'), markerless = require('./chatgpt-windows-markerless');
 
 const ASSISTANT_MARKER = /^(?:chatgpt|assistant)\s+said\s*:?$/i;
 const USER_MARKER = /^(?:you|user)\s+said\s*:?$/i;
@@ -169,7 +169,7 @@ function expandedGroupedMessageText(snapshot = {}, group = {}) {
 
 function latestAssistantReply(snapshot = {}, options = {}) {
   const group = assistantReplyGroups(snapshot, options).at(-1);
-  if (!group) return null;
+  if (!group) return markerless.latestAssistantReply(snapshot, options);
   return {
     text: groupedMessageText(group),
     selectors: group.selectors,
@@ -294,6 +294,9 @@ function responseForPrompt(snapshot = {}, { prompt = '', baseline = new Set(), i
   const turn = completedAssistantTurnForPrompt(snapshot, prompt);
   if (turn) return { text: turn.text, nativeTurn: turn, correlated: true };
   if (hasRoleMarkers(snapshot)) return { text: '', nativeTurn: null, correlated: true };
+  const markerlessTurn = markerless.completedTurnForPrompt(snapshot, prompt, { includeOffscreen });
+  if (markerlessTurn) return { text: markerlessTurn.text, nativeTurn: markerlessTurn, correlated: true };
+  if (markerless.hasPrompt(snapshot, prompt, { includeOffscreen })) return { text: '', nativeTurn: null, correlated: true };
   const grouped = latestAssistantReply(snapshot, { baseline, prompt, includeOffscreen });
   const fallback = grouped?.text
     || uia.latestResponseCandidate(snapshot, { baseline, prompt })?.text
@@ -303,6 +306,7 @@ function responseForPrompt(snapshot = {}, { prompt = '', baseline = new Set(), i
 
 function conversationAnchorDigests(snapshot = {}, { limit = 8 } = {}) {
   const groups = roleMessageGroups(snapshot);
+  if (!groups.length) return markerless.conversationAnchors(snapshot, { limit });
   const anchors = [];
   for (let index = 1; index < groups.length; index += 1) {
     const user = groups[index - 1], assistant = groups[index];
@@ -324,6 +328,7 @@ function conversationAnchorDigests(snapshot = {}, { limit = 8 } = {}) {
 
 function completedAssistantTurns(snapshot = {}, { limit = 64 } = {}) {
   const groups = roleMessageGroups(snapshot);
+  if (!groups.length) return markerless.completedTurns(snapshot, { limit });
   const turns = [], occurrences = new Map();
   for (let index = 1; index < groups.length; index += 1) {
     const user = groups[index - 1], assistant = groups[index];
@@ -367,7 +372,7 @@ function activeConversationTitle(snapshot = {}) {
     if (!/(text|heading|button|group|document|custom|tabitem|listitem|pane)/.test(type)) continue;
     const text = uia.normalizeCandidate(nodeText(element));
     if (!text || text.length < 2 || text.length > 120) continue;
-    if (/^(chatgpt|chat|work|new chat|share|search|library|projects|settings|home|back|forward)$/i.test(text)) continue;
+    if (/^(chatgpt|codex|chat|work|new chat|share|search|library|projects|settings|home|back|forward)$/i.test(text)) continue;
     if (ASSISTANT_MARKER.test(text) || USER_MARKER.test(text) || uia.isChromeText(text)) continue;
 
     const rect = uia.rectOf(element);
