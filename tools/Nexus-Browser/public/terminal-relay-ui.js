@@ -72,6 +72,11 @@
     select.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  function recentProgress(progress, maxAgeMs = 60000) {
+    const at = Date.parse(progress?.updatedAt || progress?.finishedAt || '');
+    return Number.isFinite(at) && Date.now() - at <= maxAgeMs;
+  }
+
   function traceText(progress) {
     if (!progress) return '';
     const started = Date.parse(progress.startedAt || '');
@@ -113,7 +118,9 @@
       const appMode = targetClass?.value === 'app-origin';
       const appText = String(appStatus?.textContent || '');
       const uiConnected = /^Connected to/i.test(appText);
-      const relayBound = progress?.targetClassId === 'app-origin' && !!progress?.targetId;
+      const relayBound = progress?.status !== 'FAILED'
+        && progress?.targetClassId === 'app-origin' && !!progress?.targetId
+        && (progress.active || recentProgress(progress));
       const connected = uiConnected || relayBound;
 
       panel.dataset.ready = connected ? 'true' : 'false';
@@ -141,13 +148,15 @@
 
       if (!snapshot.available) {
         setText('#terminalRelayLastRun', 'Never');
-        setText('#terminalRelayLastRelay', '—');
+        setText('#terminalRelayLastRelay', progress?.active ? 'RUNNING' : '—');
         return;
       }
       setText('#terminalRelayLastRun', snapshot.counts
         ? (snapshot.counts.fail ? 'FAIL' : 'PASS') + ' · ' + (snapshot.branch || 'detached')
         : 'Unknown');
-      setText('#terminalRelayLastRelay', snapshot.relay?.status || progress?.status || 'Unknown');
+      setText('#terminalRelayLastRelay', progress?.active
+        ? `RUNNING · ${progress.step || 0}/${progress.totalSteps || 0}`
+        : snapshot.relay?.status || progress?.status || 'Unknown');
       setText('#terminalRelayLastPath', snapshot.runPath || 'data/runtime/nexus-browser/terminal-relay');
     }
 
