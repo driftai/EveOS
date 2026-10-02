@@ -55,7 +55,11 @@ function verifyAndAdvance(selection, liveTarget) {
   return advanced;
 }
 
-async function relayReport(report) {
+function notify(onEvent, event) {
+  try { onEvent?.(event); } catch {}
+}
+
+async function relayReport(report, { onEvent = null } = {}) {
   console.log('\n============================================================');
   console.log('NEXUS → CHATGPT APP RELAY');
   console.log('============================================================');
@@ -83,8 +87,10 @@ async function relayReport(report) {
             'Terminal Relay selection changed while the send lease was being acquired. Reconnect it before relaying.');
         }
         console.log('Target:', advanced.title, 'PID', advanced.pid, 'HWND', advanced.windowHandle);
+        notify(onEvent, { type: 'target_verified', target: advanced });
       },
       emit(event) {
+        notify(onEvent, event);
         if (event.type === 'prompt_accepted') {
           accepted = true;
           console.log('[relay] ChatGPT App accepted terminal report.');
