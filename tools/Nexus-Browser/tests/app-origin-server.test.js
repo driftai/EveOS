@@ -130,6 +130,64 @@ test('Base Mode automatically restores a proven persisted App-Origin binding aft
     entry.payload.type === 'app_target_selected' && entry.payload.restored === true));
 });
 
+test('Base Mode adopts a newer persisted CLI binding before declaring rebind', async () => {
+  const h = harness();
+  h.target.pid = 10;
+  h.target.windowHandle = 20;
+  h.target.concreteTargetIdentity = {
+    processId: 10,
+    windowHandle: 20,
+    conversationAnchor: 'anchor-new',
+    conversationAnchors: ['anchor-shared', 'anchor-new']
+  };
+  h.ws.appTargetId = h.target.id;
+  h.ws.appTargetBinding = {
+    ...h.target,
+    concreteTargetIdentity: {
+      processId: 10,
+      windowHandle: 20,
+      conversationAnchor: 'anchor-stale',
+      conversationAnchors: ['anchor-stale'],
+      deliveryScope: 'b'.repeat(64)
+    }
+  };
+  h.terminalRelayStorage.selection = {
+    targetId: h.target.id,
+    target: {
+      ...h.target,
+      concreteTargetIdentity: {
+        processId: 10,
+        windowHandle: 20,
+        conversationAnchor: 'anchor-shared',
+        conversationAnchors: ['anchor-shared'],
+        deliveryScope: 'c'.repeat(64)
+      }
+    }
+  };
+  h.appTargets.advanceAppTargetBinding = (expected, actual) => {
+    const left = new Set(expected.concreteTargetIdentity?.conversationAnchors || []);
+    const right = actual.concreteTargetIdentity?.conversationAnchors || [];
+    if (!right.some((anchor) => left.has(anchor))) return null;
+    return {
+      ...expected,
+      ...actual,
+      concreteTargetIdentity: {
+        ...expected.concreteTargetIdentity,
+        ...actual.concreteTargetIdentity
+      }
+    };
+  };
+
+  await h.controller.refresh(h.ws, { force: true });
+
+  assert.equal(h.terminalRelayStorage.clears.length, 0);
+  assert.equal(h.ws.appTargetBinding.concreteTargetIdentity.conversationAnchor, 'anchor-new');
+  assert.equal(h.ws.appTargetBinding.concreteTargetIdentity.deliveryScope, 'c'.repeat(64));
+  assert.ok(h.messages.some((entry) => entry.payload.type === 'app_target_selected'
+    && entry.payload.source === 'terminal-relay-auto-bind'));
+  assert.equal(h.messages.some((entry) => entry.payload.type === 'app_target_rebind_required'), false);
+});
+
 test('Base Mode App-Origin send flows through durability and returns app response events', async () => {
   const h = harness();
   h.ws.appTargetId = h.target.id;
