@@ -392,9 +392,8 @@ function activeConversationTitle(snapshot = {}) {
 
     const automationId = uia.propertyText(element, 'automationId').toLowerCase();
     const className = uia.propertyText(element, 'className').toLowerCase();
-    const selector = uia.selectorOf(element).toLowerCase();
     const semantic = /conversation|thread|chat[-_ ]?title|conversation[-_ ]?title|header[-_ ]?title/
-      .test([automationId, className, selector].join(' '));
+      .test([automationId, className].join(' '));
     const semanticHeader = semantic
       && yRatio >= 0.01 && yRatio <= 0.20
       && xRatio >= 0.06 && xRatio <= 0.92;
