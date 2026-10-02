@@ -10,7 +10,7 @@ const windowInfo = {
   x: 0, y: 0, width: 1200, height: 900
 };
 
-function normalTree({ prompt = '', answer = '', composer = 'Ask ChatGPT', send = false } = {}) {
+function normalTree({ prompt = '', answer = '', followup = '', complete = false, composer = 'Ask ChatGPT', send = false } = {}) {
   const children = [
     ...(prompt ? [
       { selector: 'user-role', type: 'Text', name: 'You said:', x: 850, y: 150, width: 1, height: 2, children: [] },
@@ -20,6 +20,12 @@ function normalTree({ prompt = '', answer = '', composer = 'Ask ChatGPT', send =
       { selector: 'assistant-role', type: 'Text', name: 'ChatGPT said:', x: 280, y: 240, width: 1, height: 2, children: [] },
       { selector: 'assistant-text', type: 'Paragraph', name: answer, x: 280, y: 270, width: 650, height: 90, children: [] }
     ] : []),
+    ...(followup ? [
+      { selector: 'assistant-role-2', type: 'Text', name: 'ChatGPT said:', x: 280, y: 380, width: 1, height: 2, children: [] },
+      { selector: 'assistant-text-2', type: 'Paragraph', name: followup, x: 280, y: 410, width: 650, height: 90, children: [] }
+    ] : []),
+    ...(complete ? [{ selector: 'copy-response', type: 'Button', name: 'Copy',
+      x: 280, y: followup ? 515 : 375, width: 36, height: 28, children: [] }] : []),
     { selector: 'composer', type: 'Document', name: composer, automationId: 'prompt-textarea',
       x: 320, y: 790, width: 800, height: 64, isKeyboardFocusable: true, children: [] },
     ...(send ? [{ selector: 'send', type: 'Button', name: 'Send',
@@ -58,17 +64,17 @@ test('substantial role-marked ChatGPT reply waits for repeated authoritative sta
     normalTree({ prompt, answer: opening }),
     normalTree({ prompt, answer: opening }),
     normalTree({ prompt, answer: opening }),
-    normalTree({ prompt, answer: final }),
-    normalTree({ prompt, answer: final }),
-    normalTree({ prompt, answer: final }),
-    normalTree({ prompt, answer: final })
+    normalTree({ prompt, answer: final, complete: true }),
+    normalTree({ prompt, answer: final, complete: true }),
+    normalTree({ prompt, answer: final, complete: true }),
+    normalTree({ prompt, answer: final, complete: true })
   ];
   const full = [
     normalTree({ prompt, answer: opening }),
     normalTree({ prompt, answer: opening }),
-    normalTree({ prompt, answer: final }),
-    normalTree({ prompt, answer: final }),
-    normalTree({ prompt, answer: final })
+    normalTree({ prompt, answer: final, complete: true }),
+    normalTree({ prompt, answer: final, complete: true }),
+    normalTree({ prompt, answer: final, complete: true })
   ];
 
   const runner = {
@@ -112,4 +118,59 @@ test('substantial role-marked ChatGPT reply waits for repeated authoritative sta
   assert.match(result.text, /CAPTURE_OK/);
   assert.match(result.text, /END_OF_RESPONSE_TEST$/);
   assert.equal(result.text.includes('Opening paragraph') && result.text.includes('Second paragraph'), true);
+});
+
+
+test('tool commentary stays provisional until the later assistant role segment arrives', async () => {
+  let clock = 0;
+  const prompt = 'inspect the implementation and then answer';
+  const commentary = 'I am checking the implementation before I give you the final result.';
+  const final = 'FINAL_CAPTURE_OK\n\nThe tool-backed answer arrived after the commentary and must replace it.';
+
+  const visible = [
+    normalTree(),
+    normalTree({ composer: prompt, send: true }),
+    normalTree({ prompt }),
+    normalTree({ prompt, answer: commentary }),
+    normalTree({ prompt, answer: commentary }),
+    normalTree({ prompt, answer: commentary }),
+    normalTree({ prompt, answer: commentary, followup: final, complete: true })
+  ];
+  const full = [
+    normalTree({ prompt, answer: commentary }),
+    normalTree({ prompt, answer: commentary, followup: final, complete: true })
+  ];
+  const runner = {
+    async availability() { return { available: true, command: 'winapp.exe' }; },
+    async runJson(args) {
+      if (args[1] === 'inspect') {
+        const pool = args.includes('--hide-offscreen') ? visible : full;
+        const json = pool.length > 1 ? pool.shift() : pool[0];
+        if (!json) throw new Error('Unexpected inspect');
+        return { ok: true, json, stderr: '', stdout: '' };
+      }
+      if (args[1] === 'set-value' || args[1] === 'invoke') {
+        return { ok: true, json: { ok: true }, stderr: '', stdout: '' };
+      }
+      throw new Error('Unexpected command: ' + args.join(' '));
+    }
+  };
+  const adapter = createAdapter({
+    runner, platform: 'win32', sleepFn: async () => {},
+    now: () => { clock += 1000; return clock; },
+    firstPollMs: 0, pollMs: 0, settleMs: 0, shortReplySettleMs: 0,
+    responseTimeoutMs: 60000
+  });
+  const events = [];
+  const result = await adapter.sendPrompt({
+    requestId: 'tool-commentary-final',
+    text: prompt,
+    target: { id: 'app-chatgpt-windows', title: 'ChatGPT', windowHandle: 501, pid: 9001 },
+    emit: (event) => events.push(event)
+  });
+  assert.equal(result.text, final);
+  assert.equal(events.at(-1).type, 'response_final');
+  assert.equal(events.at(-1).text, final);
+  assert.ok(events.some((event) => event.type === 'response_partial' && event.text === commentary));
+  assert.equal(events.filter((event) => event.type === 'response_final').length, 1);
 });

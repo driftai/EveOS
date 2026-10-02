@@ -114,10 +114,10 @@ function transitionProgressMode(current = 'replace', observed = {}) {
   return current;
 }
 
-function needsCompletionGuard(text = '', mode = 'replace', sawGenerating = false) {
+function needsCompletionGuard(text = '', mode = 'replace') {
   if (mode === 'accumulate') return needsTailGuard(text);
   const value = tidy(text);
-  return mode === 'role' && !sawGenerating
+  return mode === 'role'
     && (blocks(value).length >= 2 || compact(value).length >= 220);
 }
 

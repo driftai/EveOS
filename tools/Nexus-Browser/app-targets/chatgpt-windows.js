@@ -9,8 +9,7 @@ const {
 } = uia;
 const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVIDER_NAME = 'ChatGPT App', APP_MATCH = 'ChatGPT';
 const FIRST_POLL_MS = 75, POLL_MS = 180, SETTLE_MS = 850, POST_GENERATION_SETTLE_MS = 650;
-const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000;
-let lastDiagnostics = { available: false, helper: null, lastError: null, lastProbeAt: 0, lastWindow: null };
+const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000; let lastDiagnostics = { available: false, helper: null, lastError: null, lastProbeAt: 0, lastWindow: null };
 const turnState = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function createAdapter({
@@ -340,7 +339,7 @@ function createAdapter({
       }
       const stableFor = observedAt - lastChangedAt;
       const baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
-      const requiredSettle = progressState === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
+      const requiredSettle = progressState === 'role' && !observed.nativeTurn?.completeHint ? Math.max(baseSettle, 7000) : progressState === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
       if (lastText && !lastSnapshot.generating && (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0)) {
         try {
           const fullSnapshot = await inspect({
@@ -360,7 +359,7 @@ function createAdapter({
               providerId: PROVIDER_ID, providerName: PROVIDER_NAME });
             if (full.progressMode === 'accumulate') continue;
           }
-          if (replyProgress.needsCompletionGuard(lastText, progressState, sawGenerating) && ++tailStablePasses < 3) continue;
+          if (!(observed.nativeTurn?.completeHint || full.nativeTurn?.completeHint) && replyProgress.needsCompletionGuard(lastText, progressState) && ++tailStablePasses < 3) continue;
         } catch {}
         const finalizedAt = now();
         const timing = {

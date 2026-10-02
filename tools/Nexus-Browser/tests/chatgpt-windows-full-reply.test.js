@@ -46,13 +46,15 @@ test('native send finalizes from one offscreen-inclusive reconstruction without 
       { selector: 'user-role', type: 'Text', name: 'You said:', x: 850, y: 150, width: 1, height: 2, children: [] },
       { selector: 'prompt', type: 'Text', name: prompt, x: 780, y: 175, width: 320, height: 30, children: [] },
       { selector: 'assistant-role', type: 'Text', name: 'ChatGPT said', x: 280, y: 210, width: 1, height: 2, children: [] },
-      { selector: 'reply-tail', type: 'Paragraph', name: 'BETA visible tail.', x: 280, y: 300, width: 450, height: 35, children: [] }
+      { selector: 'reply-tail', type: 'Paragraph', name: 'BETA visible tail.', x: 280, y: 300, width: 450, height: 35, children: [] },
+      { selector: 'copy-response', type: 'Button', name: 'Copy', x: 280, y: 350, width: 36, height: 28, children: [] }
     ]),
     snapshot([
       { selector: 'user-role', type: 'Text', name: 'You said:', x: 850, y: 150, width: 1, height: 2, children: [] },
       { selector: 'prompt', type: 'Text', name: prompt, x: 780, y: 175, width: 320, height: 30, children: [] },
       { selector: 'assistant-role', type: 'Text', name: 'ChatGPT said', x: 280, y: 210, width: 1, height: 2, children: [] },
-      { selector: 'reply-tail', type: 'Paragraph', name: 'BETA visible tail.', x: 280, y: 300, width: 450, height: 35, children: [] }
+      { selector: 'reply-tail', type: 'Paragraph', name: 'BETA visible tail.', x: 280, y: 300, width: 450, height: 35, children: [] },
+      { selector: 'copy-response', type: 'Button', name: 'Copy', x: 280, y: 350, width: 36, height: 28, children: [] }
     ])
   ];
   const fullInspect = snapshot([
@@ -60,7 +62,8 @@ test('native send finalizes from one offscreen-inclusive reconstruction without 
     { selector: 'prompt', type: 'Text', name: prompt, x: 780, y: 175, width: 320, height: 30, children: [] },
     { selector: 'assistant-role', type: 'Text', name: 'ChatGPT said', x: 280, y: 210, width: 1, height: 2, children: [] },
     { selector: 'reply-head', type: 'Paragraph', name: 'ALPHA offscreen beginning.', x: 280, y: -140, width: 500, height: 45, isOffscreen: true, children: [] },
-    { selector: 'reply-tail', type: 'Paragraph', name: 'BETA visible tail.', x: 280, y: 300, width: 450, height: 35, children: [] }
+    { selector: 'reply-tail', type: 'Paragraph', name: 'BETA visible tail.', x: 280, y: 300, width: 450, height: 35, children: [] },
+      { selector: 'copy-response', type: 'Button', name: 'Copy', x: 280, y: 350, width: 36, height: 28, children: [] }
   ]);
   let fullInspectCount = 0;
   const runner = {

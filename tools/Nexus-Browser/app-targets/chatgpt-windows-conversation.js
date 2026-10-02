@@ -6,6 +6,7 @@ const uia = require('./chatgpt-windows-uia'), markerless = require('./chatgpt-wi
 const ASSISTANT_MARKER = /^(?:chatgpt|assistant)\s+said\s*:?$/i;
 const USER_MARKER = /^(?:you|user)\s+said\s*:?$/i;
 const LIVE_STATUS = /^(?:chatgpt\s+is\s+responding|responding|generating)(?:\.{3}|…)?$/i;
+const RESPONSE_ACTION = /^(?:copy|read aloud|regenerate|retry|good response|bad response|response actions|more actions)$/i;
 
 function nodeText(element = {}) {
   for (const value of [element?.text, element?.value, element?.name]) {
@@ -265,12 +266,37 @@ function expandGroupedText(snapshot = {}, rawText = '') {
   return candidates[0]?.raw || rawText;
 }
 
+function hasCompletionActions(snapshot = {}, group = {}) {
+  const rects = Array.isArray(group.rects) ? group.rects : [];
+  if (!rects.length) return false;
+  const bottom = Math.max(...rects.map((rect) => Number(rect.y || 0) + Number(rect.height || 0)));
+  const frame = uia.windowRect(snapshot.windowInfo || {});
+  const maxGap = Math.max(96, Math.min(240, Number(frame.height || 0) * 0.24));
+  return (snapshot.elements || []).some((element) => {
+    if (!uia.controlType(element).includes('button')) return false;
+    if (element?.isOffscreen === true || uia.propertyText(element, 'IsOffscreen') === 'True') return false;
+    if (!RESPONSE_ACTION.test(uia.normalizeCandidate(nodeText(element)))) return false;
+    const rect = uia.rectOf(element);
+    return !!rect.width && !!rect.height && rect.y >= bottom - 12 && rect.y <= bottom + maxGap;
+  });
+}
+
+function roleTurnPairs(snapshot = {}) {
+  const pairs = [];
+  let user = null, assistant = null;
+  const flush = () => { if (user && assistant) pairs.push({ user, assistant }); };
+  for (const group of roleMessageGroups(snapshot)) {
+    if (group.role === 'user') { flush(); user = group; assistant = null; continue; }
+    if (group.role === 'assistant' && user) assistant = group;
+  }
+  flush();
+  return pairs;
+}
+
 function completedAssistantTurnForPrompt(snapshot = {}, prompt = '') {
-  const groups = roleMessageGroups(snapshot), occurrences = new Map();
-  let matched = null;
-  for (let index = 1; index < groups.length; index += 1) {
-    const user = groups[index - 1], assistant = groups[index];
-    if (user.role !== 'user' || assistant.role !== 'assistant') continue;
+  const occurrences = new Map();
+  let matched = null, order = 0;
+  for (const { user, assistant } of roleTurnPairs(snapshot)) {
     const userText = uia.normalizeCandidate(groupedMessageText(user));
     const assistantRaw = expandedGroupedMessageText(snapshot, assistant);
     const assistantText = uia.normalizeCandidate(assistantRaw);
@@ -279,13 +305,15 @@ function completedAssistantTurnForPrompt(snapshot = {}, prompt = '') {
       .update('eveos-chatgpt-native-turn-pair-v1\0').update(userText).update('\0').update(assistantText).digest('hex');
     const occurrence = Number(occurrences.get(pairDigest) || 0) + 1;
     occurrences.set(pairDigest, occurrence);
-    if (!sameMessageText(userText, prompt)) continue;
+    if (!sameMessageText(userText, prompt)) { order += 1; continue; }
     matched = {
       fingerprint: createHash('sha256')
         .update('eveos-chatgpt-native-turn-fingerprint-v1\0').update(pairDigest).update('\0').update(String(occurrence)).digest('hex'),
       text: assistantRaw, selectors: [...assistant.selectors],
-      partCount: assistant.parts.length, order: index
+      partCount: assistant.parts.length, order,
+      completeHint: hasCompletionActions(snapshot, assistant)
     };
+    order += 1;
   }
   return matched;
 }
@@ -305,12 +333,10 @@ function responseForPrompt(snapshot = {}, { prompt = '', baseline = new Set(), i
 }
 
 function conversationAnchorDigests(snapshot = {}, { limit = 8 } = {}) {
-  const groups = roleMessageGroups(snapshot);
-  if (!groups.length) return markerless.conversationAnchors(snapshot, { limit });
+  const pairs = roleTurnPairs(snapshot);
+  if (!pairs.length) return markerless.conversationAnchors(snapshot, { limit });
   const anchors = [];
-  for (let index = 1; index < groups.length; index += 1) {
-    const user = groups[index - 1], assistant = groups[index];
-    if (user.role !== 'user' || assistant.role !== 'assistant') continue;
+  for (const { user, assistant } of pairs) {
     const userText = uia.normalizeCandidate(groupedMessageText(user));
     const assistantText = uia.normalizeCandidate(normalizeSyntheticFragmentBreaks(
       expandGroupedText(snapshot, groupedMessageText(assistant))));
@@ -327,12 +353,10 @@ function conversationAnchorDigests(snapshot = {}, { limit = 8 } = {}) {
 }
 
 function completedAssistantTurns(snapshot = {}, { limit = 64 } = {}) {
-  const groups = roleMessageGroups(snapshot);
-  if (!groups.length) return markerless.completedTurns(snapshot, { limit });
+  const pairs = roleTurnPairs(snapshot);
+  if (!pairs.length) return markerless.completedTurns(snapshot, { limit });
   const turns = [], occurrences = new Map();
-  for (let index = 1; index < groups.length; index += 1) {
-    const user = groups[index - 1], assistant = groups[index];
-    if (user.role !== 'user' || assistant.role !== 'assistant') continue;
+  for (const { user, assistant } of pairs) {
     const userText = uia.normalizeCandidate(groupedMessageText(user));
     const assistantRaw = expandedGroupedMessageText(snapshot, assistant);
     const assistantText = uia.normalizeCandidate(assistantRaw);
@@ -348,7 +372,8 @@ function completedAssistantTurns(snapshot = {}, { limit = 64 } = {}) {
       text: assistantRaw,
       selectors: [...assistant.selectors],
       partCount: assistant.parts.length,
-      order: turns.length
+      order: turns.length,
+      completeHint: hasCompletionActions(snapshot, assistant)
     });
   }
   return turns.slice(-Math.max(1, Number(limit) || 64));
@@ -432,6 +457,8 @@ module.exports = {
   sameMessageText,
   expandGroupedText,
   completedAssistantTurnForPrompt,
+  hasCompletionActions,
+  roleTurnPairs,
   responseForPrompt,
   conversationAnchorDigests,
   completedAssistantTurns,
