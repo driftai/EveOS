@@ -257,6 +257,7 @@ function isChromeText(text) {
   if (!normalized) return true;
   const lower = normalized.toLowerCase();
   if (CHROME_TEXT.has(lower)) return true;
+  if (/^(?:you|user|chatgpt|assistant)\s+said\s*:?$/i.test(normalized)) return true;
   if (/^(thinking|working|searching|reading|analyzing|generating|chatgpt is responding)(?:\.\.\.|…)?$/i.test(normalized)) return true;
   if (/^thought for \d+(?:\.\d+)?s$/i.test(normalized)) return true;
   if (/^\d+\s*\/\s*\d+$/.test(normalized)) return true;

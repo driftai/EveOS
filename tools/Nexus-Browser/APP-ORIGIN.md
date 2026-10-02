@@ -105,12 +105,20 @@ Important invariants:
   after a known durable tail can be delivered once;
 - process/window changes and native conversation changes fail closed with
   `APP_TARGET_REBIND_REQUIRED`;
+- native conversation continuity uses overlap across the rolling set of privacy-safe
+  turn anchors rather than requiring one old "latest" anchor forever; this tolerates
+  real ChatGPT Windows UI virtualization/reflow while an unrelated anchor set still
+  fails closed;
+- the continuity window ratchets forward separately from the immutable delivery scope,
+  so UI virtualization cannot create a new dedupe namespace or duplicate a reply;
 - reconnecting Base Mode may restore its selection only when the previously bound native
   identity still matches; otherwise the user must reconnect explicitly;
 - the watcher runs only for a selected Base Mode app target, backs off when no subscriber
   exists, and skips UIA reads while the active app send lease is held;
 - passive delivery uses the full offscreen-inclusive reconstruction path, so long
-  multi-paragraph/list answers are not reduced to the last visible paragraph.
+  multi-paragraph/list answers are not reduced to the last visible paragraph;
+- native role labels such as `You said:` and `ChatGPT said:` are structural UI chrome
+  and can never finalize as assistant output, including through the geometry fallback reader.
 
 The passive event is `native_app_turn`. Its stable conversation-scoped fingerprint is
 also used as the Base transcript DOM identity, making an event retry idempotent if the socket drops between

@@ -80,5 +80,7 @@ test('Base Mode App-Origin renders passive native turns and ACKs durable fingerp
   assert.match(APP_TARGETS_UI, /native_app_turn/);
   assert.match(APP_TARGETS_UI, /ack_native_app_turn/);
   assert.match(APP_TARGETS_UI, /app_target_rebind_required/);
+  assert.match(APP_TARGETS_UI, /app_target_binding_update/);
+  assert.match(APP_TARGETS_UI, /bindingIdentity/);
   assert.match(APP_TARGETS_UI, /expectedIdentity/);
 });

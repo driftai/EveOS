@@ -176,3 +176,45 @@ test('App-Origin manager publishes active native-turn identity for passive dedup
     manager.invalidateAppTargetCache();
   }
 });
+
+
+test('App-Origin conversation continuity accepts rolling anchor overlap and rejects unrelated chats', () => {
+  const a = 'a'.repeat(64), b = 'b'.repeat(64), c = 'c'.repeat(64);
+  const d = 'd'.repeat(64), x = 'f'.repeat(64);
+  const bound = {
+    id: TARGET_ID,
+    providerId: 'chatgpt-desktop',
+    concreteTargetIdentity: {
+      processId: 118148,
+      windowHandle: 4473474,
+      conversationAnchor: c,
+      conversationAnchors: [a, b, c]
+    }
+  };
+  const appended = {
+    id: TARGET_ID,
+    providerId: 'chatgpt-desktop',
+    concreteTargetIdentity: {
+      processId: 118148,
+      windowHandle: 4473474,
+      conversationAnchor: d,
+      conversationAnchors: [b, c, d]
+    }
+  };
+  assert.equal(manager.exactAppTargetMatch(bound, appended), true);
+  const advanced = manager.advanceAppTargetBinding(bound, appended);
+  assert.ok(advanced);
+  assert.deepEqual(advanced.concreteTargetIdentity.conversationAnchors, [a, b, c, d]);
+
+  const unrelated = {
+    ...appended,
+    concreteTargetIdentity: {
+      processId: 118148,
+      windowHandle: 4473474,
+      conversationAnchor: x,
+      conversationAnchors: [x]
+    }
+  };
+  assert.equal(manager.exactAppTargetMatch(advanced, unrelated), false);
+  assert.equal(manager.advanceAppTargetBinding(advanced, unrelated), null);
+});

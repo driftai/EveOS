@@ -73,11 +73,7 @@ function createAdapter({
     const args = ['ui', 'inspect', '-w', String(hwnd), '--depth', '12'];
     if (!includeOffscreen) args.push('--hide-offscreen');
     const result = await runner.runJson(args, { timeoutMs: 12000 });
-    const snapshot = snapshotFromInspect({ windowInfo: resolved, json: result.json });
-    if (!snapshot.composerSelector) {
-      lastDiagnostics = { ...lastDiagnostics, lastError: 'ChatGPT composer was not exposed through Windows UI Automation.' };
-    }
-    return snapshot;
+    return snapshotFromInspect({ windowInfo: resolved, json: result.json });
   }
   async function searchCandidates(hwnd, queries, scoreFn, context, minimumScore) {
     const found = [];
@@ -127,9 +123,12 @@ function createAdapter({
       || (recoverComposer ? await recoverComposerElement(snapshot) : null);
     const sendButton = snapshot.sendButton
       || (recoverSend ? await recoverSendElement(snapshot, composer) : null);
-    if (composer) {
-      lastDiagnostics = { ...lastDiagnostics, available: true, lastError: null, lastProbeAt: now() };
-    }
+    lastDiagnostics = {
+      ...lastDiagnostics,
+      available: !!composer,
+      lastError: composer ? null : 'ChatGPT composer was not exposed through Windows UI Automation.',
+      lastProbeAt: now()
+    };
     return {
       ...snapshot,
       composer,

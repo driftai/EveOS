@@ -54,21 +54,37 @@ function createAppTargetServerController({
       for (const peer of passivePeers(payload.targetId)) if (safeSend(peer, payload)) sent += 1;
       return sent;
     },
-    onRebind: (payload) => requireRebind(payload.targetId, payload)
+    onRebind: (payload) => requireRebind(payload.targetId, payload),
+    onIdentity({ targetId, bindingIdentity }) {
+      for (const peer of passivePeers(targetId)) {
+        if (!peer.appTargetBinding) continue;
+        peer.appTargetBinding = {
+          ...peer.appTargetBinding,
+          concreteTargetIdentity: { ...bindingIdentity }
+        };
+        safeSend(peer, {
+          type: 'app_target_binding_update',
+          targetClassId: 'app-origin',
+          targetId,
+          bindingIdentity: { ...bindingIdentity }
+        });
+      }
+    }
   });
 
-  function statusPayload(targetId) {
+  function statusPayload(ws, targetId) {
     return {
       type: 'app_target_status',
       targetId,
       status: appTargets.getAppTargetStatus(targetId),
-      diagnostics: appTargets.discoveryDiagnostics()
+      diagnostics: appTargets.discoveryDiagnostics(),
+      bindingIdentity: ws?.appTargetBinding?.concreteTargetIdentity || null
     };
   }
 
   function sendStatus(ws, targetId = ws?.appTargetId) {
     if (!targetId) return false;
-    return safeSend(ws, statusPayload(targetId));
+    return safeSend(ws, statusPayload(ws, targetId));
   }
 
   function sendEvent(targetId, source, payload) {
@@ -86,12 +102,25 @@ function createAppTargetServerController({
     for (const ws of destinations) {
       if (validateSelection && ws.appTargetId) {
         const target = lastTargets.find((entry) => entry.id === ws.appTargetId) || null;
-        if (!target || (ws.appTargetBinding && !exactMatch(ws.appTargetBinding, target))) {
+        if (!target) {
           const targetId = ws.appTargetId;
           requireRebind(targetId, {
-            providerId: ws.appTargetBinding?.providerId || target?.providerId || null,
-            providerName: ws.appTargetBinding?.providerName || target?.providerName || null
+            providerId: ws.appTargetBinding?.providerId || null,
+            providerName: ws.appTargetBinding?.providerName || null
           });
+        } else if (ws.appTargetBinding) {
+          const advanced = typeof appTargets.advanceAppTargetBinding === 'function'
+            ? appTargets.advanceAppTargetBinding(ws.appTargetBinding, target)
+            : exactMatch(ws.appTargetBinding, target) ? ws.appTargetBinding : null;
+          if (!advanced) {
+            const targetId = ws.appTargetId;
+            requireRebind(targetId, {
+              providerId: ws.appTargetBinding?.providerId || target?.providerId || null,
+              providerName: ws.appTargetBinding?.providerName || target?.providerName || null
+            });
+          } else {
+            ws.appTargetBinding = advanced;
+          }
         }
       }
       safeSend(ws, {
@@ -183,6 +212,7 @@ function createAppTargetServerController({
       safeSend(ws, {
         type: 'app_target_selected',
         target,
+        bindingIdentity: { ...(ws.appTargetBinding.concreteTargetIdentity || {}) },
         status: appTargets.getAppTargetStatus(target.id),
         diagnostics: appTargets.discoveryDiagnostics()
       });

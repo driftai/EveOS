@@ -105,18 +105,41 @@ function getAppTargetStatus(targetId) {
   catch { return null; }
 }
 
+function conversationAnchors(identity = {}) {
+  return [...new Set([
+    ...(Array.isArray(identity.conversationAnchors) ? identity.conversationAnchors : []),
+    identity.conversationAnchor
+  ].filter(Boolean).map(String))];
+}
+
 function appConversationMatches(expected = {}, actual = {}) {
   const titleMatches = !!expected.conversationTitle
     && String(expected.conversationTitle) === String(actual.conversationTitle || '');
-  if (expected.conversationAnchor) {
-    const anchors = Array.isArray(actual.conversationAnchors)
-      ? actual.conversationAnchors.map(String)
-      : actual.conversationAnchor ? [String(actual.conversationAnchor)] : [];
-    if (anchors.includes(String(expected.conversationAnchor))) return true;
-    if (anchors.length) return false;
+  const expectedAnchors = conversationAnchors(expected);
+  const actualAnchors = conversationAnchors(actual);
+  if (expectedAnchors.length) {
+    if (actualAnchors.length) {
+      const live = new Set(actualAnchors);
+      return expectedAnchors.some((anchor) => live.has(anchor));
+    }
     return titleMatches;
   }
   return titleMatches;
+}
+
+function advanceAppTargetBinding(expected = {}, actual = {}) {
+  if (!exactAppTargetMatch(expected, actual)) return null;
+  const bound = expected.concreteTargetIdentity || {}, live = actual.concreteTargetIdentity || {};
+  const anchors = [...new Set([...conversationAnchors(bound), ...conversationAnchors(live)])].slice(-16);
+  const concreteTargetIdentity = {
+    ...bound,
+    ...(bound.conversationTitle ? {} : live.conversationTitle ? { conversationTitle: live.conversationTitle } : {}),
+    ...(anchors.length ? {
+      conversationAnchor: anchors.at(-1),
+      conversationAnchors: anchors
+    } : {})
+  };
+  return { ...expected, concreteTargetIdentity };
 }
 
 function exactAppTargetMatch(expected = {}, actual = {}) {
@@ -242,6 +265,7 @@ module.exports = {
   adapterForTarget,
   getAppTargetStatus,
   exactAppTargetMatch,
+  advanceAppTargetBinding,
   onAppTurnFinal,
   captureAppLatest,
   sendAppPrompt,

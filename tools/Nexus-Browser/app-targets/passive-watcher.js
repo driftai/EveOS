@@ -61,6 +61,7 @@ function createPassiveAppWatcher({
   ledger = createPassiveTurnLedger(),
   emit = () => 0,
   onRebind = () => {},
+  onIdentity = () => {},
   hasSubscribers = () => false,
   setTimer = defaultTimer,
   clearTimer = clearTimeout,
@@ -105,6 +106,7 @@ function createPassiveAppWatcher({
     if (current?.timer) clearTimer(current.timer);
     const state = {
       target: { ...target, concreteTargetIdentity: { ...(target.concreteTargetIdentity || {}) } },
+      continuityIdentity: { ...(target.concreteTargetIdentity || {}) },
       primed: false,
       timer: null,
       running: false,
@@ -185,8 +187,12 @@ function createPassiveAppWatcher({
         nextDelay = idleMs;
         return { ok: false, code: state.lastError };
       }
+      const expectedTarget = liveTargetFromSnapshot(state.target, state.continuityIdentity);
       const liveTarget = liveTargetFromSnapshot(state.target, identity);
-      if (!appTargets.exactAppTargetMatch?.(state.target, liveTarget)) {
+      const advanced = typeof appTargets.advanceAppTargetBinding === 'function'
+        ? appTargets.advanceAppTargetBinding(expectedTarget, liveTarget)
+        : appTargets.exactAppTargetMatch?.(expectedTarget, liveTarget) ? liveTarget : null;
+      if (!advanced) {
         const payload = {
           type: 'app_target_rebind_required',
           code: 'APP_TARGET_REBIND_REQUIRED',
@@ -200,6 +206,16 @@ function createPassiveAppWatcher({
         unwatch(state.target.id);
         onRebind(payload);
         return { ok: false, code: payload.code };
+      }
+      const nextIdentity = { ...(advanced.concreteTargetIdentity || identity) };
+      const identityChanged = JSON.stringify(nextIdentity) !== JSON.stringify(state.continuityIdentity);
+      state.continuityIdentity = nextIdentity;
+      if (identityChanged) {
+        onIdentity({
+          targetId: state.target.id,
+          providerId: state.target.providerId,
+          bindingIdentity: { ...state.continuityIdentity }
+        });
       }
 
       const turns = adapter.completedTurns(capture.snapshot, { limit: 64 });

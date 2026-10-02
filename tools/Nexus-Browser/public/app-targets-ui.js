@@ -130,7 +130,8 @@
         const restoring = restorePending;
         restorePending = false;
         selectedTarget = msg.target || null;
-        if (!restoring) boundIdentity = selectedTarget?.concreteTargetIdentity
+        if (msg.bindingIdentity) boundIdentity = { ...msg.bindingIdentity };
+        else if (!restoring) boundIdentity = selectedTarget?.concreteTargetIdentity
           ? { ...selectedTarget.concreteTargetIdentity } : null;
         targetStatus = msg.status || null;
         diagnostics = msg.diagnostics || diagnostics;
@@ -145,8 +146,15 @@
         if (!selectedTarget || !msg.targetId || selectedTarget.id === msg.targetId) {
           targetStatus = msg.status || null;
           diagnostics = msg.diagnostics || diagnostics;
+          if (msg.bindingIdentity) boundIdentity = { ...msg.bindingIdentity };
           renderStatusText();
           renderBaseStatus();
+        }
+        return true;
+      }
+      if (msg.type === 'app_target_binding_update') {
+        if (selectedTarget?.id === msg.targetId && msg.bindingIdentity) {
+          boundIdentity = { ...msg.bindingIdentity };
         }
         return true;
       }

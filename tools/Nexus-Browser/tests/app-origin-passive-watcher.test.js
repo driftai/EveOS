@@ -21,8 +21,8 @@ const target = {
     kind: 'windows-app-window',
     processId: 118148,
     windowHandle: 4473474,
-    conversationAnchor: fp('a'),
-    conversationAnchors: [fp('a')]
+    conversationAnchor: fp('c'),
+    conversationAnchors: [fp('a'), fp('b'), fp('c')]
   }
 };
 const oldTurn = { fingerprint: fp('1'), text: 'old native reply', partCount: 1, order: 0 };
@@ -33,7 +33,11 @@ function makeHarness({ ledgerFile = null, initialTurns = [oldTurn] } = {}) {
   const ledger = createPassiveTurnLedger({ filePath });
   let snapshot = {
     generating: false,
-    identity: { conversationTitle: '', conversationAnchor: fp('a'), conversationAnchors: [fp('a')] },
+    identity: {
+      conversationTitle: '',
+      conversationAnchor: fp('c'),
+      conversationAnchors: [fp('a'), fp('b'), fp('c')]
+    },
     turns: initialTurns.map((turn) => ({ ...turn }))
   };
   let listener = null;
@@ -134,13 +138,30 @@ test('one genuinely new reply that arrived across restart is emitted once', asyn
   } finally { fs.rmSync(first.dir, { recursive: true, force: true }); }
 });
 
+test('rolling virtualized anchor windows stay bound across later native turns', async () => {
+  const h = makeHarness();
+  try {
+    await h.watcher.scanNow(target.id);
+    for (const identity of [
+      { conversationTitle: '', conversationAnchor: fp('d'), conversationAnchors: [fp('b'), fp('c'), fp('d')] },
+      { conversationTitle: '', conversationAnchor: fp('e'), conversationAnchors: [fp('c'), fp('d'), fp('e')] },
+      { conversationTitle: '', conversationAnchor: fp('1'), conversationAnchors: [fp('d'), fp('e'), fp('1')] }
+    ]) {
+      h.setSnapshot({ ...h.snapshot(), identity });
+      const result = await h.watcher.scanNow(target.id);
+      assert.equal(result.code, undefined);
+    }
+    assert.equal(h.rebinds.length, 0);
+  } finally { h.cleanup(); }
+});
+
 test('native conversation switch fails closed and requires rebind', async () => {
   const h = makeHarness();
   try {
     await h.watcher.scanNow(target.id);
     h.setSnapshot({
       generating: false,
-      identity: { conversationTitle: 'Different chat', conversationAnchor: fp('b'), conversationAnchors: [fp('b')] },
+      identity: { conversationTitle: 'Different chat', conversationAnchor: fp('f'), conversationAnchors: [fp('f')] },
       turns: [{ fingerprint: fp('5'), text: 'wrong conversation reply', partCount: 1, order: 0 }]
     });
     const result = await h.watcher.scanNow(target.id);
