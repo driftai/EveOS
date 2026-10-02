@@ -128,6 +128,18 @@ function windowRect(windowInfo = {}) {
   return { x: 0, y: 0, width: asNumber(windowInfo.width), height: asNumber(windowInfo.height) };
 }
 
+function authoritativeWindowFrame(windowInfo = {}, inspectedWindow = {}, elements = []) {
+  const merged = { ...windowInfo, ...inspectedWindow };
+  const rootWindow = elements.find((element) => {
+    if (controlType(element) !== 'window') return false;
+    const rect = rectOf(element);
+    return rect.width > 0 && rect.height > 0;
+  });
+  if (!rootWindow) return merged;
+  const rect = rectOf(rootWindow);
+  return { ...merged, x: rect.x, y: rect.y, width: rect.width, height: rect.height, rect };
+}
+
 function relativeGeometry(element, windowInfo = {}) {
   const rect = rectOf(element), frame = windowRect(windowInfo);
   const center = centerOf(element);
@@ -364,8 +376,8 @@ function latestCandidate(texts = [], { baseline = new Set(), prompt = '' } = {})
 
 function snapshotFromInspect({ windowInfo, json }) {
   const inspectedWindow = windowsFromEnvelope(json)[0] || windowInfo || {};
-  const frame = { ...windowInfo, ...inspectedWindow };
   const elements = flattenElements(json);
+  const frame = authoritativeWindowFrame(windowInfo, inspectedWindow, elements);
   const composerContext = { windowInfo: frame };
   const composerRanked = rankCandidates(elements, composerScore, composerContext);
   const composer = composerRanked[0]?.score >= 18 ? composerRanked[0].element : null;
@@ -413,6 +425,7 @@ module.exports = {
   rectOf,
   centerOf,
   windowRect,
+  authoritativeWindowFrame,
   relativeGeometry,
   candidateSummary,
   composerScore,

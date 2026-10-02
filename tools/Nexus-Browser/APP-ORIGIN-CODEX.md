@@ -24,7 +24,22 @@ If the exact prompt is visible but no assistant block exists yet, the reader rem
 correlated and returns an empty response. It must never fall back to unrelated UI text
 such as `12:29 AM`.
 
-## Visual order, not UIA array order
+## Coordinate-frame invariant
+
+Windows UI Automation reports node rectangles in absolute desktop coordinates. A
+persisted App-Origin target may contain only PID/HWND/title, while a later `ui inspect`
+response may report width/height without repeating the desktop x/y origin. In that case,
+relative geometry must use the inspected tree's root `Window` rectangle as the
+authoritative frame.
+
+This was proven live on the Codex surface: the ChatGPT window root was at
+`x=1392, y=13, 526x844`; the user prompt was around `x=1611, y=198`; and Nova's
+reply was around `x=1470, y=299`. Treating the frame origin as `0,0` rejected every
+message even though the UIA text nodes themselves were correct.
+
+The regression lives in `tests/chatgpt-windows-frame-origin.test.js`.
+
+## Visual order, not UIA array order## Visual order, not UIA array order
 
 Codex WebView accessibility flattening is not guaranteed to list message nodes in the
 same order they appear on screen. Markerless correlation therefore orders eligible

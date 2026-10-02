@@ -88,7 +88,16 @@ The Windows 0.7.0 source checkpoint passed 27 focused Dex/Antigravity/diagnostic
 
 Still pending: headed-provider send/capture, direct existing-Antigravity TUI probe/send/capture without spawning a replacement process, owned supervisor start/stop and Global Stop confirmation for the current checkpoint, and the complete uncached `npm run verify` run. A static passing test is not a substitute for any of these live checks.
 
-## Search Monitor iframe stability
+## Windows UIA evidence workflow
+
+For new App-Origin applications or desktop UI drift, capture the live accessibility
+shape before changing adapters. Run `npm run diagnose:app-ui -- --app "<query>"
+--contains "<unique marker>" --include-offscreen` and use the root Window rectangle as
+the coordinate frame. The deterministic companion is `npm run smoke:app-ui-info`.
+
+See `tools/Nexus-Browser/APP-UIA-INSPECTION.md` for the reusable procedure.
+
+## Search Monitor iframe stability## Search Monitor iframe stability
 
 Search Monitor must not physically reorder its live `#loadingIndicator` subtree merely
 to become `document.body.lastElementChild`. The monitor owns a very high z-index and
