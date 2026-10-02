@@ -122,3 +122,12 @@ test('Conversation sync hidden state wins over target-row display styling', () =
   assert.match(APP_MIRROR_UI, /selectedTargetClassId === 'online-origin'/);
   assert.match(APP_MIRROR_UI, /selectedProviderId === 'chatgpt'/);
 });
+
+
+test('Base App-Origin prevents overlapping sends while preserving the draft', () => {
+  assert.match(APP, /appBusy = app &&/);
+  assert.match(APP, /Current ChatGPT turn still running/);
+  assert.match(APP, /el\.sendPrompt\.disabled = [^;]*appBusy/);
+  assert.match(APP_TARGETS_UI, /phase: 'waiting'/);
+  assert.match(APP_TARGETS_UI, /phase: 'streaming'/);
+});

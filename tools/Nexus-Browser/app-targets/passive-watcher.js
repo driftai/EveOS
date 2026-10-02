@@ -212,7 +212,8 @@ function createPassiveAppWatcher({
       if (capture?.isGenerating || capture?.snapshot?.generating) return { ok: true, generating: true };
 
       const identity = adapter.conversationIdentity(capture.snapshot);
-      const turns = adapter.completedTurns(capture.snapshot, { limit: 64 });
+      const observedTurns = adapter.completedTurns(capture.snapshot, { limit: 64 });
+      const turns = observedTurns.filter((turn) => turn.completeHint !== false);
       if (!identity?.conversationAnchor && !identity?.conversationTitle) {
         state.lastError = 'APP_CONVERSATION_IDENTITY_UNAVAILABLE';
         nextDelay = idleMs;
@@ -223,7 +224,7 @@ function createPassiveAppWatcher({
       let advanced = typeof appTargets.advanceAppTargetBinding === 'function'
         ? appTargets.advanceAppTargetBinding(expectedTarget, liveTarget)
         : appTargets.exactAppTargetMatch?.(expectedTarget, liveTarget) ? liveTarget : null;
-      const turnContinuity = turns.some((turn) => state.continuityTurns.has(String(turn.fingerprint || '')));
+      const turnContinuity = observedTurns.some((turn) => state.continuityTurns.has(String(turn.fingerprint || '')));
       if (!advanced && turnContinuity) {
         const prior = state.continuityIdentity || {}, live = liveTarget.concreteTargetIdentity || {};
         advanced = { ...liveTarget, concreteTargetIdentity: {

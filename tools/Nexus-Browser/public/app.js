@@ -215,7 +215,7 @@ function renderLocalTargets() {
 }
 function renderStatus() {
   const local = state.selectedTargetClassId === 'local-origin', app = state.selectedTargetClassId === 'app-origin';
-  const uiConnected = state.uiConnectionPhase === 'connected', browser = !local && !app;
+  const uiConnected = state.uiConnectionPhase === 'connected', browser = !local && !app, appBusy = app && ([...state.pending.values()].some((entry) => entry.targetClassId === 'app-origin') || ['waiting', 'streaming'].includes(appTargetsUi?.status()?.phase));
   el.onlineTargetControls.hidden = !browser;
   el.localTargetControls.hidden = !local;
   el.bridgeBadge.textContent = !uiConnected
@@ -239,7 +239,7 @@ function renderStatus() {
     ? `Type here. Enter sends to the selected ${targetName} app.`
     : local ? `Type here. Enter sends to the selected ${targetName} local target.`
       : `Type here. Enter sends to the selected ${targetName} tab.`;
-  el.sendPrompt.disabled = !target || !uiConnected || (browser && (!state.extensionConnected || target.health?.blocking));
+  el.sendPrompt.disabled = !target || !uiConnected || appBusy || (browser && (!state.extensionConnected || target.health?.blocking));
   el.captureLatest.hidden = local;
   el.captureLatest.disabled = local || !target || !uiConnected || (browser && !state.extensionConnected);
   appMirrorUi?.render(); appTargetsUi?.render();
@@ -327,7 +327,7 @@ function handleMessage(msg) {
       const timing = Number.isFinite(Number(msg.detail?.totalResponseMs))
         ? ` · send→app ${Number(msg.detail?.dispatchToAppMs || 0)} ms · app→first ${Number(msg.detail?.timeToFirstResponseMs || 0)} ms · app→final ${Number(msg.detail.totalResponseMs)} ms · adapter round trip ${Number(msg.detail?.nexusRoundTripMs || 0)} ms · UI round trip ${uiRound ?? '?'} ms · ${Number(msg.detail?.pollCount || 0)} poll(s)` : '';
       log(`${assistantDisplayName(msg)} final response ${msg.requestId || ''} (${(msg.text || '').length} chars)${timing}.`);
-      state.pending.delete(msg.requestId);
+      state.pending.delete(msg.requestId); renderStatus();
       break;
     }
     case 'search_results_result':
@@ -342,7 +342,7 @@ function handleMessage(msg) {
       const accessMessage = hostAccessUiMessage(msg);
       addMessage('system', accessMessage || `${msg.code ? `${msg.code}: ` : ''}${msg.message || 'Unknown bridge error.'}`);
       log('Bridge error', JSON.stringify(msg, null, 2));
-      if (msg.requestId) state.pending.delete(msg.requestId);
+      if (msg.requestId) { state.pending.delete(msg.requestId); renderStatus(); }
       if (searchUi.isOpenForRequest(msg.requestId)) {
         searchUi.render({ requestId: msg.requestId, searchIndex: msg.detail?.searchIndex ?? 0, ok: false, error: msg.message || 'Search-result capture failed.' });
       }
@@ -382,6 +382,7 @@ function submitPrompt() {
   if (!text) return;
   const target = activeTarget();
   if (!target) return addMessage('system', 'Connect a target first.');
+  if (state.selectedTargetClassId === 'app-origin' && ([...state.pending.values()].some((entry) => entry.targetClassId === 'app-origin') || ['waiting', 'streaming'].includes(appTargetsUi?.status()?.phase))) return addMessage('system', 'Current ChatGPT turn still running.');
 
   const id = requestId();
   const payload = { type: 'send_prompt', requestId: id, text, targetClassId: state.selectedTargetClassId };
@@ -389,10 +390,9 @@ function submitPrompt() {
   state.pending.set(id, { text, sentAt: Date.now(), providerId: target.providerId, targetClassId: state.selectedTargetClassId });
   if (!send(payload)) { state.pending.delete(id); return; }
 
-  addMessage('user', text, `user-${id}`);
+  addMessage('user', text, `user-${id}`); renderStatus();
   el.prompt.value = '';
 }
-
 el.targetClassSelect.addEventListener('change', () => {
   state.selectedTargetClassId = el.targetClassSelect.value;
   renderStatus();

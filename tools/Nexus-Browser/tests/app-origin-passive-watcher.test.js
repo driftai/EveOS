@@ -300,3 +300,25 @@ test('multiple rapid completed native turns remain ordered and exactly once', as
     assert.equal(h.events.length, 3);
   } finally { h.cleanup(); }
 });
+
+
+test('role-owned passive turns wait for completeHint before delivery', async () => {
+  const h = makeHarness();
+  try {
+    await h.watcher.scanNow(target.id);
+    const partialA = { fingerprint: fp('a'), text: 'At this point I would stop poking', partCount: 1, order: 1, completeHint: false };
+    h.setSnapshot({ ...h.snapshot(), turns: [oldTurn, partialA] });
+    await h.watcher.scanNow(target.id);
+    assert.equal(h.events.length, 0);
+
+    const partialB = { fingerprint: fp('b'), text: 'At this point I would stop poking the transport and start', partCount: 1, order: 1, completeHint: false };
+    h.setSnapshot({ ...h.snapshot(), turns: [oldTurn, partialB] });
+    await h.watcher.scanNow(target.id);
+    assert.equal(h.events.length, 0);
+
+    const final = { fingerprint: fp('c'), text: 'At this point I would stop poking the transport and start using Nexus normally.', partCount: 1, order: 1, completeHint: true };
+    h.setSnapshot({ ...h.snapshot(), turns: [oldTurn, final] });
+    await h.watcher.scanNow(target.id);
+    assert.deepEqual(h.events.map((event) => event.text), [final.text]);
+  } finally { h.cleanup(); }
+});

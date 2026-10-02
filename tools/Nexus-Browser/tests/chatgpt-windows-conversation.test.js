@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { snapshotFromInspect } = require('../app-targets/chatgpt-windows');
 const { latestAssistantReply, activeConversationTitle, conversationAnchorDigests, completedAssistantTurns,
-  preferExpandedReply, normalizeSyntheticFragmentBreaks } = require('../app-targets/chatgpt-windows-conversation');
+  completedAssistantTurnForPrompt, preferExpandedReply, normalizeSyntheticFragmentBreaks } = require('../app-targets/chatgpt-windows-conversation');
 
 test('native reply aggregation preserves multi-paragraph ChatGPT answers and ignores progress chrome', () => {
   const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 100, y: 20, width: 1200, height: 900 };
@@ -281,4 +281,43 @@ test('native conversation identity ignores window controls such as Minimize', ()
     }] }] }
   });
   assert.equal(activeConversationTitle(snapshot)?.text, 'Merger Work and Stabilization - Greet');
+});
+
+
+test('repeated inline-code text at distinct native positions is preserved twice', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
+  const token = 'NEXUS_DUPLICATION_PROBE_X42';
+  const snapshot = snapshotFromInspect({
+    windowInfo,
+    json: { windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Pane', x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'role', type: 'Text', name: 'ChatGPT said', x: 280, y: 180, width: 1, height: 1, children: [] },
+        { selector: 'p1', type: 'Text', name: 'Occurrence one:', x: 280, y: 210, width: 120, height: 20, children: [] },
+        { selector: 'code-1', type: 'Text', name: token, x: 410, y: 210, width: 240, height: 20, children: [] },
+        { selector: 'p2', type: 'Text', name: 'Occurrence two:', x: 280, y: 250, width: 120, height: 20, children: [] },
+        { selector: 'code-2', type: 'Text', name: token, x: 410, y: 250, width: 240, height: 20, children: [] }
+      ]
+    }] }] }
+  });
+  const text = latestAssistantReply(snapshot)?.text || '';
+  assert.equal((text.match(/NEXUS_DUPLICATION_PROBE_X42/g) || []).length, 2);
+});
+
+test('role expansion rejects a root document aggregate that contains the current user prompt', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
+  const prompt = 'NEXUS recursive transcript audit';
+  const json = { windows: [{ ...windowInfo, elements: [{
+    selector: 'RootWebArea', type: 'Document',
+    name: prompt + ' OLD NEXUS LOG Good final NEXUS_INLINE_X',
+    x: 0, y: 0, width: 1200, height: 900, children: [
+      { selector: 'u-role', type: 'Text', name: 'You said', x: 300, y: 140, width: 1, height: 1, children: [] },
+      { selector: 'u', type: 'Text', name: prompt, x: 760, y: 160, width: 330, height: 30, children: [] },
+      { selector: 'a-role', type: 'Text', name: 'ChatGPT said', x: 300, y: 220, width: 1, height: 1, children: [] },
+      { selector: 'a1', type: 'Text', name: 'Good final', x: 300, y: 245, width: 120, height: 20, children: [] },
+      { selector: 'a2', type: 'Text', name: 'NEXUS_INLINE_X', x: 430, y: 245, width: 160, height: 20, children: [] }
+    ]
+  }] }] };
+  const turn = completedAssistantTurnForPrompt(snapshotFromInspect({ windowInfo, json }), prompt);
+  assert.equal(turn?.text, 'Good final NEXUS_INLINE_X');
+  assert.doesNotMatch(turn?.text || '', /OLD NEXUS LOG|recursive transcript audit/);
 });

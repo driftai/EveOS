@@ -2,7 +2,7 @@
 
 const { createHash } = require('node:crypto');
 const uia = require('./chatgpt-windows-uia'), markerless = require('./chatgpt-windows-markerless'),
-  roleTurns = require('./chatgpt-windows-role-turns');
+  roleTurns = require('./chatgpt-windows-role-turns'), reconstruction = require('./chatgpt-windows-reconstruction');
 
 const ASSISTANT_MARKER = /^(?:chatgpt|assistant)\s+said\s*:?$/i;
 const USER_MARKER = /^(?:you|user)\s+said\s*:?$/i;
@@ -81,7 +81,7 @@ function assistantReplyGroups(snapshot = {}, options = {}) {
     const node = eligibleReplyNode(element, snapshot, options);
     if (!node) continue;
     const normalized = node.normalizedText;
-    if (current.normalizedParts.includes(normalized)) continue;
+    if (reconstruction.duplicateNodeIndex(current.normalizedParts, current.selectors, current.rects, normalized, node.selector, node.rect) >= 0) continue;
     if (containingAggregateIndex(current.normalizedParts, current.types, current.rects, normalized, node.rect) >= 0) continue;
     const retained = current.normalizedParts.map((part, index) => ({
       part, text: current.parts[index], selector: current.selectors[index],
@@ -157,9 +157,9 @@ function groupedMessageText(group = {}) {
   return blocks.join('\n\n');
 }
 
-function expandedGroupedMessageText(snapshot = {}, group = {}) {
+function expandedGroupedMessageText(snapshot = {}, group = {}, forbiddenText = '') {
   const grouped = groupedMessageText(group);
-  const expanded = expandGroupedText(snapshot, grouped);
+  const expanded = expandGroupedText(snapshot, grouped, { forbiddenText });
   const groupedCompact = uia.normalizeCandidate(grouped).replace(/\s+/g, '');
   const expandedCompact = uia.normalizeCandidate(expanded).replace(/\s+/g, '');
   if (groupedCompact && groupedCompact === expandedCompact) return grouped;
@@ -209,7 +209,7 @@ function roleMessageGroups(snapshot = {}) {
         && !type.includes('paragraph') && !type.includes('listitem')) continue;
 
     const rect = uia.rectOf(element);
-    if (current.normalizedParts.includes(text)) continue;
+    if (reconstruction.duplicateNodeIndex(current.normalizedParts, current.selectors, current.rects, text, selector, rect) >= 0) continue;
     if (containingAggregateIndex(current.normalizedParts, current.types, current.rects, text, rect) >= 0) continue;
     const retained = current.normalizedParts.map((part, index) => ({
       part,
@@ -249,18 +249,19 @@ function sameMessageText(left = '', right = '') {
   return !!a && !!b && (a === b || a.replace(/\s+/g, '') === b.replace(/\s+/g, ''));
 }
 
-function expandGroupedText(snapshot = {}, rawText = '') {
-  const normalized = uia.normalizeCandidate(rawText);
-  const compact = normalized.replace(/\s+/g, '');
+function expandGroupedText(snapshot = {}, rawText = '', { forbiddenText = '' } = {}) {
+  const normalized = uia.normalizeCandidate(rawText), compact = normalized.replace(/\s+/g, '');
+  const forbidden = uia.normalizeCandidate(forbiddenText).replace(/\s+/g, '');
   if (!compact) return rawText;
-  const limit = Math.max(128, normalized.length * 4);
-  const candidates = [];
+  const limit = Math.max(128, normalized.length * 3), candidates = [];
   for (const element of snapshot.elements || []) {
     const type = uia.controlType(element), selector = uia.selectorOf(element);
     if (!type.includes('document') && !/rootwebarea/i.test(selector)) continue;
-    const raw = nodeText(element), text = uia.normalizeCandidate(raw);
+    const raw = nodeText(element), text = uia.normalizeCandidate(raw), candidateCompact = text.replace(/\s+/g, '');
     if (!text || text.length <= normalized.length || text.length > limit || uia.isChromeText(text)) continue;
-    if (text.replace(/\s+/g, '').includes(compact)) candidates.push({ raw, length: text.length });
+    if (reconstruction.aggregateCrossesRoleBoundary(raw)
+        || (forbidden.length >= 12 && candidateCompact.includes(forbidden))) continue;
+    if (candidateCompact.includes(compact)) candidates.push({ raw, length: text.length });
   }
   candidates.sort((a, b) => a.length - b.length);
   return candidates[0]?.raw || rawText;
@@ -271,7 +272,7 @@ function completedAssistantTurnForPrompt(snapshot = {}, prompt = '') {
   let matched = null, order = 0;
   for (const { user, assistant } of roleTurns.roleTurnPairs(roleMessageGroups(snapshot))) {
     const userText = uia.normalizeCandidate(groupedMessageText(user));
-    const assistantRaw = expandedGroupedMessageText(snapshot, assistant);
+    const assistantRaw = expandedGroupedMessageText(snapshot, assistant, userText);
     const assistantText = uia.normalizeCandidate(assistantRaw);
     if (!userText || !assistantText) continue;
     const pairDigest = createHash('sha256')
@@ -313,7 +314,7 @@ function conversationAnchorDigests(snapshot = {}, { limit = 8 } = {}) {
   for (const { user, assistant } of pairs) {
     const userText = uia.normalizeCandidate(groupedMessageText(user));
     const assistantText = uia.normalizeCandidate(normalizeSyntheticFragmentBreaks(
-      expandGroupedText(snapshot, groupedMessageText(assistant))));
+      expandGroupedText(snapshot, groupedMessageText(assistant), { forbiddenText: userText })));
     if (!userText || !assistantText || userText.length + assistantText.length < 24) continue;
     const digest = createHash('sha256')
       .update('eveos-chatgpt-native-conversation-anchor-v1\0')
@@ -332,7 +333,7 @@ function completedAssistantTurns(snapshot = {}, { limit = 64 } = {}) {
   const turns = [], occurrences = new Map();
   for (const { user, assistant } of pairs) {
     const userText = uia.normalizeCandidate(groupedMessageText(user));
-    const assistantRaw = expandedGroupedMessageText(snapshot, assistant);
+    const assistantRaw = expandedGroupedMessageText(snapshot, assistant, userText);
     const assistantText = uia.normalizeCandidate(assistantRaw);
     if (!userText || !assistantText) continue;
     const pairDigest = createHash('sha256')

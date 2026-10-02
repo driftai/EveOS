@@ -119,12 +119,19 @@
 
     function handleMessage(msg = {}) {
       if (msg.targetClassId === 'app-origin' && (!selectedTarget || !msg.targetId || msg.targetId === selectedTarget.id)) {
+        if (selectedTarget && msg.type === 'prompt_accepted') targetStatus = { ...(targetStatus || {}), phase: 'waiting' };
+        if (selectedTarget && msg.type === 'response_partial') targetStatus = { ...(targetStatus || {}), phase: 'streaming' };
+        if (selectedTarget && msg.type === 'response_final') targetStatus = { ...(targetStatus || {}), phase: 'idle' };
+        if (selectedTarget && msg.type === 'error' && msg.code !== 'APP_TARGET_BUSY') targetStatus = { ...(targetStatus || {}), phase: 'idle' };
         if (msg.type === 'prompt_accepted' && Number.isFinite(Number(msg.detail?.dispatchToAppMs))) {
           lastTiming = { dispatchToAppMs: Number(msg.detail.dispatchToAppMs) };
           renderTiming();
         } else if (msg.type === 'response_final' && msg.detail) {
           lastTiming = { ...msg.detail };
           renderTiming();
+        }
+        if (selectedTarget && ['prompt_accepted', 'response_partial', 'response_final', 'error'].includes(msg.type)) {
+          renderStatusText(); renderBaseStatus();
         }
       }
       if (msg.type === 'app_targets_update') {
