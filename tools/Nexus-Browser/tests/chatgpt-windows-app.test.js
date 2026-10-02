@@ -323,6 +323,7 @@ test('ChatGPT Windows adapter uses fast confirmation/polling with guarded post-g
     platform: 'win32',
     sleepFn: async (ms) => { sleeps.push(ms); clock += ms; },
     now: () => clock,
+    shortReplySettleMs: 0,
     responseTimeoutMs: 30000
   });
   const result = await adapter.sendPrompt({

@@ -1,6 +1,6 @@
 'use strict';
 
-const { createPassiveAppWatcher } = require('./passive-watcher');
+const { createPassiveAppWatcher, bindingScope } = require('./passive-watcher');
 
 function createAppTargetServerController({
   appTargets,
@@ -206,8 +206,14 @@ function createAppTargetServerController({
         }
       }
       ws.appTargetId = target.id;
-      const bindingIdentity = msg.expectedIdentity || target.concreteTargetIdentity || {};
-      ws.appTargetBinding = { ...target, concreteTargetIdentity: { ...bindingIdentity } };
+      const bindingIdentity = { ...(msg.expectedIdentity || target.concreteTargetIdentity || {}) };
+      if (!bindingIdentity.deliveryScope) {
+        bindingIdentity.deliveryScope = bindingScope({
+          ...target,
+          concreteTargetIdentity: bindingIdentity
+        });
+      }
+      ws.appTargetBinding = { ...target, concreteTargetIdentity: bindingIdentity };
       passiveWatcher.watch(ws.appTargetBinding);
       safeSend(ws, {
         type: 'app_target_selected',

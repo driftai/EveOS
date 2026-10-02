@@ -17,6 +17,9 @@ function hasConversationProof(target = {}) {
 
 function bindingScope(target = {}) {
   const identity = target.concreteTargetIdentity || {};
+  if (/^[a-f0-9]{64}$/i.test(String(identity.deliveryScope || ''))) {
+    return String(identity.deliveryScope).toLowerCase();
+  }
   const proof = String(identity.conversationAnchor || identity.conversationTitle || '');
   return createHash('sha256')
     .update('eveos-app-origin-binding-scope-v1\0')
@@ -43,6 +46,7 @@ function liveTargetFromSnapshot(bound, identity = {}) {
       ...(prior.app ? { app: prior.app } : {}),
       ...(prior.processId ? { processId: prior.processId } : {}),
       ...(prior.windowHandle ? { windowHandle: prior.windowHandle } : {}),
+      ...(prior.deliveryScope ? { deliveryScope: prior.deliveryScope } : {}),
       ...(identity.conversationTitle ? { conversationTitle: identity.conversationTitle } : {}),
       ...(identity.conversationAnchor ? { conversationAnchor: identity.conversationAnchor } : {}),
       ...(identity.conversationAnchors?.length ? { conversationAnchors: identity.conversationAnchors } : {})
@@ -73,15 +77,20 @@ function createPassiveAppWatcher({
   const bindings = new Map();
   let stopped = false;
 
-  function observedActive({ target, turn, source } = {}) {
+  async function observedActive({ target, turn, source } = {}) {
     if (!turn?.fingerprint || !target?.id) return null;
     const state = bindings.get(target.id);
     if (!state) return null;
     const fingerprint = deliveryFingerprint(state.target, turn.fingerprint);
     state.lastSent.delete(fingerprint);
-    return ledger.seed(fingerprint, {
+    await ledger.seed(fingerprint, {
+      targetId: target.id, providerId: target.providerId, source: source || 'active',
+      scope: state.scope, nativeFingerprint: turn.fingerprint
+    });
+    await ledger.setCursor(state.scope, turn.fingerprint, {
       targetId: target.id, providerId: target.providerId, source: source || 'active'
     });
+    return fingerprint;
   }
   const unsubscribe = typeof appTargets?.onAppTurnFinal === 'function'
     ? appTargets.onAppTurnFinal(observedActive) : () => {};
@@ -107,7 +116,9 @@ function createPassiveAppWatcher({
     const state = {
       target: { ...target, concreteTargetIdentity: { ...(target.concreteTargetIdentity || {}) } },
       continuityIdentity: { ...(target.concreteTargetIdentity || {}) },
+      scope: bindingScope(target),
       primed: false,
+      visibleTurnOrder: new Map(),
       timer: null,
       running: false,
       lastSent: new Map(),
@@ -134,7 +145,8 @@ function createPassiveAppWatcher({
     let entry = ledger.entry(fingerprint);
     if (entry?.state === 'delivered') return false;
     if (!entry) entry = await ledger.discover(fingerprint, {
-      targetId: state.target.id, providerId: state.target.providerId, source: 'passive'
+      targetId: state.target.id, providerId: state.target.providerId, source: 'passive',
+      scope: state.scope, nativeFingerprint: turn.fingerprint
     });
     if (entry?.state === 'delivered') return false;
     const lastSent = Number(state.lastSent.get(fingerprint) || 0);
@@ -219,27 +231,37 @@ function createPassiveAppWatcher({
       }
 
       const turns = adapter.completedTurns(capture.snapshot, { limit: 64 });
+      state.visibleTurnOrder = new Map(turns.map((turn, index) => [turn.fingerprint, index]));
       if (!state.primed) {
-        let lastKnown = -1;
-        for (let index = 0; index < turns.length; index += 1) {
-          if (ledger.entry(deliveryFingerprint(state.target, turns[index].fingerprint))) lastKnown = index;
-        }
-        if (lastKnown < 0) {
+        const cursor = ledger.cursor(state.scope);
+        const cursorIndex = cursor
+          ? turns.findIndex((turn) => turn.fingerprint === cursor.nativeFingerprint)
+          : -1;
+        if (!cursor || cursorIndex < 0) {
           for (const turn of turns) {
             await ledger.seed(deliveryFingerprint(state.target, turn.fingerprint), {
-              targetId: state.target.id, providerId: state.target.providerId, source: 'baseline'
+              targetId: state.target.id, providerId: state.target.providerId,
+              source: cursor ? 'baseline-resync' : 'baseline',
+              scope: state.scope, nativeFingerprint: turn.fingerprint
+            });
+          }
+          if (turns.length) {
+            await ledger.setCursor(state.scope, turns.at(-1).fingerprint, {
+              targetId: state.target.id, providerId: state.target.providerId,
+              source: cursor ? 'baseline-resync' : 'baseline'
             });
           }
           state.primed = true;
           state.lastError = null;
-          return { ok: true, primed: true, baseline: turns.length };
+          return { ok: true, primed: true, baseline: turns.length, resynced: !!cursor };
         }
-        for (let index = 0; index <= lastKnown; index += 1) {
+        for (let index = 0; index <= cursorIndex; index += 1) {
           const turn = turns[index];
           const fingerprint = deliveryFingerprint(state.target, turn.fingerprint);
           if (!ledger.entry(fingerprint)) {
             await ledger.seed(fingerprint, {
-              targetId: state.target.id, providerId: state.target.providerId, source: 'baseline-gap'
+              targetId: state.target.id, providerId: state.target.providerId, source: 'baseline-gap',
+              scope: state.scope, nativeFingerprint: turn.fingerprint
             });
           }
         }
@@ -272,12 +294,26 @@ function createPassiveAppWatcher({
     }
   }
 
-  function ack({ targetId, fingerprint } = {}) {
+  async function ack({ targetId, fingerprint } = {}) {
     const entry = ledger.entry(fingerprint);
-    if (!entry || (entry.targetId && String(entry.targetId) !== String(targetId || ''))) return Promise.resolve(false);
+    if (!entry || (entry.targetId && String(entry.targetId) !== String(targetId || ''))) return false;
     const state = bindings.get(String(targetId || ''));
     state?.lastSent.delete(fingerprint);
-    return ledger.ack(fingerprint, { targetId, providerId: entry.providerId, source: 'ui-ack' }).then(() => true);
+    await ledger.ack(fingerprint, {
+      targetId, providerId: entry.providerId, source: 'ui-ack',
+      scope: entry.scope, nativeFingerprint: entry.nativeFingerprint
+    });
+    if (state && entry.nativeFingerprint) {
+      const current = ledger.cursor(state.scope)?.nativeFingerprint;
+      const currentIndex = state.visibleTurnOrder.get(current);
+      const nextIndex = state.visibleTurnOrder.get(entry.nativeFingerprint);
+      if (nextIndex != null && (currentIndex == null || nextIndex >= currentIndex)) {
+        await ledger.setCursor(state.scope, entry.nativeFingerprint, {
+          targetId, providerId: entry.providerId, source: 'ui-ack'
+        });
+      }
+    }
+    return true;
   }
 
   function diagnostics() {

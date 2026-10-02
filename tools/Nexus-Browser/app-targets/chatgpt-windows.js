@@ -1,7 +1,7 @@
 'use strict';
 
-const defaultRunner = require('./winapp-runner'), uia = require('./chatgpt-windows-uia');
-const conversation = require('./chatgpt-windows-conversation'), titleResolver = require('./chatgpt-windows-title');
+const defaultRunner = require('./winapp-runner'), uia = require('./chatgpt-windows-uia'),
+  conversation = require('./chatgpt-windows-conversation'), titleResolver = require('./chatgpt-windows-title');
 const {
   windowsFromEnvelope, pickMainWindow, hwndOf, pidOf, selectorOf,
   composerScore, sendScore, rankCandidates, elementsFromSearch,
@@ -9,10 +9,7 @@ const {
 } = uia;
 
 const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVIDER_NAME = 'ChatGPT App', APP_MATCH = 'ChatGPT';
-const FIRST_POLL_MS = 75;
-const POLL_MS = 180;
-const SETTLE_MS = 850;
-const POST_GENERATION_SETTLE_MS = 650;
+const FIRST_POLL_MS = 75, POLL_MS = 180, SETTLE_MS = 850, POST_GENERATION_SETTLE_MS = 650;
 const RESPONSE_TIMEOUT_MS = 4 * 60 * 1000;
 
 let lastDiagnostics = {
@@ -34,6 +31,7 @@ function createAdapter({
   pollMs = POLL_MS,
   settleMs = SETTLE_MS,
   postGenerationSettleMs = POST_GENERATION_SETTLE_MS,
+  shortReplySettleMs = 1400,
   responseTimeoutMs = RESPONSE_TIMEOUT_MS
 } = {}) {
   async function helperStatus() {
@@ -318,7 +316,7 @@ function createAdapter({
       observedAt: acceptedAt });
 
     const deadline = acceptedAt + responseTimeoutMs;
-    let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null;
+    let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null;
     let sawGenerating = false, firstPoll = true, pollCount = 0;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
 
@@ -333,9 +331,8 @@ function createAdapter({
       pollCount += 1;
       const observedAt = now();
       if (lastSnapshot.generating) sawGenerating = true;
-      const candidate = conversation.latestAssistantReply(lastSnapshot, { baseline: baselineSet, prompt: text })?.text
-        || latestResponseCandidate(lastSnapshot, { baseline: baselineSet, prompt: text })?.text
-        || latestCandidate(lastSnapshot.texts, { baseline: baselineSet, prompt: text });
+      const observed = conversation.responseForPrompt(lastSnapshot, { baseline: baselineSet, prompt: text });
+      const candidate = observed.text; if (observed.nativeTurn) nativeTurn = observed.nativeTurn;
       if (candidate && candidate !== lastText) {
         lastText = candidate;
         if (!firstResponseAt) firstResponseAt = observedAt;
@@ -353,16 +350,19 @@ function createAdapter({
         });
       }
       const stableFor = observedAt - lastChangedAt;
-      const requiredSettle = sawGenerating ? postGenerationSettleMs : settleMs;
+      const baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
+      const requiredSettle = lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
       if (lastText && !lastSnapshot.generating && stableFor >= requiredSettle) {
         try {
           const fullSnapshot = await inspect({
             hwnd: target.windowHandle, pid: target.pid, title: target.title
           }, { includeOffscreen: true });
-          const expanded = conversation.latestAssistantReply(fullSnapshot, {
+          const full = conversation.responseForPrompt(fullSnapshot, {
             baseline: baselineSet, prompt: text, includeOffscreen: true
-          })?.text || '';
-          const reconstructed = conversation.preferExpandedReply(lastText, expanded);
+          });
+          if (full.correlated && !full.nativeTurn) { lastSnapshot = fullSnapshot; lastChangedAt = now(); continue; }
+          nativeTurn = full.nativeTurn || nativeTurn;
+          const reconstructed = conversation.preferExpandedReply(lastText, full.text);
           lastSnapshot = fullSnapshot;
           if (reconstructed && reconstructed !== lastText) {
             lastText = reconstructed;
@@ -386,7 +386,7 @@ function createAdapter({
           targetClassId: 'app-origin', targetId: target.id,
           providerId: PROVIDER_ID, providerName: PROVIDER_NAME
         });
-        return { text: lastText, snapshot: lastSnapshot };
+        return { text: lastText, snapshot: lastSnapshot, nativeTurn };
       }
     }
     const error = new Error('Timed out waiting for a stable ChatGPT app reply.');

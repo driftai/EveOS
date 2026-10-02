@@ -64,6 +64,15 @@ test('App-Origin discovery and selection stay independent from browser tabs', as
   await h.controller.handle(h.ws, { type: 'select_app_target', targetId: h.target.id });
   assert.equal(h.ws.appTargetId, h.target.id);
   assert.equal(h.messages.at(-1).payload.type, 'app_target_selected');
+  const scope = h.messages.at(-1).payload.bindingIdentity.deliveryScope;
+  assert.match(scope, /^[a-f0-9]{64}$/);
+
+  await h.controller.handle(h.ws, {
+    type: 'select_app_target',
+    targetId: h.target.id,
+    expectedIdentity: h.messages.at(-1).payload.bindingIdentity
+  });
+  assert.equal(h.messages.at(-1).payload.bindingIdentity.deliveryScope, scope);
 });
 
 test('Base Mode App-Origin send flows through durability and returns app response events', async () => {

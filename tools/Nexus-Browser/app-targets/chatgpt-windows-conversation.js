@@ -136,6 +136,72 @@ function roleMessageGroups(snapshot = {}) {
     .map(({ normalizedParts, ...group }) => group);
 }
 
+function hasRoleMarkers(snapshot = {}) {
+  return (snapshot.elements || []).some((element) => {
+    const text = uia.normalizeCandidate(nodeText(element));
+    return USER_MARKER.test(text) || ASSISTANT_MARKER.test(text);
+  });
+}
+
+function sameMessageText(left = '', right = '') {
+  const a = uia.normalizeCandidate(left).replace(/\s+/g, ' ');
+  const b = uia.normalizeCandidate(right).replace(/\s+/g, ' ');
+  return !!a && !!b && (a === b || a.replace(/\s+/g, '') === b.replace(/\s+/g, ''));
+}
+
+function expandGroupedText(snapshot = {}, rawText = '') {
+  const normalized = uia.normalizeCandidate(rawText);
+  const compact = normalized.replace(/\s+/g, '');
+  if (!compact) return rawText;
+  const limit = Math.max(128, normalized.length * 4);
+  const candidates = [];
+  for (const element of snapshot.elements || []) {
+    const type = uia.controlType(element), selector = uia.selectorOf(element);
+    if (!type.includes('document') && !/rootwebarea/i.test(selector)) continue;
+    const raw = nodeText(element), text = uia.normalizeCandidate(raw);
+    if (!text || text.length <= normalized.length || text.length > limit || uia.isChromeText(text)) continue;
+    if (text.replace(/\s+/g, '').includes(compact)) candidates.push({ raw, length: text.length });
+  }
+  candidates.sort((a, b) => a.length - b.length);
+  return candidates[0]?.raw || rawText;
+}
+
+function completedAssistantTurnForPrompt(snapshot = {}, prompt = '') {
+  const groups = roleMessageGroups(snapshot), occurrences = new Map();
+  let matched = null;
+  for (let index = 1; index < groups.length; index += 1) {
+    const user = groups[index - 1], assistant = groups[index];
+    if (user.role !== 'user' || assistant.role !== 'assistant') continue;
+    const userText = uia.normalizeCandidate(user.parts.join('\n\n'));
+    const assistantRaw = expandGroupedText(snapshot, assistant.parts.join('\n\n'));
+    const assistantText = uia.normalizeCandidate(assistantRaw);
+    if (!userText || !assistantText) continue;
+    const pairDigest = createHash('sha256')
+      .update('eveos-chatgpt-native-turn-pair-v1\0').update(userText).update('\0').update(assistantText).digest('hex');
+    const occurrence = Number(occurrences.get(pairDigest) || 0) + 1;
+    occurrences.set(pairDigest, occurrence);
+    if (!sameMessageText(userText, prompt)) continue;
+    matched = {
+      fingerprint: createHash('sha256')
+        .update('eveos-chatgpt-native-turn-fingerprint-v1\0').update(pairDigest).update('\0').update(String(occurrence)).digest('hex'),
+      text: assistantRaw, selectors: [...assistant.selectors],
+      partCount: assistant.parts.length, order: index
+    };
+  }
+  return matched;
+}
+
+function responseForPrompt(snapshot = {}, { prompt = '', baseline = new Set(), includeOffscreen = false } = {}) {
+  const turn = completedAssistantTurnForPrompt(snapshot, prompt);
+  if (turn) return { text: turn.text, nativeTurn: turn, correlated: true };
+  if (hasRoleMarkers(snapshot)) return { text: '', nativeTurn: null, correlated: true };
+  const grouped = latestAssistantReply(snapshot, { baseline, prompt, includeOffscreen });
+  const fallback = grouped?.text
+    || uia.latestResponseCandidate(snapshot, { baseline, prompt })?.text
+    || uia.latestCandidate(snapshot.texts || [], { baseline, prompt });
+  return { text: fallback || '', nativeTurn: null, correlated: false };
+}
+
 function conversationAnchorDigests(snapshot = {}, { limit = 8 } = {}) {
   const groups = roleMessageGroups(snapshot);
   const anchors = [];
@@ -143,7 +209,7 @@ function conversationAnchorDigests(snapshot = {}, { limit = 8 } = {}) {
     const user = groups[index - 1], assistant = groups[index];
     if (user.role !== 'user' || assistant.role !== 'assistant') continue;
     const userText = uia.normalizeCandidate(user.parts.join('\n\n'));
-    const assistantText = uia.normalizeCandidate(assistant.parts.join('\n\n'));
+    const assistantText = uia.normalizeCandidate(expandGroupedText(snapshot, assistant.parts.join('\n\n')));
     if (!userText || !assistantText || userText.length + assistantText.length < 24) continue;
     const digest = createHash('sha256')
       .update('eveos-chatgpt-native-conversation-anchor-v1\0')
@@ -163,7 +229,8 @@ function completedAssistantTurns(snapshot = {}, { limit = 64 } = {}) {
     const user = groups[index - 1], assistant = groups[index];
     if (user.role !== 'user' || assistant.role !== 'assistant') continue;
     const userText = uia.normalizeCandidate(user.parts.join('\n\n'));
-    const assistantText = uia.normalizeCandidate(assistant.parts.join('\n\n'));
+    const assistantRaw = expandGroupedText(snapshot, assistant.parts.join('\n\n'));
+    const assistantText = uia.normalizeCandidate(assistantRaw);
     if (!userText || !assistantText) continue;
     const pairDigest = createHash('sha256')
       .update('eveos-chatgpt-native-turn-pair-v1\0').update(userText).update('\0').update(assistantText).digest('hex');
@@ -173,7 +240,7 @@ function completedAssistantTurns(snapshot = {}, { limit = 64 } = {}) {
       .update('eveos-chatgpt-native-turn-fingerprint-v1\0').update(pairDigest).update('\0').update(String(occurrence)).digest('hex');
     turns.push({
       fingerprint,
-      text: assistant.parts.join('\n\n'),
+      text: assistantRaw,
       selectors: [...assistant.selectors],
       partCount: assistant.parts.length,
       order: turns.length
@@ -256,6 +323,11 @@ module.exports = {
   assistantReplyGroups,
   latestAssistantReply,
   roleMessageGroups,
+  hasRoleMarkers,
+  sameMessageText,
+  expandGroupedText,
+  completedAssistantTurnForPrompt,
+  responseForPrompt,
   conversationAnchorDigests,
   completedAssistantTurns,
   conversationIdentity,

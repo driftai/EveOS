@@ -162,7 +162,8 @@ function onAppTurnFinal(listener) {
 }
 
 function notifyObservedTurn(target, adapter, result, source) {
-  const turn = adapter?.completedTurns?.(result?.snapshot)?.at(-1);
+  const turn = result?.nativeTurn
+    || (source === 'capture' ? adapter?.completedTurns?.(result?.snapshot)?.at(-1) : null);
   if (!turn?.fingerprint) return null;
   const event = { target, turn, source, observedAt: Date.now() };
   for (const listener of appTurnListeners) {

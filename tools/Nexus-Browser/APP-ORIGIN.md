@@ -59,8 +59,10 @@ closed.
 
 A ChatGPT reply may be exposed as several accessibility nodes rather than one element.
 The adapter therefore treats role markers such as `ChatGPT said` / `You said` as
-conversation boundaries and aggregates the newest assistant section in accessibility
-order.
+conversation boundaries. During an active send it does not merely take the newest-looking
+assistant section: it matches the exact injected user prompt and accepts only the assistant
+turn paired with that prompt. Once role markers are present, geometric fallback is not
+allowed to substitute an unrelated older response.
 
 The grouped reader:
 
@@ -76,9 +78,11 @@ This matters for long native replies: selecting only the highest-scoring text no
 silently reduce a multi-paragraph answer to one paragraph. Fast polling inspects only
 visible nodes, but immediately before final delivery Nexus performs one full
 offscreen-inclusive accessibility snapshot and upgrades the candidate only when that
-full reply safely contains the visible tail. Capture Latest uses the same full
-reconstruction path. The expensive full-tree scan is therefore not performed on every
-250 ms poll.
+full reply safely contains the visible tail. A tightly bounded document/root aggregate
+may repair split UIA leaf fragments only when it contains the already prompt-correlated
+fragment; large whole-conversation documents are rejected. Capture Latest uses the same
+full reconstruction path. The expensive full-tree scan is therefore not performed on
+every 180 ms poll.
 
 ## Passive native-turn ingestion
 
@@ -97,12 +101,16 @@ rebound native chats from contaminating each other's dedupe history.
 
 Important invariants:
 
-- the first observation of an already-open conversation seeds history without replaying it;
-- active Nexus/Dex finals and Capture Latest seed the same fingerprint ledger, so passive
+- a fresh/manual binding creates a stable opaque delivery scope and seeds everything already
+  visible as baseline, so old history never floods the transcript;
+- automatic server reconnect preserves that delivery scope plus a durable native-turn cursor,
+  so unchanged history produces no events while a genuinely newer turn after the cursor can
+  still be delivered once;
+- if the old cursor has been virtualized out of the accessible history, Nexus resynchronizes
+  by baselining the currently visible turns instead of guessing and replaying history;
+- active Nexus/Dex finals and Capture Latest seed the same fingerprint ledger/cursor, so passive
   observation cannot deliver the same native answer a second time;
 - a pending passive event is marked delivered only after the Base UI ACKs its fingerprint;
-- after server restart, unchanged history produces no events, while a provably newer turn
-  after a known durable tail can be delivered once;
 - process/window changes and native conversation changes fail closed with
   `APP_TARGET_REBIND_REQUIRED`;
 - native conversation continuity uses overlap across the rolling set of privacy-safe
@@ -120,7 +128,7 @@ Important invariants:
 - native role labels such as `You said:` and `ChatGPT said:` are structural UI chrome
   and can never finalize as assistant output, including through the geometry fallback reader.
 
-The passive event is `native_app_turn`. Its stable conversation-scoped fingerprint is
+The passive event is `native_app_turn`. Its stable delivery-scope fingerprint is
 also used as the Base transcript DOM identity, making an event retry idempotent if the socket drops between
 render and ACK. Passive events are currently surfaced to the selected Base Mode view;
 the same primitive can later feed unsolicited Dex routing without conflating it with

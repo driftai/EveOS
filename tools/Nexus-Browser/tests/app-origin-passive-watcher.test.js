@@ -27,7 +27,7 @@ const target = {
 };
 const oldTurn = { fingerprint: fp('1'), text: 'old native reply', partCount: 1, order: 0 };
 
-function makeHarness({ ledgerFile = null, initialTurns = [oldTurn] } = {}) {
+function makeHarness({ ledgerFile = null, initialTurns = [oldTurn], watchTarget = target } = {}) {
   const dir = ledgerFile ? path.dirname(ledgerFile) : fs.mkdtempSync(path.join(os.tmpdir(), 'eveos-app-watch-'));
   const filePath = ledgerFile || path.join(dir, 'seen.jsonl');
   const ledger = createPassiveTurnLedger({ filePath });
@@ -54,6 +54,7 @@ function makeHarness({ ledgerFile = null, initialTurns = [oldTurn] } = {}) {
   const appTargets = {
     adapterForTarget: () => adapter,
     exactAppTargetMatch: manager.exactAppTargetMatch,
+    advanceAppTargetBinding: manager.advanceAppTargetBinding,
     appTargetBusy: () => false,
     onAppTurnFinal(fn) { listener = fn; return () => { if (listener === fn) listener = null; }; }
   };
@@ -70,7 +71,7 @@ function makeHarness({ ledgerFile = null, initialTurns = [oldTurn] } = {}) {
     retryMs: 6000,
     now: (() => { let value = 1000; return () => value += 100; })()
   });
-  watcher.watch(target);
+  watcher.watch(watchTarget);
   return {
     watcher, ledger, events, rebinds, filePath, dir,
     snapshot: () => snapshot,
@@ -134,6 +135,31 @@ test('one genuinely new reply that arrived across restart is emitted once', asyn
     try {
       await second.watcher.scanNow(target.id);
       assert.deepEqual(second.events.map((event) => event.text), [late.text]);
+    } finally { second.watcher.stop(); }
+  } finally { fs.rmSync(first.dir, { recursive: true, force: true }); }
+});
+
+test('fresh manual delivery scope baselines visible history instead of replaying an old unseen turn', async () => {
+  const firstTarget = {
+    ...target,
+    concreteTargetIdentity: { ...target.concreteTargetIdentity, deliveryScope: fp('d') }
+  };
+  const first = makeHarness({ watchTarget: firstTarget });
+  const filePath = first.filePath;
+  try {
+    await first.watcher.scanNow(firstTarget.id);
+    first.watcher.stop();
+    const historical = { fingerprint: fp('4'), text: 'already visible before manual reconnect', partCount: 1, order: 1 };
+    const rebound = {
+      ...target,
+      concreteTargetIdentity: { ...target.concreteTargetIdentity, deliveryScope: fp('e') }
+    };
+    const second = makeHarness({ ledgerFile: filePath, initialTurns: [oldTurn, historical], watchTarget: rebound });
+    try {
+      const result = await second.watcher.scanNow(rebound.id);
+      assert.equal(result.primed, true);
+      assert.equal(second.events.length, 0);
+      assert.equal(second.ledger.cursor(fp('e'))?.nativeFingerprint, historical.fingerprint);
     } finally { second.watcher.stop(); }
   } finally { fs.rmSync(first.dir, { recursive: true, force: true }); }
 });
