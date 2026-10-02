@@ -8,6 +8,7 @@
   } = {}) {
     const el = {
       controls: document.querySelector('#appTargetControls'),
+      targetClass: document.querySelector('#targetClassSelect'),
       type: document.querySelector('#appTypeSelect'),
       target: document.querySelector('#appTargetSelect'),
       refresh: document.querySelector('#refreshAppTargets'),
@@ -28,6 +29,11 @@
 
     function filteredTargets() {
       return targets.filter((target) => target.targetTypeId === selectedTypeId);
+    }
+
+    function activateAppOrigin() {
+      state.selectedTargetClassId = 'app-origin';
+      if (el.targetClass) el.targetClass.value = 'app-origin';
     }
 
     function renderTypes() {
@@ -157,9 +163,10 @@
         return true;
       }
       if (msg.type === 'app_target_selected') {
-        const restoring = restorePending, previousTargetId = selectedTarget?.id || null;
+        const restoring = restorePending || !!msg.restored, previousTargetId = selectedTarget?.id || null;
         restorePending = false;
         selectedTarget = msg.target || null;
+        if (selectedTarget) activateAppOrigin();
         if (msg.bindingIdentity) boundIdentity = { ...msg.bindingIdentity };
         else if (!restoring) boundIdentity = selectedTarget?.concreteTargetIdentity
           ? { ...selectedTarget.concreteTargetIdentity } : null;
@@ -194,7 +201,7 @@
         const bound = !!selectedTarget && (!msg.targetId || msg.targetId === selectedTarget.id);
         send({ type: 'ack_native_app_turn', targetId: msg.targetId, fingerprint: msg.fingerprint });
         if (!bound) {
-          log(`Suppressed passive ${msg.providerName || 'App-Origin'} history before manual Base connection.`);
+          log(`Suppressed passive ${msg.providerName || 'App-Origin'} history before Base connection.`);
           return true;
         }
         const id = msg.fingerprint ? `native-app-${msg.fingerprint}` : null;
@@ -224,6 +231,7 @@
       boundIdentity = bindingIdentity ? { ...bindingIdentity }
         : selectedTarget?.concreteTargetIdentity ? { ...selectedTarget.concreteTargetIdentity } : null;
       restorePending = !!selectedTarget;
+      if (selectedTarget) activateAppOrigin();
       render();
       renderBaseStatus();
     }
