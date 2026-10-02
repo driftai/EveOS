@@ -60,6 +60,28 @@ function mergeCharacterOverlap(left = '', right = '') {
   return '';
 }
 
+function preferFinalReply(accumulatedText = '', nativeTurnText = '') {
+  const accumulated = tidy(accumulatedText), nativeTurn = tidy(nativeTurnText);
+  if (!nativeTurn) return accumulated;
+  if (!accumulated) return nativeTurn;
+  if (flat(accumulated) === flat(nativeTurn)) return nativeTurn;
+
+  if (looselyContains(accumulated, nativeTurn)) return accumulated;
+  if (looselyContains(nativeTurn, accumulated)) return nativeTurn;
+
+  const accumulatedSize = compact(accumulated).length;
+  const nativeSize = compact(nativeTurn).length;
+  if (nativeSize >= accumulatedSize * 1.2) return nativeTurn;
+  if (accumulatedSize >= nativeSize * 1.2) return accumulated;
+
+  const accumulatedBlocks = blocks(accumulated).length;
+  const nativeBlocks = blocks(nativeTurn).length;
+  if (nativeBlocks > accumulatedBlocks) return nativeTurn;
+  if (accumulatedBlocks > nativeBlocks) return accumulated;
+
+  return nativeSize >= accumulatedSize ? nativeTurn : accumulated;
+}
+
 function mergeReplyProgress(currentText = '', candidateText = '') {
   const current = tidy(currentText), candidate = tidy(candidateText);
   if (!candidate) return current;
@@ -86,5 +108,6 @@ module.exports = {
   looselyContains,
   mergeBlockOverlap,
   mergeCharacterOverlap,
+  preferFinalReply,
   mergeReplyProgress
 };

@@ -210,16 +210,23 @@ The top-level `Codex` workspace selector is UI chrome and must not be treated as
 conversation title. The actual thread heading remains eligible for native conversation
 identity.
 
-## Final authoritative reconstruction
+## Final completeness selection
 
 Codex visible polling may expose clipped or partial Text fragments while a reply is still
-growing. Nexus may accumulate those fragments for live progress, but once the final
-offscreen-inclusive prompt-correlated native turn is available, that complete turn is
-authoritative and replaces temporary stitched progress.
+growing. Nexus accumulates those fragments for live progress, then compares that monotonic
+history with the final offscreen-inclusive prompt-correlated native turn.
 
-This prevents short/thin replies from retaining fragments such as `words.`, `line.`,
-or truncated tails after the full UIA turn becomes available, while preserving the
-monotonic progress behavior needed when earlier long paragraphs scroll out of view.
+The final native turn replaces accumulated progress when it contains the stored reply or
+is materially more complete. The accumulated reply remains authoritative when the final
+snapshot contains only a shorter visible tail. This prevents both failure modes:
+
+- temporary fragments such as `words.`, `line.`, or truncated tails surviving after a
+  fuller native turn becomes available;
+- a complete accumulated long reply shrinking to only its last paragraph because the final
+  offscreen snapshot virtualized earlier content.
+
+Finalization therefore chooses the more complete prompt-owned representation rather than
+blindly preferring either the viewport history or the last UIA snapshot.
 
 ## Qualification
 
