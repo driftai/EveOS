@@ -306,17 +306,19 @@ function createPassiveAppWatcher({
         return { ok: true, turns: turns.length, cursorIndex };
       }
 
-      const signature = pendingTurns.map((turn) => turn.fingerprint).join(':');
-      const observedAt = now();
-      if (signature !== state.settleSignature) {
-        state.settleSignature = signature;
-        state.settleSince = observedAt;
-        nextDelay = Math.min(nextDelay, settleRecheckMs);
-        return { ok: true, turns: turns.length, cursorIndex, settling: true };
-      }
-      if (settleMs > 0 && observedAt - state.settleSince < settleMs) {
-        nextDelay = Math.min(nextDelay, settleRecheckMs);
-        return { ok: true, turns: turns.length, cursorIndex, settling: true };
+      if (settleMs > 0) {
+        const signature = pendingTurns.map((turn) => turn.fingerprint).join(':');
+        const observedAt = now();
+        if (signature !== state.settleSignature) {
+          state.settleSignature = signature;
+          state.settleSince = observedAt;
+          nextDelay = Math.min(nextDelay, settleRecheckMs);
+          return { ok: true, turns: turns.length, cursorIndex, settling: true };
+        }
+        if (observedAt - state.settleSince < settleMs) {
+          nextDelay = Math.min(nextDelay, settleRecheckMs);
+          return { ok: true, turns: turns.length, cursorIndex, settling: true };
+        }
       }
 
       for (const turn of pendingTurns) await emitTurn(state, turn);

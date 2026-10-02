@@ -78,6 +78,18 @@ The Windows 0.7.0 source checkpoint passed 27 focused Dex/Antigravity/diagnostic
 
 Still pending: headed-provider send/capture, direct existing-Antigravity TUI probe/send/capture without spawning a replacement process, owned supervisor start/stop and Global Stop confirmation for the current checkpoint, and the complete uncached `npm run verify` run. A static passing test is not a substitute for any of these live checks.
 
+## Embedded workspace connection stability
+
+The EveOS host treats the embedded Nexus iframe as a persistent runtime surface. Runtime
+URLs are canonicalized before comparing or assigning `iframe.src`, so equivalent URLs
+such as `http://127.0.0.1:9088` and `http://127.0.0.1:9088/` cannot trigger a reload
+on every status render.
+
+A transient Local Control/status miss also preserves a last-known-running Nexus iframe
+instead of replacing it with `about:blank`. Only a confirmed stopped state or an
+explicit Stop action tears the embedded workspace down. This prevents healthy Base/Dex
+WebSocket sessions from cycling simply because the host status probe briefly missed.
+
 ## Detached workspace return path
 
 When the Nexus workspace is opened in its detached popup, that popup exposes a

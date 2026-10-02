@@ -69,6 +69,12 @@
         return snapshot?.url || window.EveOSPortRegistry?.url?.('NEXUS_BROWSER_PORT') || '';
     }
 
+    function canonicalUrl(value) {
+        if (!value) return '';
+        try { return new URL(value, window.location.href).href; }
+        catch { return String(value); }
+    }
+
     function stateLabel(value) {
         const labels = { running: 'Online', stopped: 'Stopped', starting: 'Starting', blocked: 'Port blocked', external: 'External', error: 'Error' };
         return labels[value] || String(value || 'Unavailable').replace(/_/g, ' ');
@@ -180,10 +186,11 @@
         if (inline) inline.hidden = !running;
         if (frame) {
             if (running) {
-                const next = runtimeUrl(snapshot);
-                if (next && frame.src !== next) frame.src = next;
+                const next = canonicalUrl(runtimeUrl(snapshot));
+                const current = canonicalUrl(frame.getAttribute('src') || '');
+                if (next && current !== next) frame.setAttribute('src', next);
             } else if (frame.getAttribute('src') && frame.getAttribute('src') !== 'about:blank') {
-                frame.src = 'about:blank';
+                frame.setAttribute('src', 'about:blank');
             }
         }
     }
@@ -203,9 +210,10 @@
         } catch (error) {
             const control = window.EveOSControlPlane?.getState?.() || {};
             const message = control.controllerAvailable
-                ? 'Local Control is online, but Nexus Browser status is temporarily unreachable. Search Monitor will retry automatically.'
+                ? 'Local Control is online, but Nexus Browser status is temporarily unreachable. Keeping the current workspace while Search Monitor retries.'
                 : (error?.message || 'Local Control is offline.');
-            render({ state: 'unavailable', running: false, extensionReady: true }, message);
+            if (status?.running === true) render(status, message);
+            else render({ state: 'unavailable', running: false, extensionReady: true }, message);
             return null;
         }
     }

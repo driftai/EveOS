@@ -19,7 +19,7 @@ const AREA_TESTS = {
     'tests/app-origin-live-contract.test.js', 'tests/app-origin-manager.test.js',
     'tests/app-origin-passive-watcher.test.js', 'tests/app-origin-server.test.js', 'tests/app-origin-dex.test.js',
     'tests/app-origin-recovery.test.js', 'tests/target-classes-ui.test.js',
-    'tests/server-socket-safety.test.js', 'tests/ui-socket.test.js',
+    'tests/nexus-host-lifecycle.test.js', 'tests/server-socket-safety.test.js', 'tests/ui-socket.test.js',
     'tests/restart-bridge.test.js', 'tests/startup-scripts.test.js'
   ],
   resilience: [
@@ -30,7 +30,7 @@ const AREA_TESTS = {
     'tests/target-state.test.js', 'tests/target-resurrection.test.js', 'tests/adapter-readiness-cache.test.js',
     'tests/dex-ui-ensure.test.js', 'tests/dex-failure-policy.test.js', 'tests/dex-turn-ledger.test.js',
     'tests/dex-state-repair.test.js', 'tests/server-durability.test.js', 'tests/dex-server-routing.test.js',
-    'tests/server-socket-safety.test.js', 'tests/ui-socket.test.js', 'tests/ws-heartbeat.test.js',
+    'tests/nexus-host-lifecycle.test.js', 'tests/server-socket-safety.test.js', 'tests/ui-socket.test.js', 'tests/ws-heartbeat.test.js',
     'tests/antigravity-async-snapshot.test.js', 'tests/antigravity-recovery-capture.test.js',
     'tests/deterministic-ops.test.js',
     'tests/provider-contract.test.js', 'tests/provider-manifest.test.js', 'tests/qualification-provider-adapters.test.js',
