@@ -143,9 +143,11 @@ function advanceAppTargetBinding(expected = {}, actual = {}) {
   if (!exactAppTargetMatch(expected, actual)) return null;
   const bound = expected.concreteTargetIdentity || {}, live = actual.concreteTargetIdentity || {};
   const anchors = [...new Set([...conversationAnchors(bound), ...conversationAnchors(live)])].slice(-16);
+  const liveTitle = reliableConversationTitle(live.conversationTitle) ? live.conversationTitle : '';
+  const boundTitle = reliableConversationTitle(bound.conversationTitle) ? bound.conversationTitle : '';
   const concreteTargetIdentity = {
     ...bound,
-    ...(bound.conversationTitle ? {} : live.conversationTitle ? { conversationTitle: live.conversationTitle } : {}),
+    ...((liveTitle || boundTitle) ? { conversationTitle: liveTitle || boundTitle } : {}),
     ...(anchors.length ? {
       conversationAnchor: anchors.at(-1),
       conversationAnchors: anchors
