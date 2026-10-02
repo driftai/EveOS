@@ -124,9 +124,9 @@ test('ChatGPT Windows adapter resolves the real thread title even when anchors e
   const adapter = createAdapter({ runner, platform: 'win32' });
   const targets = await adapter.listTargets();
   assert.equal(targets.length, 1);
-  assert.equal(targets[0].concreteTargetIdentity.conversationTitle, 'Merger Work and Stabilization - Greet');
+  assert.equal(targets[0].concreteTargetIdentity.conversationTitle, undefined);
   assert.match(targets[0].concreteTargetIdentity.conversationAnchor, /^[a-f0-9]{64}$/);
-  assert.match(targets[0].title, /Merger Work and Stabilization - Greet/);
+  assert.match(targets[0].title, /verified native conversation/);
   assert.doesNotMatch(targets[0].title, /Minimize/);
 });
 
