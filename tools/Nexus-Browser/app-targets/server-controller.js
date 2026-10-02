@@ -1,6 +1,7 @@
 'use strict';
 
-const { createPassiveAppWatcher, bindingScope } = require('./passive-watcher');
+const { createPassiveAppWatcher } = require('./passive-watcher');
+const appTargetBinding = require('./app-target-binding');
 const defaultTerminalRelayStorage = require('../scripts/terminal-relay-storage');
 
 function createAppTargetServerController({
@@ -46,6 +47,39 @@ function createAppTargetServerController({
   function passivePeers(targetId) {
     return [...uiSockets].filter((peer) =>
       peer.clientKind === 'browser' && peer.appTargetId === targetId);
+  }
+
+  function applyBinding(ws, binding, { restored = false } = {}) {
+    ws.appTargetId = binding.id;
+    ws.appTargetBinding = binding;
+    passiveWatcher.watch(binding);
+    safeSend(ws, {
+      type: 'app_target_selected',
+      target: binding,
+      bindingIdentity: { ...(binding.concreteTargetIdentity || {}) },
+      status: appTargets.getAppTargetStatus(binding.id),
+      diagnostics: appTargets.discoveryDiagnostics(),
+      restored
+    });
+    replayMissed(ws, binding.id);
+    return binding;
+  }
+
+  function restorePersistedSelection(ws) {
+    if (!ws || ws.clientKind !== 'browser' || ws.appTargetId) return null;
+    try {
+      const restored = appTargetBinding.restorePersistedBinding({
+        selection: terminalRelayStorage.readTargetSelection?.(),
+        liveTargets: lastTargets,
+        appTargetsApi: appTargets,
+        storage: terminalRelayStorage,
+        allowSingleTargetFallback: false
+      });
+      if (!restored?.binding) return null;
+      return applyBinding(ws, restored.binding, { restored: true });
+    } catch {
+      return null;
+    }
   }
 
   function requireRebind(targetId, payload = {}) {
@@ -123,6 +157,7 @@ function createAppTargetServerController({
     const diagnostics = appTargets.discoveryDiagnostics();
     const types = appTargets.publicAppTargetTypes();
     for (const ws of destinations) {
+      if (validateSelection && !ws.appTargetId) restorePersistedSelection(ws);
       if (validateSelection && ws.appTargetId) {
         const target = lastTargets.find((entry) => entry.id === ws.appTargetId) || null;
         if (!target) {
@@ -229,25 +264,24 @@ function createAppTargetServerController({
           return true;
         }
       }
-      ws.appTargetId = target.id;
-      const bindingIdentity = { ...(msg.expectedIdentity || target.concreteTargetIdentity || {}) };
-      if (!bindingIdentity.deliveryScope) {
-        bindingIdentity.deliveryScope = bindingScope({
-          ...target,
-          concreteTargetIdentity: bindingIdentity
+      try {
+        const binding = appTargetBinding.persistBinding(target, {
+          expectedIdentity: msg.expectedIdentity || null,
+          exactMatch,
+          storage: terminalRelayStorage
+        });
+        applyBinding(ws, binding);
+      } catch (error) {
+        safeSend(ws, {
+          type: 'app_target_rebind_required',
+          code: error.code || 'APP_TARGET_REBIND_REQUIRED',
+          targetClassId: 'app-origin',
+          targetId: target.id,
+          providerId: target.providerId,
+          providerName: target.providerName,
+          message: error.message
         });
       }
-      ws.appTargetBinding = { ...target, concreteTargetIdentity: bindingIdentity };
-      terminalRelayStorage.writeTargetSelection(ws.appTargetBinding);
-      passiveWatcher.watch(ws.appTargetBinding);
-      safeSend(ws, {
-        type: 'app_target_selected',
-        target,
-        bindingIdentity: { ...(ws.appTargetBinding.concreteTargetIdentity || {}) },
-        status: appTargets.getAppTargetStatus(target.id),
-        diagnostics: appTargets.discoveryDiagnostics()
-      });
-      replayMissed(ws, target.id);
       return true;
     }
 
