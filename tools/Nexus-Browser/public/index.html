@@ -49,6 +49,19 @@
             </div>
           </div>
 
+          <details id="appMirrorControls" class="target-row app-conversation-sync" hidden>
+            <summary>Conversation sync</summary>
+            <label for="appMirrorUrl">Exact ChatGPT conversation URL</label>
+            <div class="target-actions">
+              <input id="appMirrorUrl" type="url" inputmode="url"
+                placeholder="https://chatgpt.com/c/..." autocomplete="off" spellcheck="false">
+              <button id="syncAppMirror" class="secondary" type="button">Sync conversation</button>
+              <button id="attachAppMirror" type="button">Attach sync</button>
+            </div>
+            <div id="appMirrorStatus" class="subtle">
+              Optional exact-conversation synchronization/recovery for ChatGPT Online-Origin.
+            </div>
+          </details>
         </div>
 
         <div id="localTargetControls" class="target-class-panel" hidden>
@@ -86,19 +99,6 @@
           </div>
           <div id="appTargetTiming" class="subtle" hidden></div>
 
-          <details id="appMirrorControls" class="target-row app-conversation-sync" hidden>
-            <summary>Conversation sync</summary>
-            <label for="appMirrorUrl">Exact ChatGPT conversation URL</label>
-            <div class="target-actions">
-              <input id="appMirrorUrl" type="url" inputmode="url"
-                placeholder="https://chatgpt.com/c/..." autocomplete="off" spellcheck="false">
-              <button id="syncAppMirror" class="secondary" type="button">Sync conversation</button>
-              <button id="attachAppMirror" type="button">Attach sync</button>
-            </div>
-            <div id="appMirrorStatus" class="subtle">
-              Optional server-side sync/recovery for the selected ChatGPT App conversation.
-            </div>
-          </details>
         </div>
 
         <div id="targetStatus" class="subtle">No target selected.</div>

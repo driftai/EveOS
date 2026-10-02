@@ -1,12 +1,12 @@
 # ChatGPT Conversation Sync
 
-Conversation Sync is an optional support capability for the App-Origin **ChatGPT App**
-target. It preserves the useful part of the former ChatGPT App Mirror—binding and
-rescanning an exact authenticated `https://chatgpt.com/c/<conversation-id>`—without
-presenting that browser helper as a second ChatGPT App target.
+Conversation Sync is an optional capability for **Online-Origin → ChatGPT**. It
+preserves the useful part of the former ChatGPT App Mirror—binding and rescanning an
+exact authenticated `https://chatgpt.com/c/<conversation-id>`—without presenting that
+background helper tab as another selectable ChatGPT target.
 
-Normal send/capture remains native Windows UI Automation. Conversation Sync is only for
-server-side synchronization/recovery and does not introduce a private ChatGPT API.
+It does not introduce a private ChatGPT API and is independent from native App-Origin
+Windows UI Automation.
 
 ## Architecture
 
@@ -27,10 +27,11 @@ EveOS Nexus Browser extension
 Nexus localhost / Dex
 ```
 
-Conversation Sync itself does not drive the desktop process. Native send/capture is
-owned by the App-Origin Windows adapter. The sync helper only keeps an inactive browser
-tab bound to the same server-side conversation so Nexus can rescan or hard-refresh that
-exact authenticated chat when server/native state needs reconciliation.
+Conversation Sync operates entirely through the browser extension and existing ChatGPT
+Online-Origin adapter. The helper keeps an inactive browser tab bound to the exact
+server-side conversation so Nexus can rescan or hard-refresh that authenticated chat
+without changing the user's selected normal ChatGPT tab. Native App-Origin remains a
+separate transport.
 
 The hidden helper tab still reuses the qualified `online-origin` ChatGPT content
 adapter internally. However, mirror-decorated tabs are filtered from Base/Dex
@@ -49,17 +50,16 @@ targets because Dex binds exact tab/url identities.
 
 ## First-pass behavior
 
-Base Mode exposes **Conversation sync** controls only while a native ChatGPT App
-App-Origin target is selected.
+Base Mode exposes the collapsed **Conversation sync** controls only while target class
+is **Online-Origin Targets** and target type is **ChatGPT**.
 
 1. Paste an exact `https://chatgpt.com/c/<conversation-id>` URL.
 2. Choose **Attach sync**.
 3. Nexus reuses that exact browser conversation if already open, otherwise it opens an
-   inactive mirror tab.
-4. The helper remains hidden from normal Online-Origin and Dex target pickers; the
-   selected target stays the native ChatGPT App.
-5. Normal Nexus sends continue through App-Origin Windows UI Automation.
-6. The helper performs a lightweight provider-control rescan while idle.
+   inactive helper tab.
+4. The helper remains hidden from normal Online-Origin and Dex target pickers and never
+   replaces the selected normal ChatGPT tab.
+5. The helper performs a lightweight provider-control rescan while idle.
 
 **Sync conversation** performs an explicit hard reload of only the hidden helper tab. This is the
 recovery path when a turn created in the desktop app has reached ChatGPT's server but
@@ -97,17 +97,16 @@ a live test with the authenticated desktop app and browser account.
 
 Recommended live sequence:
 
-1. Connect the native ChatGPT App through App-Origin and attach the exact server-side
-   conversation URL under **Conversation sync**.
-2. Send a unique sentence through the native App-Origin target and confirm the normal
-   native round trip remains authoritative.
-3. Create a new native turn and confirm the hidden helper sees it after an ordinary
-   rescan; if not, press **Sync conversation** once.
+1. Select **Online-Origin Targets → ChatGPT** and attach the exact conversation URL
+   under **Conversation sync**.
+2. Keep a normal ChatGPT browser target selected and confirm attaching sync does not
+   replace it with the hidden helper.
+3. Confirm the hidden helper sees the exact conversation after an ordinary rescan; if
+   not, press **Sync conversation** once.
 4. Confirm any provider-control command discovered through the helper is admitted
    exactly once.
 5. Hard-sync again and confirm the same old command is deduplicated.
-6. Keep a normal ChatGPT browser target open simultaneously and confirm the hidden sync
-   helper never appears as a selectable Online-Origin/Dex target or changes selection.
+6. Confirm the hidden helper never appears as a selectable Online-Origin/Dex target.
 
 If desktop-created turns do not become visible even after an exact conversation reload,
 capture the mirror tab URL, latest visible user/assistant message IDs, provider-control

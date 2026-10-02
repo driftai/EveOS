@@ -53,7 +53,7 @@ function assistantReplyGroups(snapshot = {}, options = {}) {
     }
     if (ASSISTANT_MARKER.test(text)) {
       role = 'assistant';
-      current = { parts: [], normalizedParts: [], selectors: [], firstY: null, lastY: null };
+      current = { parts: [], normalizedParts: [], selectors: [], types: [], firstY: null, lastY: null };
       groups.push(current);
       continue;
     }
@@ -63,14 +63,17 @@ function assistantReplyGroups(snapshot = {}, options = {}) {
     const normalized = node.normalizedText;
     if (current.normalizedParts.includes(normalized)) continue;
     if (current.normalizedParts.some((part) => part.length > normalized.length && part.includes(normalized))) continue;
-    const retained = current.normalizedParts.map((part, index) => ({ part, text: current.parts[index], selector: current.selectors[index] }))
-      .filter((entry) => !(normalized.length > entry.part.length && normalized.includes(entry.part)));
+    const retained = current.normalizedParts.map((part, index) => ({
+      part, text: current.parts[index], selector: current.selectors[index], type: current.types[index]
+    })).filter((entry) => !(normalized.length > entry.part.length && normalized.includes(entry.part)));
     current.normalizedParts = retained.map((entry) => entry.part);
     current.parts = retained.map((entry) => entry.text);
     current.selectors = retained.map((entry) => entry.selector);
+    current.types = retained.map((entry) => entry.type);
     current.normalizedParts.push(normalized);
     current.parts.push(node.text);
     current.selectors.push(node.selector);
+    current.types.push(node.type);
     current.firstY = current.firstY == null ? node.rect.y : Math.min(current.firstY, node.rect.y);
     current.lastY = current.lastY == null ? node.rect.y : Math.max(current.lastY, node.rect.y);
   }
@@ -103,8 +106,38 @@ function normalizeSyntheticFragmentBreaks(text = '') {
   return out.join('\n\n');
 }
 
+function semanticNodeType(type = '') {
+  return /(?:paragraph|listitem|heading)/.test(String(type || '').toLowerCase());
+}
+
 function groupedMessageText(group = {}) {
-  return normalizeSyntheticFragmentBreaks((group.parts || []).join('\n\n'));
+  const parts = Array.isArray(group.parts) ? group.parts : [];
+  const types = Array.isArray(group.types) ? group.types : [];
+  if (!parts.length) return '';
+  if (parts.length === 1) return String(parts[0] || '').replace(/\r/g, '').trim();
+
+  const blocks = [];
+  let inline = String(parts[0] || '').replace(/\r/g, '').trim();
+  for (let index = 1; index < parts.length; index += 1) {
+    const next = String(parts[index] || '').replace(/\r/g, '').trim();
+    if (!next) continue;
+    if (semanticNodeType(types[index - 1]) || semanticNodeType(types[index])) {
+      if (inline) blocks.push(normalizeSyntheticFragmentBreaks(inline));
+      inline = next;
+    } else {
+      inline = normalizeSyntheticFragmentBreaks(`${inline}\n\n${next}`);
+    }
+  }
+  if (inline) blocks.push(normalizeSyntheticFragmentBreaks(inline));
+  return blocks.join('\n\n');
+}
+
+function expandedGroupedMessageText(snapshot = {}, group = {}) {
+  const grouped = groupedMessageText(group);
+  const expanded = expandGroupedText(snapshot, grouped);
+  return (group.types || []).some(semanticNodeType)
+    ? expanded
+    : normalizeSyntheticFragmentBreaks(expanded);
 }
 
 function latestAssistantReply(snapshot = {}, options = {}) {
@@ -125,12 +158,12 @@ function roleMessageGroups(snapshot = {}) {
   for (const element of snapshot.elements || []) {
     const normalized = uia.normalizeCandidate(nodeText(element));
     if (USER_MARKER.test(normalized)) {
-      current = { role: 'user', parts: [], normalizedParts: [], selectors: [] };
+      current = { role: 'user', parts: [], normalizedParts: [], selectors: [], types: [] };
       groups.push(current);
       continue;
     }
     if (ASSISTANT_MARKER.test(normalized)) {
-      current = { role: 'assistant', parts: [], normalizedParts: [], selectors: [] };
+      current = { role: 'assistant', parts: [], normalizedParts: [], selectors: [], types: [] };
       groups.push(current);
       continue;
     }
@@ -152,14 +185,17 @@ function roleMessageGroups(snapshot = {}) {
     const retained = current.normalizedParts.map((part, index) => ({
       part,
       text: current.parts[index],
-      selector: current.selectors[index]
+      selector: current.selectors[index],
+      type: current.types[index]
     })).filter((entry) => !(text.length > entry.part.length && text.includes(entry.part)));
     current.normalizedParts = retained.map((entry) => entry.part);
     current.parts = retained.map((entry) => entry.text);
     current.selectors = retained.map((entry) => entry.selector);
+    current.types = retained.map((entry) => entry.type);
     current.normalizedParts.push(text);
     current.parts.push(rawText);
     current.selectors.push(selector);
+    current.types.push(type);
   }
   return groups
     .filter((group) => group.parts.length)
@@ -203,7 +239,7 @@ function completedAssistantTurnForPrompt(snapshot = {}, prompt = '') {
     const user = groups[index - 1], assistant = groups[index];
     if (user.role !== 'user' || assistant.role !== 'assistant') continue;
     const userText = uia.normalizeCandidate(groupedMessageText(user));
-    const assistantRaw = normalizeSyntheticFragmentBreaks(expandGroupedText(snapshot, groupedMessageText(assistant)));
+    const assistantRaw = expandedGroupedMessageText(snapshot, assistant);
     const assistantText = uia.normalizeCandidate(assistantRaw);
     if (!userText || !assistantText) continue;
     const pairDigest = createHash('sha256')
@@ -260,7 +296,7 @@ function completedAssistantTurns(snapshot = {}, { limit = 64 } = {}) {
     const user = groups[index - 1], assistant = groups[index];
     if (user.role !== 'user' || assistant.role !== 'assistant') continue;
     const userText = uia.normalizeCandidate(groupedMessageText(user));
-    const assistantRaw = normalizeSyntheticFragmentBreaks(expandGroupedText(snapshot, groupedMessageText(assistant)));
+    const assistantRaw = expandedGroupedMessageText(snapshot, assistant);
     const assistantText = uia.normalizeCandidate(assistantRaw);
     if (!userText || !assistantText) continue;
     const pairDigest = createHash('sha256')
@@ -365,5 +401,7 @@ module.exports = {
   activeConversationTitle,
   preferExpandedReply,
   normalizeSyntheticFragmentBreaks,
-  groupedMessageText
+  semanticNodeType,
+  groupedMessageText,
+  expandedGroupedMessageText
 };

@@ -17,11 +17,13 @@ const { attachWebSocketHeartbeat } = require('./dex/ws-heartbeat'), { createDisp
 const runtimeConfig = require('./runtime-config');
 const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
 const { createSafeSend, guardAsyncHandler, requestIdFromRaw } = require('./server-socket-safety');
+const { attachSupervisorHealth } = require('./server-supervisor-health');
 const HOST = process.env.HOST || '127.0.0.1', PORT = runtimeConfig.servicePort();
 const RUNTIME_URLS = runtimeConfig.urls(PORT);
 const PUBLIC_DIR = path.join(__dirname, 'public'), SERVER_SESSION_ID = `${process.pid}-${Date.now().toString(36)}`;
 const ASSET_REVISION = assetRevision();
 const server = http.createServer(createHttpHandler({ host: HOST, port: PORT, publicDir: PUBLIC_DIR, diagnostics: diagnosticsSnapshot }));
+attachSupervisorHealth({ server, sessionId: SERVER_SESSION_ID });
 const wss = new WebSocketServer({ noServer: true });
 const heartbeat = attachWebSocketHeartbeat(wss);
 let extensionSocket = null, doneWatchControlSocket = null;

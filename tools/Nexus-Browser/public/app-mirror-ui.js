@@ -4,8 +4,7 @@
     send,
     requestId,
     addMessage,
-    log,
-    appTarget = () => null
+    log
   } = {}) {
     const el = {
       controls: document.querySelector('#appMirrorControls'),
@@ -28,9 +27,8 @@
 
     function render() {
       if (!el.controls) return;
-      const selectedApp = appTarget();
-      const visible = state.selectedTargetClassId === 'app-origin'
-        && selectedApp?.providerId === 'chatgpt-desktop';
+      const visible = state.selectedTargetClassId === 'online-origin'
+        && state.selectedProviderId === 'chatgpt';
       el.controls.hidden = !visible;
       if (!visible) return;
 

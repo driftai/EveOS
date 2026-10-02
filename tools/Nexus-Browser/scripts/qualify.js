@@ -25,7 +25,7 @@ const AREA_TESTS = {
     'tests/workspace-handoff.test.js', 'tests/workspace-handoff-wiring.test.js',
     'tests/workspace-view-state.test.js',
     'tests/server-socket-safety.test.js', 'tests/ui-socket.test.js',
-    'tests/restart-bridge.test.js', 'tests/startup-scripts.test.js'
+    'tests/supervisor-health.test.js', 'tests/restart-bridge.test.js', 'tests/startup-scripts.test.js'
   ],
   resilience: [
     'tests/muse-input.test.js', 'tests/muse-submit.test.js', 'tests/chatgpt-input.test.js',
@@ -37,7 +37,8 @@ const AREA_TESTS = {
     'tests/dex-state-repair.test.js', 'tests/server-durability.test.js', 'tests/dex-server-routing.test.js',
     'tests/nexus-host-lifecycle.test.js', 'tests/nexus-control-ownership.test.js',
     'tests/workspace-handoff.test.js', 'tests/workspace-handoff-wiring.test.js',
-    'tests/workspace-view-state.test.js', 'tests/server-socket-safety.test.js', 'tests/ui-socket.test.js', 'tests/ws-heartbeat.test.js',
+    'tests/workspace-view-state.test.js', 'tests/server-socket-safety.test.js', 'tests/ui-socket.test.js',
+    'tests/supervisor-health.test.js', 'tests/ws-heartbeat.test.js',
     'tests/antigravity-async-snapshot.test.js', 'tests/antigravity-recovery-capture.test.js',
     'tests/deterministic-ops.test.js',
     'tests/provider-contract.test.js', 'tests/provider-manifest.test.js', 'tests/qualification-provider-adapters.test.js',

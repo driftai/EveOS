@@ -7,11 +7,11 @@ The first provider is **ChatGPT App** on Windows.
 
 ## Architecture
 
-The native **ChatGPT App** is the user-facing target. The former ChatGPT App Mirror is
-now treated as an optional **Conversation Sync** helper inside this App-Origin target:
-it may keep an exact authenticated `chatgpt.com/c/<conversation-id>` background tab
-for server-side synchronization/recovery, but that helper tab is not user-selectable as
-an Online-Origin target and never replaces the native Windows transport.
+The native **ChatGPT App** is the App-Origin target. **Conversation Sync** is intentionally
+separate: it belongs to **Online-Origin → ChatGPT** and may keep an exact authenticated
+`chatgpt.com/c/<conversation-id>` helper tab for browser-side synchronization/recovery.
+That hidden helper never replaces the native Windows transport and remains filtered from
+normal Base/Dex target lists.
 
 App-Origin drives the actual running desktop application:
 
@@ -153,6 +153,19 @@ to the port listener PID and then verifies the exact EveOS `server.js` → Node
 `bridge-supervisor.js` parent chain (plus the supervisor PID file when needed) before
 recycling anything. Ownership mismatch still fails closed.
 
+## Dual-channel supervisor health
+
+The visible supervisor no longer kills the Nexus server from loopback HTTP health alone.
+It still probes the trivial `/health` endpoint first. If that probe misses, it asks the
+exact owned server child over Node IPC for the current server-session identity and
+`server.listening` state. A child that is alive and still listening is preserved so a
+temporary localhost/event-loop wobble cannot be amplified into a forced server restart
+in the middle of an App-Origin turn.
+
+Restart escalation remains fail-closed: when HTTP health is missing **and** the owned
+child cannot answer/listen over IPC, the existing consecutive-failure policy still
+recycles the server.
+
 ## Bridge connection failure containment
 
 Nexus server WebSocket commands are guarded at the EventEmitter boundary. A rejected
@@ -165,12 +178,13 @@ capped at 2 seconds) and retain an 8-second visual recovery grace period. In-fli
 prompts are never blindly resent after a reconnect because the original prompt may have
 already reached the provider.
 
-## Conversation Sync UI
+## Conversation Sync boundary
 
-Conversation Sync remains an optional server-side recovery helper under the selected
-ChatGPT App App-Origin target. Its controls are collapsed by default in a
-`<details>` section so native App-Origin send/capture stays the normal path and users
-only expand server-side synchronization when they actually need it.
+Conversation Sync is an Online-Origin ChatGPT capability rather than an App-Origin
+control. Its collapsed `<details>` UI appears only when Base Mode is on
+**Online-Origin Targets** with target type **ChatGPT**. Native App-Origin send/capture
+therefore remains independent from browser conversation synchronization, while the same
+sync pattern can later be generalized to other Online-Origin providers.
 
 ## Native reply presentation
 

@@ -438,7 +438,7 @@ document.addEventListener('keydown', (event) => {
 });
 
 appTargetsUi = appTargetsUiApi.create({ state, send, addMessage, log, renderBaseStatus: renderStatus });
-appMirrorUi = appMirrorUiApi.create({ state, send, requestId, addMessage, log, appTarget: () => appTargetsUi?.target() });
+appMirrorUi = appMirrorUiApi.create({ state, send, requestId, addMessage, log });
 renderTargetClasses(); renderProviders(); renderTabs(); renderLocalTargetTypes(); renderLocalTargets(); renderStatus();
 baseWorkspace = baseWorkspaceApi?.create({ state, el, send,
   appTarget: () => appTargetsUi?.target(), appBindingIdentity: () => appTargetsUi?.bindingIdentity?.(),

@@ -61,14 +61,14 @@ test('Capture latest stays hidden for Local-Origin while App-Origin can capture 
 });
 
 
-test('ChatGPT conversation sync is an App-Origin capability, not a separate Online-Origin target', () => {
-  assert.match(INDEX, /id="appTargetControls"[\s\S]*id="appMirrorControls"/);
+test('ChatGPT conversation sync belongs to Online-Origin ChatGPT and stays out of normal target lists', () => {
+  assert.match(INDEX, /id="onlineTargetControls"[\s\S]*id="appMirrorControls"/);
   assert.match(INDEX, /Conversation sync/);
   assert.match(INDEX, /id="appMirrorUrl"/);
   assert.match(APP_MIRROR_UI, /ensure_app_mirror/);
   assert.match(APP_MIRROR_UI, /sync_app_mirror/);
-  assert.match(APP_MIRROR_UI, /selectedTargetClassId === 'app-origin'/);
-  assert.match(APP_MIRROR_UI, /providerId === 'chatgpt-desktop'/);
+  assert.match(APP_MIRROR_UI, /selectedTargetClassId === 'online-origin'/);
+  assert.match(APP_MIRROR_UI, /selectedProviderId === 'chatgpt'/);
   assert.match(APP, /tab\.appMirror !== true/);
   assert.match(DEX_MODE, /tab\.appMirror !== true/);
   assert.match(APP_TARGETS_UI, /request_app_targets/);

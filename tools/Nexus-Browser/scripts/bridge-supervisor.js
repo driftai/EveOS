@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createQualificationSupervisorControl } = require('./qualification-supervisor');
 const { createRuntimeLog } = require('./runtime-log');
+const { createChildHealthProbe } = require('./supervisor-child-health');
 const { urls, dataDir } = require('../runtime-config');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -19,6 +20,8 @@ let child = null;
 let stopping = false;
 let failures = 0;
 let restartTimer = null;
+const childHealth = createChildHealthProbe();
+let lastIpcPreserveLogAt = 0;
 const qualificationControl = createQualificationSupervisorControl({ isCurrent: (candidate) => candidate === child, kill: (candidate) => { try { candidate.kill(); } catch {} } });
 
 function log(message) {
@@ -78,10 +81,14 @@ function spawnServer() {
   child = spawned;
   spawned.stdout?.on('data', (chunk) => mirror(process.stdout, chunk));
   spawned.stderr?.on('data', (chunk) => mirror(process.stderr, chunk));
-  spawned.on('message', (message) => qualificationControl.handle(spawned, message));
+  spawned.on('message', (message) => {
+    if (childHealth.handle(spawned, message)) return;
+    qualificationControl.handle(spawned, message);
+  });
   log(`server started (PID ${spawned.pid})`);
   spawned.once('exit', (code, signal) => {
     qualificationControl.clearChild(spawned);
+    childHealth.clearChild(spawned);
     if (child === spawned) child = null;
     if (stopping) return;
     log(`server PID ${spawned.pid} exited (${signal || code}); restarting...`);
@@ -114,6 +121,21 @@ async function check() {
     failures = 0;
     if (!child) log('bridge is healthy under another visible server process; supervisor will not duplicate it');
     return;
+  }
+  if (child) {
+    const ipc = await childHealth.probe(child);
+    if (ipc.ok && ipc.listening) {
+      const current = Date.now();
+      if (current - lastIpcPreserveLogAt >= 30000) {
+        log('HTTP health missed; server PID ' + child.pid
+          + ' confirmed listening over IPC'
+          + (ipc.sessionId ? ' session=' + ipc.sessionId : '')
+          + '; preserving in-flight work');
+        lastIpcPreserveLogAt = current;
+      }
+      failures = 0;
+      return;
+    }
   }
   failures += 1;
   if (!child) {

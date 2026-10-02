@@ -45,6 +45,16 @@ Stop acts only on a supervisor PID whose command line contains both the canonica
 
 Console visibility follows the shared Local Services preference. Headed is the default; headless hides only the local runtime console and does not pretend provider tabs are headless browser automation.
 
+## Nexus supervisor liveness
+
+The supervised Nexus runtime uses two independent health signals before recycling its
+owned server. Loopback `/health` remains the transport check, but a missed HTTP probe is
+confirmed over the existing parent/child Node IPC channel. If the exact owned
+`server.js` child reports the same live server session and `server.listening=true`,
+the supervisor preserves it rather than turning a transient localhost stall into a new
+server session. Only a transport miss plus an unresponsive/non-listening child advances
+restart escalation.
+
 ## Extension migration
 
 The canonical unpacked extension is:
