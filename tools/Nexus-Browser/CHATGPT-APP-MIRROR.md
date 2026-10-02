@@ -48,6 +48,17 @@ tab as the user's active target. Internally it remains distinguished by:
 A normal ChatGPT browser tab and the App Mirror can coexist as distinct concrete
 targets because Dex binds exact tab/url identities.
 
+## UI visibility
+
+Conversation Sync is currently ChatGPT-specific. Its collapsed controls are visible only
+for **Online-Origin Targets → ChatGPT**. Switching target type to DeepSeek, Grok,
+Gemini, or another provider hides the section immediately. The CSS hidden state is
+explicitly authoritative over the shared `.target-row { display: grid }` layout so a
+hidden sync section cannot remain painted after a provider switch.
+
+The architecture can later host provider-specific sync helpers for other Online-Origin
+providers, but none are exposed until they have their own qualified implementation.
+
 ## First-pass behavior
 
 Base Mode exposes the collapsed **Conversation sync** controls only while target class

@@ -41,6 +41,25 @@ function eligibleReplyNode(element, snapshot, { baseline = new Set(), prompt = '
   return { text: rawText, normalizedText: text, rect, selector, type };
 }
 
+function aggregateNodeType(type = '') {
+  return /(?:paragraph|listitem|heading)/.test(String(type || '').toLowerCase());
+}
+
+function rectContains(outer = {}, inner = {}, tolerance = 3) {
+  if (![outer.x, outer.y, outer.width, outer.height, inner.x, inner.y, inner.width, inner.height]
+      .every((value) => Number.isFinite(Number(value)))) return false;
+  const ox = Number(outer.x), oy = Number(outer.y), ow = Number(outer.width), oh = Number(outer.height);
+  const ix = Number(inner.x), iy = Number(inner.y), iw = Number(inner.width), ih = Number(inner.height);
+  return ix >= ox - tolerance && iy >= oy - tolerance
+    && ix + iw <= ox + ow + tolerance && iy + ih <= oy + oh + tolerance;
+}
+
+function containingAggregateIndex(parts = [], types = [], rects = [], text = '', rect = {}) {
+  return parts.findIndex((part, index) =>
+    part.length > text.length && part.includes(text) && aggregateNodeType(types[index])
+      && rectContains(rects[index], rect));
+}
+
 function assistantReplyGroups(snapshot = {}, options = {}) {
   const groups = [];
   let role = null, current = null;
@@ -53,7 +72,7 @@ function assistantReplyGroups(snapshot = {}, options = {}) {
     }
     if (ASSISTANT_MARKER.test(text)) {
       role = 'assistant';
-      current = { parts: [], normalizedParts: [], selectors: [], types: [], firstY: null, lastY: null };
+      current = { parts: [], normalizedParts: [], selectors: [], types: [], rects: [], firstY: null, lastY: null };
       groups.push(current);
       continue;
     }
@@ -62,18 +81,23 @@ function assistantReplyGroups(snapshot = {}, options = {}) {
     if (!node) continue;
     const normalized = node.normalizedText;
     if (current.normalizedParts.includes(normalized)) continue;
-    if (current.normalizedParts.some((part) => part.length > normalized.length && part.includes(normalized))) continue;
+    if (containingAggregateIndex(current.normalizedParts, current.types, current.rects, normalized, node.rect) >= 0) continue;
     const retained = current.normalizedParts.map((part, index) => ({
-      part, text: current.parts[index], selector: current.selectors[index], type: current.types[index]
-    })).filter((entry) => !(normalized.length > entry.part.length && normalized.includes(entry.part)));
+      part, text: current.parts[index], selector: current.selectors[index],
+      type: current.types[index], rect: current.rects[index]
+    })).filter((entry) => !(aggregateNodeType(node.type)
+      && normalized.length > entry.part.length && normalized.includes(entry.part)
+      && rectContains(node.rect, entry.rect)));
     current.normalizedParts = retained.map((entry) => entry.part);
     current.parts = retained.map((entry) => entry.text);
     current.selectors = retained.map((entry) => entry.selector);
     current.types = retained.map((entry) => entry.type);
+    current.rects = retained.map((entry) => entry.rect);
     current.normalizedParts.push(normalized);
     current.parts.push(node.text);
     current.selectors.push(node.selector);
     current.types.push(node.type);
+    current.rects.push(node.rect);
     current.firstY = current.firstY == null ? node.rect.y : Math.min(current.firstY, node.rect.y);
     current.lastY = current.lastY == null ? node.rect.y : Math.max(current.lastY, node.rect.y);
   }
@@ -135,6 +159,9 @@ function groupedMessageText(group = {}) {
 function expandedGroupedMessageText(snapshot = {}, group = {}) {
   const grouped = groupedMessageText(group);
   const expanded = expandGroupedText(snapshot, grouped);
+  const groupedCompact = uia.normalizeCandidate(grouped).replace(/\s+/g, '');
+  const expandedCompact = uia.normalizeCandidate(expanded).replace(/\s+/g, '');
+  if (groupedCompact && groupedCompact === expandedCompact) return grouped;
   return (group.types || []).some(semanticNodeType)
     ? expanded
     : normalizeSyntheticFragmentBreaks(expanded);
@@ -158,12 +185,12 @@ function roleMessageGroups(snapshot = {}) {
   for (const element of snapshot.elements || []) {
     const normalized = uia.normalizeCandidate(nodeText(element));
     if (USER_MARKER.test(normalized)) {
-      current = { role: 'user', parts: [], normalizedParts: [], selectors: [], types: [] };
+      current = { role: 'user', parts: [], normalizedParts: [], selectors: [], types: [], rects: [] };
       groups.push(current);
       continue;
     }
     if (ASSISTANT_MARKER.test(normalized)) {
-      current = { role: 'assistant', parts: [], normalizedParts: [], selectors: [], types: [] };
+      current = { role: 'assistant', parts: [], normalizedParts: [], selectors: [], types: [], rects: [] };
       groups.push(current);
       continue;
     }
@@ -180,22 +207,28 @@ function roleMessageGroups(snapshot = {}) {
     if (Array.isArray(element.children) && element.children.length
         && !type.includes('paragraph') && !type.includes('listitem')) continue;
 
+    const rect = uia.rectOf(element);
     if (current.normalizedParts.includes(text)) continue;
-    if (current.normalizedParts.some((part) => part.length > text.length && part.includes(text))) continue;
+    if (containingAggregateIndex(current.normalizedParts, current.types, current.rects, text, rect) >= 0) continue;
     const retained = current.normalizedParts.map((part, index) => ({
       part,
       text: current.parts[index],
       selector: current.selectors[index],
-      type: current.types[index]
-    })).filter((entry) => !(text.length > entry.part.length && text.includes(entry.part)));
+      type: current.types[index],
+      rect: current.rects[index]
+    })).filter((entry) => !(aggregateNodeType(type)
+      && text.length > entry.part.length && text.includes(entry.part)
+      && rectContains(rect, entry.rect)));
     current.normalizedParts = retained.map((entry) => entry.part);
     current.parts = retained.map((entry) => entry.text);
     current.selectors = retained.map((entry) => entry.selector);
     current.types = retained.map((entry) => entry.type);
+    current.rects = retained.map((entry) => entry.rect);
     current.normalizedParts.push(text);
     current.parts.push(rawText);
     current.selectors.push(selector);
     current.types.push(type);
+    current.rects.push(rect);
   }
   return groups
     .filter((group) => group.parts.length)
@@ -401,6 +434,8 @@ module.exports = {
   activeConversationTitle,
   preferExpandedReply,
   normalizeSyntheticFragmentBreaks,
+  aggregateNodeType,
+  rectContains,
   semanticNodeType,
   groupedMessageText,
   expandedGroupedMessageText

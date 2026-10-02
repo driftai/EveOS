@@ -88,6 +88,18 @@ The Windows 0.7.0 source checkpoint passed 27 focused Dex/Antigravity/diagnostic
 
 Still pending: headed-provider send/capture, direct existing-Antigravity TUI probe/send/capture without spawning a replacement process, owned supervisor start/stop and Global Stop confirmation for the current checkpoint, and the complete uncached `npm run verify` run. A static passing test is not a substitute for any of these live checks.
 
+## Search Monitor iframe stability
+
+Search Monitor must not physically reorder its live `#loadingIndicator` subtree merely
+to become `document.body.lastElementChild`. The monitor owns a very high z-index and
+explicit surface-ownership rules; DOM order is not its stacking mechanism.
+
+This matters because Agent Nexus embeds the live Nexus Browser iframe inside Search
+Monitor. Re-appending an iframe-bearing ancestor can recreate/reload the iframe browsing
+context even while the Nexus server and WebSocket transport are healthy. The loading
+indicator maintenance timer may restore the monitor to `document.body` only if it was
+actually detached or nested elsewhere; an already top-level monitor stays in place.
+
 ## Embedded workspace connection stability
 
 The EveOS host treats the embedded Nexus iframe as a persistent runtime surface. Runtime

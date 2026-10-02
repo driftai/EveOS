@@ -186,6 +186,21 @@ control. Its collapsed `<details>` UI appears only when Base Mode is on
 therefore remains independent from browser conversation synchronization, while the same
 sync pattern can later be generalized to other Online-Origin providers.
 
+## UIA sibling de-duplication
+
+Native reply reconstruction treats exact duplicate nodes as duplicates, but substring
+overlap alone is never enough to remove a sibling. Short legitimate fragments such as
+`a`, `is`, `of`, and `the` must survive even when their letters appear inside a
+later word.
+
+A semantic Paragraph/ListItem/Heading may replace smaller child Text fragments only when
+its UIA rectangle spatially contains those fragments. This keeps parent/child
+accessibility duplication out of the reply without deleting real sibling words.
+
+When an offscreen/full-document aggregate contains exactly the same normalized reply as
+the role-group reconstruction, Nexus keeps the role-group text so its better paragraph
+structure is not replaced by a flattened aggregate.
+
 ## Native reply presentation
 
 Windows UI Automation can expose one ChatGPT reply as many tiny sibling text nodes. Base

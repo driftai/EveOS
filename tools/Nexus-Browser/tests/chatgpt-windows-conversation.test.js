@@ -202,3 +202,44 @@ test('semantic paragraph boundaries remain paragraphs while short accessibility 
   ].join('\n\n');
   assert.equal(normalizeSyntheticFragmentBreaks(text), text);
 });
+
+
+test('legitimate short sibling Text fragments are never dropped by substring de-duplication', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
+  const snapshot = snapshotFromInspect({
+    windowInfo,
+    json: { windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Pane', x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'role', type: 'Text', name: 'ChatGPT said', x: 280, y: 180, width: 1, height: 1, children: [] },
+        { selector: 'p1', type: 'Text', name: 'This', x: 280, y: 210, width: 40, height: 20, children: [] },
+        { selector: 'p2', type: 'Text', name: 'is', x: 324, y: 210, width: 16, height: 20, children: [] },
+        { selector: 'p3', type: 'Text', name: 'a', x: 344, y: 210, width: 10, height: 20, children: [] },
+        { selector: 'p4', type: 'Text', name: 'path', x: 358, y: 210, width: 34, height: 20, children: [] },
+        { selector: 'p5', type: 'Text', name: 'of', x: 396, y: 210, width: 18, height: 20, children: [] },
+        { selector: 'p6', type: 'Text', name: 'work.', x: 418, y: 210, width: 46, height: 20, children: [] }
+      ]
+    }] }] }
+  });
+  assert.equal(latestAssistantReply(snapshot)?.text, 'This is a path of work.');
+});
+
+test('equivalent document aggregate cannot flatten better role-group paragraph formatting', () => {
+  const conversation = require('../app-targets/chatgpt-windows-conversation');
+  const group = {
+    parts: [
+      'First complete sentence that belongs to the first paragraph.',
+      'Second complete sentence that belongs to the next paragraph.'
+    ],
+    types: ['Text', 'Text']
+  };
+  const grouped = conversation.groupedMessageText(group);
+  assert.match(grouped, /paragraph\.\n\nSecond/);
+  const snapshot = {
+    elements: [{
+      type: 'Document',
+      selector: 'doc',
+      name: 'First complete sentence that belongs to the first paragraph. Second complete sentence that belongs to the next paragraph.'
+    }]
+  };
+  assert.equal(conversation.expandedGroupedMessageText(snapshot, group), grouped);
+});

@@ -1,5 +1,5 @@
 .target-class-panel { display: grid; gap: 12px; margin-top: 12px; }
-.target-class-panel[hidden] { display: none; }
+.target-class-panel[hidden], .target-row[hidden] { display: none !important; }
 #targetClassSelect { max-width: 360px; }
 #localTargetControls .target-actions { align-items: center; }
 #localTargetSelect option { white-space: normal; }

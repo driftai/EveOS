@@ -10,6 +10,10 @@ const HOST = fs.readFileSync(
   path.join(ROOT, 'js', 'modules', 'gemini', 'search_monitor', 'nexusBrowser.js'),
   'utf8'
 );
+const LOADING_DOM = fs.readFileSync(
+  path.join(ROOT, 'js', 'modules', 'features', 'scraper', 'ui', 'loading-indicator', 'components', 'li-dom.js'),
+  'utf8'
+);
 
 test('EveOS Nexus host canonicalizes iframe URLs before deciding to reload', () => {
   assert.match(HOST, /function canonicalUrl\(value\)/);
@@ -42,4 +46,11 @@ test('Search Monitor retires an older embedded Nexus root and explicitly owns th
 
 test('Nexus lifecycle cold-starts Local Control only from an explicit Nexus action', () => {
   assert.match(HOST, /ensure\?\.\(\{ timeoutMs: 45000, userInitiated: true \}\)/);
+});
+
+
+test('Search Monitor top-layer maintenance never reorders a connected iframe-bearing indicator', () => {
+  assert.doesNotMatch(LOADING_DOM, /document\.body\.lastElementChild !== indicator/);
+  assert.match(LOADING_DOM, /indicator\.parentElement !== document\.body/);
+  assert.match(LOADING_DOM, /Restored #loadingIndicator as a top-level body child/);
 });

@@ -9,6 +9,7 @@ const APP = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
 const APP_MIRROR_UI = fs.readFileSync(path.join(ROOT, 'public', 'app-mirror-ui.js'), 'utf8');
 const APP_TARGETS_UI = fs.readFileSync(path.join(ROOT, 'public', 'app-targets-ui.js'), 'utf8');
 const DEX_MODE = fs.readFileSync(path.join(ROOT, 'public', 'dex-mode.js'), 'utf8');
+const TARGET_CSS = fs.readFileSync(path.join(ROOT, 'public', 'target-classes.css'), 'utf8');
 
 test('Base Mode recognizes server-session lifecycle events instead of logging them as unhandled', () => {
   assert.match(APP, /case 'server_session':/);
@@ -113,4 +114,11 @@ test('fresh App-Origin discovery is manual-connect only and does not backfill na
   assert.match(APP_TARGETS_UI, /el\.connect\?\.addEventListener\('click'/);
   assert.match(APP_TARGETS_UI, /send\(\{ type: 'select_app_target', targetId \}\)/);
   assert.match(APP_TARGETS_UI, /Suppressed passive .* history before manual Base connection/);
+});
+
+
+test('Conversation sync hidden state wins over target-row display styling', () => {
+  assert.match(TARGET_CSS, /\.target-row\[hidden\][^{]*\{[^}]*display:\s*none\s*!important/s);
+  assert.match(APP_MIRROR_UI, /selectedTargetClassId === 'online-origin'/);
+  assert.match(APP_MIRROR_UI, /selectedProviderId === 'chatgpt'/);
 });
