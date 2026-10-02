@@ -224,7 +224,11 @@ async function captureAppLatest({ targetId }) {
     throw error;
   }
   const result = await adapter.captureLatest({ target });
-  sendFailures.delete(target.id);
+  sendFailures.set(target.id, {
+    phase: 'idle',
+    requestId: null,
+    recoveredAt: Date.now()
+  });
   notifyObservedTurn(target, adapter, result, 'capture');
   return { ...result, target };
 }
