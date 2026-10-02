@@ -210,6 +210,17 @@ The top-level `Codex` workspace selector is UI chrome and must not be treated as
 conversation title. The actual thread heading remains eligible for native conversation
 identity.
 
+## Final authoritative reconstruction
+
+Codex visible polling may expose clipped or partial Text fragments while a reply is still
+growing. Nexus may accumulate those fragments for live progress, but once the final
+offscreen-inclusive prompt-correlated native turn is available, that complete turn is
+authoritative and replaces temporary stitched progress.
+
+This prevents short/thin replies from retaining fragments such as `words.`, `line.`,
+or truncated tails after the full UIA turn becomes available, while preserving the
+monotonic progress behavior needed when earlier long paragraphs scroll out of view.
+
 ## Qualification
 
 `tests/chatgpt-windows-codex-surface.test.js` covers:

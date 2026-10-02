@@ -359,7 +359,7 @@ function createAdapter({
           });
           if (full.correlated && !full.nativeTurn) { lastSnapshot = fullSnapshot; lastChangedAt = now(); continue; }
           nativeTurn = full.nativeTurn || nativeTurn;
-          const reconstructed = conversation.preferExpandedReply(lastText, full.text);
+          const reconstructed = full.progressMode === 'accumulate' && full.nativeTurn?.text ? full.text : conversation.preferExpandedReply(lastText, full.text);
           lastSnapshot = fullSnapshot;
           if (reconstructed && reconstructed !== lastText) {
             lastText = reconstructed;
