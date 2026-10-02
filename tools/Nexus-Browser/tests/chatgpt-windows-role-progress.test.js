@@ -125,6 +125,22 @@ test('substantial role-marked ChatGPT reply waits for repeated authoritative sta
 });
 
 
+test('role response is explicitly provisional while tool activity remains below it', () => {
+  const conversation = require('../app-targets/chatgpt-windows-conversation');
+  const { snapshotFromInspect } = require('../app-targets/chatgpt-windows-uia');
+  const prompt = 'inspect the implementation and then answer';
+  const json = normalTree({
+    prompt,
+    answer: 'I am checking the implementation before I give you the final result.',
+    status: 'Checking the implementation',
+    commentaryComplete: true
+  });
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  const observed = conversation.responseForPrompt(snapshot, { prompt });
+  assert.equal(observed.provisional, true);
+  assert.equal(observed.nativeTurn?.completeHint, false);
+});
+
 test('tool status metadata stays provisional even when wording is provider-specific', () => {
   const tree = normalTree({
     prompt: 'use a tool',

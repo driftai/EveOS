@@ -334,7 +334,7 @@ function createAdapter({
           providerName: PROVIDER_NAME
         });
       }
-      if (progressState === 'role' && !observed.nativeTurn?.completeHint && observed.activityHint) { lastChangedAt = observedAt; continue; }
+      if (observed.provisional) { lastChangedAt = observedAt; continue; }
       const stableFor = observedAt - lastChangedAt, baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
       const requiredSettle = progressState === 'role' && !observed.nativeTurn?.completeHint ? Math.max(baseSettle, 5000) : progressState === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
       if (lastText && !lastSnapshot.generating && (observed.nativeTurn?.completeHint || (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0))) {

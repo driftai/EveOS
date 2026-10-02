@@ -295,7 +295,8 @@ function completedAssistantTurnForPrompt(snapshot = {}, prompt = '') {
 function responseForPrompt(snapshot = {}, { prompt = '', baseline = new Set(), includeOffscreen = false } = {}) {
   const activityHint = roleTurns.hasToolActivity(snapshot, nodeText);
   const turn = completedAssistantTurnForPrompt(snapshot, prompt);
-  if (turn) return { text: turn.text, nativeTurn: turn, correlated: true, progressMode: 'replace', activityHint };
+  if (turn) return { text: turn.text, nativeTurn: turn, correlated: true, progressMode: 'replace', activityHint,
+    provisional: activityHint && !turn.completeHint };
   const markerlessTurn = markerless.completedTurnForPrompt(snapshot, prompt, { includeOffscreen });
   if (markerlessTurn) return { text: markerlessTurn.text, nativeTurn: markerlessTurn, correlated: true, progressMode: 'accumulate', activityHint };
   if (markerless.hasPrompt(snapshot, prompt, { includeOffscreen })) return { text: '', nativeTurn: null, correlated: true, progressMode: 'accumulate', activityHint };
