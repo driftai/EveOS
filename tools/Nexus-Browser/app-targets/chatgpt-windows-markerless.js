@@ -40,6 +40,16 @@ function promptOwnsVisibleText(visible = '', expected = '') {
   return compactShown.length >= 72 && compactFull.startsWith(compactShown);
 }
 
+function promptOwnsFragment(visible = '', expected = '') {
+  if (promptOwnsVisibleText(visible, expected)) return true;
+  const shown = promptComparable(visible), full = promptComparable(expected);
+  if (!shown || !full || shown.length >= full.length) return false;
+  const words = shown.split(/\s+/).filter(Boolean);
+  if (shown.length >= 24 && words.length >= 4 && full.includes(shown)) return true;
+  const compactShown = shown.replace(/\s+/g, ''), compactFull = full.replace(/\s+/g, '');
+  return compactShown.length >= 24 && words.length >= 4 && compactFull.includes(compactShown);
+}
+
 function markerlessChrome(text = '') {
   const value = uia.normalizeCandidate(text);
   return !value || uia.isChromeText(value) || TIME_CHROME.test(value)
@@ -166,6 +176,7 @@ function answerAfterPrompt(snapshot = {}, prompt = '', options = {}) {
   const parts = [];
   for (const record of all) {
     if (sameText(record.normalized, promptRecord.normalized)) continue;
+    if (promptOwnsFragment(record.normalized, prompt)) continue;
     if (record.centerY <= promptRecord.centerY + 6) continue;
     if (isLikelyUser(record)) {
       if (parts.length) break;
@@ -291,6 +302,7 @@ module.exports = {
   COMPLETION_CHROME,
   promptComparable,
   promptOwnsVisibleText,
+  promptOwnsFragment,
   WORK_STATUS_CHROME,
   markerlessChrome,
   recordFor,

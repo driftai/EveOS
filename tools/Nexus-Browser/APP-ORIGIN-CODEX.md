@@ -168,6 +168,20 @@ of preferring whichever paragraph happens to be visible at that instant.
 The default active response deadline is eight minutes so long Codex reasoning plus final
 generation is not forced into passive recovery at the old four-minute boundary.
 
+## Long prompt fragment ownership
+
+A long/collapsed Codex user bubble may expose multiple UIA Text nodes. Only the first
+node may look strongly right-aligned; wrapped continuation fragments can extend far
+enough left to resemble assistant text geometrically.
+
+For active sends, the exact prompt Nexus injected owns every substantial visible UIA
+fragment contained inside that prompt. Those fragments are excluded from assistant
+capture before geometry classification. This prevents the tail of a long blue user
+message from becoming the ChatGPT App reply while preserving the real Nova response
+below it.
+
+The regression lives in `tests/chatgpt-windows-codex-long-reply.test.js`.
+
 ## Passive turns and identity
 
 The same markerless prompt/assistant pairs feed `completedAssistantTurns()` and

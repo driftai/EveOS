@@ -137,3 +137,39 @@ test('active Codex long reply emits monotonic accumulated partials and finalizes
   assert.equal((result.text.match(/Paragraph two/g) || []).length, 1);
   assert.equal((result.text.match(/Paragraph three/g) || []).length, 1);
 });
+
+
+test('long Codex prompt continuation fragments never become assistant reply content', () => {
+  const prefix = 'From eve, [Send this to Nova Hey Nova — quick sync. I pulled the local EveOS checkout forward and preserve the working App-Origin transport.';
+  const continuation = 'while the newer Codex long-reply coverage also remains green. You have 26/26 focused tests passing across normal ChatGPT, Codex markerless capture, collapsed prompts, progress chrome, and long/offscreen response reconstruction, followed by.';
+  const prompt = prefix + ' ' + continuation + ' Continue from the current codebase as-is.]';
+  const answer = [
+    'This is the final long-response Nexus qualification for the live Nova/Codex App-Origin path.',
+    'Both paragraphs should arrive once, in order, without duplicated fragments or prompt text.'
+  ].join('\n\n');
+
+  const json = {
+    windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Window', name: 'ChatGPT',
+      x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'prompt-prefix', type: 'Text', name: prefix + '…',
+          x: 760, y: 180, width: 330, height: 120, children: [] },
+        { selector: 'prompt-continuation', type: 'Text', name: continuation,
+          x: 500, y: 315, width: 500, height: 130, children: [] },
+        { selector: 'show-more', type: 'Text', name: 'Show more',
+          x: 920, y: 450, width: 75, height: 20, children: [] },
+        { selector: 'assistant-answer', type: 'Paragraph', name: answer,
+          x: 330, y: 505, width: 540, height: 150, children: [] },
+        { selector: 'compose-codex', type: 'Edit', name: 'Do anything',
+          x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
+      ]
+    }] }]
+  };
+
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  const observed = responseForPrompt(snapshot, { prompt, includeOffscreen: true });
+  assert.equal(observed.correlated, true);
+  assert.equal(observed.text, answer);
+  assert.equal(observed.text.includes('26/26 focused tests'), false);
+  assert.equal(observed.nativeTurn?.text, answer);
+});
