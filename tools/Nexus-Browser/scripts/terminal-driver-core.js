@@ -13,6 +13,7 @@ function parseOptions(argv = process.argv.slice(2)) {
   return {
     noPull: args.has('--no-pull'),
     full: args.has('--full'),
+    qualify: args.has('--qualify') || args.has('--full'),
     push: args.has('--push'),
     localOnly: args.has('--local-only')
   };
