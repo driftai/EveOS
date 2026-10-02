@@ -136,3 +136,31 @@ test('active Codex send waits past markerless timestamp chrome for the real Nova
   assert.equal(events.at(-1).text, 'Received—everything is working.');
   assert.equal(result.nativeTurn?.text, 'Received—everything is working.');
 });
+
+
+test('Codex correlation follows visual geometry when UIA flattening lists the answer before the prompt', () => {
+  const prompt = 'NOVA_CODEX_TEST_001 — Reply exactly with: NOVA_CODEX_OK';
+  const answer = 'NOVA_CODEX_OK';
+  const json = {
+    windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Pane', name: '',
+      x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'mode-codex', type: 'Text', name: 'Codex',
+          x: 160, y: 105, width: 80, height: 22, children: [] },
+        { selector: 'assistant-answer', type: 'Paragraph', name: answer,
+          x: 360, y: 430, width: 320, height: 46, children: [] },
+        { selector: 'time', type: 'Text', name: '12:41 AM',
+          x: 565, y: 280, width: 90, height: 20, children: [] },
+        { selector: 'user-prompt', type: 'Text', name: prompt,
+          x: 760, y: 340, width: 330, height: 64, children: [] },
+        { selector: 'compose-codex', type: 'Custom', name: 'Do anything',
+          x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
+      ]
+    }] }]
+  };
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  const observed = responseForPrompt(snapshot, { prompt });
+  assert.equal(observed.correlated, true);
+  assert.equal(observed.text, answer);
+  assert.equal(observed.nativeTurn?.text, answer);
+});

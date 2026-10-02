@@ -60,7 +60,8 @@ function recordFor(element, index, snapshot = {}, { includeOffscreen = false } =
   return {
     index, element, selector, type, text,
     normalized: uia.normalizeCandidate(text),
-    rect, xRatio, yRatio, widthRatio
+    rect, xRatio, yRatio, widthRatio,
+    centerY: rect.y + rect.height / 2
   };
 }
 
@@ -68,6 +69,11 @@ function records(snapshot = {}, options = {}) {
   return (snapshot.elements || [])
     .map((element, index) => recordFor(element, index, snapshot, options))
     .filter(Boolean);
+}
+
+function visualRecords(snapshot = {}, options = {}) {
+  return records(snapshot, options).sort((a, b) =>
+    a.centerY - b.centerY || a.rect.x - b.rect.x || a.index - b.index);
 }
 
 function isLikelyUser(record = {}) {
@@ -126,20 +132,17 @@ function formatParts(parts = []) {
 function findPromptRecord(snapshot = {}, prompt = '', options = {}) {
   const expected = uia.normalizeCandidate(prompt);
   if (!expected) return null;
-  const matches = records(snapshot, options).filter((record) => sameText(record.normalized, expected));
-  return matches.sort((a, b) => a.index - b.index || a.rect.y - b.rect.y).at(-1) || null;
+  const matches = visualRecords(snapshot, options).filter((record) => sameText(record.normalized, expected));
+  return matches.at(-1) || null;
 }
 
 function answerAfterPrompt(snapshot = {}, prompt = '', options = {}) {
-  const all = records(snapshot, options), promptRecord = findPromptRecord(snapshot, prompt, options);
+  const all = visualRecords(snapshot, options), promptRecord = findPromptRecord(snapshot, prompt, options);
   if (!promptRecord) return { foundPrompt: false, text: '', parts: [], promptRecord: null };
   const parts = [];
-  const promptCenterY = promptRecord.rect.y + promptRecord.rect.height / 2;
   for (const record of all) {
-    if (record.index <= promptRecord.index) continue;
     if (sameText(record.normalized, promptRecord.normalized)) continue;
-    const centerY = record.rect.y + record.rect.height / 2;
-    if (centerY < promptCenterY - 8) continue;
+    if (record.centerY <= promptRecord.centerY + 6) continue;
     if (isLikelyUser(record)) {
       if (parts.length) break;
       continue;
@@ -156,17 +159,16 @@ function answerAfterPrompt(snapshot = {}, prompt = '', options = {}) {
 }
 
 function markerlessPairs(snapshot = {}, options = {}) {
-  const all = records(snapshot, options);
+  const all = visualRecords(snapshot, options);
   const users = all.filter(isLikelyUser);
   const pairs = [];
-  for (const user of users) {
+  for (let userIndex = 0; userIndex < users.length; userIndex += 1) {
+    const user = users[userIndex], nextUser = users[userIndex + 1] || null;
     const parts = [];
-    const userCenterY = user.rect.y + user.rect.height / 2;
     for (const record of all) {
-      if (record.index <= user.index) continue;
-      const centerY = record.rect.y + record.rect.height / 2;
-      if (centerY < userCenterY - 8) continue;
-      if (isLikelyUser(record)) break;
+      if (record.centerY <= user.centerY + 6) continue;
+      if (nextUser && record.centerY >= nextUser.centerY - 6) break;
+      if (isLikelyUser(record)) continue;
       if (!isLikelyAssistant(record, user)) continue;
       addPart(parts, record);
     }
@@ -177,7 +179,8 @@ function markerlessPairs(snapshot = {}, options = {}) {
       assistantText,
       selectors: parts.map((part) => part.selector).filter(Boolean),
       partCount: parts.length,
-      promptIndex: user.index
+      promptIndex: user.index,
+      promptY: user.centerY
     });
   }
   return pairs;
@@ -215,15 +218,24 @@ function completedTurns(snapshot = {}, { limit = 64, includeOffscreen = true } =
 }
 
 function completedTurnForPrompt(snapshot = {}, prompt = '', options = {}) {
-  const pairs = fingerprintPairs(markerlessPairs(snapshot, options));
-  const matched = pairs.filter((pair) => sameText(pair.userText, prompt)).at(-1);
-  return matched ? {
-    fingerprint: matched.fingerprint,
-    text: matched.assistantText,
-    selectors: matched.selectors,
-    partCount: matched.partCount,
-    order: matched.order
-  } : null;
+  const answer = answerAfterPrompt(snapshot, prompt, options);
+  if (!answer.foundPrompt || !answer.text) return null;
+  const userText = uia.normalizeCandidate(prompt);
+  const assistantText = uia.normalizeCandidate(answer.text);
+  const pairDigest = createHash('sha256')
+    .update('eveos-chatgpt-native-turn-pair-v1\0').update(userText).update('\0').update(assistantText).digest('hex');
+  const samePromptPairs = markerlessPairs(snapshot, options)
+    .filter((pair) => sameText(pair.userText, prompt) && sameText(pair.assistantText, answer.text));
+  const occurrence = Math.max(1, samePromptPairs.length);
+  return {
+    fingerprint: createHash('sha256')
+      .update('eveos-chatgpt-native-turn-fingerprint-v1\0')
+      .update(pairDigest).update('\0').update(String(occurrence)).digest('hex'),
+    text: answer.text,
+    selectors: answer.parts.map((part) => part.selector).filter(Boolean),
+    partCount: answer.parts.length,
+    order: Math.max(0, markerlessPairs(snapshot, options).length - 1)
+  };
 }
 
 function hasPrompt(snapshot = {}, prompt = '', options = {}) {
@@ -255,6 +267,7 @@ module.exports = {
   markerlessChrome,
   recordFor,
   records,
+  visualRecords,
   isLikelyUser,
   isLikelyAssistant,
   findPromptRecord,

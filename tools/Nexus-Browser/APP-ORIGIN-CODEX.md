@@ -24,6 +24,18 @@ If the exact prompt is visible but no assistant block exists yet, the reader rem
 correlated and returns an empty response. It must never fall back to unrelated UI text
 such as `12:29 AM`.
 
+## Visual order, not UIA array order
+
+Codex WebView accessibility flattening is not guaranteed to list message nodes in the
+same order they appear on screen. Markerless correlation therefore orders eligible
+conversation records by their screen rectangle (top-to-bottom, then left-to-right) and
+uses message alignment to separate user bubbles from assistant blocks.
+
+The exact injected prompt is the active-send anchor even if its flattened UIA index is
+later than the assistant node. A visually lower assistant block may still be the correct
+reply and must not be discarded merely because its raw accessibility-array index is
+smaller.
+
 ## Passive turns and identity
 
 The same markerless prompt/assistant pairs feed `completedAssistantTurns()` and
