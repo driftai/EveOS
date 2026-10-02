@@ -140,7 +140,7 @@ function createAdapter({
         const identity = conversation.conversationIdentity(snapshot);
         conversationTitle = identity.conversationTitle || '';
         conversationAnchors = identity.conversationAnchors || [];
-        if (!conversationTitle && !conversationAnchors.length) {
+        if (!conversationTitle) {
           conversationTitle = (await titleResolver.resolve({ runner, snapshot }))?.text || '';
         }
       } catch {}
