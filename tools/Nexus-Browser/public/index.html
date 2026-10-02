@@ -108,7 +108,7 @@
         <summary><span>Terminal Relay</span><span id="terminalRelayProvider" class="terminal-relay-provider">ChatGPT App</span></summary>
         <div class="terminal-relay-body">
           <p class="terminal-relay-intro">Provider → Nexus → terminal → Nexus → provider. Full evidence stays EveOS-local; only a separately sanitized report can cross the provider boundary.</p>
-          <div id="terminalRelayStatus" class="terminal-relay-status">Select App-Origin above, then connect the ChatGPT App conversation you want this relay to use.</div>
+          <div id="terminalRelayStatus" class="terminal-relay-status">Open the intended ChatGPT App conversation; relay:dev can bind the single verified App-Origin target automatically.</div>
           <div class="terminal-relay-grid">
             <div><span>Privacy</span><strong>Sanitized relay</strong></div>
             <div><span>Last run</span><strong id="terminalRelayLastRun">Never</strong></div>
@@ -126,10 +126,10 @@
             <summary>Setup, privacy, and behavior</summary>
             <ol>
               <li>Open ChatGPT for Windows on the conversation Nexus should use.</li>
-              <li>Select <strong>App-Origin Targets</strong>, refresh apps, and connect that target.</li>
               <li>Open PowerShell in <code>tools\\Nexus-Browser</code>.</li>
-              <li>Copy one command above and paste it once.</li>
-              <li>Nexus saves the full report locally, sanitizes a separate provider payload, then returns it only to the selected App-Origin target.</li>
+              <li>Copy one command above and paste it once. <code>relay:dev</code> automatically restores a proven binding or binds the single strong ChatGPT App target.</li>
+              <li>If automatic binding is intentionally not wanted, run <code>npm run relay:dev -- --manual-connect</code> and use the Base Mode Connect target button.</li>
+              <li>Nexus saves the full report locally, sanitizes a separate provider payload, then returns it only to the exact verified App-Origin target.</li>
             </ol>
             <p><code>--local-only</code> performs validation without transmitting anything to the provider.</p>
             <p>The raw report is never exposed by the Base Mode status endpoint.</p>
