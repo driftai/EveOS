@@ -1,6 +1,7 @@
 'use strict';
 
 const { createPassiveAppWatcher, bindingScope } = require('./passive-watcher');
+const terminalRelayStorage = require('../scripts/terminal-relay-storage');
 
 function createAppTargetServerController({
   appTargets,
@@ -55,6 +56,7 @@ function createAppTargetServerController({
       message: 'The native app identity changed; refresh and reconnect it explicitly.',
       ...payload
     };
+    terminalRelayStorage.clearTargetSelection(targetId);
     for (const peer of passivePeers(targetId)) {
       peer.appTargetId = null;
       peer.appTargetBinding = null;
@@ -233,6 +235,7 @@ function createAppTargetServerController({
         });
       }
       ws.appTargetBinding = { ...target, concreteTargetIdentity: bindingIdentity };
+      terminalRelayStorage.writeTargetSelection(ws.appTargetBinding);
       passiveWatcher.watch(ws.appTargetBinding);
       safeSend(ws, {
         type: 'app_target_selected',

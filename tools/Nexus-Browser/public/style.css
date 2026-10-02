@@ -272,3 +272,23 @@ a.search-result-title:hover { color: #aecdff; text-decoration: underline; }
   .search-results-backdrop { padding: 10px; }
   .search-results-modal { max-height: 90vh; }
 }
+/* Terminal Relay — Base Mode */
+.terminal-relay { margin:16px 0 0; border:1px solid #2b3748; border-radius:16px; background:rgba(15,20,28,.94); overflow:hidden; min-width:0; }
+.terminal-relay>summary { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:14px 16px; cursor:pointer; color:#dbe6f5; font-weight:750; }
+.terminal-relay-provider { color:#8fa0b8; font-size:12px; font-weight:600; overflow-wrap:anywhere; }
+.terminal-relay[data-ready="true"] .terminal-relay-provider { color:#9ee2b4; }
+.terminal-relay-body { padding:0 16px 16px; border-top:1px solid #252f3e; min-width:0; }
+.terminal-relay-intro { margin:14px 0 10px; color:#aab6c7; line-height:1.55; }
+.terminal-relay-status { margin:10px 0; padding:10px 12px; border:1px solid #303c4e; border-radius:10px; background:#0c1118; color:#9cabbf; font-size:13px; overflow-wrap:anywhere; }
+.terminal-relay-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; margin-top:12px; min-width:0; }
+.terminal-relay-grid>div { min-width:0; padding:10px; border:1px solid #283446; border-radius:10px; background:#0d1219; }
+.terminal-relay-grid span,.terminal-relay-grid strong { display:block; overflow-wrap:anywhere; }
+.terminal-relay-grid span { color:#718097; font-size:10px; text-transform:uppercase; letter-spacing:.08em; }
+.terminal-relay-grid strong { margin-top:4px; color:#c8d5e7; font-size:12px; }
+.terminal-relay-actions { display:flex; flex-wrap:wrap; gap:9px; min-width:0; margin-top:12px; }
+.terminal-relay-help { margin-top:14px; padding-top:12px; border-top:1px solid #263141; }
+.terminal-relay-help>summary { cursor:pointer; color:#b8c5d7; font-size:13px; font-weight:700; }
+.terminal-relay-help ol { margin:12px 0; padding-left:22px; color:#9eabba; line-height:1.55; }
+.terminal-relay-help p { color:#8896aa; font-size:12px; line-height:1.5; }
+.terminal-relay code { padding:1px 5px; border-radius:5px; background:#090d13; color:#bdd2ee; }
+@media (max-width:760px) { .terminal-relay-grid{grid-template-columns:1fr}.terminal-relay-actions{flex-direction:column}.terminal-relay-actions button{width:100%} }

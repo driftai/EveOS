@@ -28,7 +28,8 @@
     "qualify:app-origin": "node scripts/qualify.js --area app-origin",
     "qualify:app-origin:live": "npm run qualify:app-origin && node scripts/app-origin-doctor.js --require-conversation",
     "diagnose:app-ui": "node scripts/app-uia-info.js",
-    "smoke:app-ui-info": "node ../smoke/nexus_app_uia_info_smoke.js"
+    "smoke:app-ui-info": "node ../smoke/nexus_app_uia_info_smoke.js",
+    "smoke:terminal-driver": "node scripts/terminal-driver.js"
   },
   "engines": {
     "node": ">=18"
