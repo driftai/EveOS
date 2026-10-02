@@ -108,7 +108,7 @@ function mergeReplyProgress(currentText = '', candidateText = '') {
 
 function transitionProgressMode(current = 'replace', observed = {}) {
   if (current === 'native' || current === 'role') return current;
-  if (observed.nativeTurn && !observed.nativeTurn.completeHint) return 'accumulate';
+  if (observed.nativeTurn && observed.nativeTurn.completeHint === false) return 'accumulate';
   if (observed.progressMode === 'replace' && observed.nativeTurn) return 'role';
   if (observed.progressMode === 'accumulate') return 'accumulate';
   return current;
