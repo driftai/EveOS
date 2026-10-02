@@ -191,12 +191,25 @@ def _listener_pids() -> list[int]:
     return sorted({int(value) for value in result.stdout.split() if value.isdigit()})
 
 
+def _owned_listener_pid(supervisor_pid: int | None) -> int | None:
+    if not supervisor_pid:
+        return None
+    root = str(_tool_root().resolve()).lower()
+    for listener_pid in _listener_pids():
+        command = _process_command_line(listener_pid).lower()
+        if (_process_parent_pid(listener_pid) == supervisor_pid
+                and root in command and "server.js" in command):
+            return listener_pid
+    return None
+
+
 def _status(message="") -> dict:
     health = _health()
-    diagnostics = (_http_json("/diagnostics", timeout=1.2) or {}) if health else {}
     pid = _managed_pid()
+    owned_listener = _owned_listener_pid(pid)
     process_alive = bool((_PROCESS and _PROCESS.poll() is None) or pid)
-    running = health is not None
+    running = health is not None or owned_listener is not None
+    diagnostics = (_http_json("/diagnostics", timeout=1.2) or {}) if running else {}
     blocked = _port_open() and not running
     installed = (_tool_root() / "server.js").is_file() and _entry().is_file()
     node_ready, npm_ready = _node() is not None, _npm() is not None
@@ -220,7 +233,7 @@ def _status(message="") -> dict:
         "extensionPath": str((_tool_root() / "extension").resolve()),
         "port": NEXUS_BROWSER_PORT,
         "url": f"http://127.0.0.1:{NEXUS_BROWSER_PORT}/",
-        "pids": _listener_pids() if running else [],
+        "pids": [owned_listener] if owned_listener else (_listener_pids() if running else []),
         "supervisorPid": pid,
         "extensionConnected": diagnostics.get("extensionConnected") is True,
         "dexUiConnected": diagnostics.get("dexUiConnected") is True,
@@ -232,7 +245,8 @@ def _status(message="") -> dict:
             "connected": 0, "primaryReady": False, "primaryTabs": None, "standby": [],
         },
         "message": message or (
-            "Nexus Browser is online." if running else
+            "Nexus Browser is online." if health else
+            "Nexus Browser is online; health probe is recovering." if owned_listener else
             f"Port {NEXUS_BROWSER_PORT} belongs to a different service." if blocked else
             "Nexus Browser source is missing from tools/Nexus-Browser." if not installed else
             "Node.js is required for Nexus Browser." if not node_ready else

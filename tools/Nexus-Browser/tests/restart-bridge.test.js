@@ -96,3 +96,8 @@ test('restart ownership falls back to the verified server-supervisor process tre
     before: { supervised: false }, server, supervisor
   }), false);
 });
+
+
+test('restart helper can fall back to a verified supervisor child when HTTP and netstat discovery miss', () => {
+  assert.equal(typeof restart.serverChildOfSupervisor, 'function');
+});

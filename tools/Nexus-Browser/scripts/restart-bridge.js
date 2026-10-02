@@ -70,6 +70,22 @@ async function processInfo(pid) {
   try { return JSON.parse(result.stdout.trim()); } catch { return null; }
 }
 
+async function serverChildOfSupervisor(supervisorPid) {
+  const pid = Number(supervisorPid || 0);
+  if (!Number.isInteger(pid) || pid <= 1) return null;
+  const command = [
+    `$items=Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${pid}' -ErrorAction SilentlyContinue;`,
+    `$items=$items|Where-Object {$_.CommandLine -and $_.CommandLine.ToLower().Contains('server.js')};`,
+    '$p=$items|Select-Object -First 1;',
+    'if($p){[pscustomobject]@{ProcessId=$p.ProcessId;ParentProcessId=$p.ParentProcessId;ExecutablePath=$p.ExecutablePath;CommandLine=$p.CommandLine}|ConvertTo-Json -Compress}'
+  ].join('');
+  const result = await execFileAsync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-Command', command
+  ]);
+  if (!result.ok || !result.stdout.trim()) return null;
+  try { return JSON.parse(result.stdout.trim()); } catch { return null; }
+}
+
 function normalized(value) {
   return String(value || '').replace(/\//g, '\\').toLowerCase();
 }
@@ -165,9 +181,21 @@ async function main() {
   const before = await diagnosticsWithRetry();
 
   let serverPid = Number(before?.serverPid || 0) || null;
+  let server = null;
   if (!serverPid) {
     const netstat = await execFileAsync('netstat.exe', ['-ano', '-p', 'tcp']);
     serverPid = listenerPidFromNetstat(netstat.stdout);
+  }
+  if (!serverPid) {
+    const supervisorPid = Number(before?.supervisorPid || 0) || readSupervisorPidFile();
+    const supervisorProcess = supervisorPid ? await processInfo(supervisorPid) : null;
+    if (supervisorProcess && nodeProcess(supervisorProcess) && commandHas(supervisorProcess, 'bridge-supervisor.js')) {
+      const child = await serverChildOfSupervisor(supervisorPid);
+      if (child && ownsExpectedProcess(child, 'server.js')) {
+        server = child;
+        serverPid = Number(child.ProcessId);
+      }
+    }
   }
   if (!serverPid) {
     throw Object.assign(new Error(
@@ -179,7 +207,7 @@ async function main() {
     });
   }
 
-  const server = await processInfo(serverPid);
+  server = server || await processInfo(serverPid);
   const parentPid = Number(server?.ParentProcessId || 0) || null;
   const reportedSupervisorPid = Number(before?.supervisorPid || 0) || null;
   const pidFileSupervisor = readSupervisorPidFile();
@@ -261,6 +289,7 @@ module.exports = {
   diagnostics,
   diagnosticsWithRetry,
   listenerPidFromNetstat,
+  serverChildOfSupervisor,
   commandHas,
   readSupervisorPidFile,
   writeSupervisorPidFile,

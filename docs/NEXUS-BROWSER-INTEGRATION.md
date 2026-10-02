@@ -90,12 +90,37 @@ instead of replacing it with `about:blank`. Only a confirmed stopped state or an
 explicit Stop action tears the embedded workspace down. This prevents healthy Base/Dex
 WebSocket sessions from cycling simply because the host status probe briefly missed.
 
-## Detached workspace return path
+## Control-plane ownership during transient health misses
 
-When the Nexus workspace is opened in its detached popup, that popup exposes a
-**Reattach to EveOS** control. It uses the existing detached-state heartbeat channel to
-ask the EveOS opener to regain focus and scroll the embedded Nexus workspace back into
-view, then closes the popup. It does not start a second Nexus runtime or copy room state.
+Search Monitor no longer treats one failed `/health` read as proof that port 9088
+belongs to another service. The Local Control adapter verifies the listener PID is the
+EveOS `server.js` child of the verified Nexus supervisor. That verified process-tree
+identity keeps the runtime classified as running while HTTP health recovers, and
+`/diagnostics` is still attempted so extension/target counters need not collapse to
+zero unnecessarily. An open port with no verified EveOS-owned listener remains blocked
+and is never adopted.
+
+## Detached workspace single-owner handoff
+
+Attached and detached Nexus are two views of one logical workspace, not two concurrent
+viewer runtimes. A shared same-origin handoff coordinator maintains one short-lived
+ownership lease for the Base/Dex viewer sockets.
+
+Before detach, the embedded view snapshots its Base mode selection, target binding,
+visible Base transcript/draft/scroll position, plus Dex mode/active-room/draft/scroll
+position. The detached view claims the lease, restores that snapshot, and becomes the
+only Base + Dex WebSocket owner. The original iframe stays loaded in EveOS but is hidden
+and its viewer sockets are suspended.
+
+**Reattach to EveOS** snapshots the detached view, relinquishes its lease, closes the
+popup, restores the latest snapshot into the still-loaded embedded iframe, and resumes
+that iframe as sole socket owner. Dex room/transcript durability remains localhost-owned;
+the handoff snapshot carries viewer position and Base UI state rather than creating a
+second room store. Closing/crashing the detached view releases or expires the lease so
+the embedded workspace can reclaim ownership.
+
+Clicking **Focus detached** only focuses the existing popup; it never calls
+`window.open(...)` again on the named window, so focusing cannot reload the workspace.
 
 ## Delete-readiness boundary
 

@@ -2,6 +2,7 @@
   if (new URLSearchParams(location.search).get('eveosDetached') !== '1') return;
 
   const MESSAGE_TYPE = 'eveos:nexus-detached-state';
+  const handoff = globalThis.BrowserAiBridgeWorkspaceHandoff;
   document.documentElement.dataset.eveosDetached = 'true';
   if (!/Detached/i.test(document.title)) document.title = `${document.title} · Detached`;
 
@@ -29,6 +30,7 @@
     cursor: 'pointer', boxShadow: '0 6px 22px rgba(0,0,0,.28)'
   });
   reattach.addEventListener('click', () => {
+    handoff?.relinquish?.('reattach');
     publish('reattach');
     try { window.close(); } catch {}
   });
@@ -40,6 +42,7 @@
   addEventListener('visibilitychange', () => publish('open'));
   addEventListener('beforeunload', () => {
     clearInterval(heartbeat);
+    handoff?.relinquish?.('detached-close');
     publish('closed');
   });
 })();

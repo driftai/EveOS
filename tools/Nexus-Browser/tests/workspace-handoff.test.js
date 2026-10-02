@@ -1,0 +1,94 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { createCoordinator } = require('../public/workspace-handoff');
+
+function sharedStorageBus() {
+  const values = new Map(), listeners = new Set();
+  const storage = {
+    getItem(key) { return values.has(key) ? values.get(key) : null; },
+    setItem(key, value) {
+      const oldValue = values.has(key) ? values.get(key) : null;
+      values.set(key, String(value));
+      for (const listener of listeners) listener({ key, oldValue, newValue: String(value) });
+    },
+    removeItem(key) {
+      const oldValue = values.has(key) ? values.get(key) : null;
+      values.delete(key);
+      for (const listener of listeners) listener({ key, oldValue, newValue: null });
+    }
+  };
+  return {
+    storage,
+    addEvent(type, listener) { if (type === 'storage') listeners.add(listener); },
+    removeEvent(type, listener) { if (type === 'storage') listeners.delete(listener); }
+  };
+}
+
+function coordinator(bus, { id, detached }) {
+  return createCoordinator({
+    storage: bus.storage,
+    addEvent: bus.addEvent,
+    removeEvent: bus.removeEvent,
+    setTimer: () => 1,
+    clearTimer() {},
+    now: (() => { let value = 1000; return () => ++value; })(),
+    detached,
+    instanceId: id
+  });
+}
+
+test('workspace handoff keeps exactly one socket owner and carries view state both directions', () => {
+  const bus = sharedStorageBus();
+  let embeddedValue = 'embedded-before-detach';
+  const embeddedEvents = [], embeddedRestores = [];
+  const embedded = coordinator(bus, { id: 'embedded', detached: false });
+  embedded.start();
+  embedded.register('base', {
+    snapshot: () => ({ value: embeddedValue }),
+    restore: (value) => { embeddedRestores.push(value?.value); if (value?.value) embeddedValue = value.value; },
+    resume: () => embeddedEvents.push('resume'),
+    suspend: () => embeddedEvents.push('suspend')
+  });
+  assert.equal(embedded.isOwner(), true);
+  assert.deepEqual(embeddedEvents, ['resume']);
+
+  embedded.snapshotNow('detach');
+  let detachedValue = 'detached-empty';
+  const detachedEvents = [], detachedRestores = [];
+  const detached = coordinator(bus, { id: 'detached', detached: true });
+  detached.start();
+  detached.register('base', {
+    snapshot: () => ({ value: detachedValue }),
+    restore: (value) => { detachedRestores.push(value?.value); if (value?.value) detachedValue = value.value; },
+    resume: () => detachedEvents.push('resume'),
+    suspend: () => detachedEvents.push('suspend')
+  });
+
+  assert.equal(embedded.isOwner(), false);
+  assert.equal(detached.isOwner(), true);
+  assert.deepEqual(embeddedEvents, ['resume', 'suspend']);
+  assert.deepEqual(detachedEvents, ['resume']);
+  assert.equal(detachedValue, 'embedded-before-detach');
+
+  detachedValue = 'changed-while-detached';
+  detached.relinquish('reattach');
+
+  assert.equal(detached.isOwner(), false);
+  assert.equal(embedded.isOwner(), true);
+  assert.equal(embeddedValue, 'changed-while-detached');
+  assert.deepEqual(detachedEvents, ['resume', 'suspend']);
+  assert.deepEqual(embeddedEvents, ['resume', 'suspend', 'resume']);
+  assert.ok(embeddedRestores.includes('changed-while-detached'));
+});
+
+test('a second embedded view cannot steal a fresh detached ownership lease', () => {
+  const bus = sharedStorageBus();
+  const detached = coordinator(bus, { id: 'detached', detached: true });
+  detached.start();
+  const secondEmbedded = coordinator(bus, { id: 'embedded-2', detached: false });
+  secondEmbedded.start();
+  assert.equal(detached.isOwner(), true);
+  assert.equal(secondEmbedded.isOwner(), false);
+});

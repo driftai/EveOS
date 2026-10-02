@@ -22,3 +22,12 @@ test('transient status failure preserves a known-running embedded Nexus workspac
   assert.match(HOST, /if \(status\?\.running === true\) render\(status, message\)/);
   assert.match(HOST, /Keeping the current workspace while Search Monitor retries/);
 });
+
+
+test('detached Nexus is a single-workspace handoff rather than a second persistent iframe owner', () => {
+  assert.match(HOST, /workspaceControl\('snapshot', 'detach'\)/);
+  assert.match(HOST, /workspaceControl\('claim', 'reattach'\)/);
+  assert.match(HOST, /inline\.hidden = !running \|\| detachedOpen\(\)/);
+  assert.match(HOST, /if \(detachedOpen\(\) && detachedWindow && !detachedWindow\.closed\)/);
+  assert.match(HOST, /detachedWindow\.focus\(\)/);
+});

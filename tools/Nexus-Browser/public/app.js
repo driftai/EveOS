@@ -35,11 +35,12 @@ const el = {
 };
 
 const searchUi = globalThis.BrowserAiBridgeSearchResultsUi, activityUi = globalThis.BrowserAiBridgeActivityUi;
-const socketApi = globalThis.BrowserAiBridgeUiSocket;
+const socketApi = globalThis.BrowserAiBridgeUiSocket, handoff = globalThis.BrowserAiBridgeWorkspaceHandoff;
+const baseWorkspaceApi = globalThis.BrowserAiBridgeBaseWorkspace;
 const appMirrorUiApi = globalThis.BrowserAiBridgeAppMirrorUi, appTargetsUiApi = globalThis.BrowserAiBridgeAppTargetsUi;
 if (!searchUi || !socketApi || !appMirrorUiApi || !appTargetsUiApi) throw new Error('Base UI helpers were not loaded before app.js.');
 if (!activityUi) throw new Error('Activity UI module was not loaded before app.js.');
-let uiSocket = null, appMirrorUi = null, appTargetsUi = null;
+let uiSocket = null, appMirrorUi = null, appTargetsUi = null, baseWorkspace = null;
 function activeTarget() {
   return state.selectedTargetClassId === 'local-origin' ? state.localTarget
     : state.selectedTargetClassId === 'app-origin' ? appTargetsUi?.target() : state.onlineTarget;
@@ -356,7 +357,7 @@ function connectSocket() {
     onMessage: handleMessage,
     onOpen: () => {
       log('Local UI socket connected.');
-      appMirrorUi?.requestStatus(); appTargetsUi?.requestTargets();
+      appMirrorUi?.requestStatus(); appTargetsUi?.requestTargets(); baseWorkspace?.onOpen?.();
     },
     onMalformed: (error) => log('Invalid message from bridge.', error.message),
     onPhase: ({ phase }) => {
@@ -432,7 +433,10 @@ document.addEventListener('keydown', (event) => {
 
 appMirrorUi = appMirrorUiApi.create({ state, send, requestId, addMessage, log });
 appTargetsUi = appTargetsUiApi.create({ state, send, addMessage, log, renderBaseStatus: renderStatus });
-renderTargetClasses(); renderProviders(); renderTabs();
-renderLocalTargetTypes(); renderLocalTargets(); renderStatus();
-connectSocket();
-setInterval(() => send({ type: 'ping' }), 20000);
+renderTargetClasses(); renderProviders(); renderTabs(); renderLocalTargetTypes(); renderLocalTargets(); renderStatus();
+baseWorkspace = baseWorkspaceApi?.create({ state, el, send,
+  appTarget: () => appTargetsUi?.target(), appBindingIdentity: () => appTargetsUi?.bindingIdentity?.(),
+  render: () => { renderTargetClasses(); renderProviders(); renderTabs(); renderLocalTargetTypes(); renderLocalTargets(); renderStatus(); },
+  connect: connectSocket, disconnect: () => { uiSocket?.stop(); uiSocket = null; state.uiConnectionPhase = 'suspended'; renderStatus(); } });
+if (handoff && baseWorkspace) handoff.register('base', baseWorkspace); else connectSocket();
+setInterval(() => { if (uiSocket?.snapshot?.().phase === 'connected') uiSocket.send({ type: 'ping' }); }, 20000);

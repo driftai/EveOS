@@ -4,7 +4,8 @@
   const controlApi = globalThis.BrowserAiBridgeDexProviderControl;
   const stateSyncApi = globalThis.BrowserAiBridgeDexStateSync;
   const runtimeApi = globalThis.BrowserAiBridgeDexRuntimeClient;
-  const socketApi = globalThis.BrowserAiBridgeUiSocket;
+  const socketApi = globalThis.BrowserAiBridgeUiSocket, handoff = globalThis.BrowserAiBridgeWorkspaceHandoff;
+  const dexWorkspaceApi = globalThis.BrowserAiBridgeDexWorkspace;
   const sessionPolicyApi = globalThis.BrowserAiBridgeDexSessionPolicy;
   const humanInputApi = globalThis.BrowserAiBridgeDexHumanControl;
   const roomViewApi = globalThis.BrowserAiBridgeDexRoomView;
@@ -435,5 +436,7 @@
     sessionStorage.removeItem(RELOAD_REASON_KEY);
     log(reloadReason);
   }
-  connectSocket();
+  const dexWorkspace = dexWorkspaceApi?.create({ state, el, setMode, renderAll, connect: connectSocket,
+    disconnect: () => { dexSocket?.stop(); dexSocket = null; state.uiConnectionPhase = 'suspended'; renderAll(); } });
+  if (handoff && dexWorkspace) handoff.register('dex', dexWorkspace); else connectSocket();
 })();

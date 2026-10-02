@@ -14,6 +14,7 @@
     const boundRoots = new WeakSet();
     const DETACHED_WINDOW_NAME = 'eveos-nexus-browser-detached';
     const DETACHED_HEARTBEAT_MS = 4500;
+    const WORKSPACE_CONTROL_TYPE = 'eveos:nexus-workspace-control';
     let root = null;
     let status = null;
     let busy = false;
@@ -97,16 +98,35 @@
         }
     }
 
+    function workspaceControl(action, reason = '') {
+        const frame = root?.querySelector('[data-nexus-browser-frame]');
+        const target = runtimeUrl();
+        if (!frame?.contentWindow || !target) return false;
+        try {
+            frame.contentWindow.postMessage({
+                type: WORKSPACE_CONTROL_TYPE, action, reason, at: Date.now()
+            }, new URL(target).origin);
+            return true;
+        } catch { return false; }
+    }
+
     function renderDetached() {
         const open = detachedOpen();
         text('[data-nexus-browser-detached]', open ? 'Open' : 'Closed');
         const button = root?.querySelector('[data-nexus-browser-action="detached"]');
         if (button) button.textContent = open ? 'Focus detached' : 'Open detached';
+        const inline = root?.querySelector('[data-nexus-browser-inline]');
+        if (inline && status?.running === true) inline.hidden = open;
     }
 
     function openDetached() {
+        if (detachedOpen() && detachedWindow && !detachedWindow.closed) {
+            try { detachedWindow.focus(); } catch {}
+            return;
+        }
         const url = detachedUrl();
         if (!url) return;
+        workspaceControl('snapshot', 'detach');
         detachedWindow = window.open(
             url,
             DETACHED_WINDOW_NAME,
@@ -139,11 +159,13 @@
         if (event.data.state === 'reattach') {
             detachedSeenAt = 0;
             detachedWindow = null;
+            workspaceControl('claim', 'reattach');
             try { window.focus(); } catch {}
             try { root?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {}
         } else if (event.data.state === 'closed') {
             detachedSeenAt = 0;
             if (detachedWindow?.closed) detachedWindow = null;
+            workspaceControl('claim', 'detached-closed');
         } else {
             detachedSeenAt = Date.now();
             if (!detachedWindow && event.source) detachedWindow = event.source;
@@ -156,6 +178,7 @@
         if (detachedWindow?.closed) {
             detachedWindow = null;
             detachedSeenAt = 0;
+            workspaceControl('claim', 'detached-window-gone');
         }
         renderDetached();
     }, 1000);
@@ -183,7 +206,7 @@
         else renderDetached();
         const inline = root?.querySelector('[data-nexus-browser-inline]');
         const frame = root?.querySelector('[data-nexus-browser-frame]');
-        if (inline) inline.hidden = !running;
+        if (inline) inline.hidden = !running || detachedOpen();
         if (frame) {
             if (running) {
                 const next = canonicalUrl(runtimeUrl(snapshot));

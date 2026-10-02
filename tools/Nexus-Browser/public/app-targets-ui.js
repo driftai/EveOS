@@ -206,6 +206,7 @@
       requestTargets,
       target: () => selectedTarget,
       status: () => targetStatus,
+      bindingIdentity: () => boundIdentity ? { ...boundIdentity } : null,
       diagnostics: () => diagnostics,
       targets: () => targets.map((target) => ({ ...target }))
     };
