@@ -340,7 +340,7 @@ function createAdapter({
       if (progressState === 'role' && !observed.nativeTurn?.completeHint && (observed.activityHint || ++roleQuietPasses < 80)) { if (observed.activityHint) roleQuietPasses = 0; lastChangedAt = observedAt; continue; }
       const stableFor = observedAt - lastChangedAt, baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
       const requiredSettle = progressState === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
-      if (lastText && !lastSnapshot.generating && (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0)) {
+      if (lastText && !lastSnapshot.generating && (observed.nativeTurn?.completeHint || (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0))) {
         try {
           const fullSnapshot = await inspect({
             hwnd: target.windowHandle, pid: target.pid, title: target.title
