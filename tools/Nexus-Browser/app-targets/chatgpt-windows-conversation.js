@@ -372,7 +372,7 @@ function activeConversationTitle(snapshot = {}) {
     if (!/(text|heading|button|group|document|custom|tabitem|listitem|pane)/.test(type)) continue;
     const text = uia.normalizeCandidate(nodeText(element));
     if (!text || text.length < 2 || text.length > 120) continue;
-    if (/^(chatgpt|codex|chat|work|new chat|share|search|library|projects|settings|home|back|forward)$/i.test(text)) continue;
+    if (/^(chatgpt|codex|chat|work|new chat|share|search|library|projects|settings|home|back|forward|(?:show|hide|open|close|toggle) sidebar)$/i.test(text)) continue;
     if (ASSISTANT_MARKER.test(text) || USER_MARKER.test(text) || uia.isChromeText(text)) continue;
 
     const rect = uia.rectOf(element);

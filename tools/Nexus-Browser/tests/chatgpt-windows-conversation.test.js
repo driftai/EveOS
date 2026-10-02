@@ -243,3 +243,25 @@ test('equivalent document aggregate cannot flatten better role-group paragraph f
   };
   assert.equal(conversation.expandedGroupedMessageText(snapshot, group), grouped);
 });
+
+
+test('native conversation identity rejects sidebar chrome and keeps the real Codex thread heading', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 100, y: 20, width: 1200, height: 900 };
+  const json = {
+    windows: [{
+      ...windowInfo,
+      elements: [{
+        selector: 'root', type: 'Pane', x: 100, y: 20, width: 1200, height: 900, children: [
+          { selector: 'show-sidebar', type: 'Button', name: 'Show sidebar',
+            x: 112, y: 42, width: 110, height: 32, children: [] },
+          { selector: 'thread-title', type: 'Heading', name: 'Merger Work and Stabilization - Greet',
+            x: 360, y: 58, width: 420, height: 32, children: [] },
+          { selector: 'reply', type: 'Text', name: 'NOVA_CODEX_OK_005',
+            x: 330, y: 260, width: 220, height: 30, children: [] }
+        ]
+      }]
+    }]
+  };
+  const title = activeConversationTitle(snapshotFromInspect({ windowInfo, json }));
+  assert.equal(title?.text, 'Merger Work and Stabilization - Greet');
+});

@@ -112,15 +112,24 @@ function conversationAnchors(identity = {}) {
   ].filter(Boolean).map(String))];
 }
 
+function reliableConversationTitle(value = '') {
+  const title = String(value || '').trim();
+  return title.length >= 4
+    && !/^(?:chatgpt|codex|chat|work|new chat|(?:show|hide|open|close|toggle) sidebar)$/i.test(title);
+}
+
 function appConversationMatches(expected = {}, actual = {}) {
-  const titleMatches = !!expected.conversationTitle
-    && String(expected.conversationTitle) === String(actual.conversationTitle || '');
+  const expectedTitle = String(expected.conversationTitle || '').trim();
+  const actualTitle = String(actual.conversationTitle || '').trim();
+  const titleMatches = reliableConversationTitle(expectedTitle)
+    && expectedTitle === actualTitle;
   const expectedAnchors = conversationAnchors(expected);
   const actualAnchors = conversationAnchors(actual);
   if (expectedAnchors.length) {
     if (actualAnchors.length) {
       const live = new Set(actualAnchors);
-      return expectedAnchors.some((anchor) => live.has(anchor));
+      if (expectedAnchors.some((anchor) => live.has(anchor))) return true;
+      return titleMatches;
     }
     return titleMatches;
   }
@@ -267,6 +276,7 @@ module.exports = {
   getAppTargetStatus,
   exactAppTargetMatch,
   advanceAppTargetBinding,
+  reliableConversationTitle,
   onAppTurnFinal,
   captureAppLatest,
   sendAppPrompt,

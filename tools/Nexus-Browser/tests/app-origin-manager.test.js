@@ -221,3 +221,66 @@ test('App-Origin conversation continuity accepts rolling anchor overlap and reje
   assert.equal(manager.exactAppTargetMatch(advanced, unrelated), false);
   assert.equal(manager.advanceAppTargetBinding(advanced, unrelated), null);
 });
+
+
+test('App-Origin continuity allows anchor rotation when the same reliable native thread title remains stable', () => {
+  const oldAnchor = '1'.repeat(64);
+  const newAnchor = '2'.repeat(64);
+  const expected = {
+    id: TARGET_ID,
+    providerId: 'chatgpt-desktop',
+    concreteTargetIdentity: {
+      processId: 118148,
+      windowHandle: 4473474,
+      conversationTitle: 'Merger Work and Stabilization - Greet',
+      conversationAnchor: oldAnchor,
+      conversationAnchors: [oldAnchor]
+    }
+  };
+  const actual = {
+    id: TARGET_ID,
+    providerId: 'chatgpt-desktop',
+    concreteTargetIdentity: {
+      processId: 118148,
+      windowHandle: 4473474,
+      conversationTitle: 'Merger Work and Stabilization - Greet',
+      conversationAnchor: newAnchor,
+      conversationAnchors: [newAnchor]
+    }
+  };
+
+  assert.equal(manager.exactAppTargetMatch(expected, actual), true);
+  const advanced = manager.advanceAppTargetBinding(expected, actual);
+  assert.ok(advanced);
+  assert.deepEqual(advanced.concreteTargetIdentity.conversationAnchors, [oldAnchor, newAnchor]);
+});
+
+test('App-Origin continuity never trusts generic sidebar chrome as a conversation title', () => {
+  const oldAnchor = '3'.repeat(64);
+  const newAnchor = '4'.repeat(64);
+  const expected = {
+    id: TARGET_ID,
+    providerId: 'chatgpt-desktop',
+    concreteTargetIdentity: {
+      processId: 118148,
+      windowHandle: 4473474,
+      conversationTitle: 'Show sidebar',
+      conversationAnchor: oldAnchor,
+      conversationAnchors: [oldAnchor]
+    }
+  };
+  const actual = {
+    id: TARGET_ID,
+    providerId: 'chatgpt-desktop',
+    concreteTargetIdentity: {
+      processId: 118148,
+      windowHandle: 4473474,
+      conversationTitle: 'Show sidebar',
+      conversationAnchor: newAnchor,
+      conversationAnchors: [newAnchor]
+    }
+  };
+
+  assert.equal(manager.reliableConversationTitle('Show sidebar'), false);
+  assert.equal(manager.exactAppTargetMatch(expected, actual), false);
+});

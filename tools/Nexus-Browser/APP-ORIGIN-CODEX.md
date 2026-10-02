@@ -107,6 +107,19 @@ and keeps the visible reply as the canonical assistant text.
 This prevents a completed turn from being reconstructed as
 `Response complete: ANSWER ANSWER` when the accessibility tree contains both nodes.
 
+## Thread-title continuity
+
+Codex can virtualize or collapse long prompts enough that the visible conversation-anchor
+set rotates between adjacent scans. That must not force an explicit rebind when the
+native process/window is unchanged and the same reliable thread title remains visible.
+
+Sidebar controls such as `Show sidebar`, `Hide sidebar`, `Open sidebar`,
+`Close sidebar`, and `Toggle sidebar` are UI chrome and are never valid conversation
+titles. When a real thread title is available, it may serve as the continuity witness
+across anchor rotation on the same PID/HWND.
+
+A different reliable title still fails closed and requires explicit rebind.
+
 ## Passive turns and identity
 
 The same markerless prompt/assistant pairs feed `completedAssistantTurns()` and
