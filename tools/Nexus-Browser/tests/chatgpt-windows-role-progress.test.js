@@ -125,6 +125,18 @@ test('substantial role-marked ChatGPT reply waits for repeated authoritative sta
 });
 
 
+test('tool-like wording in the user prompt is never mistaken for tool activity', () => {
+  const conversation = require('../app-targets/chatgpt-windows-conversation');
+  const { snapshotFromInspect } = require('../app-targets/chatgpt-windows-uia');
+  const prompt = 'inspect the implementation and then answer';
+  const json = normalTree({ prompt, answer: 'Plain final answer.', complete: true });
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  const observed = conversation.responseForPrompt(snapshot, { prompt });
+  assert.equal(observed.nativeTurn?.text, 'Plain final answer.');
+  assert.equal(observed.activityHint, false);
+  assert.equal(observed.provisional, false);
+});
+
 test('role response is explicitly provisional while tool activity remains below it', () => {
   const conversation = require('../app-targets/chatgpt-windows-conversation');
   const { snapshotFromInspect } = require('../app-targets/chatgpt-windows-uia');

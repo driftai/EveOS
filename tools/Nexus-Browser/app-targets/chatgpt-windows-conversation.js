@@ -201,7 +201,8 @@ function roleMessageGroups(snapshot = {}) {
     if (!/(text|paragraph|document|listitem|heading)/.test(type)) continue;
     const rawText = nodeText(element);
     const text = uia.normalizeCandidate(rawText);
-    if (!text || uia.isChromeText(text) || LIVE_STATUS.test(text) || roleTurns.isToolActivityElement(element, nodeText)
+    if (!text || uia.isChromeText(text) || LIVE_STATUS.test(text)
+        || (current.role === 'assistant' && roleTurns.isToolActivityElement(element, nodeText))
         || USER_MARKER.test(text) || ASSISTANT_MARKER.test(text)) continue;
     const selector = uia.selectorOf(element);
     if (/rootwebarea/i.test(selector)) continue;

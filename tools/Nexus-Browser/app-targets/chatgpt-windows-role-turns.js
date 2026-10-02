@@ -55,9 +55,16 @@ function isToolActivityElement(element = {}, nodeText = () => '') {
 }
 
 function hasToolActivity(snapshot = {}, nodeText = () => '') {
-  return (snapshot.elements || []).some((element) =>
-    element?.isOffscreen !== true && uia.propertyText(element, 'IsOffscreen') !== 'True'
-      && isToolActivityElement(element, nodeText));
+  let role = null;
+  for (const element of snapshot.elements || []) {
+    const text = uia.normalizeCandidate(nodeText(element));
+    if (/^(?:you|user)\s+said\s*:?$/i.test(text)) { role = 'user'; continue; }
+    if (/^(?:chatgpt|assistant)\s+said\s*:?$/i.test(text)) { role = 'assistant'; continue; }
+    if (role !== 'assistant') continue;
+    if (element?.isOffscreen === true || uia.propertyText(element, 'IsOffscreen') === 'True') continue;
+    if (isToolActivityElement(element, nodeText)) return true;
+  }
+  return false;
 }
 
 module.exports = { roleTurnPairs, hasCompletionActions, isToolActivityElement, hasToolActivity };
