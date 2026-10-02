@@ -12,6 +12,24 @@ function createAppTargetServerController({
 } = {}) {
   let lastTargets = [];
   let passiveWatcher = null;
+  const missedTerminalEvents = new Map(), missedTtlMs = 5 * 60 * 1000, missedLimit = 64;
+
+  function rememberMissed(targetId, payload) {
+    if (!payload?.requestId || !['response_final', 'error'].includes(payload.type)) return;
+    const now = Date.now();
+    for (const [key, entry] of missedTerminalEvents) if (now - entry.at > missedTtlMs) missedTerminalEvents.delete(key);
+    missedTerminalEvents.set(`${String(targetId)}\0${String(payload.requestId)}`, { targetId: String(targetId), payload: { ...payload }, at: now });
+    while (missedTerminalEvents.size > missedLimit) missedTerminalEvents.delete(missedTerminalEvents.keys().next().value);
+  }
+
+  function replayMissed(ws, targetId) {
+    const now = Date.now(), wanted = String(targetId);
+    for (const [key, entry] of missedTerminalEvents) {
+      if (now - entry.at > missedTtlMs) { missedTerminalEvents.delete(key); continue; }
+      if (entry.targetId !== wanted) continue;
+      if (safeSend(ws, { ...entry.payload, recoveredAfterReconnect: true })) missedTerminalEvents.delete(key);
+    }
+  }
 
   function selected(ws) {
     if (!ws?.appTargetId) return null;
@@ -88,11 +106,12 @@ function createAppTargetServerController({
   }
 
   function sendEvent(targetId, source, payload) {
-    safeSend(source, payload);
+    const sourceDelivered = safeSend(source, payload);
     for (const peer of uiSockets) {
       if (peer === source || peer.clientKind === 'dex' || peer.appTargetId !== targetId) continue;
       safeSend(peer, payload);
     }
+    if (!sourceDelivered) rememberMissed(targetId, payload);
   }
 
   function announce(destination = null, { validateSelection = false, refreshing = false } = {}) {
@@ -222,6 +241,7 @@ function createAppTargetServerController({
         status: appTargets.getAppTargetStatus(target.id),
         diagnostics: appTargets.discoveryDiagnostics()
       });
+      replayMissed(ws, target.id);
       return true;
     }
 
@@ -312,7 +332,8 @@ function createAppTargetServerController({
     return {
       targets: lastTargets.length,
       discovery: appTargets.discoveryDiagnostics(),
-      passive: passiveWatcher.diagnostics()
+      passive: passiveWatcher.diagnostics(),
+      missedTerminalEvents: missedTerminalEvents.size
     };
   }
 

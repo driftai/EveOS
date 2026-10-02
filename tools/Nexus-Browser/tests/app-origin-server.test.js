@@ -14,7 +14,8 @@ function harness() {
   };
   const messages = [];
   const observed = [];
-  const ws = { clientKind: 'browser', appTargetId: null };
+  const ws = { clientKind: 'browser', appTargetId: null, closed: false };
+  const uiSockets = new Set([ws]);
   const durability = {
     async beforeDispatch(msg, meta) {
       observed.push({ kind: 'before', requestId: msg.requestId, meta });
@@ -46,13 +47,14 @@ function harness() {
   const controller = createAppTargetServerController({
     appTargets,
     safeSend(peer, payload) {
+      if (peer?.closed) return false;
       messages.push({ peer, payload });
       return true;
     },
-    uiSockets: new Set([ws]),
+    uiSockets,
     getDurability: () => durability
   });
-  return { controller, appTargets, durability, target, ws, messages, observed };
+  return { controller, appTargets, durability, target, ws, uiSockets, messages, observed };
 }
 
 test('App-Origin discovery and selection stay independent from browser tabs', async () => {
@@ -92,6 +94,26 @@ test('Base Mode App-Origin send flows through durability and returns app respons
   assert.ok(h.observed.some((entry) => entry.type === 'response_final'));
   assert.ok(h.messages.some((entry) =>
     entry.payload.type === 'response_final' && entry.payload.text === 'app final'));
+});
+
+test('App-Origin replays a missed terminal event after Base UI socket reconnect and rebind', async () => {
+  const h = harness();
+  h.ws.appTargetId = h.target.id;
+  h.ws.closed = true;
+  await h.controller.handle(h.ws, {
+    type: 'send_prompt', requestId: 'app-reconnect-1', text: 'survive ui disconnect',
+    targetClassId: 'app-origin', targetId: h.target.id
+  });
+  assert.equal(h.messages.some((entry) => entry.payload.requestId === 'app-reconnect-1'), false);
+
+  const replacement = { clientKind: 'browser', appTargetId: null, closed: false };
+  h.uiSockets.add(replacement);
+  await h.controller.handle(replacement, { type: 'select_app_target', targetId: h.target.id });
+  const recovered = h.messages.find((entry) => entry.peer === replacement
+    && entry.payload.type === 'response_final' && entry.payload.requestId === 'app-reconnect-1');
+  assert.equal(recovered?.payload.text, 'app final');
+  assert.equal(recovered?.payload.recoveredAfterReconnect, true);
+  assert.equal(h.controller.diagnostics().missedTerminalEvents, 0);
 });
 
 test('Base Mode busy rejection happens before the durable dispatch boundary', async () => {

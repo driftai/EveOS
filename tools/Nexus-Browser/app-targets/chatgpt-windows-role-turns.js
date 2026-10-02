@@ -32,12 +32,16 @@ function hasCompletionActions(snapshot = {}, group = {}, nodeText = () => '') {
   });
 }
 
-function hasToolActivity(snapshot = {}, nodeText = () => '') {
-  return (snapshot.elements || []).some((element) => {
-    if (element?.isOffscreen === true || uia.propertyText(element, 'IsOffscreen') === 'True') return false;
-    const text = uia.normalizeCandidate(nodeText(element));
-    return !!text && text.length <= 120 && TOOL_ACTIVITY.test(text);
-  });
+function isToolActivityElement(element = {}, nodeText = () => '') {
+  if (/(paragraph|listitem|heading)/.test(uia.controlType(element))) return false;
+  const text = uia.normalizeCandidate(nodeText(element));
+  return !!text && text.length <= 120 && TOOL_ACTIVITY.test(text);
 }
 
-module.exports = { roleTurnPairs, hasCompletionActions, hasToolActivity };
+function hasToolActivity(snapshot = {}, nodeText = () => '') {
+  return (snapshot.elements || []).some((element) =>
+    element?.isOffscreen !== true && uia.propertyText(element, 'IsOffscreen') !== 'True'
+      && isToolActivityElement(element, nodeText));
+}
+
+module.exports = { roleTurnPairs, hasCompletionActions, isToolActivityElement, hasToolActivity };

@@ -91,6 +91,17 @@ test('short UI socket loss preserves a recovering phase and reconnects before ha
   assert.equal(grace.cleared, true);
 });
 
+test('UI socket treats close code 1001 as recoverable and reconnects', () => {
+  const { client, scheduled } = harness();
+  client.connect();
+  FakeWebSocket.instances[0].emit('open');
+  FakeWebSocket.instances[0].emit('close', { code: 1001, reason: 'going away' });
+  assert.equal(client.snapshot().phase, 'reconnecting');
+  scheduled.find((entry) => entry.delay === 300).fn();
+  FakeWebSocket.instances[1].emit('open');
+  assert.equal(client.snapshot().phase, 'connected');
+});
+
 test('extended UI socket loss becomes disconnected after the visual grace period', () => {
   const { client, scheduled } = harness();
   client.connect();
