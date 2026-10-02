@@ -33,7 +33,7 @@ function restoreAdapter(saved) {
   manager.invalidateAppTargetCache();
 }
 
-test('failed native send overrides stale adapter waiting state with terminal error', async () => {
+test('failed native send overrides stale adapter waiting state and recovery capture clears it', async () => {
   const saved = saveAdapter();
   try {
     chatgpt.listTargets = async () => [target];
@@ -43,16 +43,22 @@ test('failed native send overrides stale adapter waiting state with terminal err
       error.code = 'APP_UIA_INSPECT_TIMEOUT';
       throw error;
     };
+    chatgpt.captureLatest = async () => ({ text: 'Recovered final reply.' });
     manager.invalidateAppTargetCache();
     await assert.rejects(manager.sendAppPrompt({
       targetId: target.id,
       requestId: 'failed-send',
       text: 'hello'
     }), (error) => error.code === 'APP_UIA_INSPECT_TIMEOUT');
-    const status = manager.getAppTargetStatus(target.id);
+    let status = manager.getAppTargetStatus(target.id);
     assert.equal(status.phase, 'error');
     assert.equal(status.code, 'APP_UIA_INSPECT_TIMEOUT');
     assert.match(status.error, /timed out/i);
+
+    const capture = await manager.captureAppLatest({ targetId: target.id });
+    assert.equal(capture.text, 'Recovered final reply.');
+    status = manager.getAppTargetStatus(target.id);
+    assert.equal(status.phase, 'idle');
   } finally {
     restoreAdapter(saved);
   }
