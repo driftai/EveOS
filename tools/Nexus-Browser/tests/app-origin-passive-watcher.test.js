@@ -232,6 +232,27 @@ test('rolling virtualized anchor windows stay bound across later native turns', 
   } finally { h.cleanup(); }
 });
 
+test('active final keeps the binding across ChatGPT title and anchor rotation', async () => {
+  const h = makeHarness();
+  try {
+    await h.watcher.scanNow(target.id);
+    const active = { fingerprint: fp('6'), text: 'active final after a long tool turn', partCount: 1, order: 1 };
+    await h.fireObserved({ target, turn: active, source: 'active' });
+    h.setSnapshot({
+      generating: false,
+      identity: {
+        conversationTitle: 'Auto-renamed after response',
+        conversationAnchor: fp('f'),
+        conversationAnchors: [fp('f')]
+      },
+      turns: [active]
+    });
+    const result = await h.watcher.scanNow(target.id);
+    assert.equal(result.code, undefined);
+    assert.equal(h.rebinds.length, 0);
+  } finally { h.cleanup(); }
+});
+
 test('native conversation switch fails closed and requires rebind', async () => {
   const h = makeHarness();
   try {

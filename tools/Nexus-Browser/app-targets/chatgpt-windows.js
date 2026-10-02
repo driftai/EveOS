@@ -305,7 +305,7 @@ function createAdapter({
       observedAt: acceptedAt, detail: { dispatchToAppMs } });
     const deadline = acceptedAt + responseTimeoutMs;
     let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null, progressState = 'replace';
-    let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0, roleQuietPasses = 0;
+    let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
     while (now() < deadline) {
       if (committedPending) { lastSnapshot = committedSnapshot; committedPending = false; }
@@ -324,7 +324,7 @@ function createAdapter({
       const mergedText = progressState === 'native' ? lastText : progressState === 'accumulate'
         ? replyProgress.mergeReplyProgress(lastText, candidate) : (candidate || lastText);
       if (candidate && mergedText !== lastText) {
-        lastText = mergedText; tailStablePasses = roleQuietPasses = 0;
+        lastText = mergedText; tailStablePasses = 0;
         if (!firstResponseAt) firstResponseAt = observedAt;
         lastChangedAt = observedAt;
         turnState.set(target.id, { phase: 'streaming', requestId, startedAt: acceptedAt,
@@ -337,9 +337,9 @@ function createAdapter({
           providerName: PROVIDER_NAME
         });
       }
-      if (progressState === 'role' && !observed.nativeTurn?.completeHint && (observed.activityHint || ++roleQuietPasses < 80)) { if (observed.activityHint) roleQuietPasses = 0; lastChangedAt = observedAt; continue; }
+      if (progressState === 'role' && !observed.nativeTurn?.completeHint && observed.activityHint) { lastChangedAt = observedAt; continue; }
       const stableFor = observedAt - lastChangedAt, baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
-      const requiredSettle = progressState === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
+      const requiredSettle = progressState === 'role' && !observed.nativeTurn?.completeHint ? Math.max(baseSettle, 5000) : progressState === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
       if (lastText && !lastSnapshot.generating && (observed.nativeTurn?.completeHint || (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0))) {
         try {
           const fullSnapshot = await inspect({
@@ -351,7 +351,7 @@ function createAdapter({
           if (full.correlated && !full.nativeTurn) { lastSnapshot = fullSnapshot; lastChangedAt = now(); continue; }
           nativeTurn = full.nativeTurn || nativeTurn; progressState = replyProgress.transitionProgressMode(progressState, full);
           const fullText = full.nativeTurn?.text || full.text; const reconstructed = full.progressMode === 'accumulate' ? replyProgress.preferFinalReply(lastText, fullText) : observed.nativeTurn?.completeHint ? conversation.preferExpandedReply(lastText, fullText) : fullText || conversation.preferExpandedReply(lastText, full.text);
-          lastSnapshot = fullSnapshot; if (full.progressMode === 'accumulate' && full.nativeTurn?.text && reconstructed === full.nativeTurn.text) progressState = 'native';
+          lastSnapshot = fullSnapshot; if (full.progressMode === 'accumulate' && full.nativeTurn?.text && reconstructed === full.nativeTurn.text && !replyProgress.needsTailGuard(reconstructed)) progressState = 'native';
           if (reconstructed && reconstructed !== lastText) {
             lastText = reconstructed; lastChangedAt = now(); tailStablePasses = 0;
             emit?.({ type: 'response_partial', requestId, text: lastText,

@@ -97,8 +97,8 @@ test('ChatGPT Windows adapter waits past You said chrome for the real native ans
     async availability() { return { available: true, command: 'winapp.exe' }; },
     async runJson(args) {
       if (args[1] === 'inspect') {
-        const json = inspectSequence.shift();
-        if (!json) throw new Error('Unexpected extra inspect');
+        const json = inspectSequence.length > 1 ? inspectSequence.shift() : inspectSequence[0];
+        if (!json) throw new Error('Missing inspect fixture');
         return { ok: true, json, stderr: '', stdout: '' };
       }
       if (args[1] === 'set-value' || args[1] === 'invoke') {

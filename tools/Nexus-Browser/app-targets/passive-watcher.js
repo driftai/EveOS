@@ -83,10 +83,19 @@ function createPassiveAppWatcher({
   const bindings = new Map();
   let stopped = false;
 
+  function rememberTurn(state, fingerprint) {
+    const value = String(fingerprint || '');
+    if (!value) return;
+    state.continuityTurns.delete(value);
+    state.continuityTurns.add(value);
+    while (state.continuityTurns.size > 64) state.continuityTurns.delete(state.continuityTurns.values().next().value);
+  }
+
   async function observedActive({ target, turn, source } = {}) {
     if (!turn?.fingerprint || !target?.id) return null;
     const state = bindings.get(target.id);
     if (!state) return null;
+    rememberTurn(state, turn.fingerprint);
     const fingerprint = deliveryFingerprint(state.target, turn.fingerprint);
     state.lastSent.delete(fingerprint);
     await ledger.seed(fingerprint, {
@@ -125,6 +134,7 @@ function createPassiveAppWatcher({
       scope: bindingScope(target),
       primed: false,
       visibleTurnOrder: new Map(),
+      continuityTurns: new Set(),
       timer: null,
       running: false,
       lastSent: new Map(),
@@ -202,6 +212,7 @@ function createPassiveAppWatcher({
       if (capture?.isGenerating || capture?.snapshot?.generating) return { ok: true, generating: true };
 
       const identity = adapter.conversationIdentity(capture.snapshot);
+      const turns = adapter.completedTurns(capture.snapshot, { limit: 64 });
       if (!identity?.conversationAnchor && !identity?.conversationTitle) {
         state.lastError = 'APP_CONVERSATION_IDENTITY_UNAVAILABLE';
         nextDelay = idleMs;
@@ -209,9 +220,21 @@ function createPassiveAppWatcher({
       }
       const expectedTarget = liveTargetFromSnapshot(state.target, state.continuityIdentity);
       const liveTarget = liveTargetFromSnapshot(state.target, identity);
-      const advanced = typeof appTargets.advanceAppTargetBinding === 'function'
+      let advanced = typeof appTargets.advanceAppTargetBinding === 'function'
         ? appTargets.advanceAppTargetBinding(expectedTarget, liveTarget)
         : appTargets.exactAppTargetMatch?.(expectedTarget, liveTarget) ? liveTarget : null;
+      const turnContinuity = turns.some((turn) => state.continuityTurns.has(String(turn.fingerprint || '')));
+      if (!advanced && turnContinuity) {
+        const prior = state.continuityIdentity || {}, live = liveTarget.concreteTargetIdentity || {};
+        advanced = { ...liveTarget, concreteTargetIdentity: {
+          ...prior, ...live,
+          ...(prior.deliveryScope ? { deliveryScope: prior.deliveryScope } : {}),
+          conversationAnchors: [...new Set([
+            ...(Array.isArray(prior.conversationAnchors) ? prior.conversationAnchors : []),
+            ...(Array.isArray(live.conversationAnchors) ? live.conversationAnchors : [])
+          ])].slice(-16)
+        } };
+      }
       if (!advanced) {
         const payload = {
           type: 'app_target_rebind_required',
@@ -238,7 +261,7 @@ function createPassiveAppWatcher({
         });
       }
 
-      const turns = adapter.completedTurns(capture.snapshot, { limit: 64 });
+      for (const turn of turns) rememberTurn(state, turn.fingerprint);
       state.visibleTurnOrder = new Map(turns.map((turn, index) => [turn.fingerprint, index]));
       if (!state.primed) {
         const cursor = ledger.cursor(state.scope);
