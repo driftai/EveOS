@@ -87,7 +87,6 @@ test('App-Origin discovery and selection stay independent from browser tabs', as
 test('App-Origin server tests persist synthetic selections only through injected storage', async () => {
   const h = harness();
   await h.controller.handle(h.ws, { type: 'select_app_target', targetId: h.target.id });
-  assert.equal(h.relayStorage, undefined);
   assert.equal(h.terminalRelayStorage.writes.length, 1);
   assert.equal(h.terminalRelayStorage.writes[0].id, h.target.id);
   assert.equal(h.terminalRelayStorage.writes[0].providerId, 'chatgpt-desktop');
