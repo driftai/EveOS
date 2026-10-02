@@ -33,7 +33,8 @@ function createProgress(storageApi = storage) {
     stageStartedAt: startedAt,
     etaKind: 'estimate',
     etaMs: 9000,
-    targetClassId: 'app-origin'
+    targetClassId: 'app-origin',
+    ownerPid: process.pid
   };
 
   function write(patch = {}) {
@@ -91,6 +92,25 @@ function createProgress(storageApi = storage) {
 
   write();
   return { write, stage, fail, complete, snapshot: () => ({ ...current }) };
+}
+
+function interruptActiveProgress(reason = 'process exit', storageApi = storage, pid = process.pid) {
+  const current = storageApi.readProgress?.();
+  if (!current?.active) return false;
+  if (current.ownerPid != null && Number(current.ownerPid) !== Number(pid)) return false;
+  storageApi.writeProgress({
+    ...current,
+    active: false,
+    status: 'FAILED',
+    stage: 'failed',
+    label: 'Relay interrupted',
+    detail: `relay:dev exited before final provider capture completed (${reason}). The accepted report was not resent.`,
+    code: 'RELAY_PROCESS_INTERRUPTED',
+    etaMs: 0,
+    etaKind: 'none',
+    finishedAt: new Date().toISOString()
+  });
+  return true;
 }
 
 async function waitForReconnect() {
@@ -175,6 +195,12 @@ async function main(argv = process.argv.slice(2)) {
     const current = progress.snapshot();
     if (current.stage === 'validation' && result?.label) {
       progress.write({ detail: `${result.status} · ${result.label}` });
+    }
+  };
+  ctx.onNotice = (notice) => {
+    const current = progress.snapshot();
+    if (current.stage === 'validation' && notice?.label) {
+      progress.write({ detail: `NOTICE · ${notice.label}` });
     }
   };
   ctx.onRelayEvent = (event = {}) => {
@@ -267,11 +293,29 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 if (require.main === module) {
+  let closing = false;
+  const keepAlive = setInterval(() => {}, 1000);
+  const stop = (signal, code) => {
+    if (closing) return;
+    closing = true;
+    try { interruptActiveProgress(signal); } catch {}
+    clearInterval(keepAlive);
+    process.exit(code);
+  };
+  process.once('SIGINT', () => stop('SIGINT', 130));
+  process.once('SIGTERM', () => stop('SIGTERM', 143));
+  process.once('exit', () => {
+    if (!closing) {
+      try { interruptActiveProgress('process exit'); } catch {}
+    }
+  });
   main().catch((error) => {
     try { storage.writeProgress({ active: false, status: 'FAILED', stage: 'failed', label: 'Stopped',
-      detail: error.message, code: error.code || 'UNHANDLED_ERROR', finishedAt: new Date().toISOString() }); } catch {}
+      detail: error.message, code: error.code || 'UNHANDLED_ERROR', finishedAt: new Date().toISOString(), ownerPid: process.pid }); } catch {}
     console.error(error?.stack || error);
     process.exitCode = 2;
+  }).finally(() => {
+    clearInterval(keepAlive);
   });
 }
 
@@ -279,6 +323,7 @@ module.exports = {
   failed,
   manualConnectRequested,
   createProgress,
+  interruptActiveProgress,
   waitForReconnect,
   autoConnect,
   bindingProgress,
