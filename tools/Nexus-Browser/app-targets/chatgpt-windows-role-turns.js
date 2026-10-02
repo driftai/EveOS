@@ -55,16 +55,31 @@ function isToolActivityElement(element = {}, nodeText = () => '') {
 }
 
 function hasToolActivity(snapshot = {}, nodeText = () => '') {
-  let role = null;
+  let role = null, contentBottom = 0;
+  const activity = [];
   for (const element of snapshot.elements || []) {
     const text = uia.normalizeCandidate(nodeText(element));
-    if (/^(?:you|user)\s+said\s*:?$/i.test(text)) { role = 'user'; continue; }
-    if (/^(?:chatgpt|assistant)\s+said\s*:?$/i.test(text)) { role = 'assistant'; continue; }
+    if (/^(?:you|user)\s+said\s*:?$/i.test(text)) {
+      role = 'user'; contentBottom = 0; activity.length = 0; continue;
+    }
+    if (/^(?:chatgpt|assistant)\s+said\s*:?$/i.test(text)) {
+      role = 'assistant'; contentBottom = 0; activity.length = 0; continue;
+    }
     if (role !== 'assistant') continue;
     if (element?.isOffscreen === true || uia.propertyText(element, 'IsOffscreen') === 'True') continue;
-    if (isToolActivityElement(element, nodeText)) return true;
+    const rect = uia.rectOf(element);
+    if (isToolActivityElement(element, nodeText)) {
+      if (rect.width && rect.height) activity.push(rect.y);
+      continue;
+    }
+    if (/(paragraph|listitem|heading)/.test(uia.controlType(element)) && text && !uia.isChromeText(text)
+        && rect.width && rect.height) {
+      contentBottom = Math.max(contentBottom, rect.y + rect.height);
+    }
   }
-  return false;
+  if (!activity.length) return false;
+  if (!contentBottom) return true;
+  return activity.some((y) => y >= contentBottom - 12);
 }
 
 module.exports = { roleTurnPairs, hasCompletionActions, isToolActivityElement, hasToolActivity };
