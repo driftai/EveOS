@@ -251,6 +251,19 @@ function sameMessageText(left = '', right = '') {
   return !!a && !!b && (a === b || a.replace(/\s+/g, '') === b.replace(/\s+/g, ''));
 }
 
+function promptMatchesRoleGroup(group = {}, prompt = '') {
+  const candidates = [groupedMessageText(group), ...(group.parts || [])].filter(Boolean);
+  return candidates.some((text) => sameMessageText(text, prompt)
+    || markerless.promptOwnsVisibleText(text, prompt)
+    || markerless.promptOwnsFragment(text, prompt)
+    || markerless.hasPromptTokenRun(text, prompt));
+}
+
+function roleOwnsPrompt(snapshot = {}, prompt = '') {
+  const latestUser = roleMessageGroups(snapshot).filter((group) => group.role === 'user').at(-1);
+  return !!latestUser && promptMatchesRoleGroup(latestUser, prompt);
+}
+
 function expandGroupedText(snapshot = {}, rawText = '', { forbiddenText = '' } = {}) {
   const normalized = uia.normalizeCandidate(rawText), compact = normalized.replace(/\s+/g, '');
   const forbidden = uia.normalizeCandidate(forbiddenText).replace(/\s+/g, '');
@@ -281,7 +294,7 @@ function completedAssistantTurnForPrompt(snapshot = {}, prompt = '') {
       .update('eveos-chatgpt-native-turn-pair-v1\0').update(userText).update('\0').update(assistantText).digest('hex');
     const occurrence = Number(occurrences.get(pairDigest) || 0) + 1;
     occurrences.set(pairDigest, occurrence);
-    if (!sameMessageText(userText, prompt)) { order += 1; continue; }
+    if (!promptMatchesRoleGroup(user, prompt)) { order += 1; continue; }
     matched = {
       fingerprint: createHash('sha256')
         .update('eveos-chatgpt-native-turn-fingerprint-v1\0').update(pairDigest).update('\0').update(String(occurrence)).digest('hex'),
@@ -299,6 +312,9 @@ function responseForPrompt(snapshot = {}, { prompt = '', baseline = new Set(), i
   const turn = completedAssistantTurnForPrompt(snapshot, prompt);
   if (turn) return { text: turn.text, nativeTurn: turn, correlated: true, progressMode: 'replace', activityHint,
     provisional: activityHint && !turn.completeHint };
+  if (roleOwnsPrompt(snapshot, prompt)) {
+    return { text: '', nativeTurn: null, correlated: true, progressMode: 'replace', activityHint };
+  }
   const markerlessTurn = markerless.completedTurnForPrompt(snapshot, prompt, { includeOffscreen });
   if (markerlessTurn) return { text: markerlessTurn.text, nativeTurn: markerlessTurn, correlated: true, progressMode: 'accumulate', activityHint };
   if (markerless.hasPrompt(snapshot, prompt, { includeOffscreen })) return { text: '', nativeTurn: null, correlated: true, progressMode: 'accumulate', activityHint };
@@ -391,6 +407,8 @@ module.exports = {
   roleMessageGroups,
   hasRoleMarkers,
   sameMessageText,
+  promptMatchesRoleGroup,
+  roleOwnsPrompt,
   expandGroupedText,
   completedAssistantTurnForPrompt,
   responseForPrompt,
