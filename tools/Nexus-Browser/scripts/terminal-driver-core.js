@@ -1,7 +1,125 @@
 'use strict';
-const crypto=require('node:crypto'),runtimeConfig=require('../runtime-config'),storage=require('./terminal-relay-storage'),reports=require('./terminal-relay-report'),privacy=require('./terminal-relay-privacy'),delivery=require('./terminal-relay-delivery'),validation=require('./terminal-driver-validation');
-function parseOptions(argv=process.argv.slice(2)){const args=new Set(argv);return{noPull:args.has('--no-pull'),full:args.has('--full'),push:args.has('--push'),localOnly:args.has('--local-only')};}
-function createContext(argv=process.argv.slice(2)){return{options:parseOptions(argv),results:[],startedAt:new Date().toISOString()};}
-function metadataFor(meta,ctx,relay,providerReport=''){const safeReason=relay?.reason?privacy.sanitizeText(relay.reason,{eveosRoot:runtimeConfig.EVEOS_ROOT}):null;return{version:1,startedAt:ctx.startedAt,finishedAt:new Date().toISOString(),branch:meta.branch||null,head:meta.head||null,dirty:!!meta.dirty,mode:ctx.options.full?'full':'focused',privacy:'sanitized',localOnly:!!ctx.options.localOnly,providerPayloadSha256:providerReport?crypto.createHash('sha256').update(providerReport).digest('hex'):null,counts:reports.counts(ctx.results),relay:{status:relay?.status||'PENDING',accepted:!!relay?.accepted,reason:safeReason}};}
-async function runDriver(argv=process.argv.slice(2)){const ctx=createContext(argv),run=storage.createRun();let meta={branch:'',head:'',dirty:false};try{meta=await validation.execute(ctx);}catch(error){ctx.results.push({label:'terminal relay internal error',status:'FAIL',exitCode:null,durationMs:0,stdout:'',stderr:'',error:error?.stack||String(error)});}const fullLocal=reports.buildFullLocalReport(meta,ctx),providerReport=reports.buildProviderReport(meta,ctx,run);storage.writeArtifacts(run,{fullLocal,providerReport,metadata:metadataFor(meta,ctx,null,providerReport)});console.log('\nLOCAL ARTIFACTS:');console.log(run.relativeDir);let relay;if(ctx.options.localOnly){relay={status:'LOCAL_ONLY',accepted:false,reason:'Provider transmission disabled by --local-only.'};console.log('\nLOCAL-ONLY MODE: provider relay skipped.');}else relay=await delivery.relayReport(providerReport);storage.writeMetadata(run,metadataFor(meta,ctx,relay,providerReport));storage.pruneRuns({keep:20});console.log('\n============================================================');console.log('FINAL TERMINAL RELAY SUMMARY');console.log('============================================================');for(const result of ctx.results)console.log(result.status.padEnd(8),result.label);console.log('\nPRIVACY: SANITIZED PROVIDER PAYLOAD');console.log('RELAY:',relay.status);console.log('ACCEPTED BY CHATGPT:',relay.accepted?'YES':'NO');if(relay.reason)console.log('RELAY DETAIL:',privacy.sanitizeText(relay.reason));console.log('\nARTIFACTS:',run.relativeDir);const failed=ctx.results.some((result)=>result.status==='FAIL');if(failed)process.exitCode=2;else if(relay.status==='FAIL')process.exitCode=3;else if(relay.status==='DELIVERED_CAPTURE_FAILED')process.exitCode=4;else process.exitCode=0;return{meta,ctx,run,relay};}
-module.exports={parseOptions,createContext,metadataFor,runDriver};
+
+const crypto = require('node:crypto');
+const runtimeConfig = require('../runtime-config');
+const storage = require('./terminal-relay-storage');
+const reports = require('./terminal-relay-report');
+const privacy = require('./terminal-relay-privacy');
+const delivery = require('./terminal-relay-delivery');
+const validation = require('./terminal-driver-validation');
+
+function parseOptions(argv = process.argv.slice(2)) {
+  const args = new Set(argv);
+  return {
+    noPull: args.has('--no-pull'),
+    full: args.has('--full'),
+    push: args.has('--push'),
+    localOnly: args.has('--local-only')
+  };
+}
+
+function createContext(argv = process.argv.slice(2)) {
+  return { options: parseOptions(argv), results: [], startedAt: new Date().toISOString() };
+}
+
+function metadataFor(meta, ctx, relay, providerReport = '') {
+  const safeReason = relay?.reason
+    ? privacy.sanitizeText(relay.reason, { eveosRoot: runtimeConfig.EVEOS_ROOT })
+    : null;
+  return {
+    version: 1,
+    startedAt: ctx.startedAt,
+    finishedAt: new Date().toISOString(),
+    branch: meta.branch || null,
+    head: meta.head || null,
+    dirty: !!meta.dirty,
+    mode: ctx.options.full ? 'full' : 'focused',
+    privacy: 'sanitized',
+    localOnly: !!ctx.options.localOnly,
+    providerPayloadSha256: providerReport
+      ? crypto.createHash('sha256').update(providerReport).digest('hex')
+      : null,
+    counts: reports.counts(ctx.results),
+    relay: {
+      status: relay?.status || 'PENDING',
+      accepted: !!relay?.accepted,
+      reason: safeReason
+    }
+  };
+}
+
+function exitCodeFor(ctx, relay) {
+  if (ctx.results.some((result) => result.status === 'FAIL')) return 2;
+  if (relay.status === 'FAIL') return 3;
+  if (relay.status === 'DELIVERED_CAPTURE_FAILED') return 4;
+  return 0;
+}
+
+async function runRelayAfterValidation(meta, ctx) {
+  const run = storage.createRun();
+  const fullLocal = reports.buildFullLocalReport(meta, ctx);
+  const providerReport = reports.buildProviderReport(meta, ctx, run);
+  storage.writeArtifacts(run, {
+    fullLocal,
+    providerReport,
+    metadata: metadataFor(meta, ctx, null, providerReport)
+  });
+  console.log('\nLOCAL ARTIFACTS:');
+  console.log(run.relativeDir);
+
+  let relay;
+  if (ctx.options.localOnly) {
+    relay = {
+      status: 'LOCAL_ONLY',
+      accepted: false,
+      reason: 'Provider transmission disabled by --local-only.'
+    };
+    console.log('\nLOCAL-ONLY MODE: provider relay skipped.');
+  } else {
+    relay = await delivery.relayReport(providerReport);
+  }
+
+  storage.writeMetadata(run, metadataFor(meta, ctx, relay, providerReport));
+  storage.pruneRuns({ keep: 20 });
+
+  console.log('\n============================================================');
+  console.log('FINAL TERMINAL RELAY SUMMARY');
+  console.log('============================================================');
+  for (const result of ctx.results) console.log(result.status.padEnd(8), result.label);
+  console.log('\nPRIVACY: SANITIZED PROVIDER PAYLOAD');
+  console.log('RELAY:', relay.status);
+  console.log('ACCEPTED BY CHATGPT:', relay.accepted ? 'YES' : 'NO');
+  if (relay.reason) console.log('RELAY DETAIL:', privacy.sanitizeText(relay.reason));
+  console.log('\nARTIFACTS:', run.relativeDir);
+
+  process.exitCode = exitCodeFor(ctx, relay);
+  return { meta, ctx, run, relay };
+}
+
+async function runDriver(argv = process.argv.slice(2)) {
+  const ctx = createContext(argv);
+  let meta = { branch: '', head: '', dirty: false };
+  try {
+    meta = await validation.execute(ctx);
+  } catch (error) {
+    ctx.results.push({
+      label: 'terminal relay internal error',
+      status: 'FAIL',
+      exitCode: null,
+      durationMs: 0,
+      stdout: '',
+      stderr: '',
+      error: error?.stack || String(error)
+    });
+  }
+  return runRelayAfterValidation(meta, ctx);
+}
+
+module.exports = {
+  parseOptions,
+  createContext,
+  metadataFor,
+  exitCodeFor,
+  runRelayAfterValidation,
+  runDriver
+};
