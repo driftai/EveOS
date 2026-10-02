@@ -284,3 +284,11 @@ test('App-Origin continuity never trusts generic sidebar chrome as a conversatio
   assert.equal(manager.reliableConversationTitle('Show sidebar'), false);
   assert.equal(manager.exactAppTargetMatch(expected, actual), false);
 });
+
+
+test('App-Origin continuity rejects window chrome as a conversation title', () => {
+  for (const title of ['Minimize', 'Maximize', 'Restore', 'Restore Down', 'Close', 'Close window', 'Full screen']) {
+    assert.equal(manager.reliableConversationTitle(title), false, title);
+  }
+  assert.equal(manager.reliableConversationTitle('Merger Work and Stabilization - Greet'), true);
+});

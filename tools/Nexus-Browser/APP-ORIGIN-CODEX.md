@@ -120,6 +120,18 @@ across anchor rotation on the same PID/HWND.
 
 A different reliable title still fails closed and requires explicit rebind.
 
+## Thread-title chrome rejection
+
+Native conversation identity must never bind to window-management controls. Exact labels
+such as `Minimize`, `Maximize`, `Restore`, `Close`, and fullscreen controls are
+UI chrome, just like `Show sidebar`.
+
+If the shallow inspect has no reliable thread title, Nexus still runs the deeper title
+resolver even when conversation anchors already exist. This matters on Codex because
+virtualized history can rotate the visible anchor set; a stable real thread title such
+as `Merger Work and Stabilization - Greet` provides continuity without weakening the
+explicit-rebind guard for genuine conversation switches.
+
 ## Passive turns and identity
 
 The same markerless prompt/assistant pairs feed `completedAssistantTurns()` and

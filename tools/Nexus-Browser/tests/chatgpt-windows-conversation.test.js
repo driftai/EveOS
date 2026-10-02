@@ -265,3 +265,20 @@ test('native conversation identity rejects sidebar chrome and keeps the real Cod
   const title = activeConversationTitle(snapshotFromInspect({ windowInfo, json }));
   assert.equal(title?.text, 'Merger Work and Stabilization - Greet');
 });
+
+
+test('native conversation identity ignores window controls such as Minimize', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 100, y: 20, width: 1200, height: 900 };
+  const snapshot = snapshotFromInspect({
+    windowInfo,
+    json: { windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Pane', x: 100, y: 20, width: 1200, height: 900, children: [
+        { selector: 'window-minimize', type: 'Button', name: 'Minimize',
+          x: 1180, y: 32, width: 42, height: 32, children: [] },
+        { selector: 'thread-title', type: 'Heading', name: 'Merger Work and Stabilization - Greet',
+          x: 360, y: 58, width: 420, height: 32, children: [] }
+      ]
+    }] }] }
+  });
+  assert.equal(activeConversationTitle(snapshot)?.text, 'Merger Work and Stabilization - Greet');
+});

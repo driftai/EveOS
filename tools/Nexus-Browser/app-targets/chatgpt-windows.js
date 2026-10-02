@@ -143,7 +143,7 @@ function createAdapter({
         let snapshot = await inspect(windowInfo);
         conversationTitle = conversation.activeConversationTitle(snapshot)?.text || '';
         conversationAnchors = conversation.conversationAnchorDigests(snapshot);
-        if (!conversationTitle && !conversationAnchors.length) {
+        if (!conversationTitle) {
           conversationTitle = (await titleResolver.resolve({ runner, snapshot }))?.text || '';
         }
         if (!conversationAnchors.length && !conversationTitle) {
