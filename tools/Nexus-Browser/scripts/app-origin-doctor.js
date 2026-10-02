@@ -35,15 +35,19 @@ async function main() {
         pid: targets[0].pid,
         title: targets[0].title
       });
+      const identitySnapshot = await chatgpt.inspect({
+        hwnd: targets[0].windowHandle, pid: targets[0].pid, title: targets[0].title
+      }, { includeOffscreen: true });
       const groupedReply = conversation.latestAssistantReply(snapshot);
-      const discoveredAnchors = conversation.conversationAnchorDigests(snapshot);
+      const canonicalIdentity = conversation.conversationIdentity(identitySnapshot);
+      const discoveredAnchors = canonicalIdentity.conversationAnchors || [];
       const targetAnchors = Array.isArray(targets[0].concreteTargetIdentity?.conversationAnchors)
         ? targets[0].concreteTargetIdentity.conversationAnchors
         : targets[0].concreteTargetIdentity?.conversationAnchor
           ? [targets[0].concreteTargetIdentity.conversationAnchor] : [];
       const conversationAnchors = discoveredAnchors.length ? discoveredAnchors : targetAnchors;
       const activeConversationAnchor = conversationAnchors.at(-1) || null;
-      let activeConversation = conversation.activeConversationTitle(snapshot);
+      let activeConversation = conversation.activeConversationTitle(identitySnapshot);
       if (!activeConversation && targets[0].concreteTargetIdentity?.conversationTitle) {
         activeConversation = {
           text: targets[0].concreteTargetIdentity.conversationTitle,

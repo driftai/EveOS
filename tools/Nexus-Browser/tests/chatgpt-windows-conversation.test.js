@@ -321,3 +321,17 @@ test('role expansion rejects a root document aggregate that contains the current
   assert.equal(turn?.text, 'Good final NEXUS_INLINE_X');
   assert.doesNotMatch(turn?.text || '', /OLD NEXUS LOG|recursive transcript audit/);
 });
+
+
+test('native conversation identity rejects generic More action chrome', () => {
+  const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 100, y: 20, width: 1200, height: 900 };
+  const snapshot = snapshotFromInspect({
+    windowInfo,
+    json: { windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Pane', x: 100, y: 20, width: 1200, height: 900, children: [
+        { selector: 'more', type: 'Button', name: 'More', x: 570, y: 48, width: 70, height: 30, children: [] }
+      ]
+    }] }] }
+  });
+  assert.equal(activeConversationTitle(snapshot), null);
+});

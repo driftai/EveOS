@@ -136,15 +136,12 @@ function createAdapter({
       const hwnd = hwndOf(windowInfo), pid = pidOf(windowInfo);
       let conversationTitle = '', conversationAnchors = [];
       try {
-        let snapshot = await inspect(windowInfo);
-        conversationTitle = conversation.activeConversationTitle(snapshot)?.text || '';
-        conversationAnchors = conversation.conversationAnchorDigests(snapshot);
-        if (!conversationTitle) {
+        const snapshot = await inspect(windowInfo, { includeOffscreen: true });
+        const identity = conversation.conversationIdentity(snapshot);
+        conversationTitle = identity.conversationTitle || '';
+        conversationAnchors = identity.conversationAnchors || [];
+        if (!conversationTitle && !conversationAnchors.length) {
           conversationTitle = (await titleResolver.resolve({ runner, snapshot }))?.text || '';
-        }
-        if (!conversationAnchors.length && !conversationTitle) {
-          snapshot = await inspect(windowInfo, { includeOffscreen: true });
-          conversationAnchors = conversation.conversationAnchorDigests(snapshot);
         }
       } catch {}
       const conversationAnchor = conversationAnchors.at(-1) || '';

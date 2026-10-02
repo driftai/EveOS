@@ -129,3 +129,46 @@ test('ChatGPT Windows adapter resolves the real thread title even when anchors e
   assert.match(targets[0].title, /Merger Work and Stabilization - Greet/);
   assert.doesNotMatch(targets[0].title, /Minimize/);
 });
+
+
+test('ChatGPT Windows discovery and passive capture share one canonical full-tree identity', async () => {
+  const windowInfo = { hwnd: 880, pid: 5252, title: 'ChatGPT', x: 0, y: 0, width: 1000, height: 700 };
+  const shallow = { windows: [{ ...windowInfo, elements: [{
+    selector: 'root', type: 'Pane', x: 0, y: 0, width: 1000, height: 700, children: [
+      { selector: 'fake-title', type: 'Text', name: 'Give it a few seconds. Then in your current terminal run:',
+        x: 260, y: 48, width: 420, height: 30, children: [] },
+      { selector: 'u-role-old', type: 'Text', name: 'You said', x: 220, y: 160, width: 1, height: 1, children: [] },
+      { selector: 'u-old', type: 'Text', name: 'shallow prompt', x: 650, y: 180, width: 250, height: 28, children: [] },
+      { selector: 'a-role-old', type: 'Text', name: 'ChatGPT said', x: 220, y: 220, width: 1, height: 1, children: [] },
+      { selector: 'a-old', type: 'Text', name: 'shallow answer', x: 220, y: 245, width: 220, height: 28, children: [] }
+    ]
+  }] }] };
+  const full = { windows: [{ ...windowInfo, elements: [{
+    selector: 'root', type: 'Pane', x: 0, y: 0, width: 1000, height: 700, children: [
+      { selector: 'more', type: 'Button', name: 'More', x: 460, y: 35, width: 70, height: 30, children: [] },
+      { selector: 'u-role', type: 'Text', name: 'You said', x: 220, y: 160, width: 1, height: 1, children: [] },
+      { selector: 'u', type: 'Text', name: 'canonical prompt', x: 650, y: 180, width: 250, height: 28, children: [] },
+      { selector: 'a-role', type: 'Text', name: 'ChatGPT said', x: 220, y: 220, width: 1, height: 1, children: [] },
+      { selector: 'a', type: 'Text', name: 'canonical answer', x: 220, y: 245, width: 220, height: 28, children: [] }
+    ]
+  }] }] };
+  const runner = {
+    async availability() { return { available: true, command: 'winapp.exe' }; },
+    async runJson(args) {
+      if (args[1] === 'list-windows') return { ok: true, json: { windows: [windowInfo] }, stderr: '', stdout: '' };
+      if (args[1] === 'inspect') return { ok: true, json: args.includes('--hide-offscreen') ? shallow : full, stderr: '', stdout: '' };
+      if (args[1] === 'search') return { ok: false, json: { matches: [] }, stderr: '', stdout: '' };
+      throw new Error('Unexpected command: ' + args.join(' '));
+    }
+  };
+  const adapter = createAdapter({ runner, platform: 'win32' });
+  const [target] = await adapter.listTargets();
+  assert.equal(target.concreteTargetIdentity.conversationTitle, undefined);
+  assert.match(target.concreteTargetIdentity.conversationAnchor, /^[a-f0-9]{64}$/);
+  assert.doesNotMatch(target.title, /Give it a few seconds|More/);
+
+  const capture = await adapter.captureLatest({ target });
+  const identity = adapter.conversationIdentity(capture.snapshot);
+  assert.equal(identity.conversationTitle, '');
+  assert.equal(identity.conversationAnchor, target.concreteTargetIdentity.conversationAnchor);
+});
