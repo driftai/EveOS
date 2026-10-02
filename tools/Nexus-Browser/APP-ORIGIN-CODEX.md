@@ -228,6 +228,21 @@ snapshot contains only a shorter visible tail. This prevents both failure modes:
 Finalization therefore chooses the more complete prompt-owned representation rather than
 blindly preferring either the viewport history or the last UIA snapshot.
 
+## Long-reply tail finalization
+
+Markerless Codex replies can expose a stable visible body before the final tail paragraphs
+have reached the accessibility tree. Nexus therefore treats long accumulated replies more
+conservatively than short replies:
+
+- four or more reply blocks, or a sufficiently large accumulated body, activates the tail guard;
+- the accumulated body must remain quiet for at least 2.5 seconds before final reconstruction;
+- if the offscreen-inclusive reconstruction adds text, Nexus emits the larger partial,
+  resets the settle window, and resumes polling instead of finalizing in that pass;
+- several unchanged long-tail confirmations are required before `response_final`.
+
+This rule is scoped to markerless accumulated replies. Short Codex acknowledgements and
+normal role-marked ChatGPT replies keep their existing fast finalization path.
+
 ## Qualification
 
 `tests/chatgpt-windows-codex-surface.test.js` covers:

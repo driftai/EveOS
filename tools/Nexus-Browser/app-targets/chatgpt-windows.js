@@ -12,7 +12,6 @@ const {
 const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVIDER_NAME = 'ChatGPT App', APP_MATCH = 'ChatGPT';
 const FIRST_POLL_MS = 75, POLL_MS = 180, SETTLE_MS = 850, POST_GENERATION_SETTLE_MS = 650;
 const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000;
-
 let lastDiagnostics = { available: false, helper: null, lastError: null, lastProbeAt: 0, lastWindow: null };
 const turnState = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -314,7 +313,7 @@ function createAdapter({
 
     const deadline = acceptedAt + responseTimeoutMs;
     let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null;
-    let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true;
+    let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
 
     while (now() < deadline) {
@@ -333,7 +332,7 @@ function createAdapter({
       const mergedText = observed.progressMode === 'accumulate'
         ? replyProgress.mergeReplyProgress(lastText, candidate) : (candidate || lastText);
       if (candidate && mergedText !== lastText) {
-        lastText = mergedText;
+        lastText = mergedText; tailStablePasses = 0;
         if (!firstResponseAt) firstResponseAt = observedAt;
         lastChangedAt = observedAt;
         turnState.set(target.id, { phase: 'streaming', requestId, startedAt: acceptedAt,
@@ -348,7 +347,7 @@ function createAdapter({
       }
       const stableFor = observedAt - lastChangedAt;
       const baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
-      const requiredSettle = lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
+      const requiredSettle = observed.progressMode === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
       if (lastText && !lastSnapshot.generating && (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0)) {
         try {
           const fullSnapshot = await inspect({
@@ -362,11 +361,13 @@ function createAdapter({
           const reconstructed = full.progressMode === 'accumulate' ? replyProgress.preferFinalReply(lastText, full.nativeTurn?.text || full.text) : full.nativeTurn?.text || (full.progressMode === 'replace' && full.text ? full.text : conversation.preferExpandedReply(lastText, full.text));
           lastSnapshot = fullSnapshot;
           if (reconstructed && reconstructed !== lastText) {
-            lastText = reconstructed;
+            lastText = reconstructed; lastChangedAt = now(); tailStablePasses = 0;
             emit?.({ type: 'response_partial', requestId, text: lastText,
               targetClassId: 'app-origin', targetId: target.id,
               providerId: PROVIDER_ID, providerName: PROVIDER_NAME });
+            if (full.progressMode === 'accumulate') continue;
           }
+          if (full.progressMode === 'accumulate' && replyProgress.needsTailGuard(lastText) && ++tailStablePasses < 3) continue;
         } catch {}
         const finalizedAt = now();
         const timing = {

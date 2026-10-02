@@ -442,3 +442,71 @@ test('final offscreen Codex reconstruction replaces stitched thin-sentence progr
   assert.equal(events.at(-1).text, expected);
   assert.equal(result.text.includes('merge toge'), false);
 });
+
+
+test('long Codex finalization waits for late tail paragraphs after an apparently stable body', async () => {
+  let clock = 0;
+  const prompt = 'LATE_TAIL_THIN_LINE_TEST';
+  const lines = [
+    'Remove clipped fragments.',
+    'Do not merge these lines.',
+    'Do not duplicate this text.',
+    'Earlier content should remain.',
+    'Later content should stay ordered.',
+    'The full response should replace drafts.',
+    'Every paragraph should appear only once.',
+    'The opening must not be truncated.',
+    'The ending must not overwrite the middle.',
+    'This completes another thin-line test.'
+  ];
+  const body = lines.slice(0, 8).join('\n\n');
+  const complete = lines.join('\n\n');
+  const partialTree = codexTree({ prompt, answer: body });
+  const fullTree = codexTree({ prompt, answer: complete });
+  const sequence = [
+    codexTree({ prompt: 'older prompt', answer: 'Older reply.' }),
+    codexTree({ prompt, answer: '', send: true }),
+    codexTree({ prompt, answer: '' }),
+    partialTree,
+    partialTree,
+    partialTree,
+    fullTree,
+    fullTree,
+    fullTree,
+    fullTree,
+    fullTree,
+    fullTree,
+    fullTree
+  ];
+  const runner = {
+    async availability() { return { available: true, command: 'winapp.exe' }; },
+    async runJson(args) {
+      if (args[1] === 'inspect') {
+        const json = sequence.shift();
+        if (!json) throw new Error('Unexpected extra inspect');
+        return { ok: true, json, stderr: '', stdout: '' };
+      }
+      if (args[1] === 'set-value' || args[1] === 'invoke') {
+        return { ok: true, json: { ok: true }, stderr: '', stdout: '' };
+      }
+      throw new Error('Unexpected command: ' + args.join(' '));
+    }
+  };
+  const adapter = createAdapter({
+    runner, platform: 'win32', sleepFn: async () => {},
+    now: () => { clock += 3000; return clock; },
+    pollMs: 0, settleMs: 0, shortReplySettleMs: 0, responseTimeoutMs: 120000
+  });
+  const events = [];
+  const result = await adapter.sendPrompt({
+    requestId: 'late-tail-thin-line',
+    text: prompt,
+    target: { id: 'app-chatgpt-windows', title: 'ChatGPT', windowHandle: 501, pid: 9001 },
+    emit: (event) => events.push(event)
+  });
+  assert.equal(result.text, complete);
+  assert.equal(events.at(-1).type, 'response_final');
+  assert.equal(events.at(-1).text, complete);
+  assert.equal((result.text.match(/The ending must not overwrite the middle\./g) || []).length, 1);
+  assert.equal((result.text.match(/This completes another thin-line test\./g) || []).length, 1);
+});

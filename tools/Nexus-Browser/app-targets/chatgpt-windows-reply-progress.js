@@ -82,6 +82,11 @@ function preferFinalReply(accumulatedText = '', nativeTurnText = '') {
   return nativeSize >= accumulatedSize ? nativeTurn : accumulated;
 }
 
+function needsTailGuard(text = '') {
+  const value = tidy(text);
+  return !!value && (blocks(value).length >= 4 || compact(value).length >= 320);
+}
+
 function mergeReplyProgress(currentText = '', candidateText = '') {
   const current = tidy(currentText), candidate = tidy(candidateText);
   if (!candidate) return current;
@@ -109,5 +114,6 @@ module.exports = {
   mergeBlockOverlap,
   mergeCharacterOverlap,
   preferFinalReply,
+  needsTailGuard,
   mergeReplyProgress
 };
