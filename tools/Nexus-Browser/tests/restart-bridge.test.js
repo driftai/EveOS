@@ -76,3 +76,23 @@ test('restart helper rejects a non-node or non-supervisor parent even when it ow
     CommandLine: 'node scripts\\unrelated.js'
   }}).supervisor, null);
 });
+
+
+test('restart ownership falls back to the verified server-supervisor process tree when diagnostics is unavailable', () => {
+  const root = path.resolve(__dirname, '..').replace(/\//g, '\\');
+  const server = {
+    ProcessId: 100228,
+    ParentProcessId: 100000,
+    ExecutablePath: 'C:\\Program Files\\nodejs\\node.exe',
+    CommandLine: `"C:\\Program Files\\nodejs\\node.exe" "${root}\\server.js"`
+  };
+  const supervisor = {
+    ProcessId: 100000,
+    ExecutablePath: 'C:\\Program Files\\nodejs\\node.exe',
+    CommandLine: `node "${root}\\scripts\\bridge-supervisor.js"`
+  };
+  assert.equal(restart.restartOwnershipVerified({ before: null, server, supervisor }), true);
+  assert.equal(restart.restartOwnershipVerified({
+    before: { supervised: false }, server, supervisor
+  }), false);
+});

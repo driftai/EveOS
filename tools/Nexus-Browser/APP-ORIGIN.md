@@ -128,6 +128,10 @@ Important invariants:
   exists, and skips UIA reads while the active app send lease is held;
 - passive delivery uses the full offscreen-inclusive reconstruction path, so long
   multi-paragraph/list answers are not reduced to the last visible paragraph;
+- a newly observed post-cursor passive turn enters a short stability window before delivery:
+  Nexus rechecks it at 350 ms and requires 900 ms of unchanged native-turn fingerprints,
+  so a temporarily idle-looking split such as `STABILITY_ / PASSI` cannot escape before
+  the native UI exposes `STABILITY_PASSIVE_OK`;
 - native role labels such as `You said:` and `ChatGPT said:` are structural UI chrome
   and can never finalize as assistant output, including through the geometry fallback reader.
 
@@ -136,6 +140,14 @@ also used as the Base transcript DOM identity, making an event retry idempotent 
 render and ACK. Passive events are currently surfaced to the selected Base Mode view;
 the same primitive can later feed unsolicited Dex routing without conflating it with
 ChatGPT App Mirror.
+
+## Supervised restart discovery
+
+`npm run restart` prefers the live `/diagnostics` identity, but a temporary diagnostics
+miss no longer causes a false `NEXUS_RESTART_NOT_RUNNING`. On Windows it may fall back
+to the port listener PID and then verifies the exact EveOS `server.js` → Node
+`bridge-supervisor.js` parent chain (plus the supervisor PID file when needed) before
+recycling anything. Ownership mismatch still fails closed.
 
 ## Bridge connection failure containment
 

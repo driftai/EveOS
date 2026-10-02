@@ -9,6 +9,10 @@ const IDLE_MS = Number(process.env.NEXUS_BROWSER_APP_WATCH_IDLE_MS
   || process.env.BROWSER_AI_BRIDGE_APP_WATCH_IDLE_MS || 6000);
 const RETRY_MS = Number(process.env.NEXUS_BROWSER_APP_WATCH_RETRY_MS
   || process.env.BROWSER_AI_BRIDGE_APP_WATCH_RETRY_MS || 6000);
+const SETTLE_MS = Number(process.env.NEXUS_BROWSER_APP_PASSIVE_SETTLE_MS
+  || process.env.BROWSER_AI_BRIDGE_APP_PASSIVE_SETTLE_MS || 900);
+const SETTLE_RECHECK_MS = Number(process.env.NEXUS_BROWSER_APP_PASSIVE_RECHECK_MS
+  || process.env.BROWSER_AI_BRIDGE_APP_PASSIVE_RECHECK_MS || 350);
 
 function hasConversationProof(target = {}) {
   const identity = target.concreteTargetIdentity || {};
@@ -72,6 +76,8 @@ function createPassiveAppWatcher({
   intervalMs = WATCH_MS,
   idleMs = IDLE_MS,
   retryMs = RETRY_MS,
+  settleMs = SETTLE_MS,
+  settleRecheckMs = SETTLE_RECHECK_MS,
   now = () => Date.now()
 } = {}) {
   const bindings = new Map();
@@ -122,6 +128,8 @@ function createPassiveAppWatcher({
       timer: null,
       running: false,
       lastSent: new Map(),
+      settleSignature: '',
+      settleSince: 0,
       scans: 0,
       emitted: 0,
       lastScanAt: 0,
@@ -290,9 +298,32 @@ function createPassiveAppWatcher({
         return { ok: true, turns: turns.length, resynced: true };
       }
 
-      for (const turn of turns.slice(cursorIndex + 1)) await emitTurn(state, turn);
+      const pendingTurns = turns.slice(cursorIndex + 1);
+      if (!pendingTurns.length) {
+        state.settleSignature = '';
+        state.settleSince = 0;
+        state.lastError = null;
+        return { ok: true, turns: turns.length, cursorIndex };
+      }
+
+      const signature = pendingTurns.map((turn) => turn.fingerprint).join(':');
+      const observedAt = now();
+      if (signature !== state.settleSignature) {
+        state.settleSignature = signature;
+        state.settleSince = observedAt;
+        nextDelay = Math.min(nextDelay, settleRecheckMs);
+        return { ok: true, turns: turns.length, cursorIndex, settling: true };
+      }
+      if (settleMs > 0 && observedAt - state.settleSince < settleMs) {
+        nextDelay = Math.min(nextDelay, settleRecheckMs);
+        return { ok: true, turns: turns.length, cursorIndex, settling: true };
+      }
+
+      for (const turn of pendingTurns) await emitTurn(state, turn);
+      state.settleSignature = '';
+      state.settleSince = 0;
       state.lastError = null;
-      return { ok: true, turns: turns.length, cursorIndex };
+      return { ok: true, turns: turns.length, cursorIndex, settled: true };
     } catch (error) {
       state.lastError = error?.code || error?.message || 'APP_PASSIVE_WATCH_FAILED';
       nextDelay = idleMs;
@@ -360,6 +391,6 @@ function createPassiveAppWatcher({
 }
 
 module.exports = {
-  WATCH_MS, IDLE_MS, RETRY_MS, hasConversationProof, bindingScope,
+  WATCH_MS, IDLE_MS, RETRY_MS, SETTLE_MS, SETTLE_RECHECK_MS, hasConversationProof, bindingScope,
   deliveryFingerprint, liveTargetFromSnapshot, createPassiveAppWatcher
 };

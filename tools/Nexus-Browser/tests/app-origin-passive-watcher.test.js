@@ -27,7 +27,10 @@ const target = {
 };
 const oldTurn = { fingerprint: fp('1'), text: 'old native reply', partCount: 1, order: 0 };
 
-function makeHarness({ ledgerFile = null, initialTurns = [oldTurn], watchTarget = target } = {}) {
+function makeHarness({
+  ledgerFile = null, initialTurns = [oldTurn], watchTarget = target,
+  settleMs = 0, settleRecheckMs = 350
+} = {}) {
   const dir = ledgerFile ? path.dirname(ledgerFile) : fs.mkdtempSync(path.join(os.tmpdir(), 'eveos-app-watch-'));
   const filePath = ledgerFile || path.join(dir, 'seen.jsonl');
   const ledger = createPassiveTurnLedger({ filePath });
@@ -40,7 +43,7 @@ function makeHarness({ ledgerFile = null, initialTurns = [oldTurn], watchTarget 
     },
     turns: initialTurns.map((turn) => ({ ...turn }))
   };
-  let listener = null;
+  let listener = null, clock = 1000;
   const events = [], rebinds = [];
   const adapter = {
     async captureLatest() {
@@ -69,13 +72,16 @@ function makeHarness({ ledgerFile = null, initialTurns = [oldTurn], watchTarget 
     intervalMs: 2000,
     idleMs: 6000,
     retryMs: 6000,
-    now: (() => { let value = 1000; return () => value += 100; })()
+    settleMs,
+    settleRecheckMs,
+    now: () => clock
   });
   watcher.watch(watchTarget);
   return {
     watcher, ledger, events, rebinds, filePath, dir,
     snapshot: () => snapshot,
     setSnapshot(next) { snapshot = next; },
+    advance(ms) { clock += ms; },
     fireObserved(event) { return listener?.(event); },
     cleanup() { watcher.stop(); if (!ledgerFile) fs.rmSync(dir, { recursive: true, force: true }); }
   };
@@ -127,6 +133,31 @@ test('newly exposed historical turns before the cursor never replay after primin
     h.setSnapshot({ ...h.snapshot(), turns: [oldTurn, hiddenA, hiddenB, current, fresh] });
     await h.watcher.scanNow(target.id);
     assert.deepEqual(h.events.map((event) => event.text), [fresh.text]);
+  } finally { h.cleanup(); }
+});
+
+test('passive watcher waits for a short native turn to stabilize before emitting it', async () => {
+  const h = makeHarness({ settleMs: 900, settleRecheckMs: 350 });
+  try {
+    await h.watcher.scanNow(target.id);
+    const partial = { fingerprint: fp('a'), text: 'STABILITY_\n\nPASSI', partCount: 2, order: 1 };
+    h.setSnapshot({ ...h.snapshot(), turns: [oldTurn, partial] });
+    h.advance(100);
+    let result = await h.watcher.scanNow(target.id);
+    assert.equal(result.settling, true);
+    assert.equal(h.events.length, 0);
+
+    const complete = { fingerprint: fp('b'), text: 'STABILITY_PASSIVE_OK', partCount: 1, order: 1 };
+    h.setSnapshot({ ...h.snapshot(), turns: [oldTurn, complete] });
+    h.advance(350);
+    result = await h.watcher.scanNow(target.id);
+    assert.equal(result.settling, true);
+    assert.equal(h.events.length, 0, 'a growing passive reply must reset the settle window');
+
+    h.advance(950);
+    result = await h.watcher.scanNow(target.id);
+    assert.equal(result.settled, true);
+    assert.deepEqual(h.events.map((event) => event.text), ['STABILITY_PASSIVE_OK']);
   } finally { h.cleanup(); }
 });
 

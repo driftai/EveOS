@@ -21,14 +21,30 @@ function execFileAsync(file, args, options = {}) {
   });
 }
 
-async function diagnostics() {
+async function diagnostics(timeoutMs = 1500) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(urls().diagnostics, { cache: 'no-store' });
+    const response = await fetch(urls().diagnostics, {
+      cache: 'no-store',
+      signal: controller.signal
+    });
     if (!response.ok) return null;
     return await response.json();
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
+}
+
+async function diagnosticsWithRetry(attempts = 3, delayMs = 200) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const snapshot = await diagnostics();
+    if (snapshot?.serverSessionId) return snapshot;
+    if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return null;
 }
 
 function listenerPidFromNetstat(text, port = PORT) {
@@ -119,6 +135,12 @@ function ownsExpectedProcess(info, fragment) {
   return command.includes(normalized(ROOT)) && command.includes(normalized(fragment));
 }
 
+function restartOwnershipVerified({ before = null, server = null, supervisor = null } = {}) {
+  return (!before || !!before.supervised)
+    && ownsExpectedProcess(server, 'server.js')
+    && !!supervisor;
+}
+
 async function waitForReplacement(previousSessionId, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   let sawOffline = false;
@@ -140,27 +162,26 @@ async function main() {
     });
   }
 
-  const before = await diagnostics();
-  if (!before?.serverSessionId) {
-    throw Object.assign(new Error('Nexus Browser is not healthy; use START.bat instead of restart.'), {
-      code: 'NEXUS_RESTART_NOT_RUNNING'
-    });
-  }
+  const before = await diagnosticsWithRetry();
 
-  let serverPid = Number(before.serverPid || 0) || null;
+  let serverPid = Number(before?.serverPid || 0) || null;
   if (!serverPid) {
     const netstat = await execFileAsync('netstat.exe', ['-ano', '-p', 'tcp']);
     serverPid = listenerPidFromNetstat(netstat.stdout);
   }
   if (!serverPid) {
-    throw Object.assign(new Error(`No listener PID was found for Nexus port ${PORT}.`), {
-      code: 'NEXUS_RESTART_LISTENER_NOT_FOUND'
+    throw Object.assign(new Error(
+      before
+        ? `No listener PID was found for Nexus port ${PORT}.`
+        : 'Nexus Browser is not running under the visible supervisor; use START.bat instead of restart.'
+    ), {
+      code: before ? 'NEXUS_RESTART_LISTENER_NOT_FOUND' : 'NEXUS_RESTART_NOT_RUNNING'
     });
   }
 
   const server = await processInfo(serverPid);
   const parentPid = Number(server?.ParentProcessId || 0) || null;
-  const reportedSupervisorPid = Number(before.supervisorPid || 0) || null;
+  const reportedSupervisorPid = Number(before?.supervisorPid || 0) || null;
   const pidFileSupervisor = readSupervisorPidFile();
   const [parent, reported, pidFileProcess] = await Promise.all([
     parentPid ? processInfo(parentPid) : null,
@@ -176,15 +197,14 @@ async function main() {
       : pidFileSupervisor === reportedSupervisorPid ? reported : pidFileProcess
   });
   const supervisor = selected.supervisor;
-  if (!before.supervised
-      || !ownsExpectedProcess(server, 'server.js')
-      || !supervisor) {
+  if (!restartOwnershipVerified({ before, server, supervisor })) {
     throw Object.assign(new Error(
       'Refusing to restart: port owner is not the verified EveOS Nexus server under its supervisor.'
     ), {
       code: 'NEXUS_RESTART_OWNERSHIP_MISMATCH',
       detail: {
-        supervised: !!before.supervised,
+        diagnosticsAvailable: !!before,
+        supervised: before ? !!before.supervised : null,
         serverPid,
         serverCommand: server?.CommandLine || null,
         parentPid,
@@ -209,7 +229,7 @@ async function main() {
     });
   }
 
-  const replacement = await waitForReplacement(before.serverSessionId);
+  const replacement = await waitForReplacement(before?.serverSessionId || null);
   if (!replacement.ok) {
     throw Object.assign(new Error('Supervisor did not produce a fresh healthy Nexus session in time.'), {
       code: 'NEXUS_RESTART_TIMEOUT'
@@ -218,7 +238,7 @@ async function main() {
 
   console.log(JSON.stringify({
     ok: true,
-    previousSessionId: before.serverSessionId,
+    previousSessionId: before?.serverSessionId || null,
     serverSessionId: replacement.sessionId,
     supervisorPid: supervisor.ProcessId,
     message: 'Nexus Browser restarted under the existing visible supervisor.'
@@ -238,6 +258,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  diagnostics,
+  diagnosticsWithRetry,
   listenerPidFromNetstat,
   commandHas,
   readSupervisorPidFile,
@@ -246,6 +268,7 @@ module.exports = {
   verifiedSupervisorParent,
   chooseSupervisor,
   ownsExpectedProcess,
+  restartOwnershipVerified,
   normalized,
   waitForReplacement
 };
