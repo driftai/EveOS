@@ -168,6 +168,8 @@ function printDoctorReport(report) {
   console.log('Title:', report.title);
   console.log('Anchors:', report.anchors.stored, 'stored /', report.anchors.live,
     'live /', report.anchors.overlap, 'overlap');
+  console.log('Delivery scope:', stored.deliveryScope || live.deliveryScope || 'UNAVAILABLE');
+  console.log('Selection age:', report.selectedAtAgeMs == null ? 'UNAVAILABLE' : Math.round(report.selectedAtAgeMs / 1000) + 's');
   console.log('Exact match:', report.exactAppTargetMatch ? 'YES' : 'NO');
   console.log('Advance binding:', report.advanceAppTargetBinding ? 'YES' : 'NO');
   console.log('Helper:', report.helper?.available ? 'AVAILABLE' : 'UNAVAILABLE');
