@@ -142,19 +142,41 @@ function addPart(parts, record) {
   parts.push(record);
 }
 
+function layoutParagraphBreak(previous = null, next = null) {
+  if (!previous || !next) return false;
+  if (semanticType(previous.type) || semanticType(next.type)) return true;
+  const a = previous.rect || {}, b = next.rect || {};
+  if (![a.x, a.y, a.width, a.height, b.x, b.y, b.width, b.height]
+      .every((value) => Number.isFinite(Number(value)))) return false;
+  const gap = Number(b.y) - (Number(a.y) + Number(a.height));
+  if (gap <= 0) return false;
+  const sameColumn = Math.abs(Number(a.x) - Number(b.x))
+    <= Math.max(28, Math.min(Number(a.width), Number(b.width)) * 0.12);
+  if (!sameColumn) return false;
+  if (gap >= 18) return true;
+  const previousText = String(previous.text || '').trim();
+  const sentenceEnded = /[.!?]["')\]]?$/.test(previousText);
+  const gapThreshold = Math.min(12, Math.max(8,
+    Math.min(Number(a.height), Number(b.height)) * 0.25));
+  return sentenceEnded && gap >= gapThreshold;
+}
+
 function formatParts(parts = []) {
   if (!parts.length) return '';
   const blocks = [];
-  let inline = '';
+  let inline = '', previous = null;
   for (const part of parts) {
     const value = String(part.text || '').trim();
     if (!value) continue;
-    if (semanticType(part.type)) {
+    const blockBoundary = previous && layoutParagraphBreak(previous, part);
+    if (semanticType(part.type) || blockBoundary) {
       if (inline) { blocks.push(inline); inline = ''; }
-      blocks.push(value);
+      if (semanticType(part.type)) blocks.push(value);
+      else inline = value;
     } else {
       inline = joinInline(inline, value);
     }
+    previous = part;
   }
   if (inline) blocks.push(inline);
   return blocks.join('\n\n');
@@ -310,6 +332,7 @@ module.exports = {
   visualRecords,
   isLikelyUser,
   isLikelyAssistant,
+  layoutParagraphBreak,
   findPromptRecord,
   answerAfterPrompt,
   markerlessPairs,

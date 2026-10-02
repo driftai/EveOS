@@ -182,6 +182,24 @@ below it.
 
 The regression lives in `tests/chatgpt-windows-codex-long-reply.test.js`.
 
+## Paragraph-boundary reconstruction
+
+Codex can expose visually separate assistant paragraphs as ordinary sibling `Text`
+nodes rather than semantic `Paragraph` controls. Markerless capture therefore uses
+layout as a secondary structure signal.
+
+Semantic Paragraph/ListItem/Heading nodes always remain block boundaries. For plain Text
+siblings, tightly stacked or same-line fragments are joined inline, while a meaningful
+vertical gap between nodes aligned in the same assistant column becomes a blank-line
+paragraph boundary. A smaller gap is accepted only when the previous block is
+sentence-complete; a larger gap is independently sufficient.
+
+This preserves real Nova paragraph spacing without turning ordinary wrapped lines into
+separate paragraphs. The captured turn itself carries the `\n\n` boundaries, so Base
+Mode, Capture Latest, passive capture, and later Dex consumers all see the same structure.
+
+The regression lives in `tests/chatgpt-windows-codex-long-reply.test.js`.
+
 ## Passive turns and identity
 
 The same markerless prompt/assistant pairs feed `completedAssistantTurns()` and

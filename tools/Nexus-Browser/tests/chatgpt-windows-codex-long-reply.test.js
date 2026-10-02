@@ -173,3 +173,43 @@ test('long Codex prompt continuation fragments never become assistant reply cont
   assert.equal(observed.text.includes('26/26 focused tests'), false);
   assert.equal(observed.nativeTurn?.text, answer);
 });
+
+
+test('plain Codex Text siblings preserve visual paragraph spacing without splitting wrapped lines', () => {
+  const prompt = 'PARAGRAPH_SPACING_TEST';
+  const firstLine = 'The first paragraph starts here and ends with a complete sentence.';
+  const wrappedContinuation = 'This tightly stacked continuation still belongs to that first paragraph.';
+  const second = 'The second paragraph is visually separated and must begin after one blank line.';
+  const third = 'The third paragraph is also separated and should remain its own block.';
+  const expected = [
+    firstLine + ' ' + wrappedContinuation,
+    second,
+    third
+  ].join('\n\n');
+
+  const json = {
+    windows: [{ ...windowInfo, elements: [{
+      selector: 'root', type: 'Window', name: 'ChatGPT',
+      x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'user-prompt', type: 'Text', name: prompt,
+          x: 780, y: 180, width: 320, height: 42, children: [] },
+        { selector: 'reply-line-1', type: 'Text', name: firstLine,
+          x: 330, y: 250, width: 540, height: 42, children: [] },
+        { selector: 'reply-line-2', type: 'Text', name: wrappedContinuation,
+          x: 330, y: 296, width: 520, height: 20, children: [] },
+        { selector: 'reply-paragraph-2', type: 'Text', name: second,
+          x: 330, y: 342, width: 540, height: 48, children: [] },
+        { selector: 'reply-paragraph-3', type: 'Text', name: third,
+          x: 330, y: 414, width: 540, height: 48, children: [] },
+        { selector: 'compose-codex', type: 'Edit', name: 'Do anything',
+          x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
+      ]
+    }] }]
+  };
+
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  const observed = responseForPrompt(snapshot, { prompt, includeOffscreen: true });
+  assert.equal(observed.correlated, true);
+  assert.equal(observed.text, expected);
+  assert.equal(observed.nativeTurn?.text, expected);
+});
