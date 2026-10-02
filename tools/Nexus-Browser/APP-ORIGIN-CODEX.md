@@ -68,6 +68,24 @@ Active correlation therefore uses prompt ownership:
 This preserves normal ChatGPT semantics while preventing stale cross-surface markers from
 short-circuiting Codex capture.
 
+## Collapsed long-prompt ownership
+
+Long Codex user messages may collapse behind a `Show more` control. In that state the
+accessibility tree can expose only a visible prefix of the exact prompt Nexus submitted,
+so active correlation must not require byte-for-byte rediscovery of the full prompt.
+
+Prompt ownership remains fail-closed:
+
+1. exact full-text ownership wins whenever available;
+2. otherwise, only a sufficiently long visible prefix of the exact submitted prompt may
+   own the turn;
+3. short/common fragments are never accepted as ownership;
+4. `Show more` / `Show less` are UI chrome and never assistant content.
+
+For collapsed prompts, active native-turn identity uses the same observed prompt fragment
+that passive markerless reconstruction sees. This keeps active/passive exact-once
+fingerprints aligned instead of emitting the same Nova reply twice.
+
 ## Long-turn progress filtering
 
 Longer Codex turns may expose temporary accessibility text such as `Working for 5s`,

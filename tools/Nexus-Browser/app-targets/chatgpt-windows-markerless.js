@@ -5,7 +5,7 @@ const uia = require('./chatgpt-windows-uia');
 
 const TIME_CHROME = /^(?:(?:today|yesterday)(?:\s+at)?\s*)?\d{1,2}:\d{2}\s*(?:am|pm)$/i;
 const DATE_CHROME = /^(?:today|yesterday|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)$/i;
-const SURFACE_CHROME = /^(?:codex|chatgpt|do anything|create, learn, and explore|build, debug, and ship)$/i;
+const SURFACE_CHROME = /^(?:codex|chatgpt|do anything|show more|show less|create, learn, and explore|build, debug, and ship)$/i;
 const COMPLETION_CHROME = /^(?:response complete|response completed|generation complete)(?:\s*[:—-].*)?$/i;
 const WORK_STATUS_CHROME = /^(?:working|worked)\s+for\s+(?:(?:\d+(?:\.\d+)?\s*(?:ms|s|sec(?:ond)?s?|m|min(?:ute)?s?|h|hr(?:s)?|hour(?:s)?))\s*)+$/i;
 
@@ -21,6 +21,23 @@ function sameText(left = '', right = '') {
   const a = uia.normalizeCandidate(left).replace(/\s+/g, ' ');
   const b = uia.normalizeCandidate(right).replace(/\s+/g, ' ');
   return !!a && !!b && (a === b || a.replace(/\s+/g, '') === b.replace(/\s+/g, ''));
+}
+
+function promptComparable(text = '') {
+  return uia.normalizeCandidate(text)
+    .replace(/(?:\s*(?:show more|show less))$/i, '')
+    .replace(/(?:\s*(?:…|\.\.\.))$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function promptOwnsVisibleText(visible = '', expected = '') {
+  if (sameText(visible, expected)) return true;
+  const shown = promptComparable(visible), full = promptComparable(expected);
+  if (full.length < 160 || shown.length < 80 || shown.length >= full.length) return false;
+  if (full.startsWith(shown)) return true;
+  const compactShown = shown.replace(/\s+/g, ''), compactFull = full.replace(/\s+/g, '');
+  return compactShown.length >= 72 && compactFull.startsWith(compactShown);
 }
 
 function markerlessChrome(text = '') {
@@ -135,8 +152,11 @@ function formatParts(parts = []) {
 function findPromptRecord(snapshot = {}, prompt = '', options = {}) {
   const expected = uia.normalizeCandidate(prompt);
   if (!expected) return null;
-  const matches = visualRecords(snapshot, options).filter((record) => sameText(record.normalized, expected));
-  return matches.at(-1) || null;
+  const all = visualRecords(snapshot, options);
+  const exact = all.filter((record) => sameText(record.normalized, expected));
+  if (exact.length) return exact.at(-1);
+  const collapsed = all.filter((record) => promptOwnsVisibleText(record.normalized, expected));
+  return collapsed.at(-1) || null;
 }
 
 function answerAfterPrompt(snapshot = {}, prompt = '', options = {}) {
@@ -223,12 +243,12 @@ function completedTurns(snapshot = {}, { limit = 64, includeOffscreen = true } =
 function completedTurnForPrompt(snapshot = {}, prompt = '', options = {}) {
   const answer = answerAfterPrompt(snapshot, prompt, options);
   if (!answer.foundPrompt || !answer.text) return null;
-  const userText = uia.normalizeCandidate(prompt);
+  const userText = uia.normalizeCandidate(answer.promptRecord?.text || prompt);
   const assistantText = uia.normalizeCandidate(answer.text);
   const pairDigest = createHash('sha256')
     .update('eveos-chatgpt-native-turn-pair-v1\0').update(userText).update('\0').update(assistantText).digest('hex');
   const samePromptPairs = markerlessPairs(snapshot, options)
-    .filter((pair) => sameText(pair.userText, prompt) && sameText(pair.assistantText, answer.text));
+    .filter((pair) => promptOwnsVisibleText(pair.userText, prompt) && sameText(pair.assistantText, answer.text));
   const occurrence = Math.max(1, samePromptPairs.length);
   return {
     fingerprint: createHash('sha256')
@@ -268,6 +288,8 @@ function conversationAnchors(snapshot = {}, { limit = 8 } = {}) {
 module.exports = {
   TIME_CHROME,
   COMPLETION_CHROME,
+  promptComparable,
+  promptOwnsVisibleText,
   WORK_STATUS_CHROME,
   markerlessChrome,
   recordFor,
