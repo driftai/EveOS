@@ -65,19 +65,36 @@ function parseArgs(argv) {
   return options;
 }
 
-function run(label, command, args, log) {
+function run(label, command, args, log, { timeoutMs = 120000 } = {}) {
   const started = Date.now();
-  const result = spawnSync(command, args, { cwd: ROOT, encoding: 'utf8', shell: false });
+  console.log(`[qualify] ${label}...`);
+  const result = spawnSync(command, args, {
+    cwd: ROOT,
+    encoding: 'utf8',
+    shell: false,
+    timeout: timeoutMs,
+    maxBuffer: 32 * 1024 * 1024
+  });
+  const ms = Date.now() - started;
+  const timedOut = result.error?.code === 'ETIMEDOUT';
+  const code = result.status ?? 1;
   log.push(`\n===== ${label} =====\n`);
   log.push(result.stdout || '');
   log.push(result.stderr || '');
-  return { label, code: result.status ?? 1, ms: Date.now() - started };
+  if (result.error) log.push(`\n${result.error.stack || result.error.message || String(result.error)}\n`);
+  console.log(`[qualify] ${label}: ${code === 0 ? 'PASS' : 'FAIL'} (${ms} ms${timedOut ? ', timeout' : ''})`);
+  return {
+    label,
+    code,
+    ms,
+    ...(timedOut ? { timedOut: true } : {}),
+    ...(result.error && !timedOut ? { error: result.error.message || String(result.error) } : {})
+  };
 }
 
 function commandForNpm() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
-
 
 function failureExcerpt(text, maxLines = 80) {
   const lines = String(text || '').split(/\r?\n/);
@@ -98,17 +115,23 @@ function main(argv = process.argv.slice(2)) {
   const log = [];
   const stages = [];
 
-  stages.push(run('file-size', process.execPath, ['tests/file-size.test.js'], log));
+  stages.push(run('file-size', process.execPath, ['tests/file-size.test.js'], log, { timeoutMs: 30000 }));
   if (stages.at(-1).code === 0) {
-    stages.push(run(`focused:${options.area}`, process.execPath, ['--test', ...AREA_TESTS[options.area]], log));
+    stages.push(run(
+      `focused:${options.area}`,
+      process.execPath,
+      ['--test', ...AREA_TESTS[options.area]],
+      log,
+      { timeoutMs: 120000 }
+    ));
   }
   if (options.full && !options.verify && stages.every((stage) => stage.code === 0)) {
-    stages.push(run('npm-test', commandForNpm(), ['test'], log));
+    stages.push(run('npm-test', commandForNpm(), ['test'], log, { timeoutMs: 180000 }));
   }
   if (options.verify && stages.every((stage) => stage.code === 0)) {
     stages.push(process.platform === 'win32'
-      ? run('VERIFY.bat', 'cmd.exe', ['/d', '/c', 'set NEXUS_BROWSER_NONINTERACTIVE=1&& VERIFY.bat'], log)
-      : run('npm-test', commandForNpm(), ['test'], log));
+      ? run('VERIFY.bat', 'cmd.exe', ['/d', '/c', 'set NEXUS_BROWSER_NONINTERACTIVE=1&& VERIFY.bat'], log, { timeoutMs: 180000 })
+      : run('npm-test', commandForNpm(), ['test'], log, { timeoutMs: 180000 }));
   }
 
   const passed = stages.every((stage) => stage.code === 0);
@@ -117,7 +140,10 @@ function main(argv = process.argv.slice(2)) {
   const logText = log.join('');
   fs.writeFileSync(logPath, logText, 'utf8');
   const summary = {
-    passed, area: options.area, stages, logPath,
+    passed,
+    area: options.area,
+    stages,
+    logPath,
     ...(passed ? {} : { failureExcerpt: failureExcerpt(logText) })
   };
   console.log(JSON.stringify(summary, null, 2));
