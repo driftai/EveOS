@@ -336,11 +336,9 @@ function createAdapter({
         if (!firstResponseAt) firstResponseAt = observedAt;
         lastChangedAt = observedAt;
         turnState.set(target.id, { phase: 'streaming', requestId, startedAt: acceptedAt,
-          latestText: candidate, sawGenerating });
+          latestText: mergedText, sawGenerating });
         emit?.({
-          type: 'response_partial',
-          requestId,
-          text: candidate,
+          type: 'response_partial', requestId, text: mergedText,
           targetClassId: 'app-origin',
           targetId: target.id,
           providerId: PROVIDER_ID,
