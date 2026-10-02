@@ -17,8 +17,14 @@ function harness() {
   const ws = { clientKind: 'browser', appTargetId: null, closed: false };
   const uiSockets = new Set([ws]);
   const terminalRelayStorage = {
+    selection: null,
     writes: [], clears: [], refreshes: [],
-    writeTargetSelection(target) { this.writes.push({ ...target }); return target; },
+    readTargetSelection() { return this.selection || { available: false }; },
+    writeTargetSelection(target) {
+      this.writes.push({ ...target });
+      this.selection = { targetId: target.id, target: { ...target } };
+      return target;
+    },
     clearTargetSelection(targetId) { this.clears.push(targetId); return true; },
     refreshTargetSelection(target) { this.refreshes.push({ ...target }); return target; }
   };
@@ -90,6 +96,38 @@ test('App-Origin server tests persist synthetic selections only through injected
   assert.equal(h.terminalRelayStorage.writes.length, 1);
   assert.equal(h.terminalRelayStorage.writes[0].id, h.target.id);
   assert.equal(h.terminalRelayStorage.writes[0].providerId, 'chatgpt-desktop');
+});
+
+test('Base Mode automatically restores a proven persisted App-Origin binding after restart', async () => {
+  const h = harness();
+  h.target.pid = 10;
+  h.target.windowHandle = 20;
+  h.target.concreteTargetIdentity = {
+    processId: 10,
+    windowHandle: 20,
+    conversationAnchor: 'anchor-a',
+    conversationAnchors: ['anchor-a'],
+    deliveryScope: 'a'.repeat(64)
+  };
+  h.terminalRelayStorage.selection = {
+    targetId: h.target.id,
+    target: { ...h.target, concreteTargetIdentity: { ...h.target.concreteTargetIdentity } }
+  };
+  h.appTargets.advanceAppTargetBinding = (expected, actual) => ({
+    ...expected,
+    ...actual,
+    concreteTargetIdentity: {
+      ...expected.concreteTargetIdentity,
+      ...actual.concreteTargetIdentity
+    }
+  });
+
+  await h.controller.refresh(h.ws, { force: true });
+
+  assert.equal(h.ws.appTargetId, h.target.id);
+  assert.equal(h.ws.appTargetBinding.concreteTargetIdentity.deliveryScope, 'a'.repeat(64));
+  assert.ok(h.messages.some((entry) =>
+    entry.payload.type === 'app_target_selected' && entry.payload.restored === true));
 });
 
 test('Base Mode App-Origin send flows through durability and returns app response events', async () => {
