@@ -46,11 +46,12 @@ window.EveWorldBook = window.EveWorldBook || {};
         return payload;
     }
 
-    async function controllerBase() {
+    async function controllerBase({ userInitiated = false } = {}) {
         if (baseUrl) return baseUrl;
         const localControl = window.EveOSLocalControl;
         if (!localControl?.ensure) throw new Error('EveOS local control is unavailable.');
         const control = await localControl.ensure({
+            userInitiated,
             onLaunching() {
                 state.serverState = 'enabling';
                 state.message = 'Starting EveOS local control for Notes…';
@@ -110,7 +111,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         state.message = enabled ? 'Starting EveOS Notes…' : 'Stopping EveOS Notes…';
         publish();
         try {
-            const controller = await controllerBase();
+            const controller = await controllerBase({ userInitiated: true });
             const payload = await fetchJson(`${controller}/api/notes-service/${enabled ? 'start' : 'stop'}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
             }, 6000);
