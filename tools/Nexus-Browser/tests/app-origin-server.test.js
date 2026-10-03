@@ -45,6 +45,9 @@ function harness() {
     async getAppTarget(id) { return id === target.id ? target : null; },
     getAppTargetStatus() { return { phase: 'idle' }; },
     async captureAppLatest() { return { text: 'captured app reply', target }; },
+    async recoverBusyAppTarget({ requestId }) {
+      return { recovered: false, requestId, reason: 'not-busy' };
+    },
     async sendAppPrompt({ requestId, emit, beforeSend }) {
       await beforeSend?.(target);
       for (const payload of [
@@ -260,6 +263,33 @@ test('Base Mode busy rejection happens before the durable dispatch boundary', as
     'busy native target must fail before durable dispatch is claimed');
   const error = h.messages.find((entry) => entry.payload.code === 'APP_TARGET_BUSY');
   assert.ok(error, 'Base Mode should surface APP_TARGET_BUSY directly');
+});
+
+test('Base Mode busy recovery is read-only and targets the original active request', async () => {
+  const h = harness();
+  h.ws.appTargetId = h.target.id;
+  h.appTargets.recoverBusyAppTarget = async ({ targetId, requestId }) => {
+    h.observed.push({ kind: 'recover', targetId, requestId });
+    return { recovered: true, requestId, reason: 'busy-recovered-stable' };
+  };
+
+  const handled = await h.controller.handle(h.ws, {
+    type: 'recover_app_target_busy',
+    requestId: 'original-active-request',
+    targetClassId: 'app-origin',
+    targetId: h.target.id
+  });
+
+  assert.equal(handled, true);
+  assert.deepEqual(h.observed, [{
+    kind: 'recover', targetId: h.target.id, requestId: 'original-active-request'
+  }]);
+  assert.equal(h.observed.some((entry) => entry.kind === 'before'), false,
+    'recovery must not cross the durable dispatch boundary');
+  const recovery = h.messages.find((entry) => entry.payload.type === 'app_target_busy_recovery');
+  assert.equal(recovery?.payload.recovered, true);
+  assert.equal(recovery?.payload.requestId, 'original-active-request');
+  assert.equal(recovery?.payload.reason, 'busy-recovered-stable');
 });
 
 test('Base Mode can capture the latest native app reply', async () => {
