@@ -73,12 +73,12 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
             selected,
             canPick,
             labelsVisible,
-            title: selected ? 'Selective site output ready' : (canPick ? 'Ready to pick output' : 'Manual mixer fallback'),
+            title: selected ? 'Selective site output ready' : (canPick ? 'System default output active' : 'System default output'),
             detail: selected
                 ? `EveOS can route Audioflix and Gemini WebAudio to ${snapshot.preferredSinkLabel || 'the selected output'} without moving all Edge audio.`
                 : (canPick
-                    ? 'Edge/Chromium can grant EveOS permission to route Audioflix and supported Gemini audio to a chosen output.'
-                    : 'Use Windows Volume mixer when this browser cannot expose a permitted output sink.')
+                    ? 'Audioflix plays through the normal browser/OS output. Choose another output only when you want one.'
+                    : 'Audioflix uses the browser/OS default output; Windows Mixer remains an optional override.')
         };
     }
 
@@ -91,10 +91,10 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
         const onCable = manualMixer || isCableLabel(snapshot.preferredSinkLabel) || (nativeRoute && isCableLabel(snapshot.nativeOutputLabel));
         const armed = snapshot.geminiVoicePortEnabled === true || manualMixer || nativeRoute;
         return [
-            { label: 'Output routing', state: manualMixer || hasRouteApi ? 'ready' : 'manual', text: manualMixer ? 'Windows mixer' : (browserCore.selected ? 'Browser permitted' : (hasRouteApi ? 'Browser ready' : 'Use Windows mixer')) },
-            { label: 'Voice sink', state: onCable ? 'ready' : (hasOutput ? 'warn' : 'manual'), text: onCable ? 'CABLE route' : 'Needs CABLE Input' },
-            { label: 'Voice port', state: armed ? 'ready' : 'manual', text: nativeRoute ? 'Gemini + Audioflix' : (armed ? 'Gemini only' : 'Not armed') },
-            { label: 'Voicemeeter mic', state: 'manual', text: 'Route B1/B2 in Banana' }
+            { label: 'Output routing', state: 'ready', text: manualMixer ? 'Windows mixer' : (browserCore.selected ? 'Selected device' : 'System default') },
+            { label: 'Audio output', state: onCable || !armed ? 'ready' : (hasOutput ? 'warn' : 'manual'), text: onCable ? 'Virtual cable' : (!armed ? 'Local speakers' : 'Choose output') },
+            { label: 'Voice port', state: 'ready', text: nativeRoute ? 'Gemini + Audioflix' : (armed ? 'Gemini only' : 'Optional / off') },
+            { label: 'Voicemeeter mic', state: armed ? 'manual' : 'ready', text: armed ? 'Route B1/B2 if needed' : 'Not required' }
         ];
     }
 
@@ -115,9 +115,9 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
         }
         if (audioStatus.hasOutputPicker && audioStatus.hasSetSinkId && !snapshot.preferredSinkId) {
             return {
-                state: 'warn',
-                title: 'Pick a permitted browser output',
-                body: 'Use Pick Browser Output to grant EveOS permission to route Audioflix and supported Gemini playback to CABLE Input or another output.'
+                state: 'ready',
+                title: 'System default playback ready',
+                body: 'Audioflix plays normally through the browser/OS output. Pick another output only when you want speakers, headphones, or an optional virtual route.'
             };
         }
         if (!audioStatus.hasSetSinkId) {
@@ -172,7 +172,7 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
             <div class="audioflix-route-arrow">-&gt;</div>
             <div class="audioflix-route-node ${snapshot.geminiVoicePortEnabled || snapshot.nativeBridgeEnabled ? 'is-hot' : ''}"><span>Output Sink</span><strong>${esc(label)}</strong></div>
             <div class="audioflix-route-arrow">-&gt;</div>
-            <div class="audioflix-route-node"><span>Voicemeeter</span><strong>B1/B2 virtual mic</strong></div>
+            <div class="audioflix-route-node"><span>${snapshot.geminiVoicePortEnabled || snapshot.nativeBridgeEnabled ? 'Optional virtual mic' : 'Local audio'}</span><strong>${snapshot.geminiVoicePortEnabled || snapshot.nativeBridgeEnabled ? 'Voicemeeter / selected port' : 'No virtual device required'}</strong></div>
             <div class="audioflix-route-monitor"><span>Listen locally</span><strong>${monitorOn ? esc(monitorLabel) : 'Muted'}</strong></div>
             <div class="audioflix-route-guide audioflix-health-${guidance.state}">
                 <span>Next useful action</span>
@@ -182,7 +182,7 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
             ${renderHealth(snapshot, audioStatus)}
             <div class="audioflix-route-actions">
                 ${window.location.protocol === 'file:' ? `<button type="button" data-af-action="open-localhost" style="border-color: rgba(0, 212, 255, 0.4); color: #00d4ff; background: rgba(0, 212, 255, 0.1);">Localhost Site</button>` : ''}
-                <button type="button" data-af-action="local-only">Local Playback</button>
+                <button type="button" data-af-action="local-only">System Default Playback</button>
                 <button type="button" data-af-action="open-windows-mixer">Open Mixer</button>
                 <button type="button" data-af-action="mark-windows-route">Windows Mixer Routed</button>
                 <button type="button" data-af-action="arm-cable">Auto CABLE + Arm</button>
@@ -208,7 +208,7 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
             <article class="audioflix-status-card ${snapshot.nativeBridgeEnabled ? 'is-on' : ''}">
                 <span>Native Bridge Output</span>
                 <strong>${esc(snapshot.nativeBridgeEnabled ? nativeLabel : 'Optional EveOS-only route')}</strong>
-                <p>Draws real Windows endpoints from the EveOS server. Routes Gemini PCM, route tests, and local/served Audioflix clips without moving all Edge audio.</p>
+                <p>Optional exclusive route through the EveOS server. Selecting an endpoint only configures it; Use Native Route explicitly moves Audioflix playback there.</p>
                 <div class="audioflix-output-picker">
                     <select data-af-control="native-output-select" aria-label="Native Audioflix output device">
                         <option value="">Checking native bridge...</option>

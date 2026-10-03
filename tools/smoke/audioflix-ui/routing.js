@@ -24,6 +24,13 @@ async function qualifyRouting(page) {
             && options.some((option) => option.value === 'win:1' && option.disabled);
     }, undefined, { timeout: 10000 });
     await page.selectOption('[data-af-control="native-output-select"]', 'sd:1');
+    const nativeSelectionStayedOptional = await page.evaluate(() => {
+        const snapshot = window.EveAudioflixState.getSnapshot();
+        return snapshot.nativeOutputId === 'sd:1'
+            && snapshot.nativeBridgeEnabled === false
+            && window.EveAudioflixNative.shouldSuppressBrowserPlayback() === false;
+    });
+    await page.click('[data-af-action="toggle-native-bridge"]');
     const nativeRouteApplied = await page.evaluate(async () => {
         const snapshot = window.EveAudioflixState.getSnapshot();
         const sent = await window.EveAudioflixNative.sendGeminiChunk('AAAA', { sampleRate: 24000, channels: 1 });
@@ -101,6 +108,21 @@ async function qualifyRouting(page) {
             buttonExpanded: document.querySelector('.topbar-audioflix-btn')?.getAttribute('aria-expanded')
         };
     });
+    await page.click('[data-af-action="local-only"]');
+    await page.waitForFunction(() => {
+        const snapshot = window.EveAudioflixState.getSnapshot();
+        return snapshot.routeMode === 'browser'
+            && snapshot.nativeBridgeEnabled === false
+            && snapshot.nativeSuppressBrowserPlayback === false
+            && !snapshot.preferredSinkId;
+    }, undefined, { timeout: 10000 });
+    const localPlaybackApplied = await page.evaluate(() => {
+        const snapshot = window.EveAudioflixState.getSnapshot();
+        return window.EveAudioflixNative.shouldSuppressBrowserPlayback() === false
+            && !snapshot.geminiVoicePortEnabled
+            && snapshot.geminiVoiceMonitorEnabled !== false
+            && window.__audioflixContextSink === '';
+    });
     await page.click('[data-af-action="clear-gemini-events"]');
     await page.waitForFunction(() => window.EveAudioflixState.getSnapshot().counters.routedGeminiEvents === 0, undefined, {
         timeout: 10000
@@ -109,6 +131,6 @@ async function qualifyRouting(page) {
         routedEvents: window.EveAudioflixState.getSnapshot().counters.routedGeminiEvents,
         headerText: document.querySelector('.audioflix-header-actions')?.textContent || ''
     }));
-    return { selectiveRouteApplied, nativeRouteApplied, result, clearResult };
+    return { selectiveRouteApplied, nativeSelectionStayedOptional, nativeRouteApplied, localPlaybackApplied, result, clearResult };
 }
 module.exports = { qualifyRouting };

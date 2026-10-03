@@ -351,7 +351,7 @@ async function main() {
         await page.locator('#audioflix-overlay .audioflix-panel').screenshot({ path: SCREENSHOT_PATH });
     }
 
-    const { selectiveRouteApplied, nativeRouteApplied, result, clearResult } = await qualifyRouting(page);
+    const { selectiveRouteApplied, nativeSelectionStayedOptional, nativeRouteApplied, localPlaybackApplied, result, clearResult } = await qualifyRouting(page);
 
     const failures = [];
     if (!drawerInitiallyCollapsed) failures.push('routing drawer was not collapsed by default');
@@ -365,6 +365,7 @@ async function main() {
     if (!hotkeyPlayed) failures.push('number hotkey did not play the active group sound');
     if (!result.hasOverlay) failures.push('overlay not visible');
     if (!selectiveRouteApplied) failures.push('Auto CABLE did not create selective browser route');
+    if (!nativeSelectionStayedOptional) failures.push('selecting a native endpoint activated exclusive routing without user intent');
     if (result.soundCount !== 1) failures.push(`expected 1 sound, got ${result.soundCount}`);
     if (result.musicCount !== 1) failures.push(`expected 1 track, got ${result.musicCount}`);
     if (!internalViewUiOk) failures.push('music Internal View action was missing or not wired');
@@ -390,6 +391,7 @@ async function main() {
     if (!result.hasMonitorCard) failures.push('Local Monitor card missing');
     if (!result.monitorBlocksCable) failures.push('Local Monitor did not block the Voice Port CABLE sink');
     if (!nativeRouteApplied) failures.push('native Audioflix bridge route did not apply/send');
+    if (!localPlaybackApplied) failures.push('System Default Playback did not fully restore audible browser routing');
     if (!result.hasUnlockButton) failures.push('unlock device names button missing');
     if (!result.labelsUnlocked) failures.push('Auto CABLE did not unlock hidden browser output labels');
     if (!result.unlockTrackStopped) failures.push('unlock device label media track was not stopped');

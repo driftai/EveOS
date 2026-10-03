@@ -68,15 +68,23 @@ async function main() {
 
         const result = await page.evaluate(async (baseUrl) => {
             window.EveAudioflixState.update({ nativeBridgeBase: baseUrl }, 'file-native-smoke-base');
+            const initial = window.EveAudioflixState.getSnapshot();
             const payload = await window.EveAudioflixNative.listSystemOutputs(true);
             const playable = (payload.devices || []).find((device) => device.playable === true);
+            let configuredOnly = false;
             if (playable) {
                 window.EveAudioflixNative.selectNativeOutput(playable.id, playable.label);
+                const configured = window.EveAudioflixState.getSnapshot();
+                configuredOnly = configured.nativeBridgeEnabled === false
+                    && window.EveAudioflixNative.shouldSuppressBrowserPlayback() === false;
                 window.EveAudioflixNative.setNativeBridgeEnabled(true);
             }
             const snapshot = window.EveAudioflixState.getSnapshot();
             return {
                 href: location.href,
+                initialBrowserPlayback: initial.nativeBridgeEnabled === false
+                    && initial.nativeSuppressBrowserPlayback === false,
+                configuredOnly,
                 ok: payload.ok,
                 bridgeBase: snapshot.nativeBridgeBase,
                 message: payload.message,
@@ -90,6 +98,8 @@ async function main() {
 
         const failures = [];
         if (!result.href.startsWith('file:///')) failures.push(`not a file:// page: ${result.href}`);
+        if (!result.initialBrowserPlayback) failures.push('file:// did not default to normal browser/system playback');
+        if (!result.configuredOnly) failures.push('native device selection activated exclusive routing before opt-in');
         if (!result.ok) failures.push(`native payload not ok: ${result.message}`);
         if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(result.bridgeBase || '')) {
             failures.push(`bridge base is not a loopback EveOS bridge: ${result.bridgeBase}`);

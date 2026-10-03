@@ -6,16 +6,16 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
         const { ensureAudio, getAudioContext, state, dispatch, runtime } = deps;
     async function applySink(deviceId) {
         const player = ensureAudio();
-        if (!deviceId) return false;
+        const sinkId = String(deviceId || '');
         let applied = false;
         if (typeof player.setSinkId === 'function') {
-            await player.setSinkId(deviceId);
+            await player.setSinkId(sinkId);
             applied = true;
         }
         const context = getAudioContext?.();
         if (typeof context?.setSinkId === 'function') {
             try {
-                await context.setSinkId(deviceId);
+                await context.setSinkId(sinkId);
                 applied = true;
             } catch (error) {
                 console.warn('[Audioflix] Web Audio output did not accept the selected sink:', error);
@@ -39,15 +39,22 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
     // Persist a chosen output device and route both Audioflix's own player and the
     // live Gemini voice context to it (so picking "CABLE Input" arms the mic-spoof).
     async function commitOutput(deviceId, label) {
-        const applied = await applySink(deviceId);
+        const sinkId = String(deviceId || '');
+        const isDefault = !sinkId;
+        const applied = await applySink(sinkId);
         window.EveAudioflixState?.update?.({
-            preferredSinkId: deviceId,
-            preferredSinkLabel: label || 'Selected output device',
-            routeMode: 'browser-selective'
+            preferredSinkId: sinkId,
+            preferredSinkLabel: isDefault ? '' : (label || 'Selected output device'),
+            nativeBridgeEnabled: false,
+            nativeSuppressBrowserPlayback: false,
+            nativeRouteDefaultV2Applied: true,
+            routeMode: isDefault ? 'browser' : 'browser-selective'
         }, 'audioflix-output-device');
         try { await window.EveAudioflixGemini?.applyVoiceSink?.(window.audioInputContext); } catch { }
-        runtime.lastStatus = applied ? `Output routed to ${label || 'selected device'}` : 'Output saved for supported browsers';
-        dispatch('eve:audioflix-playback', { status: runtime.lastStatus, deviceId, label });
+        runtime.lastStatus = isDefault
+            ? 'Audioflix is using the system default output.'
+            : (applied ? `Output routed to ${label || 'selected device'}` : 'Output saved for supported browsers');
+        dispatch('eve:audioflix-playback', { status: runtime.lastStatus, deviceId: sinkId, label: isDefault ? 'System default output' : label });
         return true;
     }
 
@@ -132,8 +139,7 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
     }
 
     async function setOutputById(deviceId, label) {
-        if (!deviceId) return false;
-        return await commitOutput(deviceId, label || 'Selected output device');
+        return await commitOutput(deviceId, deviceId ? (label || 'Selected output device') : 'System default output');
     }
 
     // Music plays as ONE continuous browser stream (the native PCM lane stays for short

@@ -9,8 +9,9 @@ window.EveAudioflixUiActionsRouting = window.EveAudioflixUiActionsRouting || {};
                 catch (err) { ctx.playbackStatus = err.message || 'Device name unlock failed'; } ctx.rerender(); return true;
             }
             if (action === 'local-only') {
-                window.EveAudioflixGemini?.setVoicePortEnabled?.(false); window.EveAudioflixGemini?.setMonitorEnabled?.(true); window.EveAudioflixState?.update?.({ routeMode: 'browser' }, 'audioflix-local-playback');
-                ctx.playbackStatus = 'Local only mode active'; ctx.rerender(); return true;
+                window.EveAudioflixNative?.setNativeBridgeEnabled?.(false); window.EveAudioflixGemini?.setVoicePortEnabled?.(false); window.EveAudioflixGemini?.setMonitorEnabled?.(true);
+                await window.EveAudioflixAudio?.setOutputById?.('', 'System default output');
+                ctx.playbackStatus = 'Local playback active on the system default output'; ctx.pushHotkeysToBridge(); ctx.rerender(); return true;
             }
             if (action === 'open-windows-mixer') { try { window.open('ms-settings:apps-volume', '_blank', 'noopener'); } catch(e){} ctx.playbackStatus = 'Open Windows Volume mixer...'; ctx.rerender(); return true; }
             if (action === 'mark-windows-route') { window.EveAudioflixState?.update?.({ routeMode: 'manual', geminiVoicePortEnabled: true }, 'audioflix-windows-mixer-route'); ctx.playbackStatus = 'Windows mixer route marked'; ctx.rerender(); return true; }

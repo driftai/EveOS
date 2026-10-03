@@ -144,8 +144,32 @@ function makeRelayVm({ textBrainMode }) {
 
         const fresh = makeStateVm(null);
         loadState(fresh);
-        assert(fresh.window.EveAudioflixState.ensure().geminiConversationMode === 'text-brain-live-voice',
+        const freshState = fresh.window.EveAudioflixState.ensure();
+        assert(freshState.geminiConversationMode === 'text-brain-live-voice',
             'fresh state should default to Mode 2');
+        assert(freshState.nativeBridgeEnabled === false && freshState.nativeSuppressBrowserPlayback === false,
+            'fresh state should use audible browser/system playback without a native route');
+
+        const legacyNative = makeStateVm({
+            routeMode: 'native-bridge', nativeBridgeEnabled: true,
+            nativeOutputId: 'legacy-cable', nativeSuppressBrowserPlayback: true,
+            preferredSinkId: 'legacy-browser-cable', preferredSinkLabel: 'CABLE Input', geminiVoicePortEnabled: true
+        });
+        loadState(legacyNative);
+        const safeRoute = legacyNative.window.EveAudioflixState.ensure();
+        assert(safeRoute.nativeRouteDefaultV2Applied === true && safeRoute.nativeBridgeEnabled === false
+            && safeRoute.nativeSuppressBrowserPlayback === false && safeRoute.routeMode === 'browser'
+            && !safeRoute.preferredSinkId && safeRoute.geminiVoicePortEnabled === false,
+        'legacy implicit native-only state should migrate once to audible browser/system playback');
+
+        const explicitNative = makeStateVm({
+            nativeRouteDefaultV2Applied: true, routeMode: 'native-bridge', nativeBridgeEnabled: true,
+            nativeOutputId: 'explicit-cable', nativeSuppressBrowserPlayback: true
+        });
+        loadState(explicitNative);
+        const retainedRoute = explicitNative.window.EveAudioflixState.ensure();
+        assert(retainedRoute.nativeBridgeEnabled === true && retainedRoute.nativeSuppressBrowserPlayback === true,
+            'an explicit post-migration native route must remain enabled');
         if (process.env.EVE_SMOKE_VERBOSE === '1') console.log('state default + migration OK');
     }
 
