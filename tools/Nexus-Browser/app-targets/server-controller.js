@@ -244,7 +244,8 @@ function createAppTargetServerController({
       || msg.type === 'request_app_status'
       || msg.type === 'ack_native_app_turn'
       || (msg.targetClassId === 'app-origin'
-        && (msg.type === 'send_prompt' || msg.type === 'capture_latest'));
+        && (msg.type === 'send_prompt' || msg.type === 'capture_latest'
+          || msg.type === 'recover_app_target_busy'));
     if (!appCommand) return false;
 
     if (ws?.clientKind === 'dex' && !['request_app_targets', 'request_app_status'].includes(msg.type)) {
@@ -323,6 +324,34 @@ function createAppTargetServerController({
     }
 
     const targetId = String(msg.targetId || ws.appTargetId || '');
+
+    if (msg.type === 'recover_app_target_busy') {
+      try {
+        const result = await appTargets.recoverBusyAppTarget({
+          targetId,
+          requestId: msg.requestId || null
+        });
+        safeSend(ws, {
+          type: 'app_target_busy_recovery',
+          targetClassId: 'app-origin',
+          targetId,
+          requestId: result?.requestId || msg.requestId || null,
+          recovered: result?.recovered === true,
+          reason: result?.reason || null
+        });
+      } catch (error) {
+        safeSend(ws, {
+          type: 'app_target_busy_recovery',
+          targetClassId: 'app-origin',
+          targetId,
+          requestId: msg.requestId || null,
+          recovered: false,
+          reason: error.code || 'recovery-failed'
+        });
+      }
+      sendStatus(ws, targetId);
+      return true;
+    }
 
     if (msg.type === 'capture_latest') {
       try {
