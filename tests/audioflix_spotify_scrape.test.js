@@ -4,7 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     mergePlaylistRows,
-    playlistCount
+    playlistCount,
+    requestMentionsPlaylist
 } = require('../server_modules/audioflix_spotify_scrape');
 
 const track = (position) => {
@@ -20,6 +21,37 @@ const track = (position) => {
 
 test('playlist count is read from the Web Player header', () => {
     assert.equal(playlistCount('Private Playlist FDPlaylist DriftAi · 135 songs, about 7 hr'), 135);
+});
+
+test('playlist count ignores unrelated song totals elsewhere in the Web Player', () => {
+    const pageText = [
+        'Your Library',
+        'Liked Songs',
+        '3,367 songs',
+        'FDPlaylist',
+        'DriftAi · 135 songs, about 7 hr'
+    ].join(' ');
+    assert.equal(playlistCount(pageText), 135);
+});
+
+test('playlist-scoped network detection requires the requested playlist id', () => {
+    const playlistId = '0g3Wc7zGTmqRcG7G79fQ5H';
+    assert.equal(
+        requestMentionsPlaylist(
+            'https://api-partner.spotify.com/pathfinder/v1/query',
+            JSON.stringify({ variables: { uri: `spotify:playlist:${playlistId}` } }),
+            playlistId
+        ),
+        true
+    );
+    assert.equal(
+        requestMentionsPlaylist(
+            'https://api-partner.spotify.com/pathfinder/v1/query',
+            JSON.stringify({ variables: { uri: 'spotify:playlist:UNRELATED12345' } }),
+            playlistId
+        ),
+        false
+    );
 });
 
 test('full network playlist wins over an eight-row virtualized DOM window', () => {
