@@ -19,8 +19,9 @@ function monotonicPartial(previous = '', candidate = '') {
   const prior = String(previous || '');
   const next = String(candidate || '');
   if (!next || next === prior) return prior;
-  if (!prior || next.startsWith(prior)) return next;
-  return prior;
+  if (!prior) return next;
+  const merged = replyProgress.mergeReplyProgress(prior, next);
+  return merged && merged.startsWith(prior) ? merged : prior;
 }
 
 function targetIdentityMatches(previous = {}, identity = {}) {
@@ -37,6 +38,31 @@ function targetIdentityMatches(previous = {}, identity = {}) {
   ].filter(Boolean).map(String);
   const anchorMatches = liveAnchors.some((anchor) => boundAnchors.has(anchor));
   return anchorMatches || (!!boundTitle && boundTitle === liveTitle);
+}
+
+function currentTurnComplete(observed = {}) {
+  return observed.correlated === true && !!observed.nativeTurn?.completeHint && !observed.provisional;
+}
+
+function shouldRunOffscreenRescue({
+  observed = {},
+  candidate = '',
+  lastText = '',
+  observedAt = 0,
+  acceptedAt = 0,
+  lastChangedAt = 0,
+  attemptsSinceProgress = 0,
+  lastRescueAt = 0,
+  rescueAfterMs = FIRST_RESPONSE_RESCUE_AFTER_MS,
+  rescueIntervalMs = FIRST_RESPONSE_RESCUE_INTERVAL_MS,
+  rescueMaxAttempts = FIRST_RESPONSE_RESCUE_MAX_ATTEMPTS
+} = {}) {
+  if (currentTurnComplete(observed)) return false;
+  if (candidate && candidate !== lastText) return false;
+  const stalledSince = Math.max(Number(acceptedAt) || 0, Number(lastChangedAt) || 0);
+  if ((Number(observedAt) || 0) - stalledSince < rescueAfterMs) return false;
+  if (attemptsSinceProgress >= rescueMaxAttempts) return false;
+  return !lastRescueAt || (Number(observedAt) || 0) - Number(lastRescueAt) >= rescueIntervalMs;
 }
 
 function createAdapter({
@@ -198,27 +224,31 @@ function createAdapter({
   async function listTargets() {
     if (platform !== 'win32') return [];
     try {
-      const windowInfo = await findWindow();
-      if (!windowInfo) return [];
-      const hwnd = hwndOf(windowInfo), pid = pidOf(windowInfo);
-
-      // A force refresh from the controller reaches this method before every send. Reuse
-      // the already-proven PID/HWND/conversation identity when a cheap visible inspect
-      // confirms it; only pay for the full offscreen discovery when that proof fails.
-      if (lastVerifiedTarget
-          && String(lastVerifiedTarget.pid) === String(pid)
-          && String(lastVerifiedTarget.windowHandle) === String(hwnd)) {
+      // The controller intentionally force-refreshes App-Origin before each send. On the
+      // hot path, prove the exact cached PID/HWND/conversation directly first so that
+      // verification does not start with a global window enumeration. A failed or
+      // ambiguous direct proof falls through to the full discovery path below.
+      if (lastVerifiedTarget) {
         try {
-          const shallowSnapshot = await inspect(windowInfo);
+          const boundWindow = {
+            hwnd: lastVerifiedTarget.windowHandle,
+            pid: lastVerifiedTarget.pid,
+            title: lastVerifiedTarget.title
+          };
+          const shallowSnapshot = await inspect(boundWindow);
+          const sameWindow = String(shallowSnapshot.hwnd) === String(lastVerifiedTarget.windowHandle)
+            && String(shallowSnapshot.pid) === String(lastVerifiedTarget.pid);
           const shallowIdentity = conversation.conversationIdentity(shallowSnapshot);
-          if (targetIdentityMatches(lastVerifiedTarget, shallowIdentity)) {
-            const verified = targetFromIdentity(windowInfo, shallowIdentity);
+          if (sameWindow && targetIdentityMatches(lastVerifiedTarget, shallowIdentity)) {
+            const verified = targetFromIdentity(shallowSnapshot.windowInfo || boundWindow, shallowIdentity);
             lastVerifiedTarget = verified;
             return [verified];
           }
         } catch {}
       }
 
+      const windowInfo = await findWindow();
+      if (!windowInfo) return [];
       let conversationTitle = '', conversationAnchors = [];
       try {
         const snapshot = await inspect(windowInfo, { includeOffscreen: true });
@@ -273,7 +303,7 @@ function createAdapter({
     let lastText = '', publishedText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null, progressState = 'replace';
     let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0;
     let pollInspectMs = 0, finalReconstructionMs = 0, firstResponseRescueInspectMs = 0;
-    let firstResponseRescueAttempts = 0, lastFirstResponseRescueAt = 0;
+    let firstResponseRescueAttempts = 0, rescueAttemptsSinceProgress = 0, lastFirstResponseRescueAt = 0;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
     while (now() < deadline) {
       if (committedPending) { lastSnapshot = committedSnapshot; committedPending = false; }
@@ -289,13 +319,25 @@ function createAdapter({
       let observedAt = now();
       if (lastSnapshot.generating) sawGenerating = true;
       let observed = conversation.responseForPrompt(lastSnapshot, { baseline: baselineSet, prompt: text });
+      const visibleCandidate = observed.text;
+      if (visibleCandidate && visibleCandidate !== lastText) rescueAttemptsSinceProgress = 0;
 
-      const rescueDue = !firstResponseAt && !observed.text && !observed.nativeTurn
-        && observedAt - acceptedAt >= firstResponseRescueAfterMs
-        && firstResponseRescueAttempts < firstResponseRescueMaxAttempts
-        && (!lastFirstResponseRescueAt || observedAt - lastFirstResponseRescueAt >= firstResponseRescueIntervalMs);
+      const rescueDue = shouldRunOffscreenRescue({
+        observed,
+        candidate: visibleCandidate,
+        lastText,
+        observedAt,
+        acceptedAt,
+        lastChangedAt,
+        attemptsSinceProgress: rescueAttemptsSinceProgress,
+        lastRescueAt: lastFirstResponseRescueAt,
+        rescueAfterMs: firstResponseRescueAfterMs,
+        rescueIntervalMs: firstResponseRescueIntervalMs,
+        rescueMaxAttempts: firstResponseRescueMaxAttempts
+      });
       if (rescueDue) {
         firstResponseRescueAttempts += 1;
+        rescueAttemptsSinceProgress += 1;
         lastFirstResponseRescueAt = observedAt;
         const rescueStartedAt = Date.now();
         try {
@@ -321,7 +363,7 @@ function createAdapter({
       const mergedText = progressState === 'native' ? lastText : progressState === 'accumulate'
         ? replyProgress.mergeReplyProgress(lastText, candidate) : (candidate || lastText);
       if (candidate && mergedText !== lastText) {
-        lastText = mergedText; tailStablePasses = 0;
+        lastText = mergedText; tailStablePasses = 0; rescueAttemptsSinceProgress = 0;
         if (!firstResponseAt) firstResponseAt = observedAt;
         lastChangedAt = observedAt;
         turnState.set(target.id, { phase: 'streaming', requestId, startedAt: acceptedAt,
@@ -341,7 +383,7 @@ function createAdapter({
       if (observed.provisional) { lastChangedAt = observedAt; continue; }
       const stableFor = observedAt - lastChangedAt, baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
       const requiredSettle = progressState === 'role' && !observed.nativeTurn?.completeHint ? Math.max(baseSettle, 5000) : progressState === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
-      const turnOwnedComplete = observed.correlated === true && !!observed.nativeTurn?.completeHint && !observed.provisional;
+      const turnOwnedComplete = currentTurnComplete(observed);
       if (lastText && (!lastSnapshot.generating || turnOwnedComplete) && (turnOwnedComplete || (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0))) {
         const reconstructionStartedAt = Date.now();
         try {
@@ -460,6 +502,8 @@ module.exports = {
   RESPONSE_TIMEOUT_MS,
   monotonicPartial,
   targetIdentityMatches,
+  currentTurnComplete,
+  shouldRunOffscreenRescue,
   ...uia,
   createAdapter,
   ...defaultAdapter
