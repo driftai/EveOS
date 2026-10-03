@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createStore, TTL_MS } = require('../extension/request-ownership');
+const { createRouter } = require('../extension/provider-return-routing');
 
 function storage() {
   let data = {};
@@ -39,4 +40,27 @@ test('stale request ownership expires instead of authorizing an old provider tab
   now += TTL_MS + 1;
   assert.equal(await store.get('turn-a'), null);
   assert.equal((await store.authorize('turn-a', 41)).reason, 'missing-owner');
+});
+
+test('provider reply routing keeps the original owner after the selected target changes', async () => {
+  const owners = createStore({ storage: storage(), now: () => 10000 });
+  await owners.remember('turn-a', 41, 'chatgpt');
+  const delivered = [];
+  const router = createRouter({
+    requestOwners: owners,
+    getProvider: (id) => ({ id, name: id === 'chatgpt' ? 'ChatGPT' : 'Claude' }),
+    getSelectedTarget: () => ({ tabId: 77, providerId: 'claude' }),
+    noteRuntimeMessage() {}, rememberCompletedRequest() {}, hasCompletedRequest: () => false,
+    stopResponsePoll() {}, stopNavigation() {}, emitError() {},
+    finalDelivery: { onFinal(message, sender, sendResponse, provider) {
+      delivered.push({ message, tabId: sender.tab.id, provider: provider.id });
+      sendResponse({ ok: true });
+    } },
+    send() { return true; }
+  });
+  let response = null;
+  await router.handle({ type: 'response_final', requestId: 'turn-a', text: 'done' },
+    { tab: { id: 41 } }, (value) => { response = value; });
+  assert.deepEqual(delivered.map(({ tabId, provider }) => ({ tabId, provider })), [{ tabId: 41, provider: 'chatgpt' }]);
+  assert.deepEqual(response, { ok: true });
 });

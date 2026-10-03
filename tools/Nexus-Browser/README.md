@@ -1,3 +1,14 @@
+### Revision 50: ChatGPT rollout-turn capture and bounded diagnostics
+
+ChatGPT's newer search-unit renderer identifies turns with `data-chatgpt-search-unit-key` and
+`data-chatgpt-search-message-ids` instead of the older article/author-role shell. The adapter now
+recognizes those exact user/assistant roles, accepts only one unambiguous message identity, and reads
+`data-markdown-text-style="assistant-message"` content. Empty manual captures now report bounded
+selector counts without message text, making later DOM drift diagnosable without exposing conversation
+content. Exact `Reply exactly: X` probes may use the normal short settle only when the captured text equals
+`X`; unrelated unpunctuated text keeps the conservative long settle. Existing tabs must receive revision 50
+before live qualification; ambiguous identity lists still fail closed.
+
 ### Revision 47: stalled Dex draft preflight and one-gesture delivery watchdog (local headed qualification pending)
 
 The ChatGPT adapter now observes a per-request read-only delivery state (readiness wait, stale exact draft, scoped Send availability, gesture attempted, confirmed or outcome unknown). While **no submission gesture has occurred**, it can wait up to 30 seconds for hydration or active generation to end and, at most twice, re-seed an **unchanged exact draft** to restore React's enabled Send button. A changed or unrelated user draft is never overwritten. After any Send click, form submit or Enter, an unconfirmed outcome is terminal for that request and **never auto-replayed**; the adapter exposes sanitized DevTools diagnostics via `dex_delivery_watchdog_status`. No content text is logged. This candidate requires a globally idle, draft-safe extension and exact-tab refresh plus live confirmation before promoting main.

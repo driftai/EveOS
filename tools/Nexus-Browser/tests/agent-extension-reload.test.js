@@ -98,12 +98,13 @@ test('server wiring routes reload ACK and uses new control socket for verified c
   assert.match(server, /providerControlRouting\.observeExtension\(msg, ws\)/);
   assert.match(server, /getExtension: \(\) =>/);
   assert.match(worker, /reloading_extension', requestId: msg\.requestId/);
+  assert.match(worker, /setTimeout\(\(\) => chrome\.runtime\?\.reload\?\.\(\), 75\)/);
 });
 
-test('headed content watcher recognizes the new trailing reload marker at revision 47', () => {
+test('headed content watcher recognizes the trailing reload marker at current adapter revision', () => {
   const parsed = watcher.parseTrailingCommand('Ready.\n[[DEX:CMD {"action":"reload_extension","room":"room-eve-astro"}]]');
   assert.equal(parsed?.command?.action, 'reload_extension');
   assert.equal(parsed.command.room, 'room-eve-astro');
   assert.equal(watcher.parseTrailingCommand('[[DEX:CMD {"action":"reload_extension","room":"room-eve-astro"}]]\nmore prose'), null);
-  assert.equal(revision.ADAPTER_REVISION, 47);
+  assert.equal(revision.ADAPTER_REVISION, 50);
 });

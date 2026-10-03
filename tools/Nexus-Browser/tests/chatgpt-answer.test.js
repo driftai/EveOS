@@ -70,6 +70,26 @@ test('ChatGPT semantic data-turn shells preserve assistant/user ownership', () =
   assert.equal(chatgptAnswer.getTurnAssistantText(chatgptAnswer.assistantNodes(root)), 'semantic assistant');
 });
 
+test('ChatGPT rollout search units preserve prompt correlation and assistant text', () => {
+  const user = node({ 'data-chatgpt-search-unit-key': 'turn-1:user', 'data-chatgpt-search-message-ids': 'user-1' });
+  user.innerText = 'rollout proof prompt';
+  const assistant = node({ 'data-chatgpt-search-unit-key': 'turn-2:assistant', 'data-chatgpt-search-message-ids': 'assistant-1' });
+  const content = node({ 'data-markdown-text-style': 'assistant-message' }, '', assistant);
+  content.innerText = 'rollout proof answer.';
+  assistant.querySelectorAll = (selector) => selector === chatgptAnswer.CONTENT_SELECTOR ? [content] : [];
+  const turns = [user, assistant];
+  const root = { querySelectorAll(selector) {
+    if (selector === chatgptAnswer.USER_SELECTOR) return [user];
+    if (selector === chatgptAnswer.ASSISTANT_SELECTOR) return [assistant];
+    if (selector.includes(chatgptAnswer.USER_SELECTOR) && selector.includes(chatgptAnswer.ASSISTANT_SELECTOR)) return turns;
+    return [];
+  } };
+  assert.equal(chatgptAnswer.rolloutRole(user), 'user');
+  assert.equal(chatgptAnswer.rolloutRole(assistant), 'assistant');
+  assert.deepEqual(chatgptAnswer.assistantNodes(root), [content]);
+  assert.equal(chatgptAnswer.responseTextForUserPrompt('rollout proof prompt', 0, root), 'rollout proof answer.');
+});
+
 test('ChatGPT nested-node pruning keeps only the outer response block', () => {
   const inner = {};
   const outer = { contains(candidate) { return candidate === inner; } };

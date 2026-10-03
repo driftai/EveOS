@@ -7,12 +7,15 @@
   // occur on non-assistant content.
   const DIL_ASSISTANT_SELECTOR = '[data-chatgpt-selection-message-id]:has([class*="DilResponseRoot"])';
   const ARTICLE_ASSISTANT_SELECTOR = 'article:has(.markdown.prose)';
+  const ROLLOUT_ASSISTANT_SELECTOR = '[data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids]';
+  const ROLLOUT_USER_SELECTOR = '[data-chatgpt-search-unit-key$=":user"][data-chatgpt-search-message-ids]';
   const ASSISTANT_SELECTOR = [
     '[data-turn="assistant"]',
     '[data-message-author-role="assistant"]',
     '[data-role="assistant"]',
     '[data-message-author="assistant"]',
     '.agent-turn',
+    ROLLOUT_ASSISTANT_SELECTOR,
     DIL_ASSISTANT_SELECTOR,
     ARTICLE_ASSISTANT_SELECTOR
   ].join(',');
@@ -21,9 +24,10 @@
     '[data-message-author-role="user"]',
     '[data-role="user"]',
     '[data-message-author="user"]',
-    '.user-turn'
+    '.user-turn',
+    ROLLOUT_USER_SELECTOR
   ].join(',');
-  const CONTENT_SELECTOR = '.markdown, .markdown-new-styling, .prose, [class*="markdown"], [class*="DilResponseRoot"]';
+  const CONTENT_SELECTOR = '.markdown, .markdown-new-styling, .prose, [class*="markdown"], [class*="DilResponseRoot"], [data-markdown-text-style="assistant-message"]';
   const SKIP_SELECTOR = [
     'script',
     'style',
@@ -69,9 +73,14 @@
     return chain;
   }
 
+  function rolloutRole(node) {
+    return attr(node, 'data-chatgpt-search-unit-key').match(/:(user|assistant)$/)?.[1] || '';
+  }
+
   function hasUserMarker(node) {
     const role = attr(node, 'data-message-author-role') || attr(node, 'data-role') || attr(node, 'data-message-author');
-    return attr(node, 'data-turn') === 'user' || role === 'user' || classText(node).includes('user-turn');
+    return attr(node, 'data-turn') === 'user' || role === 'user' || rolloutRole(node) === 'user'
+      || classText(node).includes('user-turn');
   }
 
   function hasDilAssistantMessage(node) {
@@ -94,6 +103,7 @@
   function hasAssistantMarker(node) {
     const role = attr(node, 'data-message-author-role') || attr(node, 'data-role') || attr(node, 'data-message-author');
     return attr(node, 'data-turn') === 'assistant' || role === 'assistant' || classText(node).includes('agent-turn')
+      || rolloutRole(node) === 'assistant'
       || (role !== 'user' && (hasDilAssistantMessage(node) || hasArticleAssistantMessage(node)));
   }
 
@@ -315,16 +325,35 @@
     return getTurnAssistantText(assistantNodes(), 0);
   }
 
+  function captureDiagnostics(root = document) {
+    const count = (selector) => {
+      try { return root?.querySelectorAll?.(selector)?.length || 0; } catch { return 0; }
+    };
+    return {
+      assistantCandidates: count(ASSISTANT_SELECTOR),
+      userCandidates: count(USER_SELECTOR),
+      assistantOwned: assistantNodes(root).length,
+      userOwned: userNodes(root).length,
+      authorRoleNodes: count('[data-message-author-role]'),
+      rolloutUnits: count('[data-chatgpt-search-unit-key]'),
+      markdownNodes: count(CONTENT_SELECTOR),
+      conversationTurns: count('[data-turn], [data-turn-key], [data-testid^="conversation-turn-"]')
+    };
+  }
+
   const api = {
     ASSISTANT_SELECTOR,
     DIL_ASSISTANT_SELECTOR,
     ARTICLE_ASSISTANT_SELECTOR,
+    ROLLOUT_ASSISTANT_SELECTOR,
+    ROLLOUT_USER_SELECTOR,
     USER_SELECTOR,
     CONTENT_SELECTOR,
     hasUserMarker,
     hasAssistantMarker,
     hasDilAssistantMessage,
     hasArticleAssistantMessage,
+    rolloutRole,
     isUserOwned,
     isAssistantOwned,
     emojiAlt,
@@ -341,7 +370,8 @@
     conversationTurns,
     assistantTurnText,
     responseTextForUserPrompt,
-    latestAssistantText
+    latestAssistantText,
+    captureDiagnostics
   };
 
   if (typeof window !== 'undefined') globalThis.BrowserAiBridgeChatGptAnswer = api;

@@ -14,18 +14,20 @@ test('RETURN helper is loaded in both headed and dynamically injected ChatGPT ad
     assert.ok(files.indexOf('content/chatgpt-return.js') > files.indexOf('content/chatgpt-answer.js'));
     assert.ok(files.indexOf('content/chatgpt-return.js') < files.indexOf('content/chatgpt.js'));
   }
-  assert.match(read('extension/content/provider-adapter-revision.js'), /ADAPTER_REVISION = 47/);
+  assert.match(read('extension/content/provider-adapter-revision.js'), /ADAPTER_REVISION = 50/);
 });
 
 test('returned final text is durably queued before delivery and only acknowledged after localhost commit', () => {
   const entry = read('extension/service-worker-entry.js');
   const worker = read('extension/service-worker.js');
+  const returnRouting = read('extension/provider-return-routing.js');
   const server = read('server.js');
   const scheduler = read('dex/server-scheduler.js');
   const recovery = read('dex/server-scheduler-recovery.js');
   assert.match(entry, /importScripts\('dex-final-receipt\.js'\)/);
   assert.match(entry, /importScripts\('dex-final-delivery-wiring\.js'\)/);
-  assert.match(worker, /finalDelivery\.onFinal\(msg, sender, sendResponse, provider\)/);
+  assert.match(entry, /importScripts\('provider-return-routing\.js'\)/);
+  assert.match(returnRouting, /finalDelivery\.onFinal\(message, sender, sendResponse, provider\)/);
   assert.match(worker, /finalDelivery\.onReceipt\(msg\)/);
   assert.match(server, /finalState\.findFinalReceipt\(dexStateStore\.load\(\), msg\.requestId\)/);
   assert.match(server, /type: 'dex_turn_receipt'/);
@@ -37,7 +39,8 @@ test('returned final text is durably queued before delivery and only acknowledge
 
 test('first-party source headroom and non-replay invariants remain intact', () => {
   for (const file of ['server.js', 'dex/server-scheduler.js', 'dex/server-scheduler-recovery.js',
-    'extension/service-worker.js', 'extension/content/chatgpt.js', 'public/dex-protocol.js']) {
+    'extension/service-worker.js', 'extension/provider-return-routing.js',
+    'extension/content/chatgpt.js', 'public/dex-protocol.js']) {
     const count = read(file).replace(/\r?\n$/, '').split(/\r?\n/).length;
     assert.ok(count <= 440, file + ' exceeded growth guard: ' + count);
   }

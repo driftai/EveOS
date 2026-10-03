@@ -19,6 +19,7 @@ if (typeof importScripts === 'function') {
   importScripts('dex-final-receipt.js');
   importScripts('dex-final-delivery-wiring.js');
   importScripts('request-ownership.js');
+  importScripts('provider-return-routing.js');
   importScripts('host-access.js');
   importScripts('target-state.js');
   importScripts('target-resurrection.js');

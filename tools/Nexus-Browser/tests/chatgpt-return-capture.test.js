@@ -110,6 +110,15 @@ test('wrong exact-turn return marker or unchanged historical reply never finaliz
   }
 });
 
+test('rollout message identities stay exact and ambiguous identity lists fail closed', () => {
+  const exact = { getAttribute: (name) => name === 'data-chatgpt-search-message-ids' ? 'assistant-1' : null };
+  exact.closest = () => exact;
+  const ambiguous = { getAttribute: (name) => name === 'data-chatgpt-search-message-ids' ? 'assistant-1 assistant-2' : null };
+  ambiguous.closest = () => ambiguous;
+  assert.equal(returnApi.nodeIdentity(exact), 'assistant-1');
+  assert.equal(returnApi.nodeIdentity(ambiguous), null);
+});
+
 test('synchronous extension transport failure retains the exact final until delivery can be queued', async () => {
   const h = headed();
   let unavailable = true;

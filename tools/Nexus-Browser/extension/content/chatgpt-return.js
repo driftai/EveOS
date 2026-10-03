@@ -13,10 +13,15 @@
     const tag = trailingReturn(value);
     return !!requestId && tag?.requestId === String(requestId);
   }
+  function rolloutMessageId(node) {
+    const ids = [...new Set(String(node?.getAttribute?.('data-chatgpt-search-message-ids') || '')
+      .trim().split(/\s+/).filter(Boolean))];
+    return ids.length === 1 ? ids[0] : null;
+  }
   function nodeIdentity(node) {
-    const container = node?.closest?.('[data-chatgpt-selection-message-id], [data-message-id]') || node;
+    const container = node?.closest?.('[data-chatgpt-selection-message-id], [data-message-id], [data-chatgpt-search-unit-key][data-chatgpt-search-message-ids]') || node;
     return container?.getAttribute?.('data-chatgpt-selection-message-id')
-      || container?.getAttribute?.('data-message-id') || null;
+      || container?.getAttribute?.('data-message-id') || rolloutMessageId(container);
   }
   function baseline(nodes = []) {
     return { count: nodes.length, refs: new Set(nodes),
@@ -68,7 +73,7 @@
     if (id) return notificationIds.has(id);
     return notificationTexts.has(String(text || '').trim());
   }
-  const api = { RETURN_RE, trailingReturn, exactReturn, baseline,
+  const api = { RETURN_RE, trailingReturn, exactReturn, baseline, rolloutMessageId,
     nodeIdentity, freshReply, scopedResponse, rememberNotificationReply, isNotificationReply };
   if (typeof window !== 'undefined') globalThis.BrowserAiBridgeChatGptReturn = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

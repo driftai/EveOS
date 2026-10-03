@@ -321,7 +321,7 @@ function handleMessage(msg) {
       break;
     case 'capture_result':
       addMessage('assistant', msg.text || '(No visible assistant response found.)', null, false, assistantDisplayName(msg));
-      log(`Captured latest visible ${assistantDisplayName(msg)} response.`);
+      log(`Captured latest visible ${assistantDisplayName(msg)} response.`, !msg.text && msg.detail?.capture ? JSON.stringify(msg.detail.capture) : '');
       break;
     case 'error': {
       const accessMessage = hostAccessUiMessage(msg);
