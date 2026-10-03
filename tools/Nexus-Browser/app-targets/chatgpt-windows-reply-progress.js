@@ -82,6 +82,13 @@ function preferFinalReply(accumulatedText = '', nativeTurnText = '') {
   return nativeSize >= accumulatedSize ? nativeTurn : accumulated;
 }
 
+function preferOffscreenTurn(accumulatedText = '', nativeTurn = null) {
+  const nativeText = nativeTurn?.text || '';
+  if (!nativeText) return preferFinalReply(accumulatedText, '');
+  if (nativeTurn.completeHint || Number(nativeTurn.partCount || 0) > 1) return nativeText;
+  return preferFinalReply(accumulatedText, nativeText);
+}
+
 function needsTailGuard(text = '') {
   const value = tidy(text);
   return !!value && (blocks(value).length >= 4 || compact(value).length >= 320);
@@ -141,6 +148,7 @@ module.exports = {
   mergeBlockOverlap,
   mergeCharacterOverlap,
   preferFinalReply,
+  preferOffscreenTurn,
   needsTailGuard,
   transitionProgressMode,
   mergeObservedProgress,

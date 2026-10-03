@@ -36,9 +36,9 @@ const el = {
 
 const searchUi = globalThis.BrowserAiBridgeSearchResultsUi, activityUi = globalThis.BrowserAiBridgeActivityUi,
   socketApi = globalThis.BrowserAiBridgeUiSocket, handoff = globalThis.BrowserAiBridgeWorkspaceHandoff,
-  baseWorkspaceApi = globalThis.BrowserAiBridgeBaseWorkspace;
+  baseWorkspaceApi = globalThis.BrowserAiBridgeBaseWorkspace, hostAccessUiApi = globalThis.BrowserAiBridgeHostAccessUi;
 const appMirrorUiApi = globalThis.BrowserAiBridgeAppMirrorUi, appTargetsUiApi = globalThis.BrowserAiBridgeAppTargetsUi;
-if (!searchUi || !socketApi || !appMirrorUiApi || !appTargetsUiApi) throw new Error('Base UI helpers were not loaded before app.js.');
+if (!searchUi || !socketApi || !appMirrorUiApi || !appTargetsUiApi || !hostAccessUiApi) throw new Error('Base UI helpers were not loaded before app.js.');
 if (!activityUi) throw new Error('Activity UI module was not loaded before app.js.');
 let uiSocket = null, appMirrorUi = null, appTargetsUi = null, baseWorkspace = null;
 function activeTarget() {
@@ -52,15 +52,7 @@ function providerName(providerId = null) {
   return providerMeta(providerId || state.selectedProviderId)?.name || 'Provider';
 }
 function assistantDisplayName(msg = {}) {
-  const target = activeTarget();
-  const base = msg.providerName || target?.providerName || providerName(msg.providerId);
-  const isGemini = msg.providerId === 'gemini' || target?.providerId === 'gemini';
-  if (isGemini) {
-    const targetUrl = String(target?.url || '');
-    if (targetUrl.startsWith('https://aistudio.google.com/')) return 'Gemini - AI Studio';
-    if (targetUrl.startsWith('https://gemini.google.com/')) return 'Gemini - App';
-  }
-  return base;
+  return hostAccessUiApi.assistantDisplayName({ message: msg, target: activeTarget(), providerName: providerName(msg.providerId) });
 }
 function requestId() {
   return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
@@ -245,9 +237,7 @@ function renderStatus() {
   appMirrorUi?.render(); appTargetsUi?.render();
 }
 function hostAccessUiMessage(msg) {
-  if (msg?.code !== 'HOST_ACCESS_REQUIRED') return null;
-  const site = msg.detail?.pattern || 'this provider site';
-  return msg?.detail?.allSitesDeclared ? `Chrome is withholding EveOS Nexus Browser's all-sites access for ${site}. Open the extension menu → This can read and change site data → On all sites once, then click Connect target again.` : `Chrome site access is required for ${site}. Allow EveOS Nexus Browser on this site in Chrome's extension Site access, then click Connect target again.`;
+  return hostAccessUiApi.message(msg, { retryAction: 'click Connect target again' });
 }
 function handleMessage(msg) {
   if (appMirrorUi?.handleMessage(msg) || appTargetsUi?.handleMessage(msg)) return;

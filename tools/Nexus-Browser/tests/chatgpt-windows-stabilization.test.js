@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   createAdapter,
   monotonicPartial,
+  authoritativePartial,
   currentTurnComplete,
   shouldRunOffscreenRescue
 } = require('../app-targets/chatgpt-windows');
@@ -103,6 +104,7 @@ test('offscreen rescue is bounded per stalled response segment and remains avail
     lastChangedAt: 1200,
     observedAt: 2100,
     attemptsSinceProgress: 0,
+    visiblePollsSinceProgress: 2,
     lastRescueAt: 0,
     rescueAfterMs: 700,
     rescueIntervalMs: 1500,
@@ -117,6 +119,7 @@ test('offscreen rescue is bounded per stalled response segment and remains avail
     lastChangedAt: 1200,
     observedAt: 2100,
     attemptsSinceProgress: 0,
+    visiblePollsSinceProgress: 2,
     rescueAfterMs: 700,
     rescueIntervalMs: 1500,
     rescueMaxAttempts: 3
@@ -130,10 +133,22 @@ test('offscreen rescue is bounded per stalled response segment and remains avail
     lastChangedAt: 1200,
     observedAt: 5000,
     attemptsSinceProgress: 3,
+    visiblePollsSinceProgress: 2,
     rescueAfterMs: 700,
     rescueIntervalMs: 1500,
     rescueMaxAttempts: 3
   }), false, 'one stalled segment must have a bounded deep-inspect budget');
+
+  assert.equal(shouldRunOffscreenRescue({
+    observed: incomplete,
+    candidate: 'partial answer',
+    lastText: 'partial answer',
+    acceptedAt: 1000,
+    lastChangedAt: 1200,
+    observedAt: 2100,
+    attemptsSinceProgress: 0,
+    visiblePollsSinceProgress: 1
+  }), false, 'one fresh visible sample is not enough evidence of a stalled segment');
 });
 
 test('authoritative current turn completion ignores unrelated stale global generating chrome', () => {
@@ -170,4 +185,10 @@ test('published partials never shrink or oscillate while final truth may be shor
   assert.equal(published.length, 1902);
   const authoritativeFinal = 'A'.repeat(1839);
   assert.equal(authoritativeFinal.length, 1839, 'response_final remains free to correct UIA duplication');
+  assert.equal(authoritativePartial(published, authoritativeFinal, {
+    correlated: true, nativeTurn: { completeHint: true }, provisional: false
+  }), authoritativeFinal, 'one completed native reconstruction may replace the stream before final');
+  assert.equal(authoritativePartial(published, authoritativeFinal, {
+    correlated: true, nativeTurn: { completeHint: false }, provisional: false
+  }), published, 'an incomplete reconstruction must remain monotonic');
 });

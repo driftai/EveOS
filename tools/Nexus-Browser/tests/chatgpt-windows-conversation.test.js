@@ -286,16 +286,16 @@ test('native conversation identity ignores window controls such as Minimize', ()
 
 test('repeated inline-code text at distinct native positions is preserved twice', () => {
   const windowInfo = { hwnd: 501, pid: 9001, title: 'ChatGPT', x: 0, y: 0, width: 1200, height: 900 };
-  const token = 'NEXUS_DUPLICATION_PROBE_X42';
+  const probeText = 'NEXUS_DUPLICATION_PROBE_X42';
   const snapshot = snapshotFromInspect({
     windowInfo,
     json: { windows: [{ ...windowInfo, elements: [{
       selector: 'root', type: 'Pane', x: 0, y: 0, width: 1200, height: 900, children: [
         { selector: 'role', type: 'Text', name: 'ChatGPT said', x: 280, y: 180, width: 1, height: 1, children: [] },
         { selector: 'p1', type: 'Text', name: 'Occurrence one:', x: 280, y: 210, width: 120, height: 20, children: [] },
-        { selector: 'code-1', type: 'Text', name: token, x: 410, y: 210, width: 240, height: 20, children: [] },
+        { selector: 'code-1', type: 'Text', name: probeText, x: 410, y: 210, width: 240, height: 20, children: [] },
         { selector: 'p2', type: 'Text', name: 'Occurrence two:', x: 280, y: 250, width: 120, height: 20, children: [] },
-        { selector: 'code-2', type: 'Text', name: token, x: 410, y: 250, width: 240, height: 20, children: [] }
+        { selector: 'code-2', type: 'Text', name: probeText, x: 410, y: 250, width: 240, height: 20, children: [] }
       ]
     }] }] }
   });

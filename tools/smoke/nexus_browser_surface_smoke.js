@@ -60,7 +60,8 @@ assert.match(detachedSource, /eveos:nexus-detached-state/);
 assert.match(detachedSource, /beforeunload/);
 assert.doesNotMatch(source, /window\.open\([^\n]*'_blank'/, 'Detached Nexus must not open as a generic browser tab');
 assert.doesNotMatch(source, /localStorage|sessionStorage|\/api\/nexus-browser\/start[^']*activate/);
-assert.match(source, /frame\.src = 'about:blank'/, 'Stop must unload the embedded runtime');
+assert.match(source, /frame\.setAttribute\('src', 'about:blank'\)/,
+  'Stop must unload the embedded runtime through the attribute used by its canonical URL check');
 windowMock.EveOSNexusBrowser.bind(rootMock);
 windowMock.EveOSNexusBrowser.activate().then(() => {
   assert.equal(requests.length, 1, 'Opening Nexus Browser must perform one passive status request');

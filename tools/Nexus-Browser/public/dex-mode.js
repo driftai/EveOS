@@ -9,7 +9,8 @@
   const sessionPolicyApi = globalThis.BrowserAiBridgeDexSessionPolicy;
   const humanInputApi = globalThis.BrowserAiBridgeDexHumanControl;
   const roomViewApi = globalThis.BrowserAiBridgeDexRoomView;
-  if (!protocol || !memberApi || !controlApi || !stateSyncApi || !runtimeApi || !socketApi || !sessionPolicyApi || !humanInputApi || !roomViewApi) {
+  const hostAccessUiApi = globalThis.BrowserAiBridgeHostAccessUi;
+  if (!protocol || !memberApi || !controlApi || !stateSyncApi || !runtimeApi || !socketApi || !sessionPolicyApi || !humanInputApi || !roomViewApi || !hostAccessUiApi) {
     throw new Error('Dex helpers must load before Dex Mode.');
   }
   const STORAGE_KEY = 'browser-ai-bridge.dex.rooms.v1';
@@ -146,12 +147,7 @@
   }
 
   function hostAccessUiMessage(msg) {
-    if (msg?.code !== 'HOST_ACCESS_REQUIRED') return null;
-    const site = msg.detail?.pattern || 'this provider site';
-    if (msg?.detail?.allSitesDeclared) {
-      return `Chrome is withholding EveOS Nexus Browser's all-sites access for ${site}. Open the extension menu → This can read and change site data → On all sites once, then retry the Dex relay.`;
-    }
-    return `Chrome site access is required for ${site}. Allow EveOS Nexus Browser on this site in Chrome's extension Site access, then retry the Dex relay.`;
+    return hostAccessUiApi.message(msg, { retryAction: 'retry the Dex relay' });
   }
 
   function handleSocketMessage(msg) {

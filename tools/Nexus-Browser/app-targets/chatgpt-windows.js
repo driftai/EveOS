@@ -2,6 +2,7 @@
 const defaultRunner = require('./winapp-runner'), uia = require('./chatgpt-windows-uia'),
   conversation = require('./chatgpt-windows-conversation'), replyProgress = require('./chatgpt-windows-reply-progress'),
   titleResolver = require('./chatgpt-windows-title'), timeoutRecovery = require('./chatgpt-windows-timeout-recovery'),
+  stability = require('./chatgpt-windows-stability'), capture = require('./chatgpt-windows-capture'),
   { createSubmitter } = require('./chatgpt-windows-submit');
 const {
   windowsFromEnvelope, pickMainWindow, hwndOf, pidOf, selectorOf,
@@ -10,60 +11,12 @@ const {
 } = uia;
 const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVIDER_NAME = 'ChatGPT App', APP_MATCH = 'ChatGPT';
 const FIRST_POLL_MS = 75, POLL_MS = 180, SETTLE_MS = 850, POST_GENERATION_SETTLE_MS = 650;
-const FIRST_RESPONSE_RESCUE_AFTER_MS = 700, FIRST_RESPONSE_RESCUE_INTERVAL_MS = 1500, FIRST_RESPONSE_RESCUE_MAX_ATTEMPTS = 3;
+const { FIRST_RESPONSE_RESCUE_AFTER_MS, FIRST_RESPONSE_RESCUE_INTERVAL_MS,
+  FIRST_RESPONSE_RESCUE_MAX_ATTEMPTS, monotonicPartial, authoritativePartial,
+  currentTurnComplete, shouldRunOffscreenRescue } = stability;
 const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000; let lastDiagnostics = { available: false, helper: null, lastError: null, lastProbeAt: 0, lastWindow: null };
 const turnState = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function monotonicPartial(previous = '', candidate = '') {
-  const prior = String(previous || '');
-  const next = String(candidate || '');
-  if (!next || next === prior) return prior;
-  if (!prior) return next;
-  const merged = replyProgress.mergeReplyProgress(prior, next);
-  return merged && merged.startsWith(prior) ? merged : prior;
-}
-
-function targetIdentityMatches(previous = {}, identity = {}) {
-  const bound = previous.concreteTargetIdentity || {};
-  const boundTitle = String(bound.conversationTitle || '').trim();
-  const liveTitle = String(identity.conversationTitle || '').trim();
-  const boundAnchors = new Set([
-    ...(Array.isArray(bound.conversationAnchors) ? bound.conversationAnchors : []),
-    bound.conversationAnchor
-  ].filter(Boolean).map(String));
-  const liveAnchors = [
-    ...(Array.isArray(identity.conversationAnchors) ? identity.conversationAnchors : []),
-    identity.conversationAnchor
-  ].filter(Boolean).map(String);
-  const anchorMatches = liveAnchors.some((anchor) => boundAnchors.has(anchor));
-  return anchorMatches || (!!boundTitle && boundTitle === liveTitle);
-}
-
-function currentTurnComplete(observed = {}) {
-  return observed.correlated === true && !!observed.nativeTurn?.completeHint && !observed.provisional;
-}
-
-function shouldRunOffscreenRescue({
-  observed = {},
-  candidate = '',
-  lastText = '',
-  observedAt = 0,
-  acceptedAt = 0,
-  lastChangedAt = 0,
-  attemptsSinceProgress = 0,
-  lastRescueAt = 0,
-  rescueAfterMs = FIRST_RESPONSE_RESCUE_AFTER_MS,
-  rescueIntervalMs = FIRST_RESPONSE_RESCUE_INTERVAL_MS,
-  rescueMaxAttempts = FIRST_RESPONSE_RESCUE_MAX_ATTEMPTS
-} = {}) {
-  if (currentTurnComplete(observed)) return false;
-  if (candidate && candidate !== lastText) return false;
-  const stalledSince = Math.max(Number(acceptedAt) || 0, Number(lastChangedAt) || 0);
-  if ((Number(observedAt) || 0) - stalledSince < rescueAfterMs) return false;
-  if (attemptsSinceProgress >= rescueMaxAttempts) return false;
-  return !lastRescueAt || (Number(observedAt) || 0) - Number(lastRescueAt) >= rescueIntervalMs;
-}
 
 function createAdapter({
   runner = defaultRunner,
@@ -229,22 +182,9 @@ function createAdapter({
       // verification does not start with a global window enumeration. A failed or
       // ambiguous direct proof falls through to the full discovery path below.
       if (lastVerifiedTarget) {
-        try {
-          const boundWindow = {
-            hwnd: lastVerifiedTarget.windowHandle,
-            pid: lastVerifiedTarget.pid,
-            title: lastVerifiedTarget.title
-          };
-          const shallowSnapshot = await inspect(boundWindow);
-          const sameWindow = String(shallowSnapshot.hwnd) === String(lastVerifiedTarget.windowHandle)
-            && String(shallowSnapshot.pid) === String(lastVerifiedTarget.pid);
-          const shallowIdentity = conversation.conversationIdentity(shallowSnapshot);
-          if (sameWindow && targetIdentityMatches(lastVerifiedTarget, shallowIdentity)) {
-            const verified = targetFromIdentity(shallowSnapshot.windowInfo || boundWindow, shallowIdentity);
-            lastVerifiedTarget = verified;
-            return [verified];
-          }
-        } catch {}
+        const verified = await stability.verifyCachedTarget({ cachedTarget: lastVerifiedTarget,
+          inspect, conversationIdentity: conversation.conversationIdentity, targetFromIdentity });
+        if (verified) { lastVerifiedTarget = verified; return [verified]; }
       }
 
       const windowInfo = await findWindow();
@@ -301,10 +241,9 @@ function createAdapter({
       observedAt: acceptedAt, detail: dispatchTiming });
     const deadline = acceptedAt + responseTimeoutMs;
     let lastText = '', publishedText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null, progressState = 'replace';
-    let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0;
-    let hasFreshVisiblePoll = false;
+    let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0, hasFreshVisiblePoll = false;
     let pollInspectMs = 0, finalReconstructionMs = 0, firstResponseRescueInspectMs = 0;
-    let firstResponseRescueAttempts = 0, rescueAttemptsSinceProgress = 0, lastFirstResponseRescueAt = 0;
+    let firstResponseRescueAttempts = 0, rescueAttemptsSinceProgress = 0, visiblePollsSinceProgress = 0, lastFirstResponseRescueAt = 0;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
     while (now() < deadline) {
       if (committedPending) { lastSnapshot = committedSnapshot; committedPending = false; }
@@ -315,6 +254,7 @@ function createAdapter({
           hwnd: target.windowHandle, pid: target.pid, title: target.title
         });
         hasFreshVisiblePoll = true;
+        visiblePollsSinceProgress += 1;
         pollInspectMs += Math.max(0, Date.now() - pollInspectStartedAt);
       }
       pollCount += 1;
@@ -322,7 +262,10 @@ function createAdapter({
       if (lastSnapshot.generating) sawGenerating = true;
       let observed = conversation.responseForPrompt(lastSnapshot, { baseline: baselineSet, prompt: text });
       const visibleCandidate = observed.text;
-      if (visibleCandidate && visibleCandidate !== lastText) rescueAttemptsSinceProgress = 0;
+      if (visibleCandidate && visibleCandidate !== lastText) {
+        rescueAttemptsSinceProgress = 0;
+        visiblePollsSinceProgress = 0;
+      }
 
       const rescueDue = hasFreshVisiblePoll && shouldRunOffscreenRescue({
         observed,
@@ -332,6 +275,7 @@ function createAdapter({
         acceptedAt,
         lastChangedAt,
         attemptsSinceProgress: rescueAttemptsSinceProgress,
+        visiblePollsSinceProgress,
         lastRescueAt: lastFirstResponseRescueAt,
         rescueAfterMs: firstResponseRescueAfterMs,
         rescueIntervalMs: firstResponseRescueIntervalMs,
@@ -365,7 +309,7 @@ function createAdapter({
       const mergedText = progressState === 'native' ? lastText : progressState === 'accumulate'
         ? replyProgress.mergeReplyProgress(lastText, candidate) : (candidate || lastText);
       if (candidate && mergedText !== lastText) {
-        lastText = mergedText; tailStablePasses = 0; rescueAttemptsSinceProgress = 0;
+        lastText = mergedText; tailStablePasses = 0; rescueAttemptsSinceProgress = 0; visiblePollsSinceProgress = 0;
         if (!firstResponseAt) firstResponseAt = observedAt;
         lastChangedAt = observedAt;
         turnState.set(target.id, { phase: 'streaming', requestId, startedAt: acceptedAt,
@@ -397,11 +341,11 @@ function createAdapter({
           });
           if (full.correlated && !full.nativeTurn) { lastSnapshot = fullSnapshot; lastChangedAt = now(); continue; }
           nativeTurn = full.nativeTurn || nativeTurn; progressState = replyProgress.transitionProgressMode(progressState, full);
-          const fullText = full.nativeTurn?.text || full.text; const reconstructed = full.progressMode === 'accumulate' ? replyProgress.preferFinalReply(lastText, fullText) : full.nativeTurn?.completeHint ? fullText : observed.nativeTurn?.completeHint ? conversation.preferExpandedReply(lastText, fullText) : fullText || conversation.preferExpandedReply(lastText, full.text);
+          const fullText = full.nativeTurn?.text || full.text; const reconstructed = full.progressMode === 'accumulate' ? (full.nativeTurn ? replyProgress.preferOffscreenTurn(lastText, full.nativeTurn) : replyProgress.preferFinalReply(lastText, fullText)) : full.nativeTurn?.completeHint ? fullText : observed.nativeTurn?.completeHint ? conversation.preferExpandedReply(lastText, fullText) : fullText || conversation.preferExpandedReply(lastText, full.text);
           lastSnapshot = fullSnapshot; if (full.progressMode === 'accumulate' && full.nativeTurn?.text && reconstructed === full.nativeTurn.text && !replyProgress.needsTailGuard(reconstructed)) progressState = 'native';
           if (reconstructed && reconstructed !== lastText) {
             lastText = reconstructed; lastChangedAt = now(); tailStablePasses = 0;
-            const publishable = monotonicPartial(publishedText, lastText);
+            const publishable = authoritativePartial(publishedText, lastText, full);
             if (publishable !== publishedText) {
               publishedText = publishable;
               emit?.({ type: 'response_partial', requestId, text: publishedText,
@@ -451,21 +395,8 @@ function createAdapter({
     throw error;
   }
   async function captureLatest({ target }) {
-    const liveWindow = await findWindow();
-    if (!liveWindow || String(pidOf(liveWindow)) !== String(target.pid)
-        || String(hwndOf(liveWindow)) !== String(target.windowHandle)) {
-      const error = new Error('The bound ChatGPT app process/window changed; explicit rebind is required.');
-      error.code = 'APP_TARGET_REBIND_REQUIRED'; throw error;
-    }
-    const snapshot = await inspect(liveWindow, { includeOffscreen: true });
-    const remembered = turnState.get(target.id)?.latestText || '';
-    const grouped = conversation.latestAssistantReply(snapshot, { includeOffscreen: true });
-    const live = grouped?.text || latestResponseCandidate(snapshot)?.text || snapshot.latestResponseText || '';
-    const stored = conversation.hasRoleMarkers(snapshot) ? (live || remembered) : replyProgress.mergeReplyProgress(remembered, live);
-    return { text: stored || snapshot.latestText || '', snapshot,
-      replyParts: grouped?.partCount || (live ? 1 : 0), observedAt: now(),
-      isGenerating: !!snapshot.generating, generationState: snapshot.generating ? 'active' : 'idle',
-      completenessHint: snapshot.generating ? 'incomplete' : 'settled' };
+    return capture.captureLatest({ target, findWindow, inspect,
+      remembered: turnState.get(target.id)?.latestText || '', now });
   }
   function status(targetId = TARGET_ID) {
     return {
@@ -502,10 +433,7 @@ module.exports = {
   FIRST_RESPONSE_RESCUE_INTERVAL_MS,
   FIRST_RESPONSE_RESCUE_MAX_ATTEMPTS,
   RESPONSE_TIMEOUT_MS,
-  monotonicPartial,
-  targetIdentityMatches,
-  currentTurnComplete,
-  shouldRunOffscreenRescue,
+  ...stability,
   ...uia,
   createAdapter,
   ...defaultAdapter

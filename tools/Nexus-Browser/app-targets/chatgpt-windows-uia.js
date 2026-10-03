@@ -1,4 +1,5 @@
 'use strict';
+const snapshotBuilder = require('./chatgpt-windows-uia-snapshot');
 
 const CHROME_TEXT = new Set([
   'chatgpt', 'chat', 'work', 'new chat', 'share', 'ask chatgpt', 'do anything', 'message chatgpt',
@@ -375,37 +376,11 @@ function latestCandidate(texts = [], { baseline = new Set(), prompt = '' } = {})
 }
 
 function snapshotFromInspect({ windowInfo, json }) {
-  const inspectedWindow = windowsFromEnvelope(json)[0] || windowInfo || {};
-  const elements = flattenElements(json);
-  const frame = authoritativeWindowFrame(windowInfo, inspectedWindow, elements);
-  const composerContext = { windowInfo: frame };
-  const composerRanked = rankCandidates(elements, composerScore, composerContext);
-  const composer = composerRanked[0]?.score >= 18 ? composerRanked[0].element : null;
-  const sendContext = { windowInfo: frame, composer };
-  const sendRanked = rankCandidates(elements, sendScore, sendContext);
-  const sendButton = sendRanked[0]?.score >= 20 ? sendRanked[0].element : null;
-  const texts = contentTexts(elements);
-  const responseCandidates = contentCandidates(elements, frame);
-  const latestResponse = latestResponseCandidate({ elements, windowInfo: frame, responseCandidates });
-  return {
-    hwnd: hwndOf(frame),
-    pid: pidOf(frame),
-    title: String(frame?.title || frame?.name || 'ChatGPT'),
-    windowInfo: frame,
-    elements,
-    composer,
-    composerSelector: selectorOf(composer),
-    composerValue: composer ? normalizeCandidate(textOf(composer)) : '',
-    composerCandidates: composerRanked.slice(0, 5).map((entry) => candidateSummary(entry.element, entry.score)),
-    sendButton,
-    sendSelector: selectorOf(sendButton),
-    sendCandidates: sendRanked.slice(0, 5).map((entry) => candidateSummary(entry.element, entry.score)),
-    generating: isGenerating(elements),
-    texts,
-    responseCandidates,
-    latestResponseText: latestResponse?.text || '',
-    latestText: latestResponse?.text || texts.at(-1) || ''
-  };
+  return snapshotBuilder.snapshotFromInspect({ windowInfo, json }, {
+    windowsFromEnvelope, flattenElements, authoritativeWindowFrame, rankCandidates,
+    composerScore, sendScore, contentTexts, contentCandidates, latestResponseCandidate,
+    hwndOf, pidOf, selectorOf, normalizeCandidate, textOf, candidateSummary, isGenerating
+  });
 }
 
 module.exports = {

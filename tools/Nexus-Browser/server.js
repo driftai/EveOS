@@ -13,6 +13,7 @@ const { createExtensionSessionArbiter } = require('./dex/extension-session-arbit
 const { assetRevision } = require('./server-asset-revision');
 const { ADAPTER_REVISION: EXPECTED_ADAPTER_REVISION } = require('./extension/content/provider-adapter-revision');
 const { createDiagnosticsSnapshot } = require('./server-diagnostics'), { createServerLocalRelay } = require('./dex/server-local-relay'), { createAppTargetServerController } = require('./app-targets/server-controller');
+const { createServerLocalMessaging } = require('./server-local-messaging');
 const { attachWebSocketHeartbeat } = require('./dex/ws-heartbeat'), { createDisposableRoomCleanup } = require('./dex/disposable-room-cleanup');
 const runtimeConfig = require('./runtime-config');
 const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
@@ -89,6 +90,9 @@ const streamNudgeAuth = createServerStreamNudgeAuth({ getState: () => dexStateSt
 const doneWatchDelivery = createDoneWatchDelivery({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, safeSend, getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null, getTabs: () => lastTabs });
 const qualificationRouting = createQualificationRouting({ safeSend, getExtensionSocket: () => extensionSocket, getDurability: () => durability, getStateStore: () => dexStateStore, restartHook: qualificationRestart, serverSessionId: SERVER_SESSION_ID });
 const serverDexSource = { clientKind: 'dex' };
+const { selectedLocalTarget, sendLocalStatus, sendLocalEvent, broadcastLocalStatus, mirrorPromptToConsoles } = createServerLocalMessaging({
+  safeSend, uiSockets, localTargets, dexRouting, getTargets: () => lastLocalTargets
+});
 const serverLocalRelay = createServerLocalRelay({ localTargets, mirrorPrompt: (targetId, msg, target) => mirrorPromptToConsoles(targetId, serverDexSource, msg, target), emitEvent: (targetId, payload) => sendLocalEvent(targetId, serverDexSource, payload), broadcastStatus: (targetId) => broadcastLocalStatus(targetId, serverDexSource) }); const appTargetController = createAppTargetServerController({ appTargets, safeSend, uiSockets, getDurability: () => durability, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive() });
 const dexScheduler = createDexServerScheduler({ stateStore: { load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot) }, durability: { beforeDispatch: (...args) => durability.beforeDispatch(...args), observe: (...args) => durability.observe(...args), markFailed: (...args) => durability.markFailed(...args), query: (...args) => durability.query(...args) }, getOnlineTargets: () => lastTabs, getProviders: () => lastProviders, getSelectedOnlineTarget: () => lastTarget, getLocalTargets: async (force = false) => { if (force) await refreshLocalTargets(null, { force: true }); return lastLocalTargets; }, getAppTargets: async (force = false) => appTargets.listAppTargets({ force }), isExtensionAvailable: () => !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN && extensionSessions.current().ready, sendExtension: (payload) => safeSend(extensionSocket, payload), sendLocalPrompt: serverLocalRelay.sendLocalPrompt, sendAppPrompt: appTargets.sendAppPrompt, captureLocalLatest: localTargets.captureLocalLatest, captureAppLatest: appTargets.captureAppLatest, broadcastState: broadcastDexState, broadcastEvent: (payload) => safeSend(dexRouting.dexClient(), payload), maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(),
   onTurnSettled: () => { doneWatchDelivery.flush(); taskCompletion?.flush(); postIdleMaintenance?.tick().catch((error) => console.log('[bridge] post-idle tick: ' + error.message)); }, recordIncident: (input) => durability.recordIncident(input) });
@@ -105,42 +109,6 @@ function extensionStatus() {
 }
 function classSnapshot() {
   return { type: 'target_classes_update', classes: [...localTargets.publicTargetClasses(), ...appTargets.publicTargetClasses()], localTargetTypes: localTargets.publicLocalTargetTypes(), appTargetTypes: appTargets.publicAppTargetTypes() };
-}
-function selectedLocalTarget(ws) {
-  if (!ws?.localTargetId) return null;
-  return lastLocalTargets.find((target) => target.id === ws.localTargetId) || null;
-}
-function localStatusPayload(targetId) {
-  return { type: 'local_target_status', targetId, status: localTargets.getLocalTargetStatus(targetId) };
-}
-function sendLocalStatus(ws, targetId = ws?.localTargetId) {
-  if (!targetId) return false;
-  return safeSend(ws, localStatusPayload(targetId));
-}
-function sendLocalEvent(targetId, source, payload) {
-  safeSend(source, payload);
-  for (const peer of uiSockets) {
-    if (peer === source || peer.localTargetId !== targetId) continue;
-    if (!dexRouting.allowLocalPeer(source, peer)) continue;
-    safeSend(peer, payload);
-  }
-}
-function broadcastLocalStatus(targetId, source = null) {
-  const payload = localStatusPayload(targetId);
-  if (source?.clientKind === 'console') safeSend(source, payload);
-  for (const peer of uiSockets) {
-    if (peer === source || peer.localTargetId !== targetId || peer.clientKind !== 'console') continue;
-    safeSend(peer, payload);
-  }
-}
-function mirrorPromptToConsoles(targetId, source, msg, target) {
-  for (const peer of uiSockets) {
-    if (peer === source || peer.localTargetId !== targetId || peer.clientKind !== 'console') continue;
-    safeSend(peer, {
-      type: 'local_prompt_echo', requestId: msg.requestId, text: String(msg.text || ''),
-      targetId, providerId: target.providerId, providerName: target.providerName
-    });
-  }
 }
 async function refreshLocalTargets(destination = null, { force = false } = {}) {
   lastLocalTargets = await localTargets.listLocalTargets({ force });

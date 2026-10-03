@@ -15,7 +15,7 @@ const PARENT = fs.readFileSync(
 
 test('detached Nexus exposes an explicit reattach control', () => {
   assert.match(DETACHED, /Reattach to EveOS/);
-  assert.match(DETACHED, /publish\('reattach'\)/);
+  assert.match(DETACHED, /publish\('reattach', \{ snapshot \}\)/);
   assert.match(DETACHED, /window\.close\(\)/);
 });
 
