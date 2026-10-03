@@ -8,7 +8,8 @@ const {
   authoritativePartial,
   currentTurnComplete,
   shouldRunOffscreenRescue,
-  verifyCachedTarget
+  verifyCachedTarget,
+  busyRecoveryObservation
 } = require('../app-targets/chatgpt-windows');
 
 function inspection(windowInfo, title = 'Native Eve Test') {
@@ -192,6 +193,55 @@ test('published partials never shrink or oscillate while final truth may be shor
   assert.equal(authoritativePartial(published, authoritativeFinal, {
     correlated: true, nativeTurn: { completeHint: false }, provisional: false
   }), published, 'an incomplete reconstruction must remain monotonic');
+});
+
+test('busy recovery accepts stable native-idle evidence but rejects genuine activity and generation', () => {
+  const nativeTurn = { text: 'Recovered native final.', completeHint: false, isAssistant: true };
+  const idle = busyRecoveryObservation({ generating: false }, {
+    correlated: true,
+    text: nativeTurn.text,
+    nativeTurn,
+    generating: false,
+    activityHint: false,
+    provisional: false
+  }, 'Recovered native final.');
+  assert.equal(idle.eligible, true);
+  assert.equal(idle.authoritative, false,
+    'missing completion action should require the controller stable-sample confirmation');
+
+  const staleGlobal = busyRecoveryObservation({ generating: true }, {
+    correlated: true,
+    text: 'Strong completed reply.',
+    nativeTurn: { text: 'Strong completed reply.', completeHint: true, isAssistant: true },
+    generating: true,
+    activityHint: false,
+    provisional: false
+  }, 'Strong completed reply.');
+  assert.equal(staleGlobal.eligible, true);
+  assert.equal(staleGlobal.authoritative, true,
+    'correlated native completion may outrank unrelated stale global generating chrome');
+
+  const generating = busyRecoveryObservation({ generating: true }, {
+    correlated: true,
+    text: nativeTurn.text,
+    nativeTurn,
+    generating: true,
+    activityHint: false,
+    provisional: false
+  }, nativeTurn.text);
+  assert.equal(generating.eligible, false);
+  assert.equal(generating.reason, 'generating');
+
+  const toolRunning = busyRecoveryObservation({ generating: false }, {
+    correlated: true,
+    text: nativeTurn.text,
+    nativeTurn,
+    generating: false,
+    activityHint: true,
+    provisional: true
+  }, nativeTurn.text);
+  assert.equal(toolRunning.eligible, false);
+  assert.equal(toolRunning.reason, 'activity');
 });
 
 test('cached verification keeps exact-HWND scope while including rotated offscreen anchors', async () => {
