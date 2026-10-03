@@ -35,6 +35,7 @@ function provenanceHarness() {
     async sendAppPrompt({ requestId, emit, beforeSend }) {
       await beforeSend?.(target);
       emit({ type: 'prompt_accepted', requestId });
+      emit({ type: 'response_partial', requestId, text: 'mutable native draft' });
       emit({ type: 'response_final', requestId, text: 'nexus scoped reply' });
       return { text: 'nexus scoped reply' };
     },
@@ -106,4 +107,6 @@ test('Nexus-origin App-Origin replies still return exactly once through the requ
     entry.payload.type === 'response_final' && entry.payload.requestId === 'nexus-origin-1');
   assert.equal(finals.length, 1);
   assert.equal(finals[0].payload.text, 'nexus scoped reply');
+  assert.equal(h.messages.some((entry) => entry.payload.type === 'response_partial'), false,
+    'Base App-Origin transcript must publish only the immutable correlated final');
 });

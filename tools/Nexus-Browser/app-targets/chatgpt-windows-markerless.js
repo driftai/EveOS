@@ -223,10 +223,7 @@ function answerAfterPrompt(snapshot = {}, prompt = '', options = {}) {
     if (sameText(record.normalized, promptRecord.normalized)) continue;
     if (promptOwnsFragment(record.normalized, prompt)) continue;
     if (record.centerY <= promptRecord.centerY + 6) continue;
-    if (isLikelyUser(record)) {
-      if (parts.length) break;
-      continue;
-    }
+    if (isLikelyUser(record)) break;
     if (!isLikelyAssistant(record, promptRecord)) continue;
     addPart(parts, record);
   }

@@ -91,7 +91,7 @@
       const value = lastTiming;
       el.timing.hidden = !value;
       if (!value) return;
-      el.timing.textContent = `Send→app ${ms(value.dispatchToAppMs)} · App→first ${ms(value.timeToFirstResponseMs)} · App→final ${ms(value.totalResponseMs)} · Round trip ${ms(value.nexusRoundTripMs)}`;
+      el.timing.textContent = `UI→server ${ms(value.uiToServerMs)} · Target verify ${ms(value.targetVerificationMs)} · Lease ${ms(value.leaseWaitMs)} · Ledger ${ms(value.durabilityGateMs)} · Server→adapter ${ms(value.serverToAdapterMs)} · UIA baseline ${ms(value.baselineInspectMs)} · Composer ${ms(value.composerResolveMs)} · Stage text ${ms(value.textStageMs)} · Staged UIA ${ms(value.stagedInspectMs)} · Submit ${ms(value.submitMs)} · Accept check ${ms(value.acceptanceInspectMs)} · Send→app ${ms(value.dispatchToAppMs)} · App→first ${ms(value.timeToFirstResponseMs)} · App→final ${ms(value.totalResponseMs)} · Poll UIA ${ms(value.pollInspectMs)} · Final capture ${ms(value.finalReconstructionMs)} · Round trip ${ms(value.nexusRoundTripMs)}`;
     }
 
     function renderStatusText() {
@@ -130,7 +130,7 @@
         if (selectedTarget && msg.type === 'response_final') targetStatus = { ...(targetStatus || {}), phase: 'idle' };
         if (selectedTarget && msg.type === 'error' && msg.code !== 'APP_TARGET_BUSY') targetStatus = { ...(targetStatus || {}), phase: 'idle' };
         if (msg.type === 'prompt_accepted' && Number.isFinite(Number(msg.detail?.dispatchToAppMs))) {
-          lastTiming = { dispatchToAppMs: Number(msg.detail.dispatchToAppMs) };
+          lastTiming = { ...msg.detail };
           renderTiming();
         } else if (msg.type === 'response_final' && msg.detail) {
           lastTiming = { ...msg.detail };

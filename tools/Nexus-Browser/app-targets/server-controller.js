@@ -165,6 +165,7 @@ function createAppTargetServerController({
   }
 
   function sendEvent(targetId, source, payload) {
+    if (payload?.type === 'response_partial') return;
     const sourceDelivered = safeSend(source, payload);
     for (const peer of uiSockets) {
       if (peer === source || peer.clientKind === 'dex' || peer.appTargetId !== targetId) continue;
@@ -350,12 +351,21 @@ function createAppTargetServerController({
     }
 
     if (msg.type === 'send_prompt') {
+      const serverReceivedAt = Date.now();
       if (maintenanceBusy()) {
         safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'POST_IDLE_LEASE_BUSY',
           message: 'Post-idle maintenance holds the exclusive dispatch lease.' });
         return true;
       }
+      const targetVerificationStartedAt = Date.now();
       const target = await appTargets.getAppTarget(targetId, { force: true });
+      const transportTiming = {
+        serverReceivedAt,
+        uiToServerMs: Number.isFinite(Number(msg.clientSentAt))
+          ? Math.max(0, serverReceivedAt - Number(msg.clientSentAt)) : 0,
+        targetVerificationMs: Math.max(0, Date.now() - targetVerificationStartedAt),
+        durabilityGateMs: 0
+      };
       if (!target) {
         safeSend(ws, { type: 'error', requestId: msg.requestId || null,
           code: 'APP_TARGET_NOT_FOUND', message: 'Selected App-Origin target is not available.' });
@@ -368,10 +378,14 @@ function createAppTargetServerController({
       try {
         await appTargets.sendAppPrompt({
           targetId,
+          target,
           requestId: msg.requestId,
           text: msg.text,
+          transportTiming,
           beforeSend: async () => {
+            const durabilityStartedAt = Date.now();
             const gate = await durability.beforeDispatch(msg, meta);
+            transportTiming.durabilityGateMs = Math.max(0, Date.now() - durabilityStartedAt);
             if (gate.ok) return;
             const error = new Error('Durable turn ledger blocked a duplicate app dispatch.');
             error.code = 'DUPLICATE_DISPATCH_BLOCKED';

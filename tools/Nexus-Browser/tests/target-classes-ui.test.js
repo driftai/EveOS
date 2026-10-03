@@ -93,6 +93,15 @@ test('App-Origin exposes the latest native transport stage timings in the target
   assert.match(APP_TARGETS_UI, /App→first/);
   assert.match(APP_TARGETS_UI, /App→final/);
   assert.match(APP_TARGETS_UI, /Round trip/);
+  assert.match(APP_TARGETS_UI, /UI→server/);
+  assert.match(APP_TARGETS_UI, /Target verify/);
+  assert.match(APP_TARGETS_UI, /Server→adapter/);
+  assert.match(APP_TARGETS_UI, /UIA baseline/);
+  assert.match(APP_TARGETS_UI, /Composer/);
+  assert.match(APP_TARGETS_UI, /Stage text/);
+  assert.match(APP_TARGETS_UI, /Staged UIA/);
+  assert.match(APP_TARGETS_UI, /Submit/);
+  assert.match(APP_TARGETS_UI, /Final capture/);
 });
 
 

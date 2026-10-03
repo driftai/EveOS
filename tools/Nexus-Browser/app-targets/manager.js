@@ -71,8 +71,7 @@ function cloneTargets(targets = []) {
 
 async function listAppTargets({ force = false, now = Date.now() } = {}) {
   if (listInFlight) {
-    const pending = await listInFlight;
-    if (!force) return cloneTargets(pending);
+    return cloneTargets(await listInFlight);
   }
   if (activeSends.size && cachedTargets) return cloneTargets(cachedTargets);
   if (!force && cachedTargets && now - cachedAt < CACHE_MS) return cloneTargets(cachedTargets);
@@ -246,16 +245,22 @@ async function captureAppLatest({ targetId }) {
   return { ...result, target };
 }
 
-async function sendAppPrompt({ targetId, requestId, text, emit, beforeSend = null }) {
+async function sendAppPrompt({ targetId, target: verifiedTarget = null, requestId, text, emit,
+  beforeSend = null, transportTiming = {} }) {
   if (!targetId) {
     const error = new Error('No App-Origin target is selected.');
     error.code = 'APP_TARGET_NOT_SELECTED';
     throw error;
   }
-  const target = await getAppTarget(targetId, { force: true });
+  const target = verifiedTarget || await getAppTarget(targetId, { force: true });
   if (!target) {
     const error = new Error('Selected App-Origin target is no longer available.');
     error.code = 'APP_TARGET_NOT_FOUND';
+    throw error;
+  }
+  if (String(target.id || '') !== String(targetId)) {
+    const error = new Error('The verified App-Origin target does not match the requested target.');
+    error.code = 'APP_TARGET_IDENTITY_MISMATCH';
     throw error;
   }
   const adapter = adapterForTarget(target.id);
@@ -264,12 +269,14 @@ async function sendAppPrompt({ targetId, requestId, text, emit, beforeSend = nul
     error.code = 'APP_SEND_UNSUPPORTED';
     throw error;
   }
+  const leaseStartedAt = Date.now();
   if (activeSends.has(target.id)) throw busyError();
   sendFailures.delete(target.id);
   activeSends.add(target.id);
+  transportTiming.leaseWaitMs = Math.max(0, Date.now() - leaseStartedAt);
   try {
     if (typeof beforeSend === 'function') await beforeSend(target);
-    const result = await adapter.sendPrompt({ requestId, text, target, emit });
+    const result = await adapter.sendPrompt({ requestId, text, target, emit, transportTiming });
     sendFailures.delete(target.id);
     notifyObservedTurn(target, adapter, result, 'active');
     return result;

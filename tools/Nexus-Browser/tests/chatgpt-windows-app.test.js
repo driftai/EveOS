@@ -289,7 +289,13 @@ test('ChatGPT Windows adapter drives prompt into app and returns settled reply',
   assert.equal(events.at(-1).text, 'Final app reply');
   assert.equal(events.at(-1).targetClassId, 'app-origin');
   assert.ok(Number.isFinite(events[0].detail?.dispatchToAppMs));
+  for (const key of ['baselineInspectMs', 'composerResolveMs', 'textStageMs',
+    'stagedInspectMs', 'submitMs', 'acceptanceInspectMs']) {
+    assert.ok(Number.isFinite(events[0].detail?.[key]), `missing dispatch stage ${key}`);
+  }
   assert.ok(Number.isFinite(events.at(-1).detail?.dispatchToAppMs));
+  assert.ok(Number.isFinite(events.at(-1).detail?.pollInspectMs));
+  assert.ok(Number.isFinite(events.at(-1).detail?.finalReconstructionMs));
   assert.ok(Number.isFinite(events.at(-1).detail?.adapterSettleMs));
   assert.ok(Number.isFinite(events.at(-1).detail?.totalResponseMs));
   assert.ok(Number.isFinite(events.at(-1).detail?.nexusRoundTripMs));

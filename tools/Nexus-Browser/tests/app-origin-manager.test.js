@@ -50,6 +50,29 @@ test('App-Origin manager coalesces concurrent forced discovery into one UIA scan
   }
 });
 
+test('App-Origin manager reuses a server-verified target without a duplicate discovery scan', async () => {
+  const adapter = manager.adapterForTarget(TARGET_ID);
+  const originalList = adapter.listTargets;
+  const originalSend = adapter.sendPrompt;
+  let discoveries = 0;
+  let receivedTarget = null;
+  adapter.listTargets = async () => { discoveries += 1; return [target]; };
+  adapter.sendPrompt = async (input) => { receivedTarget = input.target; return { text: 'ok' }; };
+  manager.invalidateAppTargetCache();
+  try {
+    const result = await manager.sendAppPrompt({
+      targetId: TARGET_ID, target, requestId: 'verified-target', text: 'hello', emit() {}
+    });
+    assert.equal(result.text, 'ok');
+    assert.equal(discoveries, 0);
+    assert.equal(receivedTarget, target);
+  } finally {
+    adapter.listTargets = originalList;
+    adapter.sendPrompt = originalSend;
+    manager.invalidateAppTargetCache();
+  }
+});
+
 test('App-Origin manager serializes sends per exact native target and releases the lease', async () => {
   const adapter = manager.adapterForTarget(TARGET_ID);
   assert.ok(adapter, 'ChatGPT App adapter must be registered');

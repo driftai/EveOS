@@ -29,7 +29,9 @@
     }
     function send(payload) {
       if (!socket || socket.readyState !== WebSocketImpl.OPEN || phase !== 'connected') return false;
-      socket.send(JSON.stringify(payload));
+      const outgoing = payload?.type === 'send_prompt' && !Number.isFinite(Number(payload.clientSentAt))
+        ? { ...payload, clientSentAt: Date.now() } : payload;
+      socket.send(JSON.stringify(outgoing));
       return true;
     }
     function connect() {

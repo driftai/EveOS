@@ -75,6 +75,17 @@ test('UI socket sends hello and permits dispatch only while connected', () => {
   assert.deepEqual(JSON.parse(socket.sent[1]), { type: 'request_tabs' });
 });
 
+test('UI socket timestamps prompt dispatch before it reaches the server', () => {
+  const { client } = harness();
+  client.connect();
+  const socket = FakeWebSocket.instances[0];
+  socket.emit('open');
+  assert.equal(client.send({ type: 'send_prompt', requestId: 'timed-1', text: 'hello' }), true);
+  const sent = JSON.parse(socket.sent.at(-1));
+  assert.equal(sent.type, 'send_prompt');
+  assert.ok(Number.isFinite(sent.clientSentAt));
+});
+
 test('short UI socket loss preserves a recovering phase and reconnects before hard disconnect', () => {
   const { client, phases, scheduled } = harness();
   client.connect();
