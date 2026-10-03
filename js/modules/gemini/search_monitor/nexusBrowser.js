@@ -31,6 +31,7 @@
             <div class="eveos-nexus-browser-facts" aria-label="Nexus Browser runtime status">
                 <span><small>Extension</small><strong data-nexus-browser-extension>Checking…</strong></span>
                 <span><small>Targets</small><strong data-nexus-browser-targets>—</strong></span>
+                <span><small>App bridge</small><strong data-nexus-browser-app-connection>Not connected</strong></span>
                 <span><small>Dex rooms</small><strong data-nexus-browser-rooms>—</strong></span>
                 <span><small>Port</small><strong data-nexus-browser-port>Registry</strong></span>
                 <span><small>Detached</small><strong data-nexus-browser-detached>Closed</strong></span>
@@ -195,9 +196,11 @@
         status = snapshot || null;
         const running = snapshot?.running === true;
         const extension = snapshot?.extensionConnected ? 'Connected' : snapshot?.extensionReady ? 'Ready · offline' : 'Missing';
+        const appBinding = snapshot?.appBinding || {};
         text('[data-nexus-browser-state]', busy ? 'Working' : stateLabel(snapshot?.state));
         text('[data-nexus-browser-extension]', extension);
         text('[data-nexus-browser-targets]', `${Number(snapshot?.onlineTargets || 0)} online · ${Number(snapshot?.localTargets || 0)} local · ${Number(snapshot?.appTargets || 0)} app`);
+        text('[data-nexus-browser-app-connection]', appBinding.connected ? `Connected · ${appBinding.providerName || 'App target'}` : 'Not connected');
         text('[data-nexus-browser-rooms]', String(Number(snapshot?.dexRooms || 0)));
         text('[data-nexus-browser-port]', String(snapshot?.port || window.EveOSPortRegistry?.get?.('NEXUS_BROWSER_PORT') || 'Registry'));
         text('[data-nexus-browser-message]', overrideMessage || snapshot?.message || 'Nexus Browser status is unavailable.');

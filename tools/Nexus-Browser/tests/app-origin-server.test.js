@@ -81,6 +81,8 @@ test('App-Origin discovery and selection stay independent from browser tabs', as
   assert.equal(h.messages.at(-1).payload.type, 'app_target_selected');
   const scope = h.messages.at(-1).payload.bindingIdentity.deliveryScope;
   assert.match(scope, /^[a-f0-9]{64}$/);
+  assert.deepEqual(h.controller.diagnostics().appBinding,
+    { connected: true, providerName: 'ChatGPT App' });
 
   await h.controller.handle(h.ws, {
     type: 'select_app_target',
@@ -96,6 +98,16 @@ test('App-Origin server tests persist synthetic selections only through injected
   assert.equal(h.terminalRelayStorage.writes.length, 1);
   assert.equal(h.terminalRelayStorage.writes[0].id, h.target.id);
   assert.equal(h.terminalRelayStorage.writes[0].providerId, 'chatgpt-desktop');
+});
+
+test('App-Origin diagnostics preserve a proven persisted binding across UI reconnects', async () => {
+  const h = harness();
+  h.appTargets.advanceAppTargetBinding = (_expected, live) => live;
+  h.terminalRelayStorage.selection = { targetId: h.target.id, target: { ...h.target } };
+  h.uiSockets.clear();
+  await h.controller.refresh(null, { force: true });
+  assert.deepEqual(h.controller.diagnostics().appBinding,
+    { connected: true, providerName: 'ChatGPT App' });
 });
 
 test('Base Mode automatically restores a proven persisted App-Origin binding after restart', async () => {

@@ -419,20 +419,20 @@ function createAppTargetServerController({
   }
 
   function diagnostics() {
+    const binding = [...uiSockets].find((peer) => peer.clientKind === 'browser' && peer.appTargetBinding)?.appTargetBinding || lastTargets.map(persistedAdvancedBinding).find(Boolean) || null;
     return {
       targets: lastTargets.length,
       discovery: appTargets.discoveryDiagnostics(),
       passive: passiveWatcher.diagnostics(),
-      missedTerminalEvents: missedTerminalEvents.size
+      missedTerminalEvents: missedTerminalEvents.size,
+      appBinding: binding ? { connected: true, providerName: binding.providerName || 'App target' } : { connected: false }
     };
   }
-
   function stop() {
     passiveWatcher.stop();
     appTargets.stopAppTargets();
     lastTargets = [];
   }
-
   return { handle, refresh, announce, selected, diagnostics, stop,
     targets: () => lastTargets.map((target) => ({ ...target })) };
 }

@@ -23,7 +23,7 @@ function eligibleReplyNode(element, snapshot, { baseline = new Set(), prompt = '
   if (!includeOffscreen && (element?.isOffscreen === true || uia.propertyText(element, 'IsOffscreen') === 'True')) return null;
   const rawText = nodeText(element);
   const text = uia.normalizeCandidate(rawText);
-  if (!text || uia.isChromeText(text) || LIVE_STATUS.test(text) || roleTurns.isToolActivityElement(element, nodeText)) return null;
+  if (!text || markerless.markerlessChrome(text) || LIVE_STATUS.test(text) || roleTurns.isToolActivityElement(element, nodeText)) return null;
   if (ASSISTANT_MARKER.test(text) || USER_MARKER.test(text)) return null;
   const normalizedPrompt = uia.normalizeCandidate(prompt);
   if (normalizedPrompt && (text === normalizedPrompt
@@ -202,7 +202,7 @@ function roleMessageGroups(snapshot = {}) {
     if (!/(text|paragraph|document|listitem|heading)/.test(type)) continue;
     const rawText = nodeText(element);
     const text = uia.normalizeCandidate(rawText);
-    if (!text || uia.isChromeText(text) || LIVE_STATUS.test(text)
+    if (!text || markerless.markerlessChrome(text) || LIVE_STATUS.test(text)
         || (current.role === 'assistant' && roleTurns.isToolActivityElement(element, nodeText))
         || USER_MARKER.test(text) || ASSISTANT_MARKER.test(text)) continue;
     const selector = uia.selectorOf(element);

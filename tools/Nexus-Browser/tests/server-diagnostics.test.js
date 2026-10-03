@@ -10,7 +10,7 @@ test('HTTP diagnostics derive fresh state and preserve the source snapshot', () 
     dexStateStore: { load: () => saved, diagnostics: () => ({ repairs: [] }) },
     durability: { diagnostics: () => ({ incidents: 0 }) },
     localTargets: { discoveryDiagnostics: () => ({ antigravityExisting: { rejected: [{ pid: 10872, code: 'CONSOLE_PROBE_FAILED' }] } }) },
-    appTargetController: { diagnostics: () => ({ targets: 1, discovery: { ok: true }, passive: { bindings: [], ledger: { pending: 0 } } }) },
+    appTargetController: { diagnostics: () => ({ targets: 1, discovery: { ok: true }, passive: { bindings: [], ledger: { pending: 0 } }, appBinding: { connected: true, providerName: 'ChatGPT App' } }) },
     extensionSocket: { readyState: 1 }, extensionSessions: { diagnostics: () => ({ ready: true }) },
     uiSockets: new Set([{ clientKind: 'dex' }]), lastLocalTargets: [],
     dexScheduler: { diagnostics: () => ({ queued: 0 }) },
@@ -27,6 +27,7 @@ test('HTTP diagnostics derive fresh state and preserve the source snapshot', () 
   assert.equal(first.controlPlane.controlReceiptsPending, 1);
   assert.equal(first.localDiscovery.antigravityExisting.rejected[0].pid, 10872);
   assert.equal(first.appPassive.ledger.pending, 0);
+  assert.equal(first.appBinding.providerName, 'ChatGPT App');
   tabs = [{ id: 5, providerId: 'chatgpt', health: { blocking: true } }];
   const second = read();
   assert.equal(second.onlineTargets, 1);

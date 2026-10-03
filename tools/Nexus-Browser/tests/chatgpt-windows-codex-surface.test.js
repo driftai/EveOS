@@ -223,13 +223,19 @@ test('Codex completion announcement is chrome and does not duplicate the visible
     windows: [{ ...windowInfo, elements: [{
       selector: 'root', type: 'Pane', name: '',
       x: 0, y: 0, width: 1200, height: 900, children: [
+        { selector: 'user-role', type: 'Text', name: 'You said:',
+          x: 780, y: 300, width: 90, height: 24, children: [] },
         { selector: 'codex-prompt', type: 'Text', name: prompt,
           x: 780, y: 330, width: 320, height: 54, children: [] },
+        { selector: 'assistant-role', type: 'Text', name: 'ChatGPT said:',
+          x: 350, y: 390, width: 110, height: 20, children: [] },
         { selector: 'completion-live-region', type: 'Text',
           name: 'Response complete: ' + answer,
           x: 350, y: 410, width: 420, height: 26, children: [] },
         { selector: 'codex-answer', type: 'Text', name: answer,
           x: 350, y: 450, width: 300, height: 36, children: [] },
+        { selector: 'answer-time', type: 'Text', name: '9:03 PM',
+          x: 350, y: 490, width: 50, height: 18, children: [] },
         { selector: 'compose-codex', type: 'Edit', name: 'Do anything',
           x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
       ]

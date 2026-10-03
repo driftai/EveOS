@@ -66,6 +66,7 @@ def main():
             patch.object(nexus_browser_control, "_http_json", return_value={
                 "extensionConnected": True, "dexUiConnected": True,
                 "onlineTargets": 14, "localTargets": 1, "appTargets": 1, "dexRooms": 1,
+                "appBinding": {"connected": True, "providerName": "ChatGPT App"},
                 "extensionSessions": {
                     "connected": 2, "primaryReady": True, "primaryTabs": 14,
                     "standby": [{"ready": True, "tabs": 0}],
@@ -78,6 +79,7 @@ def main():
         status = nexus_browser_control.get_status()
         require(status["onlineTargets"] == 14, "authoritative provider target count was lost")
         require(status["appTargets"] == 1, "App-Origin target count was lost")
+        require(status["appBinding"]["providerName"] == "ChatGPT App", "App binding status was lost")
         require(status["extensionSessions"]["connected"] == 2, "extension session diagnostics were lost")
         require(status["extensionSessions"]["primaryTabs"] == 14, "primary extension tab count was lost")
         require(status["extensionSessions"]["standby"][0]["tabs"] == 0, "standby extension diagnostics were lost")

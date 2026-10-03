@@ -172,6 +172,7 @@ async function main() {
                         setupAvailable: false,
                         extensionReady: true,
                         extensionConnected: runtimeReady,
+                        appBinding: runtimeReady ? { connected: true, providerName: 'ChatGPT App' } : { connected: false },
                         onlineTargets: runtimeReady ? 14 : 0,
                         localTargets: runtimeReady ? 1 : 0,
                         dexRooms: runtimeReady ? 1 : 0,
@@ -236,6 +237,7 @@ async function main() {
             document.querySelector('[data-local-moe-state]')?.textContent?.trim() === 'Online'
             && document.querySelector('[data-tlo-state]')?.textContent?.trim() === 'Ready'
             && document.querySelector('[data-nexus-browser-state]')?.textContent?.trim() === 'Online'
+            && document.querySelector('[data-nexus-browser-app-connection]')?.textContent?.trim() === 'Connected · ChatGPT App'
         ), undefined, { timeout: 10000 });
 
         await page.locator('[data-agent-nexus-view="nexus-browser"]').first().click();
