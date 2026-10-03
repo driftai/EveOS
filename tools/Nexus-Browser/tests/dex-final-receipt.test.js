@@ -5,8 +5,8 @@ const { createOutbox, KEY, TTL_MS, MIN_RETRY_MS } = require('../extension/dex-fi
 const state = require('../dex/server-scheduler-state');
 const { mergeIdleRoom } = require('../dex/server-state-merge');
 
-function storage() {
-  let data = {};
+function storage(initial = {}) {
+  let data = structuredClone(initial);
   return {
     async get() { return structuredClone(data); },
     async set(next) { data = structuredClone({ ...data, ...next }); },
@@ -17,7 +17,7 @@ const ID = 'dex-turn-a5c1d6f6-47b9-423a-9fe0-d6452e923f28';
 const final = { type: 'response_final', requestId: ID, text: 'Completed.\n[[DEX:RETURN:' + ID + ']]' };
 const options = { tabId: 42, providerId: 'chatgpt' };
 
-test('the final outbox durably queues response text before sending and replays only the result', async () => {
+test('the Dex final outbox durably queues response text before sending and replays only the result', async () => {
   let now = 10000, sent = [];
   const disk = storage();
   const first = createOutbox({ storage: disk, now: () => now });
@@ -27,11 +27,11 @@ test('the final outbox durably queues response text before sending and replays o
   } })).ok, true);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].type, 'response_final');
-  assert.equal(first.flush({ ...options, send: (msg) => { sent.push(msg); return true; } }).sent, 0);
+  assert.equal(first.flush({ send: (msg) => { sent.push(msg); return true; } }).sent, 0);
   now += MIN_RETRY_MS + 1;
   const second = createOutbox({ storage: disk, now: () => now });
-  await second.restore(); // simulates a service-worker restart
-  const flushed = second.flush({ ...options, send: (msg) => { sent.push(msg); return true; } });
+  await second.restore();
+  const flushed = second.flush({ send: (msg) => { sent.push(msg); return true; } });
   assert.equal(flushed.sent, 1);
   assert.equal(sent.length, 2);
   assert.equal(sent[1].requestId, sent[0].requestId, 'never replay the prompt');
@@ -41,17 +41,29 @@ test('the final outbox durably queues response text before sending and replays o
   assert.equal(second.diagnostics().acknowledged, 1);
 });
 
-test('unconfirmed result expires visibly without replaying an unrelated tab or a changed reply', async () => {
+test('a queued Dex final can replay after the selected provider target changes', async () => {
   let now = 10000, sent = 0;
   const outbox = createOutbox({ storage: storage(), now: () => now });
-  await outbox.queue(final, { ...options, send: () => { sent++; return true; } });
-  assert.equal(outbox.flush({ tabId: 43, providerId: 'chatgpt', send: () => true }).sent, 0);
-  await assert.rejects(outbox.queue({ ...final, text: 'Conflicting result' }, { ...options }), /Conflicting final/);
-  now += TTL_MS + 1;
-  assert.equal(outbox.flush({ ...options, send: () => { sent++; return true; } }).sent, 0);
+  await outbox.queue(final, { ...options, send: () => { sent += 1; return true; } });
   assert.equal(sent, 1);
+  now += MIN_RETRY_MS + 1;
+  const replay = outbox.flush({ tabId: 777, providerId: 'claude', send: () => { sent += 1; return true; } });
+  assert.equal(replay.sent, 1, 'current target selection must not own an already-queued result');
+  assert.equal(sent, 2);
+  now += TTL_MS + 1;
+  assert.equal(outbox.flush({ send: () => { sent += 1; return true; } }).sent, 0);
   assert.equal(outbox.diagnostics().expiredUnconfirmed, 1);
-  assert.equal(outbox.diagnostics().pending, 1, 'unresolved result remains visible for diagnosis');
+});
+
+test('Base finals cannot enter Dex durable storage and legacy Base entries are discarded on restore', async () => {
+  const base = { type: 'response_final', requestId: 'base-turn-1', text: 'base reply' };
+  const disk = storage({ [KEY]: [{ requestId: base.requestId, tabId: 42, providerId: 'chatgpt', payload: base, createdAt: 10000, lastSentAt: 0 }] });
+  const restored = createOutbox({ storage: disk, now: () => 10001 });
+  await restored.restore();
+  assert.equal(restored.diagnostics().pending, 0);
+  assert.equal(restored.diagnostics().discardedLegacy, 1);
+  assert.deepEqual(disk.dump()[KEY], []);
+  await assert.rejects(restored.queue(base, { ...options, send: () => true }), /reserved for Dex request IDs/);
 });
 
 test('a persisted localhost receipt is idempotent and survives stale idle UI snapshots', () => {

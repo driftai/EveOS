@@ -25,8 +25,9 @@ const providerTargetListApi = globalThis.BrowserAiBridgeProviderTargetList || (t
 const chatgptAppMirrorWorkerApi = globalThis.BrowserAiBridgeChatGptAppMirrorWorker || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-app-mirror-worker.js') : null);
 const backgroundDispatchApi = globalThis.BrowserAiBridgeBackgroundDispatch || (typeof module !== 'undefined' && module.exports ? require('./background-dispatch.js') : null);
 const finalWiringApi = globalThis.BrowserAiBridgeDexFinalDeliveryWiring || (typeof module !== 'undefined' && module.exports ? require('./dex-final-delivery-wiring.js') : null);
+const requestOwnershipApi = globalThis.BrowserAiBridgeRequestOwnership || (typeof module !== 'undefined' && module.exports ? require('./request-ownership.js') : null);
 const tabReadinessApi = globalThis.BrowserAiBridgeTabReadiness || (typeof module !== 'undefined' && module.exports ? require('./tab-readiness.js') : null);
-if (!tabPublishApi || !providerApi || !providerHealthApi || !geminiPollApi || !geminiStudioWindowApi || !geminiStudioSubmitApi || !hostAccessApi || !targetStateApi || !targetResurrectionApi || !qualificationControlApi || !adapterReadinessApi || !adapterFreshnessApi || !dexUiEnsureApi || !providerTargetSpawnApi || !chatgptNavigationRecoveryApi || !providerTargetListApi || !chatgptAppMirrorWorkerApi || !backgroundDispatchApi || !tabReadinessApi || !finalWiringApi) {
+if (!tabPublishApi || !providerApi || !providerHealthApi || !geminiPollApi || !geminiStudioWindowApi || !geminiStudioSubmitApi || !hostAccessApi || !targetStateApi || !targetResurrectionApi || !qualificationControlApi || !adapterReadinessApi || !adapterFreshnessApi || !dexUiEnsureApi || !providerTargetSpawnApi || !chatgptNavigationRecoveryApi || !providerTargetListApi || !chatgptAppMirrorWorkerApi || !backgroundDispatchApi || !tabReadinessApi || !finalWiringApi || !requestOwnershipApi) {
   throw new Error('Bridge extension modules failed to load.');
 }
 const { createTabPublishController } = tabPublishApi; const { PROVIDERS, getProvider, providerForUrl, publicProviders } = providerApi;
@@ -35,8 +36,10 @@ const {
   stopResponsePoll, stopAllResponsePolls, sampleAiStudioTab, startAiStudioResponsePoll
 } = geminiPollApi;
 const { ensureAiStudioBridgePopup, keepAiStudioPopupReady, findExistingAiStudioPopup, withAiStudioSubmissionWindow } = geminiStudioWindowApi; const { submitAiStudioPrompt } = geminiStudioSubmitApi;
-let socket = null, reconnectTimer = null, heartbeatTimer = null, connectInFlight = false, targetTabId = null, targetProviderId = null, tabPublishController = null, targetRestoreAttempted = false; const selectedTargetStore = targetStateApi.createStore(), adapterReadiness = adapterReadinessApi.createCache();
-const finalDelivery = finalWiringApi.createForServiceWorker(globalThis.chrome, () => ({ tabId: targetTabId, providerId: targetProviderId }), safeSend, stopResponsePoll, chatgptNavigationRecoveryApi.stop, rememberCompletedRequest, emitError);
+let socket = null, reconnectTimer = null, heartbeatTimer = null, connectInFlight = false, targetTabId = null, targetProviderId = null, tabPublishController = null, targetRestoreAttempted = false;
+const selectedTargetStore = targetStateApi.createStore(), adapterReadiness = adapterReadinessApi.createCache();
+const requestOwners = requestOwnershipApi.createStore({ storage: globalThis.chrome?.storage?.session || globalThis.chrome?.storage?.local });
+const finalDelivery = finalWiringApi.createForServiceWorker(globalThis.chrome, safeSend, stopResponsePoll, chatgptNavigationRecoveryApi.stop, rememberCompletedRequest, emitError);
 const qualificationControl = qualificationControlApi.createControl({ chromeApi: globalThis.chrome, matchesProvider: (id, url) => providerMatchesUrl(getProvider(id), url) });
 async function clearSelectedTarget() { targetTabId = null; targetProviderId = null; await selectedTargetStore.clear(); }
 async function restoreSelectedTarget() {
@@ -154,7 +157,6 @@ loadProviderTargets = providerTargetListApi.createLoader({
 });
 async function selectTarget(tabId, requestedProviderId = null, options = {}) {
   if (!Number.isInteger(tabId)) throw new Error('Invalid tab ID.');
-  if (!options.readyOnly) stopAllResponsePolls();
   let tab = await chrome.tabs.get(tabId);
   if (tab.discarded) { if (options.readyOnly) throw Object.assign(new Error('Warm qualification target is discarded and may not be reloaded.'), { code: 'QUALIFICATION_WARM_TARGET_NOT_READY' }); await chrome.tabs.reload(tab.id); await new Promise((r) => setTimeout(r, 800)); tab = await chrome.tabs.get(tabId); }
   const provider = requestedProviderId ? getProvider(requestedProviderId) : providerForUrl(tab.url);
@@ -285,13 +287,14 @@ async function handleBridgeCommand(msg) {
           baseline: studioTransaction.baseline, expectedPrompt: msg.text, send: safeSend });
       } else {
         const initialUrl = tab.url || tab.pendingUrl || '';
+        if (msg.requestId) await requestOwners.remember(msg.requestId, Number(tab.id), provider.id);
         const result = await sendToTarget({ type: 'send_prompt', requestId: msg.requestId, text: msg.text, qualification: msg.qualification || null }, { readyOnly: warmQualification, tabId: qualificationClaim ? authorizedTabId : null, providerId: qualificationClaim?.providerId || null });
         if (!result?.ok) throw Object.assign(new Error(result?.error || `${provider.name} adapter rejected the prompt.`), { code: result?.code || 'PROMPT_SEND_FAILED', detail: result?.detail || null }); deliveryProof = result.deliveryProof || null; submissionMode = result.submissionMode || null; if (deliveryProof && deliveryProof.committed !== true) throw Object.assign(new Error('Provider adapter returned an uncommitted prompt delivery proof.'), { code: 'PROMPT_DELIVERY_UNCOMMITTED', detail: { deliveryProof } });
         if (!qualificationClaim) appMirrorWorker.noteCommittedPrompt(provider.id, tab.id, msg.requestId);
         if (!qualificationClaim && provider.id === 'chatgpt') chatgptNavigationRecoveryApi.start({ requestId: msg.requestId, tabId: tab.id, initialUrl, chromeApi: chrome, send: (payload) => finalDelivery.onCaptured(payload, tab.id, provider), completed: hasCompletedRequest, rememberCompleted: () => {} });
       }
       if (msg.qualification?.runId) { await qualificationControl.notePrompt({ runId: msg.qualification.runId, providerId: provider.id, tabId: authorizedTabId, requestId: msg.requestId, text: msg.text }); safeSend({ type: 'qualification_dispatch_committed', requestId: msg.requestId, runId: msg.qualification.runId, tabId: authorizedTabId, providerId: provider.id }); }
-      safeSend({ type: 'prompt_accepted', requestId: msg.requestId, tabId: qualificationClaim ? authorizedTabId : targetTabId, providerId: provider.id, providerName: provider.name, submissionMode, deliveryProof, observedAt: Date.now() });
+      safeSend({ type: 'prompt_accepted', requestId: msg.requestId, tabId: Number(tab.id), providerId: provider.id, providerName: provider.name, submissionMode, deliveryProof, observedAt: Date.now() });
       return;
     }
     if (msg.type === 'capture_latest') {
@@ -346,6 +349,7 @@ async function connect() {
   try {
     await appMirrorWorker.restore();
     await restoreSelectedTarget();
+    await requestOwners.restore();
     if (!(await localRelayReady())) {
       reconnectTimer = setTimeout(connect, 1200);
       return;
@@ -370,24 +374,82 @@ async function connect() {
     connectInFlight = false;
   }
 }
+function rejectProviderReturn(msg, senderTabId, authorization, sendResponse) {
+  const owner = authorization?.owner || null;
+  const reason = authorization?.reason || 'unbound-target';
+  const message = reason === 'tab-mismatch'
+    ? 'Provider reply came from a different tab than the request owner.'
+    : 'Provider reply has no matching request owner or selected target.';
+  emitError('RESPONSE_RETURN_REJECTED', message, msg?.requestId || null, {
+    reason,
+    messageType: msg?.type || null,
+    senderTabId: Number(senderTabId) || null,
+    ownerTabId: owner?.tabId ?? null,
+    ownerProviderId: owner?.providerId ?? null,
+    selectedTabId: targetTabId,
+    selectedProviderId: targetProviderId
+  });
+  if (msg?.type === 'response_final') sendResponse({ ok: false, code: 'RESPONSE_RETURN_REJECTED', error: message });
+}
+async function providerForRuntimeMessage(msg, sender) {
+  const tabId = Number(sender?.tab?.id);
+  if (!Number.isInteger(tabId)) return { ok: false, tabId: null, authorization: { reason: 'missing-tab', owner: null } };
+  const requestId = String(msg?.requestId || '');
+  if (requestId) {
+    const authorization = await requestOwners.authorize(requestId, tabId);
+    if (authorization.ok) {
+      const provider = getProvider(authorization.owner.providerId);
+      if (provider) return { ok: true, tabId, provider, authorization };
+      return { ok: false, tabId, authorization: { ...authorization, reason: 'missing-provider' } };
+    }
+    if (authorization.reason === 'tab-mismatch') return { ok: false, tabId, authorization };
+  }
+  if (tabId !== Number(targetTabId) || !targetProviderId) {
+    return { ok: false, tabId, authorization: { reason: 'missing-owner', owner: null } };
+  }
+  const provider = getProvider(targetProviderId);
+  if (!provider) return { ok: false, tabId, authorization: { reason: 'missing-provider', owner: null } };
+  if (requestId) await requestOwners.remember(requestId, tabId, provider.id);
+  return { ok: true, tabId, provider, authorization: { ok: true, reason: 'selected-target-fallback', owner: { tabId, providerId: provider.id } } };
+}
+async function handleProviderRuntimeMessage(msg, sender, sendResponse) {
+  const resolved = await providerForRuntimeMessage(msg, sender);
+  if (!resolved.ok) {
+    rejectProviderReturn(msg, resolved.tabId, resolved.authorization, sendResponse);
+    return;
+  }
+  const provider = resolved.provider;
+  appMirrorWorker.noteRuntimeMessage(msg, sender);
+  if (/^dex-(?:done-watch|heads-up)-/.test(String(msg.requestId || ''))) {
+    if (msg.type === 'response_final') { rememberCompletedRequest(msg.requestId); sendResponse({ ok: true, notification: true }); }
+    return;
+  }
+  if (msg.type === 'adapter_error') {
+    if (msg.requestId) { stopResponsePoll(msg.requestId); chatgptNavigationRecoveryApi.stop(msg.requestId); }
+    if (hasCompletedRequest(msg.requestId)) return;
+    emitError(msg.code || 'ADAPTER_ERROR', msg.message || `${provider.name} adapter error.`, msg.requestId || null, msg.detail || null);
+    return;
+  }
+  if (hasCompletedRequest(msg.requestId)) {
+    if (msg.type === 'response_final') sendResponse({ ok: true, alreadyCommitted: true });
+    return;
+  }
+  if (msg.type === 'response_final' && msg.requestId) {
+    finalDelivery.onFinal(msg, sender, sendResponse, provider);
+    return;
+  }
+  safeSend({ ...msg, providerId: provider.id, providerName: provider.name });
+}
 if (typeof chrome !== 'undefined' && chrome.runtime) {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (providerHealthApi.handle(msg, sender, { providerForUrl, safeSend, scheduleTabPublish })) return; if (!sender.tab?.id || sender.tab.id !== targetTabId) return;
+    if (providerHealthApi.handle(msg, sender, { providerForUrl, safeSend, scheduleTabPublish })) return;
     const allowed = new Set(['response_partial', 'response_final', 'response_activity', 'activity_update', 'adapter_error']);
-    if (!allowed.has(msg.type)) return;
-    const provider = getProvider(targetProviderId);
-    if (!provider) return;
-    appMirrorWorker.noteRuntimeMessage(msg, sender);
-    if (/^dex-(?:done-watch|heads-up)-/.test(String(msg.requestId || ''))) { if (msg.type === 'response_final') { rememberCompletedRequest(msg.requestId); sendResponse({ ok: true, notification: true }); } return; }
-    if (msg.type === 'adapter_error') {
-      if (msg.requestId) { stopResponsePoll(msg.requestId); chatgptNavigationRecoveryApi.stop(msg.requestId); }
-      if (hasCompletedRequest(msg.requestId)) return;
-      emitError(msg.code || 'ADAPTER_ERROR', msg.message || `${provider.name} adapter error.`, msg.requestId || null, msg.detail || null);
-      return;
-    }
-    if (hasCompletedRequest(msg.requestId)) { if (msg.type === 'response_final') sendResponse({ ok: true, alreadyCommitted: true }); return; }
-    if (msg.type === 'response_final' && msg.requestId) return finalDelivery.onFinal(msg, sender, sendResponse, provider);
-    safeSend({ ...msg, providerId: provider.id, providerName: provider.name });
+    if (!allowed.has(msg?.type)) return;
+    handleProviderRuntimeMessage(msg, sender, sendResponse).catch((error) => {
+      emitError('RESPONSE_RETURN_FAILED', error.message, msg?.requestId || null, { senderTabId: sender?.tab?.id ?? null, messageType: msg?.type || null });
+      if (msg?.type === 'response_final') sendResponse({ ok: false, code: 'RESPONSE_RETURN_FAILED', error: error.message });
+    });
+    return msg.type === 'response_final';
   });
   chrome.tabs.onRemoved.addListener(async (tabId) => {
     await appMirrorWorker.onTabRemoved(tabId);

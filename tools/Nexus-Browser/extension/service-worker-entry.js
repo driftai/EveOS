@@ -18,6 +18,7 @@ if (typeof importScripts === 'function') {
   importScripts('chatgpt-stream-nudge-bridge.js');
   importScripts('dex-final-receipt.js');
   importScripts('dex-final-delivery-wiring.js');
+  importScripts('request-ownership.js');
   importScripts('host-access.js');
   importScripts('target-state.js');
   importScripts('target-resurrection.js');
