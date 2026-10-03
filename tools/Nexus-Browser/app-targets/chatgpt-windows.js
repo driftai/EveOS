@@ -302,6 +302,7 @@ function createAdapter({
     const deadline = acceptedAt + responseTimeoutMs;
     let lastText = '', publishedText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null, progressState = 'replace';
     let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0;
+    let hasFreshVisiblePoll = false;
     let pollInspectMs = 0, finalReconstructionMs = 0, firstResponseRescueInspectMs = 0;
     let firstResponseRescueAttempts = 0, rescueAttemptsSinceProgress = 0, lastFirstResponseRescueAt = 0;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
@@ -313,6 +314,7 @@ function createAdapter({
         lastSnapshot = await inspect({
           hwnd: target.windowHandle, pid: target.pid, title: target.title
         });
+        hasFreshVisiblePoll = true;
         pollInspectMs += Math.max(0, Date.now() - pollInspectStartedAt);
       }
       pollCount += 1;
@@ -322,7 +324,7 @@ function createAdapter({
       const visibleCandidate = observed.text;
       if (visibleCandidate && visibleCandidate !== lastText) rescueAttemptsSinceProgress = 0;
 
-      const rescueDue = shouldRunOffscreenRescue({
+      const rescueDue = hasFreshVisiblePoll && shouldRunOffscreenRescue({
         observed,
         candidate: visibleCandidate,
         lastText,
