@@ -83,11 +83,14 @@ def _cache_set(key: str, value: dict) -> None:
 
 
 def _helper_command(mode: str, normalized: dict, status_path: Path | None = None) -> list[str]:
+    # Spotify's Embed UI truncates large playlists around 100 tracks. The extractor already uses
+    # a saved browser profile and scrolls the playlist, so point it at the full Web Player page
+    # where Spotify can load the remaining rows as the scraper advances through the list.
     command = [
         "node",
         str(_project_root() / "server_modules" / "audioflix_spotify_scrape.js"),
         mode,
-        normalized["embedUrl"],
+        normalized["url"],
         str(_profile_dir()),
     ]
     if status_path:
