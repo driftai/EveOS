@@ -10,7 +10,7 @@ const windowInfo = {
   x: 0, y: 0, width: 1200, height: 900
 };
 
-function normalTree({ prompt = '', answer = '', status = '', commentaryComplete = false, followup = '', complete = false, composer = 'Ask ChatGPT', send = false } = {}) {
+function normalTree({ prompt = '', answer = '', status = '', commentaryComplete = false, followup = '', complete = false, completeAction = 'Copy', composer = 'Ask ChatGPT', send = false } = {}) {
   const children = [
     ...(prompt ? [
       { selector: 'user-role', type: 'Text', name: 'You said:', x: 850, y: 150, width: 1, height: 2, children: [] },
@@ -28,7 +28,7 @@ function normalTree({ prompt = '', answer = '', status = '', commentaryComplete 
       { selector: 'assistant-role-2', type: 'Text', name: 'ChatGPT said:', x: 280, y: 380, width: 1, height: 2, children: [] },
       { selector: 'assistant-text-2', type: 'Paragraph', name: followup, x: 280, y: 410, width: 650, height: 90, children: [] }
     ] : []),
-    ...(complete ? [{ selector: 'copy-response', type: 'Button', name: 'Copy',
+    ...(complete ? [{ selector: 'copy-response', type: 'Button', name: completeAction,
       x: 280, y: followup ? 515 : 375, width: 36, height: 28, children: [] }] : []),
     { selector: 'composer', type: 'Document', name: composer, automationId: 'prompt-textarea',
       x: 320, y: 790, width: 800, height: 64, isKeyboardFocusable: true, children: [] },
@@ -133,6 +133,24 @@ test('tool-like wording in the user prompt is never mistaken for tool activity',
   const snapshot = snapshotFromInspect({ windowInfo, json });
   const observed = conversation.responseForPrompt(snapshot, { prompt });
   assert.equal(observed.nativeTurn?.text, 'Plain final answer.');
+  assert.equal(observed.activityHint, false);
+  assert.equal(observed.provisional, false);
+});
+
+test('Read aloud is completion evidence rather than live tool activity', () => {
+  const conversation = require('../app-targets/chatgpt-windows-conversation');
+  const { snapshotFromInspect } = require('../app-targets/chatgpt-windows-uia');
+  const prompt = 'return the short acknowledgement';
+  const json = normalTree({
+    prompt,
+    answer: 'SHORT_ACK_OK',
+    complete: true,
+    completeAction: 'Read aloud'
+  });
+  const snapshot = snapshotFromInspect({ windowInfo, json });
+  const observed = conversation.responseForPrompt(snapshot, { prompt });
+  assert.equal(observed.nativeTurn?.text, 'SHORT_ACK_OK');
+  assert.equal(observed.nativeTurn?.completeHint, true);
   assert.equal(observed.activityHint, false);
   assert.equal(observed.provisional, false);
 });

@@ -44,14 +44,17 @@ function isToolActivityElement(element = {}, nodeText = () => '') {
   if (/(paragraph|listitem|heading)/.test(uia.controlType(element))) return false;
   const text = uia.normalizeCandidate(nodeText(element));
   if (!text || text.length > 120) return false;
+  // Completed replies expose actions such as "Read aloud" immediately beneath
+  // the assistant text. Those actions are completion evidence, never live tool
+  // activity; classifying them as activity leaves short replies provisional.
+  if (RESPONSE_ACTION.test(text)) return false;
   if (TOOL_ACTIVITY.test(text)) return true;
   const meta = [
     uia.selectorOf(element),
     uia.propertyText(element, 'automationId'),
     uia.propertyText(element, 'className')
   ].join(' ').toLowerCase();
-  return /(?:tool|status|activity|progress|reason|thinking|search|browse)/.test(meta)
-    && !RESPONSE_ACTION.test(text);
+  return /(?:tool|status|activity|progress|reason|thinking|search|browse)/.test(meta);
 }
 
 function hasToolActivity(snapshot = {}, nodeText = () => '') {

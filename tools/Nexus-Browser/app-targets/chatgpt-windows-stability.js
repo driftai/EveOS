@@ -64,7 +64,11 @@ async function verifyCachedTarget({ cachedTarget, inspect, conversationIdentity,
       pid: cachedTarget.pid,
       title: cachedTarget.title
     };
-    const snapshot = await inspect(boundWindow);
+    // Conversation anchors rotate as new turns push the previously visible pair
+    // above the viewport. Keep verification scoped to the exact bound HWND, but
+    // include its offscreen tree so continuity can be proven without falling back
+    // to global window discovery after every successful turn.
+    const snapshot = await inspect(boundWindow, { includeOffscreen: true, depth: 12 });
     const sameWindow = String(snapshot.hwnd) === String(cachedTarget.windowHandle)
       && String(snapshot.pid) === String(cachedTarget.pid);
     const identity = conversationIdentity(snapshot);

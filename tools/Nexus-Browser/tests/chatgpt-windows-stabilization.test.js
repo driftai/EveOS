@@ -7,7 +7,8 @@ const {
   monotonicPartial,
   authoritativePartial,
   currentTurnComplete,
-  shouldRunOffscreenRescue
+  shouldRunOffscreenRescue,
+  verifyCachedTarget
 } = require('../app-targets/chatgpt-windows');
 
 function inspection(windowInfo, title = 'Native Eve Test') {
@@ -191,4 +192,34 @@ test('published partials never shrink or oscillate while final truth may be shor
   assert.equal(authoritativePartial(published, authoritativeFinal, {
     correlated: true, nativeTurn: { completeHint: false }, provisional: false
   }), published, 'an incomplete reconstruction must remain monotonic');
+});
+
+test('cached verification keeps exact-HWND scope while including rotated offscreen anchors', async () => {
+  const cachedTarget = {
+    id: 'app-chatgpt-windows', providerId: 'chatgpt-desktop',
+    pid: 4242, windowHandle: 777,
+    concreteTargetIdentity: {
+      processId: 4242, windowHandle: 777,
+      conversationAnchor: 'old-anchor', conversationAnchors: ['old-anchor']
+    }
+  };
+  let inspectedWindow = null, inspectedOptions = null;
+  const verified = await verifyCachedTarget({
+    cachedTarget,
+    async inspect(windowInfo, options) {
+      inspectedWindow = windowInfo; inspectedOptions = options;
+      return { hwnd: 777, pid: 4242, windowInfo, elements: [] };
+    },
+    conversationIdentity() {
+      return { conversationAnchor: 'new-anchor', conversationAnchors: ['old-anchor', 'new-anchor'] };
+    },
+    targetFromIdentity(windowInfo, identity) {
+      return { ...cachedTarget, windowInfo, concreteTargetIdentity: { ...cachedTarget.concreteTargetIdentity, ...identity } };
+    }
+  });
+
+  assert.equal(inspectedWindow.hwnd, 777);
+  assert.equal(inspectedWindow.pid, 4242);
+  assert.deepEqual(inspectedOptions, { includeOffscreen: true, depth: 12 });
+  assert.equal(verified.concreteTargetIdentity.conversationAnchor, 'new-anchor');
 });
