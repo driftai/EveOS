@@ -10,9 +10,12 @@ window.EveAudioflixLocalize = window.EveAudioflixLocalize || {};
     const state = () => S()?.ensure?.() || {};
     const text = (v) => String(v ?? '').trim();
     const isHttp = (u) => /^https?:\/\//i.test(text(u));
+    const isSpotifyTrack = (it) => text(it?.sourceProvider).toLowerCase() === 'spotify'
+        || /^https?:\/\/open\.spotify\.com\/(?:embed\/)?track\//i.test(text(it?.url));
     const paths = window.EveAudioflixPaths;
     const sameText = (a, b) => text(a).toLowerCase() === text(b).toLowerCase();
     const scopeDirKey = (scope, key = '') => `${scope}:${key || ''}`;
+    let spotifyRecovery = null;
     const readScopeDir = (scope, key = '') => {
         const wanted = scopeDirKey(scope, key).toLowerCase();
         const match = Object.entries(state().localizeScopeDirs || {})
@@ -245,12 +248,15 @@ window.EveAudioflixLocalize = window.EveAudioflixLocalize || {};
     }
     // Add/replace a track's localization for one source, then refresh its effective localPath.
     // `linkOf` (shortcuts only) records the PHYSICAL file the link points at, so the disk sensor can
-    // verify the real bytes rather than deciding a shortcut is missing.
-    function addLocalization(track, source, path, kind = 'file', linkOf = '') {
+    // verify the real bytes rather than deciding a shortcut is missing. Optional metadata records how
+    // an alternate resolver produced a physical copy without changing the canonical online URL.
+    function addLocalization(track, source, path, kind = 'file', linkOf = '', metadata = {}) {
         const cleanPath = text(path);
         if (!track?.id || !cleanPath || !source) return;
         const next = (track.localizations || []).filter((l) => !sameText(l.source, source));
-        next.push(linkOf ? { source, path: cleanPath, kind, linkOf: text(linkOf) } : { source, path: cleanPath, kind });
+        const entry = { ...metadata, source, path: cleanPath, kind };
+        if (linkOf) entry.linkOf = text(linkOf);
+        next.push(entry);
         S()?.updateItem?.('music', track.id, { localizations: next, localPath: effectiveLocalPath({ localizations: next, localPath: track.localPath }) });
     }
     // library/song localize attributes to the track's own folder (so it counts as 1st class) or a
@@ -262,15 +268,76 @@ window.EveAudioflixLocalize = window.EveAudioflixLocalize || {};
         return folder ? `folder:${folder}` : `manual:${track.id}`;
     }
 
-    // Spotify tracks are NOT refused here any more. Spotify's own audio is Widevine-encrypted and
-    // still never downloaded; what the server does instead is read the track's public metadata and
-    // localize the YouTube video holding the same recording, matched on exact duration. Blocking the
-    // call client-side meant that server capability was unreachable from the UI — the download only
-    // ever ran from a script. An owned local file still wins: localizeScope recalibrates first, so a
-    // track that already has the real file on disk never reaches this function at all.
-    async function downloadInto(N, it, dir, mediaFormat = 'audio') {
-        const res = await N.localizeTrack({ id: it.id, title: it.title, url: it.url }, dir, { mediaFormat });
-        return (res?.ok && res.filePath) ? { ok: true, path: res.filePath } : { ok: false, error: res?.error || res?.message || 'download failed' };
+    const failureFor = (it, error, source) => ({
+        id: it.id,
+        title: text(it.title) || 'Untitled Track',
+        url: text(it.url),
+        source,
+        sourceProvider: text(it.sourceProvider),
+        error: text(error) || 'download failed',
+        fallbackEligible: isSpotifyTrack(it)
+    });
+    const fallbackMetadata = (it, dl) => dl?.method === 'spotify-fallback' ? {
+        method: 'spotify-fallback',
+        resolver: text(dl.resolver),
+        originalUrl: text(it.url),
+        matchedUrl: text(dl.matchedUrl)
+    } : {};
+
+    function getSpotifyRecovery() {
+        if (!spotifyRecovery) return null;
+        return { ...spotifyRecovery, failures: (spotifyRecovery.failures || []).map((entry) => ({ ...entry })) };
+    }
+    function clearSpotifyRecovery() {
+        spotifyRecovery = null;
+        return true;
+    }
+    function finalizeLocalizationResult(result, scope, key, dir, mode, mediaFormat, resolverMode) {
+        const failures = Array.isArray(result?.failures) ? result.failures : [];
+        const eligible = resolverMode === 'standard' ? failures.filter((entry) => entry.fallbackEligible) : [];
+        if (eligible.length) {
+            spotifyRecovery = {
+                scope,
+                key,
+                targetDir: dir,
+                mode,
+                mediaFormat,
+                failures: eligible,
+                attempted: false,
+                createdAt: Date.now()
+            };
+        } else {
+            spotifyRecovery = null;
+        }
+        return {
+            ...result,
+            failures,
+            fallbackEligible: eligible.length,
+            resolverMode,
+            recovery: eligible.length ? { eligible: true, count: eligible.length } : null
+        };
+    }
+
+    // The standard Spotify path remains the default. An explicit resolverMode of
+    // `spotify-fallback` only switches Spotify-linked tracks; other providers continue through the
+    // normal localizer. There is deliberately NO automatic retry here after a failed standard call.
+    async function downloadInto(N, it, dir, mediaFormat = 'audio', resolverMode = 'standard') {
+        const method = resolverMode === 'spotify-fallback' && isSpotifyTrack(it)
+            ? 'spotify-fallback' : 'standard';
+        const res = await N.localizeTrack(
+            { id: it.id, title: it.title, url: it.url },
+            dir,
+            { mediaFormat, method }
+        );
+        return (res?.ok && res.filePath)
+            ? {
+                ok: true,
+                path: res.filePath,
+                method: res.method || method,
+                resolver: res.resolver || '',
+                matchedUrl: res.matchedUrl || ''
+            }
+            : { ok: false, error: res?.error || res?.message || 'download failed', method };
     }
 
     // Group localization, three ways (class priority always decides playback):
@@ -278,14 +345,15 @@ window.EveAudioflixLocalize = window.EveAudioflixLocalize || {};
     //             (no second copy on disk); the rest download into the group path (2nd class).
     //   'smart' — no shortcuts: folder copies skipped, every other online song downloads here.
     //   'dup'   — ignore classes: own copy of every song here (folder file still plays first).
-    async function localizeGroup(groupKey, dir, onProgress, mode = 'link', mediaFormat = 'audio') {
+    async function localizeGroup(groupKey, dir, onProgress, mode = 'link', mediaFormat = 'audio', resolverMode = 'standard') {
         const N = window.EveAudioflixNative;
         const source = `group:${groupKey}`;
         const members = collectScope('group', groupKey);
         let done = 0, shortcut = 0, skipped = 0, failed = 0, lastError = '';
+        const failures = [];
         for (let i = 0; i < members.length; i += 1) {
             const it = members[i];
-            onProgress?.({ index: i + 1, total: members.length, title: it.title });
+            onProgress?.({ index: i + 1, total: members.length, title: it.title, resolverMode });
             const folderFile = (it.localizations || []).find((l) => l.source.startsWith('folder:') && l.kind === 'file' && text(l.path));
             // A real file this track already has somewhere else (another group, or a legacy localPath).
             const elsewhereFile = (it.localizations || []).find((l) => l.kind === 'file' && text(l.path) && l.source !== source)
@@ -303,38 +371,111 @@ window.EveAudioflixLocalize = window.EveAudioflixLocalize || {};
                 continue;
             }
             if (!isHttp(it.url)) { skipped += 1; continue; }
-            const dl = await downloadInto(N, it, dir, mediaFormat);
-            if (dl.ok) { addLocalization(it, source, dl.path, 'file'); done += 1; }
-            else { failed += 1; lastError = dl.error; }
+            const dl = await downloadInto(N, it, dir, mediaFormat, resolverMode);
+            if (dl.ok) {
+                addLocalization(it, source, dl.path, 'file', '', fallbackMetadata(it, dl));
+                done += 1;
+            } else {
+                failed += 1;
+                lastError = dl.error;
+                failures.push(failureFor(it, dl.error, source));
+            }
         }
-        return { ok: failed === 0 || done + shortcut > 0, done, shortcut, skipped, failed, total: members.length, targetDir: dir, mode, lastError };
+        return { ok: failed === 0 || done + shortcut > 0, done, shortcut, skipped, failed, total: members.length, targetDir: dir, mode, lastError, failures };
     }
 
     // Download every candidate in the scope to targetDir, tagging each with a scope-appropriate
     // localization. `force` re-downloads already-local tracks (relocalize). Group scope dispatches
-    // to the class-aware path (`mode`).
-    async function localizeScope(scope, key, targetDir, onProgress, force = false, mode = 'link', mediaFormat = 'audio') {
+    // to the class-aware path (`mode`). resolverMode is standard unless the USER explicitly selects
+    // Spotify fallback; failures from standard are only recorded for later recovery.
+    async function localizeScope(scope, key, targetDir, onProgress, force = false, mode = 'link', mediaFormat = 'audio', resolverMode = 'standard') {
         const N = window.EveAudioflixNative;
         if (!N?.localizeTrack) return { ok: false, reason: 'Localization needs the EveOS localhost server running.' };
         const dir = text(targetDir);
         if (!dir) return { ok: false, reason: 'No target folder was chosen.' };
+        const resolver = resolverMode === 'spotify-fallback' ? 'spotify-fallback' : 'standard';
+        spotifyRecovery = null;
         // Attach already-owned files before considering a network localization. This keeps a file the
         // user actually owns ahead of any download (which matters most for Spotify tracks, whose
-        // download is a YouTube match rather than the Spotify master) and avoids re-fetching other
-        // dual-source tracks that are already present under a newly selected directory.
+        // download is a matched independent-source recording rather than the Spotify master) and
+        // avoids re-fetching other dual-source tracks already present under the selected directory.
         await recalibrateScopePath(scope, key, dir);
-        if (scope === 'group') return localizeGroup(key, dir, onProgress, mode, mediaFormat);
+        if (scope === 'group') {
+            const result = await localizeGroup(key, dir, onProgress, mode, mediaFormat, resolver);
+            return finalizeLocalizationResult(result, scope, key, dir, mode, mediaFormat, resolver);
+        }
         const items = localizeCandidates(scope, key, force);
-        if (!items.length) return { ok: true, done: 0, failed: 0, total: 0, targetDir: dir, note: 'Nothing to localize.' };
+        if (!items.length) {
+            return finalizeLocalizationResult(
+                { ok: true, done: 0, failed: 0, total: 0, targetDir: dir, note: 'Nothing to localize.', failures: [] },
+                scope, key, dir, mode, mediaFormat, resolver
+            );
+        }
         let done = 0, failed = 0, lastError = '';
+        const failures = [];
         for (let i = 0; i < items.length; i += 1) {
             const it = items[i];
-            onProgress?.({ index: i + 1, total: items.length, title: it.title });
-            const dl = await downloadInto(N, it, dir, mediaFormat);
-            if (dl.ok) { addLocalization(it, sourceForScope(scope, key, it), dl.path, 'file'); done += 1; }
-            else { failed += 1; lastError = dl.error; }
+            onProgress?.({ index: i + 1, total: items.length, title: it.title, resolverMode: resolver });
+            const source = sourceForScope(scope, key, it);
+            const dl = await downloadInto(N, it, dir, mediaFormat, resolver);
+            if (dl.ok) {
+                addLocalization(it, source, dl.path, 'file', '', fallbackMetadata(it, dl));
+                done += 1;
+            } else {
+                failed += 1;
+                lastError = dl.error;
+                failures.push(failureFor(it, dl.error, source));
+            }
         }
-        return { ok: done > 0 || failed === 0, done, failed, total: items.length, targetDir: dir, lastError };
+        return finalizeLocalizationResult(
+            { ok: done > 0 || failed === 0, done, failed, total: items.length, targetDir: dir, lastError, failures },
+            scope, key, dir, mode, mediaFormat, resolver
+        );
+    }
+
+    // Retry ONLY the Spotify tracks captured from the previous STANDARD run. This method is never
+    // called from localizeScope itself; the UI has to invoke it explicitly after showing the user the
+    // failed track list. Successful files return through addLocalization so folder/group class rules
+    // stay exactly the same as the normal localization path.
+    async function retrySpotifyRecovery(onProgress) {
+        const recovery = getSpotifyRecovery();
+        if (!recovery?.failures?.length) return { ok: false, reason: 'No Spotify fallback recovery is pending.' };
+        const N = window.EveAudioflixNative;
+        if (!N?.localizeTrack) return { ok: false, reason: 'Localization needs the EveOS localhost server running.' };
+        const pending = recovery.failures.slice();
+        let done = 0, lastError = '';
+        const failures = [];
+        for (let i = 0; i < pending.length; i += 1) {
+            const failure = pending[i];
+            const it = musicItems().find((item) => item.id === failure.id);
+            onProgress?.({ index: i + 1, total: pending.length, title: failure.title, resolverMode: 'spotify-fallback' });
+            if (!it) {
+                const missing = { ...failure, error: 'Track no longer exists in the Audioflix library.' };
+                failures.push(missing);
+                lastError = missing.error;
+                continue;
+            }
+            const dl = await downloadInto(N, it, recovery.targetDir, recovery.mediaFormat, 'spotify-fallback');
+            if (dl.ok) {
+                addLocalization(it, failure.source || sourceForScope(recovery.scope, recovery.key, it), dl.path, 'file', '', fallbackMetadata(it, dl));
+                done += 1;
+            } else {
+                const nextFailure = failureFor(it, dl.error, failure.source || sourceForScope(recovery.scope, recovery.key, it));
+                failures.push(nextFailure);
+                lastError = dl.error;
+            }
+        }
+        spotifyRecovery = failures.length ? { ...recovery, failures, attempted: true } : null;
+        return {
+            ok: done > 0 || failures.length === 0,
+            done,
+            failed: failures.length,
+            total: pending.length,
+            targetDir: recovery.targetDir,
+            failures,
+            lastError,
+            resolverMode: 'spotify-fallback'
+        };
     }
 
     // For a group's "view paths" popover: 1st-class folder files of its members + the group's own
@@ -377,7 +518,11 @@ window.EveAudioflixLocalize = window.EveAudioflixLocalize || {};
             path: l.path,
             kind: l.kind,
             source: l.source,
-            linkOf: text(l.linkOf)
+            linkOf: text(l.linkOf),
+            method: text(l.method),
+            resolver: text(l.resolver),
+            originalUrl: text(l.originalUrl),
+            matchedUrl: text(l.matchedUrl)
         }));
     }
 
@@ -429,6 +574,10 @@ window.EveAudioflixLocalize = window.EveAudioflixLocalize || {};
         localizeCandidates,
         scopeStats,
         effectiveLocalPath,
+        isSpotifyTrack,
+        getSpotifyRecovery,
+        clearSpotifyRecovery,
+        retrySpotifyRecovery,
         localizeScope,
         localizeGroup,
         groupLocalizationPaths,

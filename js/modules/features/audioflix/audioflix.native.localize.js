@@ -32,11 +32,17 @@ window.EveAudioflixNativeLocalize = window.EveAudioflixNativeLocalize || {};
             }
         }
 
-        // Download one online track to a local folder (yt-dlp -> mp3, needs the server). Long timeout:
-        // a full download + ffmpeg convert can take a while.
+        // Download one online track to a local folder (yt-dlp -> mp3, needs the server). The normal
+        // endpoint stays the default. Spotify fallback has its own endpoint and is selected only when
+        // the caller explicitly asks for method=spotify-fallback; a failed standard call never flips
+        // itself over to that endpoint.
         async function localizeTrack(track, targetDir, options = {}) {
             if (!track?.url || !targetDir) return { ok: false, error: 'Missing track URL or target folder.' };
-            return fetchJson('/api/audioflix/localize', {
+            const method = options.method === 'spotify-fallback' ? 'spotify-fallback' : 'standard';
+            const endpoint = method === 'spotify-fallback'
+                ? '/api/audioflix/localize-spotify-fallback'
+                : '/api/audioflix/localize';
+            return fetchJson(endpoint, {
                 method: 'POST',
                 body: JSON.stringify({ track, targetDir, mediaFormat: options.mediaFormat === 'video' ? 'video' : 'audio' }),
                 timeout: 180000,
