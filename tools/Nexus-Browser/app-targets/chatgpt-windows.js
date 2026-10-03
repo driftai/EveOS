@@ -3,6 +3,7 @@ const defaultRunner = require('./winapp-runner'), uia = require('./chatgpt-windo
   conversation = require('./chatgpt-windows-conversation'), replyProgress = require('./chatgpt-windows-reply-progress'),
   titleResolver = require('./chatgpt-windows-title'), timeoutRecovery = require('./chatgpt-windows-timeout-recovery'),
   stability = require('./chatgpt-windows-stability'), capture = require('./chatgpt-windows-capture'),
+  busyRecovery = require('./chatgpt-windows-busy-recovery'),
   { createSubmitter } = require('./chatgpt-windows-submit');
 const {
   windowsFromEnvelope, pickMainWindow, hwndOf, pidOf, selectorOf,
@@ -214,6 +215,8 @@ function createAdapter({
   const stageAndSubmit = createSubmitter({
     runner, inspect, recoverComposer, recoverSend, sleepFn
   });
+  const busyRecoveryController = busyRecovery.createBusyRecoveryController({ inspect, sleepFn, now });
+
   async function sendPrompt({ requestId, text, target, emit, transportTiming = {} }) {
     const dispatchWallStartedAt = Date.now();
     const dispatchStartedAt = now();
@@ -244,8 +247,65 @@ function createAdapter({
     let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0, hasFreshVisiblePoll = false;
     let pollInspectMs = 0, finalReconstructionMs = 0, firstResponseRescueInspectMs = 0;
     let firstResponseRescueAttempts = 0, rescueAttemptsSinceProgress = 0, visiblePollsSinceProgress = 0, lastFirstResponseRescueAt = 0;
+    let finalized = false;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
+    busyRecoveryController.start({ target, requestId, prompt: text, baseline: baselineSet, acceptedAt });
+
+    function finalizeResponse({
+      text: finalText,
+      snapshot: finalSnapshot,
+      nativeTurn: finalNativeTurn = nativeTurn,
+      completenessHint = 'settled',
+      adapterSettleMs = Math.max(0, now() - lastChangedAt),
+      extraTiming = {}
+    }) {
+      if (finalized) return { text: finalText, snapshot: finalSnapshot, nativeTurn: finalNativeTurn };
+      finalized = true;
+      const finalizedAt = now();
+      if (!firstResponseAt && finalText) firstResponseAt = finalizedAt;
+      lastText = finalText || lastText;
+      lastSnapshot = finalSnapshot || lastSnapshot;
+      nativeTurn = finalNativeTurn || nativeTurn;
+      const timing = {
+        ...dispatchTiming,
+        timeToFirstResponseMs: firstResponseAt ? Math.max(0, firstResponseAt - acceptedAt) : null,
+        totalResponseMs: Math.max(0, finalizedAt - acceptedAt),
+        nexusRoundTripMs: Math.max(0, finalizedAt - dispatchStartedAt),
+        adapterSettleMs,
+        pollInspectMs,
+        finalReconstructionMs,
+        pollCount,
+        sawGenerating,
+        firstResponseRescueAttempts,
+        firstResponseRescueInspectMs,
+        ...extraTiming
+      };
+      turnState.set(target.id, { phase: 'idle', requestId, latestText: lastText,
+        completedAt: finalizedAt, sawGenerating, timing });
+      busyRecoveryController.finish(target.id, requestId);
+      emit?.({
+        type: 'response_final', requestId, text: lastText, observedAt: finalizedAt,
+        completenessHint,
+        detail: timing,
+        targetClassId: 'app-origin', targetId: target.id,
+        providerId: PROVIDER_ID, providerName: PROVIDER_NAME
+      });
+      return { text: lastText, snapshot: lastSnapshot, nativeTurn };
+    }
+
     while (now() < deadline) {
+      const forced = busyRecoveryController.forcedFinal(target.id, requestId);
+      if (forced) {
+        if (!firstResponseAt) firstResponseAt = forced.observedAt || now();
+        return finalizeResponse({
+          text: forced.text,
+          snapshot: forced.snapshot,
+          nativeTurn: forced.nativeTurn,
+          completenessHint: forced.completenessHint || 'busy-recovered',
+          extraTiming: { busyRecoveryProbeMs: Number(forced.probeMs || 0), busyRecovered: true }
+        });
+      }
+
       if (committedPending) { lastSnapshot = committedSnapshot; committedPending = false; }
       else {
         await sleepFn(firstPoll ? firstPollMs : pollMs); firstPoll = false;
@@ -312,6 +372,7 @@ function createAdapter({
         lastText = mergedText; tailStablePasses = 0; rescueAttemptsSinceProgress = 0; visiblePollsSinceProgress = 0;
         if (!firstResponseAt) firstResponseAt = observedAt;
         lastChangedAt = observedAt;
+        busyRecoveryController.progress(target.id, requestId, mergedText, observedAt);
         turnState.set(target.id, { phase: 'streaming', requestId, startedAt: acceptedAt,
           latestText: mergedText, sawGenerating });
         const publishable = monotonicPartial(publishedText, mergedText);
@@ -345,6 +406,7 @@ function createAdapter({
           lastSnapshot = fullSnapshot; if (full.progressMode === 'accumulate' && full.nativeTurn?.text && reconstructed === full.nativeTurn.text && !replyProgress.needsTailGuard(reconstructed)) progressState = 'native';
           if (reconstructed && reconstructed !== lastText) {
             lastText = reconstructed; lastChangedAt = now(); tailStablePasses = 0;
+            busyRecoveryController.progress(target.id, requestId, lastText, lastChangedAt);
             const publishable = authoritativePartial(publishedText, lastText, full);
             if (publishable !== publishedText) {
               publishedText = publishable;
@@ -358,45 +420,40 @@ function createAdapter({
         } catch {} finally {
           finalReconstructionMs += Math.max(0, Date.now() - reconstructionStartedAt);
         }
-        const finalizedAt = now();
-        const timing = {
-          ...dispatchTiming,
-          timeToFirstResponseMs: firstResponseAt ? Math.max(0, firstResponseAt - acceptedAt) : null,
-          totalResponseMs: Math.max(0, finalizedAt - acceptedAt),
-          nexusRoundTripMs: Math.max(0, finalizedAt - dispatchStartedAt),
-          adapterSettleMs: stableFor, pollInspectMs, finalReconstructionMs, pollCount, sawGenerating,
-          firstResponseRescueAttempts, firstResponseRescueInspectMs
-        };
-        turnState.set(target.id, { phase: 'idle', requestId, latestText: lastText,
-          completedAt: finalizedAt, sawGenerating, timing });
-        emit?.({
-          type: 'response_final', requestId, text: lastText, observedAt: finalizedAt,
+        return finalizeResponse({
+          text: lastText,
+          snapshot: lastSnapshot,
+          nativeTurn,
           completenessHint: turnOwnedComplete ? 'turn-complete' : sawGenerating ? 'generation-ended' : 'settled',
-          detail: timing,
-          targetClassId: 'app-origin', targetId: target.id,
-          providerId: PROVIDER_ID, providerName: PROVIDER_NAME
+          adapterSettleMs: stableFor
         });
-        return { text: lastText, snapshot: lastSnapshot, nativeTurn };
       }
     }
     const recoveryStartedAt = Date.now();
     const recovered = await timeoutRecovery.recoverAuthoritativeReply({ inspect, target, baseline: baselineSet, prompt: text });
     finalReconstructionMs += Math.max(0, Date.now() - recoveryStartedAt);
     if (recovered) {
-      const finalizedAt = now(), firstAt = firstResponseAt || finalizedAt;
-      const timing = { ...dispatchTiming, timeToFirstResponseMs: Math.max(0, firstAt - acceptedAt), totalResponseMs: Math.max(0, finalizedAt - acceptedAt), nexusRoundTripMs: Math.max(0, finalizedAt - dispatchStartedAt), adapterSettleMs: Math.max(0, finalizedAt - lastChangedAt), pollInspectMs, finalReconstructionMs, pollCount, sawGenerating, firstResponseRescueAttempts, firstResponseRescueInspectMs, timeoutRecovered: true };
-      turnState.set(target.id, { phase: 'idle', requestId, latestText: recovered.text, completedAt: finalizedAt, sawGenerating, timing });
-      emit?.({ type: 'response_final', requestId, text: recovered.text, observedAt: finalizedAt, completenessHint: 'timeout-recovered', detail: timing, targetClassId: 'app-origin', targetId: target.id, providerId: PROVIDER_ID, providerName: PROVIDER_NAME });
-      return recovered;
+      if (!firstResponseAt) firstResponseAt = now();
+      return finalizeResponse({
+        text: recovered.text,
+        snapshot: recovered.snapshot,
+        nativeTurn: recovered.nativeTurn,
+        completenessHint: 'timeout-recovered',
+        extraTiming: { timeoutRecovered: true }
+      });
     }
     const error = new Error('Timed out waiting for a stable ChatGPT app reply.');
     error.code = 'APP_RESPONSE_TIMEOUT';
+    busyRecoveryController.finish(target.id, requestId);
     turnState.set(target.id, { phase: 'error', requestId, latestText: lastText, error: error.message, at: now() });
     throw error;
   }
   async function captureLatest({ target }) {
     return capture.captureLatest({ target, findWindow, inspect,
       remembered: turnState.get(target.id)?.latestText || '', now });
+  }
+  async function probeActiveCompletion({ target, requestId }) {
+    return busyRecoveryController.probe({ target, requestId });
   }
   function status(targetId = TARGET_ID) {
     return {
@@ -413,6 +470,7 @@ function createAdapter({
     listTargets,
     sendPrompt,
     captureLatest,
+    probeActiveCompletion,
     status,
     diagnostics, inspect, probeControls, findWindow,
     completedTurns: conversation.completedAssistantTurns,
@@ -434,6 +492,7 @@ module.exports = {
   FIRST_RESPONSE_RESCUE_MAX_ATTEMPTS,
   RESPONSE_TIMEOUT_MS,
   ...stability,
+  ...busyRecovery,
   ...uia,
   createAdapter,
   ...defaultAdapter
