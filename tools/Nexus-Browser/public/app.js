@@ -8,11 +8,8 @@ const state = {
   tabs: [],
   onlineTarget: null,
   localTargetTypes: [{ id: 'terminal-agent', name: 'Terminal Agent' }], selectedLocalTypeId: 'terminal-agent',
-  localTargets: [],
-  localTarget: null,
-  pending: new Map(), serverSessionId: null, busyRecoveryRequestId: null
+  localTargets: [], localTarget: null, pending: new Map(), serverSessionId: null
 };
-
 const el = {
   bridgeBadge: document.querySelector('#bridgeBadge'),
   targetClassSelect: document.querySelector('#targetClassSelect'),
@@ -33,30 +30,27 @@ const el = {
   sendPrompt: document.querySelector('#sendPrompt'),
   diagnostics: document.querySelector('#diagnostics')
 };
-
 const searchUi = globalThis.BrowserAiBridgeSearchResultsUi, activityUi = globalThis.BrowserAiBridgeActivityUi,
   socketApi = globalThis.BrowserAiBridgeUiSocket, handoff = globalThis.BrowserAiBridgeWorkspaceHandoff,
   baseWorkspaceApi = globalThis.BrowserAiBridgeBaseWorkspace, hostAccessUiApi = globalThis.BrowserAiBridgeHostAccessUi;
-const appMirrorUiApi = globalThis.BrowserAiBridgeAppMirrorUi, appTargetsUiApi = globalThis.BrowserAiBridgeAppTargetsUi;
+const appMirrorUiApi = globalThis.BrowserAiBridgeAppMirrorUi, appTargetsUiApi = globalThis.BrowserAiBridgeAppTargetsUi,
+  appBusyRecoveryApi = globalThis.BrowserAiBridgeAppBusyRecovery;
 if (!searchUi || !socketApi || !appMirrorUiApi || !appTargetsUiApi || !hostAccessUiApi) throw new Error('Base UI helpers were not loaded before app.js.');
 if (!activityUi) throw new Error('Activity UI module was not loaded before app.js.');
+if (!appBusyRecoveryApi) throw new Error('App busy recovery UI was not loaded before app.js.');
 let uiSocket = null, appMirrorUi = null, appTargetsUi = null, baseWorkspace = null;
+const appBusyRecoveryUi = appBusyRecoveryApi.create({ send, addMessage, log });
+
 function activeTarget() {
   return state.selectedTargetClassId === 'local-origin' ? state.localTarget
     : state.selectedTargetClassId === 'app-origin' ? appTargetsUi?.target() : state.onlineTarget;
 }
-function providerMeta(providerId) {
-  return state.providers.find((provider) => provider.id === providerId) || null;
-}
-function providerName(providerId = null) {
-  return providerMeta(providerId || state.selectedProviderId)?.name || 'Provider';
-}
+function providerMeta(providerId) { return state.providers.find((provider) => provider.id === providerId) || null; }
+function providerName(providerId = null) { return providerMeta(providerId || state.selectedProviderId)?.name || 'Provider'; }
 function assistantDisplayName(msg = {}) {
   return hostAccessUiApi.assistantDisplayName({ message: msg, target: activeTarget(), providerName: providerName(msg.providerId) });
 }
-function requestId() {
-  return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
-}
+function requestId() { return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`; }
 function log(message, detail = '') {
   const stamp = new Date().toLocaleTimeString();
   const line = `[${stamp}] ${message}${detail ? `\n${detail}` : ''}`;
@@ -66,15 +60,12 @@ function log(message, detail = '') {
 function ensureMessage(role, id = null, assistantName = null) {
   let node = id ? document.querySelector(`[data-message-id="${CSS.escape(id)}"]`) : null;
   if (node) return node;
-
   node = document.createElement('article');
   node.className = `message ${role}`;
   if (id) node.dataset.messageId = id;
-
   const label = document.createElement('div');
   label.className = 'message-label';
   label.textContent = role === 'user' ? 'You' : role === 'assistant' ? (assistantName || 'Assistant') : 'System';
-
   const body = document.createElement('div');
   body.className = 'message-body';
   node.append(label, body);
@@ -207,7 +198,7 @@ function renderLocalTargets() {
 }
 function renderStatus() {
   const local = state.selectedTargetClassId === 'local-origin', app = state.selectedTargetClassId === 'app-origin';
-  const uiConnected = state.uiConnectionPhase === 'connected', browser = !local && !app, appBusy = app && ([...state.pending.values()].some((entry) => entry.targetClassId === 'app-origin') || ['waiting', 'streaming'].includes(appTargetsUi?.status()?.phase));
+  const uiConnected = state.uiConnectionPhase === 'connected', browser = !local && !app;
   el.onlineTargetControls.hidden = !browser;
   el.localTargetControls.hidden = !local;
   el.bridgeBadge.textContent = !uiConnected
@@ -317,17 +308,12 @@ function handleMessage(msg) {
       const timing = Number.isFinite(Number(msg.detail?.totalResponseMs))
         ? ` · send→app ${Number(msg.detail?.dispatchToAppMs || 0)} ms · app→first ${Number(msg.detail?.timeToFirstResponseMs || 0)} ms · app→final ${Number(msg.detail.totalResponseMs)} ms · adapter round trip ${Number(msg.detail?.nexusRoundTripMs || 0)} ms · UI round trip ${uiRound ?? '?'} ms · ${Number(msg.detail?.pollCount || 0)} poll(s)` : '';
       log(`${assistantDisplayName(msg)} final response ${msg.requestId || ''} (${(msg.text || '').length} chars)${timing}.`);
-      if (state.busyRecoveryRequestId === msg.requestId) state.busyRecoveryRequestId = null;
+      appBusyRecoveryUi.complete(msg.requestId);
       state.pending.delete(msg.requestId); renderStatus();
       break;
     }
     case 'app_target_busy_recovery':
-      if (msg.recovered !== true && (!msg.requestId || state.busyRecoveryRequestId === msg.requestId)) {
-        state.busyRecoveryRequestId = null;
-      }
-      log(msg.recovered
-        ? `ChatGPT busy recovery armed for ${msg.requestId || 'active turn'} · waiting for canonical final event.`
-        : `ChatGPT busy recovery kept the turn active${msg.reason ? ` · ${msg.reason}` : ''}.`);
+      appBusyRecoveryUi.observe(msg);
       break;
     case 'search_results_result':
       searchUi.render(msg);
@@ -341,6 +327,7 @@ function handleMessage(msg) {
       const accessMessage = hostAccessUiMessage(msg);
       addMessage('system', accessMessage || `${msg.code ? `${msg.code}: ` : ''}${msg.message || 'Unknown bridge error.'}`);
       log('Bridge error', JSON.stringify(msg, null, 2));
+      appBusyRecoveryUi.fail(msg.requestId);
       if (msg.requestId) { state.pending.delete(msg.requestId); renderStatus(); }
       if (searchUi.isOpenForRequest(msg.requestId)) {
         searchUi.render({ requestId: msg.requestId, searchIndex: msg.detail?.searchIndex ?? 0, ok: false, error: msg.message || 'Search-result capture failed.' });
@@ -382,25 +369,11 @@ function submitPrompt() {
   const target = activeTarget();
   if (!target) return addMessage('system', 'Connect a target first.');
   if (state.selectedTargetClassId === 'app-origin'
-      && ([...state.pending.values()].some((entry) => entry.targetClassId === 'app-origin')
-        || ['waiting', 'streaming'].includes(appTargetsUi?.status()?.phase))) {
-    const statusRequestId = appTargetsUi?.status()?.requestId || '';
-    const pendingRequestId = [...state.pending.entries()]
-      .find(([, entry]) => entry.targetClassId === 'app-origin')?.[0] || '';
-    const activeRequestId = statusRequestId || pendingRequestId;
-    addMessage('system', 'Current ChatGPT turn still running. Checking the finished native reply…');
-    if (activeRequestId && state.busyRecoveryRequestId !== activeRequestId
-        && send({
-          type: 'recover_app_target_busy',
-          requestId: activeRequestId,
-          targetClassId: 'app-origin',
-          targetId: target.id
-        })) {
-      state.busyRecoveryRequestId = activeRequestId;
-      log(`Requested read-only ChatGPT busy recovery for ${activeRequestId}.`);
-    }
-    return;
-  }
+      && appBusyRecoveryUi.requestIfBusy({
+        target,
+        pending: state.pending,
+        status: appTargetsUi?.status()
+      })) return;
 
   const id = requestId();
   const payload = { type: 'send_prompt', requestId: id, text, targetClassId: state.selectedTargetClassId };

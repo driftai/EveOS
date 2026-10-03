@@ -1,9 +1,7 @@
 'use strict';
-
 const { createPassiveAppWatcher } = require('./passive-watcher');
-const appTargetBinding = require('./app-target-binding');
+const appTargetBinding = require('./app-target-binding'), busyRecovery = require('./server-busy-recovery');
 const defaultTerminalRelayStorage = require('../scripts/terminal-relay-storage');
-
 function createAppTargetServerController({
   appTargets,
   safeSend,
@@ -24,7 +22,6 @@ function createAppTargetServerController({
     missedTerminalEvents.set(`${String(targetId)}\0${String(payload.requestId)}`, { targetId: String(targetId), payload: { ...payload }, at: now });
     while (missedTerminalEvents.size > missedLimit) missedTerminalEvents.delete(missedTerminalEvents.keys().next().value);
   }
-
   function replayMissed(ws, targetId) {
     const now = Date.now(), wanted = String(targetId);
     for (const [key, entry] of missedTerminalEvents) {
@@ -33,15 +30,13 @@ function createAppTargetServerController({
       if (safeSend(ws, { ...entry.payload, recoveredAfterReconnect: true })) missedTerminalEvents.delete(key);
     }
   }
-
   function selected(ws) {
     if (!ws?.appTargetId) return null;
     return lastTargets.find((target) => target.id === ws.appTargetId) || null;
   }
-
   function exactMatch(expected, actual) {
-    if (typeof appTargets.exactAppTargetMatch !== 'function') return true;
-    return appTargets.exactAppTargetMatch(expected, actual);
+    return typeof appTargets.exactAppTargetMatch !== 'function'
+      || appTargets.exactAppTargetMatch(expected, actual);
   }
 
   function passivePeers(targetId) {
@@ -150,13 +145,10 @@ function createAppTargetServerController({
   });
 
   function statusPayload(ws, targetId) {
-    return {
-      type: 'app_target_status',
-      targetId,
+    return { type: 'app_target_status', targetId,
       status: appTargets.getAppTargetStatus(targetId),
       diagnostics: appTargets.discoveryDiagnostics(),
-      bindingIdentity: ws?.appTargetBinding?.concreteTargetIdentity || null
-    };
+      bindingIdentity: ws?.appTargetBinding?.concreteTargetIdentity || null };
   }
 
   function sendStatus(ws, targetId = ws?.appTargetId) {
@@ -243,9 +235,9 @@ function createAppTargetServerController({
       || msg.type === 'select_app_target'
       || msg.type === 'request_app_status'
       || msg.type === 'ack_native_app_turn'
+      || busyRecovery.isBusyRecoveryCommand(msg)
       || (msg.targetClassId === 'app-origin'
-        && (msg.type === 'send_prompt' || msg.type === 'capture_latest'
-          || msg.type === 'recover_app_target_busy'));
+        && (msg.type === 'send_prompt' || msg.type === 'capture_latest'));
     if (!appCommand) return false;
 
     if (ws?.clientKind === 'dex' && !['request_app_targets', 'request_app_status'].includes(msg.type)) {
@@ -326,31 +318,9 @@ function createAppTargetServerController({
     const targetId = String(msg.targetId || ws.appTargetId || '');
 
     if (msg.type === 'recover_app_target_busy') {
-      try {
-        const result = await appTargets.recoverBusyAppTarget({
-          targetId,
-          requestId: msg.requestId || null
-        });
-        safeSend(ws, {
-          type: 'app_target_busy_recovery',
-          targetClassId: 'app-origin',
-          targetId,
-          requestId: result?.requestId || msg.requestId || null,
-          recovered: result?.recovered === true,
-          reason: result?.reason || null
-        });
-      } catch (error) {
-        safeSend(ws, {
-          type: 'app_target_busy_recovery',
-          targetClassId: 'app-origin',
-          targetId,
-          requestId: msg.requestId || null,
-          recovered: false,
-          reason: error.code || 'recovery-failed'
-        });
-      }
-      sendStatus(ws, targetId);
-      return true;
+      return busyRecovery.handleBusyRecovery({
+        ws, msg, targetId, appTargets, safeSend, sendStatus
+      });
     }
 
     if (msg.type === 'capture_latest') {

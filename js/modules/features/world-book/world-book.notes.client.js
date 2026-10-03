@@ -128,20 +128,28 @@ window.EveWorldBook = window.EveWorldBook || {};
         }
     }
 
-    async function ensureRunning() {
+    function stoppedError(message) {
+        const error = new Error(message || 'Start Notes to use Notepad files and Spatial Notes.');
+        error.code = 'NOTES_SERVICE_STOPPED';
+        return error;
+    }
+
+    async function requireRunning() {
         try {
             await directHealth();
             if (!state.running) await refresh();
             return notesBase();
         } catch (_error) {
-            const snapshot = await setRunning(true);
-            if (!snapshot.running) throw new Error(snapshot.message || 'EveOS Notes could not start.');
-            return String(snapshot.url || notesBase()).replace(/\/$/, '');
+            const snapshot = await refresh();
+            const message = snapshot.running
+                ? 'EveOS Notes is starting or not responding yet. Try Refresh shortly.'
+                : 'Start Notes to use Notepad files and Spatial Notes.';
+            throw stoppedError(message);
         }
     }
 
     async function request(path, body, timeoutMs = 6000) {
-        const service = await ensureRunning();
+        const service = await requireRunning();
         try {
             return await fetchJson(`${service}${path}`, body === undefined ? undefined : {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)

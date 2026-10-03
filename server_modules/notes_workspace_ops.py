@@ -45,6 +45,7 @@ def _remap_state(root_id: str, old_path: str, new_path: str) -> None:
         return new_key.rstrip("/") + "/" + value[len(prefix):] if value.startswith(prefix) else value
 
     state["favorites"] = list(dict.fromkeys(remap(value) for value in state["favorites"]))
+    state["recent"] = list(dict.fromkeys(remap(value) for value in state["recent"]))
     links = {}
     for key, values in state["links"].items():
         links[remap(key)] = list(dict.fromkeys(remap(value) for value in values))

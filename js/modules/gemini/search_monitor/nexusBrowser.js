@@ -115,6 +115,18 @@
         return workspaceControlFor(root, action, reason, extra);
     }
 
+    function handleGlobalStop() {
+        workspaceControl('standby', 'eveos-global-stop');
+        render({
+            ...(status || {}),
+            state: 'stopping',
+            running: false,
+            appBinding: { connected: false }
+        }, 'Global Stop is stopping Nexus Browser and unloading its workspace.');
+    }
+
+    window.addEventListener?.('eve:eveos-global-stop', handleGlobalStop);
+
     function renderDetached() {
         const open = detachedOpen();
         text('[data-nexus-browser-detached]', open ? 'Open' : 'Closed');

@@ -8,6 +8,7 @@ const INDEX = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
 const APP = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
 const APP_MIRROR_UI = fs.readFileSync(path.join(ROOT, 'public', 'app-mirror-ui.js'), 'utf8');
 const APP_TARGETS_UI = fs.readFileSync(path.join(ROOT, 'public', 'app-targets-ui.js'), 'utf8');
+const APP_BUSY_RECOVERY = fs.readFileSync(path.join(ROOT, 'public', 'app-busy-recovery.js'), 'utf8');
 const DEX_MODE = fs.readFileSync(path.join(ROOT, 'public', 'dex-mode.js'), 'utf8');
 const TARGET_CSS = fs.readFileSync(path.join(ROOT, 'public', 'target-classes.css'), 'utf8');
 
@@ -135,9 +136,11 @@ test('Conversation sync hidden state wins over target-row display styling', () =
 
 
 test('Base App-Origin prevents overlapping sends while preserving the draft', () => {
-  assert.match(APP, /appBusy = app &&/);
-  assert.match(APP, /Current ChatGPT turn still running/);
-  assert.match(APP, /el\.sendPrompt\.disabled = [^;]*appBusy/);
+  assert.ok(INDEX.indexOf('/app-busy-recovery.js') < INDEX.indexOf('/app.js'));
+  assert.match(APP, /appBusyRecoveryUi\.requestIfBusy/);
+  assert.match(APP_BUSY_RECOVERY, /Current ChatGPT turn still running/);
+  assert.match(APP_BUSY_RECOVERY, /recover_app_target_busy/);
+  assert.doesNotMatch(APP, /el\.sendPrompt\.disabled = [^;]*appBusy/);
   assert.match(APP_TARGETS_UI, /phase: 'waiting'/);
   assert.match(APP_TARGETS_UI, /phase: 'streaming'/);
 });

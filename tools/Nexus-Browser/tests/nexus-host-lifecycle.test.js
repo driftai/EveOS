@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const HOST = fs.readFileSync(
@@ -46,6 +47,54 @@ test('Search Monitor retires an older embedded Nexus root and explicitly owns th
 
 test('Nexus lifecycle cold-starts Local Control only from an explicit Nexus action', () => {
   assert.match(HOST, /ensure\?\.\(\{ timeoutMs: 45000, userInitiated: true \}\)/);
+});
+
+test('Search Monitor Global Stop unloads the embedded Nexus workspace before server teardown', async () => {
+  const listeners = {}, messages = [];
+  const frame = {
+    attributes: new Map(),
+    contentWindow: { postMessage(payload) { messages.push(payload); } },
+    getAttribute(name) { return this.attributes.get(name) || ''; },
+    setAttribute(name, value) { this.attributes.set(name, value); },
+    addEventListener() {}
+  };
+  const inline = { hidden: true };
+  const textNodes = new Map();
+  const root = {
+    addEventListener() {},
+    querySelector(selector) {
+      if (selector === '[data-nexus-browser-frame]') return frame;
+      if (selector === '[data-nexus-browser-inline]') return inline;
+      if (!textNodes.has(selector)) textNodes.set(selector, { textContent: '' });
+      return textNodes.get(selector);
+    },
+    querySelectorAll() { return []; }
+  };
+  const windowMock = {
+    location: { href: 'file:///EveOS.html' },
+    EveOSPortRegistry: { get: () => 9088, url: () => 'http://127.0.0.1:9088/' },
+    EveOSLocalControl: {
+      baseUrl: () => 'http://127.0.0.1:9082',
+      async fetchJson() {
+        return { running: true, state: 'running', url: 'http://127.0.0.1:9088/',
+          extensionReady: true, appBinding: { connected: true } };
+      }
+    },
+    addEventListener(type, handler) { listeners[type] = handler; },
+    setInterval() { return 1; },
+    open() {}
+  };
+  vm.runInNewContext(HOST, { window: windowMock, console, URL, Date }, {
+    filename: 'nexusBrowser.js'
+  });
+  windowMock.EveOSNexusBrowser.bind(root);
+  await windowMock.EveOSNexusBrowser.activate();
+  assert.equal(frame.getAttribute('src'), 'http://127.0.0.1:9088/');
+  listeners['eve:eveos-global-stop']({ detail: { source: 'search-monitor' } });
+  assert.equal(frame.getAttribute('src'), 'about:blank');
+  assert.equal(inline.hidden, true);
+  assert.equal(messages.at(-1)?.action, 'standby');
+  assert.match(textNodes.get('[data-nexus-browser-message]').textContent, /unloading its workspace/);
 });
 
 

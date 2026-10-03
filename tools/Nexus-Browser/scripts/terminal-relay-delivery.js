@@ -59,7 +59,7 @@ function notify(onEvent, event) {
   try { onEvent?.(event); } catch {}
 }
 
-async function relayReport(report, { onEvent = null } = {}) {
+async function relayReport(report, { onEvent = null, expectedText = null } = {}) {
   console.log('\n============================================================');
   console.log('NEXUS → CHATGPT APP RELAY');
   console.log('============================================================');
@@ -103,11 +103,14 @@ async function relayReport(report, { onEvent = null } = {}) {
         }
       }
     });
+    const matched = expectedText == null ? null : String(result?.text || '').trim() === String(expectedText).trim();
     return {
-      status: 'PASS',
+      status: matched === false ? 'FAIL' : 'PASS',
       accepted,
-      reason: 'Report delivered to the selected ChatGPT App conversation and reply capture completed.',
-      replyLength: String(result?.text || '').length
+      reason: matched === false ? 'The captured ChatGPT App reply did not match the expected text.'
+        : 'Report delivered to the selected ChatGPT App conversation and reply capture completed.',
+      replyLength: String(result?.text || '').length,
+      matched
     };
   } catch (error) {
     if (accepted) {
@@ -119,4 +122,25 @@ async function relayReport(report, { onEvent = null } = {}) {
   }
 }
 
-module.exports = { relayReport, verifyAndAdvance, boundAnchors };
+async function relayMessageCli(argv = process.argv.slice(2)) {
+  const index = argv.indexOf('--message');
+  const message = index >= 0 ? String(argv[index + 1] || '').trim() : '';
+  const expectedIndex = argv.indexOf('--expect');
+  const expectedText = expectedIndex >= 0 ? String(argv[expectedIndex + 1] || '') : null;
+  if (!message) throw relayError('TERMINAL_RELAY_MESSAGE_REQUIRED', 'Pass a non-empty --message value.');
+  const result = await relayReport(message, { expectedText });
+  console.log(`TERMINAL_RELAY_MESSAGE_${result.status} ${JSON.stringify({
+    accepted: result.accepted, matched: result.matched, replyLength: result.replyLength || 0, reason: result.reason
+  })}`);
+  if (result.status !== 'PASS') process.exitCode = 1;
+  return result;
+}
+
+if (require.main === module) {
+  relayMessageCli().catch((error) => {
+    console.error(`TERMINAL_RELAY_MESSAGE_ERROR ${error.code || 'ERROR'} ${error.message}`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { relayReport, relayMessageCli, verifyAndAdvance, boundAnchors };

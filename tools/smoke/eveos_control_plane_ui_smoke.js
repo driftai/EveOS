@@ -277,6 +277,10 @@ vm.runInNewContext(source, context, { filename: 'eveosControlPlane.js' });
     if (!events.some((event) => event.type === 'eve:eveos-control-plane-status')) {
         throw new Error('control-plane status event was not published');
     }
+    if (!events.some((event) => event.type === 'eve:eveos-global-stop'
+        && event.detail?.source === 'search-monitor')) {
+        throw new Error('Global Stop did not publish the managed-workspace teardown event');
+    }
     if (!shellSource.includes('data-eveos-control-plane')) {
         throw new Error('Search Monitor shell is not wired to EveOS local control');
     }

@@ -6,6 +6,7 @@ const FOCUSED_TESTS = [
   'tests/app-target-binding.test.js',
   'tests/app-target-manager-contention.test.js',
   'tests/app-origin-server.test.js',
+  'tests/app-busy-recovery-ui.test.js',
   'tests/app-origin-provenance.test.js',
   'tests/chatgpt-windows-conversation.test.js',
   'tests/chatgpt-windows-prompt-self-capture.test.js',
