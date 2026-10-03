@@ -24,6 +24,7 @@ function saveAdapter() {
     listTargets: chatgpt.listTargets,
     sendPrompt: chatgpt.sendPrompt,
     captureLatest: chatgpt.captureLatest,
+    probeActiveCompletion: chatgpt.probeActiveCompletion,
     status: chatgpt.status
   };
 }
@@ -102,6 +103,63 @@ test('active send reuses cached discovery and blocks competing explicit capture'
     releaseSend();
     const result = await send;
     assert.equal(result.text, 'done');
+  } finally {
+    releaseSend?.();
+    restoreAdapter(saved);
+  }
+});
+
+test('busy recovery probes the active request read-only without releasing its send lease', async () => {
+  const saved = saveAdapter();
+  let releaseSend;
+  let markStarted;
+  const started = new Promise((resolve) => { markStarted = resolve; });
+  const release = new Promise((resolve) => { releaseSend = resolve; });
+  const probes = [];
+  try {
+    chatgpt.listTargets = async () => [target];
+    chatgpt.status = () => ({ phase: 'streaming', requestId: 'busy-recover-1' });
+    chatgpt.sendPrompt = async () => {
+      markStarted();
+      await release;
+      return { text: 'recovered final' };
+    };
+    chatgpt.probeActiveCompletion = async ({ target: probedTarget, requestId }) => {
+      probes.push({ target: probedTarget, requestId });
+      return { recovered: true, requestId, reason: 'busy-recovered-stable' };
+    };
+    manager.invalidateAppTargetCache();
+
+    const send = manager.sendAppPrompt({
+      targetId: target.id,
+      requestId: 'busy-recover-1',
+      text: 'first prompt'
+    });
+    await started;
+    assert.equal(manager.appTargetBusy(target.id), true);
+
+    const mismatch = await manager.recoverBusyAppTarget({
+      targetId: target.id,
+      requestId: 'different-request'
+    });
+    assert.equal(mismatch.recovered, false);
+    assert.equal(mismatch.reason, 'request-mismatch');
+    assert.equal(probes.length, 0);
+
+    const recovered = await manager.recoverBusyAppTarget({
+      targetId: target.id,
+      requestId: 'busy-recover-1'
+    });
+    assert.equal(recovered.recovered, true);
+    assert.equal(probes.length, 1);
+    assert.equal(probes[0].requestId, 'busy-recover-1');
+    assert.equal(probes[0].target.windowHandle, 20);
+    assert.equal(manager.appTargetBusy(target.id), true,
+      'read-only recovery must not release the original exact-once send lease');
+
+    releaseSend();
+    await send;
+    assert.equal(manager.appTargetBusy(target.id), false);
   } finally {
     releaseSend?.();
     restoreAdapter(saved);
