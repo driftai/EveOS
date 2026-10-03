@@ -10,9 +10,35 @@ const {
 } = uia;
 const TARGET_ID = 'app-chatgpt-windows', PROVIDER_ID = 'chatgpt-desktop', PROVIDER_NAME = 'ChatGPT App', APP_MATCH = 'ChatGPT';
 const FIRST_POLL_MS = 75, POLL_MS = 180, SETTLE_MS = 850, POST_GENERATION_SETTLE_MS = 650;
+const FIRST_RESPONSE_RESCUE_AFTER_MS = 700, FIRST_RESPONSE_RESCUE_INTERVAL_MS = 1500, FIRST_RESPONSE_RESCUE_MAX_ATTEMPTS = 3;
 const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000; let lastDiagnostics = { available: false, helper: null, lastError: null, lastProbeAt: 0, lastWindow: null };
 const turnState = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function monotonicPartial(previous = '', candidate = '') {
+  const prior = String(previous || '');
+  const next = String(candidate || '');
+  if (!next || next === prior) return prior;
+  if (!prior || next.startsWith(prior)) return next;
+  return prior;
+}
+
+function targetIdentityMatches(previous = {}, identity = {}) {
+  const bound = previous.concreteTargetIdentity || {};
+  const boundTitle = String(bound.conversationTitle || '').trim();
+  const liveTitle = String(identity.conversationTitle || '').trim();
+  const boundAnchors = new Set([
+    ...(Array.isArray(bound.conversationAnchors) ? bound.conversationAnchors : []),
+    bound.conversationAnchor
+  ].filter(Boolean).map(String));
+  const liveAnchors = [
+    ...(Array.isArray(identity.conversationAnchors) ? identity.conversationAnchors : []),
+    identity.conversationAnchor
+  ].filter(Boolean).map(String);
+  const anchorMatches = liveAnchors.some((anchor) => boundAnchors.has(anchor));
+  return anchorMatches || (!!boundTitle && boundTitle === liveTitle);
+}
+
 function createAdapter({
   runner = defaultRunner,
   platform = process.platform,
@@ -23,8 +49,13 @@ function createAdapter({
   settleMs = SETTLE_MS,
   postGenerationSettleMs = POST_GENERATION_SETTLE_MS,
   shortReplySettleMs = 1400,
+  firstResponseRescueAfterMs = FIRST_RESPONSE_RESCUE_AFTER_MS,
+  firstResponseRescueIntervalMs = FIRST_RESPONSE_RESCUE_INTERVAL_MS,
+  firstResponseRescueMaxAttempts = FIRST_RESPONSE_RESCUE_MAX_ATTEMPTS,
   responseTimeoutMs = RESPONSE_TIMEOUT_MS
 } = {}) {
+  let lastVerifiedTarget = null;
+
   async function helperStatus() {
     const helper = await runner.availability();
     lastDiagnostics = { ...lastDiagnostics, available: !!helper.available, helper, lastProbeAt: now() };
@@ -129,12 +160,65 @@ function createAdapter({
       recoveredSend: !snapshot.sendSelector && !!sendButton
     };
   }
+
+  function targetFromIdentity(windowInfo, identity = {}) {
+    const hwnd = hwndOf(windowInfo), pid = pidOf(windowInfo);
+    const conversationTitle = String(identity.conversationTitle || '').trim();
+    const conversationAnchors = Array.isArray(identity.conversationAnchors)
+      ? identity.conversationAnchors.filter(Boolean).map(String) : [];
+    const conversationAnchor = String(identity.conversationAnchor || conversationAnchors.at(-1) || '');
+    const exactConversationIdentity = !!conversationTitle || !!conversationAnchor;
+    return { id: TARGET_ID,
+      title: conversationTitle
+        ? `ChatGPT · ${conversationTitle}`
+        : exactConversationIdentity ? 'ChatGPT · verified native conversation'
+          : String(windowInfo.title || windowInfo.name || 'ChatGPT'),
+      providerId: PROVIDER_ID,
+      providerName: PROVIDER_NAME,
+      targetTypeId: 'desktop-app',
+      targetTypeName: 'Desktop App',
+      transport: 'windows-uia-winapp',
+      sessionOrigin: 'existing-app',
+      pid,
+      windowHandle: hwnd,
+      concreteTargetIdentity: {
+        kind: 'windows-app-window',
+        app: 'ChatGPT',
+        processId: pid,
+        windowHandle: hwnd,
+        ...(conversationTitle ? { conversationTitle } : {}),
+        ...(conversationAnchor ? { conversationAnchor } : {}),
+        ...(conversationAnchors.length ? { conversationAnchors } : {})
+      },
+      capabilities: { chat: true, captureLatest: true, activity: false,
+        exactConversationIdentity }
+    };
+  }
+
   async function listTargets() {
     if (platform !== 'win32') return [];
     try {
       const windowInfo = await findWindow();
       if (!windowInfo) return [];
       const hwnd = hwndOf(windowInfo), pid = pidOf(windowInfo);
+
+      // A force refresh from the controller reaches this method before every send. Reuse
+      // the already-proven PID/HWND/conversation identity when a cheap visible inspect
+      // confirms it; only pay for the full offscreen discovery when that proof fails.
+      if (lastVerifiedTarget
+          && String(lastVerifiedTarget.pid) === String(pid)
+          && String(lastVerifiedTarget.windowHandle) === String(hwnd)) {
+        try {
+          const shallowSnapshot = await inspect(windowInfo);
+          const shallowIdentity = conversation.conversationIdentity(shallowSnapshot);
+          if (targetIdentityMatches(lastVerifiedTarget, shallowIdentity)) {
+            const verified = targetFromIdentity(windowInfo, shallowIdentity);
+            lastVerifiedTarget = verified;
+            return [verified];
+          }
+        } catch {}
+      }
+
       let conversationTitle = '', conversationAnchors = [];
       try {
         const snapshot = await inspect(windowInfo, { includeOffscreen: true });
@@ -145,33 +229,13 @@ function createAdapter({
           conversationTitle = (await titleResolver.resolve({ runner, snapshot }))?.text || '';
         }
       } catch {}
-      const conversationAnchor = conversationAnchors.at(-1) || '';
-      const exactConversationIdentity = !!conversationTitle || !!conversationAnchor;
-      return [{ id: TARGET_ID,
-        title: conversationTitle
-          ? `ChatGPT · ${conversationTitle}`
-          : exactConversationIdentity ? 'ChatGPT · verified native conversation'
-            : String(windowInfo.title || windowInfo.name || 'ChatGPT'),
-        providerId: PROVIDER_ID,
-        providerName: PROVIDER_NAME,
-        targetTypeId: 'desktop-app',
-        targetTypeName: 'Desktop App',
-        transport: 'windows-uia-winapp',
-        sessionOrigin: 'existing-app',
-        pid,
-        windowHandle: hwnd,
-        concreteTargetIdentity: {
-          kind: 'windows-app-window',
-          app: 'ChatGPT',
-          processId: pid,
-          windowHandle: hwnd,
-          ...(conversationTitle ? { conversationTitle } : {}),
-          ...(conversationAnchor ? { conversationAnchor } : {}),
-          ...(conversationAnchors.length ? { conversationAnchors } : {})
-        },
-        capabilities: { chat: true, captureLatest: true, activity: false,
-          exactConversationIdentity }
-      }];
+      const target = targetFromIdentity(windowInfo, {
+        conversationTitle,
+        conversationAnchor: conversationAnchors.at(-1) || '',
+        conversationAnchors
+      });
+      lastVerifiedTarget = target.capabilities.exactConversationIdentity ? target : null;
+      return [target];
     } catch (error) {
       lastDiagnostics = { ...lastDiagnostics, available: false, lastError: error.message, lastProbeAt: now() };
       return [];
@@ -206,9 +270,10 @@ function createAdapter({
       targetId: target.id, providerId: PROVIDER_ID, providerName: PROVIDER_NAME,
       observedAt: acceptedAt, detail: dispatchTiming });
     const deadline = acceptedAt + responseTimeoutMs;
-    let lastText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null, progressState = 'replace';
+    let lastText = '', publishedText = '', lastChangedAt = acceptedAt, firstResponseAt = 0, lastSnapshot = null, nativeTurn = null, progressState = 'replace';
     let sawGenerating = false, firstPoll = true, pollCount = 0, committedPending = true, tailStablePasses = 0;
-    let pollInspectMs = 0, finalReconstructionMs = 0;
+    let pollInspectMs = 0, finalReconstructionMs = 0, firstResponseRescueInspectMs = 0;
+    let firstResponseRescueAttempts = 0, lastFirstResponseRescueAt = 0;
     turnState.set(target.id, { phase: 'waiting', requestId, startedAt: acceptedAt, latestText: '' });
     while (now() < deadline) {
       if (committedPending) { lastSnapshot = committedSnapshot; committedPending = false; }
@@ -221,9 +286,36 @@ function createAdapter({
         pollInspectMs += Math.max(0, Date.now() - pollInspectStartedAt);
       }
       pollCount += 1;
-      const observedAt = now();
+      let observedAt = now();
       if (lastSnapshot.generating) sawGenerating = true;
-      const observed = conversation.responseForPrompt(lastSnapshot, { baseline: baselineSet, prompt: text });
+      let observed = conversation.responseForPrompt(lastSnapshot, { baseline: baselineSet, prompt: text });
+
+      const rescueDue = !firstResponseAt && !observed.text && !observed.nativeTurn
+        && observedAt - acceptedAt >= firstResponseRescueAfterMs
+        && firstResponseRescueAttempts < firstResponseRescueMaxAttempts
+        && (!lastFirstResponseRescueAt || observedAt - lastFirstResponseRescueAt >= firstResponseRescueIntervalMs);
+      if (rescueDue) {
+        firstResponseRescueAttempts += 1;
+        lastFirstResponseRescueAt = observedAt;
+        const rescueStartedAt = Date.now();
+        try {
+          const rescueSnapshot = await inspect({
+            hwnd: target.windowHandle, pid: target.pid, title: target.title
+          }, { includeOffscreen: true, depth: 32 });
+          const rescued = conversation.responseForPrompt(rescueSnapshot, {
+            baseline: baselineSet, prompt: text, includeOffscreen: true
+          });
+          if (rescued.text || rescued.nativeTurn || rescued.correlated) {
+            lastSnapshot = rescueSnapshot;
+            observed = rescued;
+            observedAt = now();
+            if (lastSnapshot.generating) sawGenerating = true;
+          }
+        } catch {} finally {
+          firstResponseRescueInspectMs += Math.max(0, Date.now() - rescueStartedAt);
+        }
+      }
+
       const candidate = observed.text; if (observed.nativeTurn) nativeTurn = observed.nativeTurn;
       progressState = replyProgress.transitionProgressMode(progressState, observed);
       const mergedText = progressState === 'native' ? lastText : progressState === 'accumulate'
@@ -234,18 +326,23 @@ function createAdapter({
         lastChangedAt = observedAt;
         turnState.set(target.id, { phase: 'streaming', requestId, startedAt: acceptedAt,
           latestText: mergedText, sawGenerating });
-        emit?.({
-          type: 'response_partial', requestId, text: mergedText,
-          targetClassId: 'app-origin',
-          targetId: target.id,
-          providerId: PROVIDER_ID,
-          providerName: PROVIDER_NAME
-        });
+        const publishable = monotonicPartial(publishedText, mergedText);
+        if (publishable !== publishedText) {
+          publishedText = publishable;
+          emit?.({
+            type: 'response_partial', requestId, text: publishedText,
+            targetClassId: 'app-origin',
+            targetId: target.id,
+            providerId: PROVIDER_ID,
+            providerName: PROVIDER_NAME
+          });
+        }
       }
       if (observed.provisional) { lastChangedAt = observedAt; continue; }
       const stableFor = observedAt - lastChangedAt, baseSettle = sawGenerating ? postGenerationSettleMs : settleMs;
       const requiredSettle = progressState === 'role' && !observed.nativeTurn?.completeHint ? Math.max(baseSettle, 5000) : progressState === 'accumulate' && replyProgress.needsTailGuard(lastText) ? Math.max(baseSettle, 2500) : lastText.length < 32 ? Math.max(baseSettle, shortReplySettleMs) : baseSettle;
-      if (lastText && !lastSnapshot.generating && (observed.nativeTurn?.completeHint || (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0))) {
+      const turnOwnedComplete = observed.correlated === true && !!observed.nativeTurn?.completeHint && !observed.provisional;
+      if (lastText && (!lastSnapshot.generating || turnOwnedComplete) && (turnOwnedComplete || (requiredSettle > 0 ? stableFor >= requiredSettle : stableFor > 0))) {
         const reconstructionStartedAt = Date.now();
         try {
           const fullSnapshot = await inspect({
@@ -260,9 +357,13 @@ function createAdapter({
           lastSnapshot = fullSnapshot; if (full.progressMode === 'accumulate' && full.nativeTurn?.text && reconstructed === full.nativeTurn.text && !replyProgress.needsTailGuard(reconstructed)) progressState = 'native';
           if (reconstructed && reconstructed !== lastText) {
             lastText = reconstructed; lastChangedAt = now(); tailStablePasses = 0;
-            emit?.({ type: 'response_partial', requestId, text: lastText,
-              targetClassId: 'app-origin', targetId: target.id,
-              providerId: PROVIDER_ID, providerName: PROVIDER_NAME });
+            const publishable = monotonicPartial(publishedText, lastText);
+            if (publishable !== publishedText) {
+              publishedText = publishable;
+              emit?.({ type: 'response_partial', requestId, text: publishedText,
+                targetClassId: 'app-origin', targetId: target.id,
+                providerId: PROVIDER_ID, providerName: PROVIDER_NAME });
+            }
             if (full.progressMode === 'accumulate') continue;
           }
           if (!(observed.nativeTurn?.completeHint || full.nativeTurn?.completeHint) && replyProgress.needsCompletionGuard(lastText, progressState) && ++tailStablePasses < 3) continue;
@@ -275,13 +376,14 @@ function createAdapter({
           timeToFirstResponseMs: firstResponseAt ? Math.max(0, firstResponseAt - acceptedAt) : null,
           totalResponseMs: Math.max(0, finalizedAt - acceptedAt),
           nexusRoundTripMs: Math.max(0, finalizedAt - dispatchStartedAt),
-          adapterSettleMs: stableFor, pollInspectMs, finalReconstructionMs, pollCount, sawGenerating
+          adapterSettleMs: stableFor, pollInspectMs, finalReconstructionMs, pollCount, sawGenerating,
+          firstResponseRescueAttempts, firstResponseRescueInspectMs
         };
         turnState.set(target.id, { phase: 'idle', requestId, latestText: lastText,
           completedAt: finalizedAt, sawGenerating, timing });
         emit?.({
           type: 'response_final', requestId, text: lastText, observedAt: finalizedAt,
-          completenessHint: sawGenerating ? 'generation-ended' : 'settled',
+          completenessHint: turnOwnedComplete ? 'turn-complete' : sawGenerating ? 'generation-ended' : 'settled',
           detail: timing,
           targetClassId: 'app-origin', targetId: target.id,
           providerId: PROVIDER_ID, providerName: PROVIDER_NAME
@@ -294,7 +396,7 @@ function createAdapter({
     finalReconstructionMs += Math.max(0, Date.now() - recoveryStartedAt);
     if (recovered) {
       const finalizedAt = now(), firstAt = firstResponseAt || finalizedAt;
-      const timing = { ...dispatchTiming, timeToFirstResponseMs: Math.max(0, firstAt - acceptedAt), totalResponseMs: Math.max(0, finalizedAt - acceptedAt), nexusRoundTripMs: Math.max(0, finalizedAt - dispatchStartedAt), adapterSettleMs: Math.max(0, finalizedAt - lastChangedAt), pollInspectMs, finalReconstructionMs, pollCount, sawGenerating, timeoutRecovered: true };
+      const timing = { ...dispatchTiming, timeToFirstResponseMs: Math.max(0, firstAt - acceptedAt), totalResponseMs: Math.max(0, finalizedAt - acceptedAt), nexusRoundTripMs: Math.max(0, finalizedAt - dispatchStartedAt), adapterSettleMs: Math.max(0, finalizedAt - lastChangedAt), pollInspectMs, finalReconstructionMs, pollCount, sawGenerating, firstResponseRescueAttempts, firstResponseRescueInspectMs, timeoutRecovered: true };
       turnState.set(target.id, { phase: 'idle', requestId, latestText: recovered.text, completedAt: finalizedAt, sawGenerating, timing });
       emit?.({ type: 'response_final', requestId, text: recovered.text, observedAt: finalizedAt, completenessHint: 'timeout-recovered', detail: timing, targetClassId: 'app-origin', targetId: target.id, providerId: PROVIDER_ID, providerName: PROVIDER_NAME });
       return recovered;
@@ -352,7 +454,12 @@ module.exports = {
   POLL_MS,
   SETTLE_MS,
   POST_GENERATION_SETTLE_MS,
+  FIRST_RESPONSE_RESCUE_AFTER_MS,
+  FIRST_RESPONSE_RESCUE_INTERVAL_MS,
+  FIRST_RESPONSE_RESCUE_MAX_ATTEMPTS,
   RESPONSE_TIMEOUT_MS,
+  monotonicPartial,
+  targetIdentityMatches,
   ...uia,
   createAdapter,
   ...defaultAdapter

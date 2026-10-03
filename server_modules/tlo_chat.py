@@ -23,6 +23,10 @@ MAX_HISTORY_MESSAGES = 40
 MAX_HISTORY_CHARS = 32_000
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{8,96}$")
 _ACTIVE_LOCK = threading.RLock()
+_SCHEMA_CACHE_LOCK = threading.RLock()
+_SCHEMA_CACHE: dict[tuple[str, str, str], dict] = {}
+_SCHEMA_INFLIGHT: dict[tuple[str, str, str], threading.Event] = {}
+_SCHEMA_PATH = "/openapi.json"
 logger = logging.getLogger("EveOSTLO")
 
 
@@ -134,7 +138,7 @@ def build_system_prompt(projection: dict) -> str:
     return "\n\n".join(section for section in sections if not section.endswith("\n"))
 
 
-def _harness_json(path: str, *, timeout=4.5) -> dict | None:
+def _fetch_harness_json(path: str, *, timeout=4.5) -> dict | None:
     connection = None
     try:
         connection = http.client.HTTPConnection(HARNESS_HOST, HARNESS_PORT, timeout=timeout)
@@ -147,6 +151,49 @@ def _harness_json(path: str, *, timeout=4.5) -> dict | None:
     finally:
         if connection is not None:
             connection.close()
+
+
+def _schema_cache_key(path: str) -> tuple[str, str, str]:
+    return ("local-moe", f"http://{HARNESS_HOST}:{HARNESS_PORT}", path)
+
+
+def _harness_json(path: str, *, timeout=4.5) -> dict | None:
+    """Fetch Harness JSON, caching only the stable OpenAPI schema.
+
+    `/api/status` and every other runtime endpoint stay live/uncached. Concurrent
+    schema discovery shares one in-flight request; failures are deliberately not
+    cached so a later request can recover after the Harness comes online.
+    """
+    if path != _SCHEMA_PATH:
+        return _fetch_harness_json(path, timeout=timeout)
+
+    key = _schema_cache_key(path)
+    with _SCHEMA_CACHE_LOCK:
+        cached = _SCHEMA_CACHE.get(key)
+        if cached is not None:
+            return cached
+        waiter = _SCHEMA_INFLIGHT.get(key)
+        owner = waiter is None
+        if owner:
+            waiter = threading.Event()
+            _SCHEMA_INFLIGHT[key] = waiter
+
+    if not owner:
+        waiter.wait(timeout=max(0.1, float(timeout)) + 0.5)
+        with _SCHEMA_CACHE_LOCK:
+            return _SCHEMA_CACHE.get(key)
+
+    payload = None
+    try:
+        payload = _fetch_harness_json(path, timeout=timeout)
+        return payload
+    finally:
+        with _SCHEMA_CACHE_LOCK:
+            if payload is not None:
+                _SCHEMA_CACHE[key] = payload
+            current = _SCHEMA_INFLIGHT.pop(key, None)
+            if current is not None:
+                current.set()
 
 
 def _projection(scope_id: str) -> dict:
