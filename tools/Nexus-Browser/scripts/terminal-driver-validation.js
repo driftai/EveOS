@@ -16,6 +16,7 @@ const FOCUSED_TESTS = [
   'tests/chatgpt-windows-live-shape.test.js',
   'tests/chatgpt-windows-title.test.js',
   'tests/chatgpt-windows-identity.test.js',
+  'tests/chatgpt-windows-submit-focus.test.js',
   'tests/winapp-runner-retry.test.js',
   'tests/terminal-relay.test.js'
 ];
