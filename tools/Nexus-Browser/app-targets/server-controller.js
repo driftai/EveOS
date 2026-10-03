@@ -117,6 +117,15 @@ function createAppTargetServerController({
     appTargets,
     hasSubscribers: (targetId) => passivePeers(targetId).length > 0,
     emit(payload) {
+      if (payload?.type === 'native_app_turn') {
+        // Passive UIA observation proves app activity, not Nexus provenance. Consume it
+        // locally so app-authored turns advance continuity without entering Nexus chat.
+        Promise.resolve(passiveWatcher?.ack?.({
+          targetId: payload.targetId,
+          fingerprint: payload.fingerprint
+        })).catch(() => {});
+        return 1;
+      }
       let sent = 0;
       for (const peer of passivePeers(payload.targetId)) if (safeSend(peer, payload)) sent += 1;
       return sent;
