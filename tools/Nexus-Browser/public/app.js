@@ -10,7 +10,7 @@ const state = {
   localTargetTypes: [{ id: 'terminal-agent', name: 'Terminal Agent' }], selectedLocalTypeId: 'terminal-agent',
   localTargets: [],
   localTarget: null,
-  pending: new Map(), serverSessionId: null
+  pending: new Map(), serverSessionId: null, busyRecoveryRequestId: null
 };
 
 const el = {
@@ -231,7 +231,7 @@ function renderStatus() {
     ? `Type here. Enter sends to the selected ${targetName} app.`
     : local ? `Type here. Enter sends to the selected ${targetName} local target.`
       : `Type here. Enter sends to the selected ${targetName} tab.`;
-  el.sendPrompt.disabled = !target || !uiConnected || appBusy || (browser && (!state.extensionConnected || target.health?.blocking));
+  el.sendPrompt.disabled = !target || !uiConnected || (browser && (!state.extensionConnected || target.health?.blocking));
   el.captureLatest.hidden = local;
   el.captureLatest.disabled = local || !target || !uiConnected || (browser && !state.extensionConnected);
   appMirrorUi?.render(); appTargetsUi?.render();
@@ -317,9 +317,18 @@ function handleMessage(msg) {
       const timing = Number.isFinite(Number(msg.detail?.totalResponseMs))
         ? ` · send→app ${Number(msg.detail?.dispatchToAppMs || 0)} ms · app→first ${Number(msg.detail?.timeToFirstResponseMs || 0)} ms · app→final ${Number(msg.detail.totalResponseMs)} ms · adapter round trip ${Number(msg.detail?.nexusRoundTripMs || 0)} ms · UI round trip ${uiRound ?? '?'} ms · ${Number(msg.detail?.pollCount || 0)} poll(s)` : '';
       log(`${assistantDisplayName(msg)} final response ${msg.requestId || ''} (${(msg.text || '').length} chars)${timing}.`);
+      if (state.busyRecoveryRequestId === msg.requestId) state.busyRecoveryRequestId = null;
       state.pending.delete(msg.requestId); renderStatus();
       break;
     }
+    case 'app_target_busy_recovery':
+      if (msg.recovered !== true && (!msg.requestId || state.busyRecoveryRequestId === msg.requestId)) {
+        state.busyRecoveryRequestId = null;
+      }
+      log(msg.recovered
+        ? `ChatGPT busy recovery armed for ${msg.requestId || 'active turn'} · waiting for canonical final event.`
+        : `ChatGPT busy recovery kept the turn active${msg.reason ? ` · ${msg.reason}` : ''}.`);
+      break;
     case 'search_results_result':
       searchUi.render(msg);
       log(`Search results ${msg.requestId || ''} stage ${msg.searchIndex ?? 0}: ${(msg.results || []).length}/${msg.expectedCount || '?'} page(s).`);
@@ -372,7 +381,26 @@ function submitPrompt() {
   if (!text) return;
   const target = activeTarget();
   if (!target) return addMessage('system', 'Connect a target first.');
-  if (state.selectedTargetClassId === 'app-origin' && ([...state.pending.values()].some((entry) => entry.targetClassId === 'app-origin') || ['waiting', 'streaming'].includes(appTargetsUi?.status()?.phase))) return addMessage('system', 'Current ChatGPT turn still running.');
+  if (state.selectedTargetClassId === 'app-origin'
+      && ([...state.pending.values()].some((entry) => entry.targetClassId === 'app-origin')
+        || ['waiting', 'streaming'].includes(appTargetsUi?.status()?.phase))) {
+    const statusRequestId = appTargetsUi?.status()?.requestId || '';
+    const pendingRequestId = [...state.pending.entries()]
+      .find(([, entry]) => entry.targetClassId === 'app-origin')?.[0] || '';
+    const activeRequestId = statusRequestId || pendingRequestId;
+    addMessage('system', 'Current ChatGPT turn still running. Checking the finished native reply…');
+    if (activeRequestId && state.busyRecoveryRequestId !== activeRequestId
+        && send({
+          type: 'recover_app_target_busy',
+          requestId: activeRequestId,
+          targetClassId: 'app-origin',
+          targetId: target.id
+        })) {
+      state.busyRecoveryRequestId = activeRequestId;
+      log(`Requested read-only ChatGPT busy recovery for ${activeRequestId}.`);
+    }
+    return;
+  }
 
   const id = requestId();
   const payload = { type: 'send_prompt', requestId: id, text, targetClassId: state.selectedTargetClassId };
