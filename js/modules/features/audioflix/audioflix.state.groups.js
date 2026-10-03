@@ -17,6 +17,7 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
         const text = deps.text;
         const scheduleSave = deps.scheduleSave;
         const syncRootOrFallback = deps.syncRootOrFallback || (() => {});
+        const tree = window.EveAudioflixGroupTree;
         const sameName = (a, b) => text(a, '').trim().toLowerCase() === text(b, '').trim().toLowerCase();
         const uniqueNames = (values) => {
             const seen = new Set();
@@ -53,12 +54,16 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
         };
 
         // --- Custom soundboard groups (many-to-many: a sound can sit in several groups) ---
-        function addSoundboardGroup(name) {
+        function addSoundboardGroup(name, parent = '') {
             const state = ensure();
-            const clean = text(name, '').trim();
+            const requested = text(name, '').trim();
+            const clean = (state.soundboardGroups || []).find((group) => sameName(group, requested)) || requested;
             if (!clean) return ensure();
             state.soundboardGroups = state.soundboardGroups || [];
-            if (!state.soundboardGroups.includes(clean)) state.soundboardGroups.push(clean);
+            if (!state.soundboardGroups.some((group) => sameName(group, clean))) state.soundboardGroups.push(clean);
+            state.soundGroupParents = tree?.normalizeParents?.(state.soundboardGroups, {
+                ...(state.soundGroupParents || {}), ...(parent ? { [clean]: parent } : {})
+            }) || state.soundGroupParents || {};
             syncRootOrFallback(state);
             scheduleSave('audioflix-groups');
             return ensure();
@@ -66,14 +71,20 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
 
         function removeSoundboardGroup(name) {
             const state = ensure();
-            const clean = text(name, '').trim();
-            state.soundboardGroups = (state.soundboardGroups || []).filter((g) => g !== clean);
+            const requested = text(name, '').trim();
+            const clean = (state.soundboardGroups || []).find((group) => sameName(group, requested)) || requested;
+            const parent = state.soundGroupParents?.[clean] || '';
+            state.soundboardGroups = (state.soundboardGroups || []).filter((g) => !sameName(g, clean));
+            state.soundGroupParents = Object.fromEntries(Object.entries(state.soundGroupParents || {})
+                .filter(([child]) => !sameName(child, clean))
+                .map(([child, owner]) => [child, sameName(owner, clean) ? parent : owner]));
             // Strip the group from every sound's membership so we don't leave orphan tags.
             state.soundGroupMap = state.soundGroupMap || {};
             for (const id of Object.keys(state.soundGroupMap)) {
-                const next = (state.soundGroupMap[id] || []).filter((g) => g !== clean);
+                const next = (state.soundGroupMap[id] || []).filter((g) => !sameName(g, clean));
                 if (next.length) state.soundGroupMap[id] = next; else delete state.soundGroupMap[id];
             }
+            if (sameName(state.activeFrontendGroup, clean)) state.activeFrontendGroup = '';
             syncRootOrFallback(state);
             scheduleSave('audioflix-groups');
             return ensure();
@@ -81,16 +92,17 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
 
         function toggleSoundGroup(soundId, name, on) {
             const state = ensure();
-            const clean = text(name, '').trim();
+            const requested = text(name, '').trim();
+            const clean = (state.soundboardGroups || []).find((group) => sameName(group, requested)) || requested;
             if (!soundId || !clean) return ensure();
             state.soundboardGroups = state.soundboardGroups || [];
-            if (!state.soundboardGroups.includes(clean)) state.soundboardGroups.push(clean);
+            if (!state.soundboardGroups.some((group) => sameName(group, clean))) state.soundboardGroups.push(clean);
             state.soundGroupMap = state.soundGroupMap || {};
             const list = state.soundGroupMap[soundId] || [];
-            const has = list.includes(clean);
+            const has = list.some((group) => sameName(group, clean));
             if (on && !has) state.soundGroupMap[soundId] = [...list, clean];
             else if (!on && has) {
-                const next = list.filter((g) => g !== clean);
+                const next = list.filter((g) => !sameName(g, clean));
                 if (next.length) state.soundGroupMap[soundId] = next; else delete state.soundGroupMap[soundId];
             }
             syncRootOrFallback(state);
@@ -99,12 +111,16 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
         }
 
         // --- Custom music groups ---
-        function addMusicGroup(name) {
+        function addMusicGroup(name, parent = '') {
             const state = ensure();
-            const clean = text(name, '').trim();
+            const requested = text(name, '').trim();
+            const clean = (state.musicGroups || []).find((group) => sameName(group, requested)) || requested;
             if (!clean) return ensure();
             state.musicGroups = state.musicGroups || [];
-            if (!state.musicGroups.includes(clean)) state.musicGroups.push(clean);
+            if (!state.musicGroups.some((group) => sameName(group, clean))) state.musicGroups.push(clean);
+            state.musicGroupParents = tree?.normalizeParents?.(state.musicGroups, {
+                ...(state.musicGroupParents || {}), ...(parent ? { [clean]: parent } : {})
+            }) || state.musicGroupParents || {};
             syncRootOrFallback(state);
             scheduleSave('audioflix-music-groups');
             return ensure();
@@ -113,7 +129,11 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
         function removeMusicGroup(name) {
             const state = ensure();
             const clean = text(name, '').trim();
+            const parent = state.musicGroupParents?.[clean] || '';
             state.musicGroups = (state.musicGroups || []).filter((g) => !sameName(g, clean));
+            state.musicGroupParents = Object.fromEntries(Object.entries(state.musicGroupParents || {})
+                .filter(([child]) => !sameName(child, clean))
+                .map(([child, owner]) => [child, sameName(owner, clean) ? parent : owner]));
             state.musicGroupMap = state.musicGroupMap || {};
             for (const id of Object.keys(state.musicGroupMap)) {
                 const next = (state.musicGroupMap[id] || []).filter((g) => !sameName(g, clean));
@@ -138,16 +158,17 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
 
         function toggleMusicGroup(musicId, name, on) {
             const state = ensure();
-            const clean = text(name, '').trim();
+            const requested = text(name, '').trim();
+            const clean = (state.musicGroups || []).find((group) => sameName(group, requested)) || requested;
             if (!musicId || !clean) return ensure();
             state.musicGroups = state.musicGroups || [];
-            if (!state.musicGroups.includes(clean)) state.musicGroups.push(clean);
+            if (!state.musicGroups.some((group) => sameName(group, clean))) state.musicGroups.push(clean);
             state.musicGroupMap = state.musicGroupMap || {};
             const list = state.musicGroupMap[musicId] || [];
-            const has = list.includes(clean);
+            const has = list.some((group) => sameName(group, clean));
             if (on && !has) state.musicGroupMap[musicId] = [...list, clean];
             else if (!on && has) {
-                const next = list.filter((g) => g !== clean);
+                const next = list.filter((g) => !sameName(g, clean));
                 if (next.length) state.musicGroupMap[musicId] = next; else delete state.musicGroupMap[musicId];
             }
             syncRootOrFallback(state);
@@ -225,6 +246,7 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
             const groupsKey = isM ? 'musicGroups' : 'soundboardGroups';
             const mapKey = isM ? 'musicGroupMap' : 'soundGroupMap';
             const activeKey = isM ? 'activeFrontendMusicGroup' : 'activeFrontendGroup';
+            const parentsKey = isM ? 'musicGroupParents' : 'soundGroupParents';
 
             if (Array.isArray(state[groupsKey])) {
                 state[groupsKey] = uniqueNames(state[groupsKey].map(g => sameName(g, oldClean) ? newClean : g));
@@ -239,6 +261,11 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
                     }
                 });
             }
+            state[parentsKey] = Object.fromEntries(Object.entries(state[parentsKey] || {}).map(([child, parent]) => [
+                sameName(child, oldClean) ? newClean : child,
+                sameName(parent, oldClean) ? newClean : parent
+            ]));
+            state[parentsKey] = tree?.normalizeParents?.(state[groupsKey], state[parentsKey]) || state[parentsKey];
 
             if (sameName(state[activeKey], oldClean)) {
                 state[activeKey] = newClean;
@@ -256,6 +283,25 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
             return ensure();
         }
 
+        function setGroupParent(type, group, parent = '') {
+            const state = ensure(), isM = type === 'music';
+            const groupsKey = isM ? 'musicGroups' : 'soundboardGroups';
+            const parentsKey = isM ? 'musicGroupParents' : 'soundGroupParents';
+            const groups = state[groupsKey] || [];
+            const clean = groups.find((name) => sameName(name, group)) || text(group, '').trim();
+            const nextParent = groups.find((name) => sameName(name, parent)) || text(parent, '').trim();
+            const currentParent = state[parentsKey]?.[clean] || '';
+            if (!tree?.canParent?.(state, type, clean, nextParent)) {
+                return { ok: false, group: clean, parent: currentParent, reason: 'That move would create a group cycle or target a missing group.' };
+            }
+            const next = { ...(state[parentsKey] || {}) };
+            if (nextParent) next[clean] = nextParent; else delete next[clean];
+            state[parentsKey] = tree.normalizeParents(state[groupsKey] || [], next);
+            syncRootOrFallback(state);
+            scheduleSave(`audioflix-group-parent-${type}`);
+            return { ok: true, group: clean, parent: state[parentsKey][clean] || '' };
+        }
+
         return {
             addSoundboardGroup,
             removeSoundboardGroup,
@@ -266,7 +312,8 @@ window.EveAudioflixStateGroups = window.EveAudioflixStateGroups || {};
             updateItem,
             renameMusicFolder,
             deleteMusicFolder,
-            renameGroup
+            renameGroup,
+            setGroupParent
         };
     };
 

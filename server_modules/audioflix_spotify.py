@@ -137,7 +137,7 @@ def list_playlist(value: str, force: bool = False) -> dict:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=180,
+                timeout=600,
                 check=False,
             )
     except subprocess.TimeoutExpired:

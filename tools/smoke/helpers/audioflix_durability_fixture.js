@@ -62,8 +62,11 @@ module.exports = function seedAudioflixDurabilityFixture() {
         workspaceId: 'main',
         categoryName: 'RT Card'
     }, 'sound');
-    window.EveAudioflixState.addMusicGroup('Night');
+    window.EveAudioflixState.addMusicGroup('Mood');
+    window.EveAudioflixState.addMusicGroup('Night', 'Mood');
     window.EveAudioflixState.toggleMusicGroup('rt-music', 'Night', true);
+    window.EveAudioflixState.addSoundboardGroup('SFX');
+    window.EveAudioflixState.setGroupParent('sound', 'RTGroup', 'SFX');
     window.EveAudioflixState.toggleSoundGroup('rt-sound', 'RTGroup', true);
     window.EveAudioflixState.update({
         musicClassifiers: ['Sleep', 'Manual'],

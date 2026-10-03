@@ -188,30 +188,38 @@ async function main() {
     await page.fill('form[data-af-form="add-group"] input[name="name"]', 'Memes');
     await page.click('form[data-af-form="add-group"] button[type="submit"]');
     await page.waitForFunction(() => (window.EveAudioflixState.getSnapshot().soundboardGroups || []).includes('Memes'), undefined, { timeout: 5000 });
+    await page.fill('form[data-af-form="add-group"] input[name="name"]', 'Quick Clips');
+    await page.selectOption('form[data-af-form="add-group"] select[name="parent"]', 'Memes');
+    await page.click('form[data-af-form="add-group"] button[type="submit"]');
+    await page.waitForFunction(() => window.EveAudioflixState.getSnapshot().soundGroupParents?.['Quick Clips'] === 'Memes', undefined, { timeout: 5000 });
     // Assign the sound to the group via the settings-modal checkbox and set custom hotkey to '1'.
     await page.click(`[data-af-action="item-info"][data-af-id="${soundId}"]`);
-    await page.waitForSelector('.audioflix-group-cb[data-af-group="Memes"]', { timeout: 5000 });
-    await page.click('.audioflix-group-cb[data-af-group="Memes"]');
+    await page.waitForSelector('.audioflix-group-cb[data-af-group="Quick Clips"]', { timeout: 5000 });
+    await page.click('.audioflix-group-cb[data-af-group="Quick Clips"]');
     await page.fill('.audioflix-hotkey-input', '1');
     await page.dispatchEvent('.audioflix-hotkey-input', 'change');
-    await page.waitForFunction((id) => (window.EveAudioflixState.getSnapshot().soundGroupMap[id] || []).includes('Memes'), soundId, { timeout: 5000 });
+    await page.waitForFunction((id) => (window.EveAudioflixState.getSnapshot().soundGroupMap[id] || []).includes('Quick Clips'), soundId, { timeout: 5000 });
     await page.click('.audioflix-info-footer [data-af-action="close-info"]');
     // Frontend opens at All Groups until the user chooses a focus. Select the real group pill
     // before asserting the active-group grid and hotkey path.
     await page.click('[data-af-action="toggle-view-mode"]');
     await page.waitForSelector('.audioflix-group-pill[data-af-group="Memes"]', { timeout: 5000 });
-    await page.click('.audioflix-group-pill[data-af-group="Memes"]');
+    await page.click('[data-af-action="toggle-group-branch"][data-af-group="Memes"]');
+    await page.waitForSelector('.audioflix-group-pill[data-af-group="Quick Clips"]:visible', { timeout: 5000 });
+    await page.click('.audioflix-group-pill[data-af-group="Quick Clips"]');
     await page.waitForFunction(() => {
         const state = window.EveAudioflixState?.getSnapshot?.();
-        const pill = document.querySelector('.audioflix-group-pill[data-af-group="Memes"]');
-        const grid = document.querySelector('.audioflix-item-grid[data-af-active-group="Memes"]');
+        const pill = document.querySelector('.audioflix-group-pill[data-af-group="Quick Clips"]');
+        const grid = document.querySelector('.audioflix-item-grid[data-af-active-group="Quick Clips"]');
         const badge = grid && grid.querySelector('.audioflix-hotkey-badge');
-        return state?.activeFrontendGroup === 'Memes'
+        const tag = grid?.querySelector('.audioflix-group-tag[data-af-group="Quick Clips"]');
+        return state?.activeFrontendGroup === 'Quick Clips'
             && !!pill
             && !!grid
             && /Smoke Chime/.test(grid.textContent || '')
             && !!badge
-            && badge.textContent === '1';
+            && badge.textContent === '1'
+            && /Memes.*Quick Clips/.test(tag?.title || '');
     }, undefined, { timeout: 5000 });
     const groupRendersInFrontend = true;
     // Hotkey: pressing "1" plays the first sound of the active group.

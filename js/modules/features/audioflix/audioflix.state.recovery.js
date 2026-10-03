@@ -13,7 +13,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
 
     const QUARANTINE_SUFFIX = '.corrupt';
     const STRUCTURE_SUFFIX = '.structure-v2';
-    const STRUCTURE_VERSION = 2;
+    const STRUCTURE_VERSION = 3;
     const revisionFloors = new Map();
     const text = (value) => String(value ?? '').trim();
     const clone = (value, fallback) => {
@@ -44,6 +44,8 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         let score = arrays.reduce((sum, key) => sum + (Array.isArray(state[key]) ? state[key].length : 0), 0);
         score += Object.keys(state.musicGroupMap || {}).length;
         score += Object.keys(state.soundGroupMap || {}).length;
+        score += Object.keys(state.musicGroupParents || {}).length;
+        score += Object.keys(state.soundGroupParents || {}).length;
         return score;
     }
 
@@ -104,7 +106,9 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             musicPortConnections: clone(source.musicPortConnections || [], []),
             musicPlaylists: clone(source.musicPlaylists || [], []),
             soundboardGroups: uniq(source.soundboardGroups),
+            soundGroupParents: clone(source.soundGroupParents || {}, {}),
             musicGroups: uniq(source.musicGroups),
+            musicGroupParents: clone(source.musicGroupParents || {}, {}),
             musicFolders: folderRegistry(source),
             musicClassifiers: uniq(source.musicClassifiers),
             localizeScopeDirs: clone(source.localizeScopeDirs || {}, {}),
@@ -184,6 +188,13 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             (entry) => text(entry?.id || entry?.url).toLowerCase());
         state.soundboardGroups = uniq([...(state.soundboardGroups || []), ...(structure.soundboardGroups || [])]);
         state.musicGroups = uniq([...(state.musicGroups || []), ...(structure.musicGroups || [])]);
+        state.soundGroupParents = { ...(structure.soundGroupParents || {}), ...(state.soundGroupParents || {}) };
+        state.musicGroupParents = { ...(structure.musicGroupParents || {}), ...(state.musicGroupParents || {}) };
+        const normalizeParents = window.EveAudioflixGroupTree?.normalizeParents;
+        if (normalizeParents) {
+            state.soundGroupParents = normalizeParents(state.soundboardGroups, state.soundGroupParents);
+            state.musicGroupParents = normalizeParents(state.musicGroups, state.musicGroupParents);
+        }
         state.musicFolders = uniq([...(state.musicFolders || []), ...(structure.musicFolders || [])]);
         state.musicClassifiers = uniq([...(state.musicClassifiers || []), ...(structure.musicClassifiers || [])]);
         state.localizeScopeDirs = { ...(structure.localizeScopeDirs || {}), ...(state.localizeScopeDirs || {}) };

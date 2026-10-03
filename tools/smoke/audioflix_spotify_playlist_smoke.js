@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const spotifyScraper = require('../../server_modules/audioflix_spotify_scrape.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const feature = (name) => path.join(ROOT, 'js', 'modules', 'features', 'audioflix', name);
@@ -107,6 +108,24 @@ global.CustomEvent = class CustomEvent {};
 ].forEach((name) => vm.runInThisContext(fs.readFileSync(feature(name), 'utf8'), { filename: name }));
 
 (async () => {
+    assert(typeof spotifyScraper.collectDomRows === 'function', 'Spotify scraper exposes its virtual-scroll collector for regression coverage');
+    let scrollPosition = 0;
+    const expectedRows = 225;
+    const fakePage = {
+        async evaluate(fn, next) {
+            const source = String(fn);
+            if (source.includes("querySelectorAll(\"[data-testid^='tracklist-row']")) {
+                const index = Math.min(expectedRows - 1, Math.floor(scrollPosition / 180));
+                return [{ id: `spotify-${index}`, title: `Track ${index}`, artists: ['Artist'], durationText: '3:00', url: `https://open.spotify.com/track/spotify-${index}` }];
+            }
+            if (typeof next === 'number') { scrollPosition = next; return undefined; }
+            return { height: 240, maximum: (expectedRows - 1) * 180 };
+        },
+        async waitForTimeout() {}
+    };
+    const virtualRows = await spotifyScraper.collectDomRows(fakePage);
+    assert(virtualRows.length === expectedRows, `Spotify virtual scroll imports beyond 100 rows (got ${virtualRows.length})`);
+
     const trackUrl = 'https://open.spotify.com/track/trackA123456';
     assert(window.EveAudioflixUrlProviders.providerFor(trackUrl) === 'spotify', 'Spotify track URLs use the Spotify transport');
     assert(window.EveAudioflixSpotifyPlayback.spotifyTrackId(trackUrl) === 'trackA123456', 'Spotify track IDs normalize for the iframe controller');

@@ -33,16 +33,12 @@ window.EveAudioflixUiManagers = window.EveAudioflixUiManagers || {};
         };
 
         const renderGroupsManager = (type = 'sound') => {
-            const isM = type === 'music';
-            const groups = allGroups(type);
-            const snapshot = state();
-            const map = isM ? (snapshot.musicGroupMap || {}) : (snapshot.soundGroupMap || {});
-            const countFor = (g) => isM
-                ? (snapshot.music || []).filter((item) => (
-                    (map[item.id] || []).some((name) => String(name).toLowerCase() === String(g).toLowerCase())
-                )).length
-                : Object.values(map).filter((names) => Array.isArray(names) && names.includes(g)).length;
-            const list = groups.map((g) => {
+            const isM = type === 'music', groups = allGroups(type), snapshot = state();
+            const tree = window.EveAudioflixGroupTree;
+            const ordered = tree?.ordered?.(snapshot, type) || groups.map((name) => ({ name, depth: 0, path: [name] }));
+            const sourceItems = isM ? snapshot.music : [...(snapshot.soundboard || []), ...(ctx.getPorted?.() || [])];
+            const countFor = (group) => tree?.itemsForGroup?.(snapshot, type, group, sourceItems).length || 0;
+            const list = ordered.map(({ name: g, depth, path }) => {
                 const conn = isM ? window.EveAudioflixPlaylists?.getPlaylistForGroup?.(g) : null;
                 // Own dir only — getScopeDir falls back to the last-used folder, which showed an
                 // unrelated location as if this group were localized there.
@@ -71,9 +67,13 @@ window.EveAudioflixUiManagers = window.EveAudioflixUiManagers || {};
                 const locForm = (isM && localizeFormOpen().open && localizeFormOpen().scope === 'group' && localizeFormOpen().key === g) ? renderLocalizeForm() : '';
                 const syncForm = (isM && isSyncOpen) ? renderSyncPlaylistForm(g) : '';
                 const pathsBox = isM ? uiLoc.renderGroupPaths(g) : '';
-                return `<div class="audioflix-port-item"><div><strong>${esc(g)}</strong>${urlLine}<code style="display: block; font-size: 0.8rem; color: #94a3b8; margin-top:2px;">${countFor(g)} ${isM ? 'track' : 'sound'}${countFor(g) === 1 ? '' : 's'}</code></div><div style="display:flex; gap:6px;">${dlBtn}${pathsBtn}${linkBtn}${syncBtn}<button type="button" class="audioflix-icon-btn" data-af-type="${esc(type)}" data-af-group="${esc(g)}" data-af-action="rename-group-prompt" title="Edit group name or local path">✏️</button><button type="button" class="audioflix-icon-btn danger" data-af-type="${esc(type)}" data-af-group="${esc(g)}" data-af-action="remove-group" title="Delete group">${closeSvg}</button></div></div>${pathsBox}${locForm}${linkForm}${syncForm}`;
+                const parent = tree?.parents?.(snapshot, type)?.[g] || '';
+                const descendants = tree?.descendants?.(snapshot, type, g) || [];
+                const options = ['<option value="">Main group</option>', ...groups.filter((name) => name !== g && !descendants.includes(name)).map((name) => `<option value="${esc(name)}"${name === parent ? ' selected' : ''}>Under ${esc(name)}</option>`)].join('');
+                return `<div class="audioflix-port-item audioflix-group-manager-entry" style="--af-group-depth:${depth}"><div><strong title="${esc(path.join(' › '))}">${depth ? `↳${depth} ` : ''}${esc(g)}</strong>${urlLine}<code style="display:block;font-size:.8rem;color:#94a3b8;margin-top:2px;">${countFor(g)} ${isM ? 'track' : 'sound'}${countFor(g) === 1 ? '' : 's'}</code></div><div style="display:flex;gap:6px;flex-wrap:wrap;"><select class="audioflix-group-parent-select" data-af-group-parent data-af-type="${esc(type)}" data-af-group="${esc(g)}" title="Move this group">${options}</select>${dlBtn}${pathsBtn}${linkBtn}${syncBtn}<button type="button" class="audioflix-icon-btn" data-af-type="${esc(type)}" data-af-group="${esc(g)}" data-af-action="rename-group-prompt" title="Edit group name or local path">✏️</button><button type="button" class="audioflix-icon-btn danger" data-af-type="${esc(type)}" data-af-group="${esc(g)}" data-af-action="remove-group" title="Delete group and promote its subgroups">${closeSvg}</button></div></div>${pathsBox}${locForm}${linkForm}${syncForm}`;
             }).join('') || '<div class="audioflix-empty">No groups yet.</div>';
-            return `<div class="audioflix-ports-mgr"><h4>${isM ? 'Music Frontend Groups' : 'Soundboard Frontend Groups'}</h4>${list}<form class="audioflix-ports-form" data-af-form="add-group" data-af-type="${esc(type)}"><label><span>Group Name</span><input name="name" required maxlength="40"></label><button type="submit" data-af-action="submit-form">Add Group</button></form></div>`;
+            const parentOptions = ['<option value="">Main group</option>', ...groups.map((name) => `<option value="${esc(name)}">Subgroup of ${esc(name)}</option>`)].join('');
+            return `<div class="audioflix-ports-mgr"><h4>${isM ? 'Music Frontend Groups' : 'Soundboard Frontend Groups'}</h4>${list}<form class="audioflix-ports-form" data-af-form="add-group" data-af-type="${esc(type)}"><label><span>Group Name</span><input name="name" required maxlength="40"></label><label><span>Parent</span><select name="parent">${parentOptions}</select></label><button type="submit" data-af-action="submit-form">Add Group</button></form></div>`;
         };
         const renderFoldersManager = () => {
             const musicItems = state().music || [];

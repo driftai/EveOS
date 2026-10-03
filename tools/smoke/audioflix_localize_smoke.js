@@ -41,6 +41,7 @@ function makeCtx(stored, nativeStub) {
 
 function loadAll(ctx) {
     runScript(ctx, 'js/modules/features/audioflix/audioflix.paths.js');
+    runScript(ctx, 'js/modules/features/audioflix/audioflix.groups.tree.js');
     runScript(ctx, 'js/modules/features/audioflix/audioflix.state.schema.js');
     runScript(ctx, 'js/modules/features/audioflix/audioflix.state.groups.js');
     runScript(ctx, 'js/modules/features/audioflix/audioflix.state.recovery.js')

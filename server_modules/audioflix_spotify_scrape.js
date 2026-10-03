@@ -158,6 +158,7 @@ async function extractRows(page) {
 
 async function collectDomRows(page) {
     const collected = new Map();
+    const deadline = Date.now() + 540000;
     let dimensions = await page.evaluate(() => {
         const candidates = [...document.querySelectorAll('*')].filter((element) => {
             const style = getComputedStyle(element);
@@ -169,7 +170,8 @@ async function collectDomRows(page) {
     });
     let position = 0;
     let unchanged = 0;
-    for (let pass = 0; pass < 90; pass += 1) {
+    let reachedBottom = false;
+    while (Date.now() < deadline) {
         let additions = 0;
         for (const row of await extractRows(page)) {
             const key = row.id || `${row.title.toLowerCase()}|${row.artists.join(',').toLowerCase()}|${row.durationText}`;
@@ -177,7 +179,10 @@ async function collectDomRows(page) {
             collected.set(key, { ...(collected.get(key) || {}), ...row });
         }
         unchanged = additions ? 0 : unchanged + 1;
-        if (position >= dimensions.maximum && unchanged >= 2) break;
+        if (position >= dimensions.maximum && unchanged >= 2) {
+            reachedBottom = true;
+            break;
+        }
         position = Math.min(dimensions.maximum, position + Math.max(180, Math.floor(dimensions.height * 0.7)));
         await page.evaluate((next) => {
             const target = document.querySelector('[data-eve-spotify-scroll="1"]');
@@ -193,6 +198,9 @@ async function collectDomRows(page) {
                 maximum: Math.max(0, (target?.scrollHeight || document.documentElement.scrollHeight) - height)
             };
         });
+    }
+    if (!reachedBottom) {
+        throw new Error(`Spotify playlist scan timed out after collecting ${collected.size} tracks. Nothing was imported; keep the saved Spotify session signed in and retry.`);
     }
     return [...collected.values()];
 }
@@ -282,4 +290,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { mergeTrack };
+module.exports = { mergeTrack, collectDomRows };

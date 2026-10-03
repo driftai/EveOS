@@ -84,8 +84,10 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
                 && item.lastPlayedAt === 303
             ))
             && a.musicGroupMap?.['rt-music']?.includes('Night')
+            && a.musicGroupParents?.Night === 'Mood'
             && (a.musicFolders || []).includes('Sleep')
             && a.soundGroupMap?.['rt-sound']?.includes('RTGroup')
+            && a.soundGroupParents?.RTGroup === 'SFX'
             && (a.musicClassifiers || []).includes('Manual')
             && (a.musicPlaylists || []).some(item => item.id === 'playlist-rt')
             && (a.musicPortConnections || []).some(item => item.id === 'music-port-rt')
@@ -114,7 +116,9 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
             && !(scopedAudio.music || []).some(item => item.id === 'other-music')
             && (scopedAudio.scopeBindings || []).every(binding => binding.workspaceId === 'main')
             && scopedAudio.musicGroupMap?.['rt-music']?.includes('Night')
+            && scopedAudio.musicGroupParents?.Night === 'Mood'
             && scopedAudio.soundGroupMap?.['rt-sound']?.includes('RTGroup')
+            && scopedAudio.soundGroupParents?.RTGroup === 'SFX'
             && (scopedAudio.musicClassifiers || []).includes('Manual')
             && (scopedAudio.musicPlaylists || []).some(item => item.id === 'playlist-rt')
             && (scopedAudio.musicPortConnections || []).some(item => item.id === 'music-port-rt')
@@ -138,6 +142,8 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
             && restored.soundboard.some(item => item.id === 'rt-sound')
             && restored.music.find(item => item.id === 'rt-music')?.localizations?.length === 2
             && restored.musicGroupMap?.['rt-music']?.includes('Night')
+            && restored.musicGroupParents?.Night === 'Mood'
+            && restored.soundGroupParents?.RTGroup === 'SFX'
             && (restored.musicClassifiers || []).includes('Manual')
             && (restored.musicPortConnections || []).some(item => item.id === 'music-port-rt')
             && restored.localizeScopeDirs?.['folder:Sleep'] === 'C:/rt/music/Sleep'

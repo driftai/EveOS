@@ -10,13 +10,11 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
     function itemKey(item) {
         return String(item?.id || item?.url || '');
     }
-    // Provider iframe audio cannot follow setSinkId, so surface its system-default route.
     function routedOutputNote() {
         const s = window.EveAudioflixState?.ensure?.() || {};
         return (s.preferredSinkId || (s.nativeBridgeEnabled === true && s.nativeOutputId))
             ? ' Note: provider players cannot follow the routed output, so this audio uses the system default device.' : '';
     }
-
     function createController(options = {}) {
         let active = null;
         let timer = 0;
@@ -32,7 +30,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             onStep: (delta) => options.onStep?.(delta),
             onJump: (index) => options.onJump?.(index)
         });
-
         const emitPlayback = (status, error = false) => options.onPlayback?.({
             status, item: playback.item, provider: playback.provider, browserOnly: true, error
         });
@@ -40,7 +37,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             view?.sync?.(playback);
             options.onProgress?.({ ...playback, browserOnly: true });
         };
-
         function ensureStage(item, provider, visual = true) {
             if (!view) throw new Error('Audioflix internal player is unavailable. Reload EveOS and try again.');
             const host = view.open(item, provider, {
@@ -51,20 +47,16 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             host.replaceChildren();
             return host;
         }
-
         function setStageStatus(message, isError = false) {
             view?.setStatus?.(message, isError);
         }
-
         function clearTimer() {
             if (timer) clearInterval(timer);
             timer = 0;
         }
-
         function resetPlayback(item, provider) {
             Object.assign(playback, { item, currentTime: 0, duration: Number(item.resolvedDuration || 0) || 0, paused: true, provider });
         }
-
         async function stop(options = {}) {
             clearTimer();
             const session = active;
@@ -83,7 +75,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 view?.hide?.();
             }
         }
-
         async function playDirect(item) {
             if (requestedInternalView) {
                 ensureStage(item, 'Direct audio', false);
@@ -323,6 +314,14 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 if (playback.paused) await resume();
                 return true;
             }
+            // Reuse the proven protected-media session for Spotify queue transitions. Recreating
+            // the iframe can lose its playback grant and leave a Spotify->Spotify queue stalled.
+            if (active?.kind === 'spotify' && provider === 'spotify' && active.player?.loadItem) {
+                resetPlayback(item, provider);
+                if (requestedInternalView) view?.setExpanded?.(true); else view?.setTransportOnly?.(true);
+                await active.player.loadItem(item);
+                return true;
+            }
             await stop();
             resetPlayback(item, provider);
             try {
@@ -358,7 +357,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 throw error;
             }
         }
-
         async function resume() {
             if (!active) return false;
             if (active.kind === 'direct') await active.player.play();
@@ -369,7 +367,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             emitProgress();
             return true;
         }
-
         async function pause() {
             if (!active) return false;
             if (active.kind === 'direct') active.player.pause();
@@ -381,7 +378,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             emitProgress();
             return true;
         }
-
         async function seek(seconds) {
             if (!active) return false;
             const target = Math.max(0, Math.min(Number(seconds || 0), playback.duration || Infinity));
@@ -393,7 +389,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             emitProgress();
             return true;
         }
-
         function setVolume(volume) {
             if (!active) return;
             const safe = Math.max(0, Math.min(1, Number(volume || 0)));
@@ -416,7 +411,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             // Vimeo's returns a promise, YouTube's returns undefined; ?.catch covers both.
             else if (active.kind === 'youtube' || active.kind === 'vimeo') active.player.setPlaybackRate?.(safe)?.catch?.(() => {});
         }
-
         function hideInternalView() {
             requestedInternalView = false;
             if (active && active.kind !== 'direct') view?.setTransportOnly?.(true);

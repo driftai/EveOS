@@ -51,14 +51,16 @@ const assert = (condition, message) => {
                 createController: function (_mount, options, ready) {
                     var listeners = {};
                     var calls = window.__spotifyCalls = {
-                        uri: options.uri, play: 0, resume: 0, pause: 0, seek: [], destroy: 0
+                        uri: options.uri, play: 0, resume: 0, pause: 0, seek: [], destroy: 0, loaded: [], controllers: (window.__spotifyControllers || 0) + 1
                     };
+                    window.__spotifyControllers = calls.controllers;
                     var controller = window.__spotifyController = {
                         addListener: function (name, listener) { listeners[name] = listener; },
                         play: function () { calls.play += 1; },
                         resume: function () { calls.resume += 1; },
                         pause: function () { calls.pause += 1; },
                         seek: function (seconds) { calls.seek.push(seconds); },
+                        loadEntity: function (uri) { calls.loaded.push(uri); },
                         destroy: function () { calls.destroy += 1; },
                         emit: function (name, data) { if (listeners[name]) listeners[name]({ data: data }); }
                     };
@@ -118,6 +120,15 @@ const assert = (condition, message) => {
                 duration: 180000,
                 isPaused: true
             });
+            const nextItem = {
+                id: 'spotify-track-two',
+                title: 'Next Spotify Track',
+                url: 'https://open.spotify.com/track/ABCDEF1234567890',
+                volume: 0.6
+            };
+            await player.play(nextItem);
+            const reusedController = window.__spotifyControllers === 1
+                && window.__spotifyCalls.loaded.includes('spotify:track:ABCDEF1234567890');
             player.hideInternalView();
             const closePreservedTransport = stage?.hidden === false
                 && stage.classList.contains('is-transport-only') === true
@@ -160,6 +171,7 @@ const assert = (condition, message) => {
                 stalledTransportVisible,
                 stalledState,
                 stalledErrorCount,
+                reusedController,
                 spotifyNeedsResolution: window.EveAudioflixAudioSource.needsResolution(item.url)
             };
         });
@@ -168,6 +180,7 @@ const assert = (condition, message) => {
         assert(result.stateAt42?.duration === 180, 'Spotify progress milliseconds become seconds');
         assert(result.calls.seek.includes(61), 'Spotify seek receives seconds, not milliseconds');
         assert(result.endedCount === 1, 'repeated terminal updates emit Ended once');
+        assert(result.reusedController, 'back-to-back Spotify tracks reuse the proven embed controller');
         assert(result.mainCardTransportOnly, 'main-card play keeps the Spotify SDK in compact transport mode');
         assert(result.compactTransportHidden, 'main-card play keeps its invisible Spotify transport rendered in the viewport');
         assert(result.internalExpanded, 'Internal Player expands the existing Spotify controller');

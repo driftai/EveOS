@@ -191,7 +191,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         if (type === 'music') return groupsOf(item.id, 'music').length > 0 || item.exposed === true;
         return groupsOf(item.id, 'sound').length > 0 || (item.isPorted ? state().exposedPortedSounds?.[item.id] === true : item.exposed === true);
     };
-    const groupTags = (item, gs = groupsOf(item.id, item?.type || 'music')) => gs.length ? `<div class="audioflix-group-tags">${gs.map(g => `<button type="button" class="audioflix-group-tag" data-af-action="select-frontend-group" data-af-dimension="group" data-af-type="${esc(item?.type || 'music')}" data-af-group="${esc(g)}" style="cursor:pointer;" title="Switch view to group '${esc(g)}'">${esc(g)}</button>`).join('')}</div>` : '';
+    const groupTags = (item, gs = groupsOf(item.id, item?.type || 'music')) => window.EveAudioflixGroupTreeUi?.renderTags?.({ type: item?.type || 'music', groups: gs, state: state(), esc }) || '';
 
     // Card / grid / frontend renderers live in a sibling module; they reach this view's helpers
     // and mutable flags through this ctx bag (frontendActiveGroup is also handed to the actions ctx).
@@ -234,7 +234,8 @@ window.EveAudioflix = window.EveAudioflix || {};
         getLocalizeFormOpen: () => localizeFormOpen,
         getSyncPlaylistFormOpen: () => syncPlaylistFormOpen,
         getPlaylistLinkOpen: () => playlistLinkFormOpen,
-        getGroupPathsOpen: () => groupPathsOpen
+        getGroupPathsOpen: () => groupPathsOpen,
+        getPorted: () => portedSounds
     });
     const renderGroupsManager = (type) => uiManagers.renderGroupsManager(type);
     const renderFoldersManager = () => uiManagers.renderFoldersManager();
