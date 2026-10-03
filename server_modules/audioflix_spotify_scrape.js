@@ -16,14 +16,32 @@ const durationSeconds = (value) => {
     return parts.reduce((total, part) => total * 60 + part, 0);
 };
 const trackId = (value) => clean(value).match(/(?:spotify:track:|\/track\/)([A-Za-z0-9]{10,})/)?.[1] || '';
+const playlistIdFromUrl = (value) => clean(value).match(/playlist\/([A-Za-z0-9]+)/)?.[1] || '';
 const matchKey = (value) => clean(value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const stableId = (row, position) => trackId(row.url || row.uri)
     || crypto.createHash('sha1').update(`${row.title}|${row.artist}|${position}`).digest('hex').slice(0, 22);
 const playlistCount = (value) => {
-    const matches = [...clean(value).matchAll(/\b([\d,]+)\s+(?:songs?|tracks?)\b/gi)];
-    const counts = matches.map((match) => Number(match[1].replace(/,/g, ''))).filter((count) => Number.isFinite(count) && count > 0);
-    return counts.length ? Math.max(...counts) : 0;
+    // Spotify's playlist header includes a duration summary (for example
+    // "135 songs, about 7 hr"). Do not trust arbitrary "N songs" strings from
+    // the rest of the Web Player: Library/sidebar counters can be much larger.
+    const text = clean(value);
+    const summary = text.match(/\b([\d,]+)\s+(?:songs?|tracks?)\s*,?\s*(?:about\s+)?(?:(?:\d+\s*(?:hr|hrs|hours?))(?:\s+\d+\s*(?:min|mins|minutes?))?|(?:\d+\s*(?:min|mins|minutes?)))\b/i);
+    if (!summary) return 0;
+    const count = Number(summary[1].replace(/,/g, ''));
+    return Number.isFinite(count) && count > 0 ? count : 0;
 };
+
+function requestMentionsPlaylist(url = '', postData = '', playlistId = '') {
+    if (!playlistId) return false;
+    const values = [url, postData].map((value) => {
+        const raw = String(value || '');
+        try { return `${raw}\n${decodeURIComponent(raw)}`; } catch { return raw; }
+    });
+    const haystack = values.join('\n');
+    return haystack.includes(playlistId)
+        || haystack.includes(`spotify:playlist:${playlistId}`)
+        || haystack.includes(`/playlist/${playlistId}`);
+}
 
 function writeLaunchStatus(value) {
     if (!statusPath) return;
@@ -299,7 +317,9 @@ async function header(page) {
 async function scrape(context) {
     const page = context.pages()[0] || await context.newPage();
     page.setDefaultTimeout(15000);
+    const targetPlaylistId = playlistIdFromUrl(playlistUrl);
     const network = new Map();
+    const playlistNetwork = new Map();
     const pendingNetwork = new Set();
     page.on('response', (response) => {
         const task = (async () => {
@@ -307,7 +327,14 @@ async function scrape(context) {
                 const type = String(response.headers()['content-type'] || '');
                 if (response.status() < 400 && response.url().includes('spotify') && (type.includes('json') || /graphql|pathfinder|api/.test(response.url()))) {
                     const body = await response.text();
-                    if (body.length < 12000000) scanValue(JSON.parse(body), network);
+                    if (body.length < 12000000) {
+                        const payload = JSON.parse(body);
+                        scanValue(payload, network);
+                        const request = response.request();
+                        if (requestMentionsPlaylist(response.url(), request.postData() || '', targetPlaylistId)) {
+                            scanValue(payload, playlistNetwork);
+                        }
+                    }
                 }
             } catch {}
         })();
@@ -329,7 +356,8 @@ async function scrape(context) {
     }
     const dom = await collectDomRows(page, expectedCount);
     await Promise.allSettled([...pendingNetwork]);
-    const rows = mergePlaylistRows(dom, network, expectedCount);
+    const scopedNetwork = playlistNetwork.size ? playlistNetwork : network;
+    const rows = mergePlaylistRows(dom, scopedNetwork, expectedCount);
     const seen = new Set();
     const entries = rows.map((row, index) => {
         const sourceId = stableId(row, index + 1);
@@ -340,7 +368,7 @@ async function scrape(context) {
         throw new Error(`Spotify says this playlist has ${expectedCount} songs, but EveOS captured only ${entries.length}. The partial import was cancelled; reopen the saved Spotify session and retry.`);
     }
     const meta = await header(page);
-    return { ok: true, playlistId: playlistUrl.match(/playlist\/([A-Za-z0-9]+)/)?.[1] || '', title: meta.title || 'Spotify Playlist', owner: meta.owner, image: meta.image || entries[0].image, count: entries.length, entries };
+    return { ok: true, playlistId: targetPlaylistId, title: meta.title || 'Spotify Playlist', owner: meta.owner, image: meta.image || entries[0].image, count: entries.length, entries };
 }
 
 async function main() {
@@ -366,4 +394,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { mergeTrack, mergePlaylistRows, playlistCount, collectDomRows };
+module.exports = { mergeTrack, mergePlaylistRows, playlistCount, requestMentionsPlaylist, collectDomRows };
