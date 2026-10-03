@@ -119,26 +119,15 @@ window.EveAudioflixUiForms = window.EveAudioflixUiForms || {};
                     const L = window.EveAudioflixLocalize;
                     if (L && targetDir) {
                         ctx.playbackStatus = 'Localizing candidate tracks...'; ctx.rerender();
-                        // The normal form ALWAYS uses the standard resolver. Spotify fallback is a
-                        // separate explicit action rendered by the localization UI; it never kicks in
-                        // merely because this standard run fails.
                         L.localizeScope(scope, key, targetDir, (p) => {
                             ctx.playbackStatus = `Localizing ${p.index}/${p.total}: ${p.title}`;
-                        }, force, mode, mediaFormat, 'standard').then(res => {
-                            const fallbackNote = res.fallbackEligible
-                                ? ` ${res.fallbackEligible} Spotify track${res.fallbackEligible === 1 ? '' : 's'} can be retried with Spotify Fallback.`
-                                : '';
+                        }, force, mode, mediaFormat).then(res => {
                             ctx.playbackStatus = res.ok
                                 ? (scope === 'group'
-                                    ? `Group localized — ${res.done} downloaded, ${res.shortcut || 0} shortcut${res.shortcut === 1 ? '' : 's'}, ${res.skipped || 0} kept${res.failed ? `, ${res.failed} failed` : ''}.${fallbackNote}`
-                                    : `Localized ${res.done}/${res.total} to ${res.targetDir}${res.failed ? ` (${res.failed} failed — ${res.lastError})` : ''}.${fallbackNote}`)
-                                : ((res.reason || 'Localization failed.') + fallbackNote);
-                            const recovery = L.getSpotifyRecovery?.();
-                            // Keep this exact scope open when there is a recovery choice to make so
-                            // the failed-track notice and Try Fallback button are immediately visible.
-                            ctx.localizeFormOpen = recovery?.failures?.length
-                                ? { open: true, scope, key }
-                                : { open: false, scope: 'library', key: '' };
+                                    ? `Group localized — ${res.done} downloaded, ${res.shortcut || 0} shortcut${res.shortcut === 1 ? '' : 's'}, ${res.skipped || 0} kept${res.failed ? `, ${res.failed} failed` : ''}.`
+                                    : `Localized ${res.done}/${res.total} to ${res.targetDir}${res.failed ? ` (${res.failed} failed — ${res.lastError})` : ''}.`)
+                                : (res.reason || 'Localization failed.');
+                            ctx.localizeFormOpen = { open: false, scope: 'library', key: '' };
                             // Localization changes URLs/paths that the active card and backup layer
                             // both depend on. Flush immediately so the new offline path is visible
                             // and recoverable without requiring a page reload.

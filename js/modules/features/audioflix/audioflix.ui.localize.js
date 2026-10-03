@@ -24,8 +24,6 @@ window.EveAudioflixUiLocalize = window.EveAudioflixUiLocalize || {};
             const scope = lo.scope || 'library';
             const key = lo.key || '';
             const api = L();
-            const scopeItems = api?.collectScope?.(scope, key) || [];
-            const spotifyTracks = scopeItems.filter((item) => api?.isSpotifyTrack?.(item));
             const stats = api?.scopeStats?.(scope, key) || { online: 0, notLocal: 0, alreadyLocal: 0, missingLocal: 0 };
             const lastDir = api?.getScopeDir?.(scope, key) || api?.lastDir?.() || '';
             const scopeLabel = scope === 'library' ? 'Entire Music Library'
@@ -50,7 +48,7 @@ window.EveAudioflixUiLocalize = window.EveAudioflixUiLocalize || {};
                 : `${scopeLabel} — nothing to localize (no online tracks).`;
             const mo = getMissing();
             const isMissingOpen = mo.open && mo.scope === scope && mo.key === key;
-            const missingTracks = scopeItems.filter((it) => it.missingLocal === true);
+            const missingTracks = (api?.collectScope?.(scope, key) || []).filter((it) => it.missingLocal === true);
             const missingListBlock = (isMissingOpen && missingTracks.length > 0) ? `<div class="audioflix-missing-tracks-box" style="margin-top:6px; padding:8px 10px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.35); border-radius:8px; font-size:0.78rem; max-height:140px; overflow-y:auto;"><div style="font-weight:700; margin-bottom:4px; color:#f87171;">Missing Files (${missingTracks.length}):</div>${missingTracks.map((it) => `<div style="padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; gap:10px;"><strong style="color:#f8fafc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(it.title)}</strong><span style="color:#cbd5e1; font-family:monospace; font-size:0.72rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:55%;" title="${esc(it.localPath || '')}">${esc(it.localPath || '')}</span></div>`).join('')}</div>` : '';
             const missingWarning = stats.missingLocal > 0
                 ? `<div style="margin-top:4px; color:#f87171; font-size:0.8rem; font-weight:600; display:flex; align-items:center; gap:8px;"><span>⚠️ ${stats.missingLocal} track file${stats.missingLocal === 1 ? '' : 's'} missing on disk (deleted). Ready to re-download.</span><button type="button" class="audioflix-add-toggle${isMissingOpen ? ' is-active' : ''}" data-af-action="toggle-missing-list" data-af-scope="${esc(scope)}" data-af-key="${esc(key)}" style="background:rgba(248,113,113,0.18); color:#f87171; border:1px solid rgba(248,113,113,0.4); font-size:0.75rem; padding:2px 8px; border-radius:12px; white-space:nowrap; cursor:pointer;" title="View list of missing track names">📋 ${isMissingOpen ? 'Hide Missing' : 'View Missing'}</button></div>${missingListBlock}`
@@ -58,15 +56,6 @@ window.EveAudioflixUiLocalize = window.EveAudioflixUiLocalize || {};
             const btnStyle = `font-size:0.8rem; padding:5px 12px; height:32px; white-space:nowrap; border-radius:16px;`;
             const auditBtn = `<button type="button" class="audioflix-add-toggle" data-af-action="audit-scope-disk" data-af-scope="${esc(scope)}" data-af-key="${esc(key)}" style="${btnStyle} background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35);" title="Scan the folder on PC to check if files were deleted outside EveOS">🔍 Verify Files</button>`;
             const recalibrateBtn = `<button type="button" class="audioflix-add-toggle" data-af-action="recalibrate-scope-path" data-af-scope="${esc(scope)}" data-af-key="${esc(key)}" style="${btnStyle} background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);" title="Re-link local files to this path without re-downloading">🔄 Recalibrate Path</button>`;
-
-            // Standard failures remain visible until the user explicitly chooses a recovery action.
-            // No fallback is started by rendering this notice or by finishing the standard run.
-            const recovery = api?.getSpotifyRecovery?.();
-            const recoveryHere = recovery && recovery.scope === scope && recovery.key === key && recovery.failures?.length;
-            const recoveryRows = recoveryHere ? recovery.failures.map((failure) => `<div style="display:flex; justify-content:space-between; gap:10px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.06);"><strong style="color:#f8fafc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(failure.title || 'Untitled Track')}</strong><span style="color:#fbbf24; font-size:0.7rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:55%;" title="${esc(failure.error || '')}">${esc(failure.error || 'standard localization failed')}</span></div>`).join('') : '';
-            const recoveryBlock = recoveryHere ? `<div class="audioflix-spotify-recovery" style="padding:9px 10px; border:1px solid rgba(245,158,11,0.45); background:rgba(245,158,11,0.11); border-radius:10px;"><div style="font-weight:700; color:#fbbf24;">⚠ Spotify recovery available — ${recovery.failures.length} track${recovery.failures.length === 1 ? '' : 's'} ${recovery.attempted ? 'still unresolved after fallback' : 'failed with the standard method'}</div><div style="font-size:0.75rem; color:#cbd5e1; margin:3px 0 6px;">Nothing will retry automatically. Review the failures, then choose whether to use the alternate Spotify resolver.</div><div style="max-height:130px; overflow-y:auto; margin-bottom:7px;">${recoveryRows}</div><div style="display:flex; gap:7px; flex-wrap:wrap;"><button type="button" class="audioflix-add-toggle" data-af-action="retry-spotify-fallback" style="${btnStyle} background:rgba(34,197,94,0.14); color:#86efac; border:1px solid rgba(34,197,94,0.35);">${recovery.attempted ? 'Retry' : 'Try'} Spotify Fallback (${recovery.failures.length})</button><button type="button" class="audioflix-add-toggle" data-af-action="dismiss-spotify-recovery" style="${btnStyle}">Dismiss</button></div></div>` : '';
-
-            const fallbackOptions = spotifyTracks.length ? `<details style="padding:7px 9px; border:1px solid rgba(29,185,84,0.28); background:rgba(29,185,84,0.07); border-radius:9px;"><summary style="cursor:pointer; color:#86efac; font-size:0.78rem; font-weight:650;">Spotify recovery options · ${spotifyTracks.length} Spotify-linked track${spotifyTracks.length === 1 ? '' : 's'}</summary><div style="font-size:0.74rem; color:#cbd5e1; margin-top:6px; line-height:1.4;">Standard localization remains the default. This alternate resolver searches more independent-source candidates with broader duration/title matching and only runs when you press the button below. Non-Spotify tracks in a mixed scope continue through the standard resolver.</div><button type="button" class="audioflix-add-toggle" data-af-action="localize-spotify-fallback-scope" data-af-scope="${esc(scope)}" data-af-key="${esc(key)}" style="${btnStyle} margin-top:7px; background:rgba(29,185,84,0.14); color:#86efac; border:1px solid rgba(29,185,84,0.4);">Use Spotify Fallback for this scope</button></details>` : '';
 
             // Scope-level Music Port status & management
             const fsFolders = deps.getFsPortFolders?.() || [];
@@ -91,8 +80,6 @@ window.EveAudioflixUiLocalize = window.EveAudioflixUiLocalize || {};
                 ${formatField}
                 ${forceField}
                 ${missingWarning}
-                ${recoveryBlock}
-                ${fallbackOptions}
                 ${portStatusBadge}
                 <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:4px;">
                     <button type="submit" data-af-action="submit-form" ${canRun ? '' : 'disabled'} style="${btnStyle}">${btnLabel}</button>
@@ -191,10 +178,7 @@ window.EveAudioflixUiLocalize = window.EveAudioflixUiLocalize || {};
                 const linkNote = e.kind === 'shortcut' && e.linkOf
                     ? `<div style="font-size:0.68rem; color:#94a3b8; margin-top:2px;" title="${esc(e.linkOf)}">↳ real file: <code style="color:#cbd5e1;">${esc(e.linkOf)}</code></div>`
                     : '';
-                const fallbackNote = e.method === 'spotify-fallback'
-                    ? `<div style="font-size:0.68rem; color:#86efac; margin-top:2px;">↳ Spotify Fallback · ${esc(e.resolver || 'alternate resolver')}${e.matchedUrl ? ` · matched source retained in localization metadata` : ''}</div>`
-                    : '';
-                return `<div style="padding:4px 0; ${i ? 'border-top:1px solid rgba(255,255,255,0.06);' : ''}"><div style="display:flex; align-items:center; gap:8px;"><span style="color:${color(e.kind, e.label)}; font-weight:600; white-space:nowrap; font-size:0.78rem;">${i === 0 ? '★ ' : ''}${esc(e.label)}</span><input type="text" class="audioflix-info-url-input audioflix-localization-path" data-af-id="${esc(track.id)}" data-af-source="${esc(e.source || '')}" value="${esc(e.path)}" title="${esc(e.path)}" style="flex:1; min-width:0; font-family:monospace; font-size:0.72rem;"></div>${linkNote}${fallbackNote}</div>`;
+                return `<div style="padding:4px 0; ${i ? 'border-top:1px solid rgba(255,255,255,0.06);' : ''}"><div style="display:flex; align-items:center; gap:8px;"><span style="color:${color(e.kind, e.label)}; font-weight:600; white-space:nowrap; font-size:0.78rem;">${i === 0 ? '★ ' : ''}${esc(e.label)}</span><input type="text" class="audioflix-info-url-input audioflix-localization-path" data-af-id="${esc(track.id)}" data-af-source="${esc(e.source || '')}" value="${esc(e.path)}" title="${esc(e.path)}" style="flex:1; min-width:0; font-family:monospace; font-size:0.72rem;"></div>${linkNote}</div>`;
             }).join('');
             return `<div class="audioflix-info-url-container"><span>Localizations (★ = plays first · hover or edit a path)</span><div style="padding:6px 10px; background:rgba(0,0,0,0.25); border-radius:8px;">${rows}</div></div>`;
         }
