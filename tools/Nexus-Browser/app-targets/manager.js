@@ -245,6 +245,37 @@ async function captureAppLatest({ targetId }) {
   return { ...result, target };
 }
 
+async function recoverBusyAppTarget({ targetId, requestId = null }) {
+  const key = String(targetId || '');
+  if (!key) {
+    const error = new Error('No App-Origin target is selected.');
+    error.code = 'APP_TARGET_NOT_SELECTED';
+    throw error;
+  }
+  if (!activeSends.has(key)) {
+    return { recovered: false, requestId: requestId || null, reason: 'not-busy' };
+  }
+  const adapter = adapterForTarget(key);
+  if (!adapter?.probeActiveCompletion) {
+    return { recovered: false, requestId: requestId || null, reason: 'unsupported' };
+  }
+  let status = null;
+  try { status = adapter.status?.(key) || null; } catch {}
+  const activeRequestId = status?.requestId ? String(status.requestId) : null;
+  if (requestId && activeRequestId && String(requestId) !== activeRequestId) {
+    return { recovered: false, requestId: activeRequestId, reason: 'request-mismatch' };
+  }
+  const target = cachedTargets?.find((entry) => String(entry.id) === key)
+    || await getAppTarget(key);
+  if (!target) {
+    return { recovered: false, requestId: activeRequestId || requestId || null, reason: 'target-not-found' };
+  }
+  return adapter.probeActiveCompletion({
+    target,
+    requestId: activeRequestId || requestId || null
+  });
+}
+
 async function sendAppPrompt({ targetId, target: verifiedTarget = null, requestId, text, emit,
   beforeSend = null, transportTiming = {} }) {
   if (!targetId) {
@@ -338,6 +369,7 @@ module.exports = {
   reliableConversationTitle,
   onAppTurnFinal,
   captureAppLatest,
+  recoverBusyAppTarget,
   sendAppPrompt,
   discoveryDiagnostics,
   invalidateAppTargetCache,
