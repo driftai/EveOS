@@ -31,11 +31,8 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
         reconnectAll
     } = registry;
     let liveObjectUrls = [];
-    // Blobs minted for a specific TRACK path are kept apart from the soundboard listing's blobs.
-    // They shared one list, so every ported-sounds refresh revoked the URL of whatever music was
-    // playing at the time — the track died mid-song. These are only revoked on an explicit reset.
+    // Track blobs stay separate so refreshing Soundboard ports cannot revoke playing music.
     let pathObjectUrls = [];
-
     // Enumerate every GRANTED folder (top-level audio files, matching the server port behavior)
     // into soundboard-shaped raw items. The id embeds the persisted record id + filename so the
     // existing per-item maps (portVolumes / exposedPortedSounds / portHotkeys) keep working
@@ -53,7 +50,8 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
     // name and confirm by actually opening the file; failing that, accept any granted folder that
     // directly holds a file of that name.
     const pathBlobCache = new Map();
-    const MAX_PATH_BLOB_CACHE = 64;
+    // Playback releases on handoff/end; this reserve only covers abandoned preparations.
+    const MAX_PATH_BLOB_CACHE = 8;
 
     function rememberPathBlob(cacheKey, url) {
         if (pathBlobCache.has(cacheKey)) {
@@ -72,6 +70,17 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
         pathObjectUrls.push(url);
     }
 
+    function releaseFileUrl(url) {
+        const target = String(url || '');
+        if (!target) return false;
+        let managed = false;
+        for (const [key, cached] of pathBlobCache)
+            if (cached === target) { pathBlobCache.delete(key); managed = true; }
+        if (!managed) return false;
+        pathObjectUrls = pathObjectUrls.filter((entry) => entry !== target);
+        try { URL.revokeObjectURL(target); } catch {}
+        return true;
+    }
     const paths = window.EveAudioflixPaths;
 
     async function openRelativeFile(root, segments) {
@@ -198,7 +207,11 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
         if (!supported() || !localPath) return '';
         const cacheKey = paths?.key?.(localPath) || String(localPath);
         const cached = pathBlobCache.get(cacheKey);
-        if (cached) return cached;
+        if (cached) {
+            pathBlobCache.delete(cacheKey);
+            pathBlobCache.set(cacheKey, cached);
+            return cached;
+        }
         const browserPath = parseBrowserMusicPath(localPath);
         if (browserPath?.segments?.length) {
             const record = await grantedRecord(browserPath.id);
@@ -409,6 +422,7 @@ window.EveAudioflixFsPorts = window.EveAudioflixFsPorts || {};
         ready: true,
         supported,
         fileUrlForPath,
+        releaseFileUrl,
         verifyPath,
         scanMusicFolder,
         scanMusicFolderById,

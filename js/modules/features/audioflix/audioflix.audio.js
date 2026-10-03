@@ -13,8 +13,6 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     let activeNativeMode = '';
     let nativePausedAt = 0;
     let nativeGeneration = 0;
-    // One-time console notice for the normal "bridge off -> browser playback" mode; reset when a
-    // native send succeeds again so a mid-session server restart re-announces cleanly.
     let nativeFallbackNoticeShown = false;
     let activeStreamVolume = 1.0;
     let urlPlayback = null;
@@ -42,8 +40,6 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         },
         onProgress(detail) { dispatch('eve:audioflix-progress', detail); },
         onPlayer(player) { waveformController?.attachPlayer?.(player); },
-        // Queue View's prev/next/jump. The queue itself belongs to the UI, so it registers a
-        // bridge rather than this layer duplicating the ordering, shuffle and loop rules.
         onStep: (delta) => queueBridge?.step?.(delta),
         onJump: (index) => queueBridge?.jump?.(index)
     }) || null;
@@ -52,16 +48,12 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     function syncQueueView() {
         urlPlayback?.setQueue?.(queueBridge?.list?.() || [], queueBridge?.index?.() ?? 0);
     }
-    // Speed applies to the library element AND whatever the URL controller is driving, so a rate
-    // picked in either internal view survives a switch between them.
     function setPlaybackRate(rate) {
         const safe = Math.max(0.25, Math.min(4, Number(rate) || 1));
         try { ensureAudio().playbackRate = safe; } catch { /* element not built yet */ }
         urlPlayback?.setRate?.(safe);
         return safe;
     }
-    // Native buffered playback (voice + stream lanes) lives in its own module. The native state
-    // stays here (getPlaybackState/pause/seek read it directly), reached via this accessor bag.
     const nativeRuntime = {
         get controller() { return activeNativeController; }, set controller(v) { activeNativeController = v; },
         get buffer() { return activeNativeBuffer; }, set buffer(v) { activeNativeBuffer = v; },
@@ -121,6 +113,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             lastStatus = 'Ended';
             dispatch('eve:audioflix-playback', { status: lastStatus, item: endedItem, settle });
             dispatch('eve:audioflix-progress', getPlaybackState());
+            window.EveAudioflixLocalPlayback?.clearMediaSource?.(audio);
         });
         ['loadedmetadata', 'durationchange', 'timeupdate', 'seeked'].forEach((eventName) => {
             audio.addEventListener(eventName, () => {
@@ -172,7 +165,10 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     async function playUrlItem(item, playOptions = {}) {
         if (!urlPlayback?.canHandle?.(item)) throw new Error('This linked track needs the EveOS resolver server.');
         await musicCapture?.stop?.().catch(() => false);
-        if (audio) audio.pause();
+        if (audio) {
+            audio.pause();
+            window.EveAudioflixLocalPlayback?.clearMediaSource?.(audio, item?.url);
+        }
         await stopNativePlayback(false);
         currentItem = item;
         await urlPlayback.play(item, playOptions);
@@ -263,9 +259,6 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             return await playUrlItem(safeItem);
         }
 
-        // Soundboard clips take the BUFFERED native route (short to decode, and buffering is what
-        // makes them mixable voices). Music must not decode here — a whole track costs seconds
-        // before the first sample (the play->sound lag); it is tapped live below instead.
         if (safeItem.type === 'sound' && window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()) {
             try {
                 lastStatus = `Decoding ${safeItem.title || 'audio'}...`;
@@ -281,8 +274,6 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             } catch (err) {
                 await stopNativePlayback(false).catch(() => {});
                 if (await tryNativePlayback(safeItem).catch(() => false)) return true;
-                // Bridge simply not running (file:// with the server off) is a NORMAL mode, not an
-                // error — say so once and play through the browser. Real failures still warn.
                 if (String(err?.message || '').includes('Native bridge unreachable')) {
                     if (!nativeFallbackNoticeShown) {
                         nativeFallbackNoticeShown = true;
@@ -296,10 +287,9 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
 
         const player = ensureAudio();
         waveformController?.attachPlayer?.(player);
-        currentItem = safeItem;
         player.volume = activeStreamVolume = window.EveAudioflixState.normalizeVolume(safeItem.volume, 1);
-        if (player.src !== safeItem.url) player.src = safeItem.url;
-        // Direct sinks remain media-thread driven in background tabs. PCM capture is the fallback.
+        window.EveAudioflixLocalPlayback?.setMediaSource?.(player, safeItem.url) || (player.src = safeItem.url);
+        currentItem = safeItem;
         const directRoute = await routeBrowserStream(safeItem) || '';
         const nativeMusic = safeItem.type === 'music' && !directRoute
             && window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()
@@ -311,8 +301,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         } catch (error) {
             if (!/^https?:\/\//i.test(safeItem.url || '')) throw error;
             player.pause();
-            player.removeAttribute('src');
-            player.load();
+            window.EveAudioflixLocalPlayback?.clearMediaSource?.(player);
             return await playUrlItem(safeItem);
         }
         window.EveAudioflixState?.recordPlay?.(safeItem);
@@ -347,6 +336,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             if (audio) {
                 audio.pause();
                 try { audio.currentTime = 0; } catch {}
+                window.EveAudioflixLocalPlayback?.clearMediaSource?.(audio);
             }
             currentItem = null;
             lastStatus = 'Stopped';
@@ -363,7 +353,8 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         await musicCapture?.stop?.().catch(() => false);
         if (audio) {
             audio.pause();
-            try { audio.currentTime = 0; audio.removeAttribute('src'); audio.load(); } catch {}
+            try { audio.currentTime = 0; } catch {}
+            window.EveAudioflixLocalPlayback?.clearMediaSource?.(audio);
         }
         await urlPlayback?.stop?.().catch?.(() => {});
         await stopNativePlayback(false).catch(() => {});

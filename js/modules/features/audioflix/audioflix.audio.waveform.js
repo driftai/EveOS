@@ -8,7 +8,6 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
 
     function createController(ensureAudio) {
         let context = null;
-        let source = null;
         let analyser = null;
         let outputGain = null;
         let captureNode = null;
@@ -30,6 +29,13 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
         let activePlayer = null;
         const connectedSources = new WeakMap();
 
+        function disconnectPlayerSource(player) {
+            const entry = player && connectedSources.get(player);
+            if (!entry?.connected) return;
+            try { entry.node.disconnect(); } catch (error) { /* already detached */ }
+            entry.connected = false;
+        }
+
         function ensureGraph(overridePlayer) {
             const player = overridePlayer || activePlayer || ensureAudio();
             if (!context) {
@@ -42,15 +48,18 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
                 analyser.connect(outputGain);
                 outputGain.connect(context.destination);
             }
-            if (player && !connectedSources.has(player)) {
+            if (player) {
+                let entry = connectedSources.get(player);
                 try {
-                    const srcNode = context.createMediaElementSource(player);
-                    srcNode.connect(analyser);
-                    connectedSources.set(player, srcNode);
-                    if (!source) source = srcNode;
-                } catch (e) {
-                    console.warn('[Audioflix] could not connect media element source:', e);
-                }
+                    if (!entry) {
+                        entry = { node: context.createMediaElementSource(player), connected: false };
+                        connectedSources.set(player, entry);
+                    }
+                    if (!entry.connected) {
+                        entry.node.connect(analyser);
+                        entry.connected = true;
+                    }
+                } catch (e) { console.warn('[Audioflix] could not connect media element source:', e); }
             }
             return context;
         }
@@ -277,6 +286,11 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
             releaseBufferWaveform();
         }
 
+        function releasePlayer(player = activePlayer) {
+            disconnectPlayerSource(player);
+            if (activePlayer === player) { stopDrawing(); activePlayer = null; }
+        }
+
         function start() {
             try {
                 ensureGraph();
@@ -322,6 +336,7 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
 
         function attachPlayer(player) {
             if (!player) return;
+            if (activePlayer && activePlayer !== player) disconnectPlayerSource(activePlayer);
             activePlayer = player;
             ensureGraph(player);
             if (!wiredPlayers.has(player) && typeof player.addEventListener === 'function') {
@@ -351,7 +366,7 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
         }
 
         return { attach, attachPlayer, playBufferWaveform, start, stop, getContext: ensureGraph, ensureGraph,
-            setSpeakerMuted, acquireSpeakerMute, setFrameTap, createLiveTap,
+            setSpeakerMuted, acquireSpeakerMute, setFrameTap, createLiveTap, releasePlayer,
             getActivePlayer: () => activePlayer || ensureAudio() };
     }
 

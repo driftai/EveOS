@@ -255,6 +255,16 @@ async function main() {
                 url: 'C:/Legacy/Standalone.mp3'
             });
 
+            const releasedLocalUrls = [];
+            const resourcePlayer = new Audio();
+            let resourceLoads = 0;
+            resourcePlayer.load = () => { resourceLoads += 1; };
+            resourcePlayer.src = 'blob:old-local-track';
+            window.EveAudioflixFsPorts.releaseFileUrl = (url) => releasedLocalUrls.push(url);
+            window.EveAudioflixLocalPlayback.setMediaSource(resourcePlayer, 'blob:new-local-track');
+            const sourceAfterSwap = resourcePlayer.src;
+            window.EveAudioflixLocalPlayback.clearMediaSource(resourcePlayer);
+
             return {
                 preferred,
                 providerDirect: window.EveAudioflixUrlPlayback.providerFor(directItem.url),
@@ -296,7 +306,11 @@ async function main() {
                 fallbackPreparedUrl: fallbackPrepared.item.url,
                 fallbackStatus: fallbackPrepared.status,
                 legacyPreparedUrl: legacyPrepared.item.url,
-                nativeProbeCalls
+                nativeProbeCalls,
+                releasedLocalUrls,
+                resourceLoads,
+                sourceAfterSwap,
+                sourceAfterClear: resourcePlayer.src
             };
         });
 
@@ -338,6 +352,11 @@ async function main() {
         assert(/streaming instead/.test(result.fallbackStatus), 'local-to-online fallback did not explain its route');
         assert(result.legacyPreparedUrl === 'blob:legacy-local-copy', 'legacy absolute URL paths bypassed the local resolver');
         assert(result.nativeProbeCalls >= 1, 'localhost local-file candidates were not verified before fallback');
+        assert(result.sourceAfterSwap === 'blob:new-local-track', 'track source swap did not install the next local URL');
+        assert(result.sourceAfterClear === '' && result.resourceLoads === 2,
+            'completed/stopped local media did not unload its decoder resource');
+        assert(result.releasedLocalUrls.join('|') === 'blob:old-local-track|blob:new-local-track',
+            `local blob URLs were retained after source handoff: ${result.releasedLocalUrls.join('|')}`);
         console.log('AUDIOFLIX_FILE_URL_PLAYBACK_SMOKE_OK');
     } finally {
         await browser.close();

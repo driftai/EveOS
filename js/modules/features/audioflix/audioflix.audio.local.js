@@ -10,6 +10,32 @@ window.EveAudioflixLocalPlayback = window.EveAudioflixLocalPlayback || {};
 
     const text = (value) => String(value ?? '').trim();
 
+    function mediaSource(player) {
+        return text(player?.getAttribute?.('src') || player?.src);
+    }
+
+    function clearMediaSource(player, preserveUrl = '') {
+        if (!player) return false;
+        const prior = mediaSource(player);
+        try {
+            if (typeof player.removeAttribute === 'function') player.removeAttribute('src');
+            else player.src = '';
+        } catch { player.src = ''; }
+        try { player.load?.(); } catch {}
+        window.EveAudioflixAudio?.getWaveformController?.()?.releasePlayer?.(player);
+        if (prior && prior !== text(preserveUrl)) window.EveAudioflixFsPorts?.releaseFileUrl?.(prior);
+        return !!prior;
+    }
+
+    function setMediaSource(player, url) {
+        const next = text(url);
+        if (!player || !next) throw new Error('Audioflix media source is unavailable.');
+        if (mediaSource(player) === next) return false;
+        clearMediaSource(player);
+        player.src = next;
+        return true;
+    }
+
     async function prepare(item) {
         const playable = item && typeof item === 'object' ? { ...item } : {};
         const paths = window.EveAudioflixPaths;
@@ -64,5 +90,5 @@ window.EveAudioflixLocalPlayback = window.EveAudioflixLocalPlayback || {};
         return { item: playable, localPath: '', status: '' };
     }
 
-    Object.assign(ns, { ready: true, prepare });
+    Object.assign(ns, { ready: true, prepare, setMediaSource, clearMediaSource });
 })();
