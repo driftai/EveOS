@@ -72,3 +72,17 @@ def test_nexus_user_turn_is_echoed_to_existing_gemini_feed_without_second_provid
     assert "sendTextMessage" not in feed_ui
     assert "nexusWorkspaceFeedUI.js" in manifest
     assert "geminiCredentialWorkflow.js" in manifest
+
+
+def test_gemini_full_shutdown_and_global_stop_share_manual_disable_semantics():
+    shutdown_ui = _read_root("js/modules/gemini/server_control/geminiShutdownUI.js")
+    control_plane = _read_root("js/modules/gemini/server_control/eveosControlPlane.js")
+    manifest = _read_root("js/config/manifest/scripts.parts/13-gemini.js")
+
+    assert "gemini-server-shutdown-btn" in shutdown_ui
+    assert "await control.toggleServer()" in shutdown_ui
+    assert "eve:eveos-global-stop" in shutdown_ui
+    assert "setClientLink?.(false)" in shutdown_ui
+    assert "updateConnectionStatus('disconnected', message || 'Disabled')" in shutdown_ui
+    assert "eve:eveos-global-stop" in control_plane
+    assert "geminiShutdownUI.js" in manifest
