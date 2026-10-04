@@ -18,7 +18,7 @@ function target(id, providerId, providerName, title, detail) {
     id,
     targetClassId: 'local-origin',
     targetTypeId: TARGET_TYPE_ID,
-    targetTypeName: 'Provider Workspace Chat',
+    targetTypeName: 'Eve-OS Bound Chats',
     providerId,
     providerName,
     title,
