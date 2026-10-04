@@ -56,6 +56,18 @@ async def _send_event(connection_monitor, request_id, event):
         }))
 
 
+def _requested_workspace_connection_id(message):
+    direct = str(message.get("workspaceConnectionId") or "").strip()
+    if direct:
+        return direct
+    workspace = message.get("workspace")
+    if isinstance(workspace, dict):
+        nested = str(workspace.get("connectionId") or "").strip()
+        if nested:
+            return nested
+    return None
+
+
 async def execute_nexus_chat_session(
     websocket,
     client,
@@ -102,6 +114,7 @@ async def execute_nexus_chat_session(
 
             request_id = str(message.get("requestId") or "").strip()
             text = str(message.get("text") or "").strip()
+            workspace_connection_id = _requested_workspace_connection_id(message)
             if not request_id or not text:
                 await connection_monitor.safe_send(json.dumps({
                     "type": "nexus_workspace_error",
@@ -111,7 +124,11 @@ async def execute_nexus_chat_session(
                 continue
 
             try:
-                async for event in stream_workspace_turn(text, request_id):
+                async for event in stream_workspace_turn(
+                    text,
+                    request_id,
+                    workspace_connection_id=workspace_connection_id,
+                ):
                     await _send_event(connection_monitor, request_id, event)
             except Exception as error:
                 await connection_monitor.safe_send(json.dumps({
