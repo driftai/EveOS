@@ -47,18 +47,21 @@ const assessPlaylistCompleteness = (expectedCount = 0, capturedCount = 0) => {
     }
 
     const shortfall = expected - captured;
-    // Spotify can count removed/region-blocked rows in the playlist total without exposing a
-    // usable track row. Once collectDomRows has genuinely reached the end, tolerate only a tiny
-    // near-complete gap. This keeps 8/135 and other real truncation failures blocked.
+    // Spotify can count a removed/region-blocked item in the playlist total without exposing a
+    // usable track row. Always tolerate exactly one missing row after a complete scan; for larger
+    // playlists we also allow the existing tiny <=2% gap (up to three rows). Real truncation such
+    // as 8/135, or 16/18, remains blocked.
     const tolerance = Math.min(3, Math.max(1, Math.ceil(expected * 0.02)));
+    const singleUnavailable = captured > 0 && shortfall === 1;
     const nearComplete = captured > 0
         && captured / expected >= 0.97
         && shortfall <= tolerance;
+    const acceptable = singleUnavailable || nearComplete;
     return {
-        ok: nearComplete,
+        ok: acceptable,
         expectedCount: expected,
         capturedCount: captured,
-        unexposedCount: nearComplete ? shortfall : 0,
+        unexposedCount: acceptable ? shortfall : 0,
         shortfall
     };
 };
