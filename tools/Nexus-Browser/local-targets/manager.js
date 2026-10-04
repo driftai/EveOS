@@ -19,8 +19,8 @@ const LOCAL_TARGET_TYPES = [
   },
   {
     id: 'provider-workspace',
-    name: 'Provider Workspace Chat',
-    description: 'Passive chat access to EveOS local providers without starting their services.'
+    name: 'Eve-OS Bound Chats',
+    description: 'Chats bound to existing EveOS provider workspaces; Nexus ports their active state and capabilities instead of inventing parallel sessions.'
   }
 ];
 
