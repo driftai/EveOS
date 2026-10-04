@@ -76,6 +76,41 @@ def query_variants(meta: dict) -> list[str]:
     return variants
 
 
+def stored_track_metadata(track: dict) -> dict:
+    """Return import-time Spotify metadata only when it is strong enough for safe recovery.
+
+    A removed Spotify track may stop returning an embed page later. Audioflix already persisted its
+    title, artist and exact playlist duration at import time, so retain that identity instead of
+    throwing it away and making recovery depend on the now-dead Spotify page. Duration remains
+    mandatory: without it the fallback would become materially looser than the existing matcher.
+    """
+    item = track if isinstance(track, dict) else {}
+    title = str(item.get("title") or "").strip()
+    artist = str(item.get("artist") or "").strip()
+    try:
+        duration = float(item.get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    if not title or not artist or duration <= 0:
+        return {}
+
+    track_id = str(item.get("spotifyTrackId") or "").strip()
+    if not track_id:
+        track_id = spotify_match.spotify_track_id(str(item.get("url") or ""))
+    meta = {
+        "ok": True,
+        "title": title,
+        "artists": [artist],
+        "duration_seconds": duration,
+        "track_id": track_id,
+        "metadata_source": "eveos-import",
+    }
+    isrc = str(item.get("isrc") or "").strip()
+    if isrc:
+        meta["isrc"] = isrc
+    return meta
+
+
 def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], float]:
     """Broader than the normal matcher, but still refuse weak identity guesses.
 
@@ -233,30 +268,35 @@ def localize_one(payload: dict) -> dict:
     track = payload.get("track") or {}
     tid = track.get("id")
     original_url = str(track.get("url") or "").strip()
+    spotify_id = str(track.get("spotifyTrackId") or "").strip() or spotify_match.spotify_track_id(original_url)
     target_dir = localize._clean_path(payload.get("targetDir"))
     media_format = "video" if payload.get("mediaFormat") == "video" else "audio"
 
-    if not spotify_match.spotify_track_id(original_url):
+    if not spotify_id:
         return {
             "ok": False,
             "id": tid,
             "method": "spotify-fallback",
-            "error": "Spotify fallback only accepts Spotify track URLs.",
+            "error": "Spotify fallback only accepts Spotify-linked tracks.",
         }
 
-    resolved = find_fallback_match(original_url)
+    spotify_url = original_url if spotify_match.spotify_track_id(original_url) else f"https://open.spotify.com/track/{spotify_id}"
+    stored_meta = stored_track_metadata(track)
+    metadata_source = "eveos-import" if stored_meta else "spotify-live"
+    resolved = find_fallback_match(spotify_url, metadata=stored_meta or None)
     if not resolved.get("ok"):
         return {
             "ok": False,
             "id": tid,
             "method": "spotify-fallback",
             "resolver": STRATEGY,
+            "metadataSource": metadata_source,
             "error": resolved.get("message") or "Spotify fallback could not resolve that track.",
         }
 
     path, err = localize._prepare_dir(target_dir)
     if err:
-        return {**err, "id": tid, "method": "spotify-fallback", "resolver": STRATEGY}
+        return {**err, "id": tid, "method": "spotify-fallback", "resolver": STRATEGY, "metadataSource": metadata_source}
 
     yt_dlp = localize._get_yt_dlp()
     if yt_dlp is None:
@@ -265,6 +305,7 @@ def localize_one(payload: dict) -> dict:
             "id": tid,
             "method": "spotify-fallback",
             "resolver": STRATEGY,
+            "metadataSource": metadata_source,
             "error": "yt-dlp is not installed on this system.",
         }
 
@@ -291,7 +332,8 @@ def localize_one(payload: dict) -> dict:
                         "duration": result.get("duration") or 0,
                         "method": "spotify-fallback",
                         "resolver": STRATEGY,
-                        "originalUrl": original_url,
+                        "metadataSource": metadata_source,
+                        "originalUrl": spotify_url,
                         "matchedUrl": resolved_url,
                         "matchedTitle": (resolved.get("match") or {}).get("title") or "",
                     }
@@ -304,6 +346,7 @@ def localize_one(payload: dict) -> dict:
                     "id": tid,
                     "method": "spotify-fallback",
                     "resolver": STRATEGY,
+                    "metadataSource": metadata_source,
                     "error": last,
                 }
     return {
@@ -311,5 +354,6 @@ def localize_one(payload: dict) -> dict:
         "id": tid,
         "method": "spotify-fallback",
         "resolver": STRATEGY,
+        "metadataSource": metadata_source,
         "error": "Fallback download produced no file.",
     }

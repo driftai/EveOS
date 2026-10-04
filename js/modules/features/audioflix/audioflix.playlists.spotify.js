@@ -45,11 +45,15 @@ window.EveAudioflixSpotify = window.EveAudioflixSpotify || {};
     }
 
     function entryPatch(entry = {}) {
+        const spotifyTrackId = text(entry.spotifyTrackId || entry.id);
         return {
             album: text(entry.album),
             image: text(entry.image),
             explicit: entry.explicit === true,
             sourceProvider: 'spotify',
+            spotifyTrackId,
+            spotifyUri: text(entry.spotifyUri || entry.uri || (spotifyTrackId ? `spotify:track:${spotifyTrackId}` : '')),
+            isrc: text(entry.isrc || entry.external_ids?.isrc || entry.externalIds?.isrc),
             playlistPosition: Math.max(0, Number(entry.position || 0) || 0)
         };
     }
