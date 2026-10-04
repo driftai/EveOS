@@ -1,4 +1,10 @@
 /* Matrix Workshop base layout and controls. */
+        html {
+            margin: 0;
+            padding: 0;
+            background: #000;
+        }
+
         body {
             margin: 0;
             padding: 0;
@@ -418,9 +424,22 @@ body.matrix-immersive-fullscreen {
     overflow: hidden;
 }
 
-/* Native immersive fullscreen is visual-only: no Matrix workshop chrome. */
-body.matrix-immersive-fullscreen #toolbar,
-body.matrix-immersive-fullscreen #toggleToolbar,
+/* Keep Matrix controls usable in immersive mode while suppressing Chromium's root scroll rail. */
+html:fullscreen,
+html:fullscreen body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden !important;
+    scrollbar-width: none;
+}
+
+html:fullscreen::-webkit-scrollbar,
+html:fullscreen body::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+}
+
 body.matrix-immersive-fullscreen #fpsCounter {
     display: none !important;
 }
