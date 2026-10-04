@@ -9,6 +9,10 @@ def _read(relative_path):
     return (BACKEND / relative_path).read_text(encoding="utf-8")
 
 
+def _read_root(relative_path):
+    return (ROOT / relative_path).read_text(encoding="utf-8")
+
+
 def test_nexus_reuses_normal_eveos_realtime_input_pipeline():
     bridge = _read("websocket_server/session_handler/nexus_workspace_bridge.py")
     assert "process_realtime_input" in bridge
@@ -46,3 +50,25 @@ def test_provider_interruption_reaches_nexus_turn_stream():
     parser = _read("response_processing/stream_handling/response_parser.py")
     assert "publish_nexus_interrupted" in parser
     assert 'await publish_nexus_interrupted(connection_id, "provider_barge_in")' in parser
+
+
+def test_nexus_user_turn_is_echoed_to_existing_gemini_feed_without_second_provider_send():
+    bridge = _read("websocket_server/session_handler/nexus_workspace_bridge.py")
+    feed_ui = _read_root(
+        "js/modules/gemini/client/connection_management/socket_core/nexusWorkspaceFeedUI.js"
+    )
+    manifest = _read_root("js/config/manifest/scripts.parts/13-gemini.js")
+
+    assert '"type": "nexus_workspace_user_message"' in bridge
+    assert "await _echo_nexus_user_message(entry, prompt, request_id)" in bridge
+    assert "await process_realtime_input(" in bridge
+    assert "send_client_content" not in bridge
+    assert "await session.send(" not in bridge
+
+    assert "nexus_workspace_user_message" in feed_ui
+    assert "nexus-workspace-user-message" in feed_ui
+    assert "previousHandleSocketMessage(event)" in feed_ui
+    assert ".send(" not in feed_ui
+    assert "sendTextMessage" not in feed_ui
+    assert "nexusWorkspaceFeedUI.js" in manifest
+    assert "geminiCredentialWorkflow.js" in manifest
