@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const serviceWorkspaceBridge = require('../service-workspace-bridge');
 
 const RUN_TTL_MS = 12 * 60 * 1000;
 
@@ -38,6 +39,7 @@ function createQualificationRouting({
 }) {
   const runs = new Map();
   const pending = new Map();
+  serviceWorkspaceBridge.configure({ safeSend });
 
   function result(ws, requestId, runId, action, ok, data = null, code = null, message = null) {
     safeSend(ws, {
@@ -96,6 +98,36 @@ function createQualificationRouting({
     const type = clean(msg.type, 80);
     const requestId = clean(msg.requestId, 220);
     const runId = clean(msg.runId, 200);
+
+    // Search Monitor uses the localhost-only qualification transport as a narrow control
+    // tunnel for its already-open TLO and Local MoE workspaces. These messages never create
+    // qualification runs, browser targets, or provider sessions.
+    if (type === 'service_workspace_register') {
+      try {
+        const workspaces = serviceWorkspaceBridge.registerHost(ws, msg);
+        safeSend(ws, {
+          type: 'service_workspace_host_ready',
+          workspaceId: clean(msg.workspaceId, 220),
+          workspaces
+        });
+      } catch (error) {
+        safeSend(ws, {
+          type: 'error',
+          requestId: requestId || null,
+          code: error.code || 'SERVICE_WORKSPACE_REGISTER_FAILED',
+          message: error.message
+        });
+      }
+      return true;
+    }
+    if (type.startsWith('service_workspace_')) {
+      if (serviceWorkspaceBridge.handleHostMessage(ws, msg)) return true;
+      safeSend(ws, {
+        type: 'error', requestId: requestId || null,
+        code: 'SERVICE_WORKSPACE_BAD_EVENT', message: `Unsupported service workspace event: ${type}`
+      });
+      return true;
+    }
 
     if (type === 'qualification_begin') {
       const providerId = clean(msg.providerId, 80);
@@ -308,6 +340,7 @@ function createQualificationRouting({
   }
 
   function dropSocket(ws) {
+    serviceWorkspaceBridge.unregisterHost(ws);
     for (const [runId, run] of runs) if (run.owner === ws) { restartHook.cancel?.(runId); runs.delete(runId); }
     for (const [requestId, entry] of pending) if (entry.ws === ws) pending.delete(requestId);
   }
