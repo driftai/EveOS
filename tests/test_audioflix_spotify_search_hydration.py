@@ -23,6 +23,37 @@ class FakeYdl:
         return None
 
 
+class SearchSurfaceYdl:
+    def __init__(self, fail_general=False):
+        self.calls = []
+        self.fail_general = fail_general
+
+    def extract_info(self, url, download=False):
+        self.calls.append((url, download))
+        if str(url).startswith("ytsearch"):
+            if self.fail_general:
+                raise RuntimeError("general search unavailable")
+            return {
+                "entries": [
+                    {"id": "DUPLICATE01", "title": "Example Song", "duration": None},
+                    {"id": "GENERAL001", "title": "General result", "duration": 200},
+                ]
+            }
+        if "music.youtube.com/search" in str(url):
+            return {
+                "entries": [
+                    {
+                        "id": "DUPLICATE01",
+                        "title": "Example Song",
+                        "duration": 201,
+                        "view_count": 1234,
+                    },
+                    {"id": "MUSIC00001", "title": "Catalog result", "duration": 202},
+                ]
+            }
+        return None
+
+
 class SpotifySearchHydrationTests(unittest.TestCase):
     def test_missing_duration_is_hydrated_without_losing_candidate_identity(self):
         ydl = FakeYdl()
@@ -63,6 +94,32 @@ class SpotifySearchHydrationTests(unittest.TestCase):
 
         self.assertEqual(len(hydrated), 5)
         self.assertEqual(len(ydl.calls), 2)
+
+    def test_search_alias_normalizes_stylized_word_boundaries(self):
+        query = 'SliceMaxxi *FloatingAway* pr/gosha'
+        normalized = match._normalize_search_query(query)
+        self.assertEqual(normalized, 'Slice Maxxi Floating Away pr/gosha')
+        url = match._youtube_music_search_url(query)
+        self.assertIn('music.youtube.com/search?', url)
+        self.assertTrue(url.endswith('#songs'))
+        self.assertIn('Floating+Away', url)
+
+    def test_general_and_music_search_rows_are_merged_and_deduplicated(self):
+        ydl = SearchSurfaceYdl()
+        rows = match._collect_search_rows(ydl, 'Example Artist Example Song', 8)
+
+        self.assertEqual([row['id'] for row in rows], ['DUPLICATE01', 'GENERAL001', 'MUSIC00001'])
+        duplicate = rows[0]
+        self.assertEqual(duplicate['duration'], 201)
+        self.assertEqual(duplicate['view_count'], 1234)
+        self.assertTrue(any(str(url).startswith('ytsearch8:') for url, _ in ydl.calls))
+        self.assertTrue(any('music.youtube.com/search' in str(url) for url, _ in ydl.calls))
+
+    def test_music_search_survives_general_search_failure(self):
+        ydl = SearchSurfaceYdl(fail_general=True)
+        rows = match._collect_search_rows(ydl, 'Example Artist Example Song', 8)
+
+        self.assertEqual([row['id'] for row in rows], ['DUPLICATE01', 'MUSIC00001'])
 
     def test_one_more_hour_is_not_misclassified_as_bulk_in_standard_matcher(self):
         meta = {"title": "One More Hour", "artists": ["Tame Impala"], "duration_seconds": 433.0}
