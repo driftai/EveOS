@@ -7,7 +7,8 @@ const {
     playlistCount,
     requestMentionsPlaylist,
     needsFullPlayerPromotion,
-    assessPlaylistCompleteness
+    assessPlaylistCompleteness,
+    shouldPromoteEmbedAfterScan
 } = require('../server_modules/audioflix_spotify_scrape');
 
 const track = (position) => {
@@ -63,6 +64,18 @@ test('embed extraction promotes only playlists beyond its reliable 100-row surfa
     assert.equal(needsFullPlayerPromotion(embed, 135, 8), true);
     assert.equal(needsFullPlayerPromotion(embed, 0, 100), true, 'an unknown count at the cap is ambiguous');
     assert.equal(needsFullPlayerPromotion('https://open.spotify.com/playlist/0g3Wc7zGTmqRcG7G79fQ5H', 135, 8), false);
+});
+
+test('small private embed with a playlist header but zero rows promotes to the saved session', () => {
+    const embed = 'https://open.spotify.com/embed/playlist/5cLjZEw99fbjUcLHfMgkOL';
+    assert.equal(shouldPromoteEmbedAfterScan(embed, 18, 0), true);
+    assert.equal(shouldPromoteEmbedAfterScan(embed, 18, 18), false);
+    assert.equal(shouldPromoteEmbedAfterScan(embed, 18, 8), true);
+    assert.equal(
+        shouldPromoteEmbedAfterScan('https://open.spotify.com/playlist/5cLjZEw99fbjUcLHfMgkOL', 18, 0),
+        false,
+        'a full saved-session page cannot be promoted again'
+    );
 });
 
 test('near-complete scans tolerate only a tiny unavailable Spotify row gap', () => {
