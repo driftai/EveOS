@@ -8,6 +8,7 @@ const bridge = require('../service-workspace-bridge');
 
 const TLO_ID = 'local:tlo-chat:default';
 const MOE_ID = 'local:local-moe-chat:default';
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 
 function socket() {
   return { readyState: 1, sent: [] };
@@ -103,10 +104,26 @@ test('service-chat adapter has no shadow history or direct inference route', () 
   assert.doesNotMatch(source, /\/api\/eve-state\/modular\/tlo\/chat\/stream/);
 });
 
+test('TLO Nexus path calls the mounted Search Monitor TLO chat instead of its own provider route', () => {
+  const host = fs.readFileSync(
+    path.join(REPO_ROOT, 'js', 'modules', 'gemini', 'search_monitor', 'nexusServiceChatBridge.js'),
+    'utf8'
+  );
+  const tlo = fs.readFileSync(
+    path.join(REPO_ROOT, 'js', 'modules', 'gemini', 'search_monitor', 'tloChat.js'),
+    'utf8'
+  );
+  assert.match(host, /EveOSTloChat/);
+  assert.match(host, /sendWorkspaceMessage/);
+  assert.doesNotMatch(host, /\/api\/eve-state\/modular\/tlo\/chat\/stream/);
+  assert.match(tlo, /const priorHistory = conversation\.slice\(-40\)/);
+  assert.match(tlo, /external: true/);
+  assert.match(tlo, /conversation\.push\(\{ role: 'assistant'/);
+});
+
 test('Gemini manifest keeps credential workflow while loading the Search Monitor service-chat host', () => {
-  const repoRoot = path.resolve(__dirname, '..', '..', '..');
   const manifest = fs.readFileSync(
-    path.join(repoRoot, 'js', 'config', 'manifest', 'scripts.parts', '13-gemini.js'),
+    path.join(REPO_ROOT, 'js', 'config', 'manifest', 'scripts.parts', '13-gemini.js'),
     'utf8'
   );
   assert.match(manifest, /search_monitor\/nexusServiceChatBridge\.js/);
