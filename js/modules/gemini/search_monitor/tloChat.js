@@ -209,20 +209,44 @@
         if (!finalized) throw new Error('The TLO stream ended before completion.');
     }
 
-    async function sendMessage(form) {
-        if (active) return;
-        const input = form.querySelector('[data-tlo-input]');
-        const message = String(input?.value || '').trim();
-        if (!message) return;
+    async function sendMessage(form, options = {}) {
+        const external = options.external === true;
+        if (active) {
+            if (external) {
+                const error = new Error('TLO is already generating in the Search Monitor conversation.');
+                error.code = 'TLO_WORKSPACE_BUSY';
+                throw error;
+            }
+            return null;
+        }
+        const input = form?.querySelector('[data-tlo-input]');
+        const message = String(options.message != null ? options.message : (input?.value || '')).trim();
+        if (!message) {
+            if (external) throw new Error('TLO workspace prompt is empty.');
+            return null;
+        }
         if (!apiBase || status?.canChat !== true) await refreshStatus();
-        if (!apiBase || status?.canChat !== true) return;
+        if (!apiBase || status?.canChat !== true) {
+            if (external) {
+                const error = new Error(status?.message || 'TLO is not ready in Search Monitor.');
+                error.code = status?.state || 'TLO_WORKSPACE_UNAVAILABLE';
+                throw error;
+            }
+            return null;
+        }
 
         const priorHistory = conversation.slice(-40);
         conversation.push({ role: 'user', content: message });
         bubble('user', message);
-        if (input) input.value = '';
+        if (!external && input) input.value = '';
         const assistant = bubble('assistant', '');
-        const run = { id: requestId(), controller: new AbortController(), text: '', cancelled: false };
+        const run = {
+            id: String(options.requestId || requestId()),
+            controller: new AbortController(),
+            text: '',
+            cancelled: false,
+            source: external ? 'nexus' : 'search-monitor'
+        };
         active = run;
         setBusy(true);
         try {
@@ -237,28 +261,60 @@
                 onDelta(piece) {
                     run.text += piece;
                     if (assistant?.content) assistant.content.textContent = run.text;
+                    options.onPartial?.(run.text);
                 },
                 onDone() {
                     if (!run.text && assistant?.content) assistant.content.textContent = 'TLO completed without a visible response.';
                 }
             });
-            if (!run.cancelled) conversation.push({
-                role: 'assistant', content: run.text || 'TLO completed without a visible response.'
-            });
+            const finalText = run.text || 'TLO completed without a visible response.';
+            if (!run.cancelled) conversation.push({ role: 'assistant', content: finalText });
+            return finalText;
         } catch (error) {
             if (run.cancelled || error?.name === 'AbortError') {
                 if (assistant?.content) assistant.content.textContent = run.text ? `${run.text}\n\n[Stopped]` : '[Stopped]';
+                const stopped = new Error('TLO Search Monitor turn was stopped.');
+                stopped.code = 'TLO_WORKSPACE_INTERRUPTED';
+                if (external) throw stopped;
             } else {
                 assistant?.article?.remove();
                 bubble('status', error?.message || 'TLO inference failed.');
                 status = { ...(status || {}), state: error?.state || 'inference_failure', canChat: false,
                     message: error?.message || 'TLO inference failed.' };
                 renderStatus(status);
+                if (external) throw error;
             }
+            return null;
         } finally {
             if (active === run) active = null;
             setBusy(false);
         }
+    }
+
+    async function sendWorkspaceMessage(message, options = {}) {
+        const form = root?.querySelector('[data-tlo-form]');
+        if (!root || !form) {
+            const error = new Error('The TLO Search Monitor workspace is not mounted.');
+            error.code = 'TLO_WORKSPACE_UNAVAILABLE';
+            throw error;
+        }
+        return sendMessage(form, {
+            external: true,
+            message,
+            requestId: options.requestId,
+            onPartial: options.onPartial
+        });
+    }
+
+    function workspaceSnapshot() {
+        return {
+            bound: !!root?.querySelector('[data-tlo-form]'),
+            busy: !!active,
+            canChat: status?.canChat === true,
+            state: status?.state || 'unknown',
+            historyMessages: conversation.length,
+            activeRequestId: active?.id || null
+        };
     }
 
     async function cancel() {
@@ -314,7 +370,7 @@
         container.addEventListener('submit', (event) => {
             if (!event.target.matches('[data-tlo-form]')) return;
             event.preventDefault();
-            sendMessage(event.target);
+            sendMessage(event.target).catch((error) => console.debug('TLO send failed:', error?.message || error));
         });
     }
 
@@ -322,5 +378,15 @@
         refreshStatus();
     }
 
-    window.EveOSTloChat = Object.freeze({ markup, bind, activate, refreshStatus, consumeSseResponse, cancel });
+    window.EveOSTloChat = Object.freeze({
+        markup,
+        bind,
+        activate,
+        refreshStatus,
+        consumeSseResponse,
+        cancel,
+        clearConversation,
+        sendWorkspaceMessage,
+        workspaceSnapshot
+    });
 })();
