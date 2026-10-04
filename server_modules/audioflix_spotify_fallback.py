@@ -1,13 +1,9 @@
 """Explicit Spotify localization fallback for Audioflix.
 
-This module is intentionally separate from the normal Spotify matcher. The normal localizer stays
-strict and remains the default. This fallback is only reached after an explicit user action from the
-Audioflix UI (or a direct localhost API call).
-
-Spotify is used for track identity/metadata only. No Spotify audio is decrypted, recorded, or
-requested here. The fallback performs broader independent-source search (YouTube, YouTube Music,
-and a second-tier SoundCloud search), verifies title/artist/duration, then hands the selected
-recording to the existing Audioflix yt-dlp download pipeline.
+The normal Spotify matcher stays strict and remains the default. This module is reached only after
+an explicit fallback action. Spotify supplies identity/metadata; independent catalog sources supply
+the playable recording. The resolver searches YouTube/YouTube Music first, then a bounded SoundCloud
+tier, while keeping duration, title, artist, and edition checks source-independent.
 """
 
 from __future__ import annotations
@@ -20,13 +16,16 @@ from server_modules import audioflix_localize as localize
 from server_modules import audioflix_spotify_match as spotify_match
 
 
-# Keep the historical resolver name for API/state compatibility even though the explicit fallback
-# can now use SoundCloud after the YouTube-family search surfaces fail to produce a strong match.
+# Historical name retained for API/state compatibility.
 STRATEGY = "expanded-youtube-search"
-SEARCH_RESULTS_PER_QUERY = 8
-MAX_QUERY_VARIANTS = 6
-FAST_QUERY_COUNT = 2
-FALLBACK_HYDRATE_LIMIT = 4
+SEARCH_RESULTS_PER_QUERY = 6
+MAX_QUERY_VARIANTS = 3
+FAST_QUERY_COUNT = 1
+PRIMARY_CONFIRM_QUERY_COUNT = 2
+FALLBACK_HYDRATE_LIMIT = 2
+SOUNDCLOUD_RESULTS_PER_QUERY = 6
+SOUNDCLOUD_MAX_QUERY_VARIANTS = 2
+SOUNDCLOUD_HYDRATE_LIMIT = 3
 DESCRIPTION_CREDIT_MAX_DELTA_SECONDS = 2.5
 MIN_TOLERANCE_SECONDS = 5.0
 MAX_TOLERANCE_SECONDS = 10.0
@@ -45,7 +44,7 @@ _AUTH_REQUIRED_MARKERS = (
 
 
 def _tokens(value) -> set[str]:
-    """Identity tokens that preserve non-Latin text while also matching accent-folded spellings."""
+    """Identity tokens preserving non-Latin text plus accent-folded aliases."""
     normalized = spotify_match._normalize_search_query(str(value or ""))
     unicode_text = unicodedata.normalize("NFKC", normalized).casefold()
     ascii_text = unicodedata.normalize("NFKD", normalized).encode("ascii", "ignore").decode("ascii").lower()
@@ -73,11 +72,7 @@ def _tolerance(target_seconds: float) -> float:
 
 
 def _strip_search_credit_suffix(value: str) -> str:
-    """Drop common trailing producer-credit shorthand for search/title aliases only.
-
-    This never mutates the canonical Spotify title. It just lets names such as ``Song pr/name``
-    search as ``Song`` while the matcher still requires duration and artist corroboration.
-    """
+    """Remove trailing producer-credit shorthand only from search aliases."""
     text = str(value or "").strip()
     return " ".join(re.sub(
         r"\s+\b(?:pr|prod|producer)\s*/\s*[^\s/|;]+\s*$",
@@ -86,9 +81,9 @@ def _strip_search_credit_suffix(value: str) -> str:
 
 
 def _title_token_variants(value) -> list[set[str]]:
-    """Canonical title plus safe sub-title variants for slash/pipe multi-part Spotify names."""
+    """Canonical title plus safe sub-title variants used only for identity comparison."""
     text = spotify_match._normalize_search_query(str(value or ""))
-    variants = []
+    variants: list[set[str]] = []
 
     def add(part: str):
         tokens = _tokens(part)
@@ -96,9 +91,9 @@ def _title_token_variants(value) -> list[set[str]]:
             variants.append(tokens)
 
     add(text)
-    credit_stripped = _strip_search_credit_suffix(text)
-    if credit_stripped != text:
-        add(credit_stripped)
+    clean = _strip_search_credit_suffix(text)
+    if clean != text:
+        add(clean)
     for part in re.split(r"\s*(?:/|\||;)\s*", text):
         if len(_tokens(part)) >= 2:
             add(part)
@@ -109,10 +104,11 @@ def _title_token_variants(value) -> list[set[str]]:
 
 
 def _title_query_aliases(value) -> list[str]:
-    """Search-only title aliases; canonical Spotify identity is never rewritten."""
+    """Search-only title aliases, with the cleanest useful form first."""
     raw = str(value or "").strip()
     normalized = spotify_match._normalize_search_query(raw)
-    aliases = []
+    credit_stripped = _strip_search_credit_suffix(normalized)
+    aliases: list[str] = []
 
     def add(part: str):
         clean = " ".join(str(part or "").split()).strip()
@@ -120,9 +116,12 @@ def _title_query_aliases(value) -> list[str]:
         if clean and len(_tokens(clean)) >= 2 and all(existing.casefold() != key for existing in aliases):
             aliases.append(clean)
 
-    add(raw)
+    # For stylized/repost names, the catalog-friendly alias must run first. This is what turns
+    # ``*FloatingAway* pr/gosha`` into an initial ``Floating Away`` search rather than paying for
+    # two low-yield decorated queries before reaching the useful form.
+    add(credit_stripped)
     add(normalized)
-    add(_strip_search_credit_suffix(normalized))
+    add(raw)
     for part in re.split(r"\s*(?:/|\||;)\s*", normalized):
         add(part)
     add(re.sub(r"\([^)]*\)", " ", normalized))
@@ -130,46 +129,63 @@ def _title_query_aliases(value) -> list[str]:
 
 
 def query_variants(meta: dict) -> list[str]:
-    """Prioritize useful aliases before expensive Topic/official search decorations."""
+    """Bounded YouTube-family queries ordered from highest to lowest yield."""
     title = str(meta.get("title") or "").strip()
-    artists = [str(value or "").strip() for value in (meta.get("artists") or []) if str(value or "").strip()]
+    artists = [str(v or "").strip() for v in (meta.get("artists") or []) if str(v or "").strip()]
     artist = artists[0] if artists else ""
     aliases = _title_query_aliases(title) or [title]
-    raw = []
+    raw: list[str] = []
 
-    # Artist + title/alias queries are the highest-yield forms and should run first so obscure
-    # catalog recordings can resolve without paying for every decorated query variant.
     for alias in aliases:
         raw.append(" ".join(part for part in (artist, alias) if part))
-    for alias in aliases[:2]:
+    for alias in aliases[:1]:
         raw.append(" ".join(part for part in (f'"{alias}"', artist, "audio") if part))
-    primary = aliases[1] if len(aliases) > 1 else aliases[0]
-    raw.extend([
-        " ".join(part for part in (artist, primary, "Topic") if part),
-        " ".join(part for part in (primary, artist, "official audio") if part),
-    ])
+    raw.append(" ".join(part for part in (artist, aliases[0], "Topic") if part))
 
     seen = set()
-    variants = []
+    output = []
     for query in raw:
         clean = " ".join(query.split()).strip()
         key = clean.casefold()
         if clean and key not in seen:
             seen.add(key)
-            variants.append(clean)
-        if len(variants) >= MAX_QUERY_VARIANTS:
+            output.append(clean)
+        if len(output) >= MAX_QUERY_VARIANTS:
             break
-    return variants
+    return output
+
+
+def soundcloud_query_variants(meta: dict) -> list[str]:
+    """SoundCloud queries favor title-only discovery so reposts with unrelated uploaders are findable.
+
+    Acceptance remains strict: a title-only search result still needs duration plus artist metadata or
+    a near-exact SoundCloud credit/description match before it can be selected.
+    """
+    title = str(meta.get("title") or "").strip()
+    artists = [str(v or "").strip() for v in (meta.get("artists") or []) if str(v or "").strip()]
+    artist = artists[0] if artists else ""
+    aliases = _title_query_aliases(title) or [title]
+    raw: list[str] = []
+    for alias in aliases:
+        raw.append(alias)
+        if artist:
+            raw.append(f"{artist} {alias}")
+
+    seen = set()
+    output = []
+    for query in raw:
+        clean = " ".join(query.split()).strip()
+        key = clean.casefold()
+        if clean and key not in seen:
+            seen.add(key)
+            output.append(clean)
+        if len(output) >= SOUNDCLOUD_MAX_QUERY_VARIANTS:
+            break
+    return output
 
 
 def stored_track_metadata(track: dict) -> dict:
-    """Return import-time Spotify metadata only when it is strong enough for safe recovery.
-
-    A removed Spotify track may stop returning an embed page later. Audioflix already persisted its
-    title, artist and exact playlist duration at import time, so retain that identity instead of
-    throwing it away and making recovery depend on the now-dead Spotify page. Duration remains
-    mandatory: without it the fallback would become materially looser than the existing matcher.
-    """
+    """Use import-time Spotify identity when title, artist and duration are all present."""
     item = track if isinstance(track, dict) else {}
     title = str(item.get("title") or "").strip()
     artist = str(item.get("artist") or "").strip()
@@ -198,10 +214,9 @@ def stored_track_metadata(track: dict) -> dict:
 
 
 def _candidate_url(item) -> str:
-    """Concrete media URL without ever turning a non-YouTube extractor id into a YouTube id."""
+    """Concrete source URL without converting non-YouTube IDs into YouTube IDs."""
     row = item if isinstance(item, dict) else {}
-    source = str(row.get("_source") or "").casefold()
-    if source == "soundcloud":
+    if str(row.get("_source") or "").casefold() == "soundcloud":
         for key in ("webpage_url", "permalink_url", "original_url", "url"):
             clean = str(row.get(key) or "").strip()
             if clean.startswith(("http://", "https://")):
@@ -223,7 +238,6 @@ def _candidate_identity_tokens(item: dict) -> set[str]:
 
 
 def _soundcloud_credit_tokens(item: dict) -> set[str]:
-    """Credits/descriptions are secondary evidence, never primary title identity."""
     if str(item.get("_source") or "").casefold() != "soundcloud":
         return set()
     actual = set()
@@ -233,13 +247,7 @@ def _soundcloud_credit_tokens(item: dict) -> set[str]:
 
 
 def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], float]:
-    """Broader than the normal matcher, but still refuse weak identity guesses.
-
-    Multi-part Spotify titles can match one of their named segments, but a partial-segment match is
-    accepted only when artist/uploader metadata independently corroborates the Spotify artist.
-    SoundCloud repost descriptions may corroborate artist credit only when title overlap is already
-    strong and duration is near-exact. Duration and edition gates remain mandatory for every source.
-    """
+    """Verify candidate recording identity without source-specific song exceptions."""
     target = float(meta.get("duration_seconds") or 0)
     tolerance = _tolerance(target)
     title_variants = _title_token_variants(meta.get("title")) or [_tokens(meta.get("title"))]
@@ -248,10 +256,10 @@ def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], flo
         wanted_artists |= _tokens(artist)
     wanted_edition = _has_marker(meta.get("title"), spotify_match.EDITION_MARKERS)
 
-    accepted = []
-    rejected = []
-    for item in candidates or []:
-        item = item if isinstance(item, dict) else {}
+    accepted: list[dict] = []
+    rejected: list[dict] = []
+    for raw in candidates or []:
+        item = raw if isinstance(raw, dict) else {}
         title = str(item.get("title") or "").strip()
         duration = item.get("duration")
         entry = {
@@ -278,6 +286,7 @@ def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], flo
             entry["reason"] = "unknown duration"
             rejected.append(entry)
             continue
+
         delta = abs(float(duration) - target) if target > 0 else 0.0
         if target > 0 and delta > tolerance:
             entry["reason"] = f"duration {duration}s vs {target:.1f}s"
@@ -289,13 +298,13 @@ def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], flo
         title_overlap = max(overlaps or [0.0])
         best_variant_index = overlaps.index(title_overlap) if overlaps else 0
         partial_title = best_variant_index > 0
+
         identity_tokens = _candidate_identity_tokens(item)
         artist_overlap = _overlap(wanted_artists, identity_tokens) if wanted_artists else 1.0
         artist_evidence = "metadata" if artist_overlap > 0 else ""
 
-        # Reposts/archives frequently have the wrong uploader but correctly credit the original
-        # artist in the SoundCloud description. Only permit that weaker evidence when title identity
-        # is already plausible and the recording duration is essentially exact.
+        # SoundCloud repost/archival accounts can differ from the original artist. Description/full
+        # title credit is accepted only behind strong title identity and near-exact duration.
         if (
             wanted_artists and artist_overlap <= 0
             and entry["source"].casefold() == "soundcloud"
@@ -345,7 +354,7 @@ def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], flo
 
 
 def _search(query: str, results: int):
-    """Bound YouTube/YouTube Music work and hydrate only the most query-relevant flat rows."""
+    """Bound YouTube + YouTube Music discovery and hydrate only top title-relevant rows."""
     import yt_dlp
 
     count = max(1, int(results or 1))
@@ -365,30 +374,64 @@ def _search(query: str, results: int):
         return spotify_match._hydrate_flat_rows(ydl, rows, limit=FALLBACK_HYDRATE_LIMIT)
 
 
+def _hydrate_soundcloud_rows(ydl, rows, query: str, limit: int = SOUNDCLOUD_HYDRATE_LIMIT):
+    """Hydrate only top SoundCloud search rows so repost description credits are available."""
+    output = []
+    wanted = _tokens(query)
+    prepared = []
+    for item in rows or []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        row["_source"] = "soundcloud"
+        prepared.append(row)
+    prepared.sort(key=lambda row: -_overlap(wanted, _tokens(row.get("title"))))
+
+    probes = 0
+    cap = max(0, int(limit or 0))
+    detail_keys = (
+        "id", "title", "duration", "view_count", "playback_count", "webpage_url", "permalink_url",
+        "original_url", "url", "description", "fulltitle", "uploader", "uploader_id", "artist",
+        "artists", "creator", "album_artist", "formats", "abr",
+    )
+    for row in prepared:
+        url = _candidate_url(row)
+        needs_detail = not row.get("description") or not isinstance(row.get("duration"), (int, float))
+        if url and needs_detail and probes < cap:
+            probes += 1
+            try:
+                detail = ydl.extract_info(url, download=False)
+            except Exception:  # noqa: BLE001
+                detail = None
+            if isinstance(detail, dict):
+                for key in detail_keys:
+                    value = detail.get(key)
+                    if value not in (None, "", []):
+                        row[key] = value
+                row["_source"] = "soundcloud"
+        output.append(row)
+    return output
+
+
 def _soundcloud_search(query: str, results: int):
-    """Fallback-only SoundCloud catalog search with complete metadata and bounded results."""
+    """Flat SoundCloud discovery followed by bounded detail hydration for likely matches."""
     import yt_dlp
 
-    count = max(1, int(results or 1))
+    count = max(1, min(int(results or 1), SOUNDCLOUD_RESULTS_PER_QUERY))
     opts = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
+        "extract_flat": "in_playlist",
         "ignoreerrors": True,
         "playlistend": count,
     }
     clean = spotify_match._normalize_search_query(query)
     with yt_dlp.YoutubeDL(opts) as ydl:
         found = ydl.extract_info(f"scsearch{count}:{clean}", download=False)
-    rows = []
-    for item in ((found or {}).get("entries") or []):
-        if not isinstance(item, dict):
-            continue
-        row = dict(item)
-        row["_source"] = "soundcloud"
-        rows.append(row)
-    return rows[:count]
+        rows = [row for row in ((found or {}).get("entries") or []) if isinstance(row, dict)]
+        return _hydrate_soundcloud_rows(ydl, rows, clean)
 
 
 def _candidate_key(item: dict) -> str:
@@ -412,8 +455,14 @@ def _append_candidates(collected: list[dict], seen: set[str], found) -> None:
 
 
 def _decisive_match(entry: dict) -> bool:
-    """Safe early-exit threshold: near-exact duration plus strong title/artist evidence."""
-    if not isinstance(entry, dict) or float(entry.get("delta") or 9999) > 2.0:
+    """Near-exact duration plus strong title/artist evidence allows immediate return."""
+    if not isinstance(entry, dict):
+        return False
+    try:
+        delta = float(entry.get("delta"))
+    except (TypeError, ValueError):
+        return False
+    if delta > 2.0:
         return False
     title_overlap = float(entry.get("titleOverlap") or 0)
     artist_overlap = float(entry.get("artistOverlap") or 0)
@@ -448,59 +497,71 @@ def find_fallback_match(url: str, searcher=None, opener=None, metadata: dict | N
     queries = query_variants(meta)
     if not queries:
         return {"ok": False, "strategy": STRATEGY, "message": "Spotify returned no searchable title or artist."}
+    sc_queries = soundcloud_query_variants(meta) if searcher is None else []
 
     search = searcher or _search
-    collected = []
-    seen = set()
-    search_errors = []
-    accepted = []
-    rejected = []
+    collected: list[dict] = []
+    seen: set[str] = set()
+    search_errors: list[str] = []
+    accepted: list[dict] = []
+    rejected: list[dict] = []
     tolerance = _tolerance(float(meta.get("duration_seconds") or 0))
-    fast_end = min(FAST_QUERY_COUNT, len(queries))
 
-    def run_queries(search_fn, subset, label="") -> bool:
+    def run_one(search_fn, query: str, label: str = "") -> bool:
         nonlocal accepted, rejected, tolerance
-        for query in subset:
-            try:
-                _append_candidates(collected, seen, search_fn(query, SEARCH_RESULTS_PER_QUERY) or [])
-            except Exception as exc:  # noqa: BLE001
-                search_errors.append(f"{label}{query}: {exc}")
-                continue
-            accepted, rejected, tolerance = rank_candidates(meta, collected)
-            if accepted and _decisive_match(accepted[0]):
-                return True
-        return False
+        try:
+            _append_candidates(collected, seen, search_fn(query, SEARCH_RESULTS_PER_QUERY) or [])
+        except Exception as exc:  # noqa: BLE001
+            search_errors.append(f"{label}{query}: {exc}")
+            return False
+        accepted, rejected, tolerance = rank_candidates(meta, collected)
+        return bool(accepted and _decisive_match(accepted[0]))
 
-    # First try only the two highest-yield YouTube-family queries. A strong match returns immediately.
-    if run_queries(search, queries[:fast_end]):
+    # One high-yield YouTube-family query first. Exact/near-exact public catalog matches return here.
+    primary_index = 0
+    if primary_index < len(queries):
+        if run_one(search, queries[primary_index]):
+            return _success_result(meta, queries, accepted, rejected, tolerance)
+        primary_index += 1
+
+    # If the first primary query already produced an acceptable but non-decisive recording, do one
+    # confirming primary query and stop. This preserves the broader 5-10s fallback tolerance without
+    # paying for the whole query matrix.
+    if accepted:
+        if primary_index < min(PRIMARY_CONFIRM_QUERY_COUNT, len(queries)):
+            if run_one(search, queries[primary_index]):
+                return _success_result(meta, queries, accepted, rejected, tolerance)
+            primary_index += 1
         return _success_result(meta, queries, accepted, rejected, tolerance)
 
-    # If primary search already has a plausible (but not decisive) recording, stay within the primary
-    # provider family and finish ranking there rather than introducing an unnecessary alternate source.
-    if accepted:
-        if run_queries(search, queries[fast_end:]):
+    # A true primary miss gets one catalog-friendly SoundCloud query immediately. Reposts are often
+    # invisible to artist-qualified search because the uploader is an archive account.
+    sc_index = 0
+    if sc_queries:
+        if run_one(_soundcloud_search, sc_queries[sc_index], "SoundCloud "):
             return _success_result(meta, queries, accepted, rejected, tolerance)
+        sc_index += 1
         if accepted:
             return _success_result(meta, queries, accepted, rejected, tolerance)
 
-    # For genuine primary misses, try SoundCloud early instead of exhausting every decorated YouTube
-    # query first. This is the key latency win for obscure/reposted catalog tracks.
-    if searcher is None and run_queries(_soundcloud_search, queries[:fast_end], "SoundCloud "):
-        return _success_result(meta, queries, accepted, rejected, tolerance)
-
-    # Deepen only when the fast tiers did not verify anything.
-    if run_queries(search, queries[fast_end:]):
-        return _success_result(meta, queries, accepted, rejected, tolerance)
-    if accepted:
-        return _success_result(meta, queries, accepted, rejected, tolerance)
-
-    if searcher is None:
-        if run_queries(_soundcloud_search, queries[fast_end:], "SoundCloud "):
+    # Deepen the bounded primary tier only after both fast surfaces missed.
+    while primary_index < len(queries):
+        if run_one(search, queries[primary_index]):
             return _success_result(meta, queries, accepted, rejected, tolerance)
+        primary_index += 1
         if accepted:
             return _success_result(meta, queries, accepted, rejected, tolerance)
 
-    detail = f" Searched {len(collected)} unique candidate(s) across {len(queries)} query variants."
+    # One final SoundCloud query is enough to cover artist-qualified vs title-only discovery without
+    # multiplying network calls for genuinely unavailable tracks.
+    while sc_index < len(sc_queries):
+        if run_one(_soundcloud_search, sc_queries[sc_index], "SoundCloud "):
+            return _success_result(meta, queries, accepted, rejected, tolerance)
+        sc_index += 1
+        if accepted:
+            return _success_result(meta, queries, accepted, rejected, tolerance)
+
+    detail = f" Searched {len(collected)} unique candidate(s) across {len(queries)} primary query variant(s)."
     if not collected and search_errors:
         detail += f" Search error: {search_errors[0][:180]}"
     return {
