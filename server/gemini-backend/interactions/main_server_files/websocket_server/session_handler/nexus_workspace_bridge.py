@@ -7,39 +7,76 @@ through Text Brain / Mode 2 as an independent conversational model.
 
 import asyncio
 
+from main_server_files.media_processing.realtime_input_processor import process_realtime_input
 from main_server_files.session_management.session_manager import active_sessions
 
 _REQUEST_LOCK = asyncio.Lock()
 _SUBSCRIBERS = {}
 
 
-def _interactive_workspace():
+class NexusWorkspaceUnavailable(RuntimeError):
+    """Raised when Nexus cannot bind unambiguously to the active Gemini Link workspace."""
+
+
+def _workspace_candidates():
     candidates = []
     for connection_id, entry in list(active_sessions.items()):
         if not isinstance(entry, dict):
             continue
         if str(entry.get("session_role") or "interactive").strip().lower() != "interactive":
             continue
-        session = entry.get("session")
-        if session is None:
+        if entry.get("session") is None:
             continue
-        candidates.append((str(entry.get("connected_at") or ""), connection_id, entry))
+
+        connection_monitor = entry.get("connection_monitor")
+        if connection_monitor is not None:
+            try:
+                if not connection_monitor.is_websocket_open():
+                    continue
+            except Exception:
+                continue
+
+        candidates.append((connection_id, entry))
+    return candidates
+
+
+def _interactive_workspace(required_connection_id=None):
+    """Return one exact interactive workspace, never an arbitrary Gemini session."""
+    candidates = _workspace_candidates()
+
+    if required_connection_id not in (None, ""):
+        required = str(required_connection_id)
+        for connection_id, entry in candidates:
+            if str(connection_id) == required:
+                return connection_id, entry
+        raise NexusWorkspaceUnavailable(
+            "The Gemini Link workspace Nexus was bound to is no longer active. "
+            "Reconnect Gemini Link and select the refreshed workspace."
+        )
+
     if not candidates:
-        return None
-    candidates.sort(key=lambda item: item[0])
-    _, connection_id, entry = candidates[-1]
-    return connection_id, entry
+        raise NexusWorkspaceUnavailable(
+            "Gemini Link has no active interactive Live workspace to bind. "
+            "Open/connect Gemini Link in EveOS first."
+        )
+    if len(candidates) > 1:
+        raise NexusWorkspaceUnavailable(
+            "More than one interactive Gemini Link workspace is registered. "
+            "Nexus will not guess which workspace owns this turn; reconnect Gemini Link first."
+        )
+    return candidates[0]
 
 
-def workspace_snapshot():
-    selected = _interactive_workspace()
-    if not selected:
+def workspace_snapshot(required_connection_id=None):
+    try:
+        connection_id, entry = _interactive_workspace(required_connection_id)
+    except NexusWorkspaceUnavailable as error:
         return {
             "bound": False,
             "state": "unavailable",
-            "message": "Gemini Link has no active interactive Live workspace to bind.",
+            "message": str(error),
         }
-    connection_id, entry = selected
+
     return {
         "bound": True,
         "state": "ready",
@@ -48,6 +85,7 @@ def workspace_snapshot():
         "voiceName": str(entry.get("voice_name") or ""),
         "connectedAt": str(entry.get("connected_at") or ""),
         "sessionRole": "interactive",
+        "provider": "gemini_link",
     }
 
 
@@ -105,45 +143,62 @@ async def publish_interrupted(connection_id, reason="provider_barge_in"):
     _publish(connection_id, {"type": "interrupted", "reason": str(reason or "provider_barge_in")})
 
 
-async def _send_text_turn(session, prompt):
-    """Send one typed user turn into the existing Live session without recreating it."""
-    send_client_content = getattr(session, "send_client_content", None)
-    if callable(send_client_content):
-        await send_client_content(
-            turns={"role": "user", "parts": [{"text": prompt}]},
-            turn_complete=True,
+async def _send_text_turn(entry, prompt):
+    """Route a Nexus turn through the exact EveOS input pipeline used by Gemini Link."""
+    session = entry.get("session")
+    connection_monitor = entry.get("connection_monitor")
+    audio_processor = entry.get("audio_processor")
+
+    if session is None:
+        raise NexusWorkspaceUnavailable("The active Gemini Link Live session is no longer available.")
+    if connection_monitor is None:
+        raise NexusWorkspaceUnavailable(
+            "The active Gemini Link workspace predates Nexus bridge registration. "
+            "Reconnect Gemini Link once so Nexus can attach to its normal EveOS input pipeline."
         )
-        return
-    # Compatibility with older google-genai versions still used by some EveOS installs.
-    send = getattr(session, "send", None)
-    if not callable(send):
-        raise RuntimeError("The active Gemini Live session cannot accept typed client content.")
-    await send(input=prompt, end_of_turn=True)
+
+    # Deliberately reuse the production realtime_input route. This keeps chat history,
+    # pending Mode-2 context, screen/data-stream state, and the authoritative Gemini Live
+    # session identical whether the user types in Gemini Link or in Nexus.
+    await process_realtime_input(
+        {
+            "source": "nexus_workspace_request",
+            "realtime_input": {
+                "media_chunks": [
+                    {
+                        "mime_type": "text/plain",
+                        "data": str(prompt or "").strip(),
+                    }
+                ]
+            },
+        },
+        session,
+        connection_monitor,
+        audio_processor,
+    )
 
 
-async def stream_workspace_turn(prompt, request_id, timeout_seconds=180):
-    """Yield the active workspace's real next turn, including PCM audio, to Nexus."""
+async def stream_workspace_turn(
+    prompt,
+    request_id,
+    timeout_seconds=180,
+    workspace_connection_id=None,
+):
+    """Yield the exact active workspace's next provider turn, including PCM audio, to Nexus."""
     text = str(prompt or "").strip()
     if not text:
         raise ValueError("Gemini Link prompt is empty.")
 
     async with _REQUEST_LOCK:
-        selected = _interactive_workspace()
-        if not selected:
-            raise RuntimeError(
-                "Gemini Link is not connected to an active interactive Live workspace. "
-                "Open/connect Gemini Link in EveOS first."
-            )
-        connection_id, entry = selected
-        session = entry.get("session")
+        connection_id, entry = _interactive_workspace(workspace_connection_id)
         queue = _subscribe(connection_id)
         try:
             yield {
                 "type": "bound",
                 "requestId": str(request_id or ""),
-                "workspace": workspace_snapshot(),
+                "workspace": workspace_snapshot(connection_id),
             }
-            await _send_text_turn(session, text)
+            await _send_text_turn(entry, text)
 
             while True:
                 try:
