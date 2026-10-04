@@ -10,7 +10,7 @@ function wait(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function createSpotifyHarness() {
+async function createSpotifyHarness(options = {}) {
     const source = fs.readFileSync(
         path.join(__dirname, '..', 'js', 'modules', 'features', 'audioflix', 'audioflix.audio.url.spotify.js'),
         'utf8'
@@ -49,15 +49,62 @@ async function createSpotifyHarness() {
             }
         }
     };
+    const workerState = { created: 0, armed: 0, cancelled: 0, terminated: 0 };
     window = {
         EveAudioflixSpotifyPlayback: {},
         __EveAudioflixSpotifyEndWatchdogGraceMs: 0
     };
+
+    if (options.workerScheduler) {
+        class FakeWorker {
+            constructor() {
+                workerState.created += 1;
+                this.onmessage = null;
+                this.timer = 0;
+            }
+            postMessage(message) {
+                if (message?.type === 'cancel') {
+                    workerState.cancelled += 1;
+                    if (this.timer) clearTimeout(this.timer);
+                    this.timer = 0;
+                    return;
+                }
+                if (message?.type !== 'arm') return;
+                workerState.armed += 1;
+                if (this.timer) clearTimeout(this.timer);
+                const token = Number(message.token) || 0;
+                this.timer = setTimeout(() => {
+                    this.timer = 0;
+                    this.onmessage?.({ data: { type: 'deadline', token } });
+                }, Math.max(0, Number(message.delay) || 0));
+            }
+            terminate() {
+                workerState.terminated += 1;
+                if (this.timer) clearTimeout(this.timer);
+                this.timer = 0;
+            }
+        }
+        window.Worker = FakeWorker;
+        window.Blob = class FakeBlob {};
+        window.URL = {
+            createObjectURL: () => 'blob:spotify-background-watchdog',
+            revokeObjectURL() {}
+        };
+    }
+
+    let starvedTimerId = 1000;
+    const pageSetTimeout = options.starvePageTimers
+        ? () => ++starvedTimerId
+        : setTimeout;
+    const pageClearTimeout = options.starvePageTimers
+        ? () => {}
+        : clearTimeout;
+
     vm.runInNewContext(source, {
         window,
         document,
-        setTimeout,
-        clearTimeout,
+        setTimeout: pageSetTimeout,
+        clearTimeout: pageClearTimeout,
         Promise,
         Date,
         queueMicrotask
@@ -80,10 +127,34 @@ async function createSpotifyHarness() {
         url: 'https://open.spotify.com/track/AAA111'
     });
     listeners.get('playback_started')?.({});
-    return { listeners, playbackEvents, progressEvents, view };
+    return { listeners, playbackEvents, progressEvents, view, workerState };
 }
 
-test('Spotify marks the track ended from its last playing sample when terminal updates stop', async () => {
+test('Spotify completion survives throttled page timers through its background worker deadline', async () => {
+    const harness = await createSpotifyHarness({ starvePageTimers: true, workerScheduler: true });
+    harness.listeners.get('playback_update')?.({
+        data: {
+            playingURI: 'spotify:track:AAA111',
+            position: 30,
+            duration: 80,
+            isPaused: false
+        }
+    });
+
+    // The page's normal setTimeout callbacks never execute in this harness. The
+    // dedicated worker owns the completion deadline, matching the boundary that
+    // matters when Chrome heavily throttles a minimized EveOS renderer.
+    await wait(100);
+
+    assert.equal(harness.workerState.created, 1);
+    assert.ok(harness.workerState.armed >= 1);
+    assert.equal(harness.playbackEvents.filter((status) => status === 'Ended').length, 1);
+    assert.equal(harness.view.playback.paused, true);
+    assert.equal(harness.view.playback.currentTime, 0.08);
+    assert.ok(harness.progressEvents.length > 0);
+});
+
+test('Spotify still marks the track ended with the page-timer fallback when workers are unavailable', async () => {
     const harness = await createSpotifyHarness();
     harness.listeners.get('playback_update')?.({
         data: {
@@ -94,18 +165,14 @@ test('Spotify marks the track ended from its last playing sample when terminal u
         }
     });
 
-    // Do not send Spotify's normal terminal paused/update event. This models the
-    // event starvation seen while EveOS is minimized/backgrounded.
     await wait(100);
 
     assert.equal(harness.playbackEvents.filter((status) => status === 'Ended').length, 1);
     assert.equal(harness.view.playback.paused, true);
-    assert.equal(harness.view.playback.currentTime, 0.08);
-    assert.ok(harness.progressEvents.length > 0);
 });
 
-test('Spotify completion watchdog is cancelled by an explicit pause', async () => {
-    const harness = await createSpotifyHarness();
+test('Spotify background completion deadline is cancelled by an explicit pause', async () => {
+    const harness = await createSpotifyHarness({ starvePageTimers: true, workerScheduler: true });
     harness.listeners.get('playback_update')?.({
         data: {
             playingURI: 'spotify:track:AAA111',
@@ -118,5 +185,6 @@ test('Spotify completion watchdog is cancelled by an explicit pause', async () =
     await harness.view.active.player.pause();
     await wait(140);
 
+    assert.ok(harness.workerState.cancelled >= 1);
     assert.equal(harness.playbackEvents.filter((status) => status === 'Ended').length, 0);
 });
