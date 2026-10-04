@@ -83,6 +83,11 @@ test('near-complete scans tolerate only a tiny unavailable Spotify row gap', () 
     assert.equal(oneUnavailable.ok, true);
     assert.equal(oneUnavailable.unexposedCount, 1);
 
+    const smallOneUnavailable = assessPlaylistCompleteness(18, 17);
+    assert.equal(smallOneUnavailable.ok, true, 'one unavailable row must not cancel a small playlist');
+    assert.equal(smallOneUnavailable.unexposedCount, 1);
+    assert.equal(assessPlaylistCompleteness(18, 16).ok, false, 'two missing rows on an 18-track playlist is too large to trust');
+
     const threeUnavailable = assessPlaylistCompleteness(135, 132);
     assert.equal(threeUnavailable.ok, true);
     assert.equal(threeUnavailable.unexposedCount, 3);
