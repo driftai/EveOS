@@ -95,6 +95,9 @@ async def execute_session_loop(websocket, client, connection_monitor, audio_proc
         async with client.aio.live.connect(model=model_name, config=config) as session:
             print(f"Connected to Gemini API with voice: {voice_name}, model: {model_name}")
 
+            # Preserve the session-registry metadata created during connection setup, then expose
+            # the exact live-workspace dependencies Nexus needs to reuse the normal EveOS input
+            # path. Nexus never creates or owns another provider session.
             active_sessions.setdefault(connection_id, {}).update({
                 "session": session,
                 "voice_name": voice_name,
@@ -103,6 +106,10 @@ async def execute_session_loop(websocket, client, connection_monitor, audio_proc
                 "connected_at": datetime.datetime.now().isoformat(),
                 "client": client,
                 "session_role": session_role,
+                "connection_monitor": connection_monitor,
+                "audio_processor": audio_processor,
+                "websocket": websocket,
+                "provider": "gemini_link",
             })
             print(f"Active sessions: {len(active_sessions)}")
 
