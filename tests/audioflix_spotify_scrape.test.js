@@ -6,7 +6,8 @@ const {
     mergePlaylistRows,
     playlistCount,
     requestMentionsPlaylist,
-    needsFullPlayerPromotion
+    needsFullPlayerPromotion,
+    assessPlaylistCompleteness
 } = require('../server_modules/audioflix_spotify_scrape');
 
 const track = (position) => {
@@ -62,6 +63,20 @@ test('embed extraction promotes only playlists beyond its reliable 100-row surfa
     assert.equal(needsFullPlayerPromotion(embed, 135, 8), true);
     assert.equal(needsFullPlayerPromotion(embed, 0, 100), true, 'an unknown count at the cap is ambiguous');
     assert.equal(needsFullPlayerPromotion('https://open.spotify.com/playlist/0g3Wc7zGTmqRcG7G79fQ5H', 135, 8), false);
+});
+
+test('near-complete scans tolerate only a tiny unavailable Spotify row gap', () => {
+    const oneUnavailable = assessPlaylistCompleteness(135, 134);
+    assert.equal(oneUnavailable.ok, true);
+    assert.equal(oneUnavailable.unexposedCount, 1);
+
+    const threeUnavailable = assessPlaylistCompleteness(135, 132);
+    assert.equal(threeUnavailable.ok, true);
+    assert.equal(threeUnavailable.unexposedCount, 3);
+
+    assert.equal(assessPlaylistCompleteness(135, 131).ok, false, 'four missing rows is too large to trust');
+    assert.equal(assessPlaylistCompleteness(135, 8).ok, false, 'the old virtualized 8/135 truncation must still fail');
+    assert.equal(assessPlaylistCompleteness(68, 66).ok, true, 'a two-row unavailable gap remains near-complete');
 });
 
 test('full network playlist wins over an eight-row virtualized DOM window', () => {
