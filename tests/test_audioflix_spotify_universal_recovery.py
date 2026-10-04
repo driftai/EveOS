@@ -32,6 +32,62 @@ class SpotifyUniversalRecoveryTests(unittest.TestCase):
         self.assertFalse(rejected)
         self.assertEqual(accepted[0]["source"], "soundcloud")
 
+    def test_soundcloud_repost_description_can_corroborate_original_artist(self):
+        meta = {"title": "*FloatingAway* pr/gosha", "artists": ["SliceMaxxi"], "duration_seconds": 151.0}
+        candidate = {
+            "id": "repost-1",
+            "title": "Floating Away",
+            "duration": 151.4,
+            "uploader": "archive account",
+            "description": "repost / archive — *FloatingAway* by SliceMaxxi",
+            "webpage_url": "https://soundcloud.com/archive/floating-away",
+            "_source": "soundcloud",
+        }
+        accepted, rejected, _ = fallback.rank_candidates(meta, [candidate])
+        self.assertEqual(len(accepted), 1)
+        self.assertFalse(rejected)
+        self.assertEqual(accepted[0]["artistEvidence"], "soundcloud-description")
+        self.assertGreater(accepted[0]["artistOverlap"], 0)
+
+    def test_soundcloud_description_does_not_rescue_loose_duration(self):
+        meta = {"title": "*FloatingAway* pr/gosha", "artists": ["SliceMaxxi"], "duration_seconds": 151.0}
+        candidate = {
+            "id": "repost-2",
+            "title": "Floating Away",
+            "duration": 155.0,
+            "uploader": "archive account",
+            "description": "repost by SliceMaxxi",
+            "webpage_url": "https://soundcloud.com/archive/floating-away-long",
+            "_source": "soundcloud",
+        }
+        accepted, rejected, _ = fallback.rank_candidates(meta, [candidate])
+        self.assertFalse(accepted)
+        self.assertEqual(rejected[0]["reason"], "artist not corroborated")
+
+    def test_soundcloud_description_does_not_rescue_wrong_title(self):
+        meta = {"title": "*FloatingAway* pr/gosha", "artists": ["SliceMaxxi"], "duration_seconds": 151.0}
+        candidate = {
+            "id": "repost-3",
+            "title": "Completely Different Song",
+            "duration": 151.0,
+            "uploader": "archive account",
+            "description": "music by SliceMaxxi",
+            "webpage_url": "https://soundcloud.com/archive/different",
+            "_source": "soundcloud",
+        }
+        accepted, rejected, _ = fallback.rank_candidates(meta, [candidate])
+        self.assertFalse(accepted)
+        self.assertTrue(rejected[0]["reason"].startswith("weak title overlap"))
+
+    def test_producer_credit_suffix_gets_clean_search_alias(self):
+        aliases = fallback._title_query_aliases("*FloatingAway* pr/gosha")
+        self.assertIn("Floating Away", aliases)
+        queries = [query.casefold() for query in fallback.query_variants({
+            "title": "*FloatingAway* pr/gosha",
+            "artists": ["SliceMaxxi"],
+        })]
+        self.assertTrue(any("slicemaxxi floating away" == query for query in queries))
+
     def test_soundcloud_id_never_becomes_a_fake_youtube_url(self):
         self.assertEqual(fallback._candidate_url({"_source": "soundcloud", "id": "12345"}), "")
         self.assertEqual(fallback._candidate_url({"_source": "soundcloud", "id": "12345", "webpage_url": "https://soundcloud.com/artist/song"}), "https://soundcloud.com/artist/song")
@@ -41,6 +97,7 @@ class SpotifyUniversalRecoveryTests(unittest.TestCase):
         normalized = [query.casefold() for query in queries]
         self.assertTrue(any("evan aloe one way!" in query for query in normalized))
         self.assertTrue(any("evan aloe waste no time!" in query for query in normalized))
+        self.assertLessEqual(len(queries), fallback.MAX_QUERY_VARIANTS)
 
     def test_soundcloud_is_only_used_after_primary_sources_miss(self):
         meta = {"ok": True, "title": "FloatingAway", "artists": ["Example Artist"], "duration_seconds": 151.0}
@@ -49,16 +106,31 @@ class SpotifyUniversalRecoveryTests(unittest.TestCase):
             result = fallback.find_fallback_match("", metadata=meta)
         self.assertTrue(result["ok"])
         self.assertEqual(result["match"]["source"], "soundcloud")
-        self.assertGreater(primary.call_count, 0)
-        self.assertGreater(secondary.call_count, 0)
+        self.assertEqual(primary.call_count, fallback.FAST_QUERY_COUNT)
+        self.assertEqual(secondary.call_count, 1)
 
     def test_soundcloud_is_skipped_when_primary_sources_already_match(self):
         meta = {"ok": True, "title": "Known Song", "artists": ["Known Artist"], "duration_seconds": 180.0}
         yt_candidate = {"id": "yt-1", "title": "Known Artist - Known Song", "duration": 180, "webpage_url": "https://www.youtube.com/watch?v=yt-1"}
-        with patch.object(fallback, "_search", return_value=[yt_candidate]), patch.object(fallback, "_soundcloud_search", return_value=[]) as secondary:
+        with patch.object(fallback, "_search", return_value=[yt_candidate]) as primary, patch.object(fallback, "_soundcloud_search", return_value=[]) as secondary:
             result = fallback.find_fallback_match("", metadata=meta)
         self.assertTrue(result["ok"])
+        self.assertEqual(primary.call_count, 1)
         secondary.assert_not_called()
+
+    def test_decisive_primary_match_stops_after_first_query(self):
+        meta = {"ok": True, "title": "Known Song", "artists": ["Known Artist"], "duration_seconds": 180.0}
+        candidate = {
+            "id": "yt-fast",
+            "title": "Known Artist - Known Song",
+            "duration": 180,
+            "uploader": "Known Artist",
+            "webpage_url": "https://www.youtube.com/watch?v=yt-fast",
+        }
+        with patch.object(fallback, "_search", return_value=[candidate]) as primary:
+            result = fallback.find_fallback_match("", metadata=meta)
+        self.assertTrue(result["ok"])
+        self.assertEqual(primary.call_count, 1)
 
 
 if __name__ == "__main__":
