@@ -8,6 +8,12 @@ class SpotifyUniversalRecoveryTests(unittest.TestCase):
     def test_camelcase_title_tokens_are_split_for_identity(self):
         self.assertEqual(fallback._tokens("*FloatingAway* pr/gosha"), {"floating", "away", "pr", "gosha"})
 
+    def test_artist_tokens_bridge_camelcase_and_flat_spelling(self):
+        wanted = fallback._artist_tokens("SliceMaxxi")
+        flattened = fallback._artist_tokens("Slicemaxxi")
+        self.assertIn("slicemaxxi", wanted)
+        self.assertGreater(fallback._overlap(wanted, flattened), 0)
+
     def test_segmented_title_can_match_when_artist_is_independently_corroborated(self):
         meta = {"title": "Waste No Time! / One Way!", "artists": ["evan aloe"], "duration_seconds": 145.0}
         candidate = {"id": "candidate-1", "title": "one way! (original)", "duration": 145, "uploader": "evan aloe", "webpage_url": "https://www.youtube.com/watch?v=candidate-1"}
@@ -31,6 +37,35 @@ class SpotifyUniversalRecoveryTests(unittest.TestCase):
         self.assertEqual(len(accepted), 1)
         self.assertFalse(rejected)
         self.assertEqual(accepted[0]["source"], "soundcloud")
+
+    def test_explicit_title_artist_credit_accepts_near_duration_match(self):
+        meta = {"title": "*FloatingAway* pr/gosha", "artists": ["SliceMaxxi"], "duration_seconds": 151.0}
+        candidate = {
+            "id": "DTRpvx6oC30",
+            "title": "*FloatingAway* prgosha by Slicemaxxi CLEAN",
+            "duration": 147,
+            "view_count": 1456,
+            "webpage_url": "https://www.youtube.com/watch?v=DTRpvx6oC30",
+        }
+        accepted, rejected, _ = fallback.rank_candidates(meta, [candidate])
+        self.assertEqual(len(accepted), 1)
+        self.assertFalse(rejected)
+        self.assertEqual(accepted[0]["artistEvidence"], "title-credit")
+        self.assertEqual(accepted[0]["delta"], 4.0)
+        self.assertTrue(fallback._decisive_match(accepted[0]))
+
+    def test_arbitrary_artist_mention_is_not_title_credit(self):
+        meta = {"title": "Floating Away", "artists": ["SliceMaxxi"], "duration_seconds": 151.0}
+        candidate = {
+            "id": "not-credit",
+            "title": "Floating Away inspired by the scene around Slicemaxxi",
+            "duration": 151,
+            "uploader": "unrelated account",
+            "webpage_url": "https://www.youtube.com/watch?v=not-credit",
+        }
+        accepted, rejected, _ = fallback.rank_candidates(meta, [candidate])
+        self.assertFalse(accepted)
+        self.assertEqual(rejected[0]["reason"], "artist not corroborated")
 
     def test_soundcloud_repost_description_can_corroborate_original_artist(self):
         meta = {"title": "*FloatingAway* pr/gosha", "artists": ["SliceMaxxi"], "duration_seconds": 151.0}
@@ -168,6 +203,22 @@ class SpotifyUniversalRecoveryTests(unittest.TestCase):
             result = fallback.find_fallback_match("", metadata=meta)
         self.assertTrue(result["ok"])
         self.assertEqual(primary.call_count, 1)
+
+    def test_title_credit_near_match_stops_after_first_query(self):
+        meta = {"ok": True, "title": "Floating Away", "artists": ["SliceMaxxi"], "duration_seconds": 151.0}
+        candidate = {
+            "id": "title-credit-fast",
+            "title": "Floating Away by Slicemaxxi CLEAN",
+            "duration": 147,
+            "webpage_url": "https://www.youtube.com/watch?v=title-credit-fast",
+        }
+        with patch.object(fallback, "_search", return_value=[candidate]) as primary, \
+                patch.object(fallback, "_soundcloud_search", return_value=[]) as secondary:
+            result = fallback.find_fallback_match("", metadata=meta)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["match"]["artistEvidence"], "title-credit")
+        self.assertEqual(primary.call_count, 1)
+        secondary.assert_not_called()
 
 
 if __name__ == "__main__":
