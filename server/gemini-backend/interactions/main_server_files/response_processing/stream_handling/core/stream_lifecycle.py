@@ -27,6 +27,7 @@ class StreamSession:
             audio_processor,
             inline_transcription_mode=inline_transcription_mode,
             session_role=session_role,
+            connection_id=connection_id,
         )
         self.retry_attempt = 0
 
