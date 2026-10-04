@@ -6,6 +6,7 @@ through Text Brain / Mode 2 as an independent conversational model.
 """
 
 import asyncio
+import json
 
 from main_server_files.media_processing.realtime_input_processor import process_realtime_input
 from main_server_files.session_management.session_manager import active_sessions
@@ -143,7 +144,32 @@ async def publish_interrupted(connection_id, reason="provider_barge_in"):
     _publish(connection_id, {"type": "interrupted", "reason": str(reason or "provider_barge_in")})
 
 
-async def _send_text_turn(entry, prompt):
+async def _echo_nexus_user_message(entry, prompt, request_id):
+    """Mirror a Nexus-originated user turn into Gemini Link's existing UI only.
+
+    This event is deliberately sent only to the already-connected EveOS browser. It is
+    never routed back through the provider input path, so rendering it cannot create a
+    second Gemini turn or a shadow conversation.
+    """
+    connection_monitor = entry.get("connection_monitor")
+    if connection_monitor is None:
+        return
+    try:
+        await connection_monitor.safe_send(json.dumps({
+            "type": "nexus_workspace_user_message",
+            "requestId": str(request_id or ""),
+            "text": str(prompt or "").strip(),
+            "source": "nexus_browser",
+            "is_system_message": False,
+        }))
+    except Exception as error:
+        # The UI echo is presentation-only. Never make a healthy provider turn fail just
+        # because the browser stopped accepting UI messages between workspace validation
+        # and dispatch.
+        print(f"Gemini Link Nexus UI echo failed: {error}")
+
+
+async def _send_text_turn(entry, prompt, request_id=None):
     """Route a Nexus turn through the exact EveOS input pipeline used by Gemini Link."""
     session = entry.get("session")
     connection_monitor = entry.get("connection_monitor")
@@ -156,6 +182,8 @@ async def _send_text_turn(entry, prompt):
             "The active Gemini Link workspace predates Nexus bridge registration. "
             "Reconnect Gemini Link once so Nexus can attach to its normal EveOS input pipeline."
         )
+
+    await _echo_nexus_user_message(entry, prompt, request_id)
 
     # Deliberately reuse the production realtime_input route. This keeps chat history,
     # pending Mode-2 context, screen/data-stream state, and the authoritative Gemini Live
@@ -198,7 +226,7 @@ async def stream_workspace_turn(
                 "requestId": str(request_id or ""),
                 "workspace": workspace_snapshot(connection_id),
             }
-            await _send_text_turn(entry, text)
+            await _send_text_turn(entry, text, request_id)
 
             while True:
                 try:
