@@ -55,6 +55,11 @@ DEFAULT_TOLERANCE_SECONDS = 3.0
 # 156x popularity difference, which is how the official video loses to a remaster.
 DURATION_NOISE_SECONDS = 1.5
 DEFAULT_SEARCH_RESULTS = 8
+# Flat YouTube search is deliberately used so one age-gated result cannot abort discovery. Some
+# search rows omit duration, though, and duration is our main identity gate. Hydrate only a bounded
+# number of those rows individually; a gated/broken video is caught per-row instead of poisoning the
+# whole search, while common results keep the fast flat path.
+SEARCH_HYDRATE_LIMIT = 6
 
 # Prefer the better-sounding upload, but only when "better" is real. YouTube re-encodes everything
 # onto its own ladder, so the top audio stream is ~130-160 kbps for essentially any modern upload:
@@ -155,6 +160,37 @@ def _candidate_url(item) -> str:
             return clean
     video_id = str(row.get("id") or "").strip()
     return f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
+
+
+def _hydrate_flat_rows(ydl, entries, limit: int = SEARCH_HYDRATE_LIMIT):
+    """Fill missing duration/details without letting one inaccessible result abort the search."""
+    output = []
+    probes = 0
+    cap = max(0, int(limit or 0))
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        row = dict(entry)
+        duration = row.get("duration")
+        if isinstance(duration, (int, float)) and duration > 0:
+            output.append(row)
+            continue
+        url = _candidate_url(row)
+        if not url or probes >= cap:
+            output.append(row)
+            continue
+        probes += 1
+        try:
+            detail = ydl.extract_info(url, download=False)
+        except Exception:  # noqa: BLE001
+            detail = None
+        if isinstance(detail, dict):
+            for key in ("id", "title", "duration", "view_count", "webpage_url", "formats", "abr"):
+                value = detail.get(key)
+                if value not in (None, "", []):
+                    row[key] = value
+        output.append(row)
+    return output
 
 
 def best_audio_abr(item) -> float:
@@ -280,12 +316,11 @@ def find_youtube_match(url: str, searcher=None, opener=None,
 
 
 def _ytdlp_search(query: str, results: int):
-    """Collect YouTube search rows without opening every candidate video first.
+    """Collect YouTube search rows safely, hydrating missing duration on a bounded subset.
 
     Fully extracting every result makes one age/sign-in-gated video abort the entire search before
-    the matcher can inspect the other results. yt-dlp's flat-playlist mode keeps the search metadata
-    (id/title/duration/views when YouTube supplies it) and defers actual access checks to the chosen
-    candidate's download step. ignoreerrors also keeps a malformed row from poisoning the batch.
+    the matcher can inspect the other results. Flat search avoids that. Some flat rows omit duration,
+    so the first few such candidates are individually hydrated; failures remain isolated per row.
     """
     import yt_dlp  # imported lazily: the matcher is testable without it
 
@@ -299,4 +334,5 @@ def _ytdlp_search(query: str, results: int):
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
         found = ydl.extract_info(f"ytsearch{int(results)}:{query}", download=False)
-    return [entry for entry in ((found or {}).get("entries") or []) if isinstance(entry, dict)]
+        rows = [entry for entry in ((found or {}).get("entries") or []) if isinstance(entry, dict)]
+        return _hydrate_flat_rows(ydl, rows)
