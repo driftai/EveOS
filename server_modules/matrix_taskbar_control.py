@@ -200,7 +200,7 @@ def _edge_guard_loop(stop_event: threading.Event, original_state: int,
     ]
     user32.PeekMessageW.argtypes = [
         ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT,
-        wintypes.UINT, wintypes.UINT, wintypes.UINT,
+        wintypes.UINT, wintypes.UINT,
     ]
     width = int(user32.GetSystemMetrics(0))
     height = int(user32.GetSystemMetrics(1))
@@ -357,15 +357,20 @@ def set_taskbar_autohide(token: str, hwnd, enabled: bool) -> dict:
         original = _taskbar_state()
         target = original | ABS_AUTOHIDE
         frame_state = _suppress_immersive_resize_frame(hwnd)
-        watchdog = _start_watchdog(original, target)
+        watchdog = None
         try:
+            watchdog = _start_watchdog(original, target)
             current = _write_taskbar_state(target)
             if current != target:
                 raise OSError("Windows taskbar auto-hide verification mismatch")
         except BaseException:
-            _write_taskbar_state(original)
-            _restore_immersive_resize_frame(frame_state)
-            _cancel_watchdog(watchdog)
+            try:
+                if _taskbar_state() != original:
+                    _write_taskbar_state(original)
+            finally:
+                _restore_immersive_resize_frame(frame_state)
+                if watchdog is not None:
+                    _cancel_watchdog(watchdog)
             raise
         stop_event = threading.Event()
         hwnd_value = int(getattr(hwnd, "value", hwnd) or 0)
