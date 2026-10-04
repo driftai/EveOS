@@ -1,0 +1,48 @@
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+BACKEND = ROOT / "server" / "gemini-backend" / "interactions" / "main_server_files"
+
+
+def _read(relative_path):
+    return (BACKEND / relative_path).read_text(encoding="utf-8")
+
+
+def test_nexus_reuses_normal_eveos_realtime_input_pipeline():
+    bridge = _read("websocket_server/session_handler/nexus_workspace_bridge.py")
+    assert "process_realtime_input" in bridge
+    assert '"source": "nexus_workspace_request"' in bridge
+    assert "send_client_content" not in bridge
+    assert "await session.send(" not in bridge
+
+
+def test_live_workspace_registers_dependencies_needed_by_sidecar():
+    session_loop = _read("websocket_server/session_handler/session_loop.py")
+    assert '"connection_monitor": connection_monitor' in session_loop
+    assert '"audio_processor": audio_processor' in session_loop
+    assert '"session_role": session_role' in session_loop
+    assert '"provider": "gemini_link"' in session_loop
+
+
+def test_nexus_sidecar_does_not_require_its_own_provider_credentials():
+    handler = _read("websocket_server/gemini_session_handler.py")
+    nexus_dispatch = handler.index('if session_role != "nexus_chat":')
+    credential_refresh = handler.index('session_api_key = config_data.get("apiKey")')
+    assert nexus_dispatch < credential_refresh
+    assert "execute_nexus_chat_session" in handler[nexus_dispatch:credential_refresh]
+
+
+def test_workspace_binding_is_fail_closed_and_can_be_exact():
+    bridge = _read("websocket_server/session_handler/nexus_workspace_bridge.py")
+    sidecar = _read("websocket_server/session_handler/nexus_chat_session.py")
+    assert "More than one interactive Gemini Link workspace is registered" in bridge
+    assert "required_connection_id" in bridge
+    assert "workspaceConnectionId" in sidecar
+    assert "workspace_connection_id=workspace_connection_id" in sidecar
+
+
+def test_provider_interruption_reaches_nexus_turn_stream():
+    parser = _read("response_processing/stream_handling/response_parser.py")
+    assert "publish_nexus_interrupted" in parser
+    assert 'await publish_nexus_interrupted(connection_id, "provider_barge_in")' in parser
