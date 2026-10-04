@@ -28,6 +28,22 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
         return Number.isFinite(override) && override >= 0 ? override : END_WATCHDOG_GRACE_MS;
     }
 
+    function createWorkerScheduler(worker, onDeadline, cleanup) {
+        worker.onmessage = (event) => {
+            const message = event?.data || {};
+            if (message.type === 'deadline') onDeadline(Number(message.token) || 0);
+        };
+        return {
+            mode: 'worker',
+            arm(delay, token) { worker.postMessage({ type: 'arm', delay, token }); },
+            cancel(token) { worker.postMessage({ type: 'cancel', token }); },
+            destroy() {
+                try { worker.terminate?.(); } catch {}
+                try { cleanup?.(); } catch {}
+            }
+        };
+    }
+
     function createCompletionScheduler(onDeadline) {
         const injectedFactory = window.__EveAudioflixSpotifyCompletionSchedulerFactory;
         if (typeof injectedFactory === 'function') {
@@ -38,53 +54,72 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
         }
 
         const WorkerCtor = window.Worker;
-        const BlobCtor = window.Blob;
-        const urlApi = window.URL;
-        if (typeof WorkerCtor === 'function' && typeof BlobCtor === 'function'
-            && typeof urlApi?.createObjectURL === 'function') {
-            let objectUrl = '';
-            try {
-                const workerSource = `
-                    let timer = 0;
-                    self.onmessage = (event) => {
-                        const message = event && event.data || {};
-                        if (message.type === 'cancel') {
-                            if (timer) clearTimeout(timer);
-                            timer = 0;
-                            return;
-                        }
-                        if (message.type !== 'arm') return;
-                        if (timer) clearTimeout(timer);
-                        const delay = Math.max(0, Number(message.delay) || 0);
-                        const token = Number(message.token) || 0;
-                        timer = setTimeout(() => {
-                            timer = 0;
-                            self.postMessage({ type: 'deadline', token });
-                        }, delay);
-                    };
-                `;
-                objectUrl = urlApi.createObjectURL(new BlobCtor([workerSource], { type: 'text/javascript' }));
-                const worker = new WorkerCtor(objectUrl);
-                worker.onmessage = (event) => {
-                    const message = event?.data || {};
-                    if (message.type === 'deadline') onDeadline(Number(message.token) || 0);
-                };
-                return {
-                    mode: 'worker',
-                    arm(delay, token) { worker.postMessage({ type: 'arm', delay, token }); },
-                    cancel(token) { worker.postMessage({ type: 'cancel', token }); },
-                    destroy() {
-                        try { worker.terminate?.(); } catch {}
-                        if (objectUrl) {
-                            try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
-                            objectUrl = '';
-                        }
-                    }
-                };
-            } catch {
-                if (objectUrl) {
-                    try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
+        const workerSource = `
+            let timer = 0;
+            self.onmessage = (event) => {
+                const message = event && event.data || {};
+                if (message.type === 'cancel') {
+                    if (timer) clearTimeout(timer);
+                    timer = 0;
+                    return;
                 }
+                if (message.type !== 'arm') return;
+                if (timer) clearTimeout(timer);
+                const delay = Math.max(0, Number(message.delay) || 0);
+                const token = Number(message.token) || 0;
+                timer = setTimeout(() => {
+                    timer = 0;
+                    self.postMessage({ type: 'deadline', token });
+                }, delay);
+            };
+        `;
+
+        if (typeof WorkerCtor === 'function') {
+            const createDataWorker = () => {
+                const dataUrl = `data:text/javascript;charset=utf-8,${encodeURIComponent(workerSource)}`;
+                return createWorkerScheduler(new WorkerCtor(dataUrl), onDeadline);
+            };
+            const createBlobWorker = () => {
+                const BlobCtor = window.Blob;
+                const urlApi = window.URL;
+                if (typeof BlobCtor !== 'function' || typeof urlApi?.createObjectURL !== 'function') return null;
+                let objectUrl = '';
+                try {
+                    objectUrl = urlApi.createObjectURL(new BlobCtor([workerSource], { type: 'text/javascript' }));
+                    const worker = new WorkerCtor(objectUrl);
+                    return createWorkerScheduler(worker, onDeadline, () => {
+                        if (!objectUrl) return;
+                        try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
+                        objectUrl = '';
+                    });
+                } catch {
+                    if (objectUrl) {
+                        try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
+                    }
+                    return null;
+                }
+            };
+
+            // file:// EveOS must remain fully standalone: prefer an inline data worker so
+            // the background deadline never depends on localhost, fetch(), or a served file.
+            // Other origins keep the conventional Blob worker first, with the same inline
+            // data worker as a fallback when Blob/object-URL workers are unavailable.
+            const fileMode = String(window.location?.protocol || '').toLowerCase() === 'file:';
+            if (fileMode) {
+                try {
+                    const scheduler = createDataWorker();
+                    if (scheduler) return scheduler;
+                } catch {}
+            }
+
+            const blobScheduler = createBlobWorker();
+            if (blobScheduler) return blobScheduler;
+
+            if (!fileMode) {
+                try {
+                    const scheduler = createDataWorker();
+                    if (scheduler) return scheduler;
+                } catch {}
             }
         }
 
