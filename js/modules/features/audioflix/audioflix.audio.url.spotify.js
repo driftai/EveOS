@@ -28,6 +28,87 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
         return Number.isFinite(override) && override >= 0 ? override : END_WATCHDOG_GRACE_MS;
     }
 
+    function createCompletionScheduler(onDeadline) {
+        const injectedFactory = window.__EveAudioflixSpotifyCompletionSchedulerFactory;
+        if (typeof injectedFactory === 'function') {
+            try {
+                const injected = injectedFactory(onDeadline);
+                if (injected?.arm && injected?.cancel) return injected;
+            } catch {}
+        }
+
+        const WorkerCtor = window.Worker;
+        const BlobCtor = window.Blob;
+        const urlApi = window.URL;
+        if (typeof WorkerCtor === 'function' && typeof BlobCtor === 'function'
+            && typeof urlApi?.createObjectURL === 'function') {
+            let objectUrl = '';
+            try {
+                const workerSource = `
+                    let timer = 0;
+                    self.onmessage = (event) => {
+                        const message = event && event.data || {};
+                        if (message.type === 'cancel') {
+                            if (timer) clearTimeout(timer);
+                            timer = 0;
+                            return;
+                        }
+                        if (message.type !== 'arm') return;
+                        if (timer) clearTimeout(timer);
+                        const delay = Math.max(0, Number(message.delay) || 0);
+                        const token = Number(message.token) || 0;
+                        timer = setTimeout(() => {
+                            timer = 0;
+                            self.postMessage({ type: 'deadline', token });
+                        }, delay);
+                    };
+                `;
+                objectUrl = urlApi.createObjectURL(new BlobCtor([workerSource], { type: 'text/javascript' }));
+                const worker = new WorkerCtor(objectUrl);
+                worker.onmessage = (event) => {
+                    const message = event?.data || {};
+                    if (message.type === 'deadline') onDeadline(Number(message.token) || 0);
+                };
+                return {
+                    mode: 'worker',
+                    arm(delay, token) { worker.postMessage({ type: 'arm', delay, token }); },
+                    cancel(token) { worker.postMessage({ type: 'cancel', token }); },
+                    destroy() {
+                        try { worker.terminate?.(); } catch {}
+                        if (objectUrl) {
+                            try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
+                            objectUrl = '';
+                        }
+                    }
+                };
+            } catch {
+                if (objectUrl) {
+                    try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
+                }
+            }
+        }
+
+        let timer = 0;
+        return {
+            mode: 'page-timer',
+            arm(delay, token) {
+                if (timer) clearTimeout(timer);
+                timer = setTimeout(() => {
+                    timer = 0;
+                    onDeadline(token);
+                }, delay);
+            },
+            cancel() {
+                if (timer) clearTimeout(timer);
+                timer = 0;
+            },
+            destroy() {
+                if (timer) clearTimeout(timer);
+                timer = 0;
+            }
+        };
+    }
+
     function loadApi() {
         if (apiPromise) return apiPromise;
         apiPromise = new Promise((resolve, reject) => {
@@ -81,6 +162,8 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                 let startTimer = 0;
                 let completionTimer = 0;
                 let completionEpoch = 0;
+                let completionDeadline = null;
+                let completionScheduler = null;
                 let lastPlayingObservedAt = 0;
                 let runtimeFailureReported = false;
                 let selectedItem = item;
@@ -94,9 +177,15 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     startTimer = 0;
                 };
                 const clearCompletionTimer = () => {
-                    if (completionTimer) clearTimeout(completionTimer);
+                    if (completionTimer) completionScheduler?.cancel?.(completionTimer);
                     completionTimer = 0;
+                    completionDeadline = null;
                     completionEpoch += 1;
+                };
+                const destroyCompletionScheduler = () => {
+                    clearCompletionTimer();
+                    completionScheduler?.destroy?.();
+                    completionScheduler = null;
                 };
                 const resetCompletionEvidence = () => {
                     clearCompletionTimer();
@@ -146,6 +235,28 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     emitPlayback('Ended');
                     return true;
                 };
+                const handleCompletionDeadline = (token) => {
+                    const deadline = completionDeadline;
+                    if (!deadline || token !== deadline.epoch || token !== completionEpoch
+                        || !started || ended || lastPaused) return;
+                    completionTimer = 0;
+                    completionDeadline = null;
+                    const elapsedMs = Math.max(0, Date.now() - deadline.observedAt);
+                    const projectedPositionMs = deadline.positionMs + elapsedMs;
+                    const stillRemainingMs = deadline.durationMs - projectedPositionMs;
+                    // Dedicated-worker deadlines remain available when normal page timers are
+                    // heavily throttled by a minimized/backgrounded renderer. If the deadline
+                    // arrives early, project from the last authoritative Spotify sample and re-arm.
+                    if (stillRemainingMs > END_TOLERANCE_MS) {
+                        scheduleCompletionWatchdog(projectedPositionMs, deadline.durationMs);
+                        return;
+                    }
+                    if (markEnded(deadline.durationMs)) emitProgress();
+                };
+                const ensureCompletionScheduler = () => {
+                    if (!completionScheduler) completionScheduler = createCompletionScheduler(handleCompletionDeadline);
+                    return completionScheduler;
+                };
                 const scheduleCompletionWatchdog = (positionMs, durationMs) => {
                     clearCompletionTimer();
                     const effectivePositionMs = Math.max(0, Number(positionMs) || 0);
@@ -155,22 +266,14 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     const observedAt = Date.now();
                     lastPlayingObservedAt = observedAt;
                     const remainingMs = Math.max(0, effectiveDurationMs - effectivePositionMs);
-                    completionTimer = setTimeout(() => {
-                        completionTimer = 0;
-                        if (epoch !== completionEpoch || !started || ended || lastPaused) return;
-                        const elapsedMs = Math.max(0, Date.now() - observedAt);
-                        const projectedPositionMs = effectivePositionMs + elapsedMs;
-                        const stillRemainingMs = effectiveDurationMs - projectedPositionMs;
-                        // A background/minimized renderer can stop receiving Spotify's final
-                        // playback_update. Keep one deadline from the last confirmed playing
-                        // sample so the normal Ended -> queue path can still run. If a timer fires
-                        // early, re-arm it rather than ending the track prematurely.
-                        if (stillRemainingMs > END_TOLERANCE_MS) {
-                            scheduleCompletionWatchdog(projectedPositionMs, effectiveDurationMs);
-                            return;
-                        }
-                        if (markEnded(effectiveDurationMs)) emitProgress();
-                    }, Math.max(50, remainingMs + endWatchdogGraceMs()));
+                    completionDeadline = {
+                        epoch,
+                        observedAt,
+                        positionMs: effectivePositionMs,
+                        durationMs: effectiveDurationMs
+                    };
+                    completionTimer = epoch;
+                    ensureCompletionScheduler().arm(Math.max(50, remainingMs + endWatchdogGraceMs()), epoch);
                 };
                 api.createController(mount, {
                     uri: `spotify:track:${id}`,
@@ -210,7 +313,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                         setVolume: (volume) => controller.setVolume?.(Math.max(0, Math.min(1, Number(volume) || 0))),
                         destroy: () => {
                             clearStartTimer();
-                            clearCompletionTimer();
+                            destroyCompletionScheduler();
                             return controller.destroy?.();
                         },
                         loadItem: async (nextItem) => {
