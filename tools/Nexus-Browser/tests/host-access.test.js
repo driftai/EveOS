@@ -75,13 +75,11 @@ test('service-worker entry loads host-access before provider-control boot', () =
 test('Base and Dex UIs surface host-access failures as an actionable one-time permission step', () => {
   const base = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const dex = fs.readFileSync(path.join(__dirname, '..', 'public', 'dex-mode.js'), 'utf8');
-  for (const source of [base, dex]) {
-    assert.match(source, /HOST_ACCESS_REQUIRED/);
-    assert.match(source, /Chrome site access is required/);
-    assert.match(source, /extension Site access|On all sites/);
-  }
-  assert.match(base, /On all sites/);
-  assert.match(dex, /On all sites/);
-  assert.match(base, /click Connect target again/);
+  const helper = require('../public/host-access-ui.js');
+  assert.equal(helper.message({ code: 'OTHER' }), null);
+  assert.match(helper.message({ code: 'HOST_ACCESS_REQUIRED', detail: { pattern: 'https://example.test/*' } }), /Chrome site access is required.*extension Site access/);
+  assert.match(helper.message({ code: 'HOST_ACCESS_REQUIRED', detail: { allSitesDeclared: true } }), /On all sites/);
+  assert.match(base, /hostAccessUiApi\.message.*click Connect target again/);
+  assert.match(dex, /hostAccessUiApi\.message.*retry the Dex relay/);
   assert.match(dex, /Site access required/);
 });

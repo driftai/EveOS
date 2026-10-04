@@ -2,6 +2,7 @@
   const TABLE = Object.freeze({
     EXTENSION_OFFLINE: { action: 'retry', maxAttempts: 6, delays: [500, 800, 1300, 2100, 3400, 5000] },
     LOCAL_EXISTING_BUSY: { action: 'retry', maxAttempts: 6, delays: [600, 900, 1300, 1900, 2800, 4000] },
+    APP_TARGET_BUSY: { action: 'retry', maxAttempts: 6, delays: [300, 500, 800, 1200, 1800, 2600] },
     LOCAL_EXISTING_NOT_READY: { action: 'retry', maxAttempts: 6, delays: [800, 1200, 1800, 2600, 3800, 5000] },
     LOCAL_EXISTING_TIMEOUT: { action: 'recover', maxAttempts: 0, delays: [] },
     LOCAL_TARGET_NOT_FOUND: { action: 'refresh_target', maxAttempts: 4, delays: [500, 900, 1500, 2500] },

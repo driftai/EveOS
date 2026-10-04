@@ -51,10 +51,22 @@ def main():
             patch.object(nexus_browser_control, "_deps_ready", return_value=True):
         require(nexus_browser_control.get_status()["state"] == "blocked", "foreign-port state is not detected")
 
+    with patch.object(nexus_browser_control, "_read_pid", return_value=121672), \
+            patch.object(nexus_browser_control, "_process_command_line",
+                         side_effect=lambda pid: (
+                             "node scripts\\bridge-supervisor.js" if pid == 121672 else
+                             f'"C:\\Program Files\\nodejs\\node.exe" "{nexus_browser_control._tool_root()}\\server.js"'
+                         )), \
+            patch.object(nexus_browser_control, "_listener_pids", return_value=[116376]), \
+            patch.object(nexus_browser_control, "_process_parent_pid", return_value=121672):
+        require(nexus_browser_control._managed_pid() == 121672,
+                "relative START.bat supervisor was not authenticated through its owned server child")
+
     with patch.object(nexus_browser_control, "_health", return_value={"ok": True}), \
             patch.object(nexus_browser_control, "_http_json", return_value={
                 "extensionConnected": True, "dexUiConnected": True,
-                "onlineTargets": 14, "localTargets": 1, "dexRooms": 1,
+                "onlineTargets": 14, "localTargets": 1, "appTargets": 1, "dexRooms": 1,
+                "appBinding": {"connected": True, "providerName": "ChatGPT App"},
                 "extensionSessions": {
                     "connected": 2, "primaryReady": True, "primaryTabs": 14,
                     "standby": [{"ready": True, "tabs": 0}],
@@ -66,6 +78,8 @@ def main():
             patch.object(nexus_browser_control, "_extension_ready", return_value=True):
         status = nexus_browser_control.get_status()
         require(status["onlineTargets"] == 14, "authoritative provider target count was lost")
+        require(status["appTargets"] == 1, "App-Origin target count was lost")
+        require(status["appBinding"]["providerName"] == "ChatGPT App", "App binding status was lost")
         require(status["extensionSessions"]["connected"] == 2, "extension session diagnostics were lost")
         require(status["extensionSessions"]["primaryTabs"] == 14, "primary extension tab count was lost")
         require(status["extensionSessions"]["standby"][0]["tabs"] == 0, "standby extension diagnostics were lost")

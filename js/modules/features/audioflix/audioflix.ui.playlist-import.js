@@ -5,6 +5,16 @@ window.EveAudioflixPlaylistImportUi = window.EveAudioflixPlaylistImportUi || {};
     const ns = window.EveAudioflixPlaylistImportUi;
     if (ns.ready) return;
 
+    // Spotify's import form has one visible placement name. Mirror that folder into the hidden group
+    // field so an imported folder is also the Audioflix group, instead of creating two unrelated
+    // names for the same playlist. Other providers keep their existing independent placement rules.
+    document.addEventListener('input', (event) => {
+        const target = event.target;
+        if (!target?.matches?.('form[data-af-form="import-playlist"][data-af-mode="spotify"] input[name="folder"]')) return;
+        const group = target.form?.querySelector?.('input[name="group"]');
+        if (group) group.value = target.value;
+    });
+
     function modeSelector(mode) {
         const button = (value, label) => `<button type="button" class="audioflix-scope-pill${mode === value ? ' is-active' : ''}" data-af-action="select-playlist-mode" data-af-mode="${value}">${label}</button>`;
         return `<div class="audioflix-playlist-mode-row"><span>Import Mode:</span>${button('youtube', 'YouTube Playlist')}${button('wpl', 'WPL Playlist')}${button('spotify', 'Spotify Playlist')}${button('instagram', 'Instagram Videos')}</div>`;
@@ -20,7 +30,7 @@ window.EveAudioflixPlaylistImportUi = window.EveAudioflixPlaylistImportUi || {};
             const urlValue = esc(values.spotifyUrl || '');
             const folderValue = esc(values.spotifyFolder || '');
             const status = esc(values.spotifyStatus || '');
-            return `<form class="audioflix-form" data-af-form="import-playlist" data-af-mode="spotify">${selector}<label class="audioflix-wide-field"><span>Spotify playlist URL, embed URL, or iframe snippet</span><textarea name="url" rows="3" required placeholder="https://open.spotify.com/playlist/...">${urlValue}</textarea></label><label><span>Audioflix Folder</span><input name="folder" value="${folderValue}" placeholder="Spotify Playlists"></label><button type="submit" data-af-action="submit-form">Import Spotify Playlist</button><button type="button" data-af-action="spotify-session-import">Open Saved Session</button><small class="audioflix-wide-field">Private playlists use a separate saved EveOS Edge profile. Sign in there once; it does not share the login from your normal Edge window. Extraction needs a running local EveOS server.</small>${status ? `<output class="audioflix-import-status">${status}</output>` : ''}</form>`;
+            return `<form class="audioflix-form" data-af-form="import-playlist" data-af-mode="spotify">${selector}<label class="audioflix-wide-field"><span>Spotify playlist URL, embed URL, or iframe snippet</span><input name="url" required value="${urlValue}" placeholder="https://open.spotify.com/playlist/..." autocomplete="off" spellcheck="false"></label><label><span>Audioflix Folder / Group</span><input name="folder" value="${folderValue}" placeholder="Spotify Playlists"></label><input type="hidden" name="group" value="${folderValue}"><button type="submit" data-af-action="submit-form">Import Spotify Playlist</button><button type="button" data-af-action="spotify-session-import">Open Saved Session</button><small class="audioflix-wide-field">Private playlists use a separate saved EveOS Edge profile. Sign in there once; it does not share the login from your normal Edge window. Extraction needs a running local EveOS server.</small>${status ? `<output class="audioflix-import-status">${status}</output>` : ''}</form>`;
         }
         if (mode === 'instagram') {
             const urlValue = esc(values.instagramUrl || '');

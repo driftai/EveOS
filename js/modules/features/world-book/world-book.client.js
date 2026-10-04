@@ -203,6 +203,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         state.message = 'Starting EveOS local control for World Book...';
         publish();
         const control = await localControl.ensure({
+            userInitiated: true,
             onLaunching: function () {
                 state.message = 'Approve the browser prompt to start World Book local control.';
                 publish();

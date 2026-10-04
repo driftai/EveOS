@@ -57,6 +57,11 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
                 image: text(source.image, ''),
                 explicit: source.explicit === true,
                 sourceProvider: text(source.sourceProvider, ''),
+                // Keep provider-native identity separate from the mutable playback URL. Spotify
+                // recovery can still identify a removed track after its live page stops resolving.
+                spotifyTrackId: text(source.spotifyTrackId, ''),
+                spotifyUri: text(source.spotifyUri, ''),
+                isrc: text(source.isrc, ''),
                 playlistPosition: Math.max(0, Number(source.playlistPosition || 0) || 0),
                 card: text(source.card, ''),
                 folder: text(source.folder, ''),

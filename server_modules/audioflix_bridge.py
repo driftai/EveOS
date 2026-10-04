@@ -128,6 +128,14 @@ def localize_track(payload: dict) -> dict:
     return audioflix_localize.localize_one(payload)
 
 
+def localize_spotify_fallback(payload: dict) -> dict:
+    # Deliberately separate from /localize so the alternate Spotify resolver can never silently
+    # activate when the normal localizer fails. The browser only calls this endpoint after an
+    # explicit fallback action.
+    from server_modules import audioflix_spotify_fallback
+    return audioflix_spotify_fallback.localize_one(payload)
+
+
 def localize_scan(payload: dict) -> dict:
     from server_modules import audioflix_localize
     return audioflix_localize.scan_dir(payload)
@@ -198,6 +206,7 @@ def handle_post_request(handler, path: str) -> bool:
         "/api/audioflix/hotkeys/set": hotkeys_set,
         "/api/audioflix/hotkeys/clear": hotkeys_clear,
         "/api/audioflix/localize": localize_track,
+        "/api/audioflix/localize-spotify-fallback": localize_spotify_fallback,
         "/api/audioflix/localize-scan": localize_scan,
         "/api/audioflix/localize-link": localize_link,
         "/api/audioflix/wpl-read": wpl_read,

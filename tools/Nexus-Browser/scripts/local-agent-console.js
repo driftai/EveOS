@@ -3,6 +3,8 @@ const { WebSocket } = require('ws');
 const { urls } = require('../runtime-config');
 
 const WS_URL = process.env.NEXUS_BROWSER_WS || process.env.BROWSER_AI_BRIDGE_WS || urls().websocket;
+const providerArgIndex = process.argv.indexOf('--provider');
+const requestedProviderId = providerArgIndex >= 0 ? String(process.argv[providerArgIndex + 1] || '').trim() : '';
 const ws = new WebSocket(WS_URL);
 let target = null;
 let rl = null;
@@ -102,9 +104,13 @@ function handleMessage(msg) {
   switch (msg.type) {
     case 'local_targets_update': {
       const targets = Array.isArray(msg.targets) ? msg.targets : [];
-      const preferred = targets.find((entry) => entry.providerId === 'local-antigravity-cli');
+      const preferred = requestedProviderId
+        ? targets.find((entry) => entry.providerId === requestedProviderId)
+        : targets.find((entry) => entry.providerId === 'local-antigravity-cli');
       if (!preferred) {
-        console.error('No Antigravity Local-Origin target detected. Is agy installed and on PATH?');
+        console.error(requestedProviderId
+          ? `No Local-Origin provider named ${requestedProviderId} is available.`
+          : 'No Antigravity Local-Origin target detected. Is agy installed and on PATH?');
         return;
       }
       if (!target || target.id !== preferred.id) send({ type: 'select_local_target', targetId: preferred.id });

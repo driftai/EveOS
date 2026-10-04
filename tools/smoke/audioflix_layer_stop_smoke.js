@@ -285,14 +285,13 @@ async function main() {
     assert(layerStormCalls === 1, 'overlapping Layer Play starts for one sound coalesce to one async start');
     layerStormGate.resolve(true);
     await Promise.all([firstLayerStorm, secondLayerStorm]);
-
-    const analysers = [];
+    const analysers = [], mediaSources = [];
     const gains = [];
     const bufferSources = [];
     const node = () => ({
         connections: [],
         connect(target) { this.connections.push(target); return target; },
-        disconnect() { this.disconnected = true; }
+        disconnect() { this.disconnected = true; this.connected = false; }
     });
     class FakeAudioContext {
         constructor() { this.destination = {}; this.state = 'running'; this.sampleRate = 48000; }
@@ -310,6 +309,7 @@ async function main() {
             gains.push(value);
             return value;
         }
+        createMediaElementSource(player) { const value = Object.assign(node(), { player }); mediaSources.push(value); return value; }
         createBufferSource() {
             const value = Object.assign(node(), {
                 startArgs: null,
@@ -341,10 +341,17 @@ async function main() {
         'the visualizer analysis lane is silent instead of creating a second audible stream');
     assert(gains[0].gain.value === 1 && bufferSources[0].stopCalls === 0,
         'starting visualization does not disturb the shared Music Library output graph');
+    const musicPlayers = Array.from({ length: 80 }, () => ({ paused: false, addEventListener() {} }));
+    musicPlayers.forEach((player) => waveform.attachPlayer(player));
+    assert(mediaSources.filter((source) => source.connected !== false).length === 1,
+        'long Music Library sessions keep only one media source connected to the Web Audio graph');
     waveform.stop();
+    assert(mediaSources.filter((source) => source.connected !== false).length === 1, 'hiding the waveform does not silence active music');
+    waveform.releasePlayer(musicPlayers.at(-1));
+    assert(mediaSources.every((source) => source.connected === false),
+        'stopping playback disconnects the final media source so its decoder can be reclaimed');
     assert(bufferSources[0].stopCalls === 1,
         'Soundboard Stop terminates the visualizer buffer source instead of only hiding its drawing');
-
     const nativeSource = fs.readFileSync(NATIVE, 'utf8');
     assert(nativeSource.includes('allDevices = options.allDevices === true || (!!voiceId'),
         'specific voice cleanup requests all retained native output players');

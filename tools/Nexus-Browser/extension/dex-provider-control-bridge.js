@@ -15,6 +15,8 @@
   const commandAdmission = new Map();
   const DEDUPE_TTL_MS = 120000;
   const MAX_SEEN = 256;
+  const appMirrorDedupe = globalThis.BrowserAiBridgeChatGptAppMirrorDedupe
+    || (typeof require === 'function' ? require('./chatgpt-app-mirror-dedupe.js') : null);
   const REPAIR_COOLDOWN_MS = 5 * 60 * 1000;
   const taskCompletionApi = globalThis.BrowserAiBridgeTaskCompletionBridge
     || (typeof require === 'function' ? require('./task-completion-bridge.js') : null);
@@ -53,7 +55,6 @@
       title: String(tab.title || provider.name)
     };
   }
-
   const formatResult = (result = {}, requestId = null) =>
     (toolResults?.formatResult ? toolResults.formatResult(result, requestId) : JSON.stringify(result));
 
@@ -78,13 +79,11 @@
     }
     return acknowledgement;
   }
-
   function sameTarget(a = {}, b = {}) {
     if (a.targetClassId !== b.targetClassId || a.providerId !== b.providerId) return false;
     if (a.targetId != null && b.targetId != null) return String(a.targetId) === String(b.targetId);
     return !!a.url && !!b.url && a.url === b.url;
   }
-
   async function injectOriginReceipt(receipt, requestId) {
     const target = receipt?.originTarget;
     if (!target?.targetId || !globalThis.chrome?.tabs?.sendMessage || !receipt?.text) return;
@@ -99,7 +98,6 @@
       delivery: { kind: 'dex-control-origin-receipt', controlRequestId: requestId }
     });
   }
-
   async function injectDoneWatch(msg) {
     const source = msg?.source || {};
     if (!source.targetId || !source.url || !msg?.eventId || !msg?.text)
@@ -117,7 +115,6 @@
     if (accepted?.ok !== true)
       throw new Error(String(accepted?.error || 'DONE notification submission was not confirmed.').slice(0, 160));
   }
-
   function handleDoneWatchEvent(msg) {
     const key = String(msg?.eventId || '');
     if (!key) return;
@@ -135,7 +132,6 @@
       socket?.send?.(JSON.stringify({ type: 'dex_done_watch_ack', eventId: key, ok: false, error: telemetry.lastDeliveryError }));
     });
   }
-
   function handleServerMessage(raw) {
     let msg;
     try { msg = JSON.parse(String(raw?.data ?? raw)); } catch { return; }
@@ -290,9 +286,12 @@
     if (!provider || !sender?.tab?.id || msg.providerId !== provider.id)
       return { ok: false, accepted: false, dispatched: false, code: 'DEX_CONTROL_BAD_SOURCE' };
     const actionId = String(msg.clientActionId || ''), actionKey = actionId ? `${sender.tab.id}:${actionId}` : '';
-    if (actionKey && recentActions.has(actionKey)) {
+    const durableMirrorKey = await appMirrorDedupe?.actionKey?.(sender, actionId) || '';
+    if ((actionKey && recentActions.has(actionKey))
+        || (durableMirrorKey && await appMirrorDedupe.seen(durableMirrorKey))) {
       telemetry.duplicateCommandsSuppressed += 1;
-      return { ok: true, accepted: true, dispatched: true, deduplicated: true };
+      return { ok: true, accepted: true, dispatched: true, deduplicated: true,
+        durableDeduplicated: !!durableMirrorKey };
     }
     const requestId = uid(), source = sourceFromSender(sender, provider);
     repairTabs.delete(Number(sender.tab.id));
@@ -319,6 +318,12 @@
     }
     const receipt = await admitted;
     if (receipt.accepted && actionKey) remember(recentActions, actionKey);
+    if (receipt.accepted && durableMirrorKey) {
+      try { await appMirrorDedupe.remember(durableMirrorKey); }
+      catch (error) {
+        telemetry.lastDeliveryError = `App Mirror durable dedupe write failed: ${String(error?.message || error).slice(0, 120)}`;
+      }
+    }
     return receipt;
   }
 

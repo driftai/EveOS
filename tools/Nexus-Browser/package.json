@@ -22,7 +22,18 @@
     "extension:refresh": "npm run validate:shared && npm run extension:reload",
     "soak:headed": "node scripts/headed-soak.js",
     "diagnose": "node scripts/failure-snapshot.js",
-    "rooms:cleanup-disposable": "node scripts/dexctl.js cleanup-disposable-rooms"
+    "rooms:cleanup-disposable": "node scripts/dexctl.js cleanup-disposable-rooms",
+    "doctor:apps": "node scripts/app-origin-doctor.js",
+    "restart": "node scripts/restart-bridge.js",
+    "qualify:app-origin": "node scripts/qualify.js --area app-origin",
+    "qualify:app-origin:live": "npm run qualify:app-origin && node scripts/app-origin-doctor.js --require-conversation",
+    "probe:app-origin:live": "node scripts/app-origin-live-probe.js",
+    "diagnose:app-ui": "node scripts/app-uia-info.js",
+    "smoke:app-ui-info": "node ../smoke/nexus_app_uia_info_smoke.js",
+    "smoke:terminal-driver": "node scripts/terminal-driver.js",
+    "relay:doctor": "node scripts/terminal-relay-doctor.js",
+    "relay:message": "node scripts/terminal-relay-delivery.js",
+    "relay:dev": "node scripts/terminal-relay-dev.js"
   },
   "engines": {
     "node": ">=18"

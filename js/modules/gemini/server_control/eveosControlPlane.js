@@ -271,6 +271,11 @@
         state.serverState = enabled ? 'starting' : 'stopping';
         state.message = enabled ? 'Starting EveOS localhost...' : 'Stopping EveOS localhost...';
         publish();
+        if (!enabled) {
+            window.dispatchEvent(new CustomEvent('eve:eveos-global-stop', {
+                detail: { source: 'search-monitor', requestedAt: Date.now() }
+            }));
+        }
         try {
             const timeoutMs = enabled ? START_TIMEOUT_MS : STOP_TIMEOUT_MS;
             const payload = await fetchJson(

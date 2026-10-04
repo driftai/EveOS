@@ -30,15 +30,15 @@ test('both normal and capture-only recovered completions persist heads-ups with 
 test('the existing one-shot notification transport recognizes only explicit out-of-band HEADSUP packets', () => {
   const delivery = read('dex/done-watch-delivery.js');
   const bridge = read('extension/dex-provider-control-bridge.js');
-  const worker = read('extension/service-worker.js');
+  const returnRouting = read('extension/provider-return-routing.js');
   const chat = read('extension/content/chatgpt.js');
   assert.match(delivery, /event\.kind === 'heads-up'/);
   assert.match(delivery, /kind: event\.kind \|\| 'done-watch'/);
   assert.match(bridge, /msg\.kind === 'heads-up' \? 'dex-heads-up' : 'dex-done-watch'/);
-  assert.match(worker, /\^dex-\(\?:done-watch\|heads-up\)-/);
+  assert.match(returnRouting, /\^dex-\(\?:done-watch\|heads-up\)-/);
   assert.match(chat, /'dex-heads-up'/);
   assert.match(read('extension/content/chatgpt-return.js'), /HEADSUP:/);
-  assert.match(read('extension/content/provider-adapter-revision.js'), /ADAPTER_REVISION = 47/);
+  assert.match(read('extension/content/provider-adapter-revision.js'), /ADAPTER_REVISION = 50/);
 });
 test('heads-up is opt-in and documented as a single recipient ping, not a subscription or model loop', () => {
   const docs = read('DEX-MODE.md');

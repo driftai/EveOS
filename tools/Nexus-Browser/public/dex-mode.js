@@ -4,17 +4,19 @@
   const controlApi = globalThis.BrowserAiBridgeDexProviderControl;
   const stateSyncApi = globalThis.BrowserAiBridgeDexStateSync;
   const runtimeApi = globalThis.BrowserAiBridgeDexRuntimeClient;
-  const socketApi = globalThis.BrowserAiBridgeUiSocket;
+  const socketApi = globalThis.BrowserAiBridgeUiSocket, handoff = globalThis.BrowserAiBridgeWorkspaceHandoff;
+  const dexWorkspaceApi = globalThis.BrowserAiBridgeDexWorkspace;
   const sessionPolicyApi = globalThis.BrowserAiBridgeDexSessionPolicy;
   const humanInputApi = globalThis.BrowserAiBridgeDexHumanControl;
   const roomViewApi = globalThis.BrowserAiBridgeDexRoomView;
-  if (!protocol || !memberApi || !controlApi || !stateSyncApi || !runtimeApi || !socketApi || !sessionPolicyApi || !humanInputApi || !roomViewApi) {
+  const hostAccessUiApi = globalThis.BrowserAiBridgeHostAccessUi;
+  if (!protocol || !memberApi || !controlApi || !stateSyncApi || !runtimeApi || !socketApi || !sessionPolicyApi || !humanInputApi || !roomViewApi || !hostAccessUiApi) {
     throw new Error('Dex helpers must load before Dex Mode.');
   }
-
   const STORAGE_KEY = 'browser-ai-bridge.dex.rooms.v1';
   const VIEW_KEY = 'browser-ai-bridge.dex.viewer-state.v1';
   const RELOAD_REASON_KEY = 'browser-ai-bridge.dex.reload-reason.v1';
+  let dexWorkspace = null;
   const state = {
     uiConnectionPhase: 'connecting',
     rooms: [],
@@ -22,8 +24,8 @@
     tabs: [],
     providers: [],
     onlineTarget: null,
-    localTargets: [],
-    localTypes: [],
+    localTargets: [], localTypes: [],
+    appTargets: [], appTypes: [],
     reloading: false,
     runtimeRole: 'unknown',
     lastRelayFinalAt: 0,
@@ -32,7 +34,7 @@
   const el = Object.fromEntries([
     'baseModeTab','dexModeTab','baseModePanel','dexModePanel','dexRoomList','dexNewRoom',
     'dexRoomName','dexUserName','dexAutoRelay','dexMaxTurns','dexSaveRoom','dexClearChat','dexDeleteRoom',
-    'dexRoomStatus','dexMemberClass','dexMemberType','dexMemberTarget','dexMemberName',
+    'dexRoomStatus','dexMemberClass','dexMemberType','dexMemberTarget','dexMemberName','dexRefreshTargets',
     'dexAddMember','dexCancelMemberEdit','dexMemberRelayEnabled','dexMemberList','dexTranscript','dexPrompt','dexSend','dexStopRelay',
     'dexContinueRelay','dexDiagnostics','dexControlLabel','dexControlHint','dexHumanToggle'
   ].map((id) => [id, document.getElementById(id)]));
@@ -54,7 +56,6 @@
       updatedAt: now()
     };
   }
-
   function normalizeRoom(room) {
     const base = defaultRoom();
     const value = { ...base, ...room };
@@ -66,24 +67,20 @@
     value.relay = { ...base.relay, ...(room?.relay || {}) };
     return value;
   }
-
   let stateSync = null;
   let dexSocket = null;
   function send(payload) {
     return dexSocket?.send(payload) || false;
   }
-
   function loadRooms() {
     stateSync = stateSyncApi.createSync({
       state, storageKey: STORAGE_KEY, normalizeRoom, defaultRoom, send, now
     });
     stateSync.loadLocal();
   }
-
   function persist(options = {}) {
     stateSync?.persist(state.runtimeRole === 'standby' ? { ...options, remote: false } : options);
   }
-
   function log(message) {
     const stamp = new Date().toLocaleTimeString();
     const current = el.dexDiagnostics.textContent.trim();
@@ -118,7 +115,7 @@
       // pending dispatch from the viewer after a lost socket.
       log('Bridge process restarted · soft Dex state/target resync.');
       send({ type: 'request_tabs' });
-      send({ type: 'request_local_targets' });
+      send({ type: 'request_local_targets' }); send({ type: 'request_app_targets' });
     },
     onAssetChange({ revision }) {
       if (state.reloading) return;
@@ -150,12 +147,7 @@
   }
 
   function hostAccessUiMessage(msg) {
-    if (msg?.code !== 'HOST_ACCESS_REQUIRED') return null;
-    const site = msg.detail?.pattern || 'this provider site';
-    if (msg?.detail?.allSitesDeclared) {
-      return `Chrome is withholding EveOS Nexus Browser's all-sites access for ${site}. Open the extension menu → This can read and change site data → On all sites once, then retry the Dex relay.`;
-    }
-    return `Chrome site access is required for ${site}. Allow EveOS Nexus Browser on this site in Chrome's extension Site access, then retry the Dex relay.`;
+    return hostAccessUiApi.message(msg, { retryAction: 'retry the Dex relay' });
   }
 
   function handleSocketMessage(msg) {
@@ -187,6 +179,7 @@
       if (previousRoomId && state.rooms.some((room) => room.id === previousRoomId)) {
         state.activeRoomId = previousRoomId;
       }
+      dexWorkspace?.afterStateSync?.();
       // A fresh authoritative scheduler snapshot, never an open socket alone,
       // permits new dispatch after reconnect. Pending turns are not replayed.
       state.uiConnectionPhase = 'connected';
@@ -204,9 +197,9 @@
     }
     if (msg.type === 'provider_health_update') { updateHealth(msg); return; }
     if (msg.type === 'tabs_update') {
-      state.tabs = Array.isArray(msg.tabs) ? msg.tabs : [];
+      state.tabs = Array.isArray(msg.tabs) ? msg.tabs.filter((tab) => tab.appMirror !== true) : [];
       if (Array.isArray(msg.providers)) state.providers = msg.providers;
-      if ('target' in msg) state.onlineTarget = msg.target || null;
+      if ('target' in msg) state.onlineTarget = msg.target?.appMirror === true ? null : (msg.target || null);
       memberController.renderBuilder();
       return;
     }
@@ -215,8 +208,14 @@
       memberController.renderBuilder();
       return;
     }
+    if (msg.type === 'app_targets_update') {
+      state.appTargets = Array.isArray(msg.targets) ? msg.targets : [];
+      memberController.renderBuilder();
+      return;
+    }
     if (msg.type === 'target_classes_update') {
       state.localTypes = Array.isArray(msg.localTargetTypes) ? msg.localTargetTypes : [];
+      state.appTypes = Array.isArray(msg.appTargetTypes) ? msg.appTargetTypes : [];
       memberController.renderBuilder();
       return;
     }
@@ -228,8 +227,8 @@
       const observedAt = Number(msg.observedAt || Date.now());
       state.lastRelayFinalAt = observedAt;
       state.lastRelayFinalProvider = msg.providerName || msg.providerId || 'provider';
-      const settleMs = Number(msg.detail?.adapterSettleMs);
-      log(`Relay timing: ${state.lastRelayFinalProvider} final settled${Number.isFinite(settleMs) ? ` in ${settleMs} ms` : ''}.`);
+      const settleMs = Number(msg.detail?.adapterSettleMs), totalMs = Number(msg.detail?.totalResponseMs), firstMs = Number(msg.detail?.timeToFirstResponseMs);
+      log(`Relay timing: ${state.lastRelayFinalProvider} final${Number.isFinite(totalMs) ? ` in ${totalMs} ms · first response ${Number.isFinite(firstMs) ? firstMs : '?'} ms` : Number.isFinite(settleMs) ? ` settled in ${settleMs} ms` : ''}.`);
       return;
     }
     if (msg.type === 'prompt_accepted') {
@@ -256,16 +255,16 @@
         state.uiConnectionPhase = 'resyncing';
         renderAll();
         send({ type: 'request_tabs' });
-        send({ type: 'request_local_targets' });
+        send({ type: 'request_local_targets' }); send({ type: 'request_app_targets' });
         log('Dex transport connected; awaiting localhost scheduler snapshot.');
       },
       onMalformed: (error) => log(`Bad Dex bridge event: ${error.message}`),
-      onPhase: ({ phase }) => {
+      onPhase: ({ phase, closeCode, closeReason }) => {
         const previous = state.uiConnectionPhase;
         state.uiConnectionPhase = phase;
         renderAll();
         if (phase === 'reconnecting' && previous === 'connected') {
-          log('Dex viewer/controller reconnecting; relay controls paused.');
+          log(`Dex viewer/controller reconnecting · code ${closeCode ?? '?'}${closeReason ? ` · ${closeReason}` : ''}; relay controls paused.`);
         }
         if (phase === 'disconnected') log('Dex viewer/controller disconnected; retrying in background.');
       }
@@ -282,8 +281,7 @@
     onRelock: () => memberController.clear(),
     onChange: () => renderAll()
   });
-  const canHumanEdit = () => humanInput.isEnabled()
-    && state.runtimeRole === 'controller' && state.uiConnectionPhase === 'connected';
+  const canHumanEdit = () => humanInput.isEnabled() && state.runtimeRole === 'controller' && state.uiConnectionPhase === 'connected';
 
   const memberController = memberApi.createController({
     state, el, protocol, activeRoom, persist, log, renderAll, uid,
@@ -347,6 +345,7 @@
     el.dexClearChat.textContent = room.messages.length ? `Clear chat (${room.messages.length})` : 'Clear chat';
   }
 
+  el.dexRefreshTargets.addEventListener('click', () => { send({ type: 'request_tabs' }); send({ type: 'request_local_targets' }); send({ type: 'request_app_targets', force: true }); log('Refreshing participant targets…'); });
   el.baseModeTab.addEventListener('click', () => setMode('base'));
   el.dexModeTab.addEventListener('click', () => setMode('dex'));
   el.dexNewRoom.addEventListener('click', () => {
@@ -435,5 +434,7 @@
     sessionStorage.removeItem(RELOAD_REASON_KEY);
     log(reloadReason);
   }
-  connectSocket();
+  dexWorkspace = dexWorkspaceApi?.create({ state, el, setMode, renderAll, connect: connectSocket,
+    disconnect: () => { dexSocket?.stop(); dexSocket = null; state.uiConnectionPhase = 'suspended'; renderAll(); } });
+  if (handoff && dexWorkspace) handoff.register('dex', dexWorkspace); else connectSocket();
 })();

@@ -31,6 +31,10 @@ class FakeWebSocket {
   }
 
   send(value) { this.sent.push(value); }
+  close() {
+    if (this.readyState === FakeWebSocket.CLOSED) return;
+    this.emit('close', { code: 1006, reason: 'client recovery' });
+  }
 }
 
 function harness() {
@@ -71,6 +75,17 @@ test('UI socket sends hello and permits dispatch only while connected', () => {
   assert.deepEqual(JSON.parse(socket.sent[1]), { type: 'request_tabs' });
 });
 
+test('UI socket timestamps prompt dispatch before it reaches the server', () => {
+  const { client } = harness();
+  client.connect();
+  const socket = FakeWebSocket.instances[0];
+  socket.emit('open');
+  assert.equal(client.send({ type: 'send_prompt', requestId: 'timed-1', text: 'hello' }), true);
+  const sent = JSON.parse(socket.sent.at(-1));
+  assert.equal(sent.type, 'send_prompt');
+  assert.ok(Number.isFinite(sent.clientSentAt));
+});
+
 test('short UI socket loss preserves a recovering phase and reconnects before hard disconnect', () => {
   const { client, phases, scheduled } = harness();
   client.connect();
@@ -79,12 +94,23 @@ test('short UI socket loss preserves a recovering phase and reconnects before ha
   assert.equal(client.snapshot().phase, 'reconnecting');
   assert.equal(client.send({ type: 'send_prompt' }), false);
   assert.equal(phases.at(-1).closeCode, 1006);
-  scheduled.find((entry) => entry.delay === 1200).fn();
+  scheduled.find((entry) => entry.delay === 300).fn();
   FakeWebSocket.instances[1].emit('open');
   assert.equal(client.snapshot().phase, 'connected');
   assert.equal(client.snapshot().epoch, 2);
-  const grace = scheduled.find((entry) => entry.delay === 4000);
+  const grace = scheduled.find((entry) => entry.delay === 8000);
   assert.equal(grace.cleared, true);
+});
+
+test('UI socket treats close code 1001 as recoverable and reconnects', () => {
+  const { client, scheduled } = harness();
+  client.connect();
+  FakeWebSocket.instances[0].emit('open');
+  FakeWebSocket.instances[0].emit('close', { code: 1001, reason: 'going away' });
+  assert.equal(client.snapshot().phase, 'reconnecting');
+  scheduled.find((entry) => entry.delay === 300).fn();
+  FakeWebSocket.instances[1].emit('open');
+  assert.equal(client.snapshot().phase, 'connected');
 });
 
 test('extended UI socket loss becomes disconnected after the visual grace period', () => {
@@ -92,8 +118,42 @@ test('extended UI socket loss becomes disconnected after the visual grace period
   client.connect();
   FakeWebSocket.instances[0].emit('open');
   FakeWebSocket.instances[0].emit('close');
-  scheduled.find((entry) => entry.delay === 4000).fn();
+  scheduled.find((entry) => entry.delay === 8000).fn();
   assert.equal(client.snapshot().phase, 'disconnected');
+});
+
+test('UI socket retries failed localhost reconnects with bounded exponential backoff', () => {
+  const { client, scheduled } = harness();
+  client.connect();
+  FakeWebSocket.instances[0].emit('open');
+  FakeWebSocket.instances[0].emit('close', { code: 1006 });
+  scheduled.find((entry) => entry.delay === 300).fn();
+
+  FakeWebSocket.instances[1].emit('close', { code: 1006 });
+  assert.ok(scheduled.some((entry) => entry.delay === 600));
+
+  scheduled.find((entry) => entry.delay === 600).fn();
+  FakeWebSocket.instances[2].emit('close', { code: 1006 });
+  assert.ok(scheduled.some((entry) => entry.delay === 1200));
+});
+
+test('UI socket error forces close so normal reconnect scheduling owns recovery', () => {
+  const { client, scheduled } = harness();
+  client.connect();
+  const socket = FakeWebSocket.instances[0];
+  socket.emit('error', { message: 'connection reset' });
+  assert.equal(socket.readyState, FakeWebSocket.CLOSED);
+  assert.ok(scheduled.some((entry) => entry.delay === 300));
+});
+
+test('UI socket stop does not schedule a reconnect from its own close event', () => {
+  const { client, scheduled } = harness();
+  client.connect();
+  const socket = FakeWebSocket.instances[0];
+  socket.emit('open');
+  client.stop();
+  assert.equal(socket.readyState, FakeWebSocket.CLOSED);
+  assert.equal(scheduled.filter((entry) => !entry.cleared && entry.delay <= 2000).length, 0);
 });
 
 test('UI socket parses bridge events and quarantines malformed payloads', () => {

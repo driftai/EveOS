@@ -1,12 +1,5 @@
-// Music-library localization for Audioflix: turn online (yt-dlp) tracks into local files and
-// re-attach already-localized folders back onto tracks.
-//
-// A localized track is DUAL-SOURCE: it keeps its online `url` and gains a `localPath`, so playback
-// prefers the offline file and falls back to the stream. Scopes: library, folder, group, song.
-// importMusicPort extracts a folder's audio into EveOS as new tracks under a FOLDER tag (like a
-// soundboard port); reimportMerge instead re-attaches files to existing tracks by title.
+// Music localization keeps online URLs beside local paths across library/folder/group/song scopes.
 window.EveAudioflixLocalize = window.EveAudioflixLocalize || {};
-
 (function () {
     'use strict';
 
@@ -26,20 +19,18 @@ window.EveAudioflixLocalize = window.EveAudioflixLocalize || {};
             .find(([storedKey]) => text(storedKey).toLowerCase() === wanted);
         return text(match?.[1]);
     };
-    // Loose title key: lowercase, drop a trailing file extension, collapse non-alphanumerics.
     const normTitle = (v) => paths?.titleKey?.(v)
         || text(v).toLowerCase().replace(/\.[a-z0-9]{2,4}$/, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
     const musicItems = () => state().music || [];
-
-    // All music items in a scope: 'library' (all), 'folder', 'group', or 'song' (one id).
     function collectScope(scope, key) {
         const all = musicItems();
         if (scope === 'song') return all.filter((it) => it.id === key);
         if (scope === 'folder') return all.filter((it) => sameText(it.folder || it.card, key));
         if (scope === 'group') {
             const map = state().musicGroupMap || {};
-            return all.filter((it) => (map[it.id] || []).some((name) => sameText(name, key)));
+            const names = window.EveAudioflixGroupTree?.membershipNames?.(state(), 'music', key) || [key];
+            return all.filter((it) => (map[it.id] || []).some((name) => names.some((group) => sameText(name, group))));
         }
         return all;
     }

@@ -14,6 +14,7 @@ const repo = path.resolve(__dirname, '..', '..');
 
 let browserOutputs = [];
 const stateRef = { value: {} };
+const sinkCalls = [];
 
 const context = vm.createContext({
     console, Date, JSON,
@@ -28,6 +29,12 @@ const context = vm.createContext({
 context.window.window = context.window;
 context.window.navigator = context.navigator;
 context.window.isSecureContext = true;
+context.window.EveAudioflixState = {
+    update: (patch) => {
+        stateRef.value = { ...stateRef.value, ...patch };
+        return stateRef.value;
+    }
+};
 
 vm.runInContext(
     fs.readFileSync(path.join(repo, 'js/modules/features/audioflix/audioflix.audio.output.js'), 'utf8'),
@@ -36,7 +43,7 @@ vm.runInContext(
 );
 
 const controller = context.window.EveAudioflixAudioOutput.createController({
-    ensureAudio: () => ({ setSinkId: async () => {}, sinkId: '' }),
+    ensureAudio: () => ({ setSinkId: async (sinkId) => { sinkCalls.push(sinkId); }, sinkId: '' }),
     getAudioContext: () => null,
     state: () => stateRef.value,
     dispatch: () => {},
@@ -103,7 +110,22 @@ function assert(condition, message) {
     routed = await controller.resolvePlaybackSink();
     assert(routed === null, 'idle route produced a sink even though nothing is armed');
 
-    console.log('AUDIOFLIX_MUSIC_ROUTE_SMOKE_OK (cases=5)');
+    // 6. Choosing System default is a real reset: it clears both selective/native routing and
+    // asks the browser media element to return to its normal OS output (empty sink id).
+    stateRef.value = {
+        preferredSinkId: 'dev-cable-in', preferredSinkLabel: 'CABLE Input',
+        nativeBridgeEnabled: true, nativeSuppressBrowserPlayback: true,
+        nativeOutputId: 'sd:7', routeMode: 'native-bridge'
+    };
+    await controller.setOutputById('', 'System default output');
+    assert(sinkCalls.at(-1) === '', 'system default did not reset the browser sink id');
+    assert(stateRef.value.preferredSinkId === '' && stateRef.value.preferredSinkLabel === '',
+        'system default did not clear the saved browser sink');
+    assert(stateRef.value.nativeBridgeEnabled === false && stateRef.value.nativeSuppressBrowserPlayback === false,
+        'system default left exclusive native playback armed');
+    assert(stateRef.value.routeMode === 'browser', 'system default did not restore browser route mode');
+
+    console.log('AUDIOFLIX_MUSIC_ROUTE_SMOKE_OK (cases=6)');
 })().catch((error) => {
     console.error(error);
     process.exit(1);

@@ -222,9 +222,18 @@ vm.runInNewContext(notesSource, context, { filename: 'world-book.notes.client.js
     }
 
     const notesClient = windowMock.EveWorldBook.notesClient;
+    let stoppedError = null;
+    try { await notesClient.workspace(); } catch (error) { stoppedError = error; }
+    if (notesRunning || stoppedError?.code !== 'NOTES_SERVICE_STOPPED') {
+        throw new Error(`Notes data access did not remain manually started: ${stoppedError?.message || 'no error'}`);
+    }
+    const notesStarted = await notesClient.start();
+    if (!notesStarted.running || !notesRunning) {
+        throw new Error(`Explicit Notes start failed: ${JSON.stringify(notesStarted)}`);
+    }
     const workspace = await notesClient.workspace();
-    if (!notesRunning || workspace.roots[0]?.id !== 'spatial') {
-        throw new Error(`Notes did not start and route independently: ${JSON.stringify(workspace)}`);
+    if (workspace.roots[0]?.id !== 'spatial') {
+        throw new Error(`Notes did not route after explicit start: ${JSON.stringify(workspace)}`);
     }
     if (worldRunning) throw new Error('Starting Notes unexpectedly started World Book');
     await notesClient.stop();

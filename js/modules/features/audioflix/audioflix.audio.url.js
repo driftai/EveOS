@@ -10,13 +10,11 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
     function itemKey(item) {
         return String(item?.id || item?.url || '');
     }
-    // Provider iframe audio cannot follow setSinkId, so surface its system-default route.
     function routedOutputNote() {
         const s = window.EveAudioflixState?.ensure?.() || {};
         return (s.preferredSinkId || (s.nativeBridgeEnabled === true && s.nativeOutputId))
             ? ' Note: provider players cannot follow the routed output, so this audio uses the system default device.' : '';
     }
-
     function createController(options = {}) {
         let active = null;
         let timer = 0;
@@ -32,7 +30,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             onStep: (delta) => options.onStep?.(delta),
             onJump: (index) => options.onJump?.(index)
         });
-
         const emitPlayback = (status, error = false) => options.onPlayback?.({
             status, item: playback.item, provider: playback.provider, browserOnly: true, error
         });
@@ -40,7 +37,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             view?.sync?.(playback);
             options.onProgress?.({ ...playback, browserOnly: true });
         };
-
         function ensureStage(item, provider, visual = true) {
             if (!view) throw new Error('Audioflix internal player is unavailable. Reload EveOS and try again.');
             const host = view.open(item, provider, {
@@ -51,27 +47,23 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             host.replaceChildren();
             return host;
         }
-
         function setStageStatus(message, isError = false) {
             view?.setStatus?.(message, isError);
         }
-
         function clearTimer() {
             if (timer) clearInterval(timer);
             timer = 0;
         }
-
         function resetPlayback(item, provider) {
             Object.assign(playback, { item, currentTime: 0, duration: Number(item.resolvedDuration || 0) || 0, paused: true, provider });
         }
-
         async function stop(options = {}) {
             clearTimer();
             const session = active;
             active = null;
             window.EveAudioflixAudio?.getMusicCapture?.()?.stop?.();
             try {
-                if (session?.kind === 'direct') { session.player.pause(); session.player.removeAttribute('src'); session.player.load(); }
+                if (session?.kind === 'direct') { session.player.pause(); window.EveAudioflixLocalPlayback?.clearMediaSource?.(session.player); }
                 else if (session?.kind === 'youtube') session.player.destroy?.();
                 else if (session?.kind === 'soundcloud') session.player.pause?.();
                 else if (['vimeo', 'spotify', 'instagram'].includes(session?.kind)) await session.player.destroy?.();
@@ -83,19 +75,13 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 view?.hide?.();
             }
         }
-
         async function playDirect(item) {
             if (requestedInternalView) {
                 ensureStage(item, 'Direct audio', false);
                 setStageStatus('Playing this linked audio inside EveOS.');
             }
             const player = new Audio();
-            // Only tag the element for CORS when we are actually going to tap it into Web Audio
-            // (the native capture route needs an untainted element). Setting it unconditionally
-            // makes any host that does not send Access-Control-Allow-Origin refuse to load at
-            // all, so ordinary direct links silently stopped playing in the browser-only case.
-            // It has to be decided BEFORE src — assigning it afterwards does nothing until the
-            // resource is reloaded.
+            // CORS mode must be decided before assigning src.
             const nativeMusic = window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.() === true;
             let waveformSafe = /^(?:blob:|data:audio\/)/i.test(item.url);
             try {
@@ -110,13 +96,8 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             player.preload = 'auto';
             player.volume = Math.max(0, Math.min(1, Number(item.volume ?? 1)));
             player.playbackRate = playbackRate;   // carry the chosen speed across queue tracks
-            player.src = item.url;
-            // Follow the routed output (picked sink or matched native endpoint) so linked music
-            // shares the soundboard's control layer; resolvePlaybackSink covers both cases.
+            window.EveAudioflixLocalPlayback?.setMediaSource?.(player, item.url) || (player.src = item.url);
             let routedLabel = '';
-            // capture.start() declines when the bridge device will not open. Ignoring that return
-            // left us claiming "native route" for a stream nobody was listening to, and skipped
-            // the sink selection that would have made it audible.
             let capturing = false;
             if (nativeMusic) {
                 const capture = window.EveAudioflixAudio?.getMusicCapture?.();
@@ -145,6 +126,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 update();
                 if (capturing) window.EveAudioflixAudio?.getMusicCapture?.()?.stop?.({ drain: true });
                 emitPlayback('Ended');
+                window.EveAudioflixLocalPlayback?.clearMediaSource?.(player);
             });
             player.addEventListener('error', async () => {
                 if (!item._retriedDirect && item.rawAudioUrl) {
@@ -323,6 +305,12 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 if (playback.paused) await resume();
                 return true;
             }
+            if (active?.kind === 'spotify' && provider === 'spotify' && active.player?.loadItem) {
+                resetPlayback(item, provider);
+                if (requestedInternalView) view?.setExpanded?.(true); else view?.setTransportOnly?.(true);
+                await active.player.loadItem(item);
+                return true;
+            }
             await stop();
             resetPlayback(item, provider);
             try {
@@ -338,7 +326,10 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 const session = active;
                 active = null;
                 try {
-                    if (session?.kind === 'direct') session.player.pause?.();
+                    if (session?.kind === 'direct') {
+                        session.player.pause?.();
+                        window.EveAudioflixLocalPlayback?.clearMediaSource?.(session.player);
+                    }
                     else if (session?.kind === 'youtube') session.player.destroy?.();
                     else if (session?.kind === 'soundcloud') session.player.pause?.();
                     else if (['vimeo', 'spotify', 'instagram'].includes(session?.kind)) await session.player.destroy?.();
@@ -358,7 +349,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 throw error;
             }
         }
-
         async function resume() {
             if (!active) return false;
             if (active.kind === 'direct') await active.player.play();
@@ -369,7 +359,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             emitProgress();
             return true;
         }
-
         async function pause() {
             if (!active) return false;
             if (active.kind === 'direct') active.player.pause();
@@ -381,7 +370,6 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             emitProgress();
             return true;
         }
-
         async function seek(seconds) {
             if (!active) return false;
             const target = Math.max(0, Math.min(Number(seconds || 0), playback.duration || Infinity));
@@ -393,30 +381,24 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             emitProgress();
             return true;
         }
-
         function setVolume(volume) {
             if (!active) return;
             const safe = Math.max(0, Math.min(1, Number(volume || 0)));
             if (active.kind === 'direct') active.player.volume = safe;
             else if (active.kind === 'youtube' || active.kind === 'soundcloud') active.player.setVolume?.(Math.round(safe * 100));
             else if (['vimeo', 'spotify', 'instagram'].includes(active.kind)) active.player.setVolume?.(safe)?.catch?.(() => {});
-            // Both views must agree: only the card slider persisted, so panel levels never stuck.
             if (playback.item) playback.item.volume = safe;
             if (playback.item?.id) window.EveAudioflixState?.setItemVolume?.(playback.item.type || 'music', playback.item.id, safe);
             view?.setVolume?.(safe);
         }
-        // Playback speed. Providers exposing a rate control get it; SoundCloud's widget API has
-        // none, so it is left alone rather than silently pretending.
         function setRate(rate) {
             const safe = Math.max(0.25, Math.min(4, Number(rate) || 1));
             playbackRate = safe;
             view?.setRate?.(safe);
             if (!active) return;
             if (active.kind === 'direct') active.player.playbackRate = safe;
-            // Vimeo's returns a promise, YouTube's returns undefined; ?.catch covers both.
             else if (active.kind === 'youtube' || active.kind === 'vimeo') active.player.setPlaybackRate?.(safe)?.catch?.(() => {});
         }
-
         function hideInternalView() {
             requestedInternalView = false;
             if (active && active.kind !== 'direct') view?.setTransportOnly?.(true);

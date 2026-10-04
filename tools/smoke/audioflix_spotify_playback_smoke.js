@@ -51,14 +51,18 @@ const assert = (condition, message) => {
                 createController: function (_mount, options, ready) {
                     var listeners = {};
                     var calls = window.__spotifyCalls = {
-                        uri: options.uri, play: 0, resume: 0, pause: 0, seek: [], destroy: 0
+                        uri: options.uri, play: 0, resume: 0, pause: 0, seek: [], destroy: 0,
+                        loaded: [], legacyLoaded: [], controllers: (window.__spotifyControllers || 0) + 1
                     };
+                    window.__spotifyControllers = calls.controllers;
                     var controller = window.__spotifyController = {
                         addListener: function (name, listener) { listeners[name] = listener; },
                         play: function () { calls.play += 1; },
                         resume: function () { calls.resume += 1; },
                         pause: function () { calls.pause += 1; },
                         seek: function (seconds) { calls.seek.push(seconds); },
+                        loadUri: function (uri) { calls.loaded.push(uri); },
+                        loadEntity: function (uri) { calls.legacyLoaded.push(uri); },
                         destroy: function () { calls.destroy += 1; },
                         emit: function (name, data) { if (listeners[name]) listeners[name]({ data: data }); }
                     };
@@ -72,9 +76,10 @@ const assert = (condition, message) => {
         await page.goto(`file:///${fixture.replace(/\\/g, '/')}`, { waitUntil: 'load' });
         const result = await page.evaluate(async () => {
             const events = [];
+            const playbackDetails = [];
             const progress = [];
             const player = window.EveAudioflixUrlPlayback.createController({
-                onPlayback: (detail) => events.push(detail.status),
+                onPlayback: (detail) => { events.push(detail.status); playbackDetails.push(detail); },
                 onProgress: (detail) => progress.push(detail)
             });
             const item = {
@@ -118,6 +123,23 @@ const assert = (condition, message) => {
                 duration: 180000,
                 isPaused: true
             });
+            const nextItem = {
+                id: 'spotify-track-two',
+                title: 'Next Spotify Track',
+                url: 'https://open.spotify.com/track/ABCDEF1234567890',
+                volume: 0.6
+            };
+            await player.play(nextItem);
+            const reusedController = window.__spotifyControllers === 1
+                && window.__spotifyCalls.loaded.includes('spotify:track:ABCDEF1234567890')
+                && window.__spotifyCalls.legacyLoaded.length === 0;
+            window.__spotifyController.emit('playback_update', {
+                playingURI: 'spotify:track:ABCDEF1234567890',
+                position: 200000,
+                duration: 200000,
+                isPaused: true
+            });
+            const secondEndedItemId = playbackDetails.filter((detail) => detail.status === 'Ended').at(-1)?.item?.id;
             player.hideInternalView();
             const closePreservedTransport = stage?.hidden === false
                 && stage.classList.contains('is-transport-only') === true
@@ -160,6 +182,8 @@ const assert = (condition, message) => {
                 stalledTransportVisible,
                 stalledState,
                 stalledErrorCount,
+                reusedController,
+                secondEndedItemId,
                 spotifyNeedsResolution: window.EveAudioflixAudioSource.needsResolution(item.url)
             };
         });
@@ -167,7 +191,9 @@ const assert = (condition, message) => {
         assert(result.calls.uri === 'spotify:track:1234567890ABCDEF', 'Spotify URI is normalized');
         assert(result.stateAt42?.duration === 180, 'Spotify progress milliseconds become seconds');
         assert(result.calls.seek.includes(61), 'Spotify seek receives seconds, not milliseconds');
-        assert(result.endedCount === 1, 'repeated terminal updates emit Ended once');
+        assert(result.endedCount === 2, 'each Spotify queue track emits Ended exactly once');
+        assert(result.reusedController, 'back-to-back Spotify tracks reuse the proven embed controller');
+        assert(result.secondEndedItemId === 'spotify-track-two', 'the reused Spotify controller ends the current queue item');
         assert(result.mainCardTransportOnly, 'main-card play keeps the Spotify SDK in compact transport mode');
         assert(result.compactTransportHidden, 'main-card play keeps its invisible Spotify transport rendered in the viewport');
         assert(result.internalExpanded, 'Internal Player expands the existing Spotify controller');

@@ -165,7 +165,7 @@ test('every qualification send/capture is pinned to the just-authorized tab inst
 
 test('ordinary prompt accepted metadata still follows the resolved normal target', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '../extension/service-worker.js'), 'utf8');
-  assert.match(source, /tabId: qualificationClaim \? authorizedTabId : targetTabId/);
+  assert.match(source, /type: 'prompt_accepted'[\s\S]*tabId: Number\(tab\.id\)[\s\S]*providerId: provider\.id/);
 });
 
 

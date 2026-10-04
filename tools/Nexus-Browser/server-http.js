@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const terminalRelayStorage = require('./scripts/terminal-relay-storage');
 
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -35,6 +36,11 @@ function createHttpHandler({ host, port, publicDir, diagnostics }) {
     if (url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify({ ok: true, service: 'eveos-nexus-browser', port }));
+      return;
+    }
+    if (url.pathname === '/terminal-relay/status') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(terminalRelayStorage.readLatestStatus()));
       return;
     }
     if (url.pathname === '/diagnostics') {

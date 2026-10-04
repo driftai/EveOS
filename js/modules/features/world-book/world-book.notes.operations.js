@@ -52,10 +52,8 @@ window.EveWorldBook = window.EveWorldBook || {};
                 button.textContent = entry.broken ? `Broken · ${entry.noteRef}` : entry.name;
                 button.disabled = entry.broken === true;
                 button.addEventListener('click', async () => {
-                    if (entry.rootId !== context().rootId) {
-                        await navigator.clipboard?.writeText?.(entry.noteRef);
-                        workspace().status('Cross-root link copied. Switch roots to open it.', 'success');
-                    } else await workspace().openEntry(entry.path, 'file');
+                    if (entry.rootId !== context().rootId) await workspace().openReference(entry.rootId, entry.path);
+                    else await workspace().openEntry(entry.path, 'file');
                     closeRelated();
                 });
                 panel.append(button);

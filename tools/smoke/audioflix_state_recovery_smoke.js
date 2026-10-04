@@ -95,7 +95,8 @@ function main() {
         soundboard: [{ id: 'sound-a', title: 'Sound A', url: 'sound.wav' }],
         music: [{ id: 'music-a', title: 'Track A', localPath: 'C:/Music/Port/Track A.mp3', sourceId: 'src-a', playlistId: 'pl-a', folder: 'Port', classifiers: ['Manual'] }],
         recentPlays: [{ id: 'sound-a' }],
-        musicGroups: ['Night'],
+        musicGroups: ['Mood', 'Night'],
+        musicGroupParents: { Night: 'Mood' },
         musicGroupMap: { 'music-a': ['Night'] },
         musicFolders: ['Port'],
         musicClassifiers: ['Manual'],
@@ -133,6 +134,7 @@ function main() {
     assert(structure.musicRefs.length === 1 && !('url' in structure.musicRefs[0]),
         'structural track refs carry identity/labels without copying playable URLs');
     assert(structure.musicFolders.includes('Port') && structure.musicGroups.includes('Night')
+        && structure.musicGroupParents?.Night === 'Mood'
         && structure.musicPortConnections.some((entry) => entry.id === 'port-a'),
         'folders, groups and music-port provenance survive in the structural journal');
     assert(structure.portHotkeys['sound-a'] === 'ctrl+1' && structure.exposedPortedSounds['sound-a'] === true
@@ -151,6 +153,8 @@ function main() {
         'a reimported track regains its folder/classifier structure from stable identity');
     assert(rebuilt.musicGroupMap['reimported-a']?.includes('Night'),
         'a reimported track regains group membership under its new runtime id');
+    assert(rebuilt.musicGroupParents?.Night === 'Mood',
+        'structural recovery preserves nested group ancestry');
     assert(rebuilt.scopeBindings.some((entry) => entry.audioId === 'reimported-a' && entry.categoryName === 'Music Card'),
         'scope bindings follow a structurally matched track onto its new runtime id');
     assert(rebuilt.musicPortConnections.some((entry) => entry.id === 'port-a'),

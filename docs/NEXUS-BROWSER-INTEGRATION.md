@@ -45,6 +45,16 @@ Stop acts only on a supervisor PID whose command line contains both the canonica
 
 Console visibility follows the shared Local Services preference. Headed is the default; headless hides only the local runtime console and does not pretend provider tabs are headless browser automation.
 
+## Nexus supervisor liveness
+
+The supervised Nexus runtime uses two independent health signals before recycling its
+owned server. Loopback `/health` remains the transport check, but a missed HTTP probe is
+confirmed over the existing parent/child Node IPC channel. If the exact owned
+`server.js` child reports the same live server session and `server.listening=true`,
+the supervisor preserves it rather than turning a transient localhost stall into a new
+server session. Only a transport miss plus an unresponsive/non-listening child advances
+restart escalation.
+
 ## Extension migration
 
 The canonical unpacked extension is:
@@ -77,6 +87,138 @@ This preserves the source project's deterministic reliability coverage while app
 The Windows 0.7.0 source checkpoint passed 27 focused Dex/Antigravity/diagnostics tests, all structural guardrails (including 393 registered smoke entry points), the Nexus integration smoke (3/3), the Nexus security smoke, and the AI-control profile (12/12). The unpacked-extension reload command reported a completed reconnect. These are locally reported checks, not evidence of an authenticated provider exchange or successful attachment to a live existing Antigravity terminal.
 
 Still pending: headed-provider send/capture, direct existing-Antigravity TUI probe/send/capture without spawning a replacement process, owned supervisor start/stop and Global Stop confirmation for the current checkpoint, and the complete uncached `npm run verify` run. A static passing test is not a substitute for any of these live checks.
+
+## Windows UIA evidence workflow
+
+For new App-Origin applications or desktop UI drift, capture the live accessibility
+shape before changing adapters. Run `npm run diagnose:app-ui -- --app "<query>"
+--contains "<unique marker>" --include-offscreen` and use the root Window rectangle as
+the coordinate frame. The deterministic companion is `npm run smoke:app-ui-info`.
+
+See `tools/Nexus-Browser/APP-UIA-INSPECTION.md` for the reusable procedure.
+
+## Search Monitor iframe stability## Search Monitor iframe stability
+
+Search Monitor must not physically reorder its live `#loadingIndicator` subtree merely
+to become `document.body.lastElementChild`. The monitor owns a very high z-index and
+explicit surface-ownership rules; DOM order is not its stacking mechanism.
+
+This matters because Agent Nexus embeds the live Nexus Browser iframe inside Search
+Monitor. Re-appending an iframe-bearing ancestor can recreate/reload the iframe browsing
+context even while the Nexus server and WebSocket transport are healthy. The loading
+indicator maintenance timer may restore the monitor to `document.body` only if it was
+actually detached or nested elsewhere; an already top-level monitor stays in place.
+
+## Embedded workspace connection stability
+
+The EveOS host treats the embedded Nexus iframe as a persistent runtime surface. Runtime
+URLs are canonicalized before comparing or assigning `iframe.src`, so equivalent URLs
+such as `http://127.0.0.1:9088` and `http://127.0.0.1:9088/` cannot trigger a reload
+on every status render.
+
+A transient Local Control/status miss also preserves a last-known-running Nexus iframe
+instead of replacing it with `about:blank`. Only a confirmed stopped state or an
+explicit Stop action tears the embedded workspace down. This prevents healthy Base/Dex
+WebSocket sessions from cycling simply because the host status probe briefly missed.
+
+## Manual Local Control cold-start policy
+
+A `file://` EveOS load is observation-only. `EveOSLocalControl.ensure()` may probe an
+already-running loopback controller automatically, but it will not invoke the
+`eveos-control://start` protocol unless an explicit user action grants the launch.
+Reloading EveOS therefore cannot resurrect Local Control after the user turned it off.
+
+Search Monitor lifecycle buttons are explicit user actions and may cold-start Local
+Control when needed. Passive status refreshes and automatic recovery paths may only
+observe an existing controller.
+
+## Control-plane ownership during transient health misses
+
+Search Monitor no longer treats one failed `/health` read as proof that port 9088
+belongs to another service. The Local Control adapter verifies the listener PID is the
+EveOS `server.js` child of the verified Nexus supervisor. That verified process-tree
+identity keeps the runtime classified as running while HTTP health recovers, and
+`/diagnostics` is still attempted so extension/target counters need not collapse to
+zero unnecessarily. An open port with no verified EveOS-owned listener remains blocked
+and is never adopted.
+
+## Base transcript and connection session boundary
+
+Base Mode transcript is ephemeral UI state scoped to one Nexus server session. Detach /
+reattach inside the same server session preserves the Base transcript, draft, mode, and
+selected target. A new `server_session` identity clears the Base transcript, pending
+requests, and target binding. This matches the runtime model: restarting Nexus creates a
+new Base connection session rather than resurrecting an old chat log.
+
+App-Origin discovery is separate from connection. Entering **App-Origin Targets** or
+refreshing the running-app list only populates the dropdown. A fresh Base viewer does not
+adopt the server's previous App target automatically; the user must press **Connect
+target**. Same-session detach/reattach may restore the target because that is the same
+logical viewer session.
+
+Passive native turns received before a manual Base App-Origin connection are
+acknowledged but not rendered, preventing current ChatGPT desktop history from
+backfilling a fresh Nexus transcript after restart.
+
+## Workspace ownership and reload boundary
+
+Search Monitor may retain more than one historical UI container while views are rebuilt.
+Only the currently bound/visible Nexus iframe is allowed to own Base/Dex viewer sockets:
+binding a new Search Monitor root puts the previous iframe in handoff standby, and the
+newly loaded visible iframe explicitly claims fresh ownership. This prevents hidden
+retained Nexus views from cycling socket ownership behind the active workspace.
+
+The handoff snapshot is **detach-scoped**, not a general session restore mechanism.
+Detach/reattach preserves Base mode, App-Origin target/binding, transcript/draft/scroll,
+and Dex mode/room/view state. An ordinary attached iframe/tool reload starts a fresh UI
+session and clears the old handoff snapshot instead of resurrecting prior transcript
+cards, old `APP_TARGET_BUSY` errors, or stale rebind notices. A fresh detached owner is
+the exception: while the popup owns the lease, a newly loaded embedded standby view
+must preserve that live detach snapshot until reattach.
+
+An intentional handoff suspension is displayed as **Workspace standby** rather than
+**Nexus reconnecting**. Actual WebSocket reconnect diagnostics include the close code
+and reason so transport loss can be distinguished from ownership transfer.
+
+## Deterministic reattach transfer
+
+Reattach no longer depends only on same-origin `localStorage` event ordering. The
+detached owner snapshots Base/Dex state at the moment **Reattach to EveOS** is clicked
+and includes that snapshot in the detached-state message to the EveOS opener. Search
+Monitor forwards the snapshot directly to the embedded Nexus iframe with a
+`restore-and-claim` workspace command. The embedded coordinator adopts that exact
+snapshot and restores registered Base/Dex clients even if storage ownership events
+arrive in a different order.
+
+The deliberate reattach path suppresses the popup's normal unload/closed handoff so a
+second late claim cannot overwrite or race the direct restore.
+
+## Detached workspace single-owner handoff
+
+Attached and detached Nexus are two views of one logical workspace, not two concurrent
+viewer runtimes. A shared same-origin handoff coordinator maintains one short-lived
+ownership lease for the Base/Dex viewer sockets.
+
+Before detach, the embedded view snapshots its Base mode selection, target binding,
+visible Base transcript/draft/scroll position, plus Dex mode/active-room/draft/scroll
+position. The detached view claims the lease, restores that snapshot, and becomes the
+only Base + Dex WebSocket owner. The original iframe stays loaded in EveOS but is hidden
+and its viewer sockets are suspended.
+
+**Reattach to EveOS** snapshots the detached view, relinquishes its lease, closes the
+popup, restores the latest snapshot into the still-loaded embedded iframe, and resumes
+that iframe as sole socket owner. Base App-Origin selection/binding is restored
+immediately before reconnect. Dex keeps a deferred desired room ID and reapplies it
+after the authoritative localhost room snapshot arrives, so reattach cannot silently
+fall back to a different room just because room data arrived later.
+
+Dex room/transcript durability remains localhost-owned;
+the handoff snapshot carries viewer position and Base UI state rather than creating a
+second room store. Closing/crashing the detached view releases or expires the lease so
+the embedded workspace can reclaim ownership.
+
+Clicking **Focus detached** only focuses the existing popup; it never calls
+`window.open(...)` again on the named window, so focusing cannot reload the workspace.
 
 ## Delete-readiness boundary
 

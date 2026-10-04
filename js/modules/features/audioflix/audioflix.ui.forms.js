@@ -14,8 +14,8 @@ window.EveAudioflixUiForms = window.EveAudioflixUiForms || {};
                 const data = new FormData(form), fName = form.dataset.afForm, id = form.dataset.afId, type = form.dataset.afType;
                 if (fName === 'add-port') { window.EveAudioflixState?.addPort?.({ nickname: data.get('nickname'), path: data.get('path') }); ctx.loadPortedSounds(); }
                 else if (fName === 'add-group') {
-                    if (type === 'music') window.EveAudioflixState?.addMusicGroup?.(data.get('name'));
-                    else window.EveAudioflixState?.addSoundboardGroup?.(data.get('name'));
+                    if (type === 'music') window.EveAudioflixState?.addMusicGroup?.(data.get('name'), data.get('parent'));
+                    else window.EveAudioflixState?.addSoundboardGroup?.(data.get('name'), data.get('parent'));
                     ctx.rerender();
                 }
                 else if (fName === 'assign-new-group') {

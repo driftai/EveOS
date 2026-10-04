@@ -1,0 +1,273 @@
+(() => {
+  function create({
+    state,
+    send,
+    addMessage,
+    log,
+    renderBaseStatus = () => {}
+  } = {}) {
+    const el = {
+      controls: document.querySelector('#appTargetControls'),
+      targetClass: document.querySelector('#targetClassSelect'),
+      type: document.querySelector('#appTypeSelect'),
+      target: document.querySelector('#appTargetSelect'),
+      refresh: document.querySelector('#refreshAppTargets'),
+      connect: document.querySelector('#connectAppTarget'),
+      status: document.querySelector('#appTargetStatus'),
+      timing: document.querySelector('#appTargetTiming')
+    };
+
+    let types = [{ id: 'desktop-app', name: 'Desktop App' }];
+    let selectedTypeId = 'desktop-app';
+    let targets = [];
+    let selectedTarget = null;
+    let diagnostics = null;
+    let targetStatus = null;
+    let restorePending = false;
+    let boundIdentity = null;
+    let lastTiming = null;
+
+    function filteredTargets() {
+      return targets.filter((target) => target.targetTypeId === selectedTypeId);
+    }
+
+    function activateAppOrigin() {
+      state.selectedTargetClassId = 'app-origin';
+      if (el.targetClass) el.targetClass.value = 'app-origin';
+    }
+
+    function renderTypes() {
+      if (!el.type) return;
+      const previous = el.type.value || selectedTypeId;
+      el.type.replaceChildren();
+      for (const type of types) el.type.add(new Option(type.name, type.id));
+      selectedTypeId = types.some((type) => type.id === previous)
+        ? previous
+        : types[0]?.id || '';
+      el.type.value = selectedTypeId;
+    }
+
+    function renderTargets() {
+      if (!el.target) return;
+      const previous = selectedTarget?.id || el.target.value;
+      const visible = filteredTargets();
+      el.target.replaceChildren();
+      if (!visible.length) {
+        el.target.add(new Option('No running app targets detected', ''));
+        return;
+      }
+      for (const target of visible) {
+        const suffix = target.pid ? ` · PID ${target.pid}` : '';
+        const conversation = target.concreteTargetIdentity?.conversationTitle;
+        const label = `${target.providerName || target.title}${conversation ? ` — ${conversation}` : ''}${suffix}`;
+        el.target.add(new Option(label, target.id));
+      }
+      if (visible.some((target) => target.id === previous)) el.target.value = previous;
+    }
+
+    function helperHint() {
+      const values = diagnostics && typeof diagnostics === 'object'
+        ? Object.values(diagnostics).filter(Boolean)
+        : [];
+      const missing = values.find((entry) =>
+        entry?.helper?.code === 'APP_BRIDGE_HELPER_MISSING'
+        || entry?.lastError?.includes?.('winapp CLI')
+        || entry?.code === 'APP_BRIDGE_HELPER_MISSING');
+      if (missing) {
+        return 'Windows app bridge helper missing · install with: winget install Microsoft.winappcli --source winget';
+      }
+      const lastError = values.map((entry) => entry?.lastError).find(Boolean);
+      return lastError ? String(lastError) : '';
+    }
+
+    function ms(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return '—';
+      return number >= 1000 ? `${(number / 1000).toFixed(number >= 10000 ? 1 : 2)} s` : `${Math.round(number)} ms`;
+    }
+
+    function renderTiming() {
+      if (!el.timing) return;
+      const value = lastTiming;
+      el.timing.hidden = !value;
+      if (!value) return;
+      el.timing.textContent = `UI→server ${ms(value.uiToServerMs)} · Target verify ${ms(value.targetVerificationMs)} · Lease ${ms(value.leaseWaitMs)} · Ledger ${ms(value.durabilityGateMs)} · Server→adapter ${ms(value.serverToAdapterMs)} · UIA baseline ${ms(value.baselineInspectMs)} · Composer ${ms(value.composerResolveMs)} · Stage text ${ms(value.textStageMs)} · Staged UIA ${ms(value.stagedInspectMs)} · Submit ${ms(value.submitMs)} · Accept check ${ms(value.acceptanceInspectMs)} · Send→app ${ms(value.dispatchToAppMs)} · App→first ${ms(value.timeToFirstResponseMs)} · App→final ${ms(value.totalResponseMs)} · Poll UIA ${ms(value.pollInspectMs)} · Final capture ${ms(value.finalReconstructionMs)} · Round trip ${ms(value.nexusRoundTripMs)}`;
+    }
+
+    function renderStatusText() {
+      if (!el.status) return;
+      const hint = helperHint();
+      if (selectedTarget) {
+        const phase = targetStatus?.phase && targetStatus.phase !== 'idle'
+          ? ` · ${targetStatus.phase}`
+          : '';
+        el.status.textContent = `Connected to ${selectedTarget.providerName || selectedTarget.title}${phase}.`;
+      } else if (hint) {
+        el.status.textContent = hint;
+      } else {
+        el.status.textContent = 'Open ChatGPT for Windows, then refresh and connect the detected app target.';
+      }
+    }
+
+    function render() {
+      if (!el.controls) return;
+      const visible = state.selectedTargetClassId === 'app-origin';
+      el.controls.hidden = !visible;
+      if (!visible) return;
+      renderTypes();
+      renderTargets();
+      const ready = state.uiConnectionPhase === 'connected';
+      el.refresh.disabled = !ready;
+      el.connect.disabled = !ready || !el.target.value;
+      renderStatusText();
+      renderTiming();
+    }
+
+    function handleMessage(msg = {}) {
+      if (msg.targetClassId === 'app-origin' && (!selectedTarget || !msg.targetId || msg.targetId === selectedTarget.id)) {
+        if (selectedTarget && msg.type === 'prompt_accepted') targetStatus = { ...(targetStatus || {}), phase: 'waiting' };
+        if (selectedTarget && msg.type === 'response_partial') targetStatus = { ...(targetStatus || {}), phase: 'streaming' };
+        if (selectedTarget && msg.type === 'response_final') targetStatus = { ...(targetStatus || {}), phase: 'idle' };
+        if (selectedTarget && msg.type === 'error' && msg.code !== 'APP_TARGET_BUSY') targetStatus = { ...(targetStatus || {}), phase: 'idle' };
+        if (msg.type === 'prompt_accepted' && Number.isFinite(Number(msg.detail?.dispatchToAppMs))) {
+          lastTiming = { ...msg.detail };
+          renderTiming();
+        } else if (msg.type === 'response_final' && msg.detail) {
+          lastTiming = { ...msg.detail };
+          renderTiming();
+        }
+        if (selectedTarget && ['prompt_accepted', 'response_partial', 'response_final', 'error'].includes(msg.type)) {
+          renderStatusText(); renderBaseStatus();
+        }
+      }
+      if (msg.type === 'app_targets_update') {
+        types = Array.isArray(msg.types) && msg.types.length ? msg.types : types;
+        targets = Array.isArray(msg.targets) ? msg.targets : [];
+        diagnostics = msg.diagnostics || diagnostics;
+        if ('target' in msg && !msg.refreshing && selectedTarget) {
+          const candidate = targets.find((target) => target.id === selectedTarget.id);
+          if (candidate && state.uiConnectionPhase === 'connected' && !restorePending) {
+            restorePending = true;
+            send({ type: 'select_app_target', targetId: candidate.id,
+              expectedIdentity: boundIdentity || selectedTarget.concreteTargetIdentity || null });
+          } else if (!candidate) {
+            selectedTarget = null;
+            targetStatus = null;
+            boundIdentity = null;
+            restorePending = false;
+          }
+        }
+        render();
+        renderBaseStatus();
+        log(`Detected ${targets.length} App-Origin target(s).`);
+        return true;
+      }
+      if (msg.type === 'app_target_selected') {
+        const restoring = restorePending || !!msg.restored, previousTargetId = selectedTarget?.id || null;
+        restorePending = false;
+        selectedTarget = msg.target || null;
+        if (selectedTarget) activateAppOrigin();
+        if (msg.bindingIdentity) boundIdentity = { ...msg.bindingIdentity };
+        else if (!restoring) boundIdentity = selectedTarget?.concreteTargetIdentity
+          ? { ...selectedTarget.concreteTargetIdentity } : null;
+        targetStatus = msg.status || null;
+        diagnostics = msg.diagnostics || diagnostics;
+        render();
+        renderBaseStatus();
+        if (!restoring && (selectedTarget?.id || null) !== previousTargetId) {
+          addMessage('system', selectedTarget
+            ? `Connected to app target ${selectedTarget.providerName || selectedTarget.title}.`
+            : 'App target selection cleared.');
+        }
+        return true;
+      }
+      if (msg.type === 'app_target_status') {
+        if (!selectedTarget || !msg.targetId || selectedTarget.id === msg.targetId) {
+          targetStatus = msg.status || null;
+          diagnostics = msg.diagnostics || diagnostics;
+          if (msg.bindingIdentity) boundIdentity = { ...msg.bindingIdentity };
+          renderStatusText();
+          renderBaseStatus();
+        }
+        return true;
+      }
+      if (msg.type === 'app_target_binding_update') {
+        if (selectedTarget?.id === msg.targetId && msg.bindingIdentity) {
+          boundIdentity = { ...msg.bindingIdentity };
+        }
+        return true;
+      }
+      if (msg.type === 'native_app_turn') {
+        const bound = !!selectedTarget && (!msg.targetId || msg.targetId === selectedTarget.id);
+        send({ type: 'ack_native_app_turn', targetId: msg.targetId, fingerprint: msg.fingerprint });
+        if (!bound) {
+          log(`Suppressed passive ${msg.providerName || 'App-Origin'} history before Base connection.`);
+          return true;
+        }
+        const id = msg.fingerprint ? `native-app-${msg.fingerprint}` : null;
+        addMessage('assistant', msg.text || '', id, false,
+          msg.providerName || selectedTarget?.providerName || 'ChatGPT App');
+        log(`Observed passive ${msg.providerName || 'App-Origin'} native turn (${(msg.text || '').length} chars).`);
+        return true;
+      }
+      if (msg.type === 'app_target_rebind_required') {
+        restorePending = false;
+        if (!selectedTarget || !msg.targetId || selectedTarget.id === msg.targetId) {
+          selectedTarget = null;
+          targetStatus = null;
+          boundIdentity = null;
+        }
+        render();
+        renderBaseStatus();
+        addMessage('system', msg.message || 'Native app conversation changed; reconnect the App-Origin target.');
+        log('App-Origin rebind required.');
+        return true;
+      }
+      return false;
+    }
+
+    function restoreSelection(target = null, bindingIdentity = null) {
+      selectedTarget = target ? { ...target } : null;
+      boundIdentity = bindingIdentity ? { ...bindingIdentity }
+        : selectedTarget?.concreteTargetIdentity ? { ...selectedTarget.concreteTargetIdentity } : null;
+      restorePending = !!selectedTarget;
+      if (selectedTarget) activateAppOrigin();
+      render();
+      renderBaseStatus();
+    }
+
+    function requestTargets(force = false) {
+      return send({ type: 'request_app_targets', force });
+    }
+
+    el.type?.addEventListener('change', () => {
+      selectedTypeId = el.type.value;
+      renderTargets();
+      render();
+    });
+    el.refresh?.addEventListener('click', () => requestTargets(true));
+    el.connect?.addEventListener('click', () => {
+      const targetId = el.target.value;
+      if (!targetId) return addMessage('system', 'Choose a running app target first.');
+      restorePending = false;
+      boundIdentity = null;
+      send({ type: 'select_app_target', targetId });
+    });
+
+    return {
+      render,
+      handleMessage,
+      requestTargets,
+      target: () => selectedTarget,
+      status: () => targetStatus,
+      bindingIdentity: () => boundIdentity ? { ...boundIdentity } : null,
+      restoreSelection,
+      diagnostics: () => diagnostics,
+      targets: () => targets.map((target) => ({ ...target }))
+    };
+  }
+
+  const api = { create };
+  globalThis.BrowserAiBridgeAppTargetsUi = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})();

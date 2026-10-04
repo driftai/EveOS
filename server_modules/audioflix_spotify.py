@@ -15,6 +15,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 _CACHE_TTL_S = 300
 _cache: dict[str, dict] = {}
@@ -34,12 +35,25 @@ def normalize_playlist_input(value: str) -> dict:
     if not match:
         return {"ok": False, "reason": "Enter a public Spotify playlist URL, embed URL, or iframe snippet."}
     playlist_id = match.group(1)
+    try:
+        query = urlsplit(match.group(0)).query
+    except ValueError:
+        query = ""
+    suffix = f"?{query}" if query else ""
     return {
         "ok": True,
         "playlistId": playlist_id,
-        "url": f"https://open.spotify.com/playlist/{playlist_id}",
-        "embedUrl": f"https://open.spotify.com/embed/playlist/{playlist_id}",
+        # Keep Spotify share parameters intact. Private-share URLs use pt= as an access capability;
+        # removing it leaves the playlist shell visible while the song rows remain unavailable.
+        "url": f"https://open.spotify.com/playlist/{playlist_id}{suffix}",
+        "embedUrl": f"https://open.spotify.com/embed/playlist/{playlist_id}{suffix}",
     }
+
+
+def _cache_key(normalized: dict) -> str:
+    # Distinguish a tokenized/private share from the same bare playlist id. Reusing a bare-url cache
+    # entry for a pt= URL can preserve a failed shell-only scrape for the otherwise accessible share.
+    return str(normalized.get("url") or normalized.get("playlistId") or "")
 
 
 def _project_root() -> Path:
@@ -83,11 +97,17 @@ def _cache_set(key: str, value: dict) -> None:
 
 
 def _helper_command(mode: str, normalized: dict, status_path: Path | None = None) -> list[str]:
+    # Public playlists start on the lighter embed surface. Private-share URLs (pt=) go straight to
+    # the full saved-session player so their access capability is not degraded into a shell-only
+    # embed before extraction. Query parameters remain intact on either route.
+    query = urlsplit(str(normalized.get("url") or "")).query
+    has_private_token = any(part.startswith("pt=") for part in query.split("&") if part)
+    target_url = normalized["url"] if mode == "login" or has_private_token else normalized["embedUrl"]
     command = [
         "node",
         str(_project_root() / "server_modules" / "audioflix_spotify_scrape.js"),
         mode,
-        normalized["embedUrl"],
+        target_url,
         str(_profile_dir()),
     ]
     if status_path:
@@ -123,8 +143,9 @@ def list_playlist(value: str, force: bool = False) -> dict:
     normalized = normalize_playlist_input(value)
     if not normalized.get("ok"):
         return normalized
+    cache_key = _cache_key(normalized)
     if not force:
-        cached = _cache_get(normalized["playlistId"])
+        cached = _cache_get(cache_key)
         if cached:
             return cached
 
@@ -137,7 +158,7 @@ def list_playlist(value: str, force: bool = False) -> dict:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=180,
+                timeout=600,
                 check=False,
             )
     except subprocess.TimeoutExpired:
@@ -154,7 +175,7 @@ def list_playlist(value: str, force: bool = False) -> dict:
         payload.update(normalized)
         payload["provider"] = "spotify"
         payload["cached"] = False
-        _cache_set(normalized["playlistId"], payload)
+        _cache_set(cache_key, payload)
     return payload
 
 

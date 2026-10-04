@@ -93,15 +93,22 @@ def run() -> None:
                 "spatial:Ideas/launch.md", f"{tracked['id']}:prompt.txt"
             )
             assert linked["links"] == [f"{tracked['id']}:prompt.txt"]
+            alias_link = notes.link_notes(
+                "spatial:Ideas/../Ideas/launch.md", f"{tracked['id']}:./prompt.txt"
+            )
+            assert alias_link["links"] == [f"{tracked['id']}:prompt.txt"]
             assert ops.related("spatial:Ideas/launch.md")["entries"][0]["name"] == "prompt.txt"
             assert ops.search(tracked["id"], "second draft")["entries"][0]["path"] == "prompt.txt"
 
             renamed = ops.rename(tracked["id"], "prompt.txt", "renamed.txt", saved["entry"]["revision"])
             assert renamed["path"] == "renamed.txt" and (external / "renamed.txt").is_file()
+            assert ops.related("spatial:Ideas/launch.md")["entries"][0]["path"] == "renamed.txt"
+            assert any(entry["path"] == "renamed.txt" for entry in ops.collection("recent")["entries"])
             notes.create_entry(tracked["id"], "", "Archive", "folder")
             revision = notes.read_note(tracked["id"], "renamed.txt")["entry"]["revision"]
             moved = ops.move(tracked["id"], "renamed.txt", "Archive", revision)
             assert moved["path"] == "Archive/renamed.txt"
+            assert ops.related("spatial:Ideas/launch.md")["entries"][0]["path"] == "Archive/renamed.txt"
             revision = notes.read_note(tracked["id"], moved["path"])["entry"]["revision"]
             try:
                 ops.delete(tracked["id"], moved["path"], "wrong", revision)
@@ -111,6 +118,7 @@ def run() -> None:
                 raise AssertionError("Notes delete accepted an incorrect typed confirmation")
             deleted = ops.delete(tracked["id"], moved["path"], "renamed.txt", revision)
             assert Path(deleted["backupPath"]).read_text(encoding="utf-8") == "second draft"
+            assert ops.related("spatial:Ideas/launch.md")["entries"] == []
 
             backup = notes.export_spatial()
             (spatial / "Ideas" / "launch.md").unlink()

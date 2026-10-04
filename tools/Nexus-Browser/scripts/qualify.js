@@ -11,7 +11,29 @@ const AREA_TESTS = {
   dex: ['tests/dex-protocol.test.js', 'tests/dex-provider-control.test.js', 'tests/dex-provider-control-bootstrap.test.js', 'tests/provider-control-receipt.test.js', 'tests/provider-control-origin-race.test.js', 'tests/dex-provider-control-nested.test.js', 'tests/provider-adapter-freshness.test.js', 'tests/dex-state-sync.test.js', 'tests/dex-state-store.test.js', 'tests/dex-runtime-client.test.js', 'tests/server-scheduler.test.js'],
   recovery: ['tests/server-scheduler-recovery.test.js', 'tests/server-state-merge.test.js', 'tests/antigravity-recovery-capture.test.js', 'tests/online-target-recovery.test.js'],
   extension: ['tests/extension-wiring.test.js', 'tests/online-target-recovery.test.js', 'tests/target-state.test.js', 'tests/dex-ui-ensure.test.js'],
-  local: ['tests/local-targets.test.js', 'tests/antigravity-existing.test.js', 'tests/antigravity-recovery-capture.test.js'],
+  local: ['tests/local-targets.test.js', 'tests/service-chat-targets.test.js', 'tests/antigravity-existing.test.js', 'tests/antigravity-recovery-capture.test.js'],
+  'app-origin': [
+    'tests/chatgpt-windows-app.test.js', 'tests/chatgpt-windows-composer-shape.test.js',
+    'tests/chatgpt-windows-codex-surface.test.js', 'tests/chatgpt-windows-codex-long-reply.test.js',
+    'tests/chatgpt-windows-codex-long-reply-tail.test.js', 'tests/chatgpt-windows-turn-boundary.test.js',
+    'tests/chatgpt-windows-frame-origin.test.js',
+    'tests/chatgpt-windows-conversation.test.js', 'tests/chatgpt-windows-role-progress.test.js',
+    'tests/chatgpt-windows-title.test.js', 'tests/chatgpt-windows-identity.test.js',
+    'tests/chatgpt-windows-full-reply.test.js', 'tests/chatgpt-windows-timeout-recovery.test.js',
+    'tests/chatgpt-windows-live-shape.test.js',
+    'tests/winapp-runner-retry.test.js',
+    'tests/terminal-relay.test.js',
+    'tests/app-origin-live-contract.test.js', 'tests/app-origin-manager.test.js',
+    'tests/app-origin-passive-watcher.test.js', 'tests/app-origin-provenance.test.js',
+    'tests/app-origin-server.test.js', 'tests/app-origin-dex.test.js',
+    'tests/app-origin-recovery.test.js', 'tests/target-classes-ui.test.js',
+    'tests/chatgpt-app-mirror.test.js', 'tests/chatgpt-app-mirror-routing.test.js',
+    'tests/nexus-host-lifecycle.test.js', 'tests/nexus-control-ownership.test.js',
+    'tests/workspace-handoff.test.js', 'tests/workspace-handoff-wiring.test.js',
+    'tests/workspace-view-state.test.js',
+    'tests/server-socket-safety.test.js', 'tests/ui-socket.test.js',
+    'tests/supervisor-health.test.js', 'tests/restart-bridge.test.js', 'tests/startup-scripts.test.js'
+  ],
   resilience: [
     'tests/muse-input.test.js', 'tests/muse-submit.test.js', 'tests/chatgpt-input.test.js',
     'tests/server-scheduler.test.js', 'tests/server-scheduler-recovery.test.js', 'tests/server-scheduler-state.test.js',
@@ -20,7 +42,10 @@ const AREA_TESTS = {
     'tests/target-state.test.js', 'tests/target-resurrection.test.js', 'tests/adapter-readiness-cache.test.js',
     'tests/dex-ui-ensure.test.js', 'tests/dex-failure-policy.test.js', 'tests/dex-turn-ledger.test.js',
     'tests/dex-state-repair.test.js', 'tests/server-durability.test.js', 'tests/dex-server-routing.test.js',
-    'tests/ws-heartbeat.test.js',
+    'tests/nexus-host-lifecycle.test.js', 'tests/nexus-control-ownership.test.js',
+    'tests/workspace-handoff.test.js', 'tests/workspace-handoff-wiring.test.js',
+    'tests/workspace-view-state.test.js', 'tests/server-socket-safety.test.js', 'tests/ui-socket.test.js',
+    'tests/supervisor-health.test.js', 'tests/ws-heartbeat.test.js',
     'tests/antigravity-async-snapshot.test.js', 'tests/antigravity-recovery-capture.test.js',
     'tests/deterministic-ops.test.js',
     'tests/provider-contract.test.js', 'tests/provider-manifest.test.js', 'tests/qualification-provider-adapters.test.js',
@@ -42,19 +67,36 @@ function parseArgs(argv) {
   return options;
 }
 
-function run(label, command, args, log) {
+function run(label, command, args, log, { timeoutMs = 120000 } = {}) {
   const started = Date.now();
-  const result = spawnSync(command, args, { cwd: ROOT, encoding: 'utf8', shell: false });
+  console.log(`[qualify] ${label}...`);
+  const result = spawnSync(command, args, {
+    cwd: ROOT,
+    encoding: 'utf8',
+    shell: false,
+    timeout: timeoutMs,
+    maxBuffer: 32 * 1024 * 1024
+  });
+  const ms = Date.now() - started;
+  const timedOut = result.error?.code === 'ETIMEDOUT';
+  const code = result.status ?? 1;
   log.push(`\n===== ${label} =====\n`);
   log.push(result.stdout || '');
   log.push(result.stderr || '');
-  return { label, code: result.status ?? 1, ms: Date.now() - started };
+  if (result.error) log.push(`\n${result.error.stack || result.error.message || String(result.error)}\n`);
+  console.log(`[qualify] ${label}: ${code === 0 ? 'PASS' : 'FAIL'} (${ms} ms${timedOut ? ', timeout' : ''})`);
+  return {
+    label,
+    code,
+    ms,
+    ...(timedOut ? { timedOut: true } : {}),
+    ...(result.error && !timedOut ? { error: result.error.message || String(result.error) } : {})
+  };
 }
 
 function commandForNpm() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
-
 
 function failureExcerpt(text, maxLines = 80) {
   const lines = String(text || '').split(/\r?\n/);
@@ -75,17 +117,23 @@ function main(argv = process.argv.slice(2)) {
   const log = [];
   const stages = [];
 
-  stages.push(run('file-size', process.execPath, ['tests/file-size.test.js'], log));
+  stages.push(run('file-size', process.execPath, ['tests/file-size.test.js'], log, { timeoutMs: 30000 }));
   if (stages.at(-1).code === 0) {
-    stages.push(run(`focused:${options.area}`, process.execPath, ['--test', ...AREA_TESTS[options.area]], log));
+    stages.push(run(
+      `focused:${options.area}`,
+      process.execPath,
+      ['--test', ...AREA_TESTS[options.area]],
+      log,
+      { timeoutMs: 120000 }
+    ));
   }
   if (options.full && !options.verify && stages.every((stage) => stage.code === 0)) {
-    stages.push(run('npm-test', commandForNpm(), ['test'], log));
+    stages.push(run('npm-test', commandForNpm(), ['test'], log, { timeoutMs: 180000 }));
   }
   if (options.verify && stages.every((stage) => stage.code === 0)) {
     stages.push(process.platform === 'win32'
-      ? run('VERIFY.bat', 'cmd.exe', ['/d', '/c', 'set NEXUS_BROWSER_NONINTERACTIVE=1&& VERIFY.bat'], log)
-      : run('npm-test', commandForNpm(), ['test'], log));
+      ? run('VERIFY.bat', 'cmd.exe', ['/d', '/c', 'set NEXUS_BROWSER_NONINTERACTIVE=1&& VERIFY.bat'], log, { timeoutMs: 180000 })
+      : run('npm-test', commandForNpm(), ['test'], log, { timeoutMs: 180000 }));
   }
 
   const passed = stages.every((stage) => stage.code === 0);
@@ -94,7 +142,10 @@ function main(argv = process.argv.slice(2)) {
   const logText = log.join('');
   fs.writeFileSync(logPath, logText, 'utf8');
   const summary = {
-    passed, area: options.area, stages, logPath,
+    passed,
+    area: options.area,
+    stages,
+    logPath,
     ...(passed ? {} : { failureExcerpt: failureExcerpt(logText) })
   };
   console.log(JSON.stringify(summary, null, 2));

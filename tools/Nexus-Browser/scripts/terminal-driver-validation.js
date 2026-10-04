@@ -1,0 +1,83 @@
+'use strict';
+
+const p = require('./terminal-driver-process');
+
+const FOCUSED_TESTS = [
+  'tests/app-target-binding.test.js',
+  'tests/app-target-manager-contention.test.js',
+  'tests/app-origin-server.test.js',
+  'tests/app-busy-recovery-ui.test.js',
+  'tests/app-origin-provenance.test.js',
+  'tests/chatgpt-windows-conversation.test.js',
+  'tests/chatgpt-windows-prompt-self-capture.test.js',
+  'tests/chatgpt-windows-role-progress.test.js',
+  'tests/chatgpt-windows-role-oscillation.test.js',
+  'tests/chatgpt-windows-stale-status.test.js',
+  'tests/chatgpt-windows-full-reply.test.js',
+  'tests/chatgpt-windows-live-shape.test.js',
+  'tests/chatgpt-windows-title.test.js',
+  'tests/chatgpt-windows-identity.test.js',
+  'tests/chatgpt-windows-stabilization.test.js',
+  'tests/chatgpt-windows-submit-focus.test.js',
+  'tests/winapp-runner-retry.test.js',
+  'tests/terminal-relay.test.js'
+];
+
+async function execute(ctx) {
+  console.log('\n############################################################');
+  console.log('# EVEOS NEXUS TERMINAL RELAY');
+  console.log('############################################################');
+
+  const bc = await p.gitCapture(ctx, ['branch', '--show-current'], 'detect current git branch');
+  const hc = await p.gitCapture(ctx, ['rev-parse', 'HEAD'], 'detect current HEAD');
+  const sc = await p.gitCapture(ctx, ['status', '--short'], 'inspect working tree');
+  const branch = bc.text;
+  const head = hc.text;
+  const dirty = Boolean(sc.text);
+  const meta = { branch, head, dirty };
+
+  console.log('\nCURRENT BRANCH:', branch || '<DETACHED HEAD>');
+  console.log('CURRENT HEAD:', head);
+  console.log('DIRTY TREE:', dirty ? 'YES' : 'NO');
+
+  if (ctx.options.noPull) p.record(ctx, 'git pull', 'SKIPPED', '--no-pull requested.');
+  else if (bc.result.status !== 'PASS' || sc.result.status !== 'PASS') {
+    p.record(ctx, 'git pull', 'BLOCKED', 'Git discovery was not healthy enough for a safe pull.');
+  } else if (!branch) p.record(ctx, 'git pull', 'BLOCKED', 'Detached HEAD. Driver never guesses or switches branches.');
+  else if (dirty) p.record(ctx, 'git pull', 'SKIPPED', 'Working tree is dirty. Driver never auto-stashes or resets.');
+  else await p.runGit(ctx, ['pull', '--ff-only', 'origin', branch], `git pull --ff-only origin ${branch}`);
+
+  await p.runGit(ctx, ['diff', '--check'], 'git diff --check');
+  await p.run(ctx, process.execPath, ['--test', ...FOCUSED_TESTS], {
+    cwd: p.nexusRoot,
+    label: 'focused ChatGPT App + Terminal Relay tests'
+  });
+
+  if (ctx.options.qualify) {
+    await p.runNpm(ctx, ['run', 'qualify:app-origin'], 'qualify:app-origin');
+  } else {
+    p.notice(
+      ctx,
+      'qualify:app-origin',
+      'Not requested for the fast relay path; focused App-Origin/Terminal Relay checks already ran. Use --qualify or --full for the broader qualification suite.'
+    );
+  }
+
+  if (ctx.options.full) await p.runNpm(ctx, ['test'], 'full Nexus Browser test suite');
+  else p.notice(ctx, 'full Nexus Browser test suite', 'Not requested; use --full when complete-suite validation is wanted.');
+
+  if (ctx.options.push) {
+    const failures = ctx.results.filter((step) => step.status === 'FAIL');
+    const finalStatus = await p.gitCapture(ctx, ['status', '--short'], 'pre-push working tree check');
+    if (!branch) p.record(ctx, 'git push', 'BLOCKED', 'Detached HEAD.');
+    else if (failures.length) p.record(ctx, 'git push', 'SKIPPED', `${failures.length} validation failure(s) are present.`);
+    else if (finalStatus.text) p.record(ctx, 'git push', 'SKIPPED', 'Working tree is dirty. Driver never creates commits automatically.');
+    else await p.runGit(ctx, ['push', 'origin', branch], `git push origin ${branch}`);
+  } else {
+    p.notice(ctx, 'git push', 'Not requested; push remains explicit via --push.');
+  }
+
+  return meta;
+}
+
+module.exports = { execute, FOCUSED_TESTS };

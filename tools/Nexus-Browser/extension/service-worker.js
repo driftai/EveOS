@@ -21,10 +21,14 @@ const qualificationControlApi = globalThis.BrowserAiBridgeQualificationControl |
 const adapterReadinessApi = globalThis.BrowserAiBridgeAdapterReadinessCache || (typeof module !== 'undefined' && module.exports ? require('./adapter-readiness-cache.js') : null); const adapterFreshnessApi = globalThis.BrowserAiBridgeProviderAdapterFreshness || (typeof module !== 'undefined' && module.exports ? require('./provider-adapter-freshness.js') : null);
 const dexUiEnsureApi = globalThis.BrowserAiBridgeDexUiEnsure || (typeof module !== 'undefined' && module.exports ? require('./dex-ui-ensure.js') : null); const providerTargetSpawnApi = globalThis.BrowserAiBridgeProviderTargetSpawn || (typeof module !== 'undefined' && module.exports ? require('./provider-target-spawn.js') : null);
 const chatgptNavigationRecoveryApi = globalThis.BrowserAiBridgeChatGptNavigationRecovery || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-navigation-recovery.js') : null);
+const providerTargetListApi = globalThis.BrowserAiBridgeProviderTargetList || (typeof module !== 'undefined' && module.exports ? require('./provider-target-list.js') : null);
+const chatgptAppMirrorWorkerApi = globalThis.BrowserAiBridgeChatGptAppMirrorWorker || (typeof module !== 'undefined' && module.exports ? require('./chatgpt-app-mirror-worker.js') : null);
 const backgroundDispatchApi = globalThis.BrowserAiBridgeBackgroundDispatch || (typeof module !== 'undefined' && module.exports ? require('./background-dispatch.js') : null);
 const finalWiringApi = globalThis.BrowserAiBridgeDexFinalDeliveryWiring || (typeof module !== 'undefined' && module.exports ? require('./dex-final-delivery-wiring.js') : null);
+const requestOwnershipApi = globalThis.BrowserAiBridgeRequestOwnership || (typeof module !== 'undefined' && module.exports ? require('./request-ownership.js') : null);
+const providerReturnRoutingApi = globalThis.BrowserAiBridgeProviderReturnRouting || (typeof module !== 'undefined' && module.exports ? require('./provider-return-routing.js') : null);
 const tabReadinessApi = globalThis.BrowserAiBridgeTabReadiness || (typeof module !== 'undefined' && module.exports ? require('./tab-readiness.js') : null);
-if (!tabPublishApi || !providerApi || !providerHealthApi || !geminiPollApi || !geminiStudioWindowApi || !geminiStudioSubmitApi || !hostAccessApi || !targetStateApi || !targetResurrectionApi || !qualificationControlApi || !adapterReadinessApi || !adapterFreshnessApi || !dexUiEnsureApi || !providerTargetSpawnApi || !chatgptNavigationRecoveryApi || !backgroundDispatchApi || !tabReadinessApi || !finalWiringApi) {
+if (!tabPublishApi || !providerApi || !providerHealthApi || !geminiPollApi || !geminiStudioWindowApi || !geminiStudioSubmitApi || !hostAccessApi || !targetStateApi || !targetResurrectionApi || !qualificationControlApi || !adapterReadinessApi || !adapterFreshnessApi || !dexUiEnsureApi || !providerTargetSpawnApi || !chatgptNavigationRecoveryApi || !providerTargetListApi || !chatgptAppMirrorWorkerApi || !backgroundDispatchApi || !tabReadinessApi || !finalWiringApi || !requestOwnershipApi || !providerReturnRoutingApi) {
   throw new Error('Bridge extension modules failed to load.');
 }
 const { createTabPublishController } = tabPublishApi; const { PROVIDERS, getProvider, providerForUrl, publicProviders } = providerApi;
@@ -33,8 +37,10 @@ const {
   stopResponsePoll, stopAllResponsePolls, sampleAiStudioTab, startAiStudioResponsePoll
 } = geminiPollApi;
 const { ensureAiStudioBridgePopup, keepAiStudioPopupReady, findExistingAiStudioPopup, withAiStudioSubmissionWindow } = geminiStudioWindowApi; const { submitAiStudioPrompt } = geminiStudioSubmitApi;
-let socket = null, reconnectTimer = null, heartbeatTimer = null, connectInFlight = false, targetTabId = null, targetProviderId = null, tabPublishController = null, targetRestoreAttempted = false; const selectedTargetStore = targetStateApi.createStore(), adapterReadiness = adapterReadinessApi.createCache();
-const finalDelivery = finalWiringApi.createForServiceWorker(globalThis.chrome, () => ({ tabId: targetTabId, providerId: targetProviderId }), safeSend, stopResponsePoll, chatgptNavigationRecoveryApi.stop, rememberCompletedRequest, emitError);
+let socket = null, reconnectTimer = null, heartbeatTimer = null, connectInFlight = false, targetTabId = null, targetProviderId = null, tabPublishController = null, targetRestoreAttempted = false;
+const selectedTargetStore = targetStateApi.createStore(), adapterReadiness = adapterReadinessApi.createCache();
+const requestOwners = requestOwnershipApi.createStore({ storage: globalThis.chrome?.storage?.session || globalThis.chrome?.storage?.local });
+const finalDelivery = finalWiringApi.createForServiceWorker(globalThis.chrome, safeSend, stopResponsePoll, chatgptNavigationRecoveryApi.stop, rememberCompletedRequest, emitError);
 const qualificationControl = qualificationControlApi.createControl({ chromeApi: globalThis.chrome, matchesProvider: (id, url) => providerMatchesUrl(getProvider(id), url) });
 async function clearSelectedTarget() { targetTabId = null; targetProviderId = null; await selectedTargetStore.clear(); }
 async function restoreSelectedTarget() {
@@ -62,28 +68,10 @@ function safeSend(payload) {
 function emitError(code, message, requestId = null, detail = null) {
   safeSend({ type: 'error', code, message, requestId, detail });
 }
+let loadProviderTargets = null;
 async function getProviderTabs() {
-  const all = [];
-  let popupWindowIds = new Set();
-  try {
-    const windows = await chrome.windows?.getAll?.({ populate: true });
-    if (Array.isArray(windows)) {
-      for (const w of windows) {
-        if (w.type === 'popup' || (Array.isArray(w.tabs) && w.tabs.length <= 1)) {
-          popupWindowIds.add(w.id);
-        }
-      }
-    }
-  } catch {}
-  for (const provider of PROVIDERS) {
-    const tabs = await chrome.tabs.query({ url: provider.matchPatterns });
-    for (const tab of tabs) {
-      const isPopup = popupWindowIds.has(tab.windowId);
-      const titlePrefix = isPopup ? '[Popup] ' : '';
-      all.push(targetMetadataApi.formatTarget(tab, provider, { titlePrefix, health: providerHealthApi.get(tab.id) }));
-    }
-  }
-  return all;
+  if (!loadProviderTargets) throw new Error('Provider target loader is not initialized.');
+  return loadProviderTargets();
 }
 function currentTargetFromTabs(tabs) {
   if (targetTabId == null || !targetProviderId) return null;
@@ -158,10 +146,22 @@ async function prepareProviderTab(provider, tab) {
   const prepared = await ensureAiStudioBridgePopup(tab);
   return prepared?.tab || tab;
 }
-const formatTarget = targetMetadataApi.formatTarget;
+const rawFormatTarget = targetMetadataApi.formatTarget;
+const appMirrorWorker = chatgptAppMirrorWorkerApi.createIntegration({
+  chromeApi: globalThis.chrome, getProvider, ensureProviderAdapter, waitForTabComplete, safeSend, rawFormatTarget,
+  publishTabs: (options) => publishTabs(options)
+});
+const providerReturnRouter = providerReturnRoutingApi.createRouter({
+  requestOwners, getProvider, getSelectedTarget: () => ({ tabId: targetTabId, providerId: targetProviderId }), noteRuntimeMessage: (message, sender) => appMirrorWorker.noteRuntimeMessage(message, sender),
+  rememberCompletedRequest, hasCompletedRequest, stopResponsePoll, finalDelivery, send: safeSend, stopNavigation: chatgptNavigationRecoveryApi.stop, emitError
+});
+const formatTarget = appMirrorWorker.formatTarget;
+loadProviderTargets = providerTargetListApi.createLoader({
+  chromeApi: globalThis.chrome, providers: PROVIDERS, formatTarget: rawFormatTarget,
+  healthFor: (tabId) => providerHealthApi.get(tabId), decorateTarget: appMirrorWorker.decorateTarget
+});
 async function selectTarget(tabId, requestedProviderId = null, options = {}) {
   if (!Number.isInteger(tabId)) throw new Error('Invalid tab ID.');
-  if (!options.readyOnly) stopAllResponsePolls();
   let tab = await chrome.tabs.get(tabId);
   if (tab.discarded) { if (options.readyOnly) throw Object.assign(new Error('Warm qualification target is discarded and may not be reloaded.'), { code: 'QUALIFICATION_WARM_TARGET_NOT_READY' }); await chrome.tabs.reload(tab.id); await new Promise((r) => setTimeout(r, 800)); tab = await chrome.tabs.get(tabId); }
   const provider = requestedProviderId ? getProvider(requestedProviderId) : providerForUrl(tab.url);
@@ -240,7 +240,7 @@ async function getSearchResultsWithCollapsedRecovery(requestId, searchIndex, sen
 async function handleBridgeCommand(msg) {
   try {
     if (await qualificationControlApi.handleCommand(qualificationControl, msg, { chromeApi: chrome, getProvider, providerMatchesUrl, waitForTabComplete, selectTarget, clearSelectedTarget, publishTabs, targetResurrectionApi, safeSend, getSelection: async () => { if (targetTabId == null || !targetProviderId) return null; try { const tab = await chrome.tabs.get(targetTabId); return { tabId: targetTabId, providerId: targetProviderId, url: tab.url || tab.pendingUrl || '' }; } catch { return null; } } })) return;
-    if (msg.type === 'reload_extension') { safeSend({ type: 'reloading_extension', requestId: msg.requestId || null }); chrome.runtime?.reload?.(); return; }
+    if (msg.type === 'reload_extension') { safeSend({ type: 'reloading_extension', requestId: msg.requestId || null }); setTimeout(() => chrome.runtime?.reload?.(), 75); return; }
     if (msg.type === 'ensure_dex_ui') { await dexUiEnsureApi.ensureDexUiTab(chrome); return; }
     if (msg.type === 'reload_tab') {
       const id = Number(msg.tabId);
@@ -261,6 +261,7 @@ async function handleBridgeCommand(msg) {
       safeSend({ type: 'target_ensured', requestId: msg.requestId || null, target: formatTarget(tab, provider) });
       return;
     }
+    if (await appMirrorWorker.handleBridgeCommand(msg, { selectTarget })) return;
     if (msg.type === 'select_target') {
       return await selectTarget(Number(msg.tabId), msg.providerId || null, { requestId: msg.requestId || null });
     }
@@ -291,12 +292,14 @@ async function handleBridgeCommand(msg) {
           baseline: studioTransaction.baseline, expectedPrompt: msg.text, send: safeSend });
       } else {
         const initialUrl = tab.url || tab.pendingUrl || '';
+        if (msg.requestId) await requestOwners.remember(msg.requestId, Number(tab.id), provider.id);
         const result = await sendToTarget({ type: 'send_prompt', requestId: msg.requestId, text: msg.text, qualification: msg.qualification || null }, { readyOnly: warmQualification, tabId: qualificationClaim ? authorizedTabId : null, providerId: qualificationClaim?.providerId || null });
         if (!result?.ok) throw Object.assign(new Error(result?.error || `${provider.name} adapter rejected the prompt.`), { code: result?.code || 'PROMPT_SEND_FAILED', detail: result?.detail || null }); deliveryProof = result.deliveryProof || null; submissionMode = result.submissionMode || null; if (deliveryProof && deliveryProof.committed !== true) throw Object.assign(new Error('Provider adapter returned an uncommitted prompt delivery proof.'), { code: 'PROMPT_DELIVERY_UNCOMMITTED', detail: { deliveryProof } });
+        if (!qualificationClaim) appMirrorWorker.noteCommittedPrompt(provider.id, tab.id, msg.requestId);
         if (!qualificationClaim && provider.id === 'chatgpt') chatgptNavigationRecoveryApi.start({ requestId: msg.requestId, tabId: tab.id, initialUrl, chromeApi: chrome, send: (payload) => finalDelivery.onCaptured(payload, tab.id, provider), completed: hasCompletedRequest, rememberCompleted: () => {} });
       }
       if (msg.qualification?.runId) { await qualificationControl.notePrompt({ runId: msg.qualification.runId, providerId: provider.id, tabId: authorizedTabId, requestId: msg.requestId, text: msg.text }); safeSend({ type: 'qualification_dispatch_committed', requestId: msg.requestId, runId: msg.qualification.runId, tabId: authorizedTabId, providerId: provider.id }); }
-      safeSend({ type: 'prompt_accepted', requestId: msg.requestId, tabId: qualificationClaim ? authorizedTabId : targetTabId, providerId: provider.id, providerName: provider.name, submissionMode, deliveryProof, observedAt: Date.now() });
+      safeSend({ type: 'prompt_accepted', requestId: msg.requestId, tabId: Number(tab.id), providerId: provider.id, providerName: provider.name, submissionMode, deliveryProof, observedAt: Date.now() });
       return;
     }
     if (msg.type === 'capture_latest') {
@@ -308,7 +311,7 @@ async function handleBridgeCommand(msg) {
         ? await sampleAiStudioTab(tab.id, chrome.scripting, msg.expectedPrompt || '').then((sample) => ({ text: sample.text, isGenerating: sample.generating, observedAt: Date.now(), completenessHint: sample.generating ? 'unknown' : 'settled' }))
         : await sendToTarget({ type: 'capture_latest', requestId: msg.requestId, expectedPrompt: msg.expectedPrompt || '', originalTurnRequestId: msg.originalTurnRequestId || null }, { readyOnly: warmQualification, tabId: authorized ? authorizedTabId : null, providerId: authorized?.record?.providerId || null });
       const generationState = result?.generationState || (result?.isGenerating === true ? 'active' : result?.isGenerating === false ? 'idle' : 'unknown');
-      safeSend({ type: 'capture_result', requestId: msg.requestId, text: result?.text || '', isGenerating: result?.isGenerating === true, generationState, observedAt: result?.observedAt || Date.now(), completenessHint: result?.completenessHint || null, tabId: authorized ? authorizedTabId : targetTabId, adapterRevision: adapterFreshnessApi.ADAPTER_REVISION, providerId: provider.id, providerName: provider.name });
+      safeSend({ type: 'capture_result', requestId: msg.requestId, text: result?.text || '', isGenerating: result?.isGenerating === true, generationState, observedAt: result?.observedAt || Date.now(), completenessHint: result?.completenessHint || null, detail: result?.detail || null, tabId: authorized ? authorizedTabId : targetTabId, adapterRevision: adapterFreshnessApi.ADAPTER_REVISION, providerId: provider.id, providerName: provider.name });
       return;
     }
     if (msg.type === 'request_search_results') {
@@ -349,7 +352,9 @@ async function connect() {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
   connectInFlight = true;
   try {
+    await appMirrorWorker.restore();
     await restoreSelectedTarget();
+    await requestOwners.restore();
     if (!(await localRelayReady())) {
       reconnectTimer = setTimeout(connect, 1200);
       return;
@@ -376,23 +381,17 @@ async function connect() {
 }
 if (typeof chrome !== 'undefined' && chrome.runtime) {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (providerHealthApi.handle(msg, sender, { providerForUrl, safeSend, scheduleTabPublish })) return; if (!sender.tab?.id || sender.tab.id !== targetTabId) return;
+    if (providerHealthApi.handle(msg, sender, { providerForUrl, safeSend, scheduleTabPublish })) return;
     const allowed = new Set(['response_partial', 'response_final', 'response_activity', 'activity_update', 'adapter_error']);
-    if (!allowed.has(msg.type)) return;
-    const provider = getProvider(targetProviderId);
-    if (!provider) return;
-    if (/^dex-(?:done-watch|heads-up)-/.test(String(msg.requestId || ''))) { if (msg.type === 'response_final') { rememberCompletedRequest(msg.requestId); sendResponse({ ok: true, notification: true }); } return; }
-    if (msg.type === 'adapter_error') {
-      if (msg.requestId) { stopResponsePoll(msg.requestId); chatgptNavigationRecoveryApi.stop(msg.requestId); }
-      if (hasCompletedRequest(msg.requestId)) return;
-      emitError(msg.code || 'ADAPTER_ERROR', msg.message || `${provider.name} adapter error.`, msg.requestId || null, msg.detail || null);
-      return;
-    }
-    if (hasCompletedRequest(msg.requestId)) { if (msg.type === 'response_final') sendResponse({ ok: true, alreadyCommitted: true }); return; }
-    if (msg.type === 'response_final' && msg.requestId) return finalDelivery.onFinal(msg, sender, sendResponse, provider);
-    safeSend({ ...msg, providerId: provider.id, providerName: provider.name });
+    if (!allowed.has(msg?.type)) return;
+    providerReturnRouter.handle(msg, sender, sendResponse).catch((error) => {
+      emitError('RESPONSE_RETURN_FAILED', error.message, msg?.requestId || null, { senderTabId: sender?.tab?.id ?? null, messageType: msg?.type || null });
+      if (msg?.type === 'response_final') sendResponse({ ok: false, code: 'RESPONSE_RETURN_FAILED', error: error.message });
+    });
+    return msg.type === 'response_final';
   });
   chrome.tabs.onRemoved.addListener(async (tabId) => {
+    await appMirrorWorker.onTabRemoved(tabId);
     adapterReadiness.invalidate(tabId); providerHealthApi.forget(tabId);
     if (qualificationControl.consumeClosingTab(tabId)) return;
     if (tabId === targetTabId) {
@@ -418,7 +417,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
     }
     scheduleTabPublish();
   });
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    appMirrorWorker.onTabUpdated(tabId, changeInfo, tab);
     if (changeInfo.status === 'loading' || changeInfo.url) { adapterReadiness.invalidate(tabId); providerHealthApi.forget(tabId); }
     if (tabId === targetTabId && changeInfo.url) {
       const provider = getProvider(targetProviderId);

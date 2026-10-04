@@ -116,7 +116,7 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/features/scraper/ui/toast-notification/components/tn-styles.js?v=b83e1fc45353",
     "js/modules/features/scraper/ui/toast-notification/toast-notification.js?v=724681ea8d5f",
     "js/modules/features/scraper/ui/loading-indicator/components/li-stats.js?v=76baa46493d3",
-    "js/modules/features/scraper/ui/loading-indicator/components/li-dom.js?v=81b4e62e94ea",
+    "js/modules/features/scraper/ui/loading-indicator/components/li-dom.js?v=f2bf2bc79750",
     "js/modules/features/scraper/ui/loading-indicator/components/li-display.js?v=4997786f4cea",
     "js/modules/features/scraper/ui/loading-indicator/loading-indicator.js?v=01d25efd0a45",
     "js/modules/features/scraper/ui/module-status/status-data-components/sd-collector.js?v=07b1f0b59122",

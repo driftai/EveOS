@@ -43,6 +43,14 @@ test('ChatGPT no-signal completion guard distinguishes obvious partial fragments
   assert.equal(chatgpt.looksCompleteAssistantText('Ready [[DEX:DONE]]'), true);
 });
 
+test('exact reply probes short-settle only an exact normalized response', () => {
+  assert.equal(chatgpt.exactReplyExpectation('Reply exactly: NEXUS_RETURN_OK'), 'NEXUS_RETURN_OK');
+  assert.equal(chatgpt.exactReplyExpectation('Respond exactly: `READY`'), 'READY');
+  assert.equal(chatgpt.matchesExactReplyRequest('Reply exactly: NEXUS_RETURN_OK', 'NEXUS_RETURN_OK'), true);
+  assert.equal(chatgpt.matchesExactReplyRequest('Reply exactly: NEXUS_RETURN_OK', 'NEXUS_RETURN_OK extra'), false);
+  assert.equal(chatgpt.matchesExactReplyRequest('Explain this', 'NEXUS_RETURN_OK'), false);
+});
+
 
 test('ChatGPT incomplete fragments long-settle even when activity was only status-derived', () => {
   assert.equal(chatgpt.generationSettleMs({

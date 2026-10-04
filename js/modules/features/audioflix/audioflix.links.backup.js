@@ -21,6 +21,23 @@ window.EveAudioflixLinks = window.EveAudioflixLinks || {};
         return [...new Set(Object.values(map || {}).flat().map(text).filter(Boolean))];
     }
 
+    function groupClosure(groups, parents) {
+        const found = new Set(groups || []);
+        [...found].forEach((name) => {
+            let current = name, guard = 0;
+            while (parents?.[current] && guard++ < 100) {
+                current = parents[current];
+                found.add(current);
+            }
+        });
+        return [...found];
+    }
+
+    function parentSubset(groups, parents) {
+        const wanted = new Set(groups || []);
+        return Object.fromEntries(Object.entries(parents || {}).filter(([child, parent]) => wanted.has(child) && wanted.has(parent)));
+    }
+
     function objectForIds(source, ids) {
         return Object.fromEntries(Object.entries(source || {}).filter(([id]) => ids.has(text(id))));
     }
@@ -92,8 +109,8 @@ window.EveAudioflixLinks = window.EveAudioflixLinks || {};
         const soundboard = (store.soundboard || []).filter((item) => soundIds.has(text(item?.id)));
         const musicGroupMap = valuesForIds(store.musicGroupMap, musicIds);
         const soundGroupMap = valuesForIds(store.soundGroupMap, soundIds);
-        const musicGroups = uniqueMapValues(musicGroupMap);
-        const soundboardGroups = uniqueMapValues(soundGroupMap);
+        const musicGroups = groupClosure(uniqueMapValues(musicGroupMap), store.musicGroupParents);
+        const soundboardGroups = groupClosure(uniqueMapValues(soundGroupMap), store.soundGroupParents);
         const classifierNames = new Set(music.flatMap((item) => (
             Array.isArray(item?.classifiers) ? item.classifiers.map(text) : []
         )));
@@ -119,15 +136,17 @@ window.EveAudioflixLinks = window.EveAudioflixLinks || {};
         });
 
         return {
-            schemaVersion: 2,
+            schemaVersion: 3,
             scoped: true,
             scope: clone(scope),
             music: clone(music),
             soundboard: clone(soundboard),
             scopeBindings: clone(bindings),
             musicGroups,
+            musicGroupParents: parentSubset(musicGroups, store.musicGroupParents),
             musicGroupMap,
             soundboardGroups,
+            soundGroupParents: parentSubset(soundboardGroups, store.soundGroupParents),
             soundGroupMap,
             musicClassifiers: (store.musicClassifiers || []).filter((name) => classifierNames.has(text(name))),
             musicPlaylists: clone((store.musicPlaylists || []).filter((entry) => playlistIds.has(text(entry?.id)))),
@@ -211,8 +230,10 @@ window.EveAudioflixLinks = window.EveAudioflixLinks || {};
             soundboard: mergeItems(current.soundboard, backup.soundboard),
             scopeBindings: retainedBindings.concat(incomingBindings),
             musicGroups: [...new Set((current.musicGroups || []).concat(backup.musicGroups || []).map(text).filter(Boolean))],
+            musicGroupParents: mergeObject(current.musicGroupParents, backup.musicGroupParents),
             musicGroupMap: mergeNamedMap(current.musicGroupMap, backup.musicGroupMap),
             soundboardGroups: [...new Set((current.soundboardGroups || []).concat(backup.soundboardGroups || []).map(text).filter(Boolean))],
+            soundGroupParents: mergeObject(current.soundGroupParents, backup.soundGroupParents),
             soundGroupMap: mergeNamedMap(current.soundGroupMap, backup.soundGroupMap),
             musicClassifiers: [...new Set((current.musicClassifiers || []).concat(backup.musicClassifiers || []).map(text).filter(Boolean))],
             musicPlaylists: mergeItems(current.musicPlaylists, backup.musicPlaylists),

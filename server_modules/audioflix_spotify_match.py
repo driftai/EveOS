@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.parse
 import urllib.request
 
 EMBED_URL = "https://open.spotify.com/embed/track/{track_id}"
@@ -44,9 +45,18 @@ EDITION_MARKERS = (
     "sped up", "spedup", "slowed", "reverb", "nightcore", "8d", "bass boosted", "mashup",
     "tribute", "rehearsal", "demo", "concert", "session", "medley",
 )
-# Uploads that are not a single track at all.
-BULK_MARKERS = ("full album", "greatest hits", "playlist", "mix ", " mix", "compilation", "hour",
-                "hours", "megamix", "non stop", "nonstop", "all songs")
+# Uploads that are not a single track at all. Do not use bare "hour"/"hours" here: those are valid
+# song-title words (Tame Impala's "One More Hour" exposed that false positive). Long-form clones are
+# identified by an explicit quantity or an extended/loop label instead.
+_BULK_HOUR_WORDS = ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "twelve", "twenty four")
+BULK_MARKERS = (
+    "full album", "greatest hits", "playlist", "mix ", " mix", "compilation", "megamix",
+    "non stop", "nonstop", "all songs", "hour loop", "hours loop", "hour version", "hours version",
+    "hour long", "hours long",
+) + tuple(f"{value} hour" for value in range(1, 25)) \
+  + tuple(f"{value} hours" for value in range(1, 25)) \
+  + tuple(f"{value} hour" for value in _BULK_HOUR_WORDS) \
+  + tuple(f"{value} hours" for value in _BULK_HOUR_WORDS)
 
 DEFAULT_TOLERANCE_SECONDS = 3.0
 # YouTube reports whole seconds while Spotify gives milliseconds, so any delta under this is pure
@@ -55,6 +65,11 @@ DEFAULT_TOLERANCE_SECONDS = 3.0
 # 156x popularity difference, which is how the official video loses to a remaster.
 DURATION_NOISE_SECONDS = 1.5
 DEFAULT_SEARCH_RESULTS = 8
+# Flat YouTube search is deliberately used so one age-gated result cannot abort discovery. Some
+# search rows omit duration, though, and duration is our main identity gate. Hydrate only a bounded
+# number of those rows individually; a gated/broken video is caught per-row instead of poisoning the
+# whole search, while common results keep the fast flat path.
+SEARCH_HYDRATE_LIMIT = 6
 
 # Prefer the better-sounding upload, but only when "better" is real. YouTube re-encodes everything
 # onto its own ladder, so the top audio stream is ~130-160 kbps for essentially any modern upload:
@@ -146,10 +161,111 @@ def _has(text: str, markers) -> bool:
     return any(marker in low for marker in markers)
 
 
+def _candidate_url(item) -> str:
+    """Return a concrete watch URL even when yt-dlp flat search leaves only an id."""
+    row = item if isinstance(item, dict) else {}
+    for value in (row.get("webpage_url"), row.get("url")):
+        clean = str(value or "").strip()
+        if clean.startswith(("http://", "https://")):
+            return clean
+    video_id = str(row.get("id") or "").strip()
+    return f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
+
+
+def _normalize_search_query(value: str) -> str:
+    """Make a search-only alias without changing the canonical Spotify title.
+
+    Search engines often index stylized titles with word boundaries Spotify does not use, e.g.
+    ``FloatingAway`` vs ``Floating Away``. Strip cosmetic quoting/asterisks and split camelCase so
+    YouTube Music gets a natural query while the matcher still verifies the original title/duration.
+    """
+    text = str(value or "").strip()
+    text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", text)
+    text = re.sub(r'["*]+', " ", text)
+    return " ".join(text.split()).strip()
+
+
+def _youtube_music_search_url(query: str) -> str:
+    clean = _normalize_search_query(query)
+    encoded = urllib.parse.quote_plus(clean)
+    return f"https://music.youtube.com/search?q={encoded}#songs"
+
+
+def _dedupe_search_rows(rows):
+    """Merge the same YouTube id returned by general search and YouTube Music."""
+    merged = []
+    indexes = {}
+    detail_keys = ("id", "title", "duration", "view_count", "webpage_url", "url", "formats", "abr")
+    for item in rows or []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        key = str(row.get("id") or row.get("webpage_url") or row.get("url") or "").strip()
+        if not key:
+            continue
+        if key not in indexes:
+            indexes[key] = len(merged)
+            merged.append(row)
+            continue
+        current = merged[indexes[key]]
+        for field in detail_keys:
+            if current.get(field) in (None, "", []) and row.get(field) not in (None, "", []):
+                current[field] = row[field]
+    return merged
+
+
+def _collect_search_rows(ydl, query: str, results: int):
+    """Search both normal YouTube and YouTube Music Songs, isolating backend failures."""
+    targets = [
+        f"ytsearch{int(results)}:{query}",
+        _youtube_music_search_url(query),
+    ]
+    rows = []
+    for target in targets:
+        try:
+            found = ydl.extract_info(target, download=False)
+        except Exception:  # noqa: BLE001
+            continue
+        rows.extend(entry for entry in ((found or {}).get("entries") or []) if isinstance(entry, dict))
+    return _dedupe_search_rows(rows)
+
+
+def _hydrate_flat_rows(ydl, entries, limit: int = SEARCH_HYDRATE_LIMIT):
+    """Fill missing duration/details without letting one inaccessible result abort the search."""
+    output = []
+    probes = 0
+    cap = max(0, int(limit or 0))
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        row = dict(entry)
+        duration = row.get("duration")
+        if isinstance(duration, (int, float)) and duration > 0:
+            output.append(row)
+            continue
+        url = _candidate_url(row)
+        if not url or probes >= cap:
+            output.append(row)
+            continue
+        probes += 1
+        try:
+            detail = ydl.extract_info(url, download=False)
+        except Exception:  # noqa: BLE001
+            detail = None
+        if isinstance(detail, dict):
+            for key in ("id", "title", "duration", "view_count", "webpage_url", "formats", "abr"):
+                value = detail.get(key)
+                if value not in (None, "", []):
+                    row[key] = value
+        output.append(row)
+    return output
+
+
 def best_audio_abr(item) -> float:
     """Highest audio-only bitrate yt-dlp lists for a candidate, or 0.0 when it reports none.
 
-    Search results already carry `formats`, so reading this costs no extra request.
+    Search results already carry `formats`, so reading this costs no extra request. Flat search rows
+    intentionally have no formats; unknown quality stays neutral and is checked during download.
     """
     best = 0.0
     for fmt in ((item or {}).get("formats") or []):
@@ -201,8 +317,7 @@ def rank_candidates(meta: dict, candidates, tolerance_seconds: float = DEFAULT_T
         duration = (item or {}).get("duration")
         views = int((item or {}).get("view_count") or 0)
         entry = {"title": title, "duration": duration, "views": views,
-                 "url": (item or {}).get("webpage_url") or (item or {}).get("url") or "",
-                 "id": (item or {}).get("id") or ""}
+                 "url": _candidate_url(item), "id": (item or {}).get("id") or ""}
 
         if not entry["title"]:
             entry["reason"] = "no title"
@@ -265,14 +380,26 @@ def find_youtube_match(url: str, searcher=None, opener=None,
     best = accepted[0]
     return {"ok": True, "query": query, "spotify": meta, "match": best,
             "alternatives": accepted[1:4], "rejected": rejected,
-            "url": best["url"] or (f"https://www.youtube.com/watch?v={best['id']}" if best["id"] else "")}
+            "url": _candidate_url(best)}
 
 
 def _ytdlp_search(query: str, results: int):
-    """yt-dlp's own search — no YouTube API key required."""
+    """Search general YouTube plus YouTube Music Songs, then hydrate missing duration safely.
+
+    General search is broad but can bury alternate/distributor versions; YouTube Music's Songs
+    surface is better at exact catalog recordings. Both stay flat so one age-gated result cannot
+    abort discovery. The merged rows are deduplicated before a bounded metadata hydration pass.
+    """
     import yt_dlp  # imported lazily: the matcher is testable without it
 
-    opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "extract_flat": "in_playlist",
+        "ignoreerrors": True,
+    }
     with yt_dlp.YoutubeDL(opts) as ydl:
-        found = ydl.extract_info(f"ytsearch{int(results)}:{query}", download=False)
-    return (found or {}).get("entries") or []
+        rows = _collect_search_rows(ydl, query, results)
+        return _hydrate_flat_rows(ydl, rows)

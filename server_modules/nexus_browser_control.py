@@ -125,12 +125,51 @@ def _process_command_line(pid: int) -> str:
     except (OSError, subprocess.SubprocessError, UnicodeError):
         return ""
 
+def _process_parent_pid(pid: int) -> int | None:
+    if pid <= 1:
+        return None
+    try:
+        if os.name == "nt":
+            command = (
+                f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}' "
+                "-ErrorAction SilentlyContinue; if($p){$p.ParentProcessId}"
+            )
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+                capture_output=True, text=True, check=False, timeout=4,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            value = result.stdout.strip()
+            return int(value) if value.isdigit() else None
+        status = (Path("/proc") / str(pid) / "status").read_text(encoding="utf-8", errors="ignore")
+        for line in status.splitlines():
+            if line.startswith("PPid:"):
+                value = line.split(":", 1)[1].strip()
+                return int(value) if value.isdigit() else None
+    except (OSError, ValueError, subprocess.SubprocessError, UnicodeError):
+        pass
+    return None
+
+
 
 def _managed_pid() -> int | None:
     pid = _read_pid()
     command = _process_command_line(pid or 0).lower()
+    if not pid or not command or "bridge-supervisor.js" not in command:
+        return None
     root = str(_tool_root().resolve()).lower()
-    return pid if command and root in command and "bridge-supervisor.js" in command else None
+    if root in command:
+        return pid
+
+    # START.bat launches the supervisor from the Nexus cwd with a relative script
+    # path (node scripts\bridge-supervisor.js). Prove ownership through the live
+    # listener child instead of rejecting that legitimate supervisor.
+    for listener_pid in _listener_pids():
+        child_command = _process_command_line(listener_pid).lower()
+        if (_process_parent_pid(listener_pid) == pid and root in child_command
+                and "server.js" in child_command):
+            return pid
+    return None
 
 
 def _listener_pids() -> list[int]:
@@ -152,12 +191,25 @@ def _listener_pids() -> list[int]:
     return sorted({int(value) for value in result.stdout.split() if value.isdigit()})
 
 
+def _owned_listener_pid(supervisor_pid: int | None) -> int | None:
+    if not supervisor_pid:
+        return None
+    root = str(_tool_root().resolve()).lower()
+    for listener_pid in _listener_pids():
+        command = _process_command_line(listener_pid).lower()
+        if (_process_parent_pid(listener_pid) == supervisor_pid
+                and root in command and "server.js" in command):
+            return listener_pid
+    return None
+
+
 def _status(message="") -> dict:
     health = _health()
-    diagnostics = (_http_json("/diagnostics", timeout=1.2) or {}) if health else {}
     pid = _managed_pid()
+    owned_listener = _owned_listener_pid(pid)
     process_alive = bool((_PROCESS and _PROCESS.poll() is None) or pid)
-    running = health is not None
+    running = health is not None or owned_listener is not None
+    diagnostics = (_http_json("/diagnostics", timeout=1.2) or {}) if running else {}
     blocked = _port_open() and not running
     installed = (_tool_root() / "server.js").is_file() and _entry().is_file()
     node_ready, npm_ready = _node() is not None, _npm() is not None
@@ -181,18 +233,21 @@ def _status(message="") -> dict:
         "extensionPath": str((_tool_root() / "extension").resolve()),
         "port": NEXUS_BROWSER_PORT,
         "url": f"http://127.0.0.1:{NEXUS_BROWSER_PORT}/",
-        "pids": _listener_pids() if running else [],
+        "pids": [owned_listener] if owned_listener else (_listener_pids() if running else []),
         "supervisorPid": pid,
         "extensionConnected": diagnostics.get("extensionConnected") is True,
         "dexUiConnected": diagnostics.get("dexUiConnected") is True,
         "onlineTargets": int(diagnostics.get("onlineTargets") or 0),
         "localTargets": int(diagnostics.get("localTargets") or 0),
+        "appTargets": int(diagnostics.get("appTargets") or 0),
+        "appBinding": diagnostics.get("appBinding") or {"connected": False},
         "dexRooms": int(diagnostics.get("dexRooms") or 0),
         "extensionSessions": diagnostics.get("extensionSessions") or {
             "connected": 0, "primaryReady": False, "primaryTabs": None, "standby": [],
         },
         "message": message or (
-            "Nexus Browser is online." if running else
+            "Nexus Browser is online." if health else
+            "Nexus Browser is online; health probe is recovering." if owned_listener else
             f"Port {NEXUS_BROWSER_PORT} belongs to a different service." if blocked else
             "Nexus Browser source is missing from tools/Nexus-Browser." if not installed else
             "Node.js is required for Nexus Browser." if not node_ready else

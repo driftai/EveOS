@@ -250,10 +250,24 @@
     return found[0] || null;
   }
 
+  function exactReplyExpectation(prompt) {
+    const match = String(prompt || '').match(/^\s*(?:reply|respond)\s+exactly\s*:\s*([\s\S]+?)\s*$/i);
+    if (!match) return '';
+    const value = match[1].trim();
+    const paired = value.length > 1 && ['"', "'", '`'].includes(value[0]) && value.at(-1) === value[0];
+    return paired ? value.slice(1, -1).trim() : value;
+  }
+
+  function matchesExactReplyRequest(prompt, text) {
+    const expected = exactReplyExpectation(prompt);
+    return !!expected && normalizeText(expected) === normalizeText(text);
+  }
+
   const api = {
     CONNECTION_GRACE_MS,
     transientStatusLine, substantiveAssistantText,
     looksCompleteAssistantText, obviouslyPartialAssistantText, generationSettleMs,
+    exactReplyExpectation, matchesExactReplyRequest,
     normalizeText,
     visible,
     classifyIssueText, trustedStreamIssue,

@@ -10,6 +10,8 @@ import threading
 from ctypes import wintypes
 from pathlib import Path
 
+from . import matrix_immersive_frame
+
 
 ABM_GETSTATE = 0x00000004
 ABM_SETSTATE = 0x0000000A
@@ -247,14 +249,21 @@ def restore_taskbar_session(token: str | None = None) -> bool:
             return False
         state = dict(_SESSION)
         _SESSION.clear()
-        # Block any in-flight edge reveal before the authoritative restoration.
+        # Stop native guards before restoring the user's taskbar/frame state.
         state["stop"].set()
         original = int(state["originalState"])
         current = _taskbar_state()
         if current != original:
             if _write_taskbar_state(original) != original:
                 raise OSError("Windows taskbar restoration verification mismatch")
-    _cancel_watchdog(state["watchdog"])
+
+    frame_thread = state.get("frameThread")
+    if frame_thread and frame_thread is not threading.current_thread():
+        frame_thread.join(timeout=0.35)
+    try:
+        matrix_immersive_frame.restore(state.get("frame"))
+    finally:
+        _cancel_watchdog(state["watchdog"])
     return True
 
 
@@ -270,31 +279,50 @@ def set_taskbar_autohide(token: str, hwnd, enabled: bool) -> dict:
             restore_taskbar_session()
         if _SESSION:
             current = _taskbar_state()
+            frame_state = _SESSION.get("frame") or {}
             return {"ok": True, "supported": True, "taskbarAutoHide": bool(current & ABS_AUTOHIDE),
-                    "taskbarRestored": False, "taskbarState": current, "edgeGuard": True}
+                    "taskbarRestored": False, "taskbarState": current, "edgeGuard": True,
+                    "clientFrameSuppressed": True,
+                    "clientAligned": bool(frame_state.get("clientAligned"))}
 
         original = _taskbar_state()
         target = original | ABS_AUTOHIDE
-        watchdog = _start_watchdog(original, target)
+        frame_state = matrix_immersive_frame.capture_and_suppress(hwnd)
+        watchdog = None
         try:
+            watchdog = _start_watchdog(original, target)
             current = _write_taskbar_state(target)
             if current != target:
                 raise OSError("Windows taskbar auto-hide verification mismatch")
         except BaseException:
-            _write_taskbar_state(original)
-            _cancel_watchdog(watchdog)
+            try:
+                if _taskbar_state() != original:
+                    _write_taskbar_state(original)
+            finally:
+                matrix_immersive_frame.restore(frame_state)
+                if watchdog is not None:
+                    _cancel_watchdog(watchdog)
             raise
         stop_event = threading.Event()
         hwnd_value = int(getattr(hwnd, "value", hwnd) or 0)
+        frame_thread = threading.Thread(
+            target=matrix_immersive_frame.guard_loop,
+            args=(stop_event, frame_state),
+            name=f"EveMatrixFrame:{token[:10]}", daemon=True,
+        )
         _SESSION.update({"token": token, "originalState": original,
-                         "stop": stop_event, "watchdog": watchdog})
+                         "stop": stop_event, "watchdog": watchdog,
+                         "frame": frame_state, "frameThread": frame_thread})
+        frame_thread.start()
         threading.Thread(target=_watch_window, args=(token, hwnd_value, stop_event),
                          name=f"EveMatrixTaskbar:{token[:10]}", daemon=True).start()
         threading.Thread(target=_edge_guard_loop, args=(stop_event, original, target),
                          name=f"EveMatrixTaskbarEdge:{token[:10]}", daemon=True).start()
     return {"ok": True, "supported": True, "taskbarAutoHide": True,
             "taskbarRestored": False, "taskbarOriginalState": original,
-            "taskbarState": current, "edgeGuard": True}
+            "taskbarState": current, "edgeGuard": True, "clientFrameSuppressed": True,
+            "dwmBorderSuppressed": bool(frame_state.get("dwmBorderSuppressed")),
+            "clientAligned": bool(frame_state.get("clientAligned"))}
 
 
 def shutdown() -> None:

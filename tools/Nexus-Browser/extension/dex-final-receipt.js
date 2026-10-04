@@ -1,10 +1,11 @@
 (() => {
-  // Only final RESULTS are replayed. Dispatched prompts are never retried here.
+  // Only Dex final RESULTS are replayed. Dispatched prompts and Base results are never retried here.
   const KEY = 'nexusDexPendingFinalsV1';
   const TTL_MS = 30 * 60 * 1000, MIN_RETRY_MS = 10000, MAX_PENDING = 16;
+  const isDexRequestId = (requestId) => String(requestId || '').startsWith('dex-');
   function createOutbox({ storage, now = () => Date.now() } = {}) {
     const pending = new Map();
-    const stats = { queued: 0, acknowledged: 0, retries: 0, expiredUnconfirmed: 0, lastError: null };
+    const stats = { queued: 0, acknowledged: 0, retries: 0, expiredUnconfirmed: 0, discardedLegacy: 0, lastError: null };
     let loaded = false, loading = null, writes = Promise.resolve();
     function persist() {
       if (!storage?.set) return Promise.reject(new Error('Durable final receipt storage unavailable.'));
@@ -17,11 +18,18 @@
       if (loading) return loading;
       loading = (async () => {
         const data = await storage?.get?.(KEY);
+        let discardedLegacy = false;
         for (const entry of data?.[KEY] || []) {
           if (!entry?.requestId || !entry?.payload || !Number.isFinite(entry.createdAt)) continue;
+          if (!isDexRequestId(entry.requestId)) {
+            stats.discardedLegacy += 1;
+            discardedLegacy = true;
+            continue;
+          }
           pending.set(entry.requestId, entry);
         }
         loaded = true;
+        if (discardedLegacy && storage?.set) await persist();
       })();
       try { await loading; } finally { loading = null; }
     }
@@ -30,6 +38,7 @@
       const id = String(payload?.requestId || '');
       if (payload?.type !== 'response_final' || !id || !payload.text || !tabId || !providerId)
         throw new Error('Final reply requires a bound provider tab, nonempty text and exact request ID.');
+      if (!isDexRequestId(id)) throw new Error('Durable final receipt is reserved for Dex request IDs.');
       if (pending.has(id)) {
         if (pending.get(id).payload.text !== payload.text)
           throw new Error('Conflicting final response for the same Dex request ID.');
@@ -42,10 +51,10 @@
       try { await persist(); }
       catch (error) { pending.delete(id); stats.lastError = String(error?.message || error); throw error; }
       stats.queued += 1;
-      flush({ tabId, providerId, send });
+      flush({ send });
       return { ok: true, queued: true };
     }
-    function flush({ tabId, providerId, send = () => false } = {}) {
+    function flush({ send = () => false } = {}) {
       let sent = 0;
       for (const entry of pending.values()) {
         const age = now() - entry.createdAt;
@@ -53,7 +62,6 @@
           if (!entry.expiredReported) { entry.expiredReported = true; stats.expiredUnconfirmed += 1; }
           continue;
         }
-        if (String(entry.tabId) !== String(tabId) || entry.providerId !== providerId) continue;
         if (entry.lastSentAt && now() - entry.lastSentAt < MIN_RETRY_MS) continue;
         if (!send(entry.payload)) continue;
         if (entry.lastSentAt) stats.retries += 1;
@@ -76,7 +84,7 @@
       pendingRequestIds: [...pending.keys()] }; }
     return { queue, restore, flush, acknowledge, diagnostics };
   }
-  const api = { KEY, TTL_MS, MIN_RETRY_MS, MAX_PENDING, createOutbox };
+  const api = { KEY, TTL_MS, MIN_RETRY_MS, MAX_PENDING, isDexRequestId, createOutbox };
   if (typeof globalThis !== 'undefined') globalThis.BrowserAiBridgeDexFinalReceipt = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

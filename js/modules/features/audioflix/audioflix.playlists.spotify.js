@@ -9,7 +9,7 @@ window.EveAudioflixSpotify = window.EveAudioflixSpotify || {};
     if (ns.ready) return;
 
     const text = (value) => String(value ?? '').trim();
-    const PLAYLIST_RE = /https?:\/\/open\.spotify\.com\/(?:embed\/)?playlist\/([A-Za-z0-9]+)/i;
+    const PLAYLIST_RE = /https?:\/\/open\.spotify\.com\/(?:embed\/)?playlist\/([A-Za-z0-9]+)(?:\?[^"'<>\s]+)?/i;
 
     function normalizeInput(value) {
         const raw = text(value)
@@ -19,11 +19,17 @@ window.EveAudioflixSpotify = window.EveAudioflixSpotify || {};
         const match = raw.match(PLAYLIST_RE);
         if (!match) return { ok: false, reason: 'Enter a public Spotify playlist URL, embed URL, or iframe snippet.' };
         const playlistId = match[1];
+        let query = '';
+        try {
+            query = new URL(match[0]).search;
+        } catch {}
         return {
             ok: true,
             playlistId,
-            url: `https://open.spotify.com/playlist/${playlistId}`,
-            embedUrl: `https://open.spotify.com/embed/playlist/${playlistId}`
+            // Preserve Spotify share parameters, especially pt= for private playlist access.
+            // Stripping them leaves only the playlist shell visible and hides the song rows.
+            url: `https://open.spotify.com/playlist/${playlistId}${query}`,
+            embedUrl: `https://open.spotify.com/embed/playlist/${playlistId}${query}`
         };
     }
 
@@ -45,24 +51,30 @@ window.EveAudioflixSpotify = window.EveAudioflixSpotify || {};
     }
 
     function entryPatch(entry = {}) {
+        const spotifyTrackId = text(entry.spotifyTrackId || entry.id);
         return {
             album: text(entry.album),
             image: text(entry.image),
             explicit: entry.explicit === true,
             sourceProvider: 'spotify',
+            spotifyTrackId,
+            spotifyUri: text(entry.spotifyUri || entry.uri || (spotifyTrackId ? `spotify:track:${spotifyTrackId}` : '')),
+            isrc: text(entry.isrc || entry.external_ids?.isrc || entry.externalIds?.isrc),
             playlistPosition: Math.max(0, Number(entry.position || 0) || 0)
         };
     }
 
     function connectionPatch(payload = {}) {
-        return {
+        const source = text(payload.scrapeSource);
+        const patch = {
             playlistId: text(payload.playlistId),
             owner: text(payload.owner),
             description: text(payload.description),
             image: text(payload.image),
-            embedUrl: text(payload.embedUrl),
-            scrapeSource: text(payload.cached ? 'saved-session-cache' : 'saved-session')
+            embedUrl: text(payload.embedUrl)
         };
+        if (source) patch.scrapeSource = payload.cached ? `${source}-cache` : source;
+        return patch;
     }
 
     Object.assign(ns, {

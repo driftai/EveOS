@@ -256,14 +256,18 @@ def toggle_favorite(root_id: str, relative_path: str) -> dict:
 
 
 def link_notes(source_ref: str, target_ref: str) -> dict:
-    if ":" not in source_ref or ":" not in target_ref or source_ref == target_ref:
+    if ":" not in source_ref or ":" not in target_ref:
         raise ValueError("Use two different EveOS note references.")
-    source_root, source_path = source_ref.split(":", 1)
-    target_root, target_path = target_ref.split(":", 1)
-    for root_id, relative in ((source_root, source_path), (target_root, target_path)):
-        target, _normalized, _record = _resolve(root_id, relative)
+    canonical = []
+    for note_ref in (source_ref, target_ref):
+        root_id, relative = note_ref.split(":", 1)
+        target, normalized, _record = _resolve(root_id, relative)
         if not _is_note(target):
             raise ValueError("Both note references must point to existing notes.")
+        canonical.append(_note_key(root_id, normalized))
+    source_ref, target_ref = canonical
+    if source_ref == target_ref:
+        raise ValueError("Use two different EveOS note references.")
     state = _load_state()
     for left, right in ((source_ref, target_ref), (target_ref, source_ref)):
         values = state["links"].setdefault(left, [])

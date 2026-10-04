@@ -22,6 +22,7 @@
   const isDexRelay = (id) => /^dex-turn-[A-Za-z0-9-]{8,128}$/.test(String(id || ''));
   const { transientStatusLine, substantiveAssistantText } = pageState;
   const { looksCompleteAssistantText, obviouslyPartialAssistantText } = pageState;
+  const { exactReplyExpectation, matchesExactReplyRequest } = pageState;
   const malformedDexControl = (text) => !!globalThis.BrowserAiBridgeDexProviderControlContent?.malformedTrailingCommand?.(text);
   const generationSettleMs = (options) => pageState.generationSettleMs(options, {
     RELIABLE_GENERATION_SETTLE_MS, STATUS_SIGNAL_SETTLE_MS, INCOMPLETE_NO_SIGNAL_SETTLE_MS
@@ -218,6 +219,7 @@
         return;
       }
       const settleMs = looksCompleteAssistantText(watcher.lastText) || malformedDexControl(watcher.lastText)
+        || matchesExactReplyRequest(watcher.prompt, watcher.lastText)
         ? NO_SIGNAL_SETTLE_MS
         : INCOMPLETE_NO_SIGNAL_SETTLE_MS;
       if (stableFor >= settleMs) finalize({ allowUnpunctuated: !looksCompleteAssistantText(watcher.lastText) });
@@ -396,7 +398,8 @@
           observedAt: Date.now(),
           completenessHint: isGenerating ? 'unknown'
             : looksCompleteAssistantText(text) ? 'complete'
-              : text && obviouslyPartialAssistantText(text) ? 'incomplete' : 'unknown'
+              : text && obviouslyPartialAssistantText(text) ? 'incomplete' : 'unknown',
+          detail: { capture: answer.captureDiagnostics?.() || null }
         });
         return;
       }

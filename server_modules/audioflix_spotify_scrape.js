@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 
 const mode = process.argv[2] || 'scrape';
-const embedUrl = process.argv[3] || '';
+const playlistUrl = process.argv[3] || '';
 const profileDir = process.argv[4] || '';
 const statusPath = process.argv[5] || '';
 const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
@@ -16,9 +16,75 @@ const durationSeconds = (value) => {
     return parts.reduce((total, part) => total * 60 + part, 0);
 };
 const trackId = (value) => clean(value).match(/(?:spotify:track:|\/track\/)([A-Za-z0-9]{10,})/)?.[1] || '';
+const playlistIdFromUrl = (value) => clean(value).match(/playlist\/([A-Za-z0-9]+)/)?.[1] || '';
 const matchKey = (value) => clean(value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const stableId = (row, position) => trackId(row.url || row.uri)
     || crypto.createHash('sha1').update(`${row.title}|${row.artist}|${position}`).digest('hex').slice(0, 22);
+const playlistCount = (value) => {
+    // Spotify's playlist header includes a duration summary (for example
+    // "135 songs, about 7 hr"). Do not trust arbitrary "N songs" strings from
+    // the rest of the Web Player: Library/sidebar counters can be much larger.
+    const text = clean(value);
+    const summary = text.match(/\b([\d,]+)\s+(?:songs?|tracks?)\s*,?\s*(?:about\s+)?(?:(?:\d+\s*(?:hr|hrs|hours?))(?:\s+\d+\s*(?:min|mins|minutes?))?|(?:\d+\s*(?:min|mins|minutes?)))\b/i);
+    if (!summary) return 0;
+    const count = Number(summary[1].replace(/,/g, ''));
+    return Number.isFinite(count) && count > 0 ? count : 0;
+};
+const isEmbedPlaylistUrl = (value) => /open\.spotify\.com\/embed\/playlist\//i.test(clean(value));
+const fullPlaylistUrl = (value) => {
+    const id = playlistIdFromUrl(value);
+    return id ? `https://open.spotify.com/playlist/${id}` : clean(value);
+};
+const needsFullPlayerPromotion = (value, expectedCount = 0, capturedCount = 0) => (
+    isEmbedPlaylistUrl(value)
+    && (Number(expectedCount) > 100 || (!Number(expectedCount) && Number(capturedCount) >= 100))
+);
+const assessPlaylistCompleteness = (expectedCount = 0, capturedCount = 0) => {
+    const expected = Math.max(0, Number(expectedCount) || 0);
+    const captured = Math.max(0, Number(capturedCount) || 0);
+    if (!expected || captured >= expected) {
+        return { ok: true, expectedCount: expected, capturedCount: captured, unexposedCount: 0 };
+    }
+
+    const shortfall = expected - captured;
+    // Spotify can count a removed/region-blocked item in the playlist total without exposing a
+    // usable track row. Always tolerate exactly one missing row after a complete scan; for larger
+    // playlists we also allow the existing tiny <=2% gap (up to three rows). Real truncation such
+    // as 8/135, or 16/18, remains blocked.
+    const tolerance = Math.min(3, Math.max(1, Math.ceil(expected * 0.02)));
+    const singleUnavailable = captured > 0 && shortfall === 1;
+    const nearComplete = captured > 0
+        && captured / expected >= 0.97
+        && shortfall <= tolerance;
+    const acceptable = singleUnavailable || nearComplete;
+    return {
+        ok: acceptable,
+        expectedCount: expected,
+        capturedCount: captured,
+        unexposedCount: acceptable ? shortfall : 0,
+        shortfall
+    };
+};
+const shouldPromoteEmbedAfterScan = (value, expectedCount = 0, capturedCount = 0) => {
+    if (!isEmbedPlaylistUrl(value)) return false;
+    const captured = Math.max(0, Number(capturedCount) || 0);
+    if (!captured) return true;
+    if (needsFullPlayerPromotion(value, expectedCount, captured)) return true;
+    const expected = Math.max(0, Number(expectedCount) || 0);
+    return expected > 0 && !assessPlaylistCompleteness(expected, captured).ok;
+};
+
+function requestMentionsPlaylist(url = '', postData = '', playlistId = '') {
+    if (!playlistId) return false;
+    const values = [url, postData].map((value) => {
+        const raw = String(value || '');
+        try { return `${raw}\n${decodeURIComponent(raw)}`; } catch { return raw; }
+    });
+    const haystack = values.join('\n');
+    return haystack.includes(playlistId)
+        || haystack.includes(`spotify:playlist:${playlistId}`)
+        || haystack.includes(`/playlist/${playlistId}`);
+}
 
 function writeLaunchStatus(value) {
     if (!statusPath) return;
@@ -72,6 +138,46 @@ function mergeTrack(base = {}, overlay = {}) {
     };
 }
 
+function rowIdentity(row = {}) {
+    const id = clean(row.id) || trackId(row.url || row.uri);
+    if (id) return `id:${id}`;
+    const title = matchKey(row.title || row.name);
+    const artist = matchKey(row.artist || row.artists?.join(' '));
+    return title ? `meta:${title}|${artist}` : '';
+}
+
+function mergePlaylistRows(domRows = [], networkTracks = new Map(), expectedCount = 0) {
+    const networkRows = networkTracks instanceof Map ? [...networkTracks.values()] : [...(networkTracks || [])];
+    if (!domRows.length) return expectedCount ? networkRows.slice(0, expectedCount) : networkRows;
+
+    const networkByIdentity = new Map(networkRows.map((row) => [rowIdentity(row), row]).filter(([key]) => key));
+    const enrichedDom = domRows.map((row) => mergeTrack(networkByIdentity.get(rowIdentity(row)), row));
+    const firstIdentity = rowIdentity(enrichedDom[0]);
+    const anchor = firstIdentity ? networkRows.findIndex((row) => rowIdentity(row) === firstIdentity) : -1;
+
+    // Spotify's Web Player frequently ships the whole playlist in a JSON response while rendering
+    // only a small virtualized window in the DOM. Anchor that response on the first visible song so
+    // unrelated player/sidebar metadata before the playlist cannot become imported tracks.
+    if (expectedCount > enrichedDom.length && anchor >= 0 && networkRows.length - anchor >= expectedCount) {
+        const domByIdentity = new Map(enrichedDom.map((row) => [rowIdentity(row), row]).filter(([key]) => key));
+        return networkRows.slice(anchor, anchor + expectedCount)
+            .map((row) => mergeTrack(row, domByIdentity.get(rowIdentity(row))));
+    }
+
+    const merged = [...enrichedDom];
+    const seen = new Set(merged.map(rowIdentity).filter(Boolean));
+    if (anchor >= 0) {
+        for (const row of networkRows.slice(anchor)) {
+            const key = rowIdentity(row);
+            if (!key || seen.has(key)) continue;
+            merged.push(row);
+            seen.add(key);
+            if (expectedCount && merged.length >= expectedCount) break;
+        }
+    }
+    return merged;
+}
+
 function scanValue(value, tracks, depth = 0, seen = new WeakSet()) {
     if (!value || typeof value !== 'object' || depth > 14 || seen.has(value)) return;
     seen.add(value);
@@ -112,7 +218,6 @@ function scanValue(value, tracks, depth = 0, seen = new WeakSet()) {
 async function extractRows(page) {
     return page.evaluate(() => {
         const tidy = (value) => String(value || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
-        const pattern = /\b\d{1,3}:\d{2}\b/;
         const visible = (element) => {
             const rect = element.getBoundingClientRect();
             const style = getComputedStyle(element);
@@ -156,20 +261,42 @@ async function extractRows(page) {
     });
 }
 
-async function collectDomRows(page) {
-    const collected = new Map();
-    let dimensions = await page.evaluate(() => {
-        const candidates = [...document.querySelectorAll('*')].filter((element) => {
+async function markScrollTarget(page) {
+    return page.evaluate(() => {
+        document.querySelectorAll('[data-eve-spotify-scroll]').forEach((element) => element.removeAttribute('data-eve-spotify-scroll'));
+        const rowSelector = "[data-testid^='tracklist-row'],[role='row']";
+        const candidates = [...document.querySelectorAll('*')].map((element) => {
             const style = getComputedStyle(element);
-            return /(auto|scroll)/.test(style.overflowY) && element.scrollHeight > element.clientHeight + 80;
-        }).sort((a, b) => b.scrollHeight - a.scrollHeight);
-        const target = candidates[0];
+            const range = element.scrollHeight - element.clientHeight;
+            if (!/(auto|scroll)/.test(style.overflowY) || range <= 80) return null;
+            return { element, range, rows: element.querySelectorAll(rowSelector).length };
+        }).filter(Boolean).sort((a, b) => {
+            const rowPreference = Number(b.rows > 0) - Number(a.rows > 0);
+            if (rowPreference) return rowPreference;
+            if (b.rows !== a.rows) return b.rows - a.rows;
+            return b.range - a.range;
+        });
+        const target = candidates[0]?.element;
         if (target) target.dataset.eveSpotifyScroll = '1';
-        return { height: target?.clientHeight || innerHeight, maximum: Math.max(0, (target?.scrollHeight || document.documentElement.scrollHeight) - (target?.clientHeight || innerHeight)) };
+        const rect = target?.getBoundingClientRect();
+        const height = target?.clientHeight || innerHeight;
+        return {
+            height,
+            maximum: Math.max(0, (target?.scrollHeight || document.documentElement.scrollHeight) - height),
+            position: target?.scrollTop || scrollY || 0,
+            x: rect ? Math.max(1, Math.min(innerWidth - 1, rect.left + rect.width / 2)) : innerWidth / 2,
+            y: rect ? Math.max(1, Math.min(innerHeight - 1, rect.top + rect.height / 2)) : innerHeight / 2
+        };
     });
-    let position = 0;
+}
+
+async function collectDomRows(page, expectedCount = 0) {
+    const collected = new Map();
+    const deadline = Date.now() + 90000;
+    let dimensions = await markScrollTarget(page);
     let unchanged = 0;
-    for (let pass = 0; pass < 90; pass += 1) {
+    let reachedBottom = false;
+    while (Date.now() < deadline) {
         let additions = 0;
         for (const row of await extractRows(page)) {
             const key = row.id || `${row.title.toLowerCase()}|${row.artists.join(',').toLowerCase()}|${row.durationText}`;
@@ -177,22 +304,42 @@ async function collectDomRows(page) {
             collected.set(key, { ...(collected.get(key) || {}), ...row });
         }
         unchanged = additions ? 0 : unchanged + 1;
-        if (position >= dimensions.maximum && unchanged >= 2) break;
-        position = Math.min(dimensions.maximum, position + Math.max(180, Math.floor(dimensions.height * 0.7)));
-        await page.evaluate((next) => {
+        if (expectedCount && collected.size >= expectedCount) {
+            reachedBottom = true;
+            break;
+        }
+        const atBottom = dimensions.position >= Math.max(0, dimensions.maximum - 2);
+        const stableLimit = expectedCount && collected.size < expectedCount ? 8 : 3;
+        if (atBottom && unchanged >= stableLimit) {
+            reachedBottom = true;
+            break;
+        }
+
+        const step = Math.max(320, Math.floor(dimensions.height * 0.75));
+        await page.evaluate((delta) => {
             const target = document.querySelector('[data-eve-spotify-scroll="1"]');
-            if (target) target.scrollTop = next;
-            else scrollTo(0, next);
-        }, position);
-        await page.waitForTimeout(300);
-        dimensions = await page.evaluate(() => {
-            const target = document.querySelector('[data-eve-spotify-scroll="1"]');
-            const height = target?.clientHeight || innerHeight;
-            return {
-                height,
-                maximum: Math.max(0, (target?.scrollHeight || document.documentElement.scrollHeight) - height)
-            };
-        });
+            if (target) {
+                target.scrollTop = Math.min(target.scrollHeight - target.clientHeight, target.scrollTop + delta);
+                target.dispatchEvent(new Event('scroll', { bubbles: true }));
+            } else {
+                scrollBy(0, delta);
+            }
+        }, step);
+        await page.waitForTimeout(350);
+        let next = await markScrollTarget(page);
+
+        // If direct scrollTop writes do not move Spotify's virtual scroller, send a real wheel event
+        // over the selected viewport. OverlayScrollbars/React virtualization responds to this path.
+        if (next.position <= dimensions.position + 1 && unchanged >= 2) {
+            await page.mouse.move(next.x, next.y).catch(() => {});
+            await page.mouse.wheel(0, step).catch(() => {});
+            await page.waitForTimeout(350);
+            next = await markScrollTarget(page);
+        }
+        dimensions = next;
+    }
+    if (!reachedBottom) {
+        throw new Error(`Spotify playlist scan timed out after collecting ${collected.size} tracks. Nothing was imported; keep the saved Spotify session signed in and retry.`);
     }
     return [...collected.values()];
 }
@@ -213,59 +360,118 @@ async function header(page) {
 async function scrape(context) {
     const page = context.pages()[0] || await context.newPage();
     page.setDefaultTimeout(15000);
+    const targetPlaylistId = playlistIdFromUrl(playlistUrl);
     const network = new Map();
-    page.on('response', async (response) => {
-        try {
-            const type = String(response.headers()['content-type'] || '');
-            if (response.status() < 400 && response.url().includes('spotify') && (type.includes('json') || /graphql|pathfinder|api/.test(response.url()))) {
-                const body = await response.text();
-                if (body.length < 12000000) scanValue(JSON.parse(body), network);
-            }
-        } catch {}
+    const playlistNetwork = new Map();
+    const pendingNetwork = new Set();
+    page.on('response', (response) => {
+        const task = (async () => {
+            try {
+                const type = String(response.headers()['content-type'] || '');
+                if (response.status() < 400 && response.url().includes('spotify') && (type.includes('json') || /graphql|pathfinder|api/.test(response.url()))) {
+                    const body = await response.text();
+                    if (body.length < 12000000) {
+                        const payload = JSON.parse(body);
+                        scanValue(payload, network);
+                        const request = response.request();
+                        if (requestMentionsPlaylist(response.url(), request.postData() || '', targetPlaylistId)) {
+                            scanValue(payload, playlistNetwork);
+                        }
+                    }
+                }
+            } catch {}
+        })();
+        pendingNetwork.add(task);
+        task.finally(() => pendingNetwork.delete(task));
     });
-    await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(4500);
-    const body = await page.locator('body').innerText().catch(() => '');
-    if (/page not found|can.?t seem to find/i.test(body)) {
-        throw new Error('Spotify could not open this playlist in EveOS. It may be private, deleted, or owned by another account. Open the saved Spotify session, sign in to an account that can view it, confirm the playlist loads there, then import again.');
+    async function loadPage(url) {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForTimeout(4500);
+        const body = await page.locator('body').innerText().catch(() => '');
+        for (const script of await page.locator('script').allTextContents()) {
+            if (script.length < 12000000 && /spotify:track:|\/track\//.test(script)) {
+                try { scanValue(JSON.parse(script), network); } catch {}
+            }
+        }
+        return { body, expectedCount: playlistCount(body) };
     }
-    if (/log in|sign in/i.test(body) && !/\b\d{1,3}:\d{2}\b/.test(body)) throw new Error('Spotify login is required. Open the saved Spotify session first.');
-    for (const script of await page.locator('script').allTextContents()) {
-        if (script.length < 12000000 && /spotify:track:|\/track\//.test(script)) {
-            try { scanValue(JSON.parse(script), network); } catch {}
+    async function settleAndResetCapture() {
+        await Promise.allSettled([...pendingNetwork]);
+        network.clear();
+        playlistNetwork.clear();
+    }
+    const accessFailed = (body) => /page not found|can.?t seem to find/i.test(body)
+        || (/log in|sign in/i.test(body) && !/\b\d{1,3}:\d{2}\b/.test(body));
+    function assertAccessible(body) {
+        if (/page not found|can.?t seem to find/i.test(body)) {
+            throw new Error('Spotify could not open this playlist in EveOS. It may be private, deleted, or owned by another account. Open the saved Spotify session, sign in to an account that can view it, confirm the playlist loads there, then import again.');
+        }
+        if (/log in|sign in/i.test(body) && !/\b\d{1,3}:\d{2}\b/.test(body)) {
+            throw new Error('Spotify login is required. Open the saved Spotify session first.');
         }
     }
-    const dom = await collectDomRows(page);
-    const byTitle = new Map();
-    for (const value of network.values()) {
-        const key = matchKey(value.title);
-        if (key) byTitle.set(key, [...(byTitle.get(key) || []), value]);
+    let scrapeSource = isEmbedPlaylistUrl(playlistUrl) ? 'embed' : 'saved-session';
+    let loaded = await loadPage(playlistUrl);
+    const embedExpectedCount = loaded.expectedCount;
+    async function promoteToFullPlayer() {
+        await settleAndResetCapture();
+        scrapeSource = 'saved-session';
+        const full = await loadPage(fullPlaylistUrl(playlistUrl));
+        if (!full.expectedCount) full.expectedCount = embedExpectedCount;
+        return full;
     }
-    const rows = dom.length ? dom.map((row) => {
-        const candidates = byTitle.get(matchKey(row.title)) || [];
-        const artistKey = matchKey(row.artist || row.artists?.join(' '));
-        const matched = network.get(row.id)
-            || candidates.find((entry) => artistKey && matchKey(entry.artist).includes(artistKey))
-            || (candidates.length === 1 ? candidates[0] : null);
-        return mergeTrack(matched, row);
-    }) : [...network.values()];
+    if (scrapeSource === 'embed' && (accessFailed(loaded.body)
+        || needsFullPlayerPromotion(playlistUrl, loaded.expectedCount))) {
+        loaded = await promoteToFullPlayer();
+    }
+    assertAccessible(loaded.body);
+    let dom = await collectDomRows(page, loaded.expectedCount);
+    if (scrapeSource === 'embed'
+        && shouldPromoteEmbedAfterScan(playlistUrl, loaded.expectedCount, dom.length)) {
+        loaded = await promoteToFullPlayer();
+        assertAccessible(loaded.body);
+        dom = await collectDomRows(page, loaded.expectedCount);
+    }
+    await Promise.allSettled([...pendingNetwork]);
+    const scopedNetwork = playlistNetwork.size ? playlistNetwork : network;
+    const rows = mergePlaylistRows(dom, scopedNetwork, loaded.expectedCount);
     const seen = new Set();
     const entries = rows.map((row, index) => {
         const sourceId = stableId(row, index + 1);
         return { ...row, sourceId, position: index + 1 };
     }).filter((row) => row.title && row.url && !seen.has(row.sourceId) && seen.add(row.sourceId));
-    if (!entries.length) throw new Error('No Spotify song rows were found. Open the saved session, verify the playlist is visible, then sync again.');
+    if (!entries.length) {
+        const sourceHint = scrapeSource === 'saved-session'
+            ? 'The saved Spotify session opened the playlist but exposed no usable song rows.'
+            : 'Spotify exposed the playlist shell but no usable song rows.';
+        throw new Error(`${sourceHint} Open Saved Session, verify the songs themselves are visible there, close that window, then import again.`);
+    }
+    const completeness = assessPlaylistCompleteness(loaded.expectedCount, entries.length);
+    if (!completeness.ok) {
+        throw new Error(`Spotify says this playlist has ${loaded.expectedCount} songs, but EveOS captured only ${entries.length}. The partial import was cancelled; reopen the saved Spotify session and retry.`);
+    }
     const meta = await header(page);
-    return { ok: true, playlistId: embedUrl.match(/playlist\/([A-Za-z0-9]+)/)?.[1] || '', title: meta.title || 'Spotify Playlist', owner: meta.owner, image: meta.image || entries[0].image, count: entries.length, entries };
+    return {
+        ok: true,
+        playlistId: targetPlaylistId,
+        title: meta.title || 'Spotify Playlist',
+        owner: meta.owner,
+        image: meta.image || entries[0].image,
+        count: entries.length,
+        expectedCount: completeness.expectedCount || entries.length,
+        unexposedCount: completeness.unexposedCount,
+        scrapeSource,
+        entries
+    };
 }
 
 async function main() {
-    if (!embedUrl || !profileDir) throw new Error('Missing Spotify playlist or profile path.');
+    if (!playlistUrl || !profileDir) throw new Error('Missing Spotify playlist or profile path.');
     const context = await launchContext();
     if (mode === 'login') {
-        writeLaunchStatus({ ok: true, pid: process.pid, openedAt: Date.now(), url: embedUrl });
+        writeLaunchStatus({ ok: true, pid: process.pid, openedAt: Date.now(), url: playlistUrl });
         const page = context.pages()[0] || await context.newPage();
-        await page.goto(`https://accounts.spotify.com/login?continue=${encodeURIComponent(embedUrl)}`, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => page.goto(embedUrl));
+        await page.goto(`https://accounts.spotify.com/login?continue=${encodeURIComponent(playlistUrl)}`, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => page.goto(playlistUrl));
         await new Promise((resolve) => context.on('close', resolve));
         return;
     }
@@ -282,4 +488,13 @@ if (require.main === module) {
     });
 }
 
-module.exports = { mergeTrack };
+module.exports = {
+    mergeTrack,
+    mergePlaylistRows,
+    playlistCount,
+    requestMentionsPlaylist,
+    needsFullPlayerPromotion,
+    assessPlaylistCompleteness,
+    shouldPromoteEmbedAfterScan,
+    collectDomRows
+};

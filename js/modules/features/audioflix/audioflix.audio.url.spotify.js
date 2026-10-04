@@ -72,6 +72,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                 let started = false;
                 let startTimer = 0;
                 let runtimeFailureReported = false;
+                let selectedItem = item;
                 const timer = setTimeout(() => finish(new Error('Spotify player did not become ready.')), READY_TIMEOUT_MS);
                 const blockedMessage = 'Spotify playback needs a direct click in this browser. Use the visible Spotify play control, allow protected media, or localize this track for reliable one-click playback.';
                 const clearStartTimer = () => {
@@ -136,6 +137,24 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                         destroy: () => {
                             clearStartTimer();
                             return controller.destroy?.();
+                        },
+                        loadItem: async (nextItem) => {
+                            const nextId = spotifyTrackId(nextItem?.url);
+                            if (!nextId) throw new Error('This Spotify link does not contain a playable track ID.');
+                            const load = typeof controller.loadUri === 'function'
+                                ? controller.loadUri.bind(controller)
+                                : typeof controller.loadEntity === 'function'
+                                    ? controller.loadEntity.bind(controller)
+                                    : null;
+                            if (!load) throw new Error('The Spotify player cannot switch tracks in this browser.');
+                            selectedItem = nextItem;
+                            ended = false;
+                            started = false;
+                            runtimeFailureReported = false;
+                            clearStartTimer();
+                            setStageStatus(`Loading ${nextItem.title || 'the next Spotify track'}...`);
+                            await Promise.resolve(load(`spotify:track:${nextId}`));
+                            return player.play();
                         }
                     };
                     V.active = { kind: 'spotify', player };
@@ -147,11 +166,13 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     controller.addListener?.('playback_started', () => {
                         markStarted();
                         V.playback.paused = false;
-                        emitPlayback(`Playing ${item.title || 'Spotify track'} with Spotify`);
+                        emitPlayback(`Playing ${selectedItem.title || 'Spotify track'} with Spotify`);
                         emitProgress();
                     });
                     controller.addListener?.('playback_update', (event) => {
                         const data = event?.data || event || {};
+                        const playingId = spotifyTrackId(data.playingURI);
+                        if (playingId && playingId !== spotifyTrackId(selectedItem?.url)) return;
                         V.playback.currentTime = Math.max(0, Number(data.position || 0) / 1000);
                         V.playback.duration = Math.max(0, Number(data.duration || 0) / 1000);
                         V.playback.paused = data.isPaused !== false;
@@ -160,7 +181,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                         if (!V.playback.paused) {
                             if (!started) markStarted();
                             ended = false;
-                            emitPlayback(`Playing ${item.title || 'Spotify track'} with Spotify`);
+                            emitPlayback(`Playing ${selectedItem.title || 'Spotify track'} with Spotify`);
                         } else if (atEnd && !ended) {
                             clearStartTimer();
                             ended = true;

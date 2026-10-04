@@ -3,6 +3,8 @@ const antigravityCli = require('./antigravity-cli');
 const codexExisting = require('./codex-existing');
 const codexCli = require('./codex-cli');
 const geminiCli = require('./gemini-cli');
+const eveosServiceChats = require('./eveos-service-chats');
+const geminiLinkChat = require('./gemini-link-chat');
 
 const TARGET_CLASSES = [
   { id: 'online-origin', name: 'Online-Origin Targets' },
@@ -14,10 +16,15 @@ const LOCAL_TARGET_TYPES = [
     id: 'terminal-agent',
     name: 'Terminal Agent',
     description: 'Local CLI/agent sessions bridged through the localhost relay.'
+  },
+  {
+    id: 'provider-workspace',
+    name: 'Provider Workspace Chat',
+    description: 'Passive chat access to EveOS local providers without starting their services.'
   }
 ];
 
-const adapters = [codexExisting, antigravityExisting, codexCli, antigravityCli, geminiCli];
+const adapters = [eveosServiceChats, geminiLinkChat, codexExisting, antigravityExisting, codexCli, antigravityCli, geminiCli];
 const CACHE_MS = Number(process.env.NEXUS_BROWSER_LOCAL_TARGET_CACHE_MS || process.env.BROWSER_AI_BRIDGE_LOCAL_TARGET_CACHE_MS || 600);
 let cachedTargets = null;
 let cachedAt = 0;

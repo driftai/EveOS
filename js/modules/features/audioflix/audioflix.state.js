@@ -49,23 +49,28 @@ window.EveAudioflixState = window.EveAudioflixState || {};
 
     function normalize(raw) {
         const source = raw && typeof raw === 'object' ? raw : {};
+        const tree = window.EveAudioflixGroupTree;
+        const soundboardGroups = Array.isArray(source.soundboardGroups)
+            ? [...new Set(source.soundboardGroups.map((g) => text(g, '')).filter(Boolean))] : [];
+        const musicGroups = Array.isArray(source.musicGroups)
+            ? [...new Set(source.musicGroups.map((g) => text(g, '')).filter(Boolean))] : [];
         const legacyMusicFocus = text(source.activeFrontendMusicGroup, '');
         const legacyArtist = legacyMusicFocus.startsWith('smart:artist:') ? legacyMusicFocus : '';
         const legacyClassifier = legacyMusicFocus.startsWith('class:') ? legacyMusicFocus : '';
         return {
-            schemaVersion: 2, durabilityRevision: Math.max(0, Number(source.durabilityRevision || 0) || 0), durabilityUpdatedAt: Math.max(0, Number(source.durabilityUpdatedAt || 0) || 0),
+            schemaVersion: 3, durabilityRevision: Math.max(0, Number(source.durabilityRevision || 0) || 0), durabilityUpdatedAt: Math.max(0, Number(source.durabilityUpdatedAt || 0) || 0),
             enabled: source.enabled !== false,
-            routeMode: ['browser', 'browser-selective', 'vb-cable', 'manual', 'native-bridge'].includes(source.routeMode) ? source.routeMode : 'browser',
-            preferredSinkId: text(source.preferredSinkId, ''),
-            preferredSinkLabel: text(source.preferredSinkLabel, ''),
-            nativeBridgeEnabled: bool(source.nativeBridgeEnabled),
+            routeMode: source.nativeRouteDefaultV2Applied === true && ['browser', 'browser-selective', 'vb-cable', 'manual', 'native-bridge'].includes(source.routeMode) ? source.routeMode : 'browser',
+            preferredSinkId: source.nativeRouteDefaultV2Applied === true ? text(source.preferredSinkId, '') : '',
+            preferredSinkLabel: source.nativeRouteDefaultV2Applied === true ? text(source.preferredSinkLabel, '') : '',
+            nativeBridgeEnabled: source.nativeRouteDefaultV2Applied === true && bool(source.nativeBridgeEnabled),
             nativeOutputId: text(source.nativeOutputId, ''),
             nativeOutputLabel: text(source.nativeOutputLabel, ''),
             nativeInputId: text(source.nativeInputId, ''),
             nativeInputLabel: text(source.nativeInputLabel, ''),
-            nativeSuppressBrowserPlayback: source.nativeSuppressBrowserPlayback !== false,
+            nativeSuppressBrowserPlayback: source.nativeRouteDefaultV2Applied === true && source.nativeSuppressBrowserPlayback === true, nativeRouteDefaultV2Applied: true,
             nativeBridgeBase: text(source.nativeBridgeBase, ''),
-            geminiVoicePortEnabled: bool(source.geminiVoicePortEnabled),
+            geminiVoicePortEnabled: source.nativeRouteDefaultV2Applied === true && bool(source.geminiVoicePortEnabled),
             geminiVoiceMonitorEnabled: source.geminiVoiceMonitorEnabled !== false,
             geminiVoiceMonitorSinkId: text(source.geminiVoiceMonitorSinkId, ''),
             geminiVoiceMonitorSinkLabel: text(source.geminiVoiceMonitorSinkLabel, ''),
@@ -95,9 +100,8 @@ window.EveAudioflixState = window.EveAudioflixState || {};
             exposedPortedSounds: source.exposedPortedSounds && typeof source.exposedPortedSounds === 'object' ? source.exposedPortedSounds : {},
             portHotkeys: source.portHotkeys && typeof source.portHotkeys === 'object' ? source.portHotkeys : {},
             soundboardViewMode: ['backend', 'frontend'].includes(source.soundboardViewMode) ? source.soundboardViewMode : 'backend',
-            soundboardGroups: Array.isArray(source.soundboardGroups)
-                ? [...new Set(source.soundboardGroups.map((g) => text(g, '')).filter(Boolean))]
-                : [],
+            soundboardGroups,
+            soundGroupParents: tree?.normalizeParents?.(soundboardGroups, source.soundGroupParents) || (source.soundGroupParents && typeof source.soundGroupParents === 'object' ? source.soundGroupParents : {}),
             soundGroupMap: source.soundGroupMap && typeof source.soundGroupMap === 'object'
                 ? Object.fromEntries(Object.entries(source.soundGroupMap)
                     .map(([k, v]) => [k, Array.isArray(v) ? [...new Set(v.map((g) => text(g, '')).filter(Boolean))] : []])
@@ -135,9 +139,8 @@ window.EveAudioflixState = window.EveAudioflixState || {};
                 }))
                 .filter((entry) => !!entry.id && !!entry.path),
             musicFolders: window.EveAudioflixStateRecovery?.folderRegistry?.(source) || [],
-            musicGroups: Array.isArray(source.musicGroups)
-                ? [...new Set(source.musicGroups.map((g) => text(g, '')).filter(Boolean))]
-                : [],
+            musicGroups,
+            musicGroupParents: tree?.normalizeParents?.(musicGroups, source.musicGroupParents) || (source.musicGroupParents && typeof source.musicGroupParents === 'object' ? source.musicGroupParents : {}),
             musicGroupMap: source.musicGroupMap && typeof source.musicGroupMap === 'object'
                 ? Object.fromEntries(Object.entries(source.musicGroupMap)
                     .map(([k, v]) => [k, Array.isArray(v) ? [...new Set(v.map((g) => text(g, '')).filter(Boolean))] : []])
@@ -274,10 +277,12 @@ window.EveAudioflixState = window.EveAudioflixState || {};
             exposedPortedSounds: {},
             portHotkeys: {},
             soundboardGroups: [],
+            soundGroupParents: {},
             soundGroupMap: {},
             activeFrontendGroup: '',
             musicFolders: [],
             musicGroups: [],
+            musicGroupParents: {},
             musicGroupMap: {},
             musicPlaylists: [],
             musicPortConnections: [],
@@ -426,12 +431,8 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         removePort,
         recordPlay,
         recordGeminiAudioEvent,
-        clearGeminiAudioEvents,
-        normalizeVolume,
-        setItemVolume,
-        setItemExposed,
-        setItemHotkey,
-        ...groupOps,
+        clearGeminiAudioEvents, normalizeVolume, setItemVolume,
+        setItemExposed, setItemHotkey, ...groupOps,
         getSnapshot: function () { return JSON.parse(JSON.stringify(ensure())); },
         getRevision: function () { return revision; },
         isTextBrainMode: function () { return ensure().geminiConversationMode === 'text-brain-live-voice'; }

@@ -185,42 +185,8 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         }
     }
 
-    function selectNativeOutput(deviceId, label) {
-        const enabled = !!deviceId;
-        const result = update({
-            nativeBridgeEnabled: enabled,
-            nativeOutputId: String(deviceId || ''),
-            nativeOutputLabel: String(label || '').trim(),
-            routeMode: enabled ? 'native-bridge' : 'browser'
-        }, 'audioflix-native-output');
-        if (enabled) maybeWarm();
-        return result;
-    }
-
-    function selectNativeInput(deviceId, label) {
-        return update({
-            nativeInputId: String(deviceId || ''),
-            nativeInputLabel: String(label || '').trim()
-        }, 'audioflix-native-input');
-    }
-
-    function setNativeBridgeEnabled(enabled) {
-        const current = state();
-        const result = update({
-            nativeBridgeEnabled: enabled === true && !!current.nativeOutputId,
-            routeMode: enabled === true && current.nativeOutputId ? 'native-bridge' : 'browser'
-        }, 'audioflix-native-bridge-toggle');
-        if (enabled === true && current.nativeOutputId) maybeWarm();
-        return result;
-    }
-
-    function shouldSuppressBrowserPlayback() {
-        if (isBridgeOffline()) return false;
-        const current = state();
-        return current.nativeBridgeEnabled === true
-            && current.nativeSuppressBrowserPlayback !== false
-            && !!current.nativeOutputId;
-    }
+    const { selectNativeOutput, selectNativeInput, setNativeBridgeEnabled, shouldSuppressBrowserPlayback } =
+        window.EveAudioflixNativeRouteState.create({ state, update, maybeWarm, isBridgeOffline });
 
     async function sendGeminiChunk(audio, detail = {}) {
         if (isBridgeOffline()) return false;

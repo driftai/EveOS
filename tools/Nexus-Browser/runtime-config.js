@@ -11,11 +11,15 @@ function positivePort(value) {
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : 0;
 }
 
-function registryPort() {
+function registryPort(key = 'NEXUS_BROWSER_PORT') {
   const payload = JSON.parse(fs.readFileSync(PORT_REGISTRY, 'utf8'));
-  const port = positivePort(payload?.ports?.NEXUS_BROWSER_PORT?.port);
-  if (!port) throw new Error('NEXUS_BROWSER_PORT is missing from config/eveos-ports.json.');
+  const port = positivePort(payload?.ports?.[key]?.port);
+  if (!port) throw new Error(`${key} is missing from config/eveos-ports.json.`);
   return port;
+}
+
+function portFor(key, env = process.env) {
+  return positivePort(env?.[key]) || registryPort(key);
 }
 
 function servicePort(env = process.env) {
@@ -40,4 +44,4 @@ function urls(port = servicePort()) {
   });
 }
 
-module.exports = Object.freeze({ EVEOS_ROOT, PORT_REGISTRY, registryPort, servicePort, dataDir, urls });
+module.exports = Object.freeze({ EVEOS_ROOT, PORT_REGISTRY, registryPort, portFor, servicePort, dataDir, urls });

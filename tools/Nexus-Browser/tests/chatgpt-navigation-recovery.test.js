@@ -78,8 +78,10 @@ test('ChatGPT navigation recovery waits for complete-looking no-signal text befo
 test('service worker arms and cancels ChatGPT navigation recovery around normal sends', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '../extension/service-worker.js'), 'utf8');
   const entry = fs.readFileSync(path.resolve(__dirname, '../extension/service-worker-entry.js'), 'utf8');
+  const returnRouting = fs.readFileSync(path.resolve(__dirname, '../extension/provider-return-routing.js'), 'utf8');
   assert.match(entry, /importScripts\('chatgpt-navigation-recovery\.js'\)/);
   assert.match(source, /chatgptNavigationRecoveryApi\.start\(/);
   assert.match(source, /!qualificationClaim && provider\.id === 'chatgpt'/);
-  assert.match(source, /chatgptNavigationRecoveryApi\.stop\(msg\.requestId\)/);
+  assert.match(source, /stopNavigation: chatgptNavigationRecoveryApi\.stop/);
+  assert.match(returnRouting, /stopNavigation\(message\.requestId\)/);
 });

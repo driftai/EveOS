@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const spotifyScraper = require('../../server_modules/audioflix_spotify_scrape.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const feature = (name) => path.join(ROOT, 'js', 'modules', 'features', 'audioflix', name);
@@ -27,6 +28,7 @@ global.window = {
                 owner: 'DriftAi',
                 description: 'Imported from the saved Spotify session.',
                 image: 'https://i.scdn.co/image/playlist-cover',
+                scrapeSource: 'embed',
                 entries: [
                     {
                         sourceId: 'spotify-a',
@@ -107,6 +109,31 @@ global.CustomEvent = class CustomEvent {};
 ].forEach((name) => vm.runInThisContext(fs.readFileSync(feature(name), 'utf8'), { filename: name }));
 
 (async () => {
+    assert(typeof spotifyScraper.collectDomRows === 'function', 'Spotify scraper exposes its virtual-scroll collector for regression coverage');
+    let scrollPosition = 0;
+    const expectedRows = 225;
+    const fakePage = {
+        async evaluate(fn, next) {
+            const source = String(fn);
+            if (source.includes("querySelectorAll(\"[data-testid^='tracklist-row']")) {
+                const index = Math.min(expectedRows - 1, Math.floor(scrollPosition / 180));
+                return Array.from({ length: Math.min(4, expectedRows - index) }, (_, offset) => ({
+                    id: `spotify-${index + offset}`, title: `Track ${index + offset}`, artists: ['Artist'],
+                    durationText: '3:00', url: `https://open.spotify.com/track/spotify-${index + offset}`
+                }));
+            }
+            if (typeof next === 'number') {
+                scrollPosition = Math.min((expectedRows - 1) * 180, scrollPosition + next);
+                return undefined;
+            }
+            return { height: 240, maximum: (expectedRows - 1) * 180, position: scrollPosition, x: 10, y: 10 };
+        },
+        async waitForTimeout() {},
+        mouse: { async move() {}, async wheel(_x, delta) { scrollPosition += delta; } }
+    };
+    const virtualRows = await spotifyScraper.collectDomRows(fakePage);
+    assert(virtualRows.length === expectedRows, `Spotify virtual scroll imports beyond 100 rows (got ${virtualRows.length})`);
+
     const trackUrl = 'https://open.spotify.com/track/trackA123456';
     assert(window.EveAudioflixUrlProviders.providerFor(trackUrl) === 'spotify', 'Spotify track URLs use the Spotify transport');
     assert(window.EveAudioflixSpotifyPlayback.spotifyTrackId(trackUrl) === 'trackA123456', 'Spotify track IDs normalize for the iframe controller');
@@ -124,6 +151,7 @@ global.CustomEvent = class CustomEvent {};
     assert(connection.group === 'Gilded age Music', 'playlist title becomes the live Audioflix group');
     assert(connection.owner === 'DriftAi' && connection.image, 'playlist metadata survives the connection');
     assert(connection.embedUrl === normalized.embedUrl, 'connection retains its editable embed source');
+    assert(connection.scrapeSource === 'embed', 'connection retains the extractor provenance independently of its track URLs');
     assert(store.musicGroups.includes('Gilded age Music'), 'Spotify import creates a music group');
 
     const imported = store.music.find((track) => track.sourceId === 'spotify-b');

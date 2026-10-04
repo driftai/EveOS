@@ -158,9 +158,9 @@ window.LoadingIndicatorModules = window.LoadingIndicatorModules || {};
                 ensureIndicatorStructure(indicator);
             }
 
-            if (indicator && document.body.lastElementChild !== indicator) {
+            if (indicator && indicator.parentElement !== document.body) {
                 document.body.appendChild(indicator);
-                console.log('Moved #loadingIndicator to end of body for z-index stacking');
+                console.log('Restored #loadingIndicator as a top-level body child');
             }
 
             setupEventListeners();
@@ -176,7 +176,7 @@ window.LoadingIndicatorModules = window.LoadingIndicatorModules || {};
 
         function ensureTopLevel() {
             const indicator = document.getElementById('loadingIndicator');
-            if (indicator && document.body && document.body.lastElementChild !== indicator) {
+            if (indicator && document.body && indicator.parentElement !== document.body) {
                 document.body.appendChild(indicator);
             }
         }

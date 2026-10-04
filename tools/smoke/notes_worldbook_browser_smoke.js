@@ -49,10 +49,22 @@ async function main() {
                     running: notesRunning, state: notesRunning ? 'running' : 'stopped', port: 8767, url: 'http://127.0.0.1:8767', message: notesRunning ? 'EveOS Notes is ready.' : 'EveOS Notes is stopped.' });
                 if (url.endsWith('/api/notes-service/start')) { notesRunning = true; return window.fetch('http://127.0.0.1:9082/api/notes-service/status'); }
                 if (url.endsWith('/api/notes-service/stop')) { notesRunning = false; return window.fetch('http://127.0.0.1:9082/api/notes-service/status'); }
-                if (url.endsWith('/api/notes/workspace')) return reply({ ok: true, roots: [{ id: 'files', name: 'Notes', kind: 'folder', available: true }, { id: 'spatial', name: 'Spatial Notes', kind: 'folder', available: true }] });
-                if (url.endsWith('/api/notes/list')) return reply({ ok: true, path: '', entries: [{ name: 'test.txt', path: 'test.txt', kind: 'file', extension: '.txt', size: 5, revision: 'r1', favorite: false, linkCount: 0, noteRef: 'files:test.txt' }] });
-                if (url.endsWith('/api/notes/read')) return reply({ ok: true, entry: { name: 'test.txt', path: 'test.txt', kind: 'file', extension: '.txt', size: 5, revision: 'r1', favorite: false, noteRef: 'files:test.txt' }, content: 'hello' });
+                if (url.endsWith('/api/notes/workspace')) {
+                    if (!notesRunning) throw new Error('Notes workspace used while stopped');
+                    return reply({ ok: true, roots: [{ id: 'files', name: 'Notes', kind: 'folder', available: true }, { id: 'spatial', name: 'Spatial Notes', kind: 'folder', available: true }] });
+                }
+                if (url.endsWith('/api/notes/list')) {
+                    const body = JSON.parse(options.body);
+                    const spatial = body.rootId === 'spatial';
+                    return reply({ ok: true, path: body.path || '', entries: [{ name: spatial ? 'world.md' : 'test.txt', path: spatial ? 'Ideas/world.md' : 'test.txt', kind: 'file', extension: spatial ? '.md' : '.txt', size: 5, revision: 'r1', favorite: false, linkCount: 1, noteRef: spatial ? 'spatial:Ideas/world.md' : 'files:test.txt' }] });
+                }
+                if (url.endsWith('/api/notes/read')) {
+                    const body = JSON.parse(options.body);
+                    const spatial = body.rootId === 'spatial';
+                    return reply({ ok: true, entry: { name: spatial ? 'world.md' : 'test.txt', path: body.path, kind: 'file', extension: spatial ? '.md' : '.txt', size: 5, revision: 'r1', favorite: false, noteRef: `${body.rootId}:${body.path}` }, content: spatial ? 'world lore' : 'hello' });
+                }
                 if (url.endsWith('/api/notes/write')) { saved = JSON.parse(options.body).content; return reply({ ok: true, entry: { name: 'test.txt', path: 'test.txt', extension: '.txt', size: saved.length, revision: 'r2', noteRef: 'files:test.txt' }, message: 'Saved.' }); }
+                if (url.endsWith('/api/notes/related')) return reply({ ok: true, entries: [{ rootId: 'spatial', name: 'world.md', path: 'Ideas/world.md', kind: 'file', noteRef: 'spatial:Ideas/world.md' }] });
                 throw new Error(`Unexpected request: ${url}`);
             };
         });
@@ -71,7 +83,14 @@ async function main() {
 
         await page.locator('[data-world-book-view="notes"]').click();
         await page.locator('[data-eve-notes-mode="files"]').click();
-        await page.waitForTimeout(250);
+        await page.waitForFunction(() => document.querySelector('[data-eve-notes-status]')?.textContent.includes('Start Notes'));
+        expect(!await page.evaluate(() => window.__smoke.notesRunning), 'Opening Notepad files auto-started Notes');
+        await page.locator('[data-eve-notes-mode="spatial"]').click();
+        await page.waitForFunction(() => document.querySelector('[data-eve-notes-status]')?.textContent.includes('Start Notes'));
+        expect(!await page.evaluate(() => window.__smoke.notesRunning), 'Opening Spatial Notes auto-started Notes');
+        await page.locator('[data-eve-notes-mode="files"]').click();
+        await page.locator('[data-notes-service-toggle]').click();
+        await page.waitForFunction(() => window.__smoke.notesRunning && document.querySelector('[data-eve-notes-list] [data-path="test.txt"]'));
         await page.locator('[data-eve-notes-list] [data-path="test.txt"]').click();
         await page.waitForFunction(() => !document.querySelector('[data-eve-notes-editor]')?.disabled, null, { timeout: 3000 }).catch(async () => {
             const detail = await page.locator('.notes-world-book-overlay').evaluate(node => ({
@@ -86,6 +105,10 @@ async function main() {
         await page.locator('[data-eve-notes-editor]').fill('saved independently');
         await page.locator('[data-eve-notes-editor]').press('Control+s');
         await page.waitForFunction(() => window.__smoke.saved === 'saved independently');
+        await page.locator('[data-eve-notes-related]').click();
+        await page.locator('[data-eve-notes-related-panel] button').nth(1).click();
+        await page.waitForFunction(() => document.querySelector('[data-eve-notes-title]')?.textContent === 'world.md');
+        expect(await page.locator('button[data-eve-notes-mode="spatial"]').getAttribute('aria-selected') === 'true', 'Cross-root note link did not switch to Spatial Notes');
 
         for (const size of [{ width: 1920, height: 1080 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 725, height: 720 }]) {
             await page.setViewportSize(size);

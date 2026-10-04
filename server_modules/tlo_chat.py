@@ -10,7 +10,7 @@ import threading
 from dataclasses import dataclass, field
 from http import HTTPStatus
 
-from server_modules import agent_management_store, eveos_ports, gemini_control, local_moe_control
+from server_modules import agent_management_store, eveos_ports, gemini_control, local_moe_control, tlo_schema_cache
 from server_modules.eve_state_store_api_helpers import query_value, send_json
 
 
@@ -23,6 +23,10 @@ MAX_HISTORY_MESSAGES = 40
 MAX_HISTORY_CHARS = 32_000
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{8,96}$")
 _ACTIVE_LOCK = threading.RLock()
+_SCHEMA_CACHE_LOCK = tlo_schema_cache.SCHEMA_CACHE_LOCK
+_SCHEMA_CACHE = tlo_schema_cache.SCHEMA_CACHE
+_SCHEMA_INFLIGHT = tlo_schema_cache.SCHEMA_INFLIGHT
+_SCHEMA_PATH = tlo_schema_cache.SCHEMA_PATH
 logger = logging.getLogger("EveOSTLO")
 
 
@@ -134,7 +138,7 @@ def build_system_prompt(projection: dict) -> str:
     return "\n\n".join(section for section in sections if not section.endswith("\n"))
 
 
-def _harness_json(path: str, *, timeout=4.5) -> dict | None:
+def _fetch_harness_json(path: str, *, timeout=4.5) -> dict | None:
     connection = None
     try:
         connection = http.client.HTTPConnection(HARNESS_HOST, HARNESS_PORT, timeout=timeout)
@@ -147,6 +151,12 @@ def _harness_json(path: str, *, timeout=4.5) -> dict | None:
     finally:
         if connection is not None:
             connection.close()
+
+
+def _harness_json(path: str, *, timeout=4.5) -> dict | None:
+    return tlo_schema_cache.harness_json(
+        path, fetch=_fetch_harness_json, host=HARNESS_HOST, port=HARNESS_PORT, timeout=timeout
+    )
 
 
 def _projection(scope_id: str) -> dict:

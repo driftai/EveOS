@@ -4,6 +4,7 @@ from .session_handler.session_loop import execute_session_loop
 from .session_handler.sonic_forge_session import (
     execute_sonic_forge_with_fallback,
 )
+from .session_handler.nexus_chat_session import execute_nexus_chat_session
 import websockets
 import asyncio
 import json
@@ -52,9 +53,11 @@ async def gemini_session_handler(websocket, client):
             await asyncio.sleep(0.15)
 
         # 3. ACQUIRE SESSION SLOT
-        slot_acquired = await acquire_session_slot(connection_monitor, error_handler, connection_id)
-        if not slot_acquired:
-            return
+        # Nexus text chat uses the shared Gemini client without opening a Live session.
+        if session_role != "nexus_chat":
+            slot_acquired = await acquire_session_slot(connection_monitor, error_handler, connection_id)
+            if not slot_acquired:
+                return
             
         # 3.5 CHECK FOR PER-SESSION API KEY
         session_api_key = config_data.get("apiKey")
@@ -95,6 +98,16 @@ async def gemini_session_handler(websocket, client):
                     "is_error": True,
                     "is_system_message": True
                 }))
+            return
+
+        if session_role == "nexus_chat":
+            await execute_nexus_chat_session(
+                websocket,
+                client,
+                connection_monitor,
+                audio_processor,
+                connection_id,
+            )
             return
 
         # 4. EXECUTE THE ROLE-SPECIFIC SESSION LOOP

@@ -6,7 +6,11 @@ if (typeof importScripts === 'function') {
   importScripts('dex-ui-refresh.js');
   importScripts('content/provider-adapter-revision.js');
   importScripts('provider-adapter-freshness.js');
+  importScripts('provider-target-list.js');
   importScripts('provider-target-spawn.js');
+  importScripts('chatgpt-app-mirror.js');
+  importScripts('chatgpt-app-mirror-dedupe.js');
+  importScripts('chatgpt-app-mirror-worker.js');
   importScripts('task-completion-bridge.js');
   importScripts('dex-bound-tab-watchdog.js');
   importScripts('dex-tool-result.js');
@@ -14,6 +18,8 @@ if (typeof importScripts === 'function') {
   importScripts('chatgpt-stream-nudge-bridge.js');
   importScripts('dex-final-receipt.js');
   importScripts('dex-final-delivery-wiring.js');
+  importScripts('request-ownership.js');
+  importScripts('provider-return-routing.js');
   importScripts('host-access.js');
   importScripts('target-state.js');
   importScripts('target-resurrection.js');

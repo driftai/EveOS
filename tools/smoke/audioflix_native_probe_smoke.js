@@ -10,6 +10,7 @@ const localizeSource = readModule('audioflix.native.localize.js');
 const spotifySource = readModule('audioflix.native.spotify.js');
 const instagramSource = readModule('audioflix.native.instagram.js');
 const identitySource = readModule('audioflix.native.identity.js');
+const routeStateSource = readModule('audioflix.native.route-state.js');
 const source = readModule('audioflix.native.js');
 
 let fetchCount = 0;
@@ -76,6 +77,7 @@ vm.runInContext(localizeSource, context, { filename: 'audioflix.native.localize.
 vm.runInContext(spotifySource, context, { filename: 'audioflix.native.spotify.js' });
 vm.runInContext(instagramSource, context, { filename: 'audioflix.native.instagram.js' });
 vm.runInContext(identitySource, context, { filename: 'audioflix.native.identity.js' });
+vm.runInContext(routeStateSource, context, { filename: 'audioflix.native.route-state.js' });
 vm.runInContext(source, context, { filename: 'audioflix.native.js' });
 
 (async () => {

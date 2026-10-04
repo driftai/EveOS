@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>EveOS Nexus Browser</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1d2a'/%3E%3Cpath d='M16 48V16h8l16 20V16h8v32h-8L24 28v20z' fill='%236de4ff'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/activity-code.css">
   <link rel="stylesheet" href="/target-classes.css">
@@ -31,6 +32,7 @@
           <select id="targetClassSelect">
             <option value="online-origin">Online-Origin Targets</option>
             <option value="local-origin">Local-Origin Targets</option>
+            <option value="app-origin">App-Origin Targets</option>
           </select>
         </div>
 
@@ -47,6 +49,20 @@
               <button id="connectTarget">Connect target</button>
             </div>
           </div>
+
+          <details id="appMirrorControls" class="target-row app-conversation-sync" hidden>
+            <summary>Conversation sync</summary>
+            <label for="appMirrorUrl">Exact ChatGPT conversation URL</label>
+            <div class="target-actions">
+              <input id="appMirrorUrl" type="url" inputmode="url"
+                placeholder="https://chatgpt.com/c/..." autocomplete="off" spellcheck="false">
+              <button id="syncAppMirror" class="secondary" type="button">Sync conversation</button>
+              <button id="attachAppMirror" type="button">Attach sync</button>
+            </div>
+            <div id="appMirrorStatus" class="subtle">
+              Optional exact-conversation synchronization/recovery for ChatGPT Online-Origin.
+            </div>
+          </details>
         </div>
 
         <div id="localTargetControls" class="target-class-panel" hidden>
@@ -64,8 +80,63 @@
           </div>
         </div>
 
+        <div id="appTargetControls" class="target-class-panel" hidden>
+          <div class="target-row">
+            <label for="appTypeSelect">Target type</label>
+            <select id="appTypeSelect">
+              <option value="desktop-app">Desktop App</option>
+            </select>
+          </div>
+          <div class="target-row">
+            <label for="appTargetSelect">Running app</label>
+            <div class="target-actions">
+              <select id="appTargetSelect"></select>
+              <button id="refreshAppTargets" class="secondary">Refresh apps</button>
+              <button id="connectAppTarget">Connect target</button>
+            </div>
+          </div>
+          <div id="appTargetStatus" class="subtle">
+            Open ChatGPT for Windows, then refresh and connect the detected app target.
+          </div>
+          <div id="appTargetTiming" class="subtle" hidden></div>
+
+        </div>
+
         <div id="targetStatus" class="subtle">No target selected.</div>
       </section>
+
+      <details id="terminalRelayPanel" class="terminal-relay">
+        <summary><span>Terminal Relay</span><span id="terminalRelayProvider" class="terminal-relay-provider">ChatGPT App</span></summary>
+        <div class="terminal-relay-body">
+          <p class="terminal-relay-intro">Provider → Nexus → terminal → Nexus → provider. Full evidence stays EveOS-local; only a separately sanitized report can cross the provider boundary.</p>
+          <div id="terminalRelayStatus" class="terminal-relay-status">Open the intended ChatGPT App conversation; relay:dev can bind the single verified App-Origin target automatically.</div>
+          <div class="terminal-relay-grid">
+            <div><span>Privacy</span><strong>Sanitized relay</strong></div>
+            <div><span>Last run</span><strong id="terminalRelayLastRun">Never</strong></div>
+            <div><span>Last relay</span><strong id="terminalRelayLastRelay">—</strong></div>
+            <div><span>Artifacts</span><strong id="terminalRelayLastPath">EveOS-local</strong></div>
+          </div>
+          <div class="terminal-relay-actions">
+            <button type="button" data-terminal-command="standard">Copy Run Command</button>
+            <button type="button" class="secondary" data-terminal-command="noPull">Copy No-Pull Run</button>
+            <button type="button" class="secondary" data-terminal-command="full">Copy Full Validation</button>
+            <button type="button" class="secondary" data-terminal-command="localOnly">Copy Local-Only Run</button>
+            <button id="terminalRelayRefresh" type="button" class="secondary">Refresh status</button>
+          </div>
+          <details class="terminal-relay-help">
+            <summary>Setup, privacy, and behavior</summary>
+            <ol>
+              <li>Open ChatGPT for Windows on the conversation Nexus should use.</li>
+              <li>Open PowerShell in <code>tools\\Nexus-Browser</code>.</li>
+              <li>Copy one command above and paste it once. <code>relay:dev</code> automatically restores a proven binding or binds the single strong ChatGPT App target.</li>
+              <li>If automatic binding is intentionally not wanted, run <code>npm run relay:dev -- --manual-connect</code> and use the Base Mode Connect target button.</li>
+              <li>Nexus saves the full report locally, sanitizes a separate provider payload, then returns it only to the exact verified App-Origin target.</li>
+            </ol>
+            <p><code>--local-only</code> performs validation without transmitting anything to the provider.</p>
+            <p>The raw report is never exposed by the Base Mode status endpoint.</p>
+          </details>
+        </div>
+      </details>
 
       <section id="transcript" class="transcript" aria-live="polite"></section>
 
@@ -138,6 +209,7 @@
           <section class="dex-card">
             <div class="dex-section-head">
               <h2>Participants</h2>
+              <button id="dexRefreshTargets" class="secondary" type="button">Refresh targets</button>
             </div>
             <div class="dex-member-builder">
               <div class="dex-field">
@@ -145,6 +217,7 @@
                 <select id="dexMemberClass">
                   <option value="online-origin">Online-Origin</option>
                   <option value="local-origin">Local-Origin</option>
+                  <option value="app-origin">App-Origin</option>
                 </select>
               </div>
               <div class="dex-field">
@@ -152,7 +225,7 @@
                 <select id="dexMemberType"></select>
               </div>
               <div class="dex-field">
-                <label for="dexMemberTarget">Specific chat / agent</label>
+                <label for="dexMemberTarget">Specific target</label>
                 <select id="dexMemberTarget"></select>
               </div>
               <div class="dex-field">
@@ -200,6 +273,15 @@
   <script src="/search-results.js"></script>
   <script src="/activity-ui.js"></script>
   <script src="/ui-socket.js"></script>
+  <script src="/workspace-handoff.js"></script>
+  <script src="/workspace-base-state.js"></script>
+  <script src="/workspace-dex-state.js"></script>
+  <script src="/detached-state.js"></script>
+  <script src="/app-mirror-ui.js"></script>
+  <script src="/app-targets-ui.js"></script>
+  <script src="/app-busy-recovery.js"></script>
+  <script src="/terminal-relay-ui.js"></script>
+  <script src="/host-access-ui.js"></script>
   <script src="/app.js"></script>
   <script src="/diagnostics-copy.js"></script>
   <script src="/activity-code-renderer.js"></script>
