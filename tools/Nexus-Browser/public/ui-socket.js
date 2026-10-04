@@ -1,4 +1,16 @@
 (() => {
+  function ensureGeminiLinkAudioModule() {
+    if (globalThis.BrowserAiBridgeGeminiLinkAudio || typeof document === 'undefined') return;
+    if (document.querySelector('script[data-nexus-gemini-link-audio]')) return;
+    const script = document.createElement('script');
+    script.src = '/gemini-link-audio.js?v=71d418e084d0';
+    script.async = false;
+    script.dataset.nexusGeminiLinkAudio = '1';
+    document.head.appendChild(script);
+  }
+
+  ensureGeminiLinkAudioModule();
+
   function createClient({
     url, hello, onMessage = () => {}, onOpen = () => {},
     onPhase = () => {}, onMalformed = () => {},
