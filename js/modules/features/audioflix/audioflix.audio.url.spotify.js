@@ -9,6 +9,8 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
     const SDK_URL = 'https://open.spotify.com/embed/iframe-api/v1';
     const READY_TIMEOUT_MS = 12000;
     const START_TIMEOUT_MS = 10000;
+    const END_TOLERANCE_MS = 1500;
+    const END_RESET_MAX_MS = 500;
     let apiPromise = null;
 
     function spotifyTrackId(value) {
@@ -73,11 +75,19 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                 let startTimer = 0;
                 let runtimeFailureReported = false;
                 let selectedItem = item;
+                let lastPlayingPositionMs = 0;
+                let lastDurationMs = 0;
+                let lastPaused = true;
                 const timer = setTimeout(() => finish(new Error('Spotify player did not become ready.')), READY_TIMEOUT_MS);
                 const blockedMessage = 'Spotify playback needs a direct click in this browser. Use the visible Spotify play control, allow protected media, or localize this track for reliable one-click playback.';
                 const clearStartTimer = () => {
                     if (startTimer) clearTimeout(startTimer);
                     startTimer = 0;
+                };
+                const resetCompletionEvidence = () => {
+                    lastPlayingPositionMs = 0;
+                    lastDurationMs = 0;
+                    lastPaused = true;
                 };
                 const finish = (error) => {
                     if (settled) return;
@@ -103,6 +113,20 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     runtimeFailureReported = false;
                     clearStartTimer();
                     setStageStatus('Playing with Spotify\'s official embedded player.');
+                };
+                const markEnded = (durationMs = 0) => {
+                    if (ended) return false;
+                    clearStartTimer();
+                    ended = true;
+                    started = false;
+                    V.playback.paused = true;
+                    const effectiveDurationMs = Math.max(0, Number(durationMs || lastDurationMs || 0));
+                    if (effectiveDurationMs > 0) {
+                        V.playback.duration = effectiveDurationMs / 1000;
+                        V.playback.currentTime = V.playback.duration;
+                    }
+                    emitPlayback('Ended');
+                    return true;
                 };
                 api.createController(mount, {
                     uri: `spotify:track:${id}`,
@@ -151,6 +175,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                             ended = false;
                             started = false;
                             runtimeFailureReported = false;
+                            resetCompletionEvidence();
                             clearStartTimer();
                             setStageStatus(`Loading ${nextItem.title || 'the next Spotify track'}...`);
                             await Promise.resolve(load(`spotify:track:${nextId}`));
@@ -165,6 +190,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     });
                     controller.addListener?.('playback_started', () => {
                         markStarted();
+                        ended = false;
                         V.playback.paused = false;
                         emitPlayback(`Playing ${selectedItem.title || 'Spotify track'} with Spotify`);
                         emitProgress();
@@ -173,19 +199,36 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                         const data = event?.data || event || {};
                         const playingId = spotifyTrackId(data.playingURI);
                         if (playingId && playingId !== spotifyTrackId(selectedItem?.url)) return;
-                        V.playback.currentTime = Math.max(0, Number(data.position || 0) / 1000);
-                        V.playback.duration = Math.max(0, Number(data.duration || 0) / 1000);
-                        V.playback.paused = data.isPaused !== false;
-                        const atEnd = V.playback.duration > 0
-                            && V.playback.currentTime >= Math.max(0, V.playback.duration - 0.35);
-                        if (!V.playback.paused) {
+                        const positionMs = Math.max(0, Number(data.position || 0));
+                        const durationMs = Math.max(0, Number(data.duration || 0));
+                        const paused = data.isPaused !== false;
+                        const effectiveDurationMs = durationMs || lastDurationMs;
+                        const previousNearEnd = lastDurationMs > 0
+                            && lastPlayingPositionMs >= Math.max(0, lastDurationMs - END_TOLERANCE_MS);
+                        const atEnd = effectiveDurationMs > 0
+                            && positionMs >= Math.max(0, effectiveDurationMs - END_TOLERANCE_MS);
+                        // Spotify has no dedicated ended event. In real embeds the terminal update can
+                        // arrive slightly before duration, or rewind position to zero as it becomes
+                        // paused. Preserve the prior playing edge so both forms produce one Ended.
+                        const resetAfterEnd = started && paused && lastPaused === false
+                            && previousNearEnd && positionMs <= END_RESET_MAX_MS;
+
+                        V.playback.currentTime = positionMs / 1000;
+                        V.playback.duration = effectiveDurationMs / 1000;
+                        V.playback.paused = paused;
+
+                        if (!paused) {
                             if (!started) markStarted();
                             ended = false;
+                            lastPlayingPositionMs = positionMs;
+                            if (durationMs > 0) lastDurationMs = durationMs;
+                            lastPaused = false;
                             emitPlayback(`Playing ${selectedItem.title || 'Spotify track'} with Spotify`);
-                        } else if (atEnd && !ended) {
-                            clearStartTimer();
-                            ended = true;
-                            emitPlayback('Ended');
+                        } else {
+                            if ((atEnd || resetAfterEnd) && !ended) markEnded(effectiveDurationMs);
+                            if (positionMs > 0) lastPlayingPositionMs = positionMs;
+                            if (durationMs > 0) lastDurationMs = durationMs;
+                            lastPaused = true;
                         }
                         emitProgress();
                     });
