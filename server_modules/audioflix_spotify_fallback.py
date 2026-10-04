@@ -5,9 +5,9 @@ strict and remains the default. This fallback is only reached after an explicit 
 Audioflix UI (or a direct localhost API call).
 
 Spotify is used for track identity/metadata only. No Spotify audio is decrypted, recorded, or
-requested here. The fallback performs a broader independent-source search (currently YouTube through
-yt-dlp), verifies title/artist/duration, then hands the selected recording to the existing Audioflix
-download pipeline.
+requested here. The fallback performs broader independent-source search (YouTube, YouTube Music,
+and a second-tier SoundCloud search), verifies title/artist/duration, then hands the selected
+recording to the existing Audioflix yt-dlp download pipeline.
 """
 
 from __future__ import annotations
@@ -20,8 +20,11 @@ from server_modules import audioflix_localize as localize
 from server_modules import audioflix_spotify_match as spotify_match
 
 
+# Keep the historical resolver name for API/state compatibility even though the explicit fallback
+# can now use SoundCloud after the YouTube-family search surfaces fail to produce a strong match.
 STRATEGY = "expanded-youtube-search"
-SEARCH_RESULTS_PER_QUERY = 16
+SEARCH_RESULTS_PER_QUERY = 12
+MAX_QUERY_VARIANTS = 8
 MIN_TOLERANCE_SECONDS = 5.0
 MAX_TOLERANCE_SECONDS = 10.0
 TOLERANCE_RATIO = 0.025
@@ -39,8 +42,13 @@ _AUTH_REQUIRED_MARKERS = (
 
 
 def _tokens(value) -> set[str]:
-    text = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
-    words = re.findall(r"[a-z0-9]+", text.lower())
+    """Identity tokens that preserve non-Latin text while also matching accent-folded spellings."""
+    normalized = spotify_match._normalize_search_query(str(value or ""))
+    unicode_text = unicodedata.normalize("NFKC", normalized).casefold()
+    ascii_text = unicodedata.normalize("NFKD", normalized).encode("ascii", "ignore").decode("ascii").lower()
+    words = re.findall(r"[^\W_]+", unicode_text, flags=re.UNICODE)
+    if ascii_text and ascii_text != unicode_text:
+        words.extend(re.findall(r"[a-z0-9]+", ascii_text))
     return {word for word in words if word not in _NOISE_WORDS and len(word) > 1}
 
 
@@ -61,24 +69,72 @@ def _tolerance(target_seconds: float) -> float:
     return max(MIN_TOLERANCE_SECONDS, min(MAX_TOLERANCE_SECONDS, target_seconds * TOLERANCE_RATIO))
 
 
+def _title_token_variants(value) -> list[set[str]]:
+    """Canonical title plus safe sub-title variants for slash/pipe multi-part Spotify names."""
+    text = spotify_match._normalize_search_query(str(value or ""))
+    variants = []
+
+    def add(part: str):
+        tokens = _tokens(part)
+        if tokens and tokens not in variants:
+            variants.append(tokens)
+
+    add(text)
+    for part in re.split(r"\s*(?:/|\||;)\s*", text):
+        if len(_tokens(part)) >= 2:
+            add(part)
+    without_parenthetical = re.sub(r"\([^)]*\)", " ", text)
+    if len(_tokens(without_parenthetical)) >= 2:
+        add(without_parenthetical)
+    return variants
+
+
+def _title_query_aliases(value) -> list[str]:
+    """Search-only title aliases; canonical Spotify identity is never rewritten."""
+    raw = str(value or "").strip()
+    normalized = spotify_match._normalize_search_query(raw)
+    aliases = []
+
+    def add(part: str):
+        clean = " ".join(str(part or "").split()).strip()
+        key = clean.casefold()
+        if clean and len(_tokens(clean)) >= 2 and all(existing.casefold() != key for existing in aliases):
+            aliases.append(clean)
+
+    add(raw)
+    add(normalized)
+    for part in re.split(r"\s*(?:/|\||;)\s*", normalized):
+        add(part)
+    add(re.sub(r"\([^)]*\)", " ", normalized))
+    return aliases[:4]
+
+
 def query_variants(meta: dict) -> list[str]:
     title = str(meta.get("title") or "").strip()
     artists = [str(value or "").strip() for value in (meta.get("artists") or []) if str(value or "").strip()]
     artist = artists[0] if artists else ""
+    aliases = _title_query_aliases(title) or [title]
     raw = [
         " ".join(part for part in (artist, title) if part),
         " ".join(part for part in (f'"{title}"' if title else "", artist, "audio") if part),
         " ".join(part for part in (artist, title, "Topic") if part),
         " ".join(part for part in (title, artist, "official audio") if part),
     ]
+    for alias in aliases:
+        if alias != title:
+            raw.append(" ".join(part for part in (artist, alias) if part))
+            raw.append(" ".join(part for part in (f'"{alias}"', artist, "audio") if part))
+
     seen = set()
     variants = []
     for query in raw:
         clean = " ".join(query.split()).strip()
-        key = clean.lower()
+        key = clean.casefold()
         if clean and key not in seen:
             seen.add(key)
             variants.append(clean)
+        if len(variants) >= MAX_QUERY_VARIANTS:
+            break
     return variants
 
 
@@ -117,16 +173,41 @@ def stored_track_metadata(track: dict) -> dict:
     return meta
 
 
+def _candidate_url(item) -> str:
+    """Concrete media URL without ever turning a non-YouTube extractor id into a YouTube id."""
+    row = item if isinstance(item, dict) else {}
+    source = str(row.get("_source") or "").casefold()
+    if source == "soundcloud":
+        for key in ("webpage_url", "permalink_url", "original_url", "url"):
+            clean = str(row.get(key) or "").strip()
+            if clean.startswith(("http://", "https://")):
+                return clean
+        return ""
+    return spotify_match._candidate_url(row)
+
+
+def _candidate_identity_tokens(item: dict) -> set[str]:
+    actual = set()
+    for key in ("title", "artist", "artists", "uploader", "uploader_id", "channel", "creator", "album_artist"):
+        value = item.get(key)
+        if isinstance(value, (list, tuple, set)):
+            for part in value:
+                actual |= _tokens(part)
+        else:
+            actual |= _tokens(value)
+    return actual
+
+
 def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], float]:
     """Broader than the normal matcher, but still refuse weak identity guesses.
 
-    The normal path uses a tight ~3 second duration gate. The fallback expands that to 5-10 seconds
-    depending on track length, then requires title overlap plus artist/title corroboration. Different
-    editions (live/remix/cover/etc.) stay rejected unless Spotify itself names that edition.
+    Multi-part Spotify titles can match one of their named segments, but a partial-segment match is
+    accepted only when artist/uploader metadata independently corroborates the Spotify artist.
+    Duration and edition gates remain mandatory for every source.
     """
     target = float(meta.get("duration_seconds") or 0)
     tolerance = _tolerance(target)
-    wanted_title = _tokens(meta.get("title"))
+    title_variants = _title_token_variants(meta.get("title")) or [_tokens(meta.get("title"))]
     wanted_artists = set()
     for artist in meta.get("artists") or []:
         wanted_artists |= _tokens(artist)
@@ -142,8 +223,9 @@ def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], flo
             "id": str(item.get("id") or ""),
             "title": title,
             "duration": duration,
-            "views": int(item.get("view_count") or 0),
-            "url": spotify_match._candidate_url(item),
+            "views": int(item.get("view_count") or item.get("playback_count") or 0),
+            "url": _candidate_url(item),
+            "source": str(item.get("_source") or "youtube"),
         }
         if not title:
             entry["reason"] = "no title"
@@ -167,15 +249,23 @@ def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], flo
             rejected.append(entry)
             continue
 
-        actual = _tokens(title)
-        title_overlap = _overlap(wanted_title, actual)
-        artist_overlap = _overlap(wanted_artists, actual) if wanted_artists else 1.0
+        actual_title = _tokens(title)
+        overlaps = [_overlap(variant, actual_title) for variant in title_variants]
+        title_overlap = max(overlaps or [0.0])
+        best_variant_index = overlaps.index(title_overlap) if overlaps else 0
+        partial_title = best_variant_index > 0
+        identity_tokens = _candidate_identity_tokens(item)
+        artist_overlap = _overlap(wanted_artists, identity_tokens) if wanted_artists else 1.0
         if title_overlap < 0.5:
             entry["reason"] = f"weak title overlap ({title_overlap:.2f})"
             rejected.append(entry)
             continue
-        if wanted_artists and artist_overlap <= 0 and title_overlap < 0.8:
+        if wanted_artists and artist_overlap <= 0 and (partial_title or title_overlap < 0.8):
             entry["reason"] = "artist not corroborated"
+            rejected.append(entry)
+            continue
+        if not entry["url"]:
+            entry["reason"] = "candidate has no playable URL"
             rejected.append(entry)
             continue
 
@@ -184,6 +274,7 @@ def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], flo
             "delta": round(delta, 3),
             "titleOverlap": round(title_overlap, 3),
             "artistOverlap": round(artist_overlap, 3),
+            "partialTitle": partial_title,
             "abr": round(abr, 1),
             "quality": spotify_match.quality_tier(abr),
         })
@@ -191,6 +282,7 @@ def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], flo
 
     accepted.sort(key=lambda entry: (
         0 if entry["delta"] <= 2.0 else 1,
+        1 if entry["partialTitle"] else 0,
         -entry["titleOverlap"],
         -entry["artistOverlap"],
         entry["quality"],
@@ -202,6 +294,52 @@ def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], flo
 
 def _search(query: str, results: int):
     return spotify_match._ytdlp_search(query, results)
+
+
+def _soundcloud_search(query: str, results: int):
+    """Fallback-only SoundCloud catalog search with complete metadata and bounded results."""
+    import yt_dlp
+
+    count = max(1, int(results or 1))
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "ignoreerrors": True,
+        "playlistend": count,
+    }
+    clean = spotify_match._normalize_search_query(query)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        found = ydl.extract_info(f"scsearch{count}:{clean}", download=False)
+    rows = []
+    for item in ((found or {}).get("entries") or []):
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        row["_source"] = "soundcloud"
+        rows.append(row)
+    return rows[:count]
+
+
+def _candidate_key(item: dict) -> str:
+    url = _candidate_url(item)
+    if url:
+        return url.casefold()
+    source = str(item.get("_source") or "youtube").casefold()
+    ident = str(item.get("id") or "").strip()
+    return f"{source}:{ident}" if ident else ""
+
+
+def _append_candidates(collected: list[dict], seen: set[str], found) -> None:
+    for item in found or []:
+        if not isinstance(item, dict):
+            continue
+        key = _candidate_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        collected.append(item)
 
 
 def find_fallback_match(url: str, searcher=None, opener=None, metadata: dict | None = None) -> dict:
@@ -219,20 +357,22 @@ def find_fallback_match(url: str, searcher=None, opener=None, metadata: dict | N
     search_errors = []
     for query in queries:
         try:
-            found = search(query, SEARCH_RESULTS_PER_QUERY) or []
+            _append_candidates(collected, seen, search(query, SEARCH_RESULTS_PER_QUERY) or [])
         except Exception as exc:  # noqa: BLE001
             search_errors.append(f"{query}: {exc}")
-            continue
-        for item in found:
-            if not isinstance(item, dict):
-                continue
-            key = str(item.get("id") or item.get("webpage_url") or item.get("url") or "").strip()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            collected.append(item)
 
     accepted, rejected, tolerance = rank_candidates(meta, collected)
+
+    # Only pay the cost of a second provider when the YouTube-family catalog surfaces did not yield
+    # a verified recording. Custom test/search injectors remain deterministic and never trigger I/O.
+    if not accepted and searcher is None:
+        for query in queries:
+            try:
+                _append_candidates(collected, seen, _soundcloud_search(query, SEARCH_RESULTS_PER_QUERY))
+            except Exception as exc:  # noqa: BLE001
+                search_errors.append(f"SoundCloud {query}: {exc}")
+        accepted, rejected, tolerance = rank_candidates(meta, collected)
+
     if not accepted:
         detail = f" Searched {len(collected)} unique candidate(s) across {len(queries)} query variants."
         if not collected and search_errors:
@@ -251,7 +391,7 @@ def find_fallback_match(url: str, searcher=None, opener=None, metadata: dict | N
         }
 
     best = accepted[0]
-    resolved_url = spotify_match._candidate_url(best)
+    resolved_url = _candidate_url(best)
     if not resolved_url:
         return {"ok": False, "strategy": STRATEGY, "failureKind": "no_match", "message": "Fallback match had no playable URL."}
     return {
@@ -275,7 +415,7 @@ def candidate_attempts(resolved: dict) -> list[dict]:
     for row in rows:
         if not isinstance(row, dict):
             continue
-        url = spotify_match._candidate_url(row)
+        url = _candidate_url(row)
         if not url or url in seen:
             continue
         seen.add(url)
@@ -304,7 +444,7 @@ def _failure_after_candidates(tid, spotify_url, metadata_source, failures: list[
     count = len(failures)
     if auth:
         message = (
-            f"Strong YouTube match found ({auth.get('title') or auth.get('url') or 'candidate'}), but YouTube requires "
+            f"Strong source match found ({auth.get('title') or auth.get('url') or 'candidate'}), but the source requires "
             f"sign-in/age verification. EveOS kept that candidate and tried {count} strong match"
             f"{'es' if count != 1 else ''}; none were accessible without authentication."
         )
