@@ -79,14 +79,51 @@ class SpotifyUniversalRecoveryTests(unittest.TestCase):
         self.assertFalse(accepted)
         self.assertTrue(rejected[0]["reason"].startswith("weak title overlap"))
 
-    def test_producer_credit_suffix_gets_clean_search_alias(self):
+    def test_producer_credit_suffix_gets_clean_search_alias_first(self):
         aliases = fallback._title_query_aliases("*FloatingAway* pr/gosha")
-        self.assertIn("Floating Away", aliases)
+        self.assertEqual(aliases[0], "Floating Away")
         queries = [query.casefold() for query in fallback.query_variants({
             "title": "*FloatingAway* pr/gosha",
             "artists": ["SliceMaxxi"],
         })]
-        self.assertTrue(any("slicemaxxi floating away" == query for query in queries))
+        self.assertEqual(queries[0], "slicemaxxi floating away")
+
+    def test_soundcloud_title_only_query_runs_first_for_reposts(self):
+        queries = fallback.soundcloud_query_variants({
+            "title": "*FloatingAway* pr/gosha",
+            "artists": ["SliceMaxxi"],
+        })
+        self.assertEqual(queries[0], "Floating Away")
+        self.assertIn("SliceMaxxi Floating Away", queries)
+        self.assertLessEqual(len(queries), fallback.SOUNDCLOUD_MAX_QUERY_VARIANTS)
+
+    def test_soundcloud_flat_candidate_is_hydrated_for_description_credit(self):
+        class FakeYDL:
+            def __init__(self):
+                self.calls = []
+
+            def extract_info(self, url, download=False):
+                self.calls.append(url)
+                return {
+                    "id": "repost-flat",
+                    "title": "Floating Away",
+                    "duration": 151.2,
+                    "uploader": "archive account",
+                    "description": "archived *FloatingAway* by SliceMaxxi",
+                    "webpage_url": url,
+                }
+
+        ydl = FakeYDL()
+        rows = [{
+            "id": "repost-flat",
+            "title": "Floating Away",
+            "duration": 151.2,
+            "webpage_url": "https://soundcloud.com/archive/floating-away",
+        }]
+        hydrated = fallback._hydrate_soundcloud_rows(ydl, rows, "Floating Away", limit=1)
+        self.assertEqual(len(ydl.calls), 1)
+        self.assertEqual(hydrated[0]["description"], "archived *FloatingAway* by SliceMaxxi")
+        self.assertEqual(hydrated[0]["_source"], "soundcloud")
 
     def test_soundcloud_id_never_becomes_a_fake_youtube_url(self):
         self.assertEqual(fallback._candidate_url({"_source": "soundcloud", "id": "12345"}), "")
@@ -118,7 +155,7 @@ class SpotifyUniversalRecoveryTests(unittest.TestCase):
         self.assertEqual(primary.call_count, 1)
         secondary.assert_not_called()
 
-    def test_decisive_primary_match_stops_after_first_query(self):
+    def test_decisive_zero_delta_match_stops_after_first_query(self):
         meta = {"ok": True, "title": "Known Song", "artists": ["Known Artist"], "duration_seconds": 180.0}
         candidate = {
             "id": "yt-fast",
