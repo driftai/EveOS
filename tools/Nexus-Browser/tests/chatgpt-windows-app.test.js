@@ -344,8 +344,9 @@ test('ChatGPT Windows adapter uses fast confirmation/polling with guarded post-g
   });
   assert.equal(result.text, 'Fast reply');
   assert.equal(sleeps[0], 80);
-  assert.equal(sleeps[1], 75);
-  assert.ok(sleeps.slice(2).every((ms) => ms === 180));
+  assert.equal(sleeps[1], 80);
+  assert.equal(sleeps[2], 75);
+  assert.ok(sleeps.slice(3).every((ms) => ms === 180));
 });
 
 test('ChatGPT Windows adapter focuses the recovered composer before keyboard fallback', async () => {
@@ -409,7 +410,7 @@ test('ChatGPT Windows adapter focuses the recovered composer before keyboard fal
   });
 
   assert.equal(result.text, 'Fallback reply');
-  assert.equal(setAttempts, 1);
+  assert.equal(setAttempts, 2);
   const focusIndex = calls.findIndex((args) => args[1] === 'focus' && args.includes('doc-compose'));
   const keysIndex = calls.findIndex((args) => args[1] === 'send-keys' && args.includes('hello fallback'));
   assert.ok(focusIndex >= 0 && keysIndex > focusIndex, 'keyboard fallback must focus ChatGPT before injecting text');

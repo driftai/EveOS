@@ -15,7 +15,7 @@ const windowInfo = {
 };
 
 function codexTree({ prompt = 'test', answer = '', progress = '', generating = false, send = false,
-  promptX = 900, promptWidth = 180 } = {}) {
+  promptX = 900, promptWidth = 180, composerValue = 'Do anything' } = {}) {
   const children = [
     { selector: 'mode-chatgpt', type: 'Text', name: 'ChatGPT',
       x: 160, y: 70, width: 100, height: 22, children: [] },
@@ -45,7 +45,7 @@ function codexTree({ prompt = 'test', answer = '', progress = '', generating = f
       selector: 'send-codex', type: 'Button', name: 'Send',
       x: 1040, y: 800, width: 44, height: 44, children: []
     }] : []),
-    { selector: 'compose-codex', type: 'Custom', name: 'Do anything',
+    { selector: 'compose-codex', type: 'Custom', name: composerValue,
       x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
   ];
   return {
@@ -109,7 +109,7 @@ test('active Codex send waits past markerless timestamp chrome for the real Nova
   let clock = 0;
   const sequence = [
     codexTree({ prompt: 'old visible prompt', answer: 'Older Nova answer.' }),
-    codexTree({ prompt: 'test', answer: '', send: true }),
+    codexTree({ prompt: 'test', answer: '', send: true, composerValue: 'test' }),
     codexTree({ prompt: 'test', answer: '', generating: true }),
     codexTree({ prompt: 'test', answer: 'Received—everything is working.', generating: false }),
     codexTree({ prompt: 'test', answer: 'Received—everything is working.', generating: false }),
@@ -272,7 +272,7 @@ test('active long Codex turn waits through Working/Worked banners for the real a
   const answer = 'Synced. I will preserve the working App-Origin transport and continue from the current checkout.';
   const sequence = [
     codexTree({ prompt: 'old visible prompt', answer: 'Older Nova answer.' }),
-    codexTree({ prompt, answer: '', send: true }),
+    codexTree({ prompt, answer: '', send: true, composerValue: prompt }),
     codexTree({ prompt, progress: 'Working for 5s' }),
     codexTree({ prompt, progress: 'Worked for 6s' }),
     codexTree({ prompt, answer }),
@@ -349,7 +349,7 @@ test('active long collapsed Codex prompt waits through Show more and progress ch
   const prompt = 'From eve, [Send this to Nova Hey Nova — quick sync. I pulled the local EveOS checkout forward and this intentionally keeps going so the live app collapses the user bubble behind Show more. Preserve the working transport and inspect the current codebase as-is before continuing.]';
   const visiblePrompt = prompt.slice(0, 145) + '…';
   const answer = 'Synced. I will preserve the working App-Origin transport and continue from the current checkout.';
-  const tree = ({ progress = '', answerText = '', send = false } = {}) => ({
+  const tree = ({ progress = '', answerText = '', send = false, composerValue = 'Do anything' } = {}) => ({
     windows: [{ ...windowInfo, elements: [{
       selector: 'root', type: 'Pane', name: '',
       x: 0, y: 0, width: 1200, height: 900, children: [
@@ -363,14 +363,14 @@ test('active long collapsed Codex prompt waits through Show more and progress ch
           x: 350, y: 520, width: 520, height: 90, children: [] }] : []),
         ...(send ? [{ selector: 'send-codex', type: 'Button', name: 'Send',
           x: 1040, y: 800, width: 44, height: 44, children: [] }] : []),
-        { selector: 'compose-codex', type: 'Edit', name: 'Do anything',
+        { selector: 'compose-codex', type: 'Edit', name: composerValue,
           x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
       ]
     }] }]
   });
   const sequence = [
     codexTree({ prompt: 'old visible prompt', answer: 'Older Nova answer.' }),
-    tree({ send: true }),
+    tree({ send: true, composerValue: prompt }),
     tree({ progress: 'Working for 5s' }),
     tree({ progress: 'Worked for 3m 5s' }),
     tree({ answerText: answer }),

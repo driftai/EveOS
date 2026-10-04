@@ -9,7 +9,7 @@ const windowInfo = {
   x: 0, y: 0, width: 1200, height: 900
 };
 
-function tree(children) {
+function tree(children, composerValue = 'Do anything') {
   return {
     windows: [{
       ...windowInfo,
@@ -19,7 +19,7 @@ function tree(children) {
         children: [
           ...children,
           {
-            selector: 'compose', type: 'Edit', name: 'Do anything',
+            selector: 'compose', type: 'Edit', name: composerValue,
             x: 360, y: 790, width: 700, height: 72,
             isKeyboardFocusable: true, children: []
           }
@@ -48,7 +48,7 @@ test('APP_RESPONSE_TIMEOUT recovers a complete non-generating prompt-owned reply
   const staged = tree([
     { selector: 'send', type: 'Button', name: 'Send',
       x: 1040, y: 800, width: 44, height: 44, children: [] }
-  ]);
+  ], prompt);
   const committed = tree([
     { selector: 'prompt', type: 'Text', name: prompt,
       x: 780, y: 250, width: 320, height: 42, children: [] }

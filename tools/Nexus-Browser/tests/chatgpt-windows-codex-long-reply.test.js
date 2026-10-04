@@ -11,7 +11,8 @@ const windowInfo = {
   x: 0, y: 0, width: 1200, height: 900
 };
 
-function codexTree({ prompt = 'test', answer = '', generating = false, send = false } = {}) {
+function codexTree({ prompt = 'test', answer = '', generating = false, send = false,
+  composerValue = 'Do anything' } = {}) {
   const children = [
     { selector: 'mode-codex', type: 'Text', name: 'Codex',
       x: 160, y: 105, width: 80, height: 22, children: [] },
@@ -31,7 +32,7 @@ function codexTree({ prompt = 'test', answer = '', generating = false, send = fa
       selector: 'send-codex', type: 'Button', name: 'Send',
       x: 1040, y: 800, width: 44, height: 44, children: []
     }] : []),
-    { selector: 'compose-codex', type: 'Edit', name: 'Do anything',
+    { selector: 'compose-codex', type: 'Edit', name: composerValue,
       x: 360, y: 790, width: 700, height: 72, isKeyboardFocusable: true, children: [] }
   ];
   return {
@@ -93,7 +94,7 @@ test('active Codex long reply emits monotonic accumulated partials and finalizes
   const expected = [first, second, third].join('\n\n');
   const sequence = [
     codexTree({ prompt: 'old visible prompt', answer: 'Older Nova answer.' }),
-    codexTree({ prompt, answer: '', send: true }),
+    codexTree({ prompt, answer: '', send: true, composerValue: prompt }),
     codexTree({ prompt, answer: first, generating: true }),
     codexTree({ prompt, answer: second, generating: true }),
     codexTree({ prompt, answer: second + '\n\n' + third, generating: true }),
@@ -294,7 +295,7 @@ test('active finalization expands a visible tail into the full noisy-fragment Co
   };
   const sequence = [
     codexTree({ prompt: 'older prompt', answer: 'Older reply.' }),
-    codexTree({ prompt, answer: '', send: true }),
+    codexTree({ prompt, answer: '', send: true, composerValue: prompt }),
     tailOnly,
     tailOnly,
     ...Array(8).fill(full)

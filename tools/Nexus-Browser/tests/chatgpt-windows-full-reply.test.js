@@ -9,7 +9,7 @@ const windowInfo = {
   x: 0, y: 0, width: 1200, height: 900
 };
 
-function snapshot(children) {
+function snapshot(children, composerValue = 'Ask ChatGPT') {
   return {
     windows: [{
       ...windowInfo,
@@ -19,7 +19,7 @@ function snapshot(children) {
         children: [
           ...children,
           {
-            selector: 'doc-compose', type: 'Document', name: 'Ask ChatGPT',
+            selector: 'doc-compose', type: 'Document', name: composerValue,
             automationId: 'prompt-textarea', isKeyboardFocusable: true,
             x: 320, y: 790, width: 800, height: 64, children: []
           }
@@ -37,7 +37,7 @@ test('native send finalizes from one offscreen-inclusive reconstruction without 
     snapshot([
       { selector: 'old', type: 'Text', name: 'Old answer', x: 300, y: 300, width: 300, height: 30, children: [] },
       { selector: 'send', type: 'Button', name: 'Send', x: 1060, y: 800, width: 42, height: 42, children: [] }
-    ]),
+    ], prompt),
     snapshot([
       { selector: 'old', type: 'Text', name: 'Old answer', x: 300, y: 300, width: 300, height: 30, children: [] },
       { selector: 'prompt', type: 'Text', name: prompt, x: 870, y: 450, width: 250, height: 30, children: [] }
@@ -128,7 +128,7 @@ test('completed offscreen role turn replaces a damaged visible fragment authorit
     snapshot([
       { selector: 'old', type: 'Text', name: 'Old answer', x: 300, y: 300, width: 300, height: 30, children: [] },
       { selector: 'send', type: 'Button', name: 'Send', x: 1060, y: 800, width: 42, height: 42, children: [] }
-    ]),
+    ], prompt),
     snapshot([{ selector: 'prompt', type: 'Text', name: prompt, x: 780, y: 175, width: 320, height: 30, children: [] }]),
     snapshot([
       { selector: 'user-role', type: 'Text', name: 'You said:', x: 850, y: 150, width: 1, height: 2, children: [] },
@@ -210,7 +210,7 @@ test('final role reconstruction escalates inspect depth for Chromium-style neste
     snapshot([
       { selector: 'old', type: 'Text', name: 'Old answer', x: 300, y: 300, width: 300, height: 30, children: [] },
       { selector: 'send', type: 'Button', name: 'Send', x: 1060, y: 800, width: 42, height: 42, children: [] }
-    ]),
+    ], prompt),
     snapshot([{ selector: 'prompt', type: 'Text', name: prompt, x: 780, y: 175, width: 320, height: 30, children: [] }]),
     shallow
   ];

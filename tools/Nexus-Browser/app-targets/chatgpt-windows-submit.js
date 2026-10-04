@@ -49,6 +49,11 @@ function createSubmitter({ runner, inspect, recoverComposer, recoverSend, sleepF
       { allowFailure: true, timeoutMs: 12000 }
     );
     const replaceWithKeyboard = async (candidate) => {
+      const focused = await runner.runJson(
+        ['ui', 'focus', candidate, '-w', hwnd],
+        { allowFailure: true, timeoutMs: 10000 }
+      );
+      if (!focused.ok) return focused;
       const cleared = await runner.runJson(
         ['ui', 'send-keys', 'ctrl+a delete', '--target', candidate,
           '--via', 'send-input', '-w', hwnd],

@@ -141,15 +141,19 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                         loadItem: async (nextItem) => {
                             const nextId = spotifyTrackId(nextItem?.url);
                             if (!nextId) throw new Error('This Spotify link does not contain a playable track ID.');
+                            const load = typeof controller.loadUri === 'function'
+                                ? controller.loadUri.bind(controller)
+                                : typeof controller.loadEntity === 'function'
+                                    ? controller.loadEntity.bind(controller)
+                                    : null;
+                            if (!load) throw new Error('The Spotify player cannot switch tracks in this browser.');
                             selectedItem = nextItem;
                             ended = false;
                             started = false;
                             runtimeFailureReported = false;
                             clearStartTimer();
                             setStageStatus(`Loading ${nextItem.title || 'the next Spotify track'}...`);
-                            const loaded = controller.loadEntity?.(`spotify:track:${nextId}`)
-                                ?? controller.loadUri?.(`spotify:track:${nextId}`);
-                            await Promise.resolve(loaded);
+                            await Promise.resolve(load(`spotify:track:${nextId}`));
                             return player.play();
                         }
                     };

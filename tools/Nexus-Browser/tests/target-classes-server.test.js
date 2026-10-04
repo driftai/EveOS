@@ -45,7 +45,7 @@ test('UI handshake advertises Online, Local and App-Origin without waiting for n
 
     const classes = await classesPromise;
     assert.deepEqual(classes.classes.map((entry) => entry.id), ['online-origin', 'local-origin', 'app-origin']);
-    assert.deepEqual(classes.localTargetTypes.map((entry) => entry.id), ['terminal-agent']);
+    assert.deepEqual(classes.localTargetTypes.map((entry) => entry.id), ['terminal-agent', 'provider-workspace']);
     assert.deepEqual(classes.appTargetTypes.map((entry) => entry.id), ['desktop-app']);
 
     const localTargets = await localTargetsPromise;

@@ -11,7 +11,7 @@ const AREA_TESTS = {
   dex: ['tests/dex-protocol.test.js', 'tests/dex-provider-control.test.js', 'tests/dex-provider-control-bootstrap.test.js', 'tests/provider-control-receipt.test.js', 'tests/provider-control-origin-race.test.js', 'tests/dex-provider-control-nested.test.js', 'tests/provider-adapter-freshness.test.js', 'tests/dex-state-sync.test.js', 'tests/dex-state-store.test.js', 'tests/dex-runtime-client.test.js', 'tests/server-scheduler.test.js'],
   recovery: ['tests/server-scheduler-recovery.test.js', 'tests/server-state-merge.test.js', 'tests/antigravity-recovery-capture.test.js', 'tests/online-target-recovery.test.js'],
   extension: ['tests/extension-wiring.test.js', 'tests/online-target-recovery.test.js', 'tests/target-state.test.js', 'tests/dex-ui-ensure.test.js'],
-  local: ['tests/local-targets.test.js', 'tests/antigravity-existing.test.js', 'tests/antigravity-recovery-capture.test.js'],
+  local: ['tests/local-targets.test.js', 'tests/service-chat-targets.test.js', 'tests/antigravity-existing.test.js', 'tests/antigravity-recovery-capture.test.js'],
   'app-origin': [
     'tests/chatgpt-windows-app.test.js', 'tests/chatgpt-windows-composer-shape.test.js',
     'tests/chatgpt-windows-codex-surface.test.js', 'tests/chatgpt-windows-codex-long-reply.test.js',

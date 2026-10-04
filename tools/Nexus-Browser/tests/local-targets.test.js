@@ -13,7 +13,7 @@ const manager = require('../local-targets/manager');
 
 test('Local-Origin registry exposes online/local classes and terminal-agent type', () => {
   assert.deepEqual(manager.publicTargetClasses().map((entry) => entry.id), ['online-origin', 'local-origin']);
-  assert.deepEqual(manager.publicLocalTargetTypes().map((entry) => entry.id), ['terminal-agent']);
+  assert.deepEqual(manager.publicLocalTargetTypes().map((entry) => entry.id), ['terminal-agent', 'provider-workspace']);
 });
 
 test('local target normalization preserves provider-neutral surface and exact identity metadata', () => {
