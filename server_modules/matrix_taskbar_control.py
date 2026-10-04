@@ -15,7 +15,13 @@ ABM_GETSTATE = 0x00000004
 ABM_SETSTATE = 0x0000000A
 ABS_AUTOHIDE = 0x00000001
 GWL_STYLE = -16
+WS_BORDER = 0x00800000
+WS_DLGFRAME = 0x00400000
+WS_CAPTION = WS_BORDER | WS_DLGFRAME
 WS_THICKFRAME = 0x00040000
+IMMERSIVE_FRAME_STYLE_MASK = WS_CAPTION | WS_THICKFRAME
+DWMWA_BORDER_COLOR = 34
+DWMWA_COLOR_NONE = 0xFFFFFFFE
 WS_EX_TOPMOST = 0x00000008
 WS_EX_TRANSPARENT = 0x00000020
 WS_EX_TOOLWINDOW = 0x00000080
@@ -106,27 +112,77 @@ def _write_window_style(user32, hwnd, style: int) -> None:
         raise OSError(ctypes.get_last_error(), "SetWindowPos frame refresh failed")
 
 
+def _dwm_border_api():
+    try:
+        dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+    except OSError:
+        return None
+    dwmapi.DwmGetWindowAttribute.argtypes = [
+        wintypes.HWND, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+    ]
+    dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
+    dwmapi.DwmSetWindowAttribute.argtypes = [
+        wintypes.HWND, wintypes.DWORD, wintypes.LPCVOID, wintypes.DWORD,
+    ]
+    dwmapi.DwmSetWindowAttribute.restype = ctypes.c_long
+    return dwmapi
+
+
+def _read_dwm_border_color(hwnd):
+    dwmapi = _dwm_border_api()
+    if dwmapi is None:
+        return None
+    value = wintypes.DWORD()
+    result = int(dwmapi.DwmGetWindowAttribute(
+        hwnd, DWMWA_BORDER_COLOR, ctypes.byref(value), ctypes.sizeof(value)
+    ))
+    return int(value.value) if result == 0 else None
+
+
+def _write_dwm_border_color(hwnd, color: int) -> bool:
+    dwmapi = _dwm_border_api()
+    if dwmapi is None:
+        return False
+    value = wintypes.DWORD(int(color) & 0xFFFFFFFF)
+    result = int(dwmapi.DwmSetWindowAttribute(
+        hwnd, DWMWA_BORDER_COLOR, ctypes.byref(value), ctypes.sizeof(value)
+    ))
+    return result == 0
+
+
 def _suppress_immersive_resize_frame(hwnd) -> dict:
-    """Drop Chromium's resizable Win32 frame while its detached page owns fullscreen."""
+    """Remove Chromium's complete non-client frame while detached Matrix owns fullscreen."""
     hwnd_value = int(getattr(hwnd, "value", hwnd) or 0)
     if not hwnd_value:
         raise OSError("Detached Matrix window handle is unavailable")
     user32 = _window_frame_api()
     if not user32.IsWindow(hwnd_value):
         raise OSError("Detached Matrix window is no longer available")
+
     current = _read_window_style(user32, hwnd_value)
-    had_thick_frame = bool(current & WS_THICKFRAME)
-    updated = current & ~WS_THICKFRAME
+    frame_style_bits = current & IMMERSIVE_FRAME_STYLE_MASK
+    updated = current & ~IMMERSIVE_FRAME_STYLE_MASK
     if updated != current:
         _write_window_style(user32, hwnd_value, updated)
     verified = _read_window_style(user32, hwnd_value)
-    if verified & WS_THICKFRAME:
-        raise OSError("Detached Matrix resize-frame suppression verification mismatch")
-    return {"hwnd": hwnd_value, "hadThickFrame": had_thick_frame}
+    if verified & IMMERSIVE_FRAME_STYLE_MASK:
+        raise OSError("Detached Matrix non-client frame suppression verification mismatch")
+
+    dwm_border_color = _read_dwm_border_color(hwnd_value)
+    dwm_border_suppressed = False
+    if dwm_border_color is not None:
+        dwm_border_suppressed = _write_dwm_border_color(hwnd_value, DWMWA_COLOR_NONE)
+
+    return {
+        "hwnd": hwnd_value,
+        "frameStyleBits": frame_style_bits,
+        "dwmBorderColor": dwm_border_color,
+        "dwmBorderSuppressed": dwm_border_suppressed,
+    }
 
 
 def _restore_immersive_resize_frame(frame_state) -> bool:
-    """Restore only the resize-frame bit, preserving Chromium's other current styles."""
+    """Restore exactly the native frame bits and DWM border that existed before immersive mode."""
     state = frame_state if isinstance(frame_state, dict) else {}
     hwnd_value = int(state.get("hwnd") or 0)
     if not hwnd_value:
@@ -134,13 +190,15 @@ def _restore_immersive_resize_frame(frame_state) -> bool:
     user32 = _window_frame_api()
     if not user32.IsWindow(hwnd_value):
         return False
+
     current = _read_window_style(user32, hwnd_value)
-    if state.get("hadThickFrame"):
-        updated = current | WS_THICKFRAME
-    else:
-        updated = current & ~WS_THICKFRAME
+    frame_style_bits = int(state.get("frameStyleBits") or 0) & IMMERSIVE_FRAME_STYLE_MASK
+    updated = (current & ~IMMERSIVE_FRAME_STYLE_MASK) | frame_style_bits
     if updated != current:
         _write_window_style(user32, hwnd_value, updated)
+
+    if state.get("dwmBorderSuppressed") and state.get("dwmBorderColor") is not None:
+        _write_dwm_border_color(hwnd_value, int(state["dwmBorderColor"]))
     return True
 
 
@@ -382,7 +440,8 @@ def set_taskbar_autohide(token: str, hwnd, enabled: bool) -> dict:
                          name=f"EveMatrixTaskbarEdge:{token[:10]}", daemon=True).start()
     return {"ok": True, "supported": True, "taskbarAutoHide": True,
             "taskbarRestored": False, "taskbarOriginalState": original,
-            "taskbarState": current, "edgeGuard": True, "clientFrameSuppressed": True}
+            "taskbarState": current, "edgeGuard": True, "clientFrameSuppressed": True,
+            "dwmBorderSuppressed": bool(frame_state.get("dwmBorderSuppressed"))}
 
 
 def shutdown() -> None:
