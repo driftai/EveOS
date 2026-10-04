@@ -30,6 +30,8 @@ const assert = (condition, message) => {
         'frontend group play enters the serialized queue controller');
     assert(uiMain.includes('await window.EveAudioflixAudio?.playItem?.(track)'),
         'serialized queue playback delegates to the shared Audioflix controller');
+    assert(uiMain.includes("status === 'Ended'") && uiMain.includes('playQueueIndex(expectedIndex + 1)'),
+        'frontend queue consumes Ended and advances to the next track');
     const fixture = path.join(os.tmpdir(), `eveos-spotify-playback-${process.pid}.html`);
     const scripts = [
         'audioflix.audio.source.js',
@@ -113,16 +115,27 @@ const assert = (condition, message) => {
             await player.seek(61);
             await player.pause();
             await player.play(item);
+            // Real Spotify embeds do not expose a dedicated ended event. A finished track may
+            // report one final near-end playing position and then rewind to zero as it pauses.
             window.__spotifyController.emit('playback_update', {
-                position: 180000,
+                playingURI: 'spotify:track:1234567890ABCDEF',
+                position: 179200,
+                duration: 180000,
+                isPaused: false
+            });
+            window.__spotifyController.emit('playback_update', {
+                playingURI: 'spotify:track:1234567890ABCDEF',
+                position: 0,
                 duration: 180000,
                 isPaused: true
             });
             window.__spotifyController.emit('playback_update', {
-                position: 180000,
+                playingURI: 'spotify:track:1234567890ABCDEF',
+                position: 0,
                 duration: 180000,
                 isPaused: true
             });
+            const firstEndedItemId = playbackDetails.filter((detail) => detail.status === 'Ended').at(-1)?.item?.id;
             const nextItem = {
                 id: 'spotify-track-two',
                 title: 'Next Spotify Track',
@@ -133,9 +146,16 @@ const assert = (condition, message) => {
             const reusedController = window.__spotifyControllers === 1
                 && window.__spotifyCalls.loaded.includes('spotify:track:ABCDEF1234567890')
                 && window.__spotifyCalls.legacyLoaded.length === 0;
+            // The terminal paused update can also land slightly short of the nominal duration.
             window.__spotifyController.emit('playback_update', {
                 playingURI: 'spotify:track:ABCDEF1234567890',
-                position: 200000,
+                position: 199000,
+                duration: 200000,
+                isPaused: false
+            });
+            window.__spotifyController.emit('playback_update', {
+                playingURI: 'spotify:track:ABCDEF1234567890',
+                position: 199100,
                 duration: 200000,
                 isPaused: true
             });
@@ -170,6 +190,7 @@ const assert = (condition, message) => {
                 calls: firstCalls,
                 stateAt42: progress.find((entry) => entry.currentTime === 42),
                 endedCount: events.filter((status) => status === 'Ended').length,
+                firstEndedItemId,
                 mainCardTransportOnly,
                 compactTransportHidden,
                 internalExpanded,
@@ -191,9 +212,10 @@ const assert = (condition, message) => {
         assert(result.calls.uri === 'spotify:track:1234567890ABCDEF', 'Spotify URI is normalized');
         assert(result.stateAt42?.duration === 180, 'Spotify progress milliseconds become seconds');
         assert(result.calls.seek.includes(61), 'Spotify seek receives seconds, not milliseconds');
-        assert(result.endedCount === 2, 'each Spotify queue track emits Ended exactly once');
+        assert(result.endedCount === 2, 'each Spotify queue track emits Ended exactly once across real terminal state shapes');
+        assert(result.firstEndedItemId === 'spotify-track', 'rewind-to-zero completion ends the first Spotify queue item');
         assert(result.reusedController, 'back-to-back Spotify tracks reuse the proven embed controller');
-        assert(result.secondEndedItemId === 'spotify-track-two', 'the reused Spotify controller ends the current queue item');
+        assert(result.secondEndedItemId === 'spotify-track-two', 'near-end paused completion ends the current reused Spotify queue item');
         assert(result.mainCardTransportOnly, 'main-card play keeps the Spotify SDK in compact transport mode');
         assert(result.compactTransportHidden, 'main-card play keeps its invisible Spotify transport rendered in the viewport');
         assert(result.internalExpanded, 'Internal Player expands the existing Spotify controller');
