@@ -70,7 +70,7 @@ console.log("nexusWorkspaceFeedUI.js loading...");
     function install() {
         if (installed || typeof window.handleSocketMessage !== 'function') return false;
         const previousHandleSocketMessage = window.handleSocketMessage;
-        window.handleSocketMessage = async function handleSocketMessageWithNexusFeed(event) {
+        const wrappedHandleSocketMessage = async function handleSocketMessageWithNexusFeed(event) {
             try {
                 const data = JSON.parse(event?.data || '{}');
                 if (data?.type === 'nexus_workspace_user_message') {
@@ -83,6 +83,15 @@ console.log("nexusWorkspaceFeedUI.js loading...");
 
             return previousHandleSocketMessage(event);
         };
+        window.handleSocketMessage = wrappedHandleSocketMessage;
+
+        // If Gemini connected during lazy module startup, socketLifecycle may already have
+        // captured the pre-wrapper handler. Upgrade that exact live socket in place rather
+        // than requiring a reconnect merely to make Nexus-originated user turns visible.
+        if (window.webSocket && window.webSocket.onmessage === previousHandleSocketMessage) {
+            window.webSocket.onmessage = wrappedHandleSocketMessage;
+        }
+
         installed = true;
         return true;
     }
