@@ -10,18 +10,12 @@ import threading
 from ctypes import wintypes
 from pathlib import Path
 
+from . import matrix_immersive_frame
+
 
 ABM_GETSTATE = 0x00000004
 ABM_SETSTATE = 0x0000000A
 ABS_AUTOHIDE = 0x00000001
-GWL_STYLE = -16
-WS_BORDER = 0x00800000
-WS_DLGFRAME = 0x00400000
-WS_CAPTION = WS_BORDER | WS_DLGFRAME
-WS_THICKFRAME = 0x00040000
-IMMERSIVE_FRAME_STYLE_MASK = WS_CAPTION | WS_THICKFRAME
-DWMWA_BORDER_COLOR = 34
-DWMWA_COLOR_NONE = 0xFFFFFFFE
 WS_EX_TOPMOST = 0x00000008
 WS_EX_TRANSPARENT = 0x00000020
 WS_EX_TOOLWINDOW = 0x00000080
@@ -35,7 +29,6 @@ SW_SHOWNOACTIVATE = 4
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
 SWP_NOACTIVATE = 0x0010
-SWP_FRAMECHANGED = 0x0020
 SWP_SHOWWINDOW = 0x0040
 SWP_NOOWNERZORDER = 0x0200
 HWND_TOPMOST = -1
@@ -74,132 +67,6 @@ def _write_taskbar_state(state: int) -> int:
     shell32.SHAppBarMessage.restype = ctypes.c_size_t
     shell32.SHAppBarMessage(ABM_SETSTATE, ctypes.byref(data))
     return _taskbar_state()
-
-
-def _window_frame_api():
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    user32.IsWindow.argtypes = [wintypes.HWND]
-    user32.IsWindow.restype = wintypes.BOOL
-    user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
-    user32.GetWindowLongW.restype = ctypes.c_long
-    user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
-    user32.SetWindowLongW.restype = ctypes.c_long
-    user32.SetWindowPos.argtypes = [
-        wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
-        ctypes.c_int, ctypes.c_int, wintypes.UINT,
-    ]
-    user32.SetWindowPos.restype = wintypes.BOOL
-    return user32
-
-
-def _read_window_style(user32, hwnd) -> int:
-    ctypes.set_last_error(0)
-    raw_style = user32.GetWindowLongW(hwnd, GWL_STYLE)
-    error = ctypes.get_last_error()
-    if raw_style == 0 and error:
-        raise OSError(error, "GetWindowLongW failed")
-    return int(raw_style) & 0xFFFFFFFF
-
-
-def _write_window_style(user32, hwnd, style: int) -> None:
-    ctypes.set_last_error(0)
-    previous = user32.SetWindowLongW(hwnd, GWL_STYLE, ctypes.c_long(style).value)
-    error = ctypes.get_last_error()
-    if previous == 0 and error:
-        raise OSError(error, "SetWindowLongW failed")
-    flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOOWNERZORDER
-    if not user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, flags):
-        raise OSError(ctypes.get_last_error(), "SetWindowPos frame refresh failed")
-
-
-def _dwm_border_api():
-    try:
-        dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
-    except OSError:
-        return None
-    dwmapi.DwmGetWindowAttribute.argtypes = [
-        wintypes.HWND, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
-    ]
-    dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
-    dwmapi.DwmSetWindowAttribute.argtypes = [
-        wintypes.HWND, wintypes.DWORD, wintypes.LPCVOID, wintypes.DWORD,
-    ]
-    dwmapi.DwmSetWindowAttribute.restype = ctypes.c_long
-    return dwmapi
-
-
-def _read_dwm_border_color(hwnd):
-    dwmapi = _dwm_border_api()
-    if dwmapi is None:
-        return None
-    value = wintypes.DWORD()
-    result = int(dwmapi.DwmGetWindowAttribute(
-        hwnd, DWMWA_BORDER_COLOR, ctypes.byref(value), ctypes.sizeof(value)
-    ))
-    return int(value.value) if result == 0 else None
-
-
-def _write_dwm_border_color(hwnd, color: int) -> bool:
-    dwmapi = _dwm_border_api()
-    if dwmapi is None:
-        return False
-    value = wintypes.DWORD(int(color) & 0xFFFFFFFF)
-    result = int(dwmapi.DwmSetWindowAttribute(
-        hwnd, DWMWA_BORDER_COLOR, ctypes.byref(value), ctypes.sizeof(value)
-    ))
-    return result == 0
-
-
-def _suppress_immersive_resize_frame(hwnd) -> dict:
-    """Remove Chromium's complete non-client frame while detached Matrix owns fullscreen."""
-    hwnd_value = int(getattr(hwnd, "value", hwnd) or 0)
-    if not hwnd_value:
-        raise OSError("Detached Matrix window handle is unavailable")
-    user32 = _window_frame_api()
-    if not user32.IsWindow(hwnd_value):
-        raise OSError("Detached Matrix window is no longer available")
-
-    current = _read_window_style(user32, hwnd_value)
-    frame_style_bits = current & IMMERSIVE_FRAME_STYLE_MASK
-    updated = current & ~IMMERSIVE_FRAME_STYLE_MASK
-    if updated != current:
-        _write_window_style(user32, hwnd_value, updated)
-    verified = _read_window_style(user32, hwnd_value)
-    if verified & IMMERSIVE_FRAME_STYLE_MASK:
-        raise OSError("Detached Matrix non-client frame suppression verification mismatch")
-
-    dwm_border_color = _read_dwm_border_color(hwnd_value)
-    dwm_border_suppressed = False
-    if dwm_border_color is not None:
-        dwm_border_suppressed = _write_dwm_border_color(hwnd_value, DWMWA_COLOR_NONE)
-
-    return {
-        "hwnd": hwnd_value,
-        "frameStyleBits": frame_style_bits,
-        "dwmBorderColor": dwm_border_color,
-        "dwmBorderSuppressed": dwm_border_suppressed,
-    }
-
-
-def _restore_immersive_resize_frame(frame_state) -> bool:
-    """Restore exactly the native frame bits and DWM border that existed before immersive mode."""
-    state = frame_state if isinstance(frame_state, dict) else {}
-    hwnd_value = int(state.get("hwnd") or 0)
-    if not hwnd_value:
-        return False
-    user32 = _window_frame_api()
-    if not user32.IsWindow(hwnd_value):
-        return False
-
-    current = _read_window_style(user32, hwnd_value)
-    frame_style_bits = int(state.get("frameStyleBits") or 0) & IMMERSIVE_FRAME_STYLE_MASK
-    updated = (current & ~IMMERSIVE_FRAME_STYLE_MASK) | frame_style_bits
-    if updated != current:
-        _write_window_style(user32, hwnd_value, updated)
-
-    if state.get("dwmBorderSuppressed") and state.get("dwmBorderColor") is not None:
-        _write_dwm_border_color(hwnd_value, int(state["dwmBorderColor"]))
-    return True
 
 
 def _tray_revealed(user32, width: int, height: int) -> bool:
@@ -382,15 +249,19 @@ def restore_taskbar_session(token: str | None = None) -> bool:
             return False
         state = dict(_SESSION)
         _SESSION.clear()
-        # Block any in-flight edge reveal before the authoritative restoration.
+        # Stop native guards before restoring the user's taskbar/frame state.
         state["stop"].set()
         original = int(state["originalState"])
         current = _taskbar_state()
         if current != original:
             if _write_taskbar_state(original) != original:
                 raise OSError("Windows taskbar restoration verification mismatch")
+
+    frame_thread = state.get("frameThread")
+    if frame_thread and frame_thread is not threading.current_thread():
+        frame_thread.join(timeout=0.35)
     try:
-        _restore_immersive_resize_frame(state.get("frame"))
+        matrix_immersive_frame.restore(state.get("frame"))
     finally:
         _cancel_watchdog(state["watchdog"])
     return True
@@ -408,13 +279,15 @@ def set_taskbar_autohide(token: str, hwnd, enabled: bool) -> dict:
             restore_taskbar_session()
         if _SESSION:
             current = _taskbar_state()
+            frame_state = _SESSION.get("frame") or {}
             return {"ok": True, "supported": True, "taskbarAutoHide": bool(current & ABS_AUTOHIDE),
                     "taskbarRestored": False, "taskbarState": current, "edgeGuard": True,
-                    "clientFrameSuppressed": True}
+                    "clientFrameSuppressed": True,
+                    "clientAligned": bool(frame_state.get("clientAligned"))}
 
         original = _taskbar_state()
         target = original | ABS_AUTOHIDE
-        frame_state = _suppress_immersive_resize_frame(hwnd)
+        frame_state = matrix_immersive_frame.capture_and_suppress(hwnd)
         watchdog = None
         try:
             watchdog = _start_watchdog(original, target)
@@ -426,14 +299,21 @@ def set_taskbar_autohide(token: str, hwnd, enabled: bool) -> dict:
                 if _taskbar_state() != original:
                     _write_taskbar_state(original)
             finally:
-                _restore_immersive_resize_frame(frame_state)
+                matrix_immersive_frame.restore(frame_state)
                 if watchdog is not None:
                     _cancel_watchdog(watchdog)
             raise
         stop_event = threading.Event()
         hwnd_value = int(getattr(hwnd, "value", hwnd) or 0)
+        frame_thread = threading.Thread(
+            target=matrix_immersive_frame.guard_loop,
+            args=(stop_event, frame_state),
+            name=f"EveMatrixFrame:{token[:10]}", daemon=True,
+        )
         _SESSION.update({"token": token, "originalState": original,
-                         "stop": stop_event, "watchdog": watchdog, "frame": frame_state})
+                         "stop": stop_event, "watchdog": watchdog,
+                         "frame": frame_state, "frameThread": frame_thread})
+        frame_thread.start()
         threading.Thread(target=_watch_window, args=(token, hwnd_value, stop_event),
                          name=f"EveMatrixTaskbar:{token[:10]}", daemon=True).start()
         threading.Thread(target=_edge_guard_loop, args=(stop_event, original, target),
@@ -441,7 +321,8 @@ def set_taskbar_autohide(token: str, hwnd, enabled: bool) -> dict:
     return {"ok": True, "supported": True, "taskbarAutoHide": True,
             "taskbarRestored": False, "taskbarOriginalState": original,
             "taskbarState": current, "edgeGuard": True, "clientFrameSuppressed": True,
-            "dwmBorderSuppressed": bool(frame_state.get("dwmBorderSuppressed"))}
+            "dwmBorderSuppressed": bool(frame_state.get("dwmBorderSuppressed")),
+            "clientAligned": bool(frame_state.get("clientAligned"))}
 
 
 def shutdown() -> None:
