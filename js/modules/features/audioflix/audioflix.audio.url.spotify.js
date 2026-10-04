@@ -11,6 +11,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
     const START_TIMEOUT_MS = 10000;
     const END_TOLERANCE_MS = 1500;
     const END_RESET_MAX_MS = 500;
+    const END_WATCHDOG_GRACE_MS = 1250;
     let apiPromise = null;
 
     function spotifyTrackId(value) {
@@ -20,6 +21,11 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
     function startTimeoutMs() {
         const override = Number(window.__EveAudioflixSpotifyStartTimeoutMs);
         return Number.isFinite(override) && override >= 50 ? override : START_TIMEOUT_MS;
+    }
+
+    function endWatchdogGraceMs() {
+        const override = Number(window.__EveAudioflixSpotifyEndWatchdogGraceMs);
+        return Number.isFinite(override) && override >= 0 ? override : END_WATCHDOG_GRACE_MS;
     }
 
     function loadApi() {
@@ -73,6 +79,9 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                 let ended = false;
                 let started = false;
                 let startTimer = 0;
+                let completionTimer = 0;
+                let completionEpoch = 0;
+                let lastPlayingObservedAt = 0;
                 let runtimeFailureReported = false;
                 let selectedItem = item;
                 let lastPlayingPositionMs = 0;
@@ -84,9 +93,16 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     if (startTimer) clearTimeout(startTimer);
                     startTimer = 0;
                 };
+                const clearCompletionTimer = () => {
+                    if (completionTimer) clearTimeout(completionTimer);
+                    completionTimer = 0;
+                    completionEpoch += 1;
+                };
                 const resetCompletionEvidence = () => {
+                    clearCompletionTimer();
                     lastPlayingPositionMs = 0;
                     lastDurationMs = 0;
+                    lastPlayingObservedAt = 0;
                     lastPaused = true;
                 };
                 const finish = (error) => {
@@ -99,6 +115,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     if (runtimeFailureReported) return;
                     runtimeFailureReported = true;
                     clearStartTimer();
+                    clearCompletionTimer();
                     V.playback.paused = true;
                     // Keep normal playback invisible. Reveal the official transport only when
                     // Spotify requires an additional direct click to satisfy browser policy.
@@ -117,6 +134,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                 const markEnded = (durationMs = 0) => {
                     if (ended) return false;
                     clearStartTimer();
+                    clearCompletionTimer();
                     ended = true;
                     started = false;
                     V.playback.paused = true;
@@ -127,6 +145,32 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     }
                     emitPlayback('Ended');
                     return true;
+                };
+                const scheduleCompletionWatchdog = (positionMs, durationMs) => {
+                    clearCompletionTimer();
+                    const effectivePositionMs = Math.max(0, Number(positionMs) || 0);
+                    const effectiveDurationMs = Math.max(0, Number(durationMs) || 0);
+                    if (!started || ended || lastPaused || effectiveDurationMs <= 0) return;
+                    const epoch = completionEpoch;
+                    const observedAt = Date.now();
+                    lastPlayingObservedAt = observedAt;
+                    const remainingMs = Math.max(0, effectiveDurationMs - effectivePositionMs);
+                    completionTimer = setTimeout(() => {
+                        completionTimer = 0;
+                        if (epoch !== completionEpoch || !started || ended || lastPaused) return;
+                        const elapsedMs = Math.max(0, Date.now() - observedAt);
+                        const projectedPositionMs = effectivePositionMs + elapsedMs;
+                        const stillRemainingMs = effectiveDurationMs - projectedPositionMs;
+                        // A background/minimized renderer can stop receiving Spotify's final
+                        // playback_update. Keep one deadline from the last confirmed playing
+                        // sample so the normal Ended -> queue path can still run. If a timer fires
+                        // early, re-arm it rather than ending the track prematurely.
+                        if (stillRemainingMs > END_TOLERANCE_MS) {
+                            scheduleCompletionWatchdog(projectedPositionMs, effectiveDurationMs);
+                            return;
+                        }
+                        if (markEnded(effectiveDurationMs)) emitProgress();
+                    }, Math.max(50, remainingMs + endWatchdogGraceMs()));
                 };
                 api.createController(mount, {
                     uri: `spotify:track:${id}`,
@@ -141,6 +185,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                             started = false;
                             runtimeFailureReported = false;
                             clearStartTimer();
+                            clearCompletionTimer();
                             setStageStatus('Spotify player ready. Starting playback...');
                             startTimer = setTimeout(() => reportRuntimeFailure(), startTimeoutMs());
                             try {
@@ -154,12 +199,18 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                         },
                         pause: () => {
                             clearStartTimer();
+                            clearCompletionTimer();
+                            lastPaused = true;
                             return controller.pause?.();
                         },
-                        setCurrentTime: (seconds) => controller.seek?.(Math.max(0, Number(seconds) || 0)),
+                        setCurrentTime: (seconds) => {
+                            clearCompletionTimer();
+                            return controller.seek?.(Math.max(0, Number(seconds) || 0));
+                        },
                         setVolume: (volume) => controller.setVolume?.(Math.max(0, Math.min(1, Number(volume) || 0))),
                         destroy: () => {
                             clearStartTimer();
+                            clearCompletionTimer();
                             return controller.destroy?.();
                         },
                         loadItem: async (nextItem) => {
@@ -223,8 +274,10 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                             lastPlayingPositionMs = positionMs;
                             if (durationMs > 0) lastDurationMs = durationMs;
                             lastPaused = false;
+                            scheduleCompletionWatchdog(positionMs, effectiveDurationMs);
                             emitPlayback(`Playing ${selectedItem.title || 'Spotify track'} with Spotify`);
                         } else {
+                            clearCompletionTimer();
                             if ((atEnd || resetAfterEnd) && !ended) markEnded(effectiveDurationMs);
                             if (positionMs > 0) lastPlayingPositionMs = positionMs;
                             if (durationMs > 0) lastDurationMs = durationMs;
