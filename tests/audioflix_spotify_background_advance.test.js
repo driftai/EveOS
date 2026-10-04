@@ -49,7 +49,7 @@ async function createSpotifyHarness(options = {}) {
             }
         }
     };
-    const workerState = { created: 0, armed: 0, cancelled: 0, terminated: 0 };
+    const workerState = { created: 0, armed: 0, cancelled: 0, terminated: 0, urls: [] };
     window = {
         EveAudioflixSpotifyPlayback: {},
         __EveAudioflixSpotifyEndWatchdogGraceMs: 0
@@ -57,8 +57,9 @@ async function createSpotifyHarness(options = {}) {
 
     if (options.workerScheduler) {
         class FakeWorker {
-            constructor() {
+            constructor(url) {
                 workerState.created += 1;
+                workerState.urls.push(String(url || ''));
                 this.onmessage = null;
                 this.timer = 0;
             }
@@ -85,11 +86,20 @@ async function createSpotifyHarness(options = {}) {
             }
         }
         window.Worker = FakeWorker;
-        window.Blob = class FakeBlob {};
-        window.URL = {
-            createObjectURL: () => 'blob:spotify-background-watchdog',
-            revokeObjectURL() {}
-        };
+        if (options.fileMode) {
+            window.location = { protocol: 'file:' };
+            window.Blob = undefined;
+            window.URL = {
+                createObjectURL() { throw new Error('Blob workers unavailable in file mode harness'); },
+                revokeObjectURL() {}
+            };
+        } else {
+            window.Blob = class FakeBlob {};
+            window.URL = {
+                createObjectURL: () => 'blob:spotify-background-watchdog',
+                revokeObjectURL() {}
+            };
+        }
     }
 
     let starvedTimerId = 1000;
@@ -99,6 +109,7 @@ async function createSpotifyHarness(options = {}) {
     const pageClearTimeout = options.starvePageTimers
         ? () => {}
         : clearTimeout;
+    let networkRequests = 0;
 
     vm.runInNewContext(source, {
         window,
@@ -107,7 +118,11 @@ async function createSpotifyHarness(options = {}) {
         clearTimeout: pageClearTimeout,
         Promise,
         Date,
-        queueMicrotask
+        queueMicrotask,
+        fetch() {
+            networkRequests += 1;
+            throw new Error('network access is not available in this harness');
+        }
     });
     const view = {
         playback: { paused: true, currentTime: 0, duration: 0 },
@@ -127,7 +142,7 @@ async function createSpotifyHarness(options = {}) {
         url: 'https://open.spotify.com/track/AAA111'
     });
     listeners.get('playback_started')?.({});
-    return { listeners, playbackEvents, progressEvents, view, workerState };
+    return { listeners, playbackEvents, progressEvents, view, workerState, get networkRequests() { return networkRequests; } };
 }
 
 test('Spotify completion survives throttled page timers through its background worker deadline', async () => {
@@ -187,4 +202,29 @@ test('Spotify background completion deadline is cancelled by an explicit pause',
 
     assert.ok(harness.workerState.cancelled >= 1);
     assert.equal(harness.playbackEvents.filter((status) => status === 'Ended').length, 0);
+});
+
+test('Spotify file mode uses an inline worker with no localhost or network dependency', async () => {
+    const harness = await createSpotifyHarness({
+        starvePageTimers: true,
+        workerScheduler: true,
+        fileMode: true
+    });
+    harness.listeners.get('playback_update')?.({
+        data: {
+            playingURI: 'spotify:track:AAA111',
+            position: 30,
+            duration: 80,
+            isPaused: false
+        }
+    });
+
+    await wait(100);
+
+    assert.equal(harness.workerState.created, 1);
+    assert.match(harness.workerState.urls[0], /^data:text\/javascript;charset=utf-8,/);
+    assert.ok(harness.workerState.armed >= 1);
+    assert.equal(harness.networkRequests, 0);
+    assert.equal(harness.playbackEvents.filter((status) => status === 'Ended').length, 1);
+    assert.equal(harness.view.playback.paused, true);
 });
