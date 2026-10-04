@@ -14,6 +14,8 @@ from pathlib import Path
 ABM_GETSTATE = 0x00000004
 ABM_SETSTATE = 0x0000000A
 ABS_AUTOHIDE = 0x00000001
+GWL_STYLE = -16
+WS_THICKFRAME = 0x00040000
 WS_EX_TOPMOST = 0x00000008
 WS_EX_TRANSPARENT = 0x00000020
 WS_EX_TOOLWINDOW = 0x00000080
@@ -27,6 +29,7 @@ SW_SHOWNOACTIVATE = 4
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
 SWP_NOACTIVATE = 0x0010
+SWP_FRAMECHANGED = 0x0020
 SWP_SHOWWINDOW = 0x0040
 SWP_NOOWNERZORDER = 0x0200
 HWND_TOPMOST = -1
@@ -65,6 +68,80 @@ def _write_taskbar_state(state: int) -> int:
     shell32.SHAppBarMessage.restype = ctypes.c_size_t
     shell32.SHAppBarMessage(ABM_SETSTATE, ctypes.byref(data))
     return _taskbar_state()
+
+
+def _window_frame_api():
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.IsWindow.argtypes = [wintypes.HWND]
+    user32.IsWindow.restype = wintypes.BOOL
+    user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowLongW.restype = ctypes.c_long
+    user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
+    user32.SetWindowLongW.restype = ctypes.c_long
+    user32.SetWindowPos.argtypes = [
+        wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+        ctypes.c_int, ctypes.c_int, wintypes.UINT,
+    ]
+    user32.SetWindowPos.restype = wintypes.BOOL
+    return user32
+
+
+def _read_window_style(user32, hwnd) -> int:
+    ctypes.set_last_error(0)
+    raw_style = user32.GetWindowLongW(hwnd, GWL_STYLE)
+    error = ctypes.get_last_error()
+    if raw_style == 0 and error:
+        raise OSError(error, "GetWindowLongW failed")
+    return int(raw_style) & 0xFFFFFFFF
+
+
+def _write_window_style(user32, hwnd, style: int) -> None:
+    ctypes.set_last_error(0)
+    previous = user32.SetWindowLongW(hwnd, GWL_STYLE, ctypes.c_long(style).value)
+    error = ctypes.get_last_error()
+    if previous == 0 and error:
+        raise OSError(error, "SetWindowLongW failed")
+    flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOOWNERZORDER
+    if not user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, flags):
+        raise OSError(ctypes.get_last_error(), "SetWindowPos frame refresh failed")
+
+
+def _suppress_immersive_resize_frame(hwnd) -> dict:
+    """Drop Chromium's resizable Win32 frame while its detached page owns fullscreen."""
+    hwnd_value = int(getattr(hwnd, "value", hwnd) or 0)
+    if not hwnd_value:
+        raise OSError("Detached Matrix window handle is unavailable")
+    user32 = _window_frame_api()
+    if not user32.IsWindow(hwnd_value):
+        raise OSError("Detached Matrix window is no longer available")
+    current = _read_window_style(user32, hwnd_value)
+    had_thick_frame = bool(current & WS_THICKFRAME)
+    updated = current & ~WS_THICKFRAME
+    if updated != current:
+        _write_window_style(user32, hwnd_value, updated)
+    verified = _read_window_style(user32, hwnd_value)
+    if verified & WS_THICKFRAME:
+        raise OSError("Detached Matrix resize-frame suppression verification mismatch")
+    return {"hwnd": hwnd_value, "hadThickFrame": had_thick_frame}
+
+
+def _restore_immersive_resize_frame(frame_state) -> bool:
+    """Restore only the resize-frame bit, preserving Chromium's other current styles."""
+    state = frame_state if isinstance(frame_state, dict) else {}
+    hwnd_value = int(state.get("hwnd") or 0)
+    if not hwnd_value:
+        return False
+    user32 = _window_frame_api()
+    if not user32.IsWindow(hwnd_value):
+        return False
+    current = _read_window_style(user32, hwnd_value)
+    if state.get("hadThickFrame"):
+        updated = current | WS_THICKFRAME
+    else:
+        updated = current & ~WS_THICKFRAME
+    if updated != current:
+        _write_window_style(user32, hwnd_value, updated)
+    return True
 
 
 def _tray_revealed(user32, width: int, height: int) -> bool:
@@ -123,7 +200,7 @@ def _edge_guard_loop(stop_event: threading.Event, original_state: int,
     ]
     user32.PeekMessageW.argtypes = [
         ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT,
-        wintypes.UINT, wintypes.UINT,
+        wintypes.UINT, wintypes.UINT, wintypes.UINT,
     ]
     width = int(user32.GetSystemMetrics(0))
     height = int(user32.GetSystemMetrics(1))
@@ -254,7 +331,10 @@ def restore_taskbar_session(token: str | None = None) -> bool:
         if current != original:
             if _write_taskbar_state(original) != original:
                 raise OSError("Windows taskbar restoration verification mismatch")
-    _cancel_watchdog(state["watchdog"])
+    try:
+        _restore_immersive_resize_frame(state.get("frame"))
+    finally:
+        _cancel_watchdog(state["watchdog"])
     return True
 
 
@@ -271,10 +351,12 @@ def set_taskbar_autohide(token: str, hwnd, enabled: bool) -> dict:
         if _SESSION:
             current = _taskbar_state()
             return {"ok": True, "supported": True, "taskbarAutoHide": bool(current & ABS_AUTOHIDE),
-                    "taskbarRestored": False, "taskbarState": current, "edgeGuard": True}
+                    "taskbarRestored": False, "taskbarState": current, "edgeGuard": True,
+                    "clientFrameSuppressed": True}
 
         original = _taskbar_state()
         target = original | ABS_AUTOHIDE
+        frame_state = _suppress_immersive_resize_frame(hwnd)
         watchdog = _start_watchdog(original, target)
         try:
             current = _write_taskbar_state(target)
@@ -282,19 +364,20 @@ def set_taskbar_autohide(token: str, hwnd, enabled: bool) -> dict:
                 raise OSError("Windows taskbar auto-hide verification mismatch")
         except BaseException:
             _write_taskbar_state(original)
+            _restore_immersive_resize_frame(frame_state)
             _cancel_watchdog(watchdog)
             raise
         stop_event = threading.Event()
         hwnd_value = int(getattr(hwnd, "value", hwnd) or 0)
         _SESSION.update({"token": token, "originalState": original,
-                         "stop": stop_event, "watchdog": watchdog})
+                         "stop": stop_event, "watchdog": watchdog, "frame": frame_state})
         threading.Thread(target=_watch_window, args=(token, hwnd_value, stop_event),
                          name=f"EveMatrixTaskbar:{token[:10]}", daemon=True).start()
         threading.Thread(target=_edge_guard_loop, args=(stop_event, original, target),
                          name=f"EveMatrixTaskbarEdge:{token[:10]}", daemon=True).start()
     return {"ok": True, "supported": True, "taskbarAutoHide": True,
             "taskbarRestored": False, "taskbarOriginalState": original,
-            "taskbarState": current, "edgeGuard": True}
+            "taskbarState": current, "edgeGuard": True, "clientFrameSuppressed": True}
 
 
 def shutdown() -> None:
