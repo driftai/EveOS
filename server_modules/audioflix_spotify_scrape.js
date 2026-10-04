@@ -39,6 +39,29 @@ const needsFullPlayerPromotion = (value, expectedCount = 0, capturedCount = 0) =
     isEmbedPlaylistUrl(value)
     && (Number(expectedCount) > 100 || (!Number(expectedCount) && Number(capturedCount) >= 100))
 );
+const assessPlaylistCompleteness = (expectedCount = 0, capturedCount = 0) => {
+    const expected = Math.max(0, Number(expectedCount) || 0);
+    const captured = Math.max(0, Number(capturedCount) || 0);
+    if (!expected || captured >= expected) {
+        return { ok: true, expectedCount: expected, capturedCount: captured, unexposedCount: 0 };
+    }
+
+    const shortfall = expected - captured;
+    // Spotify can count removed/region-blocked rows in the playlist total without exposing a
+    // usable track row. Once collectDomRows has genuinely reached the end, tolerate only a tiny
+    // near-complete gap. This keeps 8/135 and other real truncation failures blocked.
+    const tolerance = Math.min(3, Math.max(1, Math.ceil(expected * 0.02)));
+    const nearComplete = captured > 0
+        && captured / expected >= 0.97
+        && shortfall <= tolerance;
+    return {
+        ok: nearComplete,
+        expectedCount: expected,
+        capturedCount: captured,
+        unexposedCount: nearComplete ? shortfall : 0,
+        shortfall
+    };
+};
 
 function requestMentionsPlaylist(url = '', postData = '', playlistId = '') {
     if (!playlistId) return false;
@@ -407,11 +430,23 @@ async function scrape(context) {
         return { ...row, sourceId, position: index + 1 };
     }).filter((row) => row.title && row.url && !seen.has(row.sourceId) && seen.add(row.sourceId));
     if (!entries.length) throw new Error('No Spotify song rows were found. Open the saved session, verify the playlist is visible, then sync again.');
-    if (loaded.expectedCount && entries.length < loaded.expectedCount) {
+    const completeness = assessPlaylistCompleteness(loaded.expectedCount, entries.length);
+    if (!completeness.ok) {
         throw new Error(`Spotify says this playlist has ${loaded.expectedCount} songs, but EveOS captured only ${entries.length}. The partial import was cancelled; reopen the saved Spotify session and retry.`);
     }
     const meta = await header(page);
-    return { ok: true, playlistId: targetPlaylistId, title: meta.title || 'Spotify Playlist', owner: meta.owner, image: meta.image || entries[0].image, count: entries.length, scrapeSource, entries };
+    return {
+        ok: true,
+        playlistId: targetPlaylistId,
+        title: meta.title || 'Spotify Playlist',
+        owner: meta.owner,
+        image: meta.image || entries[0].image,
+        count: entries.length,
+        expectedCount: completeness.expectedCount || entries.length,
+        unexposedCount: completeness.unexposedCount,
+        scrapeSource,
+        entries
+    };
 }
 
 async function main() {
@@ -437,4 +472,12 @@ if (require.main === module) {
     });
 }
 
-module.exports = { mergeTrack, mergePlaylistRows, playlistCount, requestMentionsPlaylist, needsFullPlayerPromotion, collectDomRows };
+module.exports = {
+    mergeTrack,
+    mergePlaylistRows,
+    playlistCount,
+    requestMentionsPlaylist,
+    needsFullPlayerPromotion,
+    assessPlaylistCompleteness,
+    collectDomRows
+};
