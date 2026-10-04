@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const terminalRelayStorage = require('./scripts/terminal-relay-storage');
+const runtimeConfig = require('./runtime-config');
 
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -58,11 +59,24 @@ function createHttpHandler({ host, port, publicDir, diagnostics }) {
 
 function websocketOriginAllowed(origin, port) {
   if (!origin) return true;
+  // file:// EveOS is an explicitly supported local host surface. Browsers serialize its
+  // websocket Origin as "null"; the socket itself still terminates on loopback and the
+  // privileged workspace-host registration is additionally restricted by qualification routing.
+  if (origin === 'null') return true;
   if (/^chrome-extension:\/\/[a-p]{32}$/i.test(origin)) return true;
   try {
     const parsed = new URL(origin);
     const loopback = parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost' || parsed.hostname === '::1';
-    return loopback && Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80)) === Number(port);
+    if (!loopback) return false;
+    const originPort = Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80));
+    if (originPort === Number(port)) return true;
+    // Search Monitor lives on EveOS Web, not the Nexus port. Permit only that registered
+    // loopback origin so the page can act as the owner of its already-open local chat workspaces.
+    try {
+      return originPort === Number(runtimeConfig.registryPort('EVEOS_WEB_PORT'));
+    } catch {
+      return false;
+    }
   } catch {
     return false;
   }
