@@ -236,10 +236,12 @@ wss.on('connection', (ws, req) => {
         }
         safeSend(ws, { type: 'server_session', id: SERVER_SESSION_ID, assetRevision: ASSET_REVISION });
         if (ws.clientKind === 'dex') safeSend(ws, { type: 'dex_state_snapshot', snapshot: dexStateStore.load() });
-        safeSend(ws, extensionStatus()); safeSend(ws, classSnapshot()); appTargetController.announce(ws, { refreshing: true });
+        safeSend(ws, extensionStatus()); safeSend(ws, classSnapshot());
+        safeSend(ws, { type: 'local_targets_update', targets: lastLocalTargets, target: selectedLocalTarget(ws), refreshing: true });
+        appTargetController.announce(ws, { refreshing: true });
         if (extensionSessions.current().ready) safeSend(ws, { type: 'tabs_update', providers: lastProviders, tabs: lastTabs, target: lastTarget });
         appTargetController.refresh(ws).catch((error) => console.log('[bridge] App-Origin discovery: ' + error.message));
-        await refreshLocalTargets(ws);
+        refreshLocalTargets(ws).catch((error) => console.log('[bridge] Local-Origin discovery: ' + error.message));
         return;
       }
       safeSend(ws, { type: 'error', code: 'BAD_ROLE', message: 'Unsupported hello.role.' });

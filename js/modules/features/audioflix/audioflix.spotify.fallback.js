@@ -104,6 +104,42 @@ window.EveAudioflixSpotifyFallback = window.EveAudioflixSpotifyFallback || {};
         return result;
     }
 
+    async function localizeSpotifyScope(scope, key, targetDir, onProgress, force, mediaFormat, failures) {
+        await L.recalibrateScopePath?.(scope, key, targetDir);
+        const candidates = (L.localizeCandidates?.(scope, key, force) || []).filter(isSpotifyTrack);
+        const spotifyInScope = (L.collectScope?.(scope, key) || []).filter(isSpotifyTrack);
+        let done = 0;
+        let lastError = '';
+        for (let index = 0; index < candidates.length; index += 1) {
+            const track = fullTrack(candidates[index]);
+            onProgress?.({ index: index + 1, total: candidates.length, title: track.title, resolverMode: 'spotify-fallback' });
+            let result;
+            try {
+                result = await originalNativeLocalizeTrack.call(N, track, targetDir, { mediaFormat, method: 'spotify-fallback' });
+            } catch (error) {
+                result = { ok: false, error: error?.message || String(error) };
+            }
+            if (result?.ok && result.filePath) {
+                addRecoveredLocalization(track, sourceFor(scope, key, track), result);
+                done += 1;
+            } else {
+                const failure = failureFor(track, result?.error || result?.message, scope, key);
+                failures.push(failure);
+                lastError = failure.error;
+            }
+        }
+        return {
+            ok: done > 0 || failures.length === 0,
+            done,
+            failed: failures.length,
+            skipped: Math.max(0, spotifyInScope.length - candidates.length),
+            shortcut: 0,
+            total: candidates.length,
+            targetDir: text(targetDir),
+            lastError
+        };
+    }
+
     async function localizeScopeCompat(scope, key, targetDir, onProgress, force = false, mode = 'link', mediaFormat = 'audio', resolverMode = 'standard') {
         if (activeRun) return { ok: false, reason: 'Another localization run is already in progress.' };
         activeRun = true;
@@ -114,7 +150,9 @@ window.EveAudioflixSpotifyFallback = window.EveAudioflixSpotifyFallback || {};
         const routed = (track, dir, options = {}) => routeNativeTrack(track, dir, options, resolver, scope, key, failures, successes);
         N.localizeTrack = routed;
         try {
-            const result = await originalLocalizeScope(scope, key, targetDir, onProgress, force, mode, mediaFormat);
+            const result = resolver === 'spotify-fallback'
+                ? await localizeSpotifyScope(scope, key, targetDir, onProgress, force, mediaFormat, failures)
+                : await originalLocalizeScope(scope, key, targetDir, onProgress, force, mode, mediaFormat);
             successes.forEach(({ track, result: success }) => annotateFallbackSuccess(track, success));
             const eligible = resolver === 'standard' ? failures.filter((entry) => entry.fallbackEligible) : [];
             if (eligible.length) {
@@ -210,6 +248,9 @@ window.EveAudioflixSpotifyFallback = window.EveAudioflixSpotifyFallback || {};
             }, force, mode, mediaFormat, 'standard').then((result) => {
                 const fallbackNote = result.fallbackEligible
                     ? ` ${result.fallbackEligible} Spotify track${result.fallbackEligible === 1 ? '' : 's'} can be retried with Spotify Fallback.` : '';
+                if (result.fallbackEligible && typeof window.showToast === 'function') {
+                    window.showToast(`${result.fallbackEligible} Spotify localization${result.fallbackEligible === 1 ? '' : 's'} failed. Optional Spotify Fallback is ready for review.`, 'warning');
+                }
                 ctx.playbackStatus = result.ok
                     ? (scope === 'group'
                         ? `Group localized - ${result.done} downloaded, ${result.shortcut || 0} shortcut${result.shortcut === 1 ? '' : 's'}, ${result.skipped || 0} kept${result.failed ? `, ${result.failed} failed` : ''}.${fallbackNote}`
@@ -304,7 +345,7 @@ window.EveAudioflixSpotifyFallback = window.EveAudioflixSpotifyFallback || {};
             const pendingHere = pending && pending.scope === scope && pending.key === key && pending.failures?.length;
             const rows = pendingHere ? pending.failures.map((failure) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.06);"><strong style="color:#f8fafc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(failure.title)}</strong><span style="color:#fbbf24;font-size:.7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%;" title="${esc(failure.error)}">${esc(failure.error)}</span></div>`).join('') : '';
             const recoveryBlock = pendingHere ? `<div class="audioflix-spotify-recovery" style="padding:9px 10px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.11);border-radius:10px;"><div style="font-weight:700;color:#fbbf24;">Spotify recovery available - ${pending.failures.length} track${pending.failures.length === 1 ? '' : 's'} ${pending.attempted ? 'still unresolved after fallback' : 'failed with the standard method'}</div><div style="font-size:.75rem;color:#cbd5e1;margin:3px 0 6px;">Nothing retries automatically. Choose whether to use the alternate Spotify resolver.</div><div style="max-height:130px;overflow-y:auto;margin-bottom:7px;">${rows}</div><div style="display:flex;gap:7px;flex-wrap:wrap;"><button type="button" class="audioflix-add-toggle" data-af-action="retry-spotify-fallback">${pending.attempted ? 'Retry' : 'Try'} Spotify Fallback (${pending.failures.length})</button><button type="button" class="audioflix-add-toggle" data-af-action="dismiss-spotify-recovery">Dismiss</button></div></div>` : '';
-            const optionsBlock = spotify.length ? `<details style="padding:7px 9px;border:1px solid rgba(29,185,84,.28);background:rgba(29,185,84,.07);border-radius:9px;"><summary style="cursor:pointer;color:#86efac;font-size:.78rem;font-weight:650;">Spotify recovery options - ${spotify.length} Spotify-linked track${spotify.length === 1 ? '' : 's'}</summary><div style="font-size:.74rem;color:#cbd5e1;margin-top:6px;line-height:1.4;">Standard localization remains the default. The alternate resolver searches more independent-source candidates and runs only when you press the button below. Non-Spotify tracks in a mixed scope keep the standard resolver.</div><button type="button" class="audioflix-add-toggle" data-af-action="localize-spotify-fallback-scope" style="margin-top:7px;">Use Spotify Fallback for this scope</button></details>` : '';
+            const optionsBlock = spotify.length ? `<details style="padding:7px 9px;border:1px solid rgba(29,185,84,.28);background:rgba(29,185,84,.07);border-radius:9px;"><summary style="cursor:pointer;color:#86efac;font-size:.78rem;font-weight:650;">Spotify recovery options - ${spotify.length} Spotify-linked track${spotify.length === 1 ? '' : 's'}</summary><div style="font-size:.74rem;color:#cbd5e1;margin-top:6px;line-height:1.4;">Standard localization remains the default. The alternate resolver searches more independent-source candidates and runs only when you press the button below. In mixed scopes, only Spotify-linked tracks are included.</div><button type="button" class="audioflix-add-toggle" data-af-action="localize-spotify-fallback-scope" style="margin-top:7px;">Use Spotify Fallback for this scope</button></details>` : '';
             return html.replace('</form>', `${recoveryBlock}${optionsBlock}</form>`);
         };
         base.renderSongLocalizations = function renderFallbackSongLocalizations(track) {

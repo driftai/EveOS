@@ -16,6 +16,7 @@ class SpotifyFallbackContractTests(unittest.TestCase):
         self.assertIn('"/api/audioflix/localize-spotify-fallback": localize_spotify_fallback', bridge)
         self.assertIn("resolver === 'standard' ? failures.filter", client)
         self.assertIn("Nothing retries automatically", client)
+        self.assertIn("Optional Spotify Fallback is ready for review", client)
         self.assertIn("mediaFormat, 'standard').then", client)
 
         start = client.index("async function localizeScopeCompat(")
@@ -30,6 +31,8 @@ class SpotifyFallbackContractTests(unittest.TestCase):
             client,
         )
         self.assertIn("method = resolverMode === 'spotify-fallback'", client)
+        self.assertIn("localizeCandidates?.(scope, key, force) || []).filter(isSpotifyTrack)", client)
+        self.assertIn("only Spotify-linked tracks are included", client)
 
     def test_client_stays_under_first_party_line_cap(self):
         client_path = ROOT / "js/modules/features/audioflix/audioflix.spotify.fallback.js"

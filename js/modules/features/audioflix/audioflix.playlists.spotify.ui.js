@@ -10,6 +10,8 @@ window.EveAudioflixSpotifyUi = window.EveAudioflixSpotifyUi || {};
 
     function renderLinkForm(groupName, connection, ctx) {
         const { esc, state } = ctx;
+        const extraction = String(connection.scrapeSource || '').startsWith('embed')
+            ? 'Spotify embed extraction' : 'Spotify saved-session extraction';
         const tracks = (state().music || [])
             .filter((track) => track.playlistId === connection.id)
             .sort((a, b) => Number(a.playlistPosition || 0) - Number(b.playlistPosition || 0));
@@ -25,7 +27,7 @@ window.EveAudioflixSpotifyUi = window.EveAudioflixSpotifyUi || {};
         return `<section class="audioflix-spotify-inspector" data-af-spotify-inspector>
             <header>
                 ${connection.image ? `<img src="${esc(connection.image)}" alt="" referrerpolicy="no-referrer">` : '<span class="audioflix-spotify-cover">&#9835;</span>'}
-                <div><span class="audioflix-spotify-kicker">Spotify saved-session extraction</span>
+                <div><span class="audioflix-spotify-kicker">${extraction}</span>
                     <h5>${esc(connection.title || groupName)}</h5>
                     <p>${esc(connection.owner || 'Playlist owner unavailable')} / ${tracks.length} imported track${tracks.length === 1 ? '' : 's'}</p>
                 </div>

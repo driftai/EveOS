@@ -51,6 +51,7 @@ test('UI handshake advertises Online, Local and App-Origin without waiting for n
     const localTargets = await localTargetsPromise;
     assert.ok(Array.isArray(localTargets.targets));
     assert.ok('target' in localTargets);
+    assert.equal(localTargets.refreshing, true);
 
     const appTargets = await appTargetsPromise;
     assert.ok(Array.isArray(appTargets.targets));

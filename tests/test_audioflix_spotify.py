@@ -6,7 +6,7 @@ from server_modules import audioflix_spotify
 
 
 class SpotifyPlaylistImportTests(unittest.TestCase):
-    def test_helper_uses_full_web_player_playlist_instead_of_embed(self):
+    def test_scrape_starts_with_embed_while_login_opens_full_web_player(self):
         normalized = audioflix_spotify.normalize_playlist_input(
             "https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M"
         )
@@ -14,11 +14,10 @@ class SpotifyPlaylistImportTests(unittest.TestCase):
 
         with patch("server_modules.audioflix_spotify._project_root", return_value=Path("/repo")):
             with patch("server_modules.audioflix_spotify._profile_dir", return_value=Path("/spotify-profile")):
-                for mode in ("scrape", "login"):
-                    with self.subTest(mode=mode):
-                        command = audioflix_spotify._helper_command(mode, normalized)
-                        self.assertEqual(command[3], normalized["url"])
-                        self.assertNotIn("/embed/playlist/", command[3])
+                scrape = audioflix_spotify._helper_command("scrape", normalized)
+                login = audioflix_spotify._helper_command("login", normalized)
+                self.assertEqual(scrape[3], normalized["embedUrl"])
+                self.assertEqual(login[3], normalized["url"])
 
 
 if __name__ == "__main__":

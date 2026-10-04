@@ -381,7 +381,6 @@ http://127.0.0.1:9088
 ```
 
 ## Verification
-
 At the EveOS 0.7.0 source checkpoint on September 24, 2026, Windows validation passed the root Nexus smoke (3/3), security smoke, AI-control (12/12), guardrails, and 27 focused Dex/terminal/diagnostics tests; a subsequent `extension:reload` reported an actual reconnect. These source/transport checks **do not** establish a successful attached Antigravity TUI turn or a complete authenticated provider qualification. Run the live checklists below before claiming those paths work on a particular machine.
 
 Windows:
@@ -419,7 +418,6 @@ npm test
 6. Stop Nexus Browser and confirm no managed `agy.exe` remains orphaned.
 
 ## Known limitations
-
 - Antigravity officially supports Remote Control companion UIs for interactive CLI sessions, but the public CLI docs do not currently document a stable third-party local IPC/API that Nexus Browser can directly reuse for an arbitrary already-running TUI.
 - Existing-session control uses Windows console attachment without restarting the target. Windows Terminal/ConPTY behavior must be proven locally rather than assumed.
 - If Google exposes a documented local Remote Control protocol, that should become the preferred attached-session transport while keeping this console adapter as a compatibility fallback.
@@ -427,7 +425,6 @@ npm test
 - Spawned Session remains available because it provides a reliable supported programmatic fallback when a native terminal cannot be attached.
 - Legacy Gemini CLI may be unusable for accounts migrated to Antigravity.
 - Provider websites can change their DOM and require online-adapter maintenance.
-
 
 ### Localhost durability and fast-path runtime
 

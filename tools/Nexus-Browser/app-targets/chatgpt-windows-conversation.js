@@ -20,6 +20,7 @@ function nodeText(element = {}) {
 function eligibleReplyNode(element, snapshot, { baseline = new Set(), prompt = '', includeOffscreen = false } = {}) {
   const type = uia.controlType(element);
   if (!/(text|paragraph|document|listitem|heading)/.test(type)) return null;
+  if (uia.selectorOf(element) === snapshot.composerSelector) return null;
   if (!includeOffscreen && (element?.isOffscreen === true || uia.propertyText(element, 'IsOffscreen') === 'True')) return null;
   const rawText = nodeText(element);
   const text = uia.normalizeCandidate(rawText);
@@ -200,6 +201,7 @@ function roleMessageGroups(snapshot = {}) {
 
     const type = uia.controlType(element);
     if (!/(text|paragraph|document|listitem|heading)/.test(type)) continue;
+    if (uia.selectorOf(element) === snapshot.composerSelector) continue;
     const rawText = nodeText(element);
     const text = uia.normalizeCandidate(rawText);
     if (!text || markerless.markerlessChrome(text) || LIVE_STATUS.test(text)

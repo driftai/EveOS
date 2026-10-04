@@ -45,7 +45,7 @@
     "smoke:python-launcher": "node tools/smoke/eveos_python_launcher_smoke.js",
     "smoke:server-startup": "python tools/smoke/eveos_server_startup_smoke.py",
     "smoke:control-plane-startup": "python tools/smoke/eveos_control_plane_startup_smoke.py",
-    "smoke:matrix": "node tools/smoke/matrix_rain_canvas_scaling_smoke.js && node tools/smoke/matrix_character_controls_smoke.js && python tools/smoke/matrix_window_control_smoke.py && node tools/smoke/matrix_workshop_launcher_browser_smoke.js && node tools/smoke/matrix_detached_window_mode_browser_smoke.js",
+    "smoke:matrix": "node tools/smoke/matrix_rain_canvas_scaling_smoke.js && node tools/smoke/matrix_character_controls_smoke.js && python tools/smoke/matrix_window_control_smoke.py && python tools/smoke/matrix_nonclient_frame_smoke.py && node tools/smoke/matrix_workshop_launcher_browser_smoke.js && node tools/smoke/matrix_detached_window_mode_browser_smoke.js",
     "smoke:regressions": "node tools/smoke/storage_context_logging_smoke.js && node tools/smoke/loading_indicator_safety_timer_smoke.js && node tools/smoke/server_monitor_contract_smoke.js && node tools/smoke/emergency_storage_fallback_smoke.js && node tools/smoke/eveos_chat_handoff_smoke.js",
     "smoke:chat-handoff": "node tools/smoke/eveos_chat_handoff_smoke.js",
     "smoke:control-plane": "python tools/smoke/eveos_control_plane_smoke.py && python tools/smoke/gemini_server_control_smoke.py && python tools/smoke/eveos_stop_and_console_smoke.py && python tools/smoke/eveos_console_panel_smoke.py && node tools/smoke/eveos_control_plane_ui_smoke.js",

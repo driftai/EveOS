@@ -55,14 +55,16 @@ window.EveAudioflixSpotify = window.EveAudioflixSpotify || {};
     }
 
     function connectionPatch(payload = {}) {
-        return {
+        const source = text(payload.scrapeSource);
+        const patch = {
             playlistId: text(payload.playlistId),
             owner: text(payload.owner),
             description: text(payload.description),
             image: text(payload.image),
-            embedUrl: text(payload.embedUrl),
-            scrapeSource: text(payload.cached ? 'saved-session-cache' : 'saved-session')
+            embedUrl: text(payload.embedUrl)
         };
+        if (source) patch.scrapeSource = payload.cached ? `${source}-cache` : source;
+        return patch;
     }
 
     Object.assign(ns, {

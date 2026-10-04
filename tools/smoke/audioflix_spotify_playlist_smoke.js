@@ -28,6 +28,7 @@ global.window = {
                 owner: 'DriftAi',
                 description: 'Imported from the saved Spotify session.',
                 image: 'https://i.scdn.co/image/playlist-cover',
+                scrapeSource: 'embed',
                 entries: [
                     {
                         sourceId: 'spotify-a',
@@ -116,12 +117,19 @@ global.CustomEvent = class CustomEvent {};
             const source = String(fn);
             if (source.includes("querySelectorAll(\"[data-testid^='tracklist-row']")) {
                 const index = Math.min(expectedRows - 1, Math.floor(scrollPosition / 180));
-                return [{ id: `spotify-${index}`, title: `Track ${index}`, artists: ['Artist'], durationText: '3:00', url: `https://open.spotify.com/track/spotify-${index}` }];
+                return Array.from({ length: Math.min(4, expectedRows - index) }, (_, offset) => ({
+                    id: `spotify-${index + offset}`, title: `Track ${index + offset}`, artists: ['Artist'],
+                    durationText: '3:00', url: `https://open.spotify.com/track/spotify-${index + offset}`
+                }));
             }
-            if (typeof next === 'number') { scrollPosition = next; return undefined; }
-            return { height: 240, maximum: (expectedRows - 1) * 180 };
+            if (typeof next === 'number') {
+                scrollPosition = Math.min((expectedRows - 1) * 180, scrollPosition + next);
+                return undefined;
+            }
+            return { height: 240, maximum: (expectedRows - 1) * 180, position: scrollPosition, x: 10, y: 10 };
         },
-        async waitForTimeout() {}
+        async waitForTimeout() {},
+        mouse: { async move() {}, async wheel(_x, delta) { scrollPosition += delta; } }
     };
     const virtualRows = await spotifyScraper.collectDomRows(fakePage);
     assert(virtualRows.length === expectedRows, `Spotify virtual scroll imports beyond 100 rows (got ${virtualRows.length})`);
@@ -143,6 +151,7 @@ global.CustomEvent = class CustomEvent {};
     assert(connection.group === 'Gilded age Music', 'playlist title becomes the live Audioflix group');
     assert(connection.owner === 'DriftAi' && connection.image, 'playlist metadata survives the connection');
     assert(connection.embedUrl === normalized.embedUrl, 'connection retains its editable embed source');
+    assert(connection.scrapeSource === 'embed', 'connection retains the extractor provenance independently of its track URLs');
     assert(store.musicGroups.includes('Gilded age Music'), 'Spotify import creates a music group');
 
     const imported = store.music.find((track) => track.sourceId === 'spotify-b');

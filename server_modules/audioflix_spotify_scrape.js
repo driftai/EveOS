@@ -30,6 +30,15 @@ const playlistCount = (value) => {
     const count = Number(summary[1].replace(/,/g, ''));
     return Number.isFinite(count) && count > 0 ? count : 0;
 };
+const isEmbedPlaylistUrl = (value) => /open\.spotify\.com\/embed\/playlist\//i.test(clean(value));
+const fullPlaylistUrl = (value) => {
+    const id = playlistIdFromUrl(value);
+    return id ? `https://open.spotify.com/playlist/${id}` : clean(value);
+};
+const needsFullPlayerPromotion = (value, expectedCount = 0, capturedCount = 0) => (
+    isEmbedPlaylistUrl(value)
+    && (Number(expectedCount) > 100 || (!Number(expectedCount) && Number(capturedCount) >= 100))
+);
 
 function requestMentionsPlaylist(url = '', postData = '', playlistId = '') {
     if (!playlistId) return false;
@@ -341,34 +350,68 @@ async function scrape(context) {
         pendingNetwork.add(task);
         task.finally(() => pendingNetwork.delete(task));
     });
-    await page.goto(playlistUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(4500);
-    const body = await page.locator('body').innerText().catch(() => '');
-    if (/page not found|can.?t seem to find/i.test(body)) {
-        throw new Error('Spotify could not open this playlist in EveOS. It may be private, deleted, or owned by another account. Open the saved Spotify session, sign in to an account that can view it, confirm the playlist loads there, then import again.');
+    async function loadPage(url) {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForTimeout(4500);
+        const body = await page.locator('body').innerText().catch(() => '');
+        for (const script of await page.locator('script').allTextContents()) {
+            if (script.length < 12000000 && /spotify:track:|\/track\//.test(script)) {
+                try { scanValue(JSON.parse(script), network); } catch {}
+            }
+        }
+        return { body, expectedCount: playlistCount(body) };
     }
-    if (/log in|sign in/i.test(body) && !/\b\d{1,3}:\d{2}\b/.test(body)) throw new Error('Spotify login is required. Open the saved Spotify session first.');
-    const expectedCount = playlistCount(body);
-    for (const script of await page.locator('script').allTextContents()) {
-        if (script.length < 12000000 && /spotify:track:|\/track\//.test(script)) {
-            try { scanValue(JSON.parse(script), network); } catch {}
+    async function settleAndResetCapture() {
+        await Promise.allSettled([...pendingNetwork]);
+        network.clear();
+        playlistNetwork.clear();
+    }
+    const accessFailed = (body) => /page not found|can.?t seem to find/i.test(body)
+        || (/log in|sign in/i.test(body) && !/\b\d{1,3}:\d{2}\b/.test(body));
+    function assertAccessible(body) {
+        if (/page not found|can.?t seem to find/i.test(body)) {
+            throw new Error('Spotify could not open this playlist in EveOS. It may be private, deleted, or owned by another account. Open the saved Spotify session, sign in to an account that can view it, confirm the playlist loads there, then import again.');
+        }
+        if (/log in|sign in/i.test(body) && !/\b\d{1,3}:\d{2}\b/.test(body)) {
+            throw new Error('Spotify login is required. Open the saved Spotify session first.');
         }
     }
-    const dom = await collectDomRows(page, expectedCount);
+    let scrapeSource = isEmbedPlaylistUrl(playlistUrl) ? 'embed' : 'saved-session';
+    let loaded = await loadPage(playlistUrl);
+    const embedExpectedCount = loaded.expectedCount;
+    async function promoteToFullPlayer() {
+        await settleAndResetCapture();
+        scrapeSource = 'saved-session';
+        const full = await loadPage(fullPlaylistUrl(playlistUrl));
+        if (!full.expectedCount) full.expectedCount = embedExpectedCount;
+        return full;
+    }
+    if (scrapeSource === 'embed' && (accessFailed(loaded.body)
+        || needsFullPlayerPromotion(playlistUrl, loaded.expectedCount))) {
+        loaded = await promoteToFullPlayer();
+    }
+    assertAccessible(loaded.body);
+    let dom = await collectDomRows(page, loaded.expectedCount);
+    if (scrapeSource === 'embed'
+        && needsFullPlayerPromotion(playlistUrl, loaded.expectedCount, dom.length)) {
+        loaded = await promoteToFullPlayer();
+        assertAccessible(loaded.body);
+        dom = await collectDomRows(page, loaded.expectedCount);
+    }
     await Promise.allSettled([...pendingNetwork]);
     const scopedNetwork = playlistNetwork.size ? playlistNetwork : network;
-    const rows = mergePlaylistRows(dom, scopedNetwork, expectedCount);
+    const rows = mergePlaylistRows(dom, scopedNetwork, loaded.expectedCount);
     const seen = new Set();
     const entries = rows.map((row, index) => {
         const sourceId = stableId(row, index + 1);
         return { ...row, sourceId, position: index + 1 };
     }).filter((row) => row.title && row.url && !seen.has(row.sourceId) && seen.add(row.sourceId));
     if (!entries.length) throw new Error('No Spotify song rows were found. Open the saved session, verify the playlist is visible, then sync again.');
-    if (expectedCount && entries.length < expectedCount) {
-        throw new Error(`Spotify says this playlist has ${expectedCount} songs, but EveOS captured only ${entries.length}. The partial import was cancelled; reopen the saved Spotify session and retry.`);
+    if (loaded.expectedCount && entries.length < loaded.expectedCount) {
+        throw new Error(`Spotify says this playlist has ${loaded.expectedCount} songs, but EveOS captured only ${entries.length}. The partial import was cancelled; reopen the saved Spotify session and retry.`);
     }
     const meta = await header(page);
-    return { ok: true, playlistId: targetPlaylistId, title: meta.title || 'Spotify Playlist', owner: meta.owner, image: meta.image || entries[0].image, count: entries.length, entries };
+    return { ok: true, playlistId: targetPlaylistId, title: meta.title || 'Spotify Playlist', owner: meta.owner, image: meta.image || entries[0].image, count: entries.length, scrapeSource, entries };
 }
 
 async function main() {
@@ -394,4 +437,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { mergeTrack, mergePlaylistRows, playlistCount, requestMentionsPlaylist, collectDomRows };
+module.exports = { mergeTrack, mergePlaylistRows, playlistCount, requestMentionsPlaylist, needsFullPlayerPromotion, collectDomRows };

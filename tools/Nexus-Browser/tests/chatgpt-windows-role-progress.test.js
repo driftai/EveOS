@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createAdapter } = require('../app-targets/chatgpt-windows');
 const progress = require('../app-targets/chatgpt-windows-reply-progress');
+const conversation = require('../app-targets/chatgpt-windows-conversation');
 
 const windowInfo = {
   hwnd: 501, pid: 9001, title: 'ChatGPT',
@@ -135,6 +136,23 @@ test('tool-like wording in the user prompt is never mistaken for tool activity',
   assert.equal(observed.nativeTurn?.text, 'Plain final answer.');
   assert.equal(observed.activityHint, false);
   assert.equal(observed.provisional, false);
+});
+
+test('role reconstruction never appends the live composer draft to the assistant reply', () => {
+  const prompt = 'exact user prompt';
+  const snapshot = {
+    composerSelector: 'composer',
+    windowInfo,
+    elements: [
+      { selector: 'user-role', type: 'Text', name: 'You said:', x: 850, y: 150, width: 1, height: 2 },
+      { selector: 'user-text', type: 'Text', name: prompt, x: 760, y: 175, width: 340, height: 48 },
+      { selector: 'assistant-role', type: 'Text', name: 'ChatGPT said:', x: 280, y: 240, width: 1, height: 2 },
+      { selector: 'assistant-text', type: 'Paragraph', name: 'Exact assistant reply.', x: 280, y: 270, width: 650, height: 90 },
+      { selector: 'composer', type: 'Document', name: 'unsent native draft', x: 320, y: 790, width: 800, height: 64 }
+    ]
+  };
+  const observed = conversation.responseForPrompt(snapshot, { prompt });
+  assert.equal(observed.nativeTurn?.text, 'Exact assistant reply.');
 });
 
 test('Read aloud is completion evidence rather than live tool activity', () => {

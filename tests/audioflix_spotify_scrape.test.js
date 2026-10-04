@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const {
     mergePlaylistRows,
     playlistCount,
-    requestMentionsPlaylist
+    requestMentionsPlaylist,
+    needsFullPlayerPromotion
 } = require('../server_modules/audioflix_spotify_scrape');
 
 const track = (position) => {
@@ -52,6 +53,15 @@ test('playlist-scoped network detection requires the requested playlist id', () 
         ),
         false
     );
+});
+
+test('embed extraction promotes only playlists beyond its reliable 100-row surface', () => {
+    const embed = 'https://open.spotify.com/embed/playlist/0g3Wc7zGTmqRcG7G79fQ5H';
+    assert.equal(needsFullPlayerPromotion(embed, 99, 99), false);
+    assert.equal(needsFullPlayerPromotion(embed, 100, 100), false);
+    assert.equal(needsFullPlayerPromotion(embed, 135, 8), true);
+    assert.equal(needsFullPlayerPromotion(embed, 0, 100), true, 'an unknown count at the cap is ambiguous');
+    assert.equal(needsFullPlayerPromotion('https://open.spotify.com/playlist/0g3Wc7zGTmqRcG7G79fQ5H', 135, 8), false);
 });
 
 test('full network playlist wins over an eight-row virtualized DOM window', () => {

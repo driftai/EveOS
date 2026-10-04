@@ -83,14 +83,15 @@ def _cache_set(key: str, value: dict) -> None:
 
 
 def _helper_command(mode: str, normalized: dict, status_path: Path | None = None) -> list[str]:
-    # Spotify's Embed UI truncates large playlists around 100 tracks. The extractor already uses
-    # a saved browser profile and scrolls the playlist, so point it at the full Web Player page
-    # where Spotify can load the remaining rows as the scraper advances through the list.
+    # The public embed remains the fast/default metadata surface. The extractor promotes itself to
+    # the saved-session Web Player only when the embed reports more than 100 songs (or reaches an
+    # ambiguous 100-row cap), so small public playlists do not pay the heavier signed-in route.
+    target_url = normalized["url"] if mode == "login" else normalized["embedUrl"]
     command = [
         "node",
         str(_project_root() / "server_modules" / "audioflix_spotify_scrape.js"),
         mode,
-        normalized["url"],
+        target_url,
         str(_profile_dir()),
     ]
     if status_path:

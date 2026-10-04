@@ -10,7 +10,10 @@ function acceptanceState(snapshot = {}, text = '') {
   const composerCleared = !composerValue
     || /^(?:Ask ChatGPT|Message ChatGPT|Do anything)$/i.test(composerValue);
   const composerStillPrompt = !!prompt && composerValue === prompt;
-  const accepted = visiblePrompt || composerCleared || snapshot.generating === true;
+  // The rich editor is also exposed in snapshot.texts. Seeing the prompt there
+  // is not acceptance while the exact same text is still in the composer.
+  const accepted = composerCleared || snapshot.generating === true
+    || (visiblePrompt && !composerStillPrompt);
   return {
     accepted,
     definitelyNotAccepted: !accepted && composerStillPrompt,
@@ -45,9 +48,24 @@ function createSubmitter({ runner, inspect, recoverComposer, recoverSend, sleepF
       ['ui', 'set-value', candidate, String(text), '-w', hwnd],
       { allowFailure: true, timeoutMs: 12000 }
     );
-    const targetedEnter = (candidate) => runner.runJson(
+    const replaceWithKeyboard = async (candidate) => {
+      const cleared = await runner.runJson(
+        ['ui', 'send-keys', 'ctrl+a delete', '--target', candidate,
+          '--via', 'send-input', '-w', hwnd],
+        { allowFailure: true, timeoutMs: 10000 }
+      );
+      if (!cleared.ok) return cleared;
+      const programmatic = await setValue(candidate);
+      if (programmatic.ok) return programmatic;
+      return runner.runJson(
+        ['ui', 'send-keys', String(text), '--verbatim', '--target', candidate,
+          '--via', 'send-input', '-w', hwnd],
+        { allowFailure: true, timeoutMs: 20000 }
+      );
+    };
+    const targetedEnter = (candidate, via = 'post-message') => runner.runJson(
       ['ui', 'send-keys', 'enter', '--target', candidate,
-        '--via', 'send-input', '-w', hwnd],
+        '--via', via, '-w', hwnd],
       { allowFailure: true, timeoutMs: 10000 }
     );
     const inspectAcceptance = async () => {
@@ -56,6 +74,59 @@ function createSubmitter({ runner, inspect, recoverComposer, recoverSend, sleepF
       timing.acceptanceInspectMs = (timing.acceptanceInspectMs || 0)
         + Math.max(0, wallNow() - inspectStartedAt);
       return { snapshot, state: acceptanceState(snapshot, text) };
+    };
+    const focusedEnterRecovery = async (currentComposer, sourceSnapshot) => {
+      const focusStartedAt = wallNow();
+      const focused = await runner.runJson(
+        ['ui', 'focus', currentComposer, '-w', hwnd],
+        { allowFailure: true, timeoutMs: 10000 }
+      );
+      timing.focusRecoveryMs = Math.max(0, wallNow() - focusStartedAt);
+      if (!focused.ok) {
+        const error = new Error('ChatGPT app background submit failed and the composer could not be focused safely.');
+        error.code = 'APP_SEND_CONTROL_NOT_FOUND';
+        error.detail = {
+          sendCandidates: sourceSnapshot.sendCandidates || [],
+          composerCandidates: sourceSnapshot.composerCandidates || [],
+          definitelyNotAccepted: true
+        };
+        throw error;
+      }
+      submitMode = 'focused-enter-recovery';
+      const result = await targetedEnter(currentComposer, 'send-input');
+      await sleepFn(80);
+      const checked = await inspectAcceptance();
+      if (!checked.state.accepted) {
+        const error = new Error('ChatGPT app focused recovery submit was not confirmed; no further submit will be attempted.');
+        error.code = checked.state.definitelyNotAccepted
+          ? 'APP_SEND_FAILED'
+          : 'APP_SUBMIT_UNCERTAIN';
+        error.detail = {
+          mutation: 'focused-enter-recovery',
+          definitelyNotAccepted: checked.state.definitelyNotAccepted,
+          result: result.json || result.stderr || null
+        };
+        throw error;
+      }
+      return checked.snapshot;
+    };
+    const backgroundEnterRecovery = async (currentComposer, sourceSnapshot) => {
+      submitMode = 'post-message-enter-recovery';
+      const result = await targetedEnter(currentComposer);
+      await sleepFn(80);
+      const checked = await inspectAcceptance();
+      if (checked.state.accepted) return checked.snapshot;
+      if (checked.state.definitelyNotAccepted) {
+        return focusedEnterRecovery(currentComposer, sourceSnapshot);
+      }
+      const error = new Error('ChatGPT app background recovery submit may have occurred; refusing another mutation.');
+      error.code = 'APP_SUBMIT_UNCERTAIN';
+      error.detail = {
+        mutation: 'post-message-enter-recovery',
+        definitelyNotAccepted: false,
+        result: result.json || result.stderr || null
+      };
+      throw error;
     };
 
     started = wallNow();
@@ -68,17 +139,7 @@ function createSubmitter({ runner, inspect, recoverComposer, recoverSend, sleepF
       }
     }
     if (!staged.ok) {
-      const focused = await runner.runJson(
-        ['ui', 'focus', selector, '-w', hwnd],
-        { allowFailure: true, timeoutMs: 10000 }
-      );
-      if (focused.ok) {
-        staged = await runner.runJson(
-          ['ui', 'send-keys', String(text), '--verbatim', '--target', selector,
-            '--via', 'send-input', '-w', hwnd],
-          { allowFailure: true, timeoutMs: 20000 }
-        );
-      }
+      staged = await replaceWithKeyboard(selector);
     }
     timing.textStageMs = Math.max(0, wallNow() - started);
     if (!staged.ok) {
@@ -88,9 +149,60 @@ function createSubmitter({ runner, inspect, recoverComposer, recoverSend, sleepF
       throw error;
     }
 
+    await sleepFn(80);
     started = wallNow();
-    const stagedSnapshot = await inspectBound();
+    let stagedSnapshot = await inspectBound();
     timing.stagedInspectMs = Math.max(0, wallNow() - started);
+    for (const delay of [250, 500, 1000, 1500, 2500]) {
+      if (normalizeCandidate(stagedSnapshot.composerValue) === normalizeCandidate(text)) break;
+      await sleepFn(delay);
+      started = wallNow();
+      stagedSnapshot = await inspectBound();
+      timing.stagedInspectMs += Math.max(0, wallNow() - started);
+    }
+    if (normalizeCandidate(stagedSnapshot.composerValue) !== normalizeCandidate(text)) {
+      const exactComposer = stagedSnapshot.composerSelector || selector
+        || await recoverComposer(stagedSnapshot);
+      started = wallNow();
+      staged = exactComposer ? await replaceWithKeyboard(exactComposer) : { ok: false };
+      timing.textStageMs += Math.max(0, wallNow() - started);
+      if (!staged.ok) {
+        const error = new Error('ChatGPT app composer could not replace its existing draft safely.');
+        error.code = 'APP_INPUT_FAILED';
+        throw error;
+      }
+      await sleepFn(180);
+      started = wallNow();
+      stagedSnapshot = await inspectBound();
+      timing.stagedInspectMs += Math.max(0, wallNow() - started);
+      if (normalizeCandidate(stagedSnapshot.composerValue) !== normalizeCandidate(text)) {
+        started = wallNow();
+        staged = await replaceWithKeyboard(exactComposer);
+        timing.textStageMs += Math.max(0, wallNow() - started);
+        if (!staged.ok) {
+          const error = new Error('ChatGPT app composer could not retry exact draft replacement safely.');
+          error.code = 'APP_INPUT_FAILED';
+          throw error;
+        }
+        await sleepFn(250);
+        started = wallNow();
+        stagedSnapshot = await inspectBound();
+        timing.stagedInspectMs += Math.max(0, wallNow() - started);
+      }
+      for (const delay of [500, 1000, 1500, 2500, 3500]) {
+        if (normalizeCandidate(stagedSnapshot.composerValue) === normalizeCandidate(text)) break;
+        await sleepFn(delay);
+        started = wallNow();
+        stagedSnapshot = await inspectBound();
+        timing.stagedInspectMs += Math.max(0, wallNow() - started);
+      }
+      if (normalizeCandidate(stagedSnapshot.composerValue) !== normalizeCandidate(text)) {
+        const error = new Error('ChatGPT app composer did not contain the exact requested prompt; nothing was submitted.');
+        error.code = 'APP_INPUT_MISMATCH';
+        error.detail = { composerSelector: stagedSnapshot.composerSelector || exactComposer };
+        throw error;
+      }
+    }
     let sendSelector = stagedSnapshot.sendSelector;
     if (!sendSelector) {
       sendSelector = await recoverSend(stagedSnapshot,
@@ -101,6 +213,7 @@ function createSubmitter({ runner, inspect, recoverComposer, recoverSend, sleepF
     let submitResult = null;
     let submitMode = 'invoke';
     let committed = null;
+    let currentComposer = stagedSnapshot.composerSelector || selector;
 
     if (sendSelector) {
       submitResult = await runner.runJson(
@@ -112,6 +225,8 @@ function createSubmitter({ runner, inspect, recoverComposer, recoverSend, sleepF
         const checked = await inspectAcceptance();
         if (checked.state.accepted) {
           committed = checked.snapshot;
+        } else if (checked.state.definitelyNotAccepted && currentComposer) {
+          committed = await backgroundEnterRecovery(currentComposer, stagedSnapshot);
         } else {
           const error = new Error('ChatGPT app Send control invocation failed without confirmed acceptance.');
           error.code = checked.state.definitelyNotAccepted
@@ -126,8 +241,7 @@ function createSubmitter({ runner, inspect, recoverComposer, recoverSend, sleepF
         }
       }
     } else {
-      const currentComposer = stagedSnapshot.composerSelector || selector
-        || await recoverComposer(stagedSnapshot);
+      currentComposer ||= await recoverComposer(stagedSnapshot);
       if (!currentComposer) {
         const error = new Error('ChatGPT app Send control and exact composer target were unavailable.');
         error.code = 'APP_SEND_CONTROL_NOT_FOUND';
@@ -159,68 +273,40 @@ function createSubmitter({ runner, inspect, recoverComposer, recoverSend, sleepF
         } else {
           // A retry is safe only after read-only evidence proves the exact prompt is
           // still in the composer and no prompt/generation acceptance signal exists.
-          const focusStartedAt = wallNow();
-          const focused = await runner.runJson(
-            ['ui', 'focus', currentComposer, '-w', hwnd],
-            { allowFailure: true, timeoutMs: 10000 }
-          );
-          timing.focusRecoveryMs = Math.max(0, wallNow() - focusStartedAt);
-          if (!focused.ok) {
-            const error = new Error('ChatGPT app background submit failed and the composer could not be focused safely.');
-            error.code = 'APP_SEND_CONTROL_NOT_FOUND';
-            error.detail = {
-              sendCandidates: stagedSnapshot.sendCandidates || [],
-              composerCandidates: stagedSnapshot.composerCandidates || [],
-              definitelyNotAccepted: true
-            };
-            throw error;
-          }
-          submitMode = 'focused-enter-recovery';
-          submitResult = await targetedEnter(currentComposer);
-          if (!submitResult.ok) {
-            await sleepFn(80);
-            const retried = await inspectAcceptance();
-            if (retried.state.accepted) {
-              committed = retried.snapshot;
-            } else {
-              const error = new Error('ChatGPT app focused recovery submit was not confirmed; no further submit will be attempted.');
-              error.code = retried.state.definitelyNotAccepted
-                ? 'APP_SEND_FAILED'
-                : 'APP_SUBMIT_UNCERTAIN';
-              error.detail = {
-                mutation: 'focused-enter-recovery',
-                definitelyNotAccepted: retried.state.definitelyNotAccepted,
-                result: submitResult.json || submitResult.stderr || null
-              };
-              throw error;
-            }
-          }
+          committed = await focusedEnterRecovery(currentComposer, stagedSnapshot);
         }
       }
     }
-
-    timing.submitMs = Math.max(0, wallNow() - started);
-    timing.submitMode = submitMode;
 
     if (!committed) {
       await sleepFn(80);
       const checked = await inspectAcceptance();
       committed = checked.snapshot;
-      if (!checked.state.accepted) {
+      if (!checked.state.accepted && checked.state.definitelyNotAccepted
+          && currentComposer && submitMode === 'invoke') {
+        committed = await backgroundEnterRecovery(currentComposer, stagedSnapshot);
+      } else if (!checked.state.accepted && checked.state.definitelyNotAccepted
+          && currentComposer && submitMode === 'targeted-enter') {
+        committed = await focusedEnterRecovery(currentComposer, stagedSnapshot);
+      }
+      const accepted = acceptanceState(committed, text);
+      if (!accepted.accepted) {
         const error = new Error('ChatGPT app input gesture was not confirmed by the app UI.');
-        error.code = checked.state.definitelyNotAccepted
+        error.code = accepted.definitelyNotAccepted
           ? 'APP_PROMPT_UNCONFIRMED'
           : 'APP_SUBMIT_UNCERTAIN';
         error.detail = {
           composerSelector: committed.composerSelector || null,
           sendSelector: committed.sendSelector || null,
           mutation: submitMode,
-          definitelyNotAccepted: checked.state.definitelyNotAccepted
+          definitelyNotAccepted: accepted.definitelyNotAccepted
         };
         throw error;
       }
     }
 
+    timing.submitMs = Math.max(0, wallNow() - started);
+    timing.submitMode = submitMode;
     return { snapshot: committed, timing };
   };
 }

@@ -114,10 +114,14 @@ const assert = (condition, message) => {
         S.addMusicGroup('Gilded age Music');
         const connectionId = 'spotify-browser-playlist';
         const ids = [];
-        [
+        const rows = [
             ['Selfish', 'Madison Beer', 'Silence Between Songs', 1],
             ['Mobius', 'Sawano Hiroyuki', 'Mobile Suit Gundam Hathaway', 2]
-        ].forEach(([title, artist, album, position], index) => {
+        ];
+        for (let position = 3; position <= 135; position += 1) {
+            rows.push([`Playlist Track ${position}`, `Artist ${position}`, `Album ${position}`, position]);
+        }
+        rows.forEach(([title, artist, album, position], index) => {
             const track = S.addItem('music', {
                 title,
                 artist,
@@ -147,7 +151,8 @@ const assert = (condition, message) => {
                 folder: 'Spotify Playlists',
                 owner: 'DriftAi',
                 embedUrl: 'https://open.spotify.com/embed/playlist/browserPlaylist',
-                trackCount: 2
+                scrapeSource: 'saved-session',
+                trackCount: 135
             }]
         }, 'spotify-browser-smoke');
         window.EveAudioflix.render();
@@ -252,14 +257,29 @@ const assert = (condition, message) => {
     await page.click('[data-af-action="toggle-groups"][data-af-type="music"]');
     await page.click('[data-af-action="toggle-playlist-link-form"][data-af-group="Gilded age Music"]');
     await page.waitForSelector('[data-af-spotify-inspector]');
-    assert(await page.locator('[data-af-spotify-row]').count() === 2, 'inspector lists imported Spotify tracks');
+    assert(await page.locator('[data-af-spotify-row]').count() === 135, 'URL inspector lists every imported large-playlist track');
     assert(
         (await page.locator('[data-af-spotify-inspector]').innerText()).includes('DriftAi'),
         'inspector retains playlist owner metadata'
     );
+    const inspectorText = await page.locator('[data-af-spotify-inspector]').innerText();
+    const sourceLabel = await page.locator('[data-af-spotify-inspector] .audioflix-spotify-kicker').innerText();
+    const inspectorUrl = await page.inputValue('[data-af-form="playlist-link-form"] textarea[name="link"]');
+    assert(
+        sourceLabel.trim().toLowerCase() === 'spotify saved-session extraction'
+            && inspectorUrl === 'https://open.spotify.com/playlist/browserPlaylist',
+        `large-playlist inspector keeps its extraction label and canonical editable Spotify URL (label=${sourceLabel}; url=${inspectorUrl})`
+    );
     await page.fill('[data-af-spotify-search]', 'Mobius');
     const visibility = await page.$$eval('[data-af-spotify-row]', (rows) => rows.map((row) => !row.hidden));
-    assert(visibility.join(',') === 'false,true', 'inspector search filters by title, artist, or album');
+    assert(visibility.filter(Boolean).length === 1 && visibility[1] === true, 'inspector search filters all large-playlist rows by title, artist, or album');
+    await page.click('[data-af-action="toggle-localize-form"][data-af-scope="group"][data-af-key="Gilded age Music"]');
+    const fallbackOptions = page.locator('.audioflix-group-manager-entry + .audioflix-form details').last();
+    await fallbackOptions.waitFor({ state: 'visible' });
+    assert(
+        (await fallbackOptions.innerText()).includes('Spotify recovery options - 135 Spotify-linked tracks'),
+        'large Spotify groups expose the explicit optional fallback without starting it automatically'
+    );
     assert(errors.length === 0, `browser page errors: ${errors.join(' | ')}`);
 
     console.log('AUDIOFLIX_SPOTIFY_BROWSER_SMOKE_OK');
