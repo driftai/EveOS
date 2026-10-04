@@ -4,16 +4,23 @@ import websockets
 import time
 from ..chat_history.chat_history_handler import save_chat_history
 from ..transcription.transcription_normalizer import normalize_transcript
+from ..websocket_server.session_handler.nexus_workspace_bridge import (
+    publish_audio as publish_nexus_audio,
+    publish_text as publish_nexus_text,
+    publish_transcription as publish_nexus_transcription,
+    publish_turn_complete as publish_nexus_turn_complete,
+)
 
 # Maximum audio buffer size (5MB)
 MAX_AUDIO_BUFFER_SIZE = 1024 * 1024 * 5
 
 class GeminiResponseHandler:
-    def __init__(self, connection_monitor, audio_processor, inline_transcription_mode=False, session_role="interactive"):
+    def __init__(self, connection_monitor, audio_processor, inline_transcription_mode=False, session_role="interactive", connection_id=None):
         self.connection_monitor = connection_monitor
         self.audio_processor = audio_processor
         self.inline_transcription_mode = inline_transcription_mode
         self.session_role = session_role
+        self.connection_id = connection_id
         self.last_audio_time = None
         self.audio_completion_threshold = 15.0  # Increased to 15.0s to allow for longer model thinking pauses without premature turn completion
         self.screen_suppressed_parts = 0
@@ -62,7 +69,6 @@ class GeminiResponseHandler:
                 if self.session_role != "world_book_narration":
                     save_chat_history(part.text, is_user=False)
             elif hasattr(part, 'inline_data') and part.inline_data is not None:
-                import time
                 self.last_audio_time = time.time()  # Track when audio was received
                 await self.process_audio_response(part.inline_data.data)
             # After processing any part, record activity
@@ -73,6 +79,8 @@ class GeminiResponseHandler:
     async def process_text_response(self, text):
         """Process text response from Gemini."""
         try:
+            if self.session_role == "interactive" and self.connection_id is not None:
+                await publish_nexus_text(self.connection_id, text)
             if self.connection_monitor.is_websocket_open():
                 await self.connection_monitor.safe_send(json.dumps({
                     "text": text
@@ -89,6 +97,8 @@ class GeminiResponseHandler:
         if not normalized:
             return None
         try:
+            if self.session_role == "interactive" and self.connection_id is not None:
+                await publish_nexus_transcription(self.connection_id, normalized)
             if self.connection_monitor.is_websocket_open():
                 await self.connection_monitor.safe_send(json.dumps({
                     "text": normalized,
@@ -112,14 +122,13 @@ class GeminiResponseHandler:
                 print("Connection closed, skipping audio processing")
                 return
 
+            if self.session_role == "interactive" and self.connection_id is not None:
+                await publish_nexus_audio(self.connection_id, audio_data)
+
             # Check if adding this chunk would exceed the buffer size
             if len(self.audio_processor.audio_data) + len(audio_data) > MAX_AUDIO_BUFFER_SIZE:
                 print(f"Audio buffer would exceed size limit ({MAX_AUDIO_BUFFER_SIZE} bytes), resetting...")
                 self.audio_processor.reset()
-            
-            # Add to audio processor's data
-            # REMOVED: Redundant addition. process_audio_data handles this.
-            # self.audio_processor.audio_data += audio_data
             
             # Process the audio data with minimal delay
             await self.audio_processor.process_audio_data(audio_data, self.audio_processor.is_sequential)
@@ -163,6 +172,8 @@ class GeminiResponseHandler:
             print(f"Error processing transcription: {e}")
             return None
         finally:
+            if self.session_role == "interactive" and self.connection_id is not None:
+                await publish_nexus_turn_complete(self.connection_id)
             # Always reset audio processor after turn complete
             self.audio_processor.reset()
             self._clear_screen_response_suppression()
@@ -170,7 +181,6 @@ class GeminiResponseHandler:
     async def check_audio_completion(self):
         """Check if audio processing should be completed based on timing."""
         if self.last_audio_time is not None:
-            import time
             silence_duration = time.time() - self.last_audio_time
             if silence_duration > self.audio_completion_threshold:
                 if hasattr(self.audio_processor, 'audio_data') and len(self.audio_processor.audio_data) > 0:
