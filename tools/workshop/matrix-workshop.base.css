@@ -417,3 +417,10 @@ body.matrix-immersive-fullscreen {
     height: 100vh;
     overflow: hidden;
 }
+
+/* Native immersive fullscreen is visual-only: no Matrix workshop chrome. */
+body.matrix-immersive-fullscreen #toolbar,
+body.matrix-immersive-fullscreen #toggleToolbar,
+body.matrix-immersive-fullscreen #fpsCounter {
+    display: none !important;
+}
