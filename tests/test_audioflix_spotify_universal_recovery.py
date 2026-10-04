@@ -58,7 +58,7 @@ class SpotifyUniversalRecoveryTests(unittest.TestCase):
         meta = {"title": "Floating Away", "artists": ["SliceMaxxi"], "duration_seconds": 151.0}
         candidate = {
             "id": "not-credit",
-            "title": "Floating Away inspired by the scene around Slicemaxxi",
+            "title": "Floating Away with Slicemaxxi vibes",
             "duration": 151,
             "uploader": "unrelated account",
             "webpage_url": "https://www.youtube.com/watch?v=not-credit",
