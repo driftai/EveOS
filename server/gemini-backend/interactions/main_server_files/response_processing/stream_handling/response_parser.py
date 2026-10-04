@@ -6,6 +6,9 @@ import time
 from ...api_configuration.gemini_config import usage_monitor
 from ...api_configuration.live_tools import forward_provider_tool_messages
 from ...status_monitoring.api_usage_monitor import api_usage_tracker
+from ...websocket_server.session_handler.nexus_workspace_bridge import (
+    publish_interrupted as publish_nexus_interrupted,
+)
 
 # Configure logging for raw response data
 response_logger = logging.getLogger('gemini_responses')
@@ -132,6 +135,13 @@ async def _receive_responses(session, response_handler, connection_monitor, conn
                         "reason": "provider_barge_in",
                         "turnId": turn_id,
                     }))
+                    if getattr(response_handler, "session_role", "interactive") == "interactive":
+                        try:
+                            await publish_nexus_interrupted(connection_id, "provider_barge_in")
+                        except Exception as nexus_error:
+                            response_logger.warning(
+                                f"Could not mirror Gemini interruption to Nexus: {nexus_error}"
+                            )
                     response_logger.info(f"Gemini turn interrupted for connection {connection_id}")
                     continue
 
