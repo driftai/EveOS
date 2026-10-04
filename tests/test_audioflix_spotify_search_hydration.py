@@ -1,5 +1,6 @@
 import unittest
 
+from server_modules import audioflix_spotify_fallback as fallback
 from server_modules import audioflix_spotify_match as match
 
 
@@ -62,6 +63,55 @@ class SpotifySearchHydrationTests(unittest.TestCase):
 
         self.assertEqual(len(hydrated), 5)
         self.assertEqual(len(ydl.calls), 2)
+
+    def test_one_more_hour_is_not_misclassified_as_bulk_in_standard_matcher(self):
+        meta = {"title": "One More Hour", "artists": ["Tame Impala"], "duration_seconds": 433.0}
+        candidates = [
+            {
+                "id": "Y0U6u2D8cMU",
+                "title": "Tame Impala - One More Hour (Official Audio)",
+                "duration": 434,
+                "view_count": 26326399,
+                "webpage_url": "https://www.youtube.com/watch?v=Y0U6u2D8cMU",
+            },
+            {
+                "id": "60xd_Wzwmcs",
+                "title": "[ 1 HOUR ] Tame Impala - One More Hour Whatever I've done I did it for love (Lyrics)",
+                "duration": 3601,
+                "view_count": 25009,
+                "webpage_url": "https://www.youtube.com/watch?v=60xd_Wzwmcs",
+            },
+        ]
+
+        accepted, rejected = match.rank_candidates(meta, candidates, tolerance_seconds=3.0)
+
+        self.assertEqual([row["id"] for row in accepted], ["Y0U6u2D8cMU"])
+        self.assertTrue(any(row["id"] == "60xd_Wzwmcs" for row in rejected))
+
+    def test_one_more_hour_is_not_misclassified_as_bulk_in_fallback_ranker(self):
+        meta = {"title": "One More Hour", "artists": ["Tame Impala"], "duration_seconds": 433.0}
+        candidates = [
+            {
+                "id": "Y0U6u2D8cMU",
+                "title": "Tame Impala - One More Hour (Official Audio)",
+                "duration": 434,
+                "view_count": 26326399,
+                "webpage_url": "https://www.youtube.com/watch?v=Y0U6u2D8cMU",
+            },
+            {
+                "id": "60xd_Wzwmcs",
+                "title": "[ 1 HOUR ] Tame Impala - One More Hour Whatever I've done I did it for love (Lyrics)",
+                "duration": 3601,
+                "view_count": 25009,
+                "webpage_url": "https://www.youtube.com/watch?v=60xd_Wzwmcs",
+            },
+        ]
+
+        accepted, rejected, tolerance = fallback.rank_candidates(meta, candidates)
+
+        self.assertEqual(tolerance, 10.0)
+        self.assertEqual([row["id"] for row in accepted], ["Y0U6u2D8cMU"])
+        self.assertTrue(any(row["id"] == "60xd_Wzwmcs" for row in rejected))
 
 
 if __name__ == "__main__":
