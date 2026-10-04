@@ -146,10 +146,22 @@ def _has(text: str, markers) -> bool:
     return any(marker in low for marker in markers)
 
 
+def _candidate_url(item) -> str:
+    """Return a concrete watch URL even when yt-dlp flat search leaves only an id."""
+    row = item if isinstance(item, dict) else {}
+    for value in (row.get("webpage_url"), row.get("url")):
+        clean = str(value or "").strip()
+        if clean.startswith(("http://", "https://")):
+            return clean
+    video_id = str(row.get("id") or "").strip()
+    return f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
+
+
 def best_audio_abr(item) -> float:
     """Highest audio-only bitrate yt-dlp lists for a candidate, or 0.0 when it reports none.
 
-    Search results already carry `formats`, so reading this costs no extra request.
+    Search results already carry `formats`, so reading this costs no extra request. Flat search rows
+    intentionally have no formats; unknown quality stays neutral and is checked during download.
     """
     best = 0.0
     for fmt in ((item or {}).get("formats") or []):
@@ -201,8 +213,7 @@ def rank_candidates(meta: dict, candidates, tolerance_seconds: float = DEFAULT_T
         duration = (item or {}).get("duration")
         views = int((item or {}).get("view_count") or 0)
         entry = {"title": title, "duration": duration, "views": views,
-                 "url": (item or {}).get("webpage_url") or (item or {}).get("url") or "",
-                 "id": (item or {}).get("id") or ""}
+                 "url": _candidate_url(item), "id": (item or {}).get("id") or ""}
 
         if not entry["title"]:
             entry["reason"] = "no title"
@@ -265,14 +276,27 @@ def find_youtube_match(url: str, searcher=None, opener=None,
     best = accepted[0]
     return {"ok": True, "query": query, "spotify": meta, "match": best,
             "alternatives": accepted[1:4], "rejected": rejected,
-            "url": best["url"] or (f"https://www.youtube.com/watch?v={best['id']}" if best["id"] else "")}
+            "url": _candidate_url(best)}
 
 
 def _ytdlp_search(query: str, results: int):
-    """yt-dlp's own search — no YouTube API key required."""
+    """Collect YouTube search rows without opening every candidate video first.
+
+    Fully extracting every result makes one age/sign-in-gated video abort the entire search before
+    the matcher can inspect the other results. yt-dlp's flat-playlist mode keeps the search metadata
+    (id/title/duration/views when YouTube supplies it) and defers actual access checks to the chosen
+    candidate's download step. ignoreerrors also keeps a malformed row from poisoning the batch.
+    """
     import yt_dlp  # imported lazily: the matcher is testable without it
 
-    opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "extract_flat": "in_playlist",
+        "ignoreerrors": True,
+    }
     with yt_dlp.YoutubeDL(opts) as ydl:
         found = ydl.extract_info(f"ytsearch{int(results)}:{query}", download=False)
-    return (found or {}).get("entries") or []
+    return [entry for entry in ((found or {}).get("entries") or []) if isinstance(entry, dict)]

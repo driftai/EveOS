@@ -25,11 +25,17 @@ SEARCH_RESULTS_PER_QUERY = 16
 MIN_TOLERANCE_SECONDS = 5.0
 MAX_TOLERANCE_SECONDS = 10.0
 TOLERANCE_RATIO = 0.025
+MAX_DOWNLOAD_CANDIDATES = 5
 
 _NOISE_WORDS = {
     "official", "audio", "video", "music", "lyrics", "lyric", "visualizer", "hd", "hq",
     "explicit", "clean", "version", "track",
 }
+_AUTH_REQUIRED_MARKERS = (
+    "sign in to confirm your age", "sign in to confirm", "age-restricted", "age restricted",
+    "age verification", "age_verification_required", "age_check_required", "login required",
+    "members-only", "members only",
+)
 
 
 def _tokens(value) -> set[str]:
@@ -137,7 +143,7 @@ def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], flo
             "title": title,
             "duration": duration,
             "views": int(item.get("view_count") or 0),
-            "url": str(item.get("webpage_url") or item.get("url") or ""),
+            "url": spotify_match._candidate_url(item),
         }
         if not title:
             entry["reason"] = "no title"
@@ -164,9 +170,6 @@ def rank_candidates(meta: dict, candidates) -> tuple[list[dict], list[dict], flo
         actual = _tokens(title)
         title_overlap = _overlap(wanted_title, actual)
         artist_overlap = _overlap(wanted_artists, actual) if wanted_artists else 1.0
-        # A fallback may accept noisier titles than the standard matcher, but it must still look like
-        # the requested song. An artist match can rescue a moderately decorated title; otherwise the
-        # title itself must be very strong.
         if title_overlap < 0.5:
             entry["reason"] = f"weak title overlap ({title_overlap:.2f})"
             rejected.append(entry)
@@ -237,6 +240,7 @@ def find_fallback_match(url: str, searcher=None, opener=None, metadata: dict | N
         return {
             "ok": False,
             "strategy": STRATEGY,
+            "failureKind": "no_match",
             "queries": queries,
             "spotify": meta,
             "rejected": rejected,
@@ -247,9 +251,9 @@ def find_fallback_match(url: str, searcher=None, opener=None, metadata: dict | N
         }
 
     best = accepted[0]
-    resolved_url = best.get("url") or (f"https://www.youtube.com/watch?v={best['id']}" if best.get("id") else "")
+    resolved_url = spotify_match._candidate_url(best)
     if not resolved_url:
-        return {"ok": False, "strategy": STRATEGY, "message": "Fallback match had no playable URL."}
+        return {"ok": False, "strategy": STRATEGY, "failureKind": "no_match", "message": "Fallback match had no playable URL."}
     return {
         "ok": True,
         "strategy": STRATEGY,
@@ -260,6 +264,69 @@ def find_fallback_match(url: str, searcher=None, opener=None, metadata: dict | N
         "rejected": rejected,
         "url": resolved_url,
         "toleranceSeconds": tolerance,
+    }
+
+
+def candidate_attempts(resolved: dict) -> list[dict]:
+    """Ordered strong matches to try, deduplicated by concrete media URL."""
+    rows = [resolved.get("match") or {}, *(resolved.get("alternatives") or [])]
+    output = []
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        url = spotify_match._candidate_url(row)
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        output.append({**row, "url": url})
+        if len(output) >= MAX_DOWNLOAD_CANDIDATES:
+            break
+    if not output:
+        url = str(resolved.get("url") or "").strip()
+        if url:
+            output.append({"url": url, "title": str((resolved.get("match") or {}).get("title") or "")})
+    return output
+
+
+def classify_access_error(message: str) -> str:
+    low = str(message or "").lower()
+    if any(marker in low for marker in _AUTH_REQUIRED_MARKERS):
+        return "auth_required"
+    if any(marker in low for marker in ("private video", "video unavailable", "not available in your country", "geo restricted")):
+        return "unavailable"
+    return "download_error"
+
+
+def _failure_after_candidates(tid, spotify_url, metadata_source, failures: list[dict]) -> dict:
+    auth = next((entry for entry in failures if entry.get("kind") == "auth_required"), None)
+    first = auth or (failures[0] if failures else {})
+    count = len(failures)
+    if auth:
+        message = (
+            f"Strong YouTube match found ({auth.get('title') or auth.get('url') or 'candidate'}), but YouTube requires "
+            f"sign-in/age verification. EveOS kept that candidate and tried {count} strong match"
+            f"{'es' if count != 1 else ''}; none were accessible without authentication."
+        )
+        kind = "match_found_but_inaccessible"
+    else:
+        detail = str(first.get("error") or "Fallback download produced no file.")
+        message = f"Strong match found, but localization failed after trying {count} candidate{'s' if count != 1 else ''}: {detail}"
+        kind = "match_found_but_download_failed"
+    return {
+        "ok": False,
+        "id": tid,
+        "method": "spotify-fallback",
+        "resolver": STRATEGY,
+        "metadataSource": metadata_source,
+        "failureKind": kind,
+        "access": first.get("kind") or "download_error",
+        "originalUrl": spotify_url,
+        "matchedUrl": str(first.get("url") or ""),
+        "matchedTitle": str(first.get("title") or ""),
+        "attemptedCandidates": count,
+        "candidateFailures": failures,
+        "error": message,
     }
 
 
@@ -277,6 +344,7 @@ def localize_one(payload: dict) -> dict:
             "ok": False,
             "id": tid,
             "method": "spotify-fallback",
+            "failureKind": "invalid_source",
             "error": "Spotify fallback only accepts Spotify-linked tracks.",
         }
 
@@ -291,6 +359,7 @@ def localize_one(payload: dict) -> dict:
             "method": "spotify-fallback",
             "resolver": STRATEGY,
             "metadataSource": metadata_source,
+            "failureKind": resolved.get("failureKind") or "no_match",
             "error": resolved.get("message") or "Spotify fallback could not resolve that track.",
         }
 
@@ -306,54 +375,57 @@ def localize_one(payload: dict) -> dict:
             "method": "spotify-fallback",
             "resolver": STRATEGY,
             "metadataSource": metadata_source,
+            "failureKind": "local_dependency_missing",
             "error": "yt-dlp is not installed on this system.",
         }
 
     spotify_meta = resolved.get("spotify") or {}
     title = spotify_meta.get("title") or track.get("title") or "track"
-    resolved_url = str(resolved.get("url") or "").strip()
     outtmpl = str(path / (localize.safe_filename(title) + ".%(ext)s"))
+    candidates = candidate_attempts(resolved)
+    failures = []
 
     with localize._dl_lock:
-        attempts = (False,) if media_format == "video" else (True, False)
-        for want_mp3 in attempts:
-            try:
-                result = localize._download(yt_dlp, resolved_url, outtmpl, want_mp3, media_format)
-                file_path = result.get("filepath")
-                if file_path and Path(file_path).exists():
-                    ext = Path(file_path).suffix.lstrip(".").lower()
-                    return {
-                        "ok": True,
-                        "id": tid,
-                        "filePath": str(file_path),
-                        "ext": ext,
-                        "mp3": ext == "mp3",
-                        "mediaFormat": media_format,
-                        "duration": result.get("duration") or 0,
-                        "method": "spotify-fallback",
-                        "resolver": STRATEGY,
-                        "metadataSource": metadata_source,
-                        "originalUrl": spotify_url,
-                        "matchedUrl": resolved_url,
-                        "matchedTitle": (resolved.get("match") or {}).get("title") or "",
-                    }
-            except Exception as exc:  # noqa: BLE001
-                last = str(exc)[:300]
-                if want_mp3 and ("ffmpeg" in last.lower() or "postprocess" in last.lower()):
-                    continue
-                return {
-                    "ok": False,
-                    "id": tid,
-                    "method": "spotify-fallback",
-                    "resolver": STRATEGY,
-                    "metadataSource": metadata_source,
-                    "error": last,
-                }
-    return {
-        "ok": False,
-        "id": tid,
-        "method": "spotify-fallback",
-        "resolver": STRATEGY,
-        "metadataSource": metadata_source,
-        "error": "Fallback download produced no file.",
-    }
+        for candidate in candidates:
+            resolved_url = str(candidate.get("url") or "").strip()
+            if not resolved_url:
+                continue
+            candidate_error = "Fallback download produced no file."
+            attempts = (False,) if media_format == "video" else (True, False)
+            for want_mp3 in attempts:
+                try:
+                    result = localize._download(yt_dlp, resolved_url, outtmpl, want_mp3, media_format)
+                    file_path = result.get("filepath")
+                    if file_path and Path(file_path).exists():
+                        ext = Path(file_path).suffix.lstrip(".").lower()
+                        return {
+                            "ok": True,
+                            "id": tid,
+                            "filePath": str(file_path),
+                            "ext": ext,
+                            "mp3": ext == "mp3",
+                            "mediaFormat": media_format,
+                            "duration": result.get("duration") or 0,
+                            "method": "spotify-fallback",
+                            "resolver": STRATEGY,
+                            "metadataSource": metadata_source,
+                            "failureKind": "",
+                            "originalUrl": spotify_url,
+                            "matchedUrl": resolved_url,
+                            "matchedTitle": str(candidate.get("title") or ""),
+                            "attemptedCandidates": len(failures) + 1,
+                        }
+                    candidate_error = "Fallback download produced no file."
+                except Exception as exc:  # noqa: BLE001
+                    candidate_error = str(exc)[:500]
+                    if want_mp3 and ("ffmpeg" in candidate_error.lower() or "postprocess" in candidate_error.lower()):
+                        continue
+                    break
+            failures.append({
+                "url": resolved_url,
+                "title": str(candidate.get("title") or ""),
+                "kind": classify_access_error(candidate_error),
+                "error": candidate_error,
+            })
+
+    return _failure_after_candidates(tid, spotify_url, metadata_source, failures)
