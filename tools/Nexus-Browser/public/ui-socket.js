@@ -51,8 +51,11 @@
         onOpen(snapshot());
       });
       next.addEventListener('message', (event) => {
-        try { onMessage(JSON.parse(event.data)); }
-        catch (error) { onMalformed(error); }
+        try {
+          const message = JSON.parse(event.data);
+          if (globalThis.BrowserAiBridgeGeminiLinkAudio?.handle?.(message) === true) return;
+          onMessage(message);
+        } catch (error) { onMalformed(error); }
       });
       next.addEventListener('close', (event = {}) => {
         if (socket !== next) return;
