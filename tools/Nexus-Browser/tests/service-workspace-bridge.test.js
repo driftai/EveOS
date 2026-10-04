@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const bridge = require('../service-workspace-bridge');
 
 const TLO_ID = 'local:tlo-chat:default';
@@ -90,6 +92,25 @@ test('newest Search Monitor host replaces the old owner and rejects its in-fligh
   bridge.registerHost(newHost, { workspaceId: 'new', targets: [TLO_ID] });
   await assert.rejects(turn, (error) => error.code === 'SEARCH_MONITOR_WORKSPACE_REPLACED');
   assert.equal(bridge.snapshot(TLO_ID).workspaceId, 'new');
+});
+
+test('service-chat adapter has no shadow history or direct inference route', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'local-targets', 'eveos-service-chats.js'), 'utf8');
+  assert.match(source, /serviceWorkspaceBridge\.sendPrompt/);
+  assert.match(source, /shared-search-monitor-workspace/);
+  assert.doesNotMatch(source, /createHistoryStore/);
+  assert.doesNotMatch(source, /\/api\/chat\/stream/);
+  assert.doesNotMatch(source, /\/api\/eve-state\/modular\/tlo\/chat\/stream/);
+});
+
+test('Gemini manifest keeps credential workflow while loading the Search Monitor service-chat host', () => {
+  const repoRoot = path.resolve(__dirname, '..', '..', '..');
+  const manifest = fs.readFileSync(
+    path.join(repoRoot, 'js', 'config', 'manifest', 'scripts.parts', '13-gemini.js'),
+    'utf8'
+  );
+  assert.match(manifest, /search_monitor\/nexusServiceChatBridge\.js/);
+  assert.match(manifest, /geminiCredentialWorkflow\.js/);
 });
 
 test.afterEach(() => bridge._resetForTests());
