@@ -44,9 +44,18 @@ EDITION_MARKERS = (
     "sped up", "spedup", "slowed", "reverb", "nightcore", "8d", "bass boosted", "mashup",
     "tribute", "rehearsal", "demo", "concert", "session", "medley",
 )
-# Uploads that are not a single track at all.
-BULK_MARKERS = ("full album", "greatest hits", "playlist", "mix ", " mix", "compilation", "hour",
-                "hours", "megamix", "non stop", "nonstop", "all songs")
+# Uploads that are not a single track at all. Do not use bare "hour"/"hours" here: those are valid
+# song-title words (Tame Impala's "One More Hour" exposed that false positive). Long-form clones are
+# identified by an explicit quantity or an extended/loop label instead.
+_BULK_HOUR_WORDS = ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "twelve", "twenty four")
+BULK_MARKERS = (
+    "full album", "greatest hits", "playlist", "mix ", " mix", "compilation", "megamix",
+    "non stop", "nonstop", "all songs", "hour loop", "hours loop", "hour version", "hours version",
+    "hour long", "hours long",
+) + tuple(f"{value} hour" for value in range(1, 25)) \
+  + tuple(f"{value} hours" for value in range(1, 25)) \
+  + tuple(f"{value} hour" for value in _BULK_HOUR_WORDS) \
+  + tuple(f"{value} hours" for value in _BULK_HOUR_WORDS)
 
 DEFAULT_TOLERANCE_SECONDS = 3.0
 # YouTube reports whole seconds while Spotify gives milliseconds, so any delta under this is pure
