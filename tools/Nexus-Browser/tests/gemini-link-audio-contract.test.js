@@ -10,11 +10,13 @@ const read = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
 
 test('Gemini Link preserves live audio and exposes replay with the shared waveform treatment', () => {
   const target = read('local-targets/gemini-link-chat.js');
+  const common = read('local-targets/service-chat-common.js');
   const socket = read('public/ui-socket.js');
   const audio = read('public/gemini-link-audio.js');
 
   assert.match(target, /'response_audio'/);
-  assert.match(target, /providerId: target\.providerId/);
+  assert.match(target, /targetEvent\(target, requestId, 'response_audio'/);
+  assert.match(common, /providerId: target\.providerId/);
   assert.match(socket, /gemini-link-audio\.js/);
   assert.match(socket, /BrowserAiBridgeGeminiLinkAudio\?\.handle/);
 
