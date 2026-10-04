@@ -97,10 +97,12 @@ def _cache_set(key: str, value: dict) -> None:
 
 
 def _helper_command(mode: str, normalized: dict, status_path: Path | None = None) -> list[str]:
-    # The public embed remains the fast/default metadata surface. The extractor promotes itself to
-    # the saved-session Web Player when the embed is incomplete. Query parameters are intentionally
-    # preserved so private-share pt= access survives both paths.
-    target_url = normalized["url"] if mode == "login" else normalized["embedUrl"]
+    # Public playlists start on the lighter embed surface. Private-share URLs (pt=) go straight to
+    # the full saved-session player so their access capability is not degraded into a shell-only
+    # embed before extraction. Query parameters remain intact on either route.
+    query = urlsplit(str(normalized.get("url") or "")).query
+    has_private_token = any(part.startswith("pt=") for part in query.split("&") if part)
+    target_url = normalized["url"] if mode == "login" or has_private_token else normalized["embedUrl"]
     command = [
         "node",
         str(_project_root() / "server_modules" / "audioflix_spotify_scrape.js"),
