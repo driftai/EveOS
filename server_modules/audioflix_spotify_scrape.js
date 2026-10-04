@@ -62,6 +62,14 @@ const assessPlaylistCompleteness = (expectedCount = 0, capturedCount = 0) => {
         shortfall
     };
 };
+const shouldPromoteEmbedAfterScan = (value, expectedCount = 0, capturedCount = 0) => {
+    if (!isEmbedPlaylistUrl(value)) return false;
+    const captured = Math.max(0, Number(capturedCount) || 0);
+    if (!captured) return true;
+    if (needsFullPlayerPromotion(value, expectedCount, captured)) return true;
+    const expected = Math.max(0, Number(expectedCount) || 0);
+    return expected > 0 && !assessPlaylistCompleteness(expected, captured).ok;
+};
 
 function requestMentionsPlaylist(url = '', postData = '', playlistId = '') {
     if (!playlistId) return false;
@@ -416,7 +424,7 @@ async function scrape(context) {
     assertAccessible(loaded.body);
     let dom = await collectDomRows(page, loaded.expectedCount);
     if (scrapeSource === 'embed'
-        && needsFullPlayerPromotion(playlistUrl, loaded.expectedCount, dom.length)) {
+        && shouldPromoteEmbedAfterScan(playlistUrl, loaded.expectedCount, dom.length)) {
         loaded = await promoteToFullPlayer();
         assertAccessible(loaded.body);
         dom = await collectDomRows(page, loaded.expectedCount);
@@ -429,7 +437,12 @@ async function scrape(context) {
         const sourceId = stableId(row, index + 1);
         return { ...row, sourceId, position: index + 1 };
     }).filter((row) => row.title && row.url && !seen.has(row.sourceId) && seen.add(row.sourceId));
-    if (!entries.length) throw new Error('No Spotify song rows were found. Open the saved session, verify the playlist is visible, then sync again.');
+    if (!entries.length) {
+        const sourceHint = scrapeSource === 'saved-session'
+            ? 'The saved Spotify session opened the playlist but exposed no usable song rows.'
+            : 'Spotify exposed the playlist shell but no usable song rows.';
+        throw new Error(`${sourceHint} Open Saved Session, verify the songs themselves are visible there, close that window, then import again.`);
+    }
     const completeness = assessPlaylistCompleteness(loaded.expectedCount, entries.length);
     if (!completeness.ok) {
         throw new Error(`Spotify says this playlist has ${loaded.expectedCount} songs, but EveOS captured only ${entries.length}. The partial import was cancelled; reopen the saved Spotify session and retry.`);
@@ -479,5 +492,6 @@ module.exports = {
     requestMentionsPlaylist,
     needsFullPlayerPromotion,
     assessPlaylistCompleteness,
+    shouldPromoteEmbedAfterScan,
     collectDomRows
 };
