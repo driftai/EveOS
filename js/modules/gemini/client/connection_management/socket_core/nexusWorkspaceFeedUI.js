@@ -8,8 +8,8 @@
 console.log("nexusWorkspaceFeedUI.js loading...");
 
 (function () {
-    const previousHandleSocketMessage = window.handleSocketMessage;
     const renderedRequestIds = new Set();
+    let installed = false;
 
     function chatContainer() {
         const chatLog = document.getElementById('chatLog');
@@ -67,25 +67,34 @@ console.log("nexusWorkspaceFeedUI.js loading...");
         if (requestId) renderedRequestIds.add(requestId);
     }
 
-    window.handleSocketMessage = async function handleSocketMessageWithNexusFeed(event) {
-        try {
-            const data = JSON.parse(event?.data || '{}');
-            if (data?.type === 'nexus_workspace_user_message') {
-                renderNexusUserMessage(data);
-                return;
+    function install() {
+        if (installed || typeof window.handleSocketMessage !== 'function') return false;
+        const previousHandleSocketMessage = window.handleSocketMessage;
+        window.handleSocketMessage = async function handleSocketMessageWithNexusFeed(event) {
+            try {
+                const data = JSON.parse(event?.data || '{}');
+                if (data?.type === 'nexus_workspace_user_message') {
+                    renderNexusUserMessage(data);
+                    return;
+                }
+            } catch (error) {
+                // Preserve the normal router's malformed-message handling.
             }
-        } catch (error) {
-            // Preserve the normal router's malformed-message handling.
-        }
 
-        if (typeof previousHandleSocketMessage === 'function') {
             return previousHandleSocketMessage(event);
-        }
-    };
+        };
+        installed = true;
+        return true;
+    }
 
     window.EveGeminiNexusWorkspaceFeedUI = {
-        renderUserMessage: renderNexusUserMessage
+        renderUserMessage: renderNexusUserMessage,
+        install
     };
+
+    if (!install()) {
+        window.addEventListener('eve:gemini-socket-ready', install, { once: true });
+    }
 })();
 
 console.log("nexusWorkspaceFeedUI.js loaded.");
