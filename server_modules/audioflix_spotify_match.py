@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.parse
 import urllib.request
 
 EMBED_URL = "https://open.spotify.com/embed/track/{track_id}"
@@ -169,6 +170,64 @@ def _candidate_url(item) -> str:
             return clean
     video_id = str(row.get("id") or "").strip()
     return f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
+
+
+def _normalize_search_query(value: str) -> str:
+    """Make a search-only alias without changing the canonical Spotify title.
+
+    Search engines often index stylized titles with word boundaries Spotify does not use, e.g.
+    ``FloatingAway`` vs ``Floating Away``. Strip cosmetic quoting/asterisks and split camelCase so
+    YouTube Music gets a natural query while the matcher still verifies the original title/duration.
+    """
+    text = str(value or "").strip()
+    text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", text)
+    text = re.sub(r'["*]+', " ", text)
+    return " ".join(text.split()).strip()
+
+
+def _youtube_music_search_url(query: str) -> str:
+    clean = _normalize_search_query(query)
+    encoded = urllib.parse.quote_plus(clean)
+    return f"https://music.youtube.com/search?q={encoded}#songs"
+
+
+def _dedupe_search_rows(rows):
+    """Merge the same YouTube id returned by general search and YouTube Music."""
+    merged = []
+    indexes = {}
+    detail_keys = ("id", "title", "duration", "view_count", "webpage_url", "url", "formats", "abr")
+    for item in rows or []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        key = str(row.get("id") or row.get("webpage_url") or row.get("url") or "").strip()
+        if not key:
+            continue
+        if key not in indexes:
+            indexes[key] = len(merged)
+            merged.append(row)
+            continue
+        current = merged[indexes[key]]
+        for field in detail_keys:
+            if current.get(field) in (None, "", []) and row.get(field) not in (None, "", []):
+                current[field] = row[field]
+    return merged
+
+
+def _collect_search_rows(ydl, query: str, results: int):
+    """Search both normal YouTube and YouTube Music Songs, isolating backend failures."""
+    targets = [
+        f"ytsearch{int(results)}:{query}",
+        _youtube_music_search_url(query),
+    ]
+    rows = []
+    for target in targets:
+        try:
+            found = ydl.extract_info(target, download=False)
+        except Exception:  # noqa: BLE001
+            continue
+        rows.extend(entry for entry in ((found or {}).get("entries") or []) if isinstance(entry, dict))
+    return _dedupe_search_rows(rows)
 
 
 def _hydrate_flat_rows(ydl, entries, limit: int = SEARCH_HYDRATE_LIMIT):
@@ -325,11 +384,11 @@ def find_youtube_match(url: str, searcher=None, opener=None,
 
 
 def _ytdlp_search(query: str, results: int):
-    """Collect YouTube search rows safely, hydrating missing duration on a bounded subset.
+    """Search general YouTube plus YouTube Music Songs, then hydrate missing duration safely.
 
-    Fully extracting every result makes one age/sign-in-gated video abort the entire search before
-    the matcher can inspect the other results. Flat search avoids that. Some flat rows omit duration,
-    so the first few such candidates are individually hydrated; failures remain isolated per row.
+    General search is broad but can bury alternate/distributor versions; YouTube Music's Songs
+    surface is better at exact catalog recordings. Both stay flat so one age-gated result cannot
+    abort discovery. The merged rows are deduplicated before a bounded metadata hydration pass.
     """
     import yt_dlp  # imported lazily: the matcher is testable without it
 
@@ -342,6 +401,5 @@ def _ytdlp_search(query: str, results: int):
         "ignoreerrors": True,
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
-        found = ydl.extract_info(f"ytsearch{int(results)}:{query}", download=False)
-        rows = [entry for entry in ((found or {}).get("entries") or []) if isinstance(entry, dict)]
+        rows = _collect_search_rows(ydl, query, results)
         return _hydrate_flat_rows(ydl, rows)
