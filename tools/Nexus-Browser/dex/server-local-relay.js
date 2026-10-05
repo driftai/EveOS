@@ -1,3 +1,5 @@
+const stateApi = require('./server-scheduler-state');
+
 function createServerLocalRelay({
   localTargets,
   mirrorPrompt = () => {},
@@ -12,7 +14,8 @@ function createServerLocalRelay({
       throw error;
     }
 
-    mirrorPrompt(targetId, { requestId, text, ...(correlation ? { correlation } : {}) }, target);
+    const exactCorrelation = correlation || stateApi.correlationForRequest(requestId);
+    mirrorPrompt(targetId, { requestId, text, ...(exactCorrelation ? { correlation: exactCorrelation } : {}) }, target);
     broadcastStatus(targetId);
     let eventChain = Promise.resolve();
     try {
@@ -20,7 +23,7 @@ function createServerLocalRelay({
         targetId,
         requestId,
         text,
-        correlation,
+        correlation: exactCorrelation,
         emit(payload) {
           eventChain = eventChain
             .then(() => Promise.resolve(emit?.(payload)))
@@ -30,6 +33,7 @@ function createServerLocalRelay({
       await eventChain;
     } finally {
       await eventChain.catch(() => {});
+      stateApi.forgetTurnCorrelation(requestId);
       broadcastStatus(targetId);
     }
   }
