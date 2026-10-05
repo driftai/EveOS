@@ -392,27 +392,11 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     width: '100%',
                     height: 152
                 }, (controller) => {
-                    const invokeControllerPlayback = async ({ preferResume = false } = {}) => {
-                        const primaryName = preferResume ? 'resume' : 'play';
-                        const fallbackName = preferResume ? 'play' : 'resume';
-                        const attempted = new Set();
-                        let lastError = null;
-                        for (const methodName of [primaryName, fallbackName]) {
-                            const method = controller?.[methodName];
-                            if (typeof method !== 'function' || attempted.has(method)) continue;
-                            attempted.add(method);
-                            try {
-                                await Promise.resolve(method.call(controller));
-                                return methodName;
-                            } catch (error) {
-                                lastError = error;
-                            }
-                        }
-                        if (lastError) throw lastError;
-                        throw new Error('Spotify controller cannot start playback in this browser.');
-                    };
+                    const invokePlay = () => typeof controller.play === 'function'
+                        ? controller.play()
+                        : controller.resume?.();
                     const player = {
-                        play: (options = {}) => {
+                        play: () => {
                             started = false;
                             runtimeFailureReported = false;
                             clearStartTimer();
@@ -420,7 +404,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                             setStageStatus('Spotify player ready. Starting playback...');
                             startTimer = setTimeout(() => reportRuntimeFailure(), startTimeoutMs());
                             try {
-                                const pending = invokeControllerPlayback(options);
+                                const pending = invokePlay();
                                 Promise.resolve(pending).catch(() => reportRuntimeFailure());
                                 return pending;
                             } catch {
@@ -461,12 +445,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                             clearStartTimer();
                             setStageStatus(`Loading ${nextItem.title || 'the next Spotify track'}...`);
                             await Promise.resolve(load(`spotify:track:${nextId}`));
-                            // Consecutive queue items already own an initialized, user-authorized
-                            // Spotify controller. Prefer resume() after loadUri(): Spotify documents
-                            // resume as the method that starts the current playback, while play()
-                            // is explicitly unsupported by some browsers. Keep play() as a rejected
-                            // resume fallback rather than rebuilding the iframe/controller.
-                            return player.play({ preferResume: true });
+                            return player.play();
                         }
                     };
                     V.active = { kind: 'spotify', player };
