@@ -86,3 +86,12 @@ def test_gemini_full_shutdown_and_global_stop_share_manual_disable_semantics():
     assert "updateConnectionStatus('disconnected', message || 'Disabled')" in shutdown_ui
     assert "eve:eveos-global-stop" in control_plane
     assert "geminiShutdownUI.js" in manifest
+
+
+def test_gemini_shutdown_ui_observer_cannot_feedback_on_its_own_render():
+    shutdown_ui = _read_root("js/modules/gemini/server_control/geminiShutdownUI.js")
+    manifest = _read_root("js/config/manifest/scripts.parts/13-gemini.js")
+
+    assert "if (!document.getElementById(BUTTON_ID))" in shutdown_ui
+    assert "if (icon && icon.textContent !== desiredIcon)" in shutdown_ui
+    assert "geminiShutdownUI.js?v=20261005.1" in manifest
