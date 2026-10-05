@@ -4,7 +4,7 @@ function createServerLocalRelay({
   emitEvent = () => {},
   broadcastStatus = () => {}
 } = {}) {
-  async function sendLocalPrompt({ targetId, requestId, text, emit }) {
+  async function sendLocalPrompt({ targetId, requestId, text, emit, correlation = null }) {
     const target = await localTargets.getLocalTarget(targetId);
     if (!target) {
       const error = new Error('Selected Local-Origin target is no longer available.');
@@ -12,7 +12,7 @@ function createServerLocalRelay({
       throw error;
     }
 
-    mirrorPrompt(targetId, { requestId, text }, target);
+    mirrorPrompt(targetId, { requestId, text, ...(correlation ? { correlation } : {}) }, target);
     broadcastStatus(targetId);
     let eventChain = Promise.resolve();
     try {
@@ -20,6 +20,7 @@ function createServerLocalRelay({
         targetId,
         requestId,
         text,
+        correlation,
         emit(payload) {
           eventChain = eventChain
             .then(() => Promise.resolve(emit?.(payload)))
