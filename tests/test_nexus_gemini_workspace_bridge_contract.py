@@ -120,13 +120,16 @@ def test_search_monitor_local_moe_refresh_is_open_only_and_single_flight():
     assert "if (localMoe?.open) refreshLocalMoe();" in ai_home
     assert "if (active && localMoe?.open) refreshLocalMoe();" in ai_home
     assert "if (active) refreshLocalMoe();" not in ai_home
-    assert "searchMonitorAiHome.js?v=20261005.3" in manifest
+    assert "searchMonitorAiHome.js?v=20261005.4" in manifest
 
 
 def test_search_monitor_restores_explicit_loading_targeted_reload_and_passive_edges():
     ai_home = _read_root("js/modules/gemini/search_monitor/searchMonitorAiHome.js")
     control_plane = _read_root("js/modules/gemini/server_control/eveosControlPlane.js")
     service_bridge = _read_root("js/modules/gemini/search_monitor/nexusServiceChatBridge.js")
+    passive_boot = _read_root("js/modules/gemini/server_control/geminiPassiveBoot.js")
+    connection = _read_root("js/modules/gemini/server_control/geminiServerControl.connection.js")
+    gemini_control = _read_root("js/modules/gemini/server_control/geminiServerControl.js")
     manifest = _read_root("js/config/manifest/scripts.parts/13-gemini.js")
 
     assert "Load the Gemini workspace" in ai_home
@@ -151,9 +154,20 @@ def test_search_monitor_restores_explicit_loading_targeted_reload_and_passive_ed
     assert "window.setTimeout(syncRuntimeState, 0);" in service_bridge
     assert "window.setTimeout(ensureConnected, 0);" not in service_bridge
 
+    assert "window.__EVE_GEMINI_PASSIVE_BOOT = true;" in passive_boot
+    assert "window.__EVE_GEMINI_SESSION_AUTHORIZED = false;" in passive_boot
+    assert "function sessionAuthorized()" in connection
+    assert "if (!sessionAuthorized()) return;" in connection
+    assert "function isSessionAuthorized()" in gemini_control
+    assert "if (!isSessionAuthorized()) return false;" in gemini_control
+    assert "function shouldPollLifecycle()" in gemini_control
+
     assert "nexusServiceChatBridge.js?v=20261005.3" in manifest
-    assert "searchMonitorAiHome.js?v=20261005.3" in manifest
+    assert "searchMonitorAiHome.js?v=20261005.4" in manifest
     assert "eveosControlPlane.js?v=20261005.3" in manifest
+    assert "geminiPassiveBoot.js?v=20261005.2" in manifest
+    assert "geminiServerControl.connection.js?v=20261005.2" in manifest
+    assert "geminiServerControl.js?v=20261005.2" in manifest
 
 
 def test_local_moe_ready_status_cache_reduces_runtime_probe_pressure():
