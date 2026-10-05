@@ -105,6 +105,11 @@ def _unsubscribe(connection_id, queue):
         _SUBSCRIBERS.pop(connection_id, None)
 
 
+def nexus_owns_audio(connection_id):
+    """True only while an exact Nexus-origin workspace turn owns this Live reply."""
+    return bool(_SUBSCRIBERS.get(connection_id))
+
+
 def _publish(connection_id, event):
     for queue in list(_SUBSCRIBERS.get(connection_id, ())):
         try:
