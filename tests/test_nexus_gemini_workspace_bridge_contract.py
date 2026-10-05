@@ -120,4 +120,46 @@ def test_search_monitor_local_moe_refresh_is_open_only_and_single_flight():
     assert "if (localMoe?.open) refreshLocalMoe();" in ai_home
     assert "if (active && localMoe?.open) refreshLocalMoe();" in ai_home
     assert "if (active) refreshLocalMoe();" not in ai_home
-    assert "searchMonitorAiHome.js?v=20261005.1" in manifest
+    assert "searchMonitorAiHome.js?v=20261005.3" in manifest
+
+
+def test_search_monitor_restores_explicit_loading_targeted_reload_and_passive_edges():
+    ai_home = _read_root("js/modules/gemini/search_monitor/searchMonitorAiHome.js")
+    control_plane = _read_root("js/modules/gemini/server_control/eveosControlPlane.js")
+    service_bridge = _read_root("js/modules/gemini/search_monitor/nexusServiceChatBridge.js")
+    manifest = _read_root("js/config/manifest/scripts.parts/13-gemini.js")
+
+    assert "Load the Gemini workspace" in ai_home
+    assert "let geminiWorkspaceLoaded = false;" in ai_home
+    assert "if (active && gemini?.open && geminiWorkspaceLoaded) onGeminiOpen?.();" in ai_home
+    assert "data-search-monitor-reload-ui" in ai_home
+    assert "window.location.reload();" in ai_home
+    assert 'data-provider-reload="gemini"' in ai_home
+    assert 'data-provider-reload="local-moe"' in ai_home
+    assert 'data-provider-reload="nexus-browser"' in ai_home
+    assert "keepLocalControlAfterToolStop" in ai_home
+    assert "activeAgentNexusView" in ai_home
+    assert "refreshOpenAgentNexus(false);" in ai_home
+
+    assert "const POLL_MS = 15000;" in control_plane
+    assert "let refreshPromise = null;" in control_plane
+    assert "function shouldProbeDirectWeb()" in control_plane
+    assert "if (shouldProbeDirectWeb()) applyDirectWebStatus(await checkDirectWeb());" in control_plane
+
+    assert "function runtimeOnline()" in service_bridge
+    assert "if (!enabled || !runtimeOnline() || reconnectTimer) return;" in service_bridge
+    assert "window.setTimeout(syncRuntimeState, 0);" in service_bridge
+    assert "window.setTimeout(ensureConnected, 0);" not in service_bridge
+
+    assert "nexusServiceChatBridge.js?v=20261005.3" in manifest
+    assert "searchMonitorAiHome.js?v=20261005.3" in manifest
+    assert "eveosControlPlane.js?v=20261005.3" in manifest
+
+
+def test_local_moe_ready_status_cache_reduces_runtime_probe_pressure():
+    adapter = _read_root("tools/Local-MoE-Harness/app/adapters/freetoken.py")
+
+    assert "def _status_cache_ttl(self) -> float:" in adapter
+    assert 'return 5.0 if self._status_cache and self._status_cache.get("ready") else 1.0' in adapter
+    assert "now - self._status_cache_at < self._status_cache_ttl()" in adapter
+    assert "def invalidate_status_cache" in adapter
