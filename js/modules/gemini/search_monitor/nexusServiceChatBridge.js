@@ -19,7 +19,7 @@
 
     let socket = null;
     let registered = false;
-    let stopped = false;
+    let enabled = false;
     let reconnectTimer = null;
     let heartbeatTimer = null;
     const localMoePending = new Map();
@@ -30,6 +30,12 @@
         const frame = document.querySelector?.('[data-nexus-browser-frame]');
         const src = frame?.getAttribute?.('src') || '';
         return src && src !== 'about:blank' ? src : 'http://127.0.0.1:8768';
+    }
+
+    function runtimeOnline() {
+        const frame = document.querySelector?.('[data-nexus-browser-frame]');
+        const src = String(frame?.getAttribute?.('src') || '').trim();
+        return !!src && src !== 'about:blank';
     }
 
     function websocketUrl() {
@@ -180,7 +186,7 @@
     }
 
     function scheduleReconnect() {
-        if (stopped || reconnectTimer) return;
+        if (!enabled || !runtimeOnline() || reconnectTimer) return;
         reconnectTimer = window.setTimeout(() => {
             reconnectTimer = null;
             ensureConnected();
@@ -188,7 +194,11 @@
     }
 
     function ensureConnected() {
-        stopped = false;
+        if (!runtimeOnline()) {
+            disconnect();
+            return false;
+        }
+        enabled = true;
         if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return true;
         const url = websocketUrl();
         if (!url) return false;
@@ -220,7 +230,7 @@
     }
 
     function disconnect() {
-        stopped = true;
+        enabled = false;
         clearTimers();
         registered = false;
         for (const [requestId] of localMoePending) {
@@ -228,6 +238,14 @@
         }
         try { socket?.close?.(1000, 'Search Monitor workspace host stopped'); } catch {}
         socket = null;
+    }
+
+    function syncRuntimeState() {
+        if (runtimeOnline()) {
+            ensureConnected();
+        } else if (enabled || socket || reconnectTimer || heartbeatTimer) {
+            disconnect();
+        }
     }
 
     function handleLocalMoeMessage(event) {
@@ -257,14 +275,36 @@
     window.addEventListener?.('message', handleLocalMoeMessage);
     window.addEventListener?.('beforeunload', disconnect, { once: true });
 
+    const runtimeObserver = new MutationObserver(function (records) {
+        if (!records.some((record) => {
+            const target = record.target;
+            if (record.type === 'attributes') return target?.matches?.('[data-nexus-browser-frame]');
+            return Array.from(record.addedNodes || []).some((node) =>
+                node?.nodeType === 1 && (
+                    node.matches?.('[data-nexus-browser-frame]')
+                    || node.querySelector?.('[data-nexus-browser-frame]')
+                )
+            );
+        })) return;
+        syncRuntimeState();
+    });
+    runtimeObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['src']
+    });
+
     window.EveOSServiceChatBridge = Object.freeze({
         workspaceId,
         targets: TARGETS,
         ensureConnected,
         disconnect,
-        isRegistered: () => registered
+        isRegistered: () => registered,
+        isEnabled: () => enabled
     });
 
-    // This only attaches to Nexus if/when its localhost service is already online; it never starts it.
-    window.setTimeout(ensureConnected, 0);
+    // Passive on Search Monitor boot. Nexus Browser mounting/unmounting its runtime iframe
+    // is the authority that enables or tears down this service-chat WebSocket.
+    window.setTimeout(syncRuntimeState, 0);
 })();
