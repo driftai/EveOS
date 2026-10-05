@@ -30,8 +30,31 @@
         connectWhenWorkspaceReady,
         disconnectClient
     } = connectionApi;
+    const SERVER_TOGGLE_SELECTOR = '[data-gemini-server-toggle]';
     let recoveryPromise = null;
+    let refreshPromise = null;
+    let controlsBound = false;
+
+    function isSessionAuthorized() {
+        return window.__EVE_GEMINI_SESSION_AUTHORIZED === true;
+    }
+
+    function setSessionAuthorized(enabled) {
+        window.__EVE_GEMINI_SESSION_AUTHORIZED = !!enabled;
+        if (enabled) window.__EVE_GEMINI_PASSIVE_BOOT = false;
+    }
+
+    function shouldPollLifecycle() {
+        if (!isSessionAuthorized()) return false;
+        if (state.busy || state.running || state.desiredRunning || recoveryPromise) return true;
+        const provider = document.querySelector('[data-ai-provider="gemini"]');
+        return !!window.__GEMINI_BOOT_REQUESTED
+            || provider?.open === true
+            || ['requesting', 'requested', 'recovering', 'reconnecting'].includes(state.connectionPhase);
+    }
+
     function disableForStoppedHost(message) {
+        setSessionAuthorized(false);
         setDesiredServerState(false);
         setConnectionPreference(false);
         setManualStop(true);
@@ -42,7 +65,9 @@
         state.connectionPhase = 'manual-stop';
         state.message = message || 'EveOS localhost was stopped; Gemini Live Link is disabled.';
     }
+
     async function recoverServerIfNeeded(reason) {
+        if (!isSessionAuthorized()) return false;
         if (isManualStopActive()) return false;
         if (state.hostRequired && state.hostRunning !== true) return false;
         if (!state.desiredRunning || state.running || state.busy || recoveryPromise) return false;
@@ -108,9 +133,9 @@
         return recoveryPromise;
     }
 
-    async function refreshStatus() {
-        state.desiredRunning = readDesiredServerState();
-        if (isManualStopActive()) state.desiredRunning = false;
+    async function performRefreshStatus() {
+        state.desiredRunning = isSessionAuthorized() ? readDesiredServerState() : false;
+        if (isSessionAuthorized() && isManualStopActive()) state.desiredRunning = false;
         const found = await findController();
         if (found) {
             state.controllerAvailable = true;
@@ -121,7 +146,7 @@
             if (state.hostRequired && !state.hostRunning) {
                 disableForStoppedHost('EveOS localhost was closed; Gemini Live Link and auto-reconnect are disabled.');
                 publish();
-                reconcileClientConnection();
+                if (isSessionAuthorized()) reconcileClientConnection();
                 return { ...state };
             }
             state.running = !!found.payload.running;
@@ -131,7 +156,9 @@
             if (state.running) {
                 state.lastKnownRunningAt = Date.now();
                 state.recoveryAttempts = 0;
-                if (isConnectionPreferenceEnabled() && !isManualStopActive()) setDesiredServerState(true);
+                if (isSessionAuthorized() && isConnectionPreferenceEnabled() && !isManualStopActive()) {
+                    setDesiredServerState(true);
+                }
             } else if (state.desiredRunning && state.serverState !== 'starting' && state.serverState !== 'recovering') {
                 state.serverState = 'recovering';
                 state.message = 'Gemini should be running; EveOS is restarting it.';
@@ -143,7 +170,7 @@
                 if (state.hostFailureCount >= 2) {
                     disableForStoppedHost('EveOS localhost is offline; Gemini Live Link will stay disabled until you start it again.');
                     publish();
-                    reconcileClientConnection();
+                    if (isSessionAuthorized()) reconcileClientConnection();
                     return { ...state };
                 }
             }
@@ -153,7 +180,9 @@
                 state.serverState = 'running';
                 state.lastKnownRunningAt = Date.now();
                 state.statusFailureCount = 0;
-                if (isConnectionPreferenceEnabled() && !isManualStopActive()) setDesiredServerState(true);
+                if (isSessionAuthorized() && isConnectionPreferenceEnabled() && !isManualStopActive()) {
+                    setDesiredServerState(true);
+                }
                 state.message = 'Gemini is online; lifecycle controller is unavailable.';
             } else if (state.desiredRunning && Date.now() - (state.lastKnownRunningAt || 0) < STATUS_GRACE_MS) {
                 state.serverState = 'reconnecting';
@@ -165,7 +194,8 @@
                     : 'Gemini is offline. Start tools\\batch\\start-gemini-control.bat or an EveOS local preview port to enable in-page startup from file://.';
             }
         }
-        if (state.running && !isManualStopActive() && shouldAutoRecoverDisabledConnection() && !isConnectionPreferenceEnabled()) {
+        if (isSessionAuthorized() && state.running && !isManualStopActive()
+            && shouldAutoRecoverDisabledConnection() && !isConnectionPreferenceEnabled()) {
             setConnectionPreference(true);
             state.connectionPhase = 'requesting';
             state.message = 'Gemini server is online; reconnecting Live Workspace.';
@@ -173,31 +203,45 @@
                 window.updateConnectionStatus('connecting', 'Gemini server online - reconnecting...');
             }
         }
-        // Manual stop wins the PRESENTATION: without the lifecycle controller a Stop can only
-        // disconnect this browser, so the backend may still answer status probes. Reporting that
-        // as "Online" read as the assistant turning itself back on — while manually stopped the
-        // pill stays "Stopped" and only a user Start (or credential save) revives it.
-        if (isManualStopActive()) {
+        if (isSessionAuthorized() && isManualStopActive()) {
             state.desiredRunning = false;
             state.serverState = 'manual-stop';
             state.connectionPhase = 'manual-stop';
             if (state.running) {
                 state.message = 'Assistant stopped by you. The Gemini backend process is still up; press Start to reconnect.';
             }
+        } else if (!isSessionAuthorized()) {
+            state.desiredRunning = false;
+            state.connectionPhase = 'passive';
+            state.message = state.running
+                ? 'Gemini backend is online, but this EveOS page is passive. Use Start or Connect to opt in.'
+                : 'Gemini Link is passive on this EveOS page until you explicitly Start or Connect.';
         }
         publish();
-        reconcileClientConnection();
-        if (state.desiredRunning && !state.running && state.controllerAvailable) {
+        if (isSessionAuthorized()) reconcileClientConnection();
+        if (isSessionAuthorized() && state.desiredRunning && !state.running && state.controllerAvailable) {
             recoverServerIfNeeded('status-refresh');
         }
         return { ...state };
     }
 
+    function refreshStatus() {
+        if (refreshPromise) return refreshPromise;
+        refreshPromise = performRefreshStatus().finally(function () {
+            refreshPromise = null;
+        });
+        return refreshPromise;
+    }
+
     async function toggleServer() {
         const shouldStart = !(state.running || state.desiredRunning || state.serverState === 'recovering');
         if (state.busy) return;
-        if (shouldStart) setManualStop(false);
+        if (shouldStart) {
+            setSessionAuthorized(true);
+            setManualStop(false);
+        }
         if (!shouldStart && !state.controllerAvailable) {
+            setSessionAuthorized(false);
             setManualStop(true);
             setDesiredServerState(false);
             setConnectionPreference(false);
@@ -212,7 +256,10 @@
         state.busy = true;
         state.serverState = shouldStart ? 'starting' : 'stopping';
         state.message = shouldStart ? 'Starting Gemini server...' : 'Stopping Gemini server...';
-        if (!shouldStart) setManualStop(true);
+        if (!shouldStart) {
+            setSessionAuthorized(false);
+            setManualStop(true);
+        }
         setDesiredServerState(shouldStart);
         publish();
         let workspacePromise = null;
@@ -250,6 +297,7 @@
             if (shouldStart && state.running) {
                 connectWhenWorkspaceReady(workspacePromise);
             } else if (!shouldStart) {
+                setSessionAuthorized(false);
                 setManualStop(true);
                 setDesiredServerState(false);
                 setConnectionPreference(false);
@@ -272,42 +320,39 @@
         }
     }
 
+    function handleServerToggleClick(event) {
+        const button = event?.target?.closest?.(SERVER_TOGGLE_SELECTOR);
+        if (!button || !document.contains(button)) return;
+        toggleServer();
+    }
+
     function bindControls(root) {
-        (root || document).querySelectorAll('[data-gemini-server-toggle]').forEach(function (button) {
-            if (button.dataset.geminiServerBound === '1') return;
-            button.dataset.geminiServerBound = '1';
-            button.addEventListener('click', toggleServer);
-        });
+        if (!controlsBound) {
+            (root || document).addEventListener('click', handleServerToggleClick);
+            controlsBound = true;
+        }
         publish();
     }
 
     function initialize() {
-        state.desiredRunning = readDesiredServerState();
+        state.desiredRunning = isSessionAuthorized() ? readDesiredServerState() : false;
         bindControls(document);
-        const observer = new MutationObserver(function (records) {
-            if (records.some(function (record) {
-                return Array.from(record.addedNodes).some(function (node) {
-                    return node.nodeType === 1 && (
-                        node.matches?.('[data-gemini-server-control]')
-                        || node.querySelector?.('[data-gemini-server-control]')
-                    );
-                });
-            })) {
-                bindControls(document);
-            }
-        });
-        observer.observe(document.documentElement, { childList: true, subtree: true });
         refreshStatus();
-        syncCredentials();
         window.setInterval(function () {
-            if (document.visibilityState === 'visible' && document.getElementById('gemini-ui-root')) {
+            if (document.visibilityState === 'visible' && shouldPollLifecycle()) {
                 refreshStatus();
             }
         }, POLL_MS);
-        window.addEventListener('eve:gemini-workspace-ready', reconcileClientConnection);
-        window.addEventListener('eve:gemini-socket-ready', reconcileClientConnection);
+        window.addEventListener('eve:gemini-workspace-ready', function () {
+            if (!isSessionAuthorized()) return;
+            refreshStatus();
+            reconcileClientConnection();
+        });
+        window.addEventListener('eve:gemini-socket-ready', function () {
+            if (isSessionAuthorized()) reconcileClientConnection();
+        });
         document.addEventListener('visibilitychange', function () {
-            if (document.visibilityState === 'visible') refreshStatus();
+            if (document.visibilityState === 'visible' && shouldPollLifecycle()) refreshStatus();
         });
     }
 
@@ -318,7 +363,16 @@
         reconcileClientConnection,
         toggleServer,
         start: async function () {
-            if (state.running) return { ...state };
+            if (state.running && isSessionAuthorized()) return { ...state };
+            if (state.running && !isSessionAuthorized()) {
+                setSessionAuthorized(true);
+                setManualStop(false);
+                setDesiredServerState(true);
+                setConnectionPreference(true);
+                await refreshStatus();
+                reconcileClientConnection();
+                return { ...state };
+            }
             await toggleServer();
             return { ...state };
         },
@@ -327,13 +381,9 @@
             await toggleServer();
             return { ...state };
         },
-        // Manually connect/disconnect THIS client's Gemini link WITHOUT stopping the server, so you
-        // can cut the connection from one EveOS surface (e.g. file://) and bring it up on another
-        // (e.g. localhost). The server keeps running — single-owner routing on the backend hands the
-        // live link to whichever surface connects next. The manual-stop flag set here blocks
-        // auto-reconnect so a manual disconnect sticks until you click connect again.
         setClientLink: function (connected) {
             if (connected) {
+                setSessionAuthorized(true);
                 if (window.SocketGlobalState) {
                     window.SocketGlobalState.sessionOwnershipTransferred = false;
                     window.SocketGlobalState.sessionOwnershipTransferReason = '';
@@ -346,8 +396,9 @@
                 }
                 setDesiredServerState(true);
                 setConnectionPreference(true);
-                reconcileClientConnection();
+                refreshStatus().then(reconcileClientConnection).catch(() => {});
             } else {
+                setSessionAuthorized(false);
                 setManualStop(true);
                 setDesiredServerState(false);
                 setConnectionPreference(false);
