@@ -14,7 +14,13 @@
         shouldAutoRecoverDisabledConnection
     } = stateApi;
     let reconcilePromise = null;
+
+    function sessionAuthorized() {
+        return window.__EVE_GEMINI_SESSION_AUTHORIZED === true;
+    }
+
     function connectClient() {
+        if (!sessionAuthorized()) return;
         if (window.SocketGlobalState?.credentialRequired && !clearMissingCredentialGateIfVaultReady()) {
             state.connectionPhase = 'credentials-required';
             publish();
@@ -37,6 +43,7 @@
         }
         let attempts = 0;
         const requestConnection = function () {
+            if (!sessionAuthorized()) return;
             attempts += 1;
             if (window.webSocket?.readyState === WebSocket.OPEN
                 || window.webSocket?.readyState === WebSocket.CONNECTING
@@ -73,11 +80,15 @@
     }
 
     async function reconcileClientConnection() {
+        if (!sessionAuthorized()) {
+            state.desiredRunning = false;
+            state.connectionPhase = 'passive';
+            publish();
+            return false;
+        }
         if (isManualStopActive()) {
             state.desiredRunning = false;
             state.connectionPhase = 'manual-stop';
-            // Stop means stopped: if any other path revived the socket meanwhile, close it —
-            // only a user Start ends a manual stop.
             if (window.webSocket && window.webSocket.readyState < WebSocket.CLOSING) {
                 disconnectClient();
             }
@@ -134,7 +145,7 @@
 
         reconcilePromise = (async function () {
             const ready = await ensureWorkspaceReady();
-            if (ready && state.running && isConnectionPreferenceEnabled()) {
+            if (ready && sessionAuthorized() && state.running && isConnectionPreferenceEnabled()) {
                 connectClient();
                 return true;
             }
@@ -171,6 +182,7 @@
     }
 
     function bootWorkspaceForConnection() {
+        if (!sessionAuthorized()) return Promise.resolve(false);
         return ensureWorkspaceReady().catch(function (error) {
             state.connectionPhase = 'workspace-error';
             state.message = error?.message || 'Gemini workspace boot failed.';
@@ -181,8 +193,9 @@
     }
 
     function connectWhenWorkspaceReady(workspacePromise) {
+        if (!sessionAuthorized()) return;
         Promise.resolve(workspacePromise).then(function (ready) {
-            if (ready && state.running && isConnectionPreferenceEnabled()) {
+            if (ready && sessionAuthorized() && state.running && isConnectionPreferenceEnabled()) {
                 connectClient();
             }
         }).catch(function (error) {
@@ -194,6 +207,7 @@
     }
 
     async function ensureWorkspaceReady() {
+        if (!sessionAuthorized()) return false;
         state.connectionPhase = 'booting';
         publish();
         window.__GEMINI_BOOT_REQUESTED = true;
