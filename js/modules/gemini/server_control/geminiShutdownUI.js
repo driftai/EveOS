@@ -41,10 +41,11 @@
         const controllerReady = !!state?.controllerAvailable;
         const active = isServerActive(state);
         const icon = button.querySelector('.material-icons');
+        const desiredIcon = shuttingDown ? 'sync' : 'power_settings_new';
 
         button.disabled = shuttingDown || !control || !controllerReady || !active;
         button.classList.toggle('is-busy', shuttingDown);
-        if (icon) icon.textContent = shuttingDown ? 'sync' : 'power_settings_new';
+        if (icon && icon.textContent !== desiredIcon) icon.textContent = desiredIcon;
 
         if (shuttingDown) {
             button.title = 'Shutting down Gemini server...';
@@ -136,8 +137,13 @@
         window.addEventListener('eve:gemini-server-status', renderButton);
         window.addEventListener('eve:eveos-global-stop', handleGlobalStop);
 
+        // Watch for the header arriving late, but never re-render from mutations caused by
+        // the shutdown button itself. Re-rendering here used to rewrite the icon text node,
+        // which retriggered this subtree observer indefinitely and could freeze Chromium.
         const observer = new MutationObserver(function () {
-            ensureButton();
+            if (!document.getElementById(BUTTON_ID)) {
+                ensureButton();
+            }
         });
         observer.observe(document.documentElement, { childList: true, subtree: true });
     }
