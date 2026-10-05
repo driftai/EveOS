@@ -1,9 +1,11 @@
 (() => {
+  const GEMINI_ROOM_AUDIO_EVENT = 'nexus-gemini-link-room-audio';
+
   function ensureGeminiLinkAudioModule() {
     if (globalThis.BrowserAiBridgeGeminiLinkAudio || typeof document === 'undefined') return;
     if (document.querySelector('script[data-nexus-gemini-link-audio]')) return;
     const script = document.createElement('script');
-    script.src = '/gemini-link-audio.js?v=71d418e084d0';
+    script.src = '/gemini-link-audio.js?v=7aca661d9ac2';
     script.async = false;
     script.dataset.nexusGeminiLinkAudio = '1';
     document.head.appendChild(script);
@@ -24,6 +26,9 @@
     let epoch = 0;
     let reconnectAttempt = 0;
     let stopped = false;
+    const clientKind = typeof hello === 'object' && hello
+      ? String(hello.clientKind || '')
+      : '';
 
     function snapshot(extra = {}) {
       return { phase, epoch, dispatchReady: phase === 'connected', ...extra };
@@ -65,6 +70,14 @@
       next.addEventListener('message', (event) => {
         try {
           const message = JSON.parse(event.data);
+          const isGeminiAudio = message?.type === 'response_audio'
+            && message?.providerId === 'gemini-link-chat';
+          if (isGeminiAudio && clientKind === 'dex') {
+            if (typeof globalThis.CustomEvent === 'function') {
+              globalThis.dispatchEvent?.(new CustomEvent(GEMINI_ROOM_AUDIO_EVENT, { detail: message }));
+            }
+            return;
+          }
           if (globalThis.BrowserAiBridgeGeminiLinkAudio?.handle?.(message) === true) return;
           onMessage(message);
         } catch (error) { onMalformed(error); }
@@ -101,7 +114,7 @@
     return { connect, send, stop, snapshot: () => snapshot() };
   }
 
-  const api = { createClient };
+  const api = { createClient, GEMINI_ROOM_AUDIO_EVENT };
   globalThis.BrowserAiBridgeUiSocket = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
