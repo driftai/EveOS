@@ -229,7 +229,15 @@
   }
 
   function createReplayPlayer(state, host) {
-    if (state.player || host.querySelector('.nexus-gemini-audio-player')) return;
+    if (!state || !host) return;
+    if (state.player?.isConnected) return;
+    if (state.player && !state.player.isConnected) state.player = null;
+    const existing = host.querySelector('.nexus-gemini-audio-player');
+    if (existing) {
+      state.player = existing;
+      updatePlayerMetadata(state);
+      return;
+    }
     const player = document.createElement('div');
     player.className = 'nexus-gemini-audio-player';
     player.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;border-radius:22px;background:#1d2634;border:1px solid rgba(179,157,255,.28);max-width:100%;box-sizing:border-box;';
@@ -240,7 +248,7 @@
     play.textContent = '▶';
     play.title = 'Replay Gemini voice reply';
     play.setAttribute('aria-label', 'Play Gemini voice reply');
-    play.style.cssText = 'width:30px;height:30px;border-radius:50%;border:0;cursor:pointer;background:#312a52;color:#fff;flex:0 0 auto;';
+    play.style.cssText = 'width:30px;height:30px;border-radius:50%;border:0;cursor:pointer;background:#312a52;color:#fff;flex:0 0 auto;display:grid;place-items:center;padding:0;line-height:1;text-align:center;';
 
     const track = document.createElement('div');
     track.style.cssText = 'position:relative;flex:1 1 90px;min-width:70px;height:4px;border-radius:2px;background:rgba(255,255,255,.18);cursor:pointer;';
@@ -299,6 +307,37 @@
     }, 50);
   }
 
+  function attachManual(host, attachment = {}, key = '') {
+    if (!host || (attachment.encoding && attachment.encoding !== 'pcm_s16le')) return false;
+    const base64 = String(attachment.base64 || attachment.audio || '');
+    if (!base64) return false;
+    const requestId = `manual:${String(key || attachment.requestId || 'gemini-link-audio')}`;
+    let state = replies.get(requestId);
+    if (!state) {
+      state = replyState({
+        requestId,
+        sampleRate: Number(attachment.sampleRate || 24000),
+        channels: Number(attachment.channels || 1)
+      });
+    }
+    if (!state) return false;
+    if (!state.chunks.length) {
+      try {
+        const bytes = decodeBase64(base64);
+        if (!bytes.byteLength) return false;
+        state.chunks.push(bytes);
+      } catch (error) {
+        console.warn('Gemini Link manual replay attachment failed:', error);
+        return false;
+      }
+    }
+    state.sampleRate = Math.max(8000, Number(attachment.sampleRate || state.sampleRate || 24000));
+    state.channels = Math.max(1, Math.min(2, Number(attachment.channels || state.channels || 1)));
+    createReplayPlayer(state, host);
+    updatePlayerMetadata(state);
+    return !!state.player;
+  }
+
   function handle(message) {
     if (message?.providerId !== 'gemini-link-chat') return false;
     const requestId = String(message.requestId || '');
@@ -331,6 +370,6 @@
 
   globalThis.addEventListener?.('pointerdown', unlock, { passive: true });
   globalThis.addEventListener?.('keydown', unlock, { passive: true });
-  globalThis.BrowserAiBridgeGeminiLinkAudio = { handle, unlock, _replies: replies };
-  if (typeof module !== 'undefined' && module.exports) module.exports = { handle };
+  globalThis.BrowserAiBridgeGeminiLinkAudio = { handle, unlock, attachManual, _replies: replies };
+  if (typeof module !== 'undefined' && module.exports) module.exports = { handle, attachManual };
 })();
