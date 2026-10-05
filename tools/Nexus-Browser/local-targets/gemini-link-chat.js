@@ -6,6 +6,8 @@ const { createHistoryStore, targetEvent } = require('./service-chat-common');
 
 const TARGET_ID = 'local:gemini-link-chat:default';
 const TARGET_TYPE_ID = 'provider-workspace';
+const DEFAULT_TIMEOUT_MS = 180000;
+const DEFAULT_LATE_REPLY_GRACE_MS = 2500;
 const histories = createHistoryStore();
 let lastStatus = {
   running: false,
@@ -13,6 +15,28 @@ let lastStatus = {
   state: 'passive',
   message: 'Gemini Link mirrors the active EveOS Gemini workspace and never starts or replaces it.'
 };
+
+function normalizeId(value) {
+  return String(value || '').trim();
+}
+
+function normalizeCorrelation(input = {}, requestId = '') {
+  return {
+    roomId: normalizeId(input.roomId || input.room_id),
+    turnId: normalizeId(input.turnId || input.turn_id || requestId),
+    requestId: normalizeId(input.requestId || input.request_id || requestId),
+    sourceMessageId: normalizeId(input.sourceMessageId || input.source_message_id)
+  };
+}
+
+function correlationMatches(message = {}, expected = {}) {
+  if (normalizeId(message.requestId || message.request_id) !== expected.requestId) return false;
+  const actual = normalizeCorrelation(message.correlation || {}, message.requestId || message.request_id);
+  for (const key of ['roomId', 'turnId', 'requestId', 'sourceMessageId']) {
+    if (expected[key] && actual[key] !== expected[key]) return false;
+  }
+  return true;
+}
 
 function publicTarget() {
   return {
@@ -52,9 +76,22 @@ function setupMessage() {
 
 function status() { return { ...lastStatus }; }
 
-function sendPrompt({ requestId, text, target = publicTarget(), emit, WebSocketImpl = WebSocket, timeoutMs = 180000 }) {
+function sendPrompt({
+  requestId,
+  text,
+  target = publicTarget(),
+  emit,
+  correlation = {},
+  WebSocketImpl = WebSocket,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  lateReplyGraceMs = DEFAULT_LATE_REPLY_GRACE_MS
+}) {
   if (!requestId || !String(text || '').trim()) throw new Error('Gemini Link prompt is empty.');
   const wsUrl = `ws://127.0.0.1:${portFor('GEMINI_WS_PORT')}`;
+  const expectedCorrelation = normalizeCorrelation(correlation, requestId);
+  const graceMs = Math.max(0, Number(lateReplyGraceMs) || 0);
+  const baseTimeoutMs = Math.max(1, Number(timeoutMs) || DEFAULT_TIMEOUT_MS);
+  const totalTimeoutMs = baseTimeoutMs + graceMs;
   lastStatus = { running: true, busy: true, state: 'connecting' };
   return new Promise((resolve, reject) => {
     const socket = new WebSocketImpl(wsUrl);
@@ -62,13 +99,35 @@ function sendPrompt({ requestId, text, target = publicTarget(), emit, WebSocketI
     let requestSent = false;
     let textReply = '';
     let transcriptReply = '';
-    const timer = setTimeout(() => finish(new Error('Gemini Link workspace turn timed out.')), timeoutMs);
+    let graceTimer = null;
+    const finalTimer = setTimeout(() => {
+      const error = new Error('Gemini Link workspace turn timed out after the late-reply grace window.');
+      finish(error);
+    }, totalTimeoutMs);
+
+    if (graceMs > 0) {
+      graceTimer = setTimeout(() => {
+        if (settled || !requestSent) return;
+        lastStatus = {
+          ...lastStatus,
+          running: true,
+          busy: true,
+          state: 'late-reply-grace'
+        };
+        emit?.(targetEvent(target, requestId, 'response_activity', {
+          event: 'late_reply_grace',
+          isGenerating: true,
+          correlation: expectedCorrelation
+        }));
+      }, baseTimeoutMs);
+    }
 
     function close() { try { socket.close(); } catch {} }
     function finish(error, reply = '') {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimeout(finalTimer);
+      if (graceTimer) clearTimeout(graceTimer);
       close();
       if (error) {
         lastStatus = { running: false, busy: false, state: 'unavailable', message: error.message };
@@ -81,6 +140,9 @@ function sendPrompt({ requestId, text, target = publicTarget(), emit, WebSocketI
     }
     function partialText() {
       return String(transcriptReply || textReply || '');
+    }
+    function correlated(message) {
+      return correlationMatches(message, expectedCorrelation);
     }
 
     socket.on('open', () => socket.send(JSON.stringify(setupMessage())));
@@ -97,7 +159,9 @@ function sendPrompt({ requestId, text, target = publicTarget(), emit, WebSocketI
         socket.send(JSON.stringify({
           type: 'nexus_workspace_request',
           requestId,
-          text: String(text)
+          text: String(text),
+          correlation: expectedCorrelation,
+          timeoutMs: totalTimeoutMs
         }));
         lastStatus = {
           running: true,
@@ -105,38 +169,48 @@ function sendPrompt({ requestId, text, target = publicTarget(), emit, WebSocketI
           state: 'streaming',
           workspace: message.workspace || null
         };
-      } else if (message.type === 'nexus_workspace_bound' && message.requestId === requestId) {
+      } else if (message.type === 'nexus_workspace_bound' && correlated(message)) {
         lastStatus = {
           running: true,
           busy: true,
           state: 'streaming',
           workspace: message.workspace || null
         };
-      } else if (message.type === 'nexus_workspace_text' && message.requestId === requestId) {
+      } else if (message.type === 'nexus_workspace_text' && correlated(message)) {
         textReply += String(message.text || '');
         const partial = partialText();
-        if (partial) emit?.(targetEvent(target, requestId, 'response_partial', { text: partial }));
-      } else if (message.type === 'nexus_workspace_transcription' && message.requestId === requestId) {
+        if (partial) emit?.(targetEvent(target, requestId, 'response_partial', {
+          text: partial,
+          correlation: expectedCorrelation
+        }));
+      } else if (message.type === 'nexus_workspace_transcription' && correlated(message)) {
         transcriptReply = String(message.text || '').trim();
         const partial = partialText();
-        if (partial) emit?.(targetEvent(target, requestId, 'response_partial', { text: partial }));
-      } else if (message.type === 'nexus_workspace_audio' && message.requestId === requestId) {
+        if (partial) emit?.(targetEvent(target, requestId, 'response_partial', {
+          text: partial,
+          correlation: expectedCorrelation
+        }));
+      } else if (message.type === 'nexus_workspace_audio' && correlated(message)) {
         if (message.audio) {
           emit?.(targetEvent(target, requestId, 'response_audio', {
             audio: String(message.audio),
             encoding: message.encoding || 'pcm_s16le',
             sampleRate: Number(message.sampleRate || 24000),
-            channels: Number(message.channels || 1)
+            channels: Number(message.channels || 1),
+            audioOwner: 'nexus-browser',
+            correlation: expectedCorrelation
           }));
         }
-      } else if (message.type === 'nexus_workspace_turn_complete' && message.requestId === requestId) {
+      } else if (message.type === 'nexus_workspace_turn_complete' && correlated(message)) {
         const reply = partialText() || 'Gemini Link completed the Live turn without a visible transcript.';
-        emit?.(targetEvent(target, requestId, 'response_final', { text: reply }));
+        emit?.(targetEvent(target, requestId, 'response_final', {
+          text: reply,
+          correlation: expectedCorrelation
+        }));
         finish(null, reply);
-      } else if (message.type === 'nexus_workspace_interrupted' && message.requestId === requestId) {
+      } else if (message.type === 'nexus_workspace_interrupted' && correlated(message)) {
         finish(new Error('Gemini Link Live turn was interrupted before completion.'));
-      } else if (message.type === 'nexus_workspace_error'
-        && (!message.requestId || message.requestId === requestId)) {
+      } else if (message.type === 'nexus_workspace_error' && correlated(message)) {
         finish(new Error(message.error || 'Gemini Link workspace request failed.'));
       } else if (message.is_error && !requestSent) {
         finish(new Error(message.text || 'Gemini Link is unavailable.'));
@@ -152,6 +226,10 @@ function sendPrompt({ requestId, text, target = publicTarget(), emit, WebSocketI
 module.exports = {
   TARGET_ID,
   TARGET_TYPE_ID,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_LATE_REPLY_GRACE_MS,
+  normalizeCorrelation,
+  correlationMatches,
   publicTarget,
   setupMessage,
   status,
