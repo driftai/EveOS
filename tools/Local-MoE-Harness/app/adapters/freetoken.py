@@ -35,15 +35,19 @@ class FreeTokenAdapter(RuntimeAdapter):
             self._last_ready_status = None
             self._last_ready_at = 0.0
 
+    def _status_cache_ttl(self) -> float:
+        """Keep loading feedback quick, then calm passive probes once the runtime is ready."""
+        return 5.0 if self._status_cache and self._status_cache.get("ready") else 1.0
+
     async def status(self, *, force: bool = False) -> dict:
         """Coalesce passive probes and absorb brief misses from a busy runtime."""
         now = time.monotonic()
-        if not force and self._status_cache and now - self._status_cache_at < 1.0:
+        if not force and self._status_cache and now - self._status_cache_at < self._status_cache_ttl():
             return dict(self._status_cache)
 
         async with self._status_lock:
             now = time.monotonic()
-            if not force and self._status_cache and now - self._status_cache_at < 1.0:
+            if not force and self._status_cache and now - self._status_cache_at < self._status_cache_ttl():
                 return dict(self._status_cache)
 
             result = await self._probe_status()
