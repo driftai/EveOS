@@ -1,5 +1,47 @@
 const protocol = require('../public/dex-protocol');
 
+const TURN_CORRELATION_TTL_MS = 10 * 60 * 1000;
+const TURN_CORRELATION_MAX = 128;
+const turnCorrelations = new Map();
+
+function cleanTurnCorrelations(stamp = Date.now()) {
+  for (const [requestId, entry] of turnCorrelations) {
+    if (!entry || stamp - Number(entry.registeredAt || 0) > TURN_CORRELATION_TTL_MS) turnCorrelations.delete(requestId);
+  }
+  while (turnCorrelations.size > TURN_CORRELATION_MAX) {
+    const oldest = turnCorrelations.keys().next().value;
+    if (oldest == null) break;
+    turnCorrelations.delete(oldest);
+  }
+}
+
+function rememberTurnCorrelation(current, room) {
+  const requestId = String(current?.requestId || '').trim();
+  if (!requestId || !room?.id || !current?.sourceMessageId) return null;
+  cleanTurnCorrelations();
+  const correlation = {
+    roomId: String(room.id),
+    turnId: requestId,
+    requestId,
+    sourceMessageId: String(current.sourceMessageId)
+  };
+  turnCorrelations.delete(requestId);
+  turnCorrelations.set(requestId, { ...correlation, registeredAt: Date.now() });
+  return correlation;
+}
+
+function correlationForRequest(requestId) {
+  cleanTurnCorrelations();
+  const entry = turnCorrelations.get(String(requestId || '').trim());
+  if (!entry) return null;
+  const { registeredAt, ...correlation } = entry;
+  return { ...correlation };
+}
+
+function forgetTurnCorrelation(requestId) {
+  return turnCorrelations.delete(String(requestId || '').trim());
+}
+
 function roomById(snapshot, roomId) {
   return (snapshot?.rooms || []).find((room) => room.id === roomId) || null;
 }
@@ -118,6 +160,7 @@ function nextPendingDelay(snapshot, stamp = Date.now()) {
 
 // Recovery data belongs to the state layer; the scheduler handles dispatch.
 function createRecoveryJournal(current, member, room, at) {
+  if (member.binding?.targetClassId === 'local-origin') rememberTurnCorrelation(current, room);
   return {
     requestId: current.requestId,
     memberId: member.id,
@@ -223,6 +266,8 @@ function supportsOperation(providers, providerId, operation) {
 }
 
 module.exports = {
+  TURN_CORRELATION_TTL_MS, TURN_CORRELATION_MAX,
+  rememberTurnCorrelation, correlationForRequest, forgetTurnCorrelation,
   roomById, memberById, messageById, addMessage, rememberFinalReceipt, findFinalReceipt, requestStop, setStopped,
   validPending, queueTurn, enqueueNext, pendingRooms, duePendingRooms, nextPendingDelay,
   createRecoveryJournal, resolveOnline, resolveLocal, resolveApp, appConversationMatches, priorReply, safeBudget, extendBudget,
