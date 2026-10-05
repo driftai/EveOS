@@ -49,7 +49,7 @@ async function createSpotifyHarness(options = {}) {
             }
         }
     };
-    const workerState = { created: 0, armed: 0, cancelled: 0, terminated: 0, urls: [] };
+    const workerState = { created: 0, armed: 0, cancelled: 0, terminated: 0, errors: 0, urls: [] };
     window = {
         EveAudioflixSpotifyPlayback: {},
         __EveAudioflixSpotifyEndWatchdogGraceMs: 0
@@ -58,10 +58,21 @@ async function createSpotifyHarness(options = {}) {
     if (options.workerScheduler) {
         class FakeWorker {
             constructor(url) {
+                const normalizedUrl = String(url || '');
                 workerState.created += 1;
-                workerState.urls.push(String(url || ''));
+                workerState.urls.push(normalizedUrl);
                 this.onmessage = null;
+                this.onerror = null;
                 this.timer = 0;
+                if (options.failBlobWorkerSync && normalizedUrl.startsWith('blob:')) {
+                    throw new Error('Synthetic blob worker construction failure');
+                }
+                if (options.failBlobWorkerAsync && normalizedUrl.startsWith('blob:')) {
+                    setTimeout(() => {
+                        workerState.errors += 1;
+                        this.onerror?.(new Error('Synthetic asynchronous blob worker failure'));
+                    }, 0);
+                }
             }
             postMessage(message) {
                 if (message?.type === 'cancel') {
@@ -86,11 +97,11 @@ async function createSpotifyHarness(options = {}) {
             }
         }
         window.Worker = FakeWorker;
-        if (options.fileMode) {
-            window.location = { protocol: 'file:' };
+        if (options.fileMode) window.location = { protocol: 'file:' };
+        if (options.disableBlobWorker) {
             window.Blob = undefined;
             window.URL = {
-                createObjectURL() { throw new Error('Blob workers unavailable in file mode harness'); },
+                createObjectURL() { throw new Error('Blob workers unavailable in harness'); },
                 revokeObjectURL() {}
             };
         } else {
@@ -204,7 +215,7 @@ test('Spotify background completion deadline is cancelled by an explicit pause',
     assert.equal(harness.playbackEvents.filter((status) => status === 'Ended').length, 0);
 });
 
-test('Spotify file mode uses an inline worker with no localhost or network dependency', async () => {
+test('Spotify file mode prefers a same-origin blob worker with no localhost or network dependency', async () => {
     const harness = await createSpotifyHarness({
         starvePageTimers: true,
         workerScheduler: true,
@@ -222,8 +233,61 @@ test('Spotify file mode uses an inline worker with no localhost or network depen
     await wait(100);
 
     assert.equal(harness.workerState.created, 1);
+    assert.equal(harness.workerState.urls[0], 'blob:spotify-background-watchdog');
+    assert.ok(harness.workerState.armed >= 1);
+    assert.equal(harness.networkRequests, 0);
+    assert.equal(harness.playbackEvents.filter((status) => status === 'Ended').length, 1);
+    assert.equal(harness.view.playback.paused, true);
+});
+
+test('Spotify file mode falls back to a data worker when blob workers are unavailable', async () => {
+    const harness = await createSpotifyHarness({
+        starvePageTimers: true,
+        workerScheduler: true,
+        fileMode: true,
+        disableBlobWorker: true
+    });
+    harness.listeners.get('playback_update')?.({
+        data: {
+            playingURI: 'spotify:track:AAA111',
+            position: 30,
+            duration: 80,
+            isPaused: false
+        }
+    });
+
+    await wait(100);
+
+    assert.equal(harness.workerState.created, 1);
     assert.match(harness.workerState.urls[0], /^data:text\/javascript;charset=utf-8,/);
     assert.ok(harness.workerState.armed >= 1);
+    assert.equal(harness.networkRequests, 0);
+    assert.equal(harness.playbackEvents.filter((status) => status === 'Ended').length, 1);
+});
+
+test('Spotify file mode preserves its deadline when the blob worker fails asynchronously', async () => {
+    const harness = await createSpotifyHarness({
+        starvePageTimers: true,
+        workerScheduler: true,
+        fileMode: true,
+        failBlobWorkerAsync: true
+    });
+    harness.listeners.get('playback_update')?.({
+        data: {
+            playingURI: 'spotify:track:AAA111',
+            position: 30,
+            duration: 80,
+            isPaused: false
+        }
+    });
+
+    await wait(120);
+
+    assert.equal(harness.workerState.errors, 1);
+    assert.equal(harness.workerState.created, 2);
+    assert.equal(harness.workerState.urls[0], 'blob:spotify-background-watchdog');
+    assert.match(harness.workerState.urls[1], /^data:text\/javascript;charset=utf-8,/);
+    assert.ok(harness.workerState.terminated >= 1);
     assert.equal(harness.networkRequests, 0);
     assert.equal(harness.playbackEvents.filter((status) => status === 'Ended').length, 1);
     assert.equal(harness.view.playback.paused, true);
