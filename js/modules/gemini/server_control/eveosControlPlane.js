@@ -6,7 +6,7 @@
     const STATUS_PATH = '/api/control-plane/status';
     const MAIN_WEB_BASE = 'http://127.0.0.1:3000';
     const CANONICAL_WEB_BASE = 'http://127.0.0.1:8765';
-    const POLL_MS = 5000;
+    const POLL_MS = 15000;
     const START_TIMEOUT_MS = 7000;
     const STOP_TIMEOUT_MS = 30000;
 
@@ -72,6 +72,7 @@
     }
 
     let pollTimer = 0;
+    let refreshPromise = null;
     function helperBaseUrl() {
         return window.EveOSLocalControl?.baseUrl()
             || `http://127.0.0.1:${
@@ -199,33 +200,45 @@
         return null;
     }
 
-    async function refreshStatus() {
-        const baseUrl = helperBaseUrl();
-        try {
-            const payload = await fetchJson(withWebPort(`${baseUrl}${STATUS_PATH}`), null, 5000);
-            if (payload?.service !== 'eveos-control-plane' || payload?.controllerAvailable !== true) {
-                throw new Error('A different service is using the EveOS control port.');
+    function shouldProbeDirectWeb() {
+        if (state.webRunning) return false;
+        if (state.desiredRunning) return false;
+        return !['starting', 'stopping', 'enabling'].includes(state.serverState);
+    }
+
+    function refreshStatus() {
+        if (refreshPromise) return refreshPromise;
+        refreshPromise = (async function () {
+            const baseUrl = helperBaseUrl();
+            try {
+                const payload = await fetchJson(withWebPort(`${baseUrl}${STATUS_PATH}`), null, 5000);
+                if (payload?.service !== 'eveos-control-plane' || payload?.controllerAvailable !== true) {
+                    throw new Error('A different service is using the EveOS control port.');
+                }
+                state.helperBaseUrl = baseUrl;
+                state.controllerAvailable = true;
+                applyWebStatus(payload.web || {});
+                if (shouldProbeDirectWeb()) applyDirectWebStatus(await checkDirectWeb());
+            } catch (error) {
+                state.helperBaseUrl = '';
+                state.controllerAvailable = false;
+                const direct = await checkDirectWeb();
+                if (!applyDirectWebStatus(direct)) {
+                    state.webRunning = false;
+                    state.desiredRunning = false;
+                    state.serverState = 'unavailable';
+                    state.webUrl = state.webUrl || DEFAULT_WEB_URL;
+                    state.message = 'Enable the one-time EveOS local control bridge to start localhost from this page.';
+                } else {
+                    state.message += '. Enable local control to stop or manage it.';
+                }
             }
-            state.helperBaseUrl = baseUrl;
-            state.controllerAvailable = true;
-            applyWebStatus(payload.web || {});
-            if (!state.webRunning) applyDirectWebStatus(await checkDirectWeb());
-        } catch (error) {
-            state.helperBaseUrl = '';
-            state.controllerAvailable = false;
-            const direct = await checkDirectWeb();
-            if (!applyDirectWebStatus(direct)) {
-                state.webRunning = false;
-                state.desiredRunning = false;
-                state.serverState = 'unavailable';
-                state.webUrl = state.webUrl || DEFAULT_WEB_URL;
-                state.message = 'Enable the one-time EveOS local control bridge to start localhost from this page.';
-            } else {
-                state.message += '. Enable local control to stop or manage it.';
-            }
-        }
-        publish();
-        return { ...state };
+            publish();
+            return { ...state };
+        })().finally(function () {
+            refreshPromise = null;
+        });
+        return refreshPromise;
     }
 
     async function ensureController() {
@@ -255,7 +268,7 @@
     async function waitForWeb(expectedRunning) {
         const deadline = Date.now() + 12000;
         while (Date.now() < deadline) {
-            await new Promise((resolve) => window.setTimeout(resolve, 400));
+            await new Promise((resolve) => window.setTimeout(resolve, 750));
             const snapshot = await refreshStatus();
             if (snapshot.webRunning === expectedRunning) return snapshot;
             if (['error', 'blocked'].includes(snapshot.serverState)) return snapshot;
