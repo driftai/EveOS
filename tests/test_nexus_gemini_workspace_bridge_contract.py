@@ -107,3 +107,17 @@ def test_gemini_credential_status_requests_are_cached_and_single_flight():
     assert "return status || getStatus(baseUrl, { force });" in credentials
     assert "rememberStatus(baseUrl, payload);" in credentials
     assert "geminiCredentialBridge.js?v=20261005.4" in manifest
+
+
+def test_search_monitor_local_moe_refresh_is_open_only_and_single_flight():
+    ai_home = _read_root("js/modules/gemini/search_monitor/searchMonitorAiHome.js")
+    manifest = _read_root("js/config/manifest/scripts.parts/13-gemini.js")
+
+    assert "let localMoeRefreshPromise = null;" in ai_home
+    assert "if (localMoeRefreshPromise) return localMoeRefreshPromise;" in ai_home
+    assert "localMoeRefreshPromise = (async function ()" in ai_home
+    assert "localMoeRefreshPromise = null;" in ai_home
+    assert "if (localMoe?.open) refreshLocalMoe();" in ai_home
+    assert "if (active && localMoe?.open) refreshLocalMoe();" in ai_home
+    assert "if (active) refreshLocalMoe();" not in ai_home
+    assert "searchMonitorAiHome.js?v=20261005.1" in manifest
