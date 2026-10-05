@@ -16,6 +16,7 @@
     let localMoeBusy = false;
     let localMoeLoaded = false;
     let localMoeRefreshGeneration = 0;
+    let localMoeRefreshPromise = null;
     let lastLocalMoeStatus = null;
     let onGeminiOpen = null;
     let workspaceActive = false;
@@ -289,24 +290,31 @@
         });
     }
 
-    async function refreshLocalMoe() {
-        if (!boundRoot || localMoeBusy) return lastLocalMoeStatus;
+    function refreshLocalMoe() {
+        if (!boundRoot || localMoeBusy) return Promise.resolve(lastLocalMoeStatus);
+        if (localMoeRefreshPromise) return localMoeRefreshPromise;
+
         const generation = ++localMoeRefreshGeneration;
         setText('[data-local-moe-message]', 'Checking Local MoE infrastructure…');
-        try {
-            const status = await request(STATUS_PATH, null, 7000);
-            if (generation !== localMoeRefreshGeneration) return lastLocalMoeStatus;
-            localMoeLoaded = true;
-            renderLocalMoe(status);
-            return status;
-        } catch (error) {
-            if (generation !== localMoeRefreshGeneration) return lastLocalMoeStatus;
-            const fallback = lastLocalMoeStatus || {
-                running: false, state: 'unavailable', setupReady: true, port: 5180, runtimePort: 1919
-            };
-            renderLocalMoe(fallback, requestErrorMessage(error));
-            return null;
-        }
+        localMoeRefreshPromise = (async function () {
+            try {
+                const status = await request(STATUS_PATH, null, 7000);
+                if (generation !== localMoeRefreshGeneration) return lastLocalMoeStatus;
+                localMoeLoaded = true;
+                renderLocalMoe(status);
+                return status;
+            } catch (error) {
+                if (generation !== localMoeRefreshGeneration) return lastLocalMoeStatus;
+                const fallback = lastLocalMoeStatus || {
+                    running: false, state: 'unavailable', setupReady: true, port: 5180, runtimePort: 1919
+                };
+                renderLocalMoe(fallback, requestErrorMessage(error));
+                return null;
+            } finally {
+                localMoeRefreshPromise = null;
+            }
+        })();
+        return localMoeRefreshPromise;
     }
 
     async function invokeLocalMoe(action) {
@@ -353,7 +361,8 @@
 
     function handleControlHeartbeat() {
         if (!workspaceActive || !boundRoot) return;
-        refreshLocalMoe();
+        const localMoe = boundRoot.querySelector('[data-ai-provider="local-moe"]');
+        if (localMoe?.open) refreshLocalMoe();
         const agents = boundRoot.querySelector('[data-ai-provider="agents"]');
         if (agents?.open) {
             window.EveOSTloChat?.refreshStatus?.();
@@ -387,7 +396,8 @@
 
     function setWorkspaceActive(active) {
         workspaceActive = !!active;
-        if (active) refreshLocalMoe();
+        const localMoe = boundRoot?.querySelector('[data-ai-provider="local-moe"]');
+        if (active && localMoe?.open) refreshLocalMoe();
         const gemini = boundRoot?.querySelector('[data-ai-provider="gemini"]');
         if (active && gemini?.open) onGeminiOpen?.();
         return !!(active && gemini?.open);
