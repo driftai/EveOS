@@ -249,9 +249,9 @@
     }
 
     function syncGeminiGate() {
-        const idle = boundRoot?.querySelector('[data-gemini-monitor-idle]');
+        const loadButton = boundRoot?.querySelector('[data-gemini-monitor-load]');
         const runtime = boundRoot?.querySelector('[data-gemini-runtime-shell]');
-        if (idle) idle.hidden = geminiWorkspaceLoaded;
+        if (loadButton) loadButton.hidden = geminiWorkspaceLoaded;
         if (runtime) runtime.hidden = !geminiWorkspaceLoaded;
     }
 
