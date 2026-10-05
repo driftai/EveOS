@@ -12,6 +12,26 @@
         stop: '/api/local-moe/stop',
         setup: '/api/local-moe/setup'
     };
+    const PROVIDER_RELOADS = Object.freeze({
+        gemini: Object.freeze({
+            label: 'Gemini Link',
+            status: '/api/gemini-server/status',
+            stop: '/api/gemini-server/stop',
+            start: '/api/gemini-server/start'
+        }),
+        'local-moe': Object.freeze({
+            label: 'Local MoE',
+            status: '/api/local-moe/status',
+            stop: '/api/local-moe/stop',
+            start: '/api/local-moe/start'
+        }),
+        'nexus-browser': Object.freeze({
+            label: 'Nexus Browser',
+            status: '/api/nexus-browser/status',
+            stop: '/api/nexus-browser/stop',
+            start: '/api/nexus-browser/start'
+        })
+    });
     let boundRoot = null;
     let localMoeBusy = false;
     let localMoeLoaded = false;
@@ -21,6 +41,8 @@
     let onGeminiOpen = null;
     let workspaceActive = false;
     let controlHeartbeatBound = false;
+    let geminiWorkspaceLoaded = false;
+    let providerReloadBusy = '';
 
     function markup() {
         const agentNexusMarkup = window.EveOSAgentNexus?.markup?.()
@@ -41,6 +63,9 @@
                     </div>
                     <button type="button" class="gemini-server-inspector-toggle eveos-control-open" data-eveos-control-open title="Open EveOS localhost" aria-label="Open EveOS localhost" hidden>
                         <i class="material-icons" aria-hidden="true">open_in_new</i>
+                    </button>
+                    <button type="button" class="gemini-server-inspector-toggle" data-search-monitor-reload-ui title="Reload Search Monitor UI after a code pull" aria-label="Reload Search Monitor UI">
+                        <i class="material-icons" aria-hidden="true">refresh</i>
                     </button>
                     <button type="button" class="gemini-server-inspector-toggle" data-gemini-server-inspector-toggle title="Open EveOS runtime monitor" aria-label="Open EveOS runtime monitor">
                         <i class="material-icons" aria-hidden="true">dns</i>
@@ -93,7 +118,11 @@
                         <div class="gemini-monitor-card eveos-ai-provider-intro">
                             <div class="gemini-monitor-status-row">
                                 <span class="gemini-monitor-status-dot" aria-hidden="true"></span>
-                                <span class="gemini-monitor-status-text">Open this section to load the existing Gemini workspace in place.</span>
+                                <span class="gemini-monitor-status-text" data-gemini-provider-message>Gemini stays parked until you explicitly load its workspace.</span>
+                            </div>
+                            <div class="eveos-ai-provider-controls" data-gemini-monitor-idle>
+                                <button type="button" data-gemini-monitor-load>Load the Gemini workspace</button>
+                                <button type="button" data-provider-reload="gemini">Reload Gemini server</button>
                             </div>
                             <details class="gemini-api-setup-guide">
                                 <summary><span>Gemini API setup guide</span><small>Gemini Link + Sonic Forge</small></summary>
@@ -108,7 +137,7 @@
                                 </div>
                             </details>
                         </div>
-                        <div id="gemini-provider-runtime-host" class="eveos-ai-provider-runtime"></div>
+                        <div id="gemini-provider-runtime-host" class="eveos-ai-provider-runtime" data-gemini-runtime-shell hidden></div>
                     </div>
                 </details>
 
@@ -136,6 +165,7 @@
                         <div class="eveos-ai-provider-controls">
                             <button type="button" data-local-moe-action="setup">Setup runtime</button>
                             <button type="button" data-local-moe-action="refresh">Refresh</button>
+                            <button type="button" data-provider-reload="local-moe">Reload Local MoE</button>
                         </div>
                         <section class="eveos-local-moe-inline" data-local-moe-inline hidden aria-label="Local MoE models and chat">
                             <div class="eveos-local-moe-inline-head">
@@ -160,6 +190,9 @@
                         <i class="material-icons eveos-ai-provider-chevron" aria-hidden="true">expand_more</i>
                     </summary>
                     <div class="eveos-ai-provider-body">
+                        <div class="eveos-ai-provider-controls">
+                            <button type="button" data-provider-reload="nexus-browser">Reload Nexus Browser</button>
+                        </div>
                         ${agentNexusMarkup}
                     </div>
                 </details>
@@ -192,6 +225,91 @@
     function setText(selector, value) {
         const node = boundRoot?.querySelector(selector);
         if (node) node.textContent = value;
+    }
+
+    function setProviderMessage(provider, message) {
+        if (!boundRoot || !message) return;
+        if (provider === 'gemini') setText('[data-gemini-provider-message]', message);
+        if (provider === 'local-moe') setText('[data-local-moe-message]', message);
+        if (provider === 'nexus-browser') setText('[data-nexus-browser-message]', message);
+    }
+
+    function syncReloadButtons() {
+        boundRoot?.querySelectorAll('[data-provider-reload]').forEach((button) => {
+            const ownProvider = button.dataset.providerReload;
+            button.disabled = !!providerReloadBusy;
+            button.textContent = providerReloadBusy === ownProvider
+                ? 'Reloading…'
+                : ownProvider === 'gemini'
+                    ? 'Reload Gemini server'
+                    : ownProvider === 'local-moe'
+                        ? 'Reload Local MoE'
+                        : 'Reload Nexus Browser';
+        });
+    }
+
+    function syncGeminiGate() {
+        const idle = boundRoot?.querySelector('[data-gemini-monitor-idle]');
+        const runtime = boundRoot?.querySelector('[data-gemini-runtime-shell]');
+        if (idle) idle.hidden = geminiWorkspaceLoaded;
+        if (runtime) runtime.hidden = !geminiWorkspaceLoaded;
+    }
+
+    function loadGeminiWorkspace() {
+        geminiWorkspaceLoaded = true;
+        syncGeminiGate();
+        setProviderMessage('gemini', 'Gemini workspace loaded on demand.');
+        if (workspaceActive) onGeminiOpen?.();
+    }
+
+    async function setKeepLocalControlAfterToolStop(enabled) {
+        return request('/api/control-plane/consoles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keepLocalControlAfterToolStop: !!enabled })
+        }, 7000);
+    }
+
+    async function restartProvider(provider) {
+        const spec = PROVIDER_RELOADS[provider];
+        if (!spec || providerReloadBusy) return null;
+        providerReloadBusy = provider;
+        syncReloadButtons();
+        setProviderMessage(provider, `Checking ${spec.label} before reload…`);
+        let restoreKeepAlive = false;
+        try {
+            if (window.EveOSControlPlane?.ensureController) {
+                const ready = await window.EveOSControlPlane.ensureController();
+                if (!ready) throw new Error('EveOS Local Control is unavailable.');
+            }
+            const current = await request(spec.status, null, 8000);
+            if (current?.running !== true) {
+                setProviderMessage(provider, `${spec.label} is stopped, so there is nothing to reload.`);
+                return current;
+            }
+
+            const preferences = await request('/api/control-plane/consoles', null, 8000);
+            restoreKeepAlive = preferences?.keepLocalControlAfterToolStop === false;
+            if (restoreKeepAlive) await setKeepLocalControlAfterToolStop(true);
+
+            setProviderMessage(provider, `Reloading ${spec.label} without stopping the rest of EveOS…`);
+            await request(spec.stop, { method: 'POST' }, 40000);
+            const restarted = await request(spec.start, { method: 'POST' }, provider === 'local-moe' ? 30000 : 20000);
+            setProviderMessage(provider, `${spec.label} reloaded. Other EveOS services stayed running.`);
+
+            if (provider === 'local-moe') await refreshLocalMoe();
+            if (provider === 'nexus-browser') await window.EveOSNexusBrowser?.activate?.();
+            return restarted;
+        } catch (error) {
+            setProviderMessage(provider, error?.message || `${spec.label} reload failed.`);
+            return null;
+        } finally {
+            if (restoreKeepAlive) {
+                try { await setKeepLocalControlAfterToolStop(false); } catch {}
+            }
+            providerReloadBusy = '';
+            syncReloadButtons();
+        }
     }
 
     function gpuLabel(status) {
@@ -349,7 +467,26 @@
         }
     }
 
-    function handleLocalMoeAction(event) {
+    function handleAction(event) {
+        const reloadButton = event.target.closest('[data-provider-reload]');
+        if (reloadButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            restartProvider(reloadButton.dataset.providerReload);
+            return;
+        }
+        const reloadUi = event.target.closest('[data-search-monitor-reload-ui]');
+        if (reloadUi) {
+            event.preventDefault();
+            window.location.reload();
+            return;
+        }
+        const geminiLoad = event.target.closest('[data-gemini-monitor-load]');
+        if (geminiLoad) {
+            event.preventDefault();
+            loadGeminiWorkspace();
+            return;
+        }
         const button = event.target.closest('[data-local-moe-action]');
         if (!button) return;
         event.preventDefault();
@@ -359,15 +496,29 @@
         else invokeLocalMoe(action);
     }
 
+    function activeAgentNexusView(agents) {
+        const panel = agents?.querySelector?.('[data-agent-nexus-panel]:not([hidden])');
+        return panel?.dataset?.agentNexusPanel || '';
+    }
+
+    function refreshOpenAgentNexus(activate) {
+        const agents = boundRoot?.querySelector('[data-ai-provider="agents"]');
+        if (!agents?.open) return;
+        const view = activeAgentNexusView(agents);
+        if (view === 'tlo') {
+            if (activate) window.EveOSTloChat?.activate?.();
+            else window.EveOSTloChat?.refreshStatus?.();
+        } else if (view === 'nexus-browser') {
+            if (activate) window.EveOSNexusBrowser?.activate?.();
+            else window.EveOSNexusBrowser?.refresh?.();
+        }
+    }
+
     function handleControlHeartbeat() {
         if (!workspaceActive || !boundRoot) return;
         const localMoe = boundRoot.querySelector('[data-ai-provider="local-moe"]');
         if (localMoe?.open) refreshLocalMoe();
-        const agents = boundRoot.querySelector('[data-ai-provider="agents"]');
-        if (agents?.open) {
-            window.EveOSTloChat?.refreshStatus?.();
-            window.EveOSNexusBrowser?.refresh?.();
-        }
+        refreshOpenAgentNexus(false);
     }
 
     function bind(container, options) {
@@ -382,16 +533,19 @@
         const localMoe = container.querySelector('[data-ai-provider="local-moe"]');
         const agents = container.querySelector('[data-ai-provider="agents"]');
         gemini?.addEventListener('toggle', function () {
-            if (gemini.open) onGeminiOpen?.();
+            syncGeminiGate();
+            if (gemini.open && geminiWorkspaceLoaded && workspaceActive) onGeminiOpen?.();
         });
         localMoe?.addEventListener('toggle', function () {
             if (localMoe.open) refreshLocalMoe();
             else if (lastLocalMoeStatus) syncLocalMoeInline(lastLocalMoeStatus);
         });
         agents?.addEventListener('toggle', function () {
-            if (agents.open) window.EveOSTloChat?.activate?.();
+            if (agents.open) refreshOpenAgentNexus(true);
         });
-        container.addEventListener('click', handleLocalMoeAction);
+        container.addEventListener('click', handleAction);
+        syncGeminiGate();
+        syncReloadButtons();
     }
 
     function setWorkspaceActive(active) {
@@ -399,12 +553,13 @@
         const localMoe = boundRoot?.querySelector('[data-ai-provider="local-moe"]');
         if (active && localMoe?.open) refreshLocalMoe();
         const gemini = boundRoot?.querySelector('[data-ai-provider="gemini"]');
-        if (active && gemini?.open) onGeminiOpen?.();
-        return !!(active && gemini?.open);
+        if (active && gemini?.open && geminiWorkspaceLoaded) onGeminiOpen?.();
+        if (active) refreshOpenAgentNexus(true);
+        return !!(active && gemini?.open && geminiWorkspaceLoaded);
     }
 
     function isGeminiOpen() {
-        return !!boundRoot?.querySelector('[data-ai-provider="gemini"]')?.open;
+        return !!(geminiWorkspaceLoaded && boundRoot?.querySelector('[data-ai-provider="gemini"]')?.open);
     }
 
     window.EveOSSearchMonitorAiHome = Object.freeze({
@@ -412,6 +567,7 @@
         bind,
         setWorkspaceActive,
         isGeminiOpen,
-        refreshLocalMoe
+        refreshLocalMoe,
+        restartProvider
     });
 })();
