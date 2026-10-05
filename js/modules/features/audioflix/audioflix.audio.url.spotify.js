@@ -28,22 +28,6 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
         return Number.isFinite(override) && override >= 0 ? override : END_WATCHDOG_GRACE_MS;
     }
 
-    function createWorkerScheduler(worker, onDeadline, cleanup) {
-        worker.onmessage = (event) => {
-            const message = event?.data || {};
-            if (message.type === 'deadline') onDeadline(Number(message.token) || 0);
-        };
-        return {
-            mode: 'worker',
-            arm(delay, token) { worker.postMessage({ type: 'arm', delay, token }); },
-            cancel(token) { worker.postMessage({ type: 'cancel', token }); },
-            destroy() {
-                try { worker.terminate?.(); } catch {}
-                try { cleanup?.(); } catch {}
-            }
-        };
-    }
-
     function createCompletionScheduler(onDeadline) {
         const injectedFactory = window.__EveAudioflixSpotifyCompletionSchedulerFactory;
         if (typeof injectedFactory === 'function') {
@@ -55,6 +39,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
 
         const WorkerCtor = window.Worker;
         const workerSource = `
+            self.postMessage({ type: 'ready' });
             let timer = 0;
             self.onmessage = (event) => {
                 const message = event && event.data || {};
@@ -75,51 +60,143 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
         `;
 
         if (typeof WorkerCtor === 'function') {
-            const createDataWorker = () => {
-                const dataUrl = `data:text/javascript;charset=utf-8,${encodeURIComponent(workerSource)}`;
-                return createWorkerScheduler(new WorkerCtor(dataUrl), onDeadline);
-            };
-            const createBlobWorker = () => {
-                const BlobCtor = window.Blob;
-                const urlApi = window.URL;
-                if (typeof BlobCtor !== 'function' || typeof urlApi?.createObjectURL !== 'function') return null;
-                let objectUrl = '';
-                try {
-                    objectUrl = urlApi.createObjectURL(new BlobCtor([workerSource], { type: 'text/javascript' }));
-                    const worker = new WorkerCtor(objectUrl);
-                    return createWorkerScheduler(worker, onDeadline, () => {
-                        if (!objectUrl) return;
-                        try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
-                        objectUrl = '';
-                    });
-                } catch {
-                    if (objectUrl) {
-                        try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
-                    }
-                    return null;
-                }
-            };
+            const factories = [];
+            const BlobCtor = window.Blob;
+            const urlApi = window.URL;
 
-            // file:// EveOS must remain fully standalone: prefer an inline data worker so
-            // the background deadline never depends on localhost, fetch(), or a served file.
-            // Other origins keep the conventional Blob worker first, with the same inline
-            // data worker as a fallback when Blob/object-URL workers are unavailable.
-            const fileMode = String(window.location?.protocol || '').toLowerCase() === 'file:';
-            if (fileMode) {
-                try {
-                    const scheduler = createDataWorker();
-                    if (scheduler) return scheduler;
-                } catch {}
+            // Blob workers inherit the owning page's origin and are the most compatible
+            // standalone option for Chromium file:// documents. They stay fully inline:
+            // no localhost server, fetch(), or external worker file is required.
+            if (typeof BlobCtor === 'function' && typeof urlApi?.createObjectURL === 'function') {
+                factories.push(() => {
+                    let objectUrl = '';
+                    try {
+                        objectUrl = urlApi.createObjectURL(new BlobCtor([workerSource], { type: 'text/javascript' }));
+                        const worker = new WorkerCtor(objectUrl);
+                        return {
+                            worker,
+                            cleanup() {
+                                if (!objectUrl) return;
+                                try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
+                                objectUrl = '';
+                            }
+                        };
+                    } catch {
+                        if (objectUrl) {
+                            try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
+                        }
+                        return null;
+                    }
+                });
             }
 
-            const blobScheduler = createBlobWorker();
-            if (blobScheduler) return blobScheduler;
+            // Keep an inline data: worker as a second local-only path. Some browser/file
+            // policies reject one inline worker scheme but accept the other.
+            factories.push(() => ({
+                worker: new WorkerCtor(`data:text/javascript;charset=utf-8,${encodeURIComponent(workerSource)}`),
+                cleanup() {}
+            }));
 
-            if (!fileMode) {
-                try {
-                    const scheduler = createDataWorker();
-                    if (scheduler) return scheduler;
-                } catch {}
+            let factoryIndex = 0;
+            let activeWorker = null;
+            let armed = null;
+            let backupTimer = 0;
+            let destroyed = false;
+
+            const clearBackup = () => {
+                if (backupTimer) clearTimeout(backupTimer);
+                backupTimer = 0;
+            };
+            const disposeWorker = () => {
+                const entry = activeWorker;
+                activeWorker = null;
+                if (!entry) return;
+                try { entry.worker.onmessage = null; } catch {}
+                try { entry.worker.onerror = null; } catch {}
+                try { entry.worker.terminate?.(); } catch {}
+                try { entry.cleanup?.(); } catch {}
+            };
+            const remainingDelay = () => Math.max(0, Number(armed?.dueAt || 0) - Date.now());
+            const activateNextWorker = () => {
+                disposeWorker();
+                while (!destroyed && factoryIndex < factories.length) {
+                    let entry = null;
+                    try { entry = factories[factoryIndex++](); } catch {}
+                    if (!entry?.worker) continue;
+                    const worker = entry.worker;
+                    activeWorker = entry;
+                    worker.onmessage = (event) => {
+                        if (activeWorker?.worker !== worker) return;
+                        const message = event?.data || {};
+                        if (message.type === 'ready') return;
+                        if (message.type !== 'deadline') return;
+                        const token = Number(message.token) || 0;
+                        if (armed?.token === token) {
+                            armed = null;
+                            clearBackup();
+                        }
+                        onDeadline(token);
+                    };
+                    worker.onerror = () => {
+                        if (destroyed || activeWorker?.worker !== worker) return;
+                        // Worker construction can succeed and still fail asynchronously under
+                        // file:// policy. Move to the next inline candidate and preserve the
+                        // original absolute deadline rather than waiting for foreground recovery.
+                        activateNextWorker();
+                    };
+                    if (armed) {
+                        try {
+                            worker.postMessage({ type: 'arm', delay: remainingDelay(), token: armed.token });
+                        } catch {
+                            disposeWorker();
+                            continue;
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            };
+
+            activateNextWorker();
+            if (activeWorker) {
+                return {
+                    mode: 'worker',
+                    arm(delay, token) {
+                        const safeDelay = Math.max(0, Number(delay) || 0);
+                        armed = { token: Number(token) || 0, dueAt: Date.now() + safeDelay };
+                        clearBackup();
+                        // A page timer is only a safety net for environments where every inline
+                        // worker fails silently. The worker remains authoritative in background.
+                        backupTimer = setTimeout(() => {
+                            backupTimer = 0;
+                            if (!armed || armed.token !== (Number(token) || 0)) return;
+                            armed = null;
+                            onDeadline(Number(token) || 0);
+                        }, safeDelay + 2000);
+
+                        while (!destroyed) {
+                            if (!activeWorker && !activateNextWorker()) break;
+                            try {
+                                activeWorker.worker.postMessage({ type: 'arm', delay: remainingDelay(), token: armed.token });
+                                return;
+                            } catch {
+                                activateNextWorker();
+                            }
+                        }
+                    },
+                    cancel(token) {
+                        const numericToken = Number(token) || 0;
+                        if (armed && (!numericToken || armed.token === numericToken)) armed = null;
+                        clearBackup();
+                        try { activeWorker?.worker?.postMessage({ type: 'cancel', token: numericToken }); } catch {}
+                    },
+                    destroy() {
+                        destroyed = true;
+                        armed = null;
+                        clearBackup();
+                        disposeWorker();
+                    }
+                };
             }
         }
 
