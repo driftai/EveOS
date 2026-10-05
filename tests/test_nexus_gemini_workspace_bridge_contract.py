@@ -95,3 +95,15 @@ def test_gemini_shutdown_ui_observer_cannot_feedback_on_its_own_render():
     assert "if (!document.getElementById(BUTTON_ID))" in shutdown_ui
     assert "if (icon && icon.textContent !== desiredIcon)" in shutdown_ui
     assert "geminiShutdownUI.js?v=20261005.1" in manifest
+
+
+def test_gemini_credential_status_requests_are_cached_and_single_flight():
+    credentials = _read_root("js/modules/gemini/server_control/geminiCredentialBridge.js")
+    manifest = _read_root("js/config/manifest/scripts.parts/13-gemini.js")
+
+    assert "const STATUS_CACHE_MS = 1500;" in credentials
+    assert "if (!force && statusRequest?.baseUrl === baseUrl)" in credentials
+    assert "return statusRequest.promise;" in credentials
+    assert "return status || getStatus(baseUrl, { force });" in credentials
+    assert "rememberStatus(baseUrl, payload);" in credentials
+    assert "geminiCredentialBridge.js?v=20261005.4" in manifest
