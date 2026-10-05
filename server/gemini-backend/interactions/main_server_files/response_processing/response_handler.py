@@ -5,6 +5,7 @@ import time
 from ..chat_history.chat_history_handler import save_chat_history
 from ..transcription.transcription_normalizer import normalize_transcript
 from ..websocket_server.session_handler.nexus_workspace_bridge import (
+    nexus_owns_audio,
     publish_audio as publish_nexus_audio,
     publish_text as publish_nexus_text,
     publish_transcription as publish_nexus_transcription,
@@ -115,24 +116,39 @@ class GeminiResponseHandler:
         return None
 
     async def process_audio_response(self, audio_data):
-        """Process audio response from Gemini."""
+        """Process audio response from Gemini with one playback owner per Live turn."""
         try:
             print(f"Received audio data: {len(audio_data)} bytes")
             if not self.connection_monitor.is_websocket_open():
                 print("Connection closed, skipping audio processing")
                 return
 
+            nexus_owned = (
+                self.session_role == "interactive"
+                and self.connection_id is not None
+                and nexus_owns_audio(self.connection_id)
+            )
             if self.session_role == "interactive" and self.connection_id is not None:
                 await publish_nexus_audio(self.connection_id, audio_data)
 
-            # Check if adding this chunk would exceed the buffer size
+            # Nexus-origin turns reuse this exact Gemini Live PCM artifact. Keep buffering it
+            # for the normal transcription/turn-complete path, but do not independently send
+            # the same chunk to the native Gemini Link player as well.
+            if nexus_owned:
+                if len(self.audio_processor.audio_data) + len(audio_data) > MAX_AUDIO_BUFFER_SIZE:
+                    print(f"Audio buffer would exceed size limit ({MAX_AUDIO_BUFFER_SIZE} bytes), resetting...")
+                    self.audio_processor.reset()
+                self.audio_processor.audio_data += audio_data
+                return
+
+            # Native Gemini Link-origin conversations keep their existing playback behavior.
             if len(self.audio_processor.audio_data) + len(audio_data) > MAX_AUDIO_BUFFER_SIZE:
                 print(f"Audio buffer would exceed size limit ({MAX_AUDIO_BUFFER_SIZE} bytes), resetting...")
                 self.audio_processor.reset()
-            
+
             # Process the audio data with minimal delay
             await self.audio_processor.process_audio_data(audio_data, self.audio_processor.is_sequential)
-            
+
             # Removed artificial sleep to prevent audio buffer under-runs
         except Exception as e:
             print(f"Error processing audio data: {e}")
@@ -153,7 +169,7 @@ class GeminiResponseHandler:
                 self.inline_transcription_mode,
                 skip_transcription=skip_transcription,
             )
-            
+
             if transcribed_text:
                 print(f"Got transcription: {transcribed_text[:50]}...")
                 # Save to chat history
@@ -165,7 +181,7 @@ class GeminiResponseHandler:
                     "type": "turn_complete",
                     "sessionRole": self.session_role,
                 }))
-                
+
             # Removed artificial sleep to prevent turn handoff latency
             return transcribed_text
         except Exception as e:
