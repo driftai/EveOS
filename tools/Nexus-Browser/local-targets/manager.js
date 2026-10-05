@@ -136,7 +136,7 @@ async function captureLocalLatest({ targetId }) {
   return { ...result, target };
 }
 
-async function sendLocalPrompt({ targetId, requestId, text, emit }) {
+async function sendLocalPrompt({ targetId, requestId, text, emit, correlation = null }) {
   if (!targetId) throw new Error('No Local-Origin target is selected.');
   const target = await getLocalTarget(targetId);
   if (!target) throw new Error('Selected Local-Origin target is no longer available.');
@@ -151,10 +151,11 @@ async function sendLocalPrompt({ targetId, requestId, text, emit }) {
     targetId: target.id,
     providerId: target.providerId,
     providerName: target.providerName,
-    sessionOrigin: target.sessionOrigin || null
+    sessionOrigin: target.sessionOrigin || null,
+    ...(correlation ? { correlation: { ...correlation } } : {})
   });
 
-  await adapter.sendPrompt({ requestId, text, target, emit });
+  await adapter.sendPrompt({ requestId, text, target, emit, correlation: correlation || {} });
 }
 
 function discoveryDiagnostics() {
