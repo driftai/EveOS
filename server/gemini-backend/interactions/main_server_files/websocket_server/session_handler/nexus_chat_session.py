@@ -8,26 +8,50 @@ import websockets
 from .nexus_workspace_bridge import stream_workspace_turn, workspace_snapshot
 
 
-async def _send_event(connection_monitor, request_id, event):
+def _normalize_correlation(message, request_id):
+    value = message.get("correlation")
+    if not isinstance(value, dict):
+        value = {}
+    return {
+        "roomId": str(value.get("roomId") or value.get("room_id") or "").strip(),
+        "turnId": str(value.get("turnId") or value.get("turn_id") or request_id or "").strip(),
+        "requestId": str(value.get("requestId") or value.get("request_id") or request_id or "").strip(),
+        "sourceMessageId": str(value.get("sourceMessageId") or value.get("source_message_id") or "").strip(),
+    }
+
+
+def _timeout_seconds(message):
+    try:
+        requested = float(message.get("timeoutMs") or 182500) / 1000.0
+    except (TypeError, ValueError):
+        requested = 182.5
+    return max(1.0, min(requested, 190.0))
+
+
+async def _send_event(connection_monitor, request_id, correlation, event):
     event_type = str(event.get("type") or "")
+    common = {
+        "requestId": request_id,
+        "correlation": correlation,
+    }
     if event_type == "bound":
         await connection_monitor.safe_send(json.dumps({
             "type": "nexus_workspace_bound",
-            "requestId": request_id,
+            **common,
             "workspace": event.get("workspace") or {},
         }))
         return
     if event_type == "text":
         await connection_monitor.safe_send(json.dumps({
             "type": "nexus_workspace_text",
-            "requestId": request_id,
+            **common,
             "text": str(event.get("text") or ""),
         }))
         return
     if event_type == "transcription":
         await connection_monitor.safe_send(json.dumps({
             "type": "nexus_workspace_transcription",
-            "requestId": request_id,
+            **common,
             "text": str(event.get("text") or ""),
         }))
         return
@@ -35,24 +59,25 @@ async def _send_event(connection_monitor, request_id, event):
         audio_data = event.get("audio") or b""
         await connection_monitor.safe_send(json.dumps({
             "type": "nexus_workspace_audio",
-            "requestId": request_id,
+            **common,
             "audio": base64.b64encode(audio_data).decode("ascii"),
             "encoding": event.get("encoding") or "pcm_s16le",
             "sampleRate": int(event.get("sampleRate") or 24000),
             "channels": int(event.get("channels") or 1),
+            "audioOwner": "nexus-browser",
         }))
         return
     if event_type == "interrupted":
         await connection_monitor.safe_send(json.dumps({
             "type": "nexus_workspace_interrupted",
-            "requestId": request_id,
+            **common,
             "reason": str(event.get("reason") or "provider_barge_in"),
         }))
         return
     if event_type == "turn_complete":
         await connection_monitor.safe_send(json.dumps({
             "type": "nexus_workspace_turn_complete",
-            "requestId": request_id,
+            **common,
         }))
 
 
@@ -114,11 +139,13 @@ async def execute_nexus_chat_session(
 
             request_id = str(message.get("requestId") or "").strip()
             text = str(message.get("text") or "").strip()
+            correlation = _normalize_correlation(message, request_id)
             workspace_connection_id = _requested_workspace_connection_id(message)
             if not request_id or not text:
                 await connection_monitor.safe_send(json.dumps({
                     "type": "nexus_workspace_error",
                     "requestId": request_id,
+                    "correlation": correlation,
                     "error": "Gemini Link Nexus request requires requestId and text.",
                 }))
                 continue
@@ -127,13 +154,15 @@ async def execute_nexus_chat_session(
                 async for event in stream_workspace_turn(
                     text,
                     request_id,
+                    timeout_seconds=_timeout_seconds(message),
                     workspace_connection_id=workspace_connection_id,
                 ):
-                    await _send_event(connection_monitor, request_id, event)
+                    await _send_event(connection_monitor, request_id, correlation, event)
             except Exception as error:
                 await connection_monitor.safe_send(json.dumps({
                     "type": "nexus_workspace_error",
                     "requestId": request_id,
+                    "correlation": correlation,
                     "error": str(error),
                 }))
     except websockets.exceptions.ConnectionClosed:
