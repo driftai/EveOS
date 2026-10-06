@@ -307,10 +307,19 @@
     }, 50);
   }
 
+  function manualBase64Chunks(attachment = {}) {
+    const chunks = Array.isArray(attachment.chunks)
+      ? attachment.chunks.map((value) => String(value || '')).filter(Boolean)
+      : [];
+    if (chunks.length) return chunks;
+    const single = String(attachment.base64 || attachment.audio || '');
+    return single ? [single] : [];
+  }
+
   function attachManual(host, attachment = {}, key = '') {
     if (!host || (attachment.encoding && attachment.encoding !== 'pcm_s16le')) return false;
-    const base64 = String(attachment.base64 || attachment.audio || '');
-    if (!base64) return false;
+    const base64Chunks = manualBase64Chunks(attachment);
+    if (!base64Chunks.length) return false;
     const requestId = `manual:${String(key || attachment.requestId || 'gemini-link-audio')}`;
     let state = replies.get(requestId);
     if (!state) {
@@ -323,10 +332,13 @@
     if (!state) return false;
     if (!state.chunks.length) {
       try {
-        const bytes = decodeBase64(base64);
-        if (!bytes.byteLength) return false;
-        state.chunks.push(bytes);
+        for (const value of base64Chunks) {
+          const bytes = decodeBase64(value);
+          if (bytes.byteLength) state.chunks.push(bytes);
+        }
+        if (!state.chunks.length) return false;
       } catch (error) {
+        state.chunks.length = 0;
         console.warn('Gemini Link manual replay attachment failed:', error);
         return false;
       }
