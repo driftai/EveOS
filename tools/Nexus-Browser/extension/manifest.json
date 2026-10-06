@@ -19,7 +19,8 @@
     "https://chatgpt.com/*",
     "https://gemini.google.com/*",
     "https://aistudio.google.com/*",
-    "https://muse.ai/*"
+    "https://muse.ai/*",
+    "https://hark.com/*"
   ],
   "background": {
     "service_worker": "service-worker-entry.js"
@@ -124,6 +125,20 @@
         "content/muse-input.js",
         "content/muse-answer.js",
         "content/muse.js",
+        "content/dex-provider-control.js",
+        "content/provider-health.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://hark.com/*"
+      ],
+      "js": [
+        "content/provider-adapter-revision.js",
+        "content/hark-input.js",
+        "content/hark-answer.js",
+        "content/hark.js",
         "content/dex-provider-control.js",
         "content/provider-health.js"
       ],
