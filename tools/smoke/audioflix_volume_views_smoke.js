@@ -53,16 +53,20 @@ function main() {
         'ported/localized volume updates compare IDs by value instead of JS type');
 
     // ---- provider completion must have a foreground-independent queue handoff ----
-    assert(overlay.includes("detail.status !== 'Ended'") && overlay.includes("detail.provider !== 'spotify'"),
-        'Spotify completion is not routed through the early provider queue bridge');
+    assert(overlay.includes('const spotifyBacked =')
+        && overlay.includes("detail.item?.sourceProvider || '').toLowerCase() === 'spotify'")
+        && overlay.includes('!!detail.item?.spotifyUrl'),
+        'resolved Spotify playback keeps the early queue bridge even when the terminal provider is YouTube');
     assert(overlay.includes('latestBridge.step?.(1)'),
-        'the provider queue bridge no longer advances through the existing queue controller');
+        'the provider queue bridge advances through the existing queue controller');
     assert(overlay.includes('snapshot.repeatOne') && overlay.includes('latest.repeatOne'),
-        'the provider fast path can override repeat-one semantics');
+        'the provider fast path preserves repeat-one semantics');
 
-    // ---- the card slider reaches the provider panel's audio ----
+    // ---- the card slider reaches the provider panel's audio by active transport identity ----
     const update = audio.slice(audio.indexOf('function updateItemVolume('));
-    assert(update.slice(0, 400).includes('urlPlayback.setVolume'),
+    assert(update.slice(0, 700).includes('const activeUrlMatch = urlPlayback?.matches?.(itemId) === true'),
+        'live provider identity is consulted before deciding whether the slider owns playback');
+    assert(update.slice(0, 700).includes('if (activeUrlMatch) urlPlayback.setVolume(safeVolume)'),
         'a card-slider change reaches the provider currently playing');
 
     // ---- and the panel exposes the mirror the url player calls ----
@@ -74,7 +78,7 @@ function main() {
     assert(mirror.slice(0, 300).includes('clamp('),
         'the mirrored value is clamped, so an out-of-range level cannot desync the thumb');
 
-    console.log('audioflix volume views OK — panel persists and mirrors, card preserves active identity');
+    console.log('audioflix volume views OK — panel persists and mirrors, active provider owns live volume');
     console.log('AUDIOFLIX_VOLUME_VIEWS_SMOKE_OK');
 
     const backgroundQueue = spawnSync(
