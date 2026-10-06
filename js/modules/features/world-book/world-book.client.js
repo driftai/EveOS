@@ -5,6 +5,7 @@ window.EveWorldBook = window.EveWorldBook || {};
 
     const STATUS_PATH = '/api/world-book/status';
     const HEALTH_PATH = 'api/health';
+    const REFRESH_TTL_MS = 4000;
     const state = {
         baseUrl: '',
         controllerAvailable: false,
@@ -20,6 +21,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         message: 'Checking World Book...'
     };
     let refreshPromise = null;
+    let lastRefreshAt = 0;
 
     function worldBookUrl() {
         const configured = Number(window.config?.bridges?.worldBookPort) || 8766;
@@ -180,11 +182,19 @@ window.EveWorldBook = window.EveWorldBook || {};
         return { ...state };
     }
 
-    function refresh() {
+    function refresh(force = false) {
         if (refreshPromise) return refreshPromise;
-        refreshPromise = runRefresh().finally(function () {
-            refreshPromise = null;
-        });
+        if (!force && lastRefreshAt && (Date.now() - lastRefreshAt) < REFRESH_TTL_MS) {
+            return Promise.resolve({ ...state });
+        }
+        refreshPromise = runRefresh()
+            .then(function (snapshot) {
+                lastRefreshAt = Date.now();
+                return snapshot;
+            })
+            .finally(function () {
+                refreshPromise = null;
+            });
         return refreshPromise;
     }
 
@@ -220,7 +230,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         const deadline = Date.now() + 10000;
         while (Date.now() < deadline) {
             await new Promise((resolve) => window.setTimeout(resolve, 350));
-            const snapshot = await refresh();
+            const snapshot = await refresh(true);
             if (snapshot.running === expectedRunning) return snapshot;
             if (snapshot.serverState === 'error' || snapshot.serverState === 'blocked') return snapshot;
         }
@@ -240,6 +250,7 @@ window.EveWorldBook = window.EveWorldBook || {};
                 { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
                 5000
             );
+            lastRefreshAt = Date.now();
             applyStatus(payload, found.baseUrl);
             if (state.running !== enabled && !['error', 'blocked'].includes(state.serverState)) {
                 return await waitFor(enabled);
@@ -248,6 +259,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         } catch (error) {
             state.serverState = 'error';
             state.message = error?.message || 'World Book lifecycle request failed.';
+            lastRefreshAt = 0;
             publish();
             return { ...state };
         } finally {
@@ -265,5 +277,5 @@ window.EveWorldBook = window.EveWorldBook || {};
     });
 
     // Prime status during EveOS boot so opening Notes & World Books does not pay discovery latency.
-    window.setTimeout(() => { void refresh(); }, 0);
+    window.setTimeout(() => { void refresh(true); }, 0);
 })(window.EveWorldBook);
