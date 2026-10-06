@@ -24,6 +24,15 @@ assert(watchdog.includes('Debugger.resume') && !watchdog.includes('Runtime.termi
     'Universal renderer watchdog must resume diagnostics without terminating smoke execution');
 assert(watchdog.includes('EVE_SMOKE_RENDERER_WATCHDOG_STRICT') && watchdog.includes('process.exitCode = 1'),
     'Strict renderer-watchdog mode is not wired to smoke failure');
+
+const reservationIndex = watchdog.indexOf('watchedPages.set(page, reservation)');
+const cdpSessionIndex = watchdog.indexOf('newCDPSession(page)');
+assert(reservationIndex >= 0 && cdpSessionIndex >= 0 && reservationIndex < cdpSessionIndex,
+    'Renderer watchdog must reserve each page before asynchronous CDP setup');
+assert(watchdog.includes('if (watchedPages.has(page)) return watchedPages.get(page)')
+    && watchdog.includes('resolveReservation(controller)'),
+    'Renderer watchdog attachment is not single-flight across concurrent page hooks');
+
 assert(launcher.includes("require('./renderer_watchdog')") && launcher.includes('watchedBrowser('),
     'Shared Playwright launcher does not opt into renderer-watchdog instrumentation');
 assert(runner.includes("EVE_SMOKE_RENDERER_WATCHDOG: '1'") && runner.includes('--watchdog-strict'),
