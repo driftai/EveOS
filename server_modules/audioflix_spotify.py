@@ -14,11 +14,21 @@ import shutil
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pathlib import Path
 from urllib.parse import urlsplit
 
 _CACHE_TTL_S = 300
 _PLAYBACK_RESOLVER_REVISION = "strict-v4-embedded-first"
+_PLAYBACK_RESOLVER_TIMEOUT_S = 30.0
+_YOUTUBE_BOT_CHECK_MARKERS = (
+    "failed to extract any player response",
+    "sign in to confirm you're not a bot",
+    "sign in to confirm you’re not a bot",
+    "confirm you're not a bot",
+    "confirm you’re not a bot",
+    "bot check",
+)
 _cache: dict[str, dict] = {}
 _cache_lock = threading.Lock()
 _scrape_lock = threading.Lock()
@@ -302,6 +312,68 @@ def _playback_youtube_search(query: str, results: int):
         )
 
 
+def _playback_resolver_timeout_seconds() -> float:
+    raw = str(os.environ.get("EVEOS_SPOTIFY_PLAYBACK_TIMEOUT_S") or "").strip()
+    if raw:
+        try:
+            return max(1.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+    return _PLAYBACK_RESOLVER_TIMEOUT_S
+
+
+def _resolve_playback_match(identity_url: str, metadata: dict | None) -> dict:
+    """Run the complete embed-first resolver sequence on a worker thread."""
+    from server_modules import audioflix_spotify_fallback as fallback
+
+    result = fallback.find_fallback_match(
+        identity_url,
+        searcher=_playback_youtube_search,
+        metadata=metadata or None,
+    )
+    if not result.get("ok"):
+        result = fallback.find_fallback_match(identity_url, metadata=metadata or None)
+    return result
+
+
+def _resolve_playback_match_with_timeout(identity_url: str, metadata: dict | None) -> dict:
+    """Bound yt-dlp stalls below the frontend's 45-second Spotify request timeout."""
+    timeout = _playback_resolver_timeout_seconds()
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="eveos-spotify-playback")
+    future = executor.submit(_resolve_playback_match, identity_url, metadata)
+    try:
+        return future.result(timeout=timeout)
+    except FutureTimeoutError:
+        future.cancel()
+        return {
+            "ok": False,
+            "failureKind": "timeout",
+            "reason": (
+                "YouTube playback matching timed out. YouTube may be refusing player data "
+                "(bot check); retry later or localize this track for deterministic playback."
+            ),
+        }
+    finally:
+        # Do not let a stuck yt-dlp hydration block the request thread after the timeout. The worker
+        # may finish later, but the EveOS API is free to answer immediately and future requests are
+        # not serialized behind this abandoned resolver instance.
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _playback_failure_reason(result: dict) -> str:
+    raw = str(
+        result.get("reason") or result.get("error") or result.get("message")
+        or "No verified playback source matched this Spotify track."
+    ).strip()
+    low = raw.casefold()
+    if any(marker in low for marker in _YOUTUBE_BOT_CHECK_MARKERS):
+        return (
+            "YouTube refused player data (bot check). EveOS could not verify an independent "
+            "playback source for this Spotify track; retry later or localize the track."
+        )
+    return raw
+
+
 def resolve_playback_source(payload: dict) -> dict:
     """Map a Spotify identity to a stable provider URL without downloading or localizing it."""
     track = payload.get("track") if isinstance(payload, dict) else {}
@@ -322,29 +394,23 @@ def resolve_playback_source(payload: dict) -> dict:
 
     metadata = fallback.stored_track_metadata(track)
 
-    # First try the player client that matches EveOS's actual iframe transport. This avoids making
-    # account cookies or manual PO-token extraction a prerequisite for normal Spotify-derived
-    # playback. If the embed-specific pass cannot prove a strict match, keep the existing broad
-    # resolver (including SoundCloud) as a compatibility fallback. The embedded search hydrates its
-    # full bounded candidate set internally; do not mutate the localization resolver's global budget.
-    result = fallback.find_fallback_match(
-        identity_url,
-        searcher=_playback_youtube_search,
-        metadata=metadata or None,
-    )
-    if not result.get("ok"):
-        result = fallback.find_fallback_match(identity_url, metadata=metadata or None)
+    # Run embed-first and the broad compatibility fallback as one bounded operation. yt-dlp can hang
+    # while YouTube refuses player-data extraction; the UI should receive a specific bounded failure
+    # rather than waiting past its own 45-second request timeout and collapsing into "URL Down".
+    result = _resolve_playback_match_with_timeout(identity_url, metadata or None)
 
     matched_url = str(result.get("url") or "").strip()
     if not matched_url:
-        reason = str(result.get("reason") or result.get("error") or result.get("message") or "No verified playback source matched this Spotify track.").strip()
-        return {
+        response = {
             "ok": False,
-            "reason": reason,
+            "reason": _playback_failure_reason(result),
             "resolver": fallback.STRATEGY,
             "resolverRevision": _PLAYBACK_RESOLVER_REVISION,
             "identityUrl": identity_url,
         }
+        if result.get("failureKind"):
+            response["failureKind"] = result.get("failureKind")
+        return response
 
     match = result.get("match") if isinstance(result.get("match"), dict) else {}
     response = {
