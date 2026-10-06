@@ -11,6 +11,7 @@ const read = (...parts) => fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
 const uiSocket = read('tools', 'Nexus-Browser', 'public', 'ui-socket.js');
 const roomView = read('tools', 'Nexus-Browser', 'public', 'dex-room-view.js');
 const audioUi = read('tools', 'Nexus-Browser', 'public', 'gemini-link-audio.js');
+const { createServerLocalMessaging } = require('../server-local-messaging');
 
 test('Dex Gemini audio is routed to the room viewer without claiming autoplay ownership', () => {
   assert.match(uiSocket, /const GEMINI_ROOM_AUDIO_EVENT = 'nexus-gemini-link-room-audio'/);
@@ -22,6 +23,47 @@ test('Dex Gemini audio is routed to the room viewer without claiming autoplay ow
   const autoplayHandler = uiSocket.indexOf('BrowserAiBridgeGeminiLinkAudio?.handle?.(message)', dexBranch);
   assert.ok(dexBranch >= 0 && dexReturn > dexBranch && autoplayHandler > dexReturn,
     'Dex audio must leave through the room event before the Base-mode autoplay handler runs');
+});
+
+test('Dex Gemini audio reaches passive room viewers without duplicating the primary scheduler delivery', () => {
+  const targetId = 'local:gemini-link-chat:default';
+  const source = { clientKind: 'dex' };
+  const primaryDex = { id: 'dex-primary', clientKind: 'dex' };
+  const standbyDex = { id: 'dex-standby', clientKind: 'dex' };
+  const consolePeer = { id: 'console', clientKind: 'console', localTargetId: targetId };
+  const browserPeer = { id: 'browser', clientKind: 'browser', localTargetId: targetId };
+  const sent = [];
+  const messaging = createServerLocalMessaging({
+    safeSend(peer, payload) {
+      sent.push({ peer, payload });
+      return true;
+    },
+    uiSockets: new Set([primaryDex, standbyDex, consolePeer, browserPeer]),
+    localTargets: { getLocalTargetStatus: () => ({ state: 'ready' }) },
+    dexRouting: {
+      isPrimaryDex: (peer) => peer === primaryDex,
+      allowLocalPeer: (origin, peer) => origin?.clientKind !== 'dex' || peer?.clientKind !== 'browser'
+    },
+    getTargets: () => []
+  });
+  const payload = {
+    type: 'response_audio',
+    providerId: 'gemini-link-chat',
+    requestId: 'dex-turn-audio-observer',
+    audio: 'AQI=',
+    correlation: { roomId: 'room-audio-observer', requestId: 'dex-turn-audio-observer' }
+  };
+
+  messaging.sendLocalEvent(targetId, source, payload);
+
+  assert.equal(sent.filter((entry) => entry.peer === standbyDex).length, 1,
+    'standby Dex viewer must receive the presentation-only audio stream');
+  assert.equal(sent.filter((entry) => entry.peer === primaryDex).length, 0,
+    'primary Dex viewer remains owned by the scheduler broadcast path');
+  assert.equal(sent.filter((entry) => entry.peer === consolePeer).length, 1,
+    'existing selected local console mirroring must remain intact');
+  assert.equal(sent.filter((entry) => entry.peer === browserPeer).length, 0,
+    'Dex-origin local events must not leak into Base browser peers through this path');
 });
 
 test('Dex room replay binds audio to the exact committed request receipt', () => {
