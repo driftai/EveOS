@@ -98,12 +98,14 @@
         ensureLoadingSurface(frame);
         frame.addEventListener('load', () => scheduleReadyCheck(frame));
         frame.addEventListener('error', () => setFrameState(frame, 'error', 'The embedded view could not load.'));
-        frameObserver = new MutationObserver(() => patchFrame());
+        frameObserver = new MutationObserver(() => patchFrame(frame));
         frameObserver.observe(frame, { attributes: true, attributeFilter: ['hidden', 'src'] });
     }
 
-    function patchFrame() {
-        const frame = document.querySelector('#watchfusion-overlay .watchfusion-frame');
+    function patchFrame(candidate = null) {
+        const frame = candidate?.matches?.('#watchfusion-overlay .watchfusion-frame')
+            ? candidate
+            : document.querySelector('#watchfusion-overlay .watchfusion-frame');
         if (!frame) return false;
         bindFrame(frame);
         const values = (frame.getAttribute('allow') || '')
@@ -114,7 +116,8 @@
         for (const feature of REQUIRED) {
             if (!seen.has(feature)) values.push(feature);
         }
-        frame.setAttribute('allow', values.join('; '));
+        const allow = values.join('; ');
+        if (frame.getAttribute('allow') !== allow) frame.setAttribute('allow', allow);
         if (!frame.hidden && /^https?:/i.test(frame.src || '')) {
             const wrap = frame.closest('.watchfusion-frame-wrap');
             if (wrap?.dataset.frameState !== 'ready') {
@@ -139,6 +142,11 @@
             scheduleReadyCheck(activeFrame);
         }
     });
+
+    // WatchFusion already emits this after ensureOverlay()/renderStatus(). Binding on that
+    // lifecycle edge avoids watching the entire EveOS document while Gemini or other workspaces
+    // mount. Custom DOM events work identically from http(s) and file:// EveOS pages.
+    window.addEventListener('eve:watchfusion-status', () => patchFrame());
 
     // LAN/remote transport is never filesystem authority. Only the known host view
     // may ask the existing local control plane to open a fixed extension package.
@@ -169,10 +177,13 @@
             if (!activeFrame || activeFrame.hidden || !/^https?:/i.test(activeFrame.src || '')) return false;
             reloadFrame(activeFrame, manual);
             return true;
+        },
+        refresh() {
+            return patchFrame();
         }
     });
 
-    const observer = new MutationObserver(() => patchFrame());
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+    // Covers the opposite load order (WatchFusion overlay already exists before this companion).
+    // Otherwise eve:watchfusion-status binds it when WatchFusion is opened/refreshed.
     patchFrame();
 })();
