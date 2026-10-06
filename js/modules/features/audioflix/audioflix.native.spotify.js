@@ -5,7 +5,7 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
     const ns = window.EveAudioflixNativeSpotify;
     if (ns.ready) return;
 
-    const PLAYBACK_RESOLVER_REVISION = 'strict-v3-full-hydration';
+    const PLAYBACK_RESOLVER_REVISION = 'strict-v4-embedded-first';
     const pendingPlaybackSources = new Map();
     const text = (value) => String(value ?? '').trim();
     const isSpotifyTrack = (track) => text(track?.sourceProvider).toLowerCase() === 'spotify'
@@ -55,7 +55,7 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
         }
 
         // This helper is deliberately idempotent because older boot paths can still have the local
-        // prepare decorator installed. If that path already supplied a verified CURRENT source,
+        // prepare decorator installed. If that path already supplied the verified CURRENT source,
         // keep it instead of resolving twice. Unversioned transformed items are intentionally not
         // trusted so a page reload can escape an old persisted match.
         if (!playbackUrl
@@ -83,7 +83,7 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
             try { resolved = await pending; } catch { resolved = null; }
             if (!resolved?.ok || !text(resolved.url)) return base;
 
-            // Do not bless a response from a still-running pre-v3 Python server. Browser reloads do
+            // Do not bless a response from a still-running older Python server. Browser reloads do
             // not reload server_modules/audioflix_spotify.py; requiring the revision makes a stale
             // server visible instead of silently persisting another legacy match.
             const resolvedRevision = text(resolved.resolverRevision);
