@@ -5,7 +5,7 @@
     if (globalThis.BrowserAiBridgeGeminiLinkAudio || typeof document === 'undefined') return;
     if (document.querySelector('script[data-nexus-gemini-link-audio]')) return;
     const script = document.createElement('script');
-    script.src = '/gemini-link-audio.js?v=7aca661d9ac2';
+    script.src = '/gemini-link-audio.js?v=8fa2ba68c47f';
     script.async = false;
     script.dataset.nexusGeminiLinkAudio = '1';
     document.head.appendChild(script);
