@@ -413,15 +413,22 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     }
 
     function updateItemVolume(itemId, vol) {
-        if (currentItem?.id === itemId) {
-            if (urlPlayback?.matches?.(itemId)) urlPlayback.setVolume(vol);
-            ensureAudio().volume = Math.max(0, Math.min(1, vol));
-            window.EveAudioflixNative?.setVoiceVolume?.('singleton-main', vol);
-            activeStreamVolume = vol;
-            activeNativeController?.setVolume?.(vol);
-            currentItem.volume = vol;
+        const safeVolume = Math.max(0, Math.min(1, Number(vol) || 0));
+        const requestedId = String(itemId ?? '');
+        const currentId = String(currentItem?.id ?? currentItem?.url ?? '');
+        const activeUrlMatch = urlPlayback?.matches?.(itemId) === true;
+        if ((requestedId && currentId === requestedId) || activeUrlMatch) {
+            // The provider controller is the authoritative live identity. Resolved Spotify tracks
+            // can cross several adapters before reaching a YouTube/provider iframe, so do not let
+            // an intermediate ID representation prevent a live volume command from reaching it.
+            if (activeUrlMatch) urlPlayback.setVolume(safeVolume);
+            ensureAudio().volume = safeVolume;
+            window.EveAudioflixNative?.setVoiceVolume?.('singleton-main', safeVolume);
+            activeStreamVolume = safeVolume;
+            activeNativeController?.setVolume?.(safeVolume);
+            if (currentItem) currentItem.volume = safeVolume;
         }
-        layerController.updateVolume(itemId, vol);
+        layerController.updateVolume(itemId, safeVolume);
     }
 
     function attachWaveform(targetCanvas) {
