@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 _CACHE_TTL_S = 300
-_PLAYBACK_RESOLVER_REVISION = "strict-v3-full-hydration"
+_PLAYBACK_RESOLVER_REVISION = "strict-v4-embedded-first"
 _cache: dict[str, dict] = {}
 _cache_lock = threading.Lock()
 _scrape_lock = threading.Lock()
@@ -222,7 +222,7 @@ def open_session(value: str) -> dict:
                     close_fds=True,
                 )
         except OSError as exc:
-            return {"ok": False, "reason": f"Could not open the Spotify session: {exc}"}
+            return {"ok": False, "reason": f"Could not open the EveOS Spotify session window: {exc}"}
 
         deadline = time.monotonic() + 8
         status = None
@@ -260,6 +260,48 @@ def open_session(value: str) -> dict:
     }
 
 
+def _playback_youtube_search(query: str, results: int):
+    """Search YouTube for live playback with the embed-compatible client first.
+
+    Audioflix hands successful matches to the localhost YouTube iframe host. yt-dlp's web_embedded
+    client therefore matches the actual playback surface and, unlike the normal web/mweb clients,
+    currently does not require a PO token for GVS requests. Keep this path playback-only so normal
+    localization/download behavior is unchanged.
+    """
+    import yt_dlp
+
+    from server_modules import audioflix_spotify_fallback as fallback
+    from server_modules import audioflix_spotify_match as spotify_match
+
+    count = max(1, int(results or 1))
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "extract_flat": "in_playlist",
+        "ignoreerrors": True,
+        "playlistend": count,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["web_embedded"],
+            },
+        },
+    }
+    wanted = fallback._tokens(query)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        rows = spotify_match._collect_search_rows(ydl, query, count)
+        rows.sort(key=lambda row: -fallback._overlap(wanted, fallback._tokens((row or {}).get("title"))))
+        return spotify_match._hydrate_flat_rows(
+            ydl,
+            rows,
+            limit=max(
+                int(getattr(fallback, "FALLBACK_HYDRATE_LIMIT", 0) or 0),
+                count,
+            ),
+        )
+
+
 def resolve_playback_source(payload: dict) -> dict:
     """Map a Spotify identity to a stable provider URL without downloading or localizing it."""
     track = payload.get("track") if isinstance(payload, dict) else {}
@@ -290,7 +332,19 @@ def resolve_playback_source(payload: dict) -> dict:
         return cached
 
     metadata = fallback.stored_track_metadata(track)
-    result = fallback.find_fallback_match(identity_url, metadata=metadata or None)
+
+    # First try the player client that matches EveOS's actual iframe transport. This avoids making
+    # account cookies or manual PO-token extraction a prerequisite for normal Spotify-derived
+    # playback. If the embed-specific pass cannot prove a strict match, keep the existing broad
+    # resolver (including SoundCloud) as a compatibility fallback.
+    result = fallback.find_fallback_match(
+        identity_url,
+        searcher=_playback_youtube_search,
+        metadata=metadata or None,
+    )
+    if not result.get("ok"):
+        result = fallback.find_fallback_match(identity_url, metadata=metadata or None)
+
     matched_url = str(result.get("url") or "").strip()
     if not matched_url:
         reason = str(result.get("reason") or result.get("error") or result.get("message") or "No verified playback source matched this Spotify track.").strip()
