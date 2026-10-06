@@ -3,44 +3,72 @@
  * Handles the dynamic loading of agentic UI loader scripts.
  */
 
-/**
- * Dynamically loads the individual agentic UI loader scripts defined in the config.
- * Returns a Promise that resolves when all scripts are loaded.
- */
-function loadAgenticUILoaderScripts() {
-    console.log("agenticScriptLoader.js: Loading individual agentic UI loader scripts...");
+let agenticUiLoaderPreparationPromise = null;
+let agenticUiLoaderScriptsPrepared = false;
 
-    // Ensure config is loaded
+function yieldAgenticLoaderTurn() {
+    return new Promise(resolve => window.setTimeout(resolve, 0));
+}
+
+function loadAgenticUILoaderScript(scriptPath) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = scriptPath;
+        script.async = false;
+        script.defer = true;
+        script.onload = () => resolve();
+        script.onerror = (error) => {
+            console.error(`Failed to load ${scriptPath}:`, error);
+            reject(error);
+        };
+        document.head.appendChild(script);
+    });
+}
+
+/**
+ * Prepares the individual agentic UI loader scripts exactly once.
+ *
+ * This intentionally loads them one-at-a-time and yields between scripts. The
+ * Gemini freeze probe showed Chromium becoming unresponsive when the old
+ * Promise.all/map path appended the entire Agentic loader graph in one turn
+ * after the large workspace DOM had already been inserted.
+ */
+function prepareAgenticUILoaderScripts() {
+    if (agenticUiLoaderScriptsPrepared) return Promise.resolve(true);
+    if (agenticUiLoaderPreparationPromise) return agenticUiLoaderPreparationPromise;
+
+    console.log("agenticScriptLoader.js: Preparing individual agentic UI loader scripts sequentially...");
+
     if (typeof window.AgenticLoaderConfig === 'undefined' || !window.AgenticLoaderConfig.SCRIPTS) {
         console.error("AgenticLoaderConfig not found or invalid!");
         return Promise.reject(new Error("AgenticLoaderConfig missing"));
     }
 
-    const promises = window.AgenticLoaderConfig.SCRIPTS.map(scriptPath => {
-        return new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = scriptPath;
-            // Dynamically inserted scripts IGNORE `defer` and execute in download-completion
-            // order by default — with the UIState/UICard/UILoader (and scope runtime) splits
-            // this made the facade race its helpers, so the relay card loaded in some
-            // browsers and not others. async=false restores list-order execution.
-            script.async = false;
-            script.defer = true;
-            script.onload = () => {
-                // console.log(`${scriptPath} loaded.`); // Optional: Reduce noise
-                resolve();
-            };
-            script.onerror = (error) => {
-                console.error(`Failed to load ${scriptPath}:`, error);
-                reject(error);
-            };
-            document.head.appendChild(script); // Append to head is generally safer for defer execution order logic
-        });
+    agenticUiLoaderPreparationPromise = (async () => {
+        for (const scriptPath of window.AgenticLoaderConfig.SCRIPTS) {
+            await loadAgenticUILoaderScript(scriptPath);
+            await yieldAgenticLoaderTurn();
+        }
+        agenticUiLoaderScriptsPrepared = true;
+        console.log("agenticScriptLoader.js: Agentic UI loader script graph prepared.");
+        return true;
+    })().catch(error => {
+        agenticUiLoaderPreparationPromise = null;
+        throw error;
     });
-    return Promise.all(promises);
+
+    return agenticUiLoaderPreparationPromise;
 }
 
-// Export the loader function
+/**
+ * Legacy/public entry point retained for callers outside the normal EveOS
+ * bootstrap. It now shares the exact same single-flight preparation path.
+ */
+function loadAgenticUILoaderScripts() {
+    return prepareAgenticUILoaderScripts();
+}
+
+window.prepareAgenticUILoaderScripts = prepareAgenticUILoaderScripts;
 window.loadAgenticUILoaderScripts = loadAgenticUILoaderScripts;
 
 console.log("agenticScriptLoader.js loaded.");
