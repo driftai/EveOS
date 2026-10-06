@@ -108,7 +108,7 @@ test('provider resume stays on the active EveOS player instead of re-entering pl
 
     assert.equal(h.calls.playItem, 0);
     assert.equal(h.commands.length, 1);
-    assert.deepEqual(h.commands[0].message, {
+    assert.deepEqual(JSON.parse(JSON.stringify(h.commands[0].message)), {
         type: 'eve-audioflix-provider-command',
         token: 'af-test',
         action: 'play'
