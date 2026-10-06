@@ -1,4 +1,5 @@
 const { chromium, firefox, webkit } = require('playwright');
+const { instrumentBrowser } = require('./renderer_watchdog');
 
 function getCdpEndpoint() {
     return process.env.PW_CDP_ENDPOINT
@@ -49,6 +50,10 @@ function addBlockedLaunchHint(error) {
     return error;
 }
 
+function watchedBrowser(browser) {
+    return instrumentBrowser(browser);
+}
+
 async function launchChromiumOrConnect(options) {
     const opts = options && typeof options === 'object' ? options : {};
     const headless = opts.headless !== false;
@@ -61,7 +66,7 @@ async function launchChromiumOrConnect(options) {
 
     if (cdpEndpoint) {
         return {
-            browser: await chromium.connectOverCDP(cdpEndpoint),
+            browser: watchedBrowser(await chromium.connectOverCDP(cdpEndpoint)),
             mode: 'connectOverCDP',
             endpoint: cdpEndpoint
         };
@@ -76,14 +81,14 @@ async function launchChromiumOrConnect(options) {
 
     try {
         return {
-            browser: await browserType.launch(launchOptions),
+            browser: watchedBrowser(await browserType.launch(launchOptions)),
             mode: 'launch',
             endpoint: ''
         };
     } catch (error) {
         if (cdpEndpoint) {
             return {
-                browser: await chromium.connectOverCDP(cdpEndpoint),
+                browser: watchedBrowser(await chromium.connectOverCDP(cdpEndpoint)),
                 mode: 'connectOverCDP',
                 endpoint: cdpEndpoint
             };
