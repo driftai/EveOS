@@ -1,3 +1,6 @@
+import sys
+import types
+
 from server_modules import audioflix_spotify as spotify
 from server_modules import audioflix_spotify_fallback as fallback
 
@@ -106,3 +109,70 @@ def test_spotify_playback_source_surfaces_fallback_message(monkeypatch):
 
     assert result["ok"] is False
     assert result["reason"] == "Searched six strict candidates and none matched."
+
+
+def test_spotify_playback_source_prefers_embed_search_then_keeps_broad_fallback(monkeypatch):
+    _clear_cache()
+    calls = []
+    track = {
+        "id": "spotify-track-fallback",
+        "url": "https://open.spotify.com/track/fallback123",
+        "title": "Fallback Song",
+        "artist": "Fallback Artist",
+        "duration": 180.0,
+    }
+
+    monkeypatch.setattr(fallback, "stored_track_metadata", lambda value: {
+        "ok": True,
+        "title": value["title"],
+        "artists": [value["artist"]],
+        "duration_seconds": value["duration"],
+    })
+
+    def fake_match(url, searcher=None, opener=None, metadata=None):
+        calls.append(searcher)
+        if searcher is not None:
+            return {"ok": False, "message": "Embedded client could not prove a match."}
+        return {
+            "ok": True,
+            "url": "https://soundcloud.com/example/fallback-song",
+            "match": {
+                "source": "soundcloud",
+                "title": "Fallback Song",
+            },
+            "toleranceSeconds": 5.0,
+        }
+
+    monkeypatch.setattr(fallback, "find_fallback_match", fake_match)
+
+    result = spotify.resolve_playback_source({"track": track})
+
+    assert result["ok"] is True
+    assert result["provider"] == "soundcloud"
+    assert calls == [spotify._playback_youtube_search, None]
+
+
+def test_playback_youtube_search_uses_web_embedded_client(monkeypatch):
+    captured = {}
+
+    class FakeYdl:
+        def __init__(self, opts):
+            captured.update(opts)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def extract_info(self, target, download=False):
+            return {"entries": []}
+
+    monkeypatch.setitem(sys.modules, "yt_dlp", types.SimpleNamespace(YoutubeDL=FakeYdl))
+
+    rows = spotify._playback_youtube_search("Example Artist Example Song", 6)
+
+    assert rows == []
+    assert captured["extractor_args"]["youtube"]["player_client"] == ["web_embedded"]
+    assert captured["skip_download"] is True
+    assert captured["noplaylist"] is True
