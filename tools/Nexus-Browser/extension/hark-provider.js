@@ -44,9 +44,12 @@
   const registered = {
     id: 'hark',
     name: 'Hark',
-    // Static extension injection is host-wide so authenticated redirects keep the bridge alive,
-    // while target discovery remains limited to the two Hark work surfaces below.
-    matchPatterns: ['https://hark.com/*'],
+    // Only chat/project workspaces become Nexus targets. The manifest grants host-wide permission so
+    // the extension can survive Hark's authenticated navigation without advertising settings/login tabs.
+    matchPatterns: [
+      'https://hark.com/chat*',
+      'https://hark.com/projects/*'
+    ],
     urlPrefixes: [
       'https://hark.com/chat',
       'https://hark.com/projects/'
