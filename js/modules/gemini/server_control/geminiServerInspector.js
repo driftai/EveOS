@@ -4,8 +4,10 @@
     const STATUS_URL = 'http://127.0.0.1:9084/status';
     const WS_FALLBACK = 'ws://127.0.0.1:9083';
     const MAX_TRAFFIC_EVENTS = 64;
+    const INSPECTOR_TOGGLE_SELECTOR = '[data-gemini-server-inspector-toggle]';
     let refreshTimer = 0;
     let watchTimer = 0;
+    let initialized = false;
     const traffic = [];
 
     function wsLabel(code) {
@@ -70,7 +72,11 @@
             };
         }
         if (payload.command) {
-            return { title: `Command: ${payload.command}`, detail: shortJson(Object.assign({}, payload, { apiKey: payload.apiKey ? '[redacted]' : undefined })), kind: 'command' };
+            return {
+                title: `Command: ${payload.command}`,
+                detail: shortJson(Object.assign({}, payload, { apiKey: payload.apiKey ? '[redacted]' : undefined })),
+                kind: 'command'
+            };
         }
         if (payload.text) {
             return { title: payload.is_system_message ? 'System text' : 'User text', detail: shortText(payload.text, 180), kind: 'text' };
@@ -332,26 +338,29 @@
         }
     }
 
-    function bind(root) {
-        (root || document).querySelectorAll('[data-gemini-server-inspector-toggle]').forEach(function (button) {
-            if (button.dataset.geminiInspectorBound === '1') return;
-            button.dataset.geminiInspectorBound = '1';
-            button.addEventListener('click', function () {
-                const panel = ensurePanel();
-                if (panel.hidden) openPanel();
-                else closePanel();
-            });
-        });
+    function handleInspectorToggleClick(event) {
+        const target = event?.target;
+        const button = target?.closest?.(INSPECTOR_TOGGLE_SELECTOR);
+        if (!button) return;
+        const panel = ensurePanel();
+        if (panel.hidden) openPanel();
+        else closePanel();
     }
 
     function initialize() {
-        bind(document);
+        if (initialized) return;
+        initialized = true;
+
+        // The inspector toggle can be injected dynamically. Event delegation keeps
+        // that support without a document-wide MutationObserver that rescans the
+        // entire EveOS DOM on every child mutation during workspace startup.
+        document.addEventListener('click', handleInspectorToggleClick);
         watchSocket();
-        if (!watchTimer) watchTimer = window.setInterval(watchSocket, 1000);
-        const observer = new MutationObserver(function () {
-            bind(document);
-        });
-        observer.observe(document.documentElement, { childList: true, subtree: true });
+        if (!watchTimer) {
+            watchTimer = window.setInterval(function () {
+                if (document.visibilityState === 'visible') watchSocket();
+            }, 1000);
+        }
         window.addEventListener('eve:gemini-server-status', function () {
             const panel = document.getElementById('geminiServerInspectorPanel');
             if (panel && !panel.hidden) refreshPanel();
