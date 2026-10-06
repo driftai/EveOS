@@ -1,77 +1,94 @@
 /**
- * Handles dynamic script loading for Communication Panel components.
- * Depends on communicationPanelLoaderConfig.js
+ * Handles script preparation for Communication Panel components.
+ * Depends on communicationPanelLoaderConfig.js and the shared loader exposed by comm.js.
  */
 
-/**
- * Dynamically loads the individual Communication Panel UI loader aggregator scripts.
- * Returns a Promise that resolves when all scripts are loaded.
- */
+let communicationAggregatorPromise = null;
+let communicationComponentPromise = null;
+let communicationPreparePromise = null;
+
+function communicationLoadScriptOnce(scriptPath) {
+    const loader = window.GeminiCommunicationBootstrap?.loadScriptOnce;
+    if (typeof loader !== 'function') {
+        return Promise.reject(new Error('GeminiCommunicationBootstrap.loadScriptOnce is unavailable'));
+    }
+    return loader(scriptPath);
+}
+
 function loadCommunicationPanelUILoaderAggregatorScripts() {
-    console.log("communicationPanelScriptLoader.js: Loading individual Communication Panel UI loader aggregator scripts...");
+    if (communicationAggregatorPromise) return communicationAggregatorPromise;
 
-    // Ensure config is available
     if (!window.communicationPanelLoaderConfig) {
-        console.error("communicationPanelLoaderConfig not found!");
-        return Promise.reject("Configuration not loaded");
+        return Promise.reject(new Error('communicationPanelLoaderConfig not found'));
     }
 
-    const scripts = window.communicationPanelLoaderConfig.aggregatorScripts;
-
-    const promises = scripts.map(scriptPath => {
-        return new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = scriptPath;
-            script.defer = true; // Ensure scripts are executed in order after fetching
-            script.onload = () => {
-                console.log(`${scriptPath} loaded.`);
-                resolve();
-            };
-            script.onerror = (error) => {
-                console.error(`Failed to load ${scriptPath}:`, error);
-                reject(error);
-            };
-            document.body.appendChild(script);
-        });
+    console.log('communicationPanelScriptLoader.js: Preparing Communication Panel aggregator scripts...');
+    communicationAggregatorPromise = Promise.all(
+        window.communicationPanelLoaderConfig.aggregatorScripts.map(communicationLoadScriptOnce)
+    ).catch((error) => {
+        communicationAggregatorPromise = null;
+        throw error;
     });
-    return Promise.all(promises);
+    return communicationAggregatorPromise;
 }
 
-/**
- * Dynamically loads the individual Communication Panel UI loader scripts (for simple components).
- * Returns a Promise that resolves when all scripts are loaded.
- */
 function loadCommunicationPanelUILoaderScripts() {
-    console.log("communicationPanelScriptLoader.js: Loading individual Communication Panel UI loader scripts...");
+    if (communicationComponentPromise) return communicationComponentPromise;
 
     if (!window.communicationPanelLoaderConfig) {
-        console.error("communicationPanelLoaderConfig not found!");
-        return Promise.reject("Configuration not loaded");
+        return Promise.reject(new Error('communicationPanelLoaderConfig not found'));
     }
 
-    const scripts = window.communicationPanelLoaderConfig.loaderScripts;
-
-    const promises = scripts.map(scriptPath => {
-        return new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = scriptPath;
-            script.defer = true; // Ensure scripts are executed in order after fetching
-            script.onload = () => {
-                console.log(`${scriptPath} loaded.`);
-                resolve();
-            };
-            script.onerror = (error) => {
-                console.error(`Failed to load ${scriptPath}:`, error);
-                reject(error);
-            };
-            document.body.appendChild(script);
-        });
+    console.log('communicationPanelScriptLoader.js: Preparing simple Communication Panel loader scripts...');
+    communicationComponentPromise = Promise.all(
+        window.communicationPanelLoaderConfig.loaderScripts.map(communicationLoadScriptOnce)
+    ).catch((error) => {
+        communicationComponentPromise = null;
+        throw error;
     });
-    return Promise.all(promises);
+    return communicationComponentPromise;
 }
 
-// Expose loader functions
+async function prepareCommunicationPanelScripts() {
+    if (communicationPreparePromise) return communicationPreparePromise;
+
+    communicationPreparePromise = (async () => {
+        await Promise.all([
+            loadCommunicationPanelUILoaderAggregatorScripts(),
+            loadCommunicationPanelUILoaderScripts()
+        ]);
+
+        const preparationHooks = [
+            'prepareMultimodalCommunicationScripts',
+            'prepareTextInputUIScripts',
+            'prepareSystemMessageToggleUIScripts',
+            'prepareModelOperationsUIScripts',
+            'preparePastChatsUIScripts',
+            'prepareSendChatHistoryScripts',
+            'prepareClearChatUIScripts',
+            'prepareClearSystemLogUIScripts'
+        ];
+
+        for (const hookName of preparationHooks) {
+            const prepare = window[hookName];
+            if (typeof prepare !== 'function') {
+                throw new Error(`${hookName} not found after Communication Panel aggregator preparation`);
+            }
+            await prepare();
+        }
+
+        console.log('communicationPanelScriptLoader.js: Communication Panel script graph prepared.');
+        return true;
+    })().catch((error) => {
+        communicationPreparePromise = null;
+        throw error;
+    });
+
+    return communicationPreparePromise;
+}
+
 window.communicationPanelScriptLoader = {
     loadAggregators: loadCommunicationPanelUILoaderAggregatorScripts,
-    loadComponents: loadCommunicationPanelUILoaderScripts
+    loadComponents: loadCommunicationPanelUILoaderScripts,
+    prepare: prepareCommunicationPanelScripts
 };

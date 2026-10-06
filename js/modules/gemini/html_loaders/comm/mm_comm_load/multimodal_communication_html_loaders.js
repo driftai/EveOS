@@ -1,73 +1,69 @@
 /**
- * This file aggregates the loading and initialization logic for Multimodal Communication UI HTML components.
+ * Aggregates Multimodal Communication UI HTML components.
  */
 
-// Define the base path for Multimodal Communication UI HTML loaders
 const MULTIMODAL_COMMUNICATION_HTML_LOADERS_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/comm/mm_comm_load';
-
-// List of individual UI loader scripts for Multimodal Communication components
 const multimodalCommunicationUILoaderScripts = [
-    `${MULTIMODAL_COMMUNICATION_HTML_LOADERS_BASE_PATH}/scr_share/screen_share_mm_html_loaders.js?v=54728bf1b6b1`,
-    `${MULTIMODAL_COMMUNICATION_HTML_LOADERS_BASE_PATH}/voice_input/voice_input_mm_html_loader.js?v=15deb4d3c06a`
+    `${MULTIMODAL_COMMUNICATION_HTML_LOADERS_BASE_PATH}/scr_share/screen_share_mm_html_loaders.js?v=20261006.3`,
+    `${MULTIMODAL_COMMUNICATION_HTML_LOADERS_BASE_PATH}/voice_input/voice_input_mm_html_loader.js?v=20261006.3`
 ];
+let multimodalPreparePromise = null;
 
-/**
- * Dynamically loads the individual Multimodal Communication UI loader scripts.
- * Returns a Promise that resolves when all scripts are loaded.
- */
-function loadMultimodalCommunicationUILoaderScripts() {
-    console.log("multimodal_communication_html_loaders.js: Loading individual Multimodal Communication UI loader scripts...");
-    const promises = multimodalCommunicationUILoaderScripts.map(scriptPath => {
-        return new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = scriptPath;
-            script.defer = true; // Ensure scripts are executed in order after fetching
-            script.onload = () => {
-                console.log(`${scriptPath} loaded.`);
-                resolve();
-            };
-            script.onerror = (error) => {
-                console.error(`Failed to load ${scriptPath}:`, error);
-                reject(error);
-            };
-            document.body.appendChild(script);
-        });
-    });
-    return Promise.all(promises);
-}
+function prepareMultimodalCommunicationScripts() {
+    if (multimodalPreparePromise) return multimodalPreparePromise;
+    const loadOnce = window.GeminiCommunicationBootstrap?.loadScriptOnce;
+    if (typeof loadOnce !== 'function') {
+        return Promise.reject(new Error('GeminiCommunicationBootstrap.loadScriptOnce unavailable for Multimodal Communication'));
+    }
 
-/**
- * Initializes the loading and setup of all Multimodal Communication UI HTML components.
- */
-async function initializeMultimodalCommunicationHtmlComponents() {
-    console.log("multimodal_communication_html_loaders.js: initializeMultimodalCommunicationHtmlComponents started.");
+    multimodalPreparePromise = (async () => {
+        await Promise.all(multimodalCommunicationUILoaderScripts.map(loadOnce));
 
-    try {
-        await loadMultimodalCommunicationUILoaderScripts();
-        console.log("multimodal_communication_html_loaders.js: All individual Multimodal Communication UI loader scripts loaded.");
-
-        // Initialize Screen Share MM components
-        if (typeof window.initializeUiComponentHtmlComponents === 'function') {
-            await window.initializeUiComponentHtmlComponents(); // This was the old name from screen_share_mm_html_loaders.js
-            console.log('Screen Share MM HTML Components initialized.');
-        } else {
-            console.error('initializeUiComponentHtmlComponents function for Screen Share MM not found after dynamic loading.');
+        if (typeof window.prepareScreenShareMMUIScripts !== 'function') {
+            throw new Error('prepareScreenShareMMUIScripts not found after Screen Share aggregator load');
+        }
+        if (typeof window.prepareVoiceInputMMUIScripts !== 'function') {
+            throw new Error('prepareVoiceInputMMUIScripts not found after Voice Input aggregator load');
         }
 
-        // Initialize Voice Input MM components
+        await Promise.all([
+            window.prepareScreenShareMMUIScripts(),
+            window.prepareVoiceInputMMUIScripts()
+        ]);
+        return true;
+    })().catch((error) => {
+        multimodalPreparePromise = null;
+        throw error;
+    });
+
+    return multimodalPreparePromise;
+}
+
+async function initializeMultimodalCommunicationHtmlComponents() {
+    console.log('multimodal_communication_html_loaders.js: initializeMultimodalCommunicationHtmlComponents started.');
+    try {
+        await prepareMultimodalCommunicationScripts();
+
+        if (typeof window.initializeUiComponentHtmlComponents === 'function') {
+            await window.initializeUiComponentHtmlComponents();
+            console.log('Screen Share MM HTML Components initialized.');
+        } else {
+            console.error('initializeUiComponentHtmlComponents function for Screen Share MM not found after preparation.');
+        }
+
         if (typeof window.initializeVoiceInputMMHtmlComponents === 'function') {
             await window.initializeVoiceInputMMHtmlComponents();
             console.log('Voice Input MM HTML Components initialized.');
         } else {
-            console.error('initializeVoiceInputMMHtmlComponents for Voice Input MM not found after dynamic loading.');
+            console.error('initializeVoiceInputMMHtmlComponents for Voice Input MM not found after preparation.');
         }
-
     } catch (error) {
-        console.error("Error initializing Multimodal Communication UI HTML components:", error);
+        console.error('Error initializing Multimodal Communication UI HTML components:', error);
+        throw error;
     }
 
-    console.log("multimodal_communication_html_loaders.js: initializeMultimodalCommunicationHtmlComponents finished.");
+    console.log('multimodal_communication_html_loaders.js: initializeMultimodalCommunicationHtmlComponents finished.');
 }
 
-// Export the initialization function
+window.prepareMultimodalCommunicationScripts = prepareMultimodalCommunicationScripts;
 window.initializeMultimodalCommunicationHtmlComponents = initializeMultimodalCommunicationHtmlComponents;

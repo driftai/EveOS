@@ -9,8 +9,11 @@ const htmlLoaderAggregatorScripts = [
     `${HTML_LOADERS_BASE_PATH}/ext_dep/ext_dep.js?v=20261006.2`,
     `${HTML_LOADERS_BASE_PATH}/layout/layout.js?v=20261006.2`,
     `${HTML_LOADERS_BASE_PATH}/agentic/agentic.js?v=20261006.1`,
-    `${HTML_LOADERS_BASE_PATH}/comm/comm.js?v=e5ce16870cac`,
-    `${HTML_LOADERS_BASE_PATH}/chat_disp/chat_disp.js?v=b898bd562f74`
+    `${HTML_LOADERS_BASE_PATH}/comm/comm.js?v=20261006.3`,
+    `${HTML_LOADERS_BASE_PATH}/comm/communicationPanelLoaderConfig.js?v=20261006.3`,
+    `${HTML_LOADERS_BASE_PATH}/comm/communicationPanelScriptLoader.js?v=20261006.3`,
+    `${HTML_LOADERS_BASE_PATH}/comm/communicationPanelComponentInitializer.js?v=20261006.3`,
+    `${HTML_LOADERS_BASE_PATH}/chat_disp/chat_disp.js?v=20261006.3`
 ];
 
 function loadHtmlLoaderAggregatorScripts() {
@@ -50,6 +53,20 @@ async function initializeAllHtmlComponents() {
             console.log('External dependency loader modules and runtimes prepared before Layout initialization.');
         } else {
             throw new Error('prepareExternalDependenciesLoaderScripts not found after ext_dep.js load');
+        }
+
+        if (typeof window.prepareCommunicationPanelModules === 'function') {
+            await window.prepareCommunicationPanelModules();
+            console.log('Communication Panel script graph prepared before Layout initialization.');
+        } else {
+            throw new Error('prepareCommunicationPanelModules not found after comm.js load');
+        }
+
+        if (typeof window.prepareChatLogDisplayScripts === 'function') {
+            await window.prepareChatLogDisplayScripts();
+            console.log('Chat Log Display script graph prepared before Layout initialization.');
+        } else {
+            throw new Error('prepareChatLogDisplayScripts not found after chat_disp.js load');
         }
 
         if (window.AgenticHtmlLoadersReady) {

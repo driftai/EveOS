@@ -1,63 +1,135 @@
 /**
- * This file acts as the entry point for the Communication Panel UI HTML loaders.
- * It loads the configuration, script loader, and component initializer modules,
- * and then exposes the main initialization function.
+ * Entry point for the Communication Panel UI HTML loaders.
+ * Script preparation is separate from DOM initialization so Communication Panel
+ * JavaScript can execute before Layout inserts the large Gemini workspace DOM.
  */
 
-// Function to load a script dynamically
-function loadModule(scriptPath) {
-    return new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = scriptPath;
-        script.defer = true;
-        // script.async = false; // Optional, but defer handles order usually. 
-        // Using Promise to ensure sequential loading if await is used.
-        script.onload = () => {
-            console.log(`Module loaded: ${scriptPath}`);
-            resolve();
-        };
-        script.onerror = (error) => {
-            console.error(`Failed to load module: ${scriptPath}`, error);
-            reject(error);
-        };
-        document.body.appendChild(script);
-    });
-}
-
-// Base path for modules (same directory as this file)
 const COMMUNICATION_PANEL_MODULE_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/comm';
+const communicationScriptPromises = window.__geminiCommunicationScriptPromises || new Map();
+window.__geminiCommunicationScriptPromises = communicationScriptPromises;
 
-/**
- * Initializes the loading and setup of all Communication Panel UI HTML components.
- * This is the public API called by pageInitializer.js.
- */
-async function initializeCommunicationPanelHtmlComponents() {
-    console.log("comm.js: Bootstrapping Communication Panel modules...");
-
+function normalizeCommunicationScriptPath(scriptPath) {
     try {
-        // Load modules sequentially to ensure dependencies are met
-        // Load the config first
-        await loadModule(`${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelLoaderConfig.js?v=8e5ef6c36372`);
-
-        // Load the script loader next
-        await loadModule(`${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelScriptLoader.js?v=160ce0539ae1`);
-
-        // Load the component initializer last
-        await loadModule(`${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelComponentInitializer.js?v=eb136fb4dfea`);
-
-        console.log("comm.js: Modules loaded. Delegating initialization...");
-
-        // Delegate to the actual initializer from the loaded module
-        if (window.initializeCommunicationPanelComponents) {
-            await window.initializeCommunicationPanelComponents();
-        } else {
-            console.error("window.initializeCommunicationPanelComponents not found after loading modules!");
-        }
-
-    } catch (error) {
-        console.error("Error bootstrapping Communication Panel:", error);
+        return new URL(scriptPath, document.baseURI).href;
+    } catch (_) {
+        return String(scriptPath || '');
     }
 }
 
-// Export the initialization function to be called by html_initialization_loaders.js
+function loadCommunicationScriptOnce(scriptPath) {
+    const normalizedPath = normalizeCommunicationScriptPath(scriptPath);
+    if (!normalizedPath) return Promise.reject(new Error('Missing Communication Panel script path'));
+
+    const cached = communicationScriptPromises.get(normalizedPath);
+    if (cached) return cached;
+
+    const existing = Array.from(document.scripts || []).find((script) => script.src === normalizedPath);
+    if (existing?.dataset?.geminiCommunicationLoaded === 'true') {
+        const ready = Promise.resolve(existing);
+        communicationScriptPromises.set(normalizedPath, ready);
+        return ready;
+    }
+
+    const promise = new Promise((resolve, reject) => {
+        const script = existing || document.createElement('script');
+        let settled = false;
+
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            script.dataset.geminiCommunicationLoaded = 'true';
+            console.log(`Communication module ready: ${scriptPath}`);
+            resolve(script);
+        };
+        const fail = (error) => {
+            if (settled) return;
+            settled = true;
+            communicationScriptPromises.delete(normalizedPath);
+            console.error(`Failed to load Communication module: ${scriptPath}`, error);
+            reject(error instanceof Error ? error : new Error(`Failed to load ${scriptPath}`));
+        };
+
+        script.addEventListener('load', finish, { once: true });
+        script.addEventListener('error', fail, { once: true });
+
+        if (!existing) {
+            script.src = scriptPath;
+            script.async = false;
+            script.defer = true;
+            script.dataset.geminiCommunicationScript = 'true';
+            (document.head || document.documentElement).appendChild(script);
+        } else if (script.readyState === 'complete' || script.readyState === 'loaded') {
+            finish();
+        }
+    });
+
+    communicationScriptPromises.set(normalizedPath, promise);
+    return promise;
+}
+
+let communicationPreparationPromise = null;
+
+async function prepareCommunicationPanelModules() {
+    if (communicationPreparationPromise) return communicationPreparationPromise;
+
+    communicationPreparationPromise = (async () => {
+        console.log('comm.js: Preparing Communication Panel modules before layout...');
+
+        // Normal EveOS boot places these bootstrap files beside comm.js in the
+        // top-level HTML-loader batch. Keep bounded fallback loading for standalone
+        // or legacy entry points that still load only comm.js.
+        if (!window.communicationPanelLoaderConfig) {
+            await loadCommunicationScriptOnce(
+                `${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelLoaderConfig.js?v=20261006.3`
+            );
+        }
+        if (!window.communicationPanelScriptLoader?.prepare) {
+            await loadCommunicationScriptOnce(
+                `${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelScriptLoader.js?v=20261006.3`
+            );
+        }
+        if (typeof window.initializeCommunicationPanelComponents !== 'function') {
+            await loadCommunicationScriptOnce(
+                `${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelComponentInitializer.js?v=20261006.3`
+            );
+        }
+
+        if (!window.communicationPanelScriptLoader?.prepare) {
+            throw new Error('communicationPanelScriptLoader.prepare not found after bootstrap load');
+        }
+
+        await window.communicationPanelScriptLoader.prepare();
+        console.log('comm.js: Communication Panel scripts prepared before layout.');
+        return true;
+    })().catch((error) => {
+        communicationPreparationPromise = null;
+        throw error;
+    });
+
+    return communicationPreparationPromise;
+}
+
+async function initializeCommunicationPanelHtmlComponents() {
+    console.log('comm.js: Initializing preloaded Communication Panel modules...');
+
+    try {
+        await prepareCommunicationPanelModules();
+
+        if (typeof window.initializeCommunicationPanelComponents === 'function') {
+            await window.initializeCommunicationPanelComponents();
+        } else {
+            console.error('window.initializeCommunicationPanelComponents not found after preparation!');
+        }
+    } catch (error) {
+        console.error('Error bootstrapping Communication Panel:', error);
+        throw error;
+    }
+}
+
+window.GeminiCommunicationBootstrap = {
+    loadScriptOnce: loadCommunicationScriptOnce,
+    prepare: prepareCommunicationPanelModules,
+    isPrepared: () => !!communicationPreparationPromise
+};
+window.prepareCommunicationPanelModules = prepareCommunicationPanelModules;
 window.initializeCommunicationPanelHtmlComponents = initializeCommunicationPanelHtmlComponents;
