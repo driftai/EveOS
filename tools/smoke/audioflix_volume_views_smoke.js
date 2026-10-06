@@ -18,6 +18,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const AUDIOFLIX = path.join(ROOT, 'js', 'modules', 'features', 'audioflix');
@@ -51,6 +52,14 @@ function main() {
     assert(overlay.includes("V.portedSounds.find(s => String(s.id ?? '') === String(id ?? ''))"),
         'ported/localized volume updates compare IDs by value instead of JS type');
 
+    // ---- provider completion must have a foreground-independent queue handoff ----
+    assert(overlay.includes("detail.status !== 'Ended'") && overlay.includes("detail.provider !== 'spotify'"),
+        'Spotify completion is not routed through the early provider queue bridge');
+    assert(overlay.includes('latestBridge.step?.(1)'),
+        'the provider queue bridge no longer advances through the existing queue controller');
+    assert(overlay.includes('snapshot.repeatOne') && overlay.includes('latest.repeatOne'),
+        'the provider fast path can override repeat-one semantics');
+
     // ---- the card slider reaches the provider panel's audio ----
     const update = audio.slice(audio.indexOf('function updateItemVolume('));
     assert(update.slice(0, 400).includes('urlPlayback.setVolume'),
@@ -67,6 +76,15 @@ function main() {
 
     console.log('audioflix volume views OK — panel persists and mirrors, card preserves active identity');
     console.log('AUDIOFLIX_VOLUME_VIEWS_SMOKE_OK');
+
+    const backgroundQueue = spawnSync(
+        process.execPath,
+        [path.join(__dirname, 'audioflix_background_queue_smoke.js')],
+        { cwd: ROOT, encoding: 'utf8', windowsHide: true, stdio: 'inherit' }
+    );
+    if (backgroundQueue.status !== 0) {
+        throw new Error(`background queue smoke failed with exit code ${backgroundQueue.status}`);
+    }
 }
 
 main();
