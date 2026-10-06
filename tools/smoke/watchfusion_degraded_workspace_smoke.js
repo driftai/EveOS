@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const read = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8').replace(/\r\n/g, '\n');
@@ -83,3 +84,19 @@ if (failures.length) {
 }
 
 console.log('WATCHFUSION_DEGRADED_WORKSPACE_OK');
+
+const fileCapabilitySmoke = spawnSync(
+    process.execPath,
+    [path.join(__dirname, 'watchfusion_frame_capabilities_file_smoke.js')],
+    {
+        cwd: ROOT,
+        encoding: 'utf8',
+        windowsHide: true,
+        stdio: 'inherit'
+    }
+);
+
+if (fileCapabilitySmoke.status !== 0) {
+    console.error(`WATCHFUSION_FRAME_CAPABILITIES_FILE_CHAIN_FAIL exit=${fileCapabilitySmoke.status}`);
+    process.exit(fileCapabilitySmoke.status || 1);
+}
