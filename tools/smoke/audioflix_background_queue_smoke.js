@@ -77,30 +77,32 @@ async function flush() {
     assert(playbackListeners.length === 1,
         'overlay registers one provider queue bridge before the main UI playback listener');
 
+    // Normal Spotify playback now resolves onto an Eve-owned provider (usually YouTube). Preserve
+    // the queue ownership by provenance instead of requiring the terminal provider name to be Spotify.
     playbackListeners[0]({
         detail: {
             status: 'Ended',
             browserOnly: true,
-            provider: 'spotify',
-            item: { id: '101' }
+            provider: 'youtube',
+            item: { id: '101', sourceProvider: 'spotify', spotifyUrl: 'https://open.spotify.com/track/AAA111' }
         }
     });
     await flush();
 
-    assert(stepCalls === 1, 'background Spotify Ended advances the existing queue exactly once');
-    assert(queueState.currentIndex === 1, 'background Spotify Ended selects the following queue item');
+    assert(stepCalls === 1, 'resolved Spotify Ended advances the existing queue exactly once');
+    assert(queueState.currentIndex === 1, 'resolved Spotify Ended selects the following queue item');
 
     // A delayed duplicate terminal update for the prior provider item must not skip another song.
     playbackListeners[0]({
         detail: {
             status: 'Ended',
             browserOnly: true,
-            provider: 'spotify',
-            item: { id: 101 }
+            provider: 'youtube',
+            item: { id: 101, sourceProvider: 'spotify', spotifyUrl: 'https://open.spotify.com/track/AAA111' }
         }
     });
     await flush();
-    assert(stepCalls === 1, 'duplicate/stale Spotify Ended cannot advance a second time');
+    assert(stepCalls === 1, 'duplicate/stale resolved Spotify Ended cannot advance a second time');
 
     // Repeat-one intentionally remains owned by the established generic queue restart path.
     queueState.currentIndex = 1;
@@ -109,8 +111,8 @@ async function flush() {
         detail: {
             status: 'Ended',
             browserOnly: true,
-            provider: 'spotify',
-            item: { id: 202 }
+            provider: 'youtube',
+            item: { id: 202, sourceProvider: 'spotify', spotifyUrl: 'https://open.spotify.com/track/BBB222' }
         }
     });
     await flush();
