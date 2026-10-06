@@ -10,7 +10,7 @@ const HTML_LOADERS_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemi
 const htmlLoaderAggregatorScripts = [
     `${HTML_LOADERS_BASE_PATH}/ext_dep/ext_dep.js?v=bab48b0bba0b`, // External dependencies should load first
     `${HTML_LOADERS_BASE_PATH}/layout/layout.js?v=a99ac3b891a6`, // Layout UI group aggregator
-    `${HTML_LOADERS_BASE_PATH}/agentic/agentic.js?v=e6056319099e`,
+    `${HTML_LOADERS_BASE_PATH}/agentic/agentic.js?v=20261006.1`,
     `${HTML_LOADERS_BASE_PATH}/comm/comm.js?v=e5ce16870cac`,
     `${HTML_LOADERS_BASE_PATH}/chat_disp/chat_disp.js?v=b898bd562f74`, // Added new group aggregator
     `${HTML_LOADERS_BASE_PATH}/audio_worklet/audio_worklet.js?v=b08645d3954c` // Audio worklet components group aggregator
@@ -54,6 +54,20 @@ async function initializeAllHtmlComponents() {
         // First, dynamically load all the top-level aggregator scripts
         await loadHtmlLoaderAggregatorScripts();
         console.log("html_initialization_loaders.js: All top-level HTML loader aggregator scripts loaded.");
+
+        // Prepare the Agentic UI script graph while the Gemini provider DOM is still small.
+        // The freeze-hunt branch showed that appending the full loader fan-out after Layout had
+        // mounted the expanded workspace could saturate Chromium's renderer. The prepared graph
+        // is single-flight and initializeAgenticHtmlComponents() reuses it later.
+        if (window.AgenticHtmlLoadersReady) {
+            await window.AgenticHtmlLoadersReady;
+        }
+        if (typeof window.prepareAgenticUILoaderScripts === 'function') {
+            await window.prepareAgenticUILoaderScripts();
+            console.log('Agentic UI loader script graph prepared before Layout initialization.');
+        } else {
+            throw new Error('prepareAgenticUILoaderScripts not found after agentic core load');
+        }
 
         // Now that the aggregator scripts are loaded, their initialization functions should be available.
 
