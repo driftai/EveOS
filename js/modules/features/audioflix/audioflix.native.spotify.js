@@ -5,6 +5,7 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
     const ns = window.EveAudioflixNativeSpotify;
     if (ns.ready) return;
 
+    const PLAYBACK_RESOLVER_REVISION = 'strict-v3-full-hydration';
     const pendingPlaybackSources = new Map();
     const text = (value) => String(value ?? '').trim();
     const isSpotifyTrack = (track) => text(track?.sourceProvider).toLowerCase() === 'spotify'
@@ -37,15 +38,35 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
         let playbackProvider = text(canonical.spotifyPlaybackProvider || playable.spotifyPlaybackProvider);
         let playbackTitle = text(canonical.spotifyPlaybackTitle || playable.spotifyPlaybackTitle);
         let playbackResolver = text(canonical.spotifyPlaybackResolver || playable.spotifyPlaybackResolver);
+        let playbackResolverRevision = text(
+            canonical.spotifyPlaybackResolverRevision || playable.spotifyPlaybackResolverRevision
+        );
+
+        // Library state survives page reloads. A URL selected by an older resolver must not become
+        // permanent just because it was once persisted: that was keeping tracks on an old provider
+        // even after resolver fixes landed. Only reuse a playback URL whose revision matches the
+        // currently shipped resolver contract; legacy/unversioned matches get re-resolved once.
+        if (playbackUrl && playbackResolverRevision !== PLAYBACK_RESOLVER_REVISION) {
+            playbackUrl = '';
+            playbackProvider = '';
+            playbackTitle = '';
+            playbackResolver = '';
+            playbackResolverRevision = '';
+        }
 
         // This helper is deliberately idempotent because older boot paths can still have the local
-        // prepare decorator installed. If that path already supplied the verified source, just keep
-        // it and mark the item as Eve-owned instead of resolving twice.
-        if (!playbackUrl && text(playable.spotifyUrl) && text(playable.url) !== text(playable.spotifyUrl)) {
+        // prepare decorator installed. If that path already supplied a verified CURRENT source,
+        // keep it instead of resolving twice. Unversioned transformed items are intentionally not
+        // trusted so a page reload can escape an old persisted match.
+        if (!playbackUrl
+            && text(playable.spotifyUrl)
+            && text(playable.url) !== text(playable.spotifyUrl)
+            && text(playable.spotifyPlaybackResolverRevision) === PLAYBACK_RESOLVER_REVISION) {
             playbackUrl = text(playable.url);
             playbackProvider = playbackProvider || text(playable.spotifyPlaybackProvider);
             playbackTitle = playbackTitle || text(playable.spotifyPlaybackTitle);
             playbackResolver = playbackResolver || text(playable.spotifyPlaybackResolver);
+            playbackResolverRevision = PLAYBACK_RESOLVER_REVISION;
         }
 
         if (!playbackUrl) {
@@ -62,16 +83,24 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
             try { resolved = await pending; } catch { resolved = null; }
             if (!resolved?.ok || !text(resolved.url)) return base;
 
+            // Do not bless a response from a still-running pre-v3 Python server. Browser reloads do
+            // not reload server_modules/audioflix_spotify.py; requiring the revision makes a stale
+            // server visible instead of silently persisting another legacy match.
+            const resolvedRevision = text(resolved.resolverRevision);
+            if (resolvedRevision !== PLAYBACK_RESOLVER_REVISION) return base;
+
             playbackUrl = text(resolved.url);
             playbackProvider = text(resolved.provider);
             playbackTitle = text(resolved.title);
             playbackResolver = text(resolved.resolver);
+            playbackResolverRevision = resolvedRevision;
             if (canonical.id !== undefined && canonical.id !== null) {
                 window.EveAudioflixState?.updateItem?.('music', canonical.id, {
                     spotifyPlaybackUrl: playbackUrl,
                     spotifyPlaybackProvider: playbackProvider,
                     spotifyPlaybackTitle: playbackTitle,
-                    spotifyPlaybackResolver: playbackResolver
+                    spotifyPlaybackResolver: playbackResolver,
+                    spotifyPlaybackResolverRevision: playbackResolverRevision
                 });
             }
         }
@@ -91,6 +120,7 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
                 spotifyPlaybackProvider: playbackProvider,
                 spotifyPlaybackTitle: playbackTitle,
                 spotifyPlaybackResolver: playbackResolver,
+                spotifyPlaybackResolverRevision: playbackResolverRevision,
                 eveOwnedPlaybackSource: true,
                 preferEveDirectAudio: true
             },
@@ -160,6 +190,7 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
 
     Object.assign(ns, {
         ready: true,
+        PLAYBACK_RESOLVER_REVISION,
         create,
         isSpotifyTrack,
         preparePlaybackSource,
