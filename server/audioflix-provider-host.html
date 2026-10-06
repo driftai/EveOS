@@ -63,6 +63,13 @@
                 else if (command.action === 'pause') player.pauseVideo();
                 else if (command.action === 'seek') player.seekTo(Math.max(0, Number(command.value) || 0), true);
                 else if (command.action === 'volume') player.setVolume(percentYoutubeVolume(command.value));
+                else if (command.action === 'load') {
+                    const nextId = String(command.value || '').trim();
+                    if (/^[A-Za-z0-9_-]{11}$/.test(nextId)) {
+                        document.body.className = 'ready';
+                        player.loadVideoById(nextId);
+                    }
+                }
                 else if (command.action === 'stop') player.stopVideo();
             });
 
