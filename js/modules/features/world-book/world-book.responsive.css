@@ -1,7 +1,16 @@
+/* Keep the Notes workspace's secondary tab strip strictly inside the Notes view.
+ * The strip is sticky in the narrow layout, so make the view boundary explicit rather
+ * than relying only on the parent panel's normal display rules. */
+.notes-world-book-overlay:not([data-view="notes"]) .eve-notes-tabs,
+.notes-world-book-overlay:not([data-view="notes"]) .eve-notes-scratchpad,
+.notes-world-book-overlay:not([data-view="notes"]) .eve-notes-workspace {
+    display: none !important;
+}
+
 @media (max-width: 1180px) {
     .notes-world-book-detach {
-        min-width: 36px;
-        width: 36px;
+        min-width: 38px;
+        width: 38px;
         padding: 0;
     }
 
@@ -10,7 +19,7 @@
     }
 
     [data-world-book-reader-controls] {
-        max-width: 92px;
+        max-width: 112px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -54,11 +63,14 @@
         min-width: 0;
         max-width: 100%;
         flex-wrap: wrap;
-        row-gap: 5px;
+        justify-content: center;
+        row-gap: 6px;
     }
 
     .notes-world-book-actions button {
         flex: 0 0 auto;
+        min-height: 34px;
+        padding: 6px 10px;
     }
 
     .notes-world-book-identity [data-world-book-status],
@@ -70,35 +82,42 @@
 @media (max-width: 840px) {
     .notes-world-book-header {
         grid-template-columns: minmax(0, 1fr);
-        gap: 8px;
-        padding: 9px 10px;
+        gap: 9px;
+        padding: 10px 12px;
+        text-align: center;
     }
 
     .notes-world-book-identity {
         grid-column: 1;
         grid-row: 1;
         width: 100%;
+        justify-content: center;
     }
 
     .notes-world-book-actions {
         grid-column: 1;
         grid-row: 2;
         width: 100%;
-        justify-content: flex-start;
+        justify-content: center;
+        align-items: center;
         flex-wrap: wrap;
-        gap: 6px;
+        gap: 7px;
     }
 
     .notes-world-book-tabs {
         grid-column: 1;
         grid-row: 3;
-        justify-self: start;
+        justify-self: center;
+        justify-content: center;
+        width: fit-content;
+        max-width: 100%;
     }
 
-    .notes-world-book-actions button {
-        min-height: 31px;
-        padding: 5px 9px;
-        font-size: 0.7rem;
+    .notes-world-book-actions button,
+    .notes-world-book-tabs button {
+        min-height: 35px;
+        padding: 7px 11px;
+        font-size: 0.74rem;
     }
 
     .notes-world-book-detach-state {
@@ -106,7 +125,7 @@
     }
 
     [data-world-book-reader-controls] {
-        max-width: 104px;
+        max-width: 118px;
     }
 }
 
@@ -121,25 +140,42 @@
     }
 
     .notes-world-book-header {
-        padding: 8px;
+        padding: 9px 8px 10px;
     }
 
     .notes-world-book-identity strong {
-        font-size: 0.82rem;
+        font-size: 0.88rem;
     }
 
-    .notes-world-book-sigil,
+    .notes-world-book-sigil {
+        width: 32px;
+        height: 32px;
+    }
+
+    /* Keep the important lifecycle/Reader controls usable instead of shrinking or hiding
+     * them. Wrapping is cheaper than turning the header into tiny icon-only targets. */
+    .notes-world-book-actions {
+        justify-content: center;
+        gap: 6px;
+    }
+
+    .notes-world-book-actions button,
+    .notes-world-book-tabs button {
+        min-height: 35px;
+        padding: 7px 10px;
+        font-size: 0.72rem;
+    }
+
     [data-world-book-server-toggle],
     [data-world-book-reader-controls] {
-        display: none;
-    }
-
-    .notes-world-book-actions {
-        justify-content: flex-end;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .notes-world-book-tabs {
         justify-self: center;
+        justify-content: center;
     }
 
     .notes-world-book-notes-view {
@@ -158,13 +194,13 @@
 
     .notes-world-book-actions button,
     .notes-world-book-tabs button {
-        min-height: 30px;
-        padding: 5px 8px;
-        font-size: 0.68rem;
+        min-height: 34px;
+        padding: 6px 9px;
+        font-size: 0.7rem;
     }
 
     .notes-world-book-tabs {
-        width: 100%;
+        width: min(100%, 360px);
         box-sizing: border-box;
     }
 
