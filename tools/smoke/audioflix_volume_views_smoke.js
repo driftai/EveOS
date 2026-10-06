@@ -46,6 +46,10 @@ function main() {
     // ---- the card slider persists too (the leg that already worked must not regress) ----
     assert(overlay.includes('setItemVolume'), 'the card slider still persists through state');
     assert(overlay.includes('updateItemVolume'), 'the card slider still reaches the live player');
+    assert(overlay.includes("String(activeId ?? '') === String(id ?? '') ? activeId : id"),
+        'the card slider restores the active item ID type before updating playback');
+    assert(overlay.includes("V.portedSounds.find(s => String(s.id ?? '') === String(id ?? ''))"),
+        'ported/localized volume updates compare IDs by value instead of JS type');
 
     // ---- the card slider reaches the provider panel's audio ----
     const update = audio.slice(audio.indexOf('function updateItemVolume('));
@@ -61,7 +65,7 @@ function main() {
     assert(mirror.slice(0, 300).includes('clamp('),
         'the mirrored value is clamped, so an out-of-range level cannot desync the thumb');
 
-    console.log('audioflix volume views OK — panel persists and mirrors, card still reaches the player');
+    console.log('audioflix volume views OK — panel persists and mirrors, card preserves active identity');
     console.log('AUDIOFLIX_VOLUME_VIEWS_SMOKE_OK');
 }
 
