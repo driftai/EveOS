@@ -234,8 +234,6 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             // Provider page URLs are not media streams. Never fall through to the generic
             // <audio> path just because the native bridge happens to be online.
             return await playUrlItem(requestedItem);
-        } else if (urlPlayback?.isActive?.() && !urlPlayback.matches(requestedItem)) {
-            await urlPlayback.stop();
         }
 
         if (activeNativeMode && activeNativeBuffer && nativePausedAt > 0
@@ -269,6 +267,14 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         if (resolvedProvider && resolvedProvider !== 'direct'
             && urlPlayback?.shouldPreferBrowser?.(safeItem)) {
             return await playUrlItem(safeItem);
+        }
+
+        // Keep the currently authorized provider alive until the replacement transport is known.
+        // Consecutive Spotify-derived YouTube matches can then reuse one YouTube player in the
+        // background instead of destroying it before resolution and asking Chrome to autoplay a
+        // brand-new iframe. Direct/native replacements still stop the old provider here.
+        if (urlPlayback?.isActive?.() && !urlPlayback.matches(safeItem)) {
+            await urlPlayback.stop();
         }
 
         if (safeItem.type === 'sound' && window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()) {
