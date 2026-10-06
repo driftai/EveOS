@@ -11,14 +11,15 @@ const SOURCE = fs.readFileSync(
     'utf8'
 );
 
-function harness({ localPath = '' } = {}) {
+function harness({ localPath = '', canonicalPatch = {} } = {}) {
     const canonical = {
         id: 'spotify-1',
         title: 'Example Song',
         artist: 'Example Artist',
         url: 'https://open.spotify.com/track/abc123',
         sourceProvider: 'spotify',
-        spotifyTrackId: 'abc123'
+        spotifyTrackId: 'abc123',
+        ...canonicalPatch
     };
     const state = { music: [canonical] };
     const updates = [];
@@ -52,7 +53,8 @@ function verifiedSource() {
         url: 'https://www.youtube.com/watch?v=verified-recording',
         provider: 'youtube',
         title: 'Example Artist - Example Song',
-        resolver: 'spotify-fallback-strict-v2'
+        resolver: 'expanded-youtube-search',
+        resolverRevision: 'strict-v3-full-hydration'
     };
 }
 
@@ -72,13 +74,15 @@ test('Spotify identity resolves once then reuses the cached EveOS playback sourc
     assert.equal(first.item.spotifyUrl, canonical.url);
     assert.equal(first.item.sourceProvider, 'spotify');
     assert.equal(first.item.spotifyPlaybackProvider, 'youtube');
+    assert.equal(first.item.spotifyPlaybackResolverRevision, 'strict-v3-full-hydration');
     assert.equal(first.item.eveOwnedPlaybackSource, true);
     assert.equal(first.item.preferEveDirectAudio, true);
     assert.equal(second.item.url, first.item.url);
-    assert.equal(resolves, 1, 'cached playback source must not require the resolver server again');
+    assert.equal(resolves, 1, 'current-revision cached playback source must not require the resolver server again');
     assert.equal(updates.length, 1);
     assert.equal(updates[0].type, 'music');
     assert.equal(updates[0].patch.spotifyPlaybackUrl, first.item.url);
+    assert.equal(updates[0].patch.spotifyPlaybackResolverRevision, 'strict-v3-full-hydration');
 });
 
 test('explicit playback-boundary preparation does not depend on LocalPlayback decoration', async () => {
@@ -124,7 +128,52 @@ test('explicit playback preparation is idempotent after the verified source is p
 
     assert.equal(first.item.url, second.item.url);
     assert.equal(second.item.eveOwnedPlaybackSource, true);
-    assert.equal(resolves, 1, 'persisted playback URL must bypass repeat matching');
+    assert.equal(resolves, 1, 'current-revision persisted playback URL must bypass repeat matching');
+});
+
+test('legacy persisted Spotify playback source is re-resolved once instead of surviving reloads forever', async () => {
+    const { window, canonical, updates } = harness({
+        canonicalPatch: {
+            spotifyPlaybackUrl: 'https://www.youtube.com/watch?v=legacy-recording',
+            spotifyPlaybackProvider: 'youtube',
+            spotifyPlaybackTitle: 'Old match',
+            spotifyPlaybackResolver: 'expanded-youtube-search'
+        }
+    });
+    let resolves = 0;
+
+    const prepared = await window.EveAudioflixNativeSpotify.preparePlaybackSource(
+        canonical,
+        await window.EveAudioflixLocalPlayback.prepare(canonical),
+        async () => {
+            resolves += 1;
+            return verifiedSource();
+        }
+    );
+
+    assert.equal(resolves, 1);
+    assert.equal(prepared.item.url, 'https://www.youtube.com/watch?v=verified-recording');
+    assert.notEqual(prepared.item.url, 'https://www.youtube.com/watch?v=legacy-recording');
+    assert.equal(prepared.item.spotifyPlaybackResolverRevision, 'strict-v3-full-hydration');
+    assert.equal(updates.length, 1);
+});
+
+test('stale Python server response is not persisted as a current playback match', async () => {
+    const { window, canonical, updates } = harness();
+    const base = await window.EveAudioflixLocalPlayback.prepare(canonical);
+    const prepared = await window.EveAudioflixNativeSpotify.preparePlaybackSource(
+        canonical,
+        base,
+        async () => ({
+            ok: true,
+            url: 'https://www.youtube.com/watch?v=old-server-source',
+            provider: 'youtube',
+            resolver: 'expanded-youtube-search'
+        })
+    );
+
+    assert.equal(prepared.item.url, canonical.url);
+    assert.equal(updates.length, 0);
 });
 
 test('localized Spotify tracks keep the local source and never invoke online matching', async () => {
@@ -136,7 +185,7 @@ test('localized Spotify tracks keep the local source and never invoke online mat
         basePrepared,
         async () => {
             resolves += 1;
-            return { ok: true, url: 'https://www.youtube.com/watch?v=should-not-run' };
+            return verifiedSource();
         }
     );
 
