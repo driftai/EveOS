@@ -365,6 +365,10 @@ def _playback_failure_reason(result: dict) -> str:
         result.get("reason") or result.get("error") or result.get("message")
         or "No verified playback source matched this Spotify track."
     ).strip()
+    # A timeout may mention a possible bot check, but timeout is the actual observed failure kind.
+    # Preserve that message instead of rewriting it as a confirmed YouTube bot-check failure.
+    if result.get("failureKind") == "timeout":
+        return raw
     low = raw.casefold()
     if any(marker in low for marker in _YOUTUBE_BOT_CHECK_MARKERS):
         return (
