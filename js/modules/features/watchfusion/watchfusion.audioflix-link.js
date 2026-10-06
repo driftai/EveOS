@@ -5,6 +5,7 @@
     let publisher = null, tap = null, timer = null, activeId = '', peerLoader = null, releaseMonitorMute = null;
     const pending = new Map();
     const audio = () => window.EveAudioflixAudio;
+    const transport = () => window.EveAudioflixTransportControl;
     const queue = () => window.EveAudioflix?.queueConnection;
     function trusted(event) {
         const embedded = document.querySelector('#watchfusion-overlay .watchfusion-frame')?.contentWindow;
@@ -20,7 +21,7 @@
             script.src = new URL('tools/WatchFusion/browser-extension/live-peer.js?v=3ebe77853c8b', document.baseURI).href;
             script.onload = resolve;
             script.onerror = () => { peerLoader = null; script.remove(); reject(new Error('Could not load the media link. Reload EveOS.')); };
-            document.head.append(script);
+            document.head.appendChild(script);
         });
         return peerLoader;
     }
@@ -55,16 +56,35 @@
     async function control(action, value) {
         try {
             const { playback, player, providerOnly } = playable();
-            const playCurrent = () => providerOnly ? audio().playItem?.(playback.item) : player.play();
-            if (action === 'toggle') { if (playback.paused) await playCurrent(); else await audio().pause(); }
-            if (action === 'play') await playCurrent();
-            if (action === 'pause') await audio().pause();
-            if (action === 'seek') await audio().seek(Math.max(0, Math.min(value, playback.duration || 0)));
-            if (action === 'rate') audio().setPlaybackRate(value);
+            const controller = transport();
+            const resumeCurrent = async () => {
+                if (typeof controller?.resume === 'function') return controller.resume();
+                return providerOnly ? audio().playItem?.(playback.item) : player.play();
+            };
+            const pauseCurrent = async () => {
+                if (typeof controller?.pause === 'function') return controller.pause();
+                return audio().pause();
+            };
+            if (action === 'toggle') { if (playback.paused) await resumeCurrent(); else await pauseCurrent(); }
+            if (action === 'play') await resumeCurrent();
+            if (action === 'pause') await pauseCurrent();
+            if (action === 'seek') {
+                const target = Math.max(0, Math.min(value, playback.duration || 0));
+                if (typeof controller?.seek === 'function') await controller.seek(target);
+                else await audio().seek(target);
+            }
+            if (action === 'rate') {
+                if (typeof controller?.setRate === 'function') controller.setRate(value);
+                else audio().setPlaybackRate(value);
+            }
             if (action === 'volume') {
                 const volume = Math.max(0, Math.min(1, value));
-                audio().updateItemVolume(playback.item.id, volume);
-                window.EveAudioflixState?.updateItem?.('music', playback.item.id, { volume });
+                if (typeof controller?.setVolume === 'function') {
+                    controller.setVolume(volume, { itemId: playback.item.id, type: 'music', persist: true });
+                } else {
+                    audio().updateItemVolume(playback.item.id, volume);
+                    window.EveAudioflixState?.updateItem?.('music', playback.item.id, { volume });
+                }
             }
             if (action === 'prev' || action === 'next') await queue()?.step?.(action === 'prev' ? -1 : 1);
             if (action === 'jump') await queue()?.jump?.(Math.floor(value));
