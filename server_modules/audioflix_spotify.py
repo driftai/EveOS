@@ -259,5 +259,49 @@ def open_session(value: str) -> dict:
     }
 
 
+def resolve_playback_source(payload: dict) -> dict:
+    """Map a Spotify identity to a stable provider URL without downloading or localizing it."""
+    track = payload.get("track") if isinstance(payload, dict) else {}
+    track = track if isinstance(track, dict) else {}
+    identity_url = str(track.get("url") or "").strip()
+    if not identity_url:
+        return {"ok": False, "reason": "Missing Spotify track URL."}
+
+    from server_modules import audioflix_spotify_fallback as fallback
+
+    track_key = str(track.get("spotifyTrackId") or track.get("id") or identity_url).strip()
+    cache_key = f"playback:{track_key}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    metadata = fallback.stored_track_metadata(track)
+    result = fallback.find_fallback_match(identity_url, metadata=metadata or None)
+    matched_url = str(result.get("url") or "").strip()
+    if not matched_url:
+        reason = str(result.get("reason") or result.get("error") or "No verified playback source matched this Spotify track.").strip()
+        return {
+            "ok": False,
+            "reason": reason,
+            "resolver": fallback.STRATEGY,
+            "identityUrl": identity_url,
+        }
+
+    match = result.get("match") if isinstance(result.get("match"), dict) else {}
+    response = {
+        "ok": True,
+        "url": matched_url,
+        "provider": str(match.get("source") or "").strip(),
+        "title": str(match.get("title") or track.get("title") or "").strip(),
+        "resolver": fallback.STRATEGY,
+        "identityUrl": identity_url,
+        "toleranceSeconds": result.get("toleranceSeconds"),
+    }
+    _cache_set(cache_key, response)
+    return response
+
+
 def session_action(payload: dict) -> dict:
+    if str(payload.get("action") or "").strip().lower() == "resolve-playback-source":
+        return resolve_playback_source(payload)
     return open_session(str(payload.get("url") or payload.get("embed") or ""))
