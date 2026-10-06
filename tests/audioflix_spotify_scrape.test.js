@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     mergePlaylistRows,
+    scanValue,
     playlistCount,
     requestMentionsPlaylist,
     needsFullPlayerPromotion,
@@ -119,4 +120,49 @@ test('full network playlist wins over an eight-row virtualized DOM window', () =
     assert.equal(merged[0].id, track(1).id);
     assert.equal(merged[134].id, track(135).id);
     assert.equal(merged.some((row) => row.id === noise.id), false);
+});
+
+test('URL-less embed DOM rows align with ordered JSON track rows instead of being dropped', () => {
+    const network = new Map();
+    const dom = [];
+    for (let position = 1; position <= 50; position += 1) {
+        const value = track(position);
+        network.set(value.id, value);
+        dom.push({
+            id: '',
+            title: value.title,
+            artists: value.artists,
+            artist: value.artist,
+            durationText: '3:21',
+            url: ''
+        });
+    }
+
+    const merged = mergePlaylistRows(dom, network, 50);
+
+    assert.equal(merged.length, 50);
+    assert.equal(merged[0].url, track(1).url);
+    assert.equal(merged[49].url, track(50).url);
+    assert.equal(merged[0].duration, 201);
+    assert.equal(shouldPromoteEmbedAfterScan('https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M', 50, merged.filter((row) => row.url).length), false);
+});
+
+test('embed trackList subtitle is used as artist metadata when artists are absent', () => {
+    const tracks = new Map();
+    scanValue({
+        trackList: [{
+            uri: 'spotify:track:TRACK00000001',
+            title: 'Vampire',
+            subtitle: 'Olivia Rodrigo',
+            durationMs: 219000
+        }]
+    }, tracks);
+
+    const row = tracks.get('TRACK00000001');
+    assert.ok(row);
+    assert.equal(row.title, 'Vampire');
+    assert.equal(row.artist, 'Olivia Rodrigo');
+    assert.deepEqual(row.artists, ['Olivia Rodrigo']);
+    assert.equal(row.duration, 219);
+    assert.equal(row.url, 'https://open.spotify.com/track/TRACK00000001');
 });
