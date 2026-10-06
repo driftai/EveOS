@@ -13,7 +13,7 @@ class SpotifyFallbackTests(unittest.TestCase):
             "duration_seconds": 200.0,
         }
 
-    def test_fallback_expands_search_and_accepts_match_outside_standard_duration_gate(self):
+    def test_fallback_accepts_decisive_match_without_redundant_second_search(self):
         calls = []
 
         def searcher(query, results):
@@ -36,7 +36,7 @@ class SpotifyFallbackTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["strategy"], "expanded-youtube-search")
         self.assertEqual(result["url"], "https://www.youtube.com/watch?v=abc123")
-        self.assertGreaterEqual(len(calls), 2)
+        self.assertEqual(len(calls), 1)
         self.assertGreater(result["toleranceSeconds"], 3.0)
 
     def test_fallback_rejects_duration_match_with_weak_identity(self):
