@@ -176,12 +176,31 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         return true;
     }
 
+    async function preparePlaybackItem(item) {
+        let prepared;
+        try {
+            prepared = await window.EveAudioflixLocalPlayback?.prepare?.(item) || {
+                item: item && typeof item === 'object' ? { ...item } : item,
+                localPath: '',
+                status: ''
+            };
+            // Spotify playback-source ownership is an Audioflix invariant. Invoke the source
+            // mapper explicitly after local-file preparation so a script/DOMContentLoaded race
+            // cannot silently route an ordinary library play back into Spotify's iframe.
+            prepared = await window.EveAudioflixNativeSpotify?.preparePlaybackSource?.(item, prepared) || prepared;
+        } catch (error) {
+            lastStatus = error?.message || 'The local audio source is unavailable.';
+            throw error;
+        }
+        if (prepared?.status) lastStatus = prepared.status;
+        return prepared;
+    }
+
     async function openInternalView(item) {
         const prior = getPlaybackState();
         const sameItem = String(prior?.item?.id || '') === String(item?.id || '');
-        const prepared = await window.EveAudioflixLocalPlayback?.prepare?.(item);
+        const prepared = await preparePlaybackItem(item);
         const requestedItem = prepared?.item || (item && typeof item === 'object' ? { ...item } : {});
-        if (prepared?.status) lastStatus = prepared.status;
         if (!requestedItem.url) throw new Error('Audioflix item is missing a URL.');
         let playableItem = requestedItem;
         if (window.EveAudioflixAudioSource?.needsResolution?.(requestedItem.url) && window.EveAudioflixUrlProviders?.providerFor?.(requestedItem.url) !== 'instagram') {
@@ -206,15 +225,8 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             window.EveAudioflixState?.recordPlay?.(item);
             return true;
         }
-        let prepared;
-        try {
-            prepared = await window.EveAudioflixLocalPlayback?.prepare?.(item);
-        } catch (error) {
-            lastStatus = error?.message || 'The local audio source is unavailable.';
-            throw error;
-        }
+        const prepared = await preparePlaybackItem(item);
         const requestedItem = prepared?.item || (item && typeof item === 'object' ? { ...item } : {});
-        if (prepared?.status) lastStatus = prepared.status;
         if (!requestedItem.url) throw new Error('Audioflix item is missing a URL.');
 
         const needsResolution = window.EveAudioflixAudioSource?.needsResolution?.(requestedItem.url);
