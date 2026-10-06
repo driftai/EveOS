@@ -18,6 +18,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 _CACHE_TTL_S = 300
+_PLAYBACK_RESOLVER_REVISION = "strict-v3-full-hydration"
 _cache: dict[str, dict] = {}
 _cache_lock = threading.Lock()
 _scrape_lock = threading.Lock()
@@ -269,8 +270,21 @@ def resolve_playback_source(payload: dict) -> dict:
 
     from server_modules import audioflix_spotify_fallback as fallback
 
+    # Playback needs to leave Spotify Embed whenever a strict independent recording can be found:
+    # Embed exposes pause/resume/seek state, but no volume control. The localization fallback kept
+    # network work intentionally tiny by hydrating only two search rows; that is too narrow for the
+    # live player because a valid official/Topic recording can easily rank third-sixth in flat
+    # search. Expand detail hydration to the already-bounded six discovered rows while retaining the
+    # exact same title/artist/duration/edition acceptance gates.
+    fallback.FALLBACK_HYDRATE_LIMIT = max(
+        int(getattr(fallback, "FALLBACK_HYDRATE_LIMIT", 0) or 0),
+        int(getattr(fallback, "SEARCH_RESULTS_PER_QUERY", 6) or 6),
+    )
+
     track_key = str(track.get("spotifyTrackId") or track.get("id") or identity_url).strip()
-    cache_key = f"playback:{track_key}"
+    # Include resolver behavior in the cache key. A long-running EveOS server can otherwise keep a
+    # successful source selected by an older resolver for the full cache TTL after frontend reloads.
+    cache_key = f"playback:{_PLAYBACK_RESOLVER_REVISION}:{track_key}"
     cached = _cache_get(cache_key)
     if cached:
         return cached
@@ -279,11 +293,12 @@ def resolve_playback_source(payload: dict) -> dict:
     result = fallback.find_fallback_match(identity_url, metadata=metadata or None)
     matched_url = str(result.get("url") or "").strip()
     if not matched_url:
-        reason = str(result.get("reason") or result.get("error") or "No verified playback source matched this Spotify track.").strip()
+        reason = str(result.get("reason") or result.get("error") or result.get("message") or "No verified playback source matched this Spotify track.").strip()
         return {
             "ok": False,
             "reason": reason,
             "resolver": fallback.STRATEGY,
+            "resolverRevision": _PLAYBACK_RESOLVER_REVISION,
             "identityUrl": identity_url,
         }
 
@@ -294,6 +309,7 @@ def resolve_playback_source(payload: dict) -> dict:
         "provider": str(match.get("source") or "").strip(),
         "title": str(match.get("title") or track.get("title") or "").strip(),
         "resolver": fallback.STRATEGY,
+        "resolverRevision": _PLAYBACK_RESOLVER_REVISION,
         "identityUrl": identity_url,
         "toleranceSeconds": result.get("toleranceSeconds"),
     }
