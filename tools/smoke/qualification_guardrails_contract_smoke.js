@@ -1,10 +1,28 @@
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
 function requireTrue(condition, message) {
     if (!condition) throw new Error(message);
+}
+
+function runRecoveredStructuralRegressions() {
+    const smokePath = path.join(__dirname, 'recovered_structural_regression_smoke.js');
+    const result = spawnSync(process.execPath, [smokePath], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        windowsHide: true,
+        stdio: 'pipe'
+    });
+
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    requireTrue(
+        result.status === 0,
+        `recovered structural regression smoke failed with exit code ${result.status}`
+    );
 }
 
 const packageSource = fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8');
@@ -84,5 +102,7 @@ requireTrue(
     registryViolation?.kind === 'unregistered' && registryViolation.code === 1,
     'zero-backlog registry no longer rejects newly dormant smokes'
 );
+
+runRecoveredStructuralRegressions();
 
 console.log('QUALIFICATION_GUARDRAILS_CONTRACT_SMOKE_OK');
