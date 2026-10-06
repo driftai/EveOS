@@ -7,7 +7,7 @@ const LAYOUT_UI_HTML_LOADERS_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/mo
 
 // List of individual UI loader scripts for Layout UI components
 const layoutUILoaderScripts = [
-    `${LAYOUT_UI_HTML_LOADERS_BASE_PATH}/mdl_wrap/mdlLayoutWrapperUILoader.js?v=e4d2893bc093`,
+    `${LAYOUT_UI_HTML_LOADERS_BASE_PATH}/mdl_wrap/mdlLayoutWrapperUILoader.js?v=20261006.2`,
     `${LAYOUT_UI_HTML_LOADERS_BASE_PATH}/header/pageHeaderUILoader.js?v=9f7ec21a9f51`,
     `${LAYOUT_UI_HTML_LOADERS_BASE_PATH}/conn_stat/connectionStatusIndicatorUILoader.js?v=484117a9c62c`,
     `${LAYOUT_UI_HTML_LOADERS_BASE_PATH}/main_area/mainContentAreaContainerUILoader.js?v=ce5835c72664`,

@@ -5,7 +5,7 @@
 const EXTERNAL_DEPENDENCIES_HTML_LOADERS_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/ext_dep';
 
 const LOCAL_STYLESHEET_LOADER_SRC = `${EXTERNAL_DEPENDENCIES_HTML_LOADERS_BASE_PATH}/loc_style/localStylesheetUILoader.js?v=ad1adc053d56`;
-const EXTERNAL_SCRIPTS_LOADER_SRC = `${EXTERNAL_DEPENDENCIES_HTML_LOADERS_BASE_PATH}/ext_scripts/externalStylesheetsAndScriptsUILoader.js?v=8e8cf71cddbe`;
+const EXTERNAL_SCRIPTS_LOADER_SRC = `${EXTERNAL_DEPENDENCIES_HTML_LOADERS_BASE_PATH}/ext_scripts/externalStylesheetsAndScriptsUILoader.js?v=20261006.2`;
 
 let localStylesheetLoaderPromise = null;
 let externalScriptsLoaderPromise = null;

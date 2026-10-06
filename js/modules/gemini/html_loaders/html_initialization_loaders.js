@@ -6,8 +6,8 @@
 const HTML_LOADERS_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders';
 
 const htmlLoaderAggregatorScripts = [
-    `${HTML_LOADERS_BASE_PATH}/ext_dep/ext_dep.js?v=bab48b0bba0b`,
-    `${HTML_LOADERS_BASE_PATH}/layout/layout.js?v=a99ac3b891a6`,
+    `${HTML_LOADERS_BASE_PATH}/ext_dep/ext_dep.js?v=20261006.2`,
+    `${HTML_LOADERS_BASE_PATH}/layout/layout.js?v=20261006.2`,
     `${HTML_LOADERS_BASE_PATH}/agentic/agentic.js?v=20261006.1`,
     `${HTML_LOADERS_BASE_PATH}/comm/comm.js?v=e5ce16870cac`,
     `${HTML_LOADERS_BASE_PATH}/chat_disp/chat_disp.js?v=b898bd562f74`
