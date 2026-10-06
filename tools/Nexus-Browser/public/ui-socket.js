@@ -29,6 +29,7 @@
     const clientKind = typeof hello === 'object' && hello
       ? String(hello.clientKind || '')
       : '';
+    let dexRuntimeRole = clientKind === 'dex' ? 'unknown' : '';
 
     function snapshot(extra = {}) {
       return { phase, epoch, dispatchReady: phase === 'connected', ...extra };
@@ -55,6 +56,7 @@
       if (stopped || (socket && [WebSocketImpl.OPEN, WebSocketImpl.CONNECTING].includes(socket.readyState))) return false;
       if (reconnectTimer != null) timers.clearTimeout(reconnectTimer);
       reconnectTimer = null;
+      if (clientKind === 'dex') dexRuntimeRole = 'unknown';
       if (phase !== 'reconnecting') transition('connecting');
       const next = new WebSocketImpl(typeof url === 'function' ? url() : url);
       socket = next;
@@ -70,11 +72,17 @@
       next.addEventListener('message', (event) => {
         try {
           const message = JSON.parse(event.data);
+          if (clientKind === 'dex' && message?.type === 'dex_runtime_role') {
+            dexRuntimeRole = message?.role === 'standby' ? 'standby' : 'controller';
+          }
           const isGeminiAudio = message?.type === 'response_audio'
             && message?.providerId === 'gemini-link-chat';
           if (isGeminiAudio && clientKind === 'dex') {
             if (typeof globalThis.CustomEvent === 'function') {
               globalThis.dispatchEvent?.(new CustomEvent(GEMINI_ROOM_AUDIO_EVENT, { detail: message }));
+            }
+            if (dexRuntimeRole === 'controller') {
+              globalThis.BrowserAiBridgeGeminiLinkAudio?.handle?.(message);
             }
             return;
           }
