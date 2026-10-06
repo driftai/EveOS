@@ -5,26 +5,24 @@
 
 window.SvgFixingCore = window.SvgFixingCore || {};
 
-window.SvgFixingCore.fixSvgViewBoxIssues = function () {
-    // Fix ALL SVG elements with ANY percentage viewBox values - comprehensive patterns
-    const allPercentageSvgs = document.querySelectorAll('svg');
+window.SvgFixingCore.fixSvgViewBoxIssues = function (root) {
+    const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
     let fixedCount = 0;
 
+    // Fix SVG elements with percentage viewBox values inside the selected scope.
+    const allPercentageSvgs = scope.querySelectorAll('svg');
     allPercentageSvgs.forEach(svg => {
         const currentViewBox = svg.getAttribute('viewBox');
         if (currentViewBox && currentViewBox.includes('%')) {
-            // Smart replacement based on pattern recognition
-            let fixedViewBox = '0 0 100 4'; // Default for progress bars
+            let fixedViewBox = '0 0 100 4';
 
-            // Try to preserve meaningful dimensions where possible
             if (currentViewBox.includes('24')) {
-                fixedViewBox = '0 0 24 24'; // Common icon size
+                fixedViewBox = '0 0 24 24';
             } else if (currentViewBox.includes('48')) {
-                fixedViewBox = '0 0 48 48'; // Another common icon size
+                fixedViewBox = '0 0 48 48';
             } else if (currentViewBox.includes('0 0 100%')) {
-                fixedViewBox = '0 0 100 4'; // Progress bar pattern
+                fixedViewBox = '0 0 100 4';
             } else {
-                // Generic replacement - remove all percentages
                 fixedViewBox = currentViewBox
                     .replace(/100%/g, '100')
                     .replace(/\d+%/g, (match) => match.replace('%', ''))
@@ -38,7 +36,6 @@ window.SvgFixingCore.fixSvgViewBoxIssues = function () {
         }
     });
 
-    // Comprehensive Material Design Lite component fixes
     const mdlSelectors = [
         '.mdl-progress',
         '.mdl-js-progress',
@@ -53,7 +50,7 @@ window.SvgFixingCore.fixSvgViewBoxIssues = function () {
     ];
 
     mdlSelectors.forEach(selector => {
-        const elements = document.querySelectorAll(selector);
+        const elements = scope.querySelectorAll(selector);
         elements.forEach(element => {
             const svgs = element.querySelectorAll('svg');
             svgs.forEach(svg => {
@@ -66,7 +63,6 @@ window.SvgFixingCore.fixSvgViewBoxIssues = function () {
         });
     });
 
-    // Force-fix known problematic patterns with specific targeting
     const knownProblematicPatterns = [
         { selector: 'svg[viewBox="0 0 100% 4"]', fix: '0 0 100 4' },
         { selector: 'svg[viewBox="0 0 100% 8"]', fix: '0 0 100 8' },
@@ -79,20 +75,20 @@ window.SvgFixingCore.fixSvgViewBoxIssues = function () {
 
     knownProblematicPatterns.forEach(({ selector, fix }) => {
         try {
-            const problematicSvgs = document.querySelectorAll(selector);
+            const problematicSvgs = scope.querySelectorAll(selector);
             problematicSvgs.forEach(svg => {
                 svg.setAttribute('viewBox', fix);
                 fixedCount++;
             });
         } catch (e) {
-            // Ignore selector errors, some browsers might not support all patterns
+            // Ignore selector errors in older browser builds.
         }
     });
 
     if (fixedCount > 0) {
-        console.log(`SVG viewBox fixes completed: ${fixedCount} SVGs fixed`);
+        console.log(`SVG viewBox fixes completed in Gemini scope: ${fixedCount} SVGs fixed`);
     }
     return fixedCount;
 };
 
-console.log("svgFixLogic.js loaded.");
+console.log('svgFixLogic.js loaded.');

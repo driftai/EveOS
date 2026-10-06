@@ -6,22 +6,24 @@
 
 window.SvgFixingCore = window.SvgFixingCore || {};
 
-// Expose functions globally for backward compatibility and access
-window.fixSvgViewBoxIssues = function () {
+window.fixSvgViewBoxIssues = function (root) {
     if (window.SvgFixingCore.fixSvgViewBoxIssues) {
-        return window.SvgFixingCore.fixSvgViewBoxIssues();
-    } else {
-        console.error("SvgFixingCore.fixSvgViewBoxIssues not available yet.");
-        return 0;
+        return window.SvgFixingCore.fixSvgViewBoxIssues(root);
     }
+    console.error('SvgFixingCore.fixSvgViewBoxIssues not available yet.');
+    return 0;
 };
 
 window.setupSvgViewBoxMonitor = function () {
     if (window.SvgFixingCore.setupSvgViewBoxMonitor) {
-        window.SvgFixingCore.setupSvgViewBoxMonitor();
-    } else {
-        console.error("SvgFixingCore.setupSvgViewBoxMonitor not available yet.");
+        return window.SvgFixingCore.setupSvgViewBoxMonitor();
     }
+    console.error('SvgFixingCore.setupSvgViewBoxMonitor not available yet.');
+    return false;
 };
 
-console.log("svgFixerCoordinator.js loaded.");
+window.stopSvgViewBoxMonitor = function () {
+    window.SvgFixingCore.stopSvgViewBoxMonitor?.();
+};
+
+console.log('svgFixerCoordinator.js loaded.');

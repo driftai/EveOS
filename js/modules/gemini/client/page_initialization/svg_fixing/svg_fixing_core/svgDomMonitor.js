@@ -5,154 +5,158 @@
 
 window.SvgFixingCore = window.SvgFixingCore || {};
 
-window.SvgFixingCore.setupSvgViewBoxMonitor = function () {
-    console.log('Setting up ultra-comprehensive SVG viewBox monitoring (Modularized)...');
+(function () {
+    const STATE_KEY = '__EVE_GEMINI_SVG_MONITOR_STATE';
 
-    if (!window.SvgFixingCore.fixSvgViewBoxIssues) {
-        console.error("SvgFixingCore.fixSvgViewBoxIssues not found! Monitoring cannot start.");
-        return;
+    function getState() {
+        if (!window[STATE_KEY]) {
+            window[STATE_KEY] = {
+                root: null,
+                observer: null,
+                sweepTimer: null,
+                pendingFixTimer: null
+            };
+        }
+        return window[STATE_KEY];
     }
 
-    const runFixes = () => {
-        window.SvgFixingCore.fixSvgViewBoxIssues();
+    function getGeminiRoot() {
+        return document.getElementById('gemini-provider-runtime-host')
+            || document.getElementById('gemini-ui-root')
+            || null;
+    }
+
+    function classNameText(node) {
+        const value = node?.className;
+        if (typeof value === 'string') return value;
+        if (value && typeof value.baseVal === 'string') return value.baseVal;
+        return '';
+    }
+
+    function nodeNeedsSvgFix(node) {
+        if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+
+        if (node.tagName === 'SVG') {
+            const viewBox = node.getAttribute('viewBox');
+            if (viewBox && viewBox.includes('%')) return true;
+        }
+
+        if (node.querySelector?.('svg[viewBox*="%"]')) return true;
+
+        const classes = classNameText(node);
+        if (/mdl-(?:js-)?progress|progress/i.test(classes)) {
+            return !!node.querySelector?.('svg:not([viewBox]), svg[viewBox*="%"]');
+        }
+
+        return false;
+    }
+
+    function stopMonitor(state) {
+        state.observer?.disconnect?.();
+        state.observer = null;
+        if (state.sweepTimer) {
+            clearInterval(state.sweepTimer);
+            state.sweepTimer = null;
+        }
+        if (state.pendingFixTimer) {
+            clearTimeout(state.pendingFixTimer);
+            state.pendingFixTimer = null;
+        }
+        state.root = null;
+    }
+
+    window.SvgFixingCore.stopSvgViewBoxMonitor = function () {
+        stopMonitor(getState());
     };
 
-    // Primary MutationObserver for DOM changes
-    const observer = new MutationObserver(mutations => {
-        let needsFixing = false;
+    window.SvgFixingCore.setupSvgViewBoxMonitor = function () {
+        console.log('Setting up scoped SVG viewBox monitoring (Modularized)...');
 
-        mutations.forEach(mutation => {
-            // Handle added nodes
-            mutation.addedNodes.forEach(node => {
-                if (node.nodeType === Node.ELEMENT_NODE) {
-                    const svgsToCheck = [];
+        if (!window.SvgFixingCore.fixSvgViewBoxIssues) {
+            console.error('SvgFixingCore.fixSvgViewBoxIssues not found! Monitoring cannot start.');
+            return false;
+        }
 
-                    if (node.tagName === 'SVG') {
-                        svgsToCheck.push(node);
-                    } else if (node.querySelector) {
-                        svgsToCheck.push(...node.querySelectorAll('svg'));
-                    }
+        const root = getGeminiRoot();
+        if (!root) {
+            console.warn('Gemini SVG monitor deferred because the provider workspace does not exist yet.');
+            return false;
+        }
 
-                    svgsToCheck.forEach(svg => {
-                        const viewBox = svg.getAttribute('viewBox');
-                        if (viewBox && viewBox.includes('%')) {
+        const state = getState();
+        if (state.root === root && state.observer) {
+            return true;
+        }
+        stopMonitor(state);
+        state.root = root;
+
+        const runFixes = () => {
+            if (!state.root?.isConnected) {
+                stopMonitor(state);
+                return;
+            }
+            window.SvgFixingCore.fixSvgViewBoxIssues(state.root);
+        };
+
+        const scheduleFix = (delay = 16) => {
+            // A workspace bootstrap can add hundreds of nodes in a few milliseconds.
+            // Keep exactly one pending sweep instead of queuing one full scan per mutation batch.
+            if (state.pendingFixTimer) return;
+            state.pendingFixTimer = setTimeout(() => {
+                state.pendingFixTimer = null;
+                runFixes();
+            }, delay);
+        };
+
+        state.observer = new MutationObserver((mutations) => {
+            let needsFixing = false;
+
+            for (const mutation of mutations) {
+                if (mutation.type === 'childList') {
+                    for (const node of mutation.addedNodes) {
+                        if (nodeNeedsSvgFix(node)) {
                             needsFixing = true;
+                            break;
                         }
-                    });
-
-                    // Special handling for Material Design component creation
-                    if (node.classList && (
-                        node.classList.contains('mdl-progress') ||
-                        node.classList.contains('mdl-js-progress') ||
-                        node.className.includes('progress') ||
-                        node.className.includes('mdl-')
-                    )) {
-                        needsFixing = true;
+                    }
+                } else if (mutation.type === 'attributes') {
+                    const element = mutation.target;
+                    if (mutation.attributeName === 'viewBox' && element?.tagName === 'SVG') {
+                        const viewBox = element.getAttribute('viewBox');
+                        needsFixing = !!(viewBox && viewBox.includes('%'));
+                    } else if (mutation.attributeName === 'class' || mutation.attributeName === 'data-upgraded') {
+                        needsFixing = nodeNeedsSvgFix(element);
                     }
                 }
-            });
 
-            // Handle attribute changes (specifically viewBox changes)
-            if (mutation.type === 'attributes' && mutation.attributeName === 'viewBox') {
-                const element = mutation.target;
-                if (element.tagName === 'SVG') {
-                    const viewBox = element.getAttribute('viewBox');
-                    if (viewBox && viewBox.includes('%')) {
-                        needsFixing = true;
-                    }
-                }
+                if (needsFixing) break;
             }
+
+            if (needsFixing) scheduleFix();
         });
 
-        // Apply fixes if needed
-        if (needsFixing) {
-            setTimeout(() => {
-                runFixes();
-            }, 10); // Very short delay to batch multiple mutations
-        }
-    });
-
-    // Start observing with comprehensive options
-    observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['viewBox', 'class', 'data-upgraded'],
-        attributeOldValue: true
-    });
-
-    // Secondary observer specifically for Material Design Lite upgrades
-    const mdlObserver = new MutationObserver(mutations => {
-        mutations.forEach(mutation => {
-            if (mutation.type === 'attributes' &&
-                (mutation.attributeName === 'class' || mutation.attributeName === 'data-upgraded')) {
-                const element = mutation.target;
-
-                if (element.classList && (
-                    element.classList.contains('mdl-progress') ||
-                    element.classList.contains('mdl-js-progress') ||
-                    element.classList.contains('is-upgraded')
-                )) {
-                    // MDL component was upgraded, check for SVG issues
-                    setTimeout(() => {
-                        const svgs = element.querySelectorAll('svg');
-                        svgs.forEach(svg => {
-                            const viewBox = svg.getAttribute('viewBox');
-                            if (!viewBox || viewBox.includes('%')) {
-                                svg.setAttribute('viewBox', '0 0 100 4');
-                            }
-                        });
-                    }, 50); // Slightly longer delay for MDL upgrades
-                }
-            }
+        state.observer.observe(root, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['viewBox', 'class', 'data-upgraded']
         });
-    });
 
-    mdlObserver.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['class', 'data-upgraded'],
-        subtree: true
-    });
-
-    // Periodic sweep to catch any missed SVGs (every 10 seconds)
-    setInterval(() => {
-        const percentageSvgs = document.querySelectorAll('svg[viewBox*="%"]');
-        if (percentageSvgs.length > 0) {
-            runFixes();
-        }
-    }, 10000);
-
-    // Aggressive immediate fix on page events
-    ['DOMContentLoaded', 'load', 'pageshow'].forEach(eventType => {
-        document.addEventListener(eventType, () => {
-            setTimeout(() => {
-                runFixes();
-            }, 100);
-        });
-    });
-
-    // Fix after Material Design Lite is fully loaded
-    if (typeof componentHandler !== 'undefined') {
-        // MDL is loaded, apply fixes after component upgrades
-        setTimeout(() => {
-            runFixes();
-        }, 500);
-    } else {
-        // Wait for MDL to load
-        const checkMDL = setInterval(() => {
-            if (typeof componentHandler !== 'undefined') {
-                clearInterval(checkMDL);
-                setTimeout(() => {
-                    runFixes();
-                }, 500);
+        state.sweepTimer = setInterval(() => {
+            if (!state.root?.isConnected) {
+                stopMonitor(state);
+                return;
             }
-        }, 100);
+            if (state.root.querySelector('svg[viewBox*="%"], .mdl-progress svg:not([viewBox]), .mdl-js-progress svg:not([viewBox])')) {
+                scheduleFix(0);
+            }
+        }, 10000);
 
-        // Stop checking after 10 seconds
-        setTimeout(() => clearInterval(checkMDL), 10000);
-    }
+        // Do not schedule an activation sweep here. PageInitializationCore performs
+        // one bounded scoped repair before arming this observer.
+        console.log('Scoped SVG viewBox monitor activated for Gemini workspace');
+        return true;
+    };
+})();
 
-    console.log('Ultra-comprehensive SVG viewBox monitor activated (Modularized)');
-};
-
-console.log("svgDomMonitor.js loaded.");
+console.log('svgDomMonitor.js loaded.');
