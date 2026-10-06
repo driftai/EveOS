@@ -57,7 +57,9 @@ def test_spotify_playback_source_uses_strict_matcher_and_caches(monkeypatch):
     assert second["url"] == first["url"]
     assert second.get("cached") is True
     assert calls == [(track["url"], expected_metadata)]
-    assert fallback.FALLBACK_HYDRATE_LIMIT >= fallback.SEARCH_RESULTS_PER_QUERY
+    # Live playback may inspect more candidates, but it must not widen the shared localization
+    # resolver for later download/fallback requests in this long-running Python process.
+    assert fallback.FALLBACK_HYDRATE_LIMIT == 2
 
 
 def test_spotify_playback_source_keeps_identity_when_no_match(monkeypatch):
