@@ -13,16 +13,31 @@ const roomView = read('tools', 'Nexus-Browser', 'public', 'dex-room-view.js');
 const audioUi = read('tools', 'Nexus-Browser', 'public', 'gemini-link-audio.js');
 const { createServerLocalMessaging } = require('../server-local-messaging');
 
-test('Dex Gemini audio is routed to the room viewer without claiming autoplay ownership', () => {
+test('Dex Gemini audio keeps replay capture while only the controller owns live playback', () => {
   assert.match(uiSocket, /const GEMINI_ROOM_AUDIO_EVENT = 'nexus-gemini-link-room-audio'/);
+  assert.match(uiSocket, /let dexRuntimeRole = clientKind === 'dex' \? 'unknown' : ''/);
+  assert.match(uiSocket, /if \(clientKind === 'dex'\) dexRuntimeRole = 'unknown'/,
+    'a reconnect must drop stale controller ownership until the server assigns the new role');
+  assert.match(uiSocket, /if \(clientKind === 'dex' && message\?\.type === 'dex_runtime_role'\)/);
+  assert.match(uiSocket, /dexRuntimeRole = message\?\.role === 'standby' \? 'standby' : 'controller'/);
   assert.match(uiSocket, /isGeminiAudio && clientKind === 'dex'/);
   assert.match(uiSocket, /new CustomEvent\(GEMINI_ROOM_AUDIO_EVENT, \{ detail: message \}\)/);
+  assert.match(uiSocket, /if \(dexRuntimeRole === 'controller'\)/,
+    'only the active Dex controller may claim live Gemini playback');
 
   const dexBranch = uiSocket.indexOf("if (isGeminiAudio && clientKind === 'dex')");
-  const dexReturn = uiSocket.indexOf('            return;', dexBranch);
-  const autoplayHandler = uiSocket.indexOf('BrowserAiBridgeGeminiLinkAudio?.handle?.(message)', dexBranch);
-  assert.ok(dexBranch >= 0 && dexReturn > dexBranch && autoplayHandler > dexReturn,
-    'Dex audio must leave through the room event before the Base-mode autoplay handler runs');
+  const roomEvent = uiSocket.indexOf('new CustomEvent(GEMINI_ROOM_AUDIO_EVENT, { detail: message })', dexBranch);
+  const controllerGate = uiSocket.indexOf("if (dexRuntimeRole === 'controller')", dexBranch);
+  const autoplayHandler = uiSocket.indexOf('BrowserAiBridgeGeminiLinkAudio?.handle?.(message)', controllerGate);
+  const dexReturn = uiSocket.indexOf('            return;', autoplayHandler);
+  assert.ok(
+    dexBranch >= 0
+      && roomEvent > dexBranch
+      && controllerGate > roomEvent
+      && autoplayHandler > controllerGate
+      && dexReturn > autoplayHandler,
+    'Dex must preserve replay capture first, then live-play the same PCM only for the controller before returning'
+  );
 });
 
 test('Dex Gemini audio reaches passive room viewers without duplicating the primary scheduler delivery', () => {
