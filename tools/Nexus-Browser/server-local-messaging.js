@@ -11,10 +11,29 @@ function createServerLocalMessaging({ safeSend, uiSockets, localTargets, dexRout
   function sendLocalStatus(ws, targetId = ws?.localTargetId) {
     return targetId ? safeSend(ws, localStatusPayload(targetId)) : false;
   }
+  function isDexGeminiAudio(source, payload) {
+    return source?.clientKind === 'dex'
+      && payload?.type === 'response_audio'
+      && payload?.providerId === 'gemini-link-chat';
+  }
   function sendLocalEvent(targetId, source, payload) {
     safeSend(source, payload);
+    const mirrorDexAudio = isDexGeminiAudio(source, payload);
     for (const peer of uiSockets) {
-      if (peer === source || peer.localTargetId !== targetId) continue;
+      if (peer === source) continue;
+
+      // The scheduler already delivers each Dex transport event to the authoritative
+      // primary Dex socket. Gemini Live audio is presentation-only state, though, so
+      // passive/standby Dex viewers need the same exact correlated PCM chunks or they
+      // can render the committed transcript without ever receiving its replay audio.
+      // Mirror only that audio to non-primary Dex observers; do not create a second
+      // playback/model path and do not duplicate the scheduler-owned primary delivery.
+      if (mirrorDexAudio && peer?.clientKind === 'dex') {
+        if (!dexRouting.isPrimaryDex(peer)) safeSend(peer, payload);
+        continue;
+      }
+
+      if (peer.localTargetId !== targetId) continue;
       if (dexRouting.allowLocalPeer(source, peer)) safeSend(peer, payload);
     }
   }
