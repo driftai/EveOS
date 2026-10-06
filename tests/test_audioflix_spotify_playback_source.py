@@ -1,4 +1,5 @@
 import sys
+import time
 import types
 
 from server_modules import audioflix_spotify as spotify
@@ -152,6 +153,62 @@ def test_spotify_playback_source_prefers_embed_search_then_keeps_broad_fallback(
     assert result["ok"] is True
     assert result["provider"] == "soundcloud"
     assert calls == [spotify._playback_youtube_search, None]
+
+
+def test_spotify_playback_source_times_out_before_frontend_request_deadline(monkeypatch):
+    _clear_cache()
+    track = {
+        "id": "spotify-track-timeout",
+        "url": "https://open.spotify.com/track/timeout123",
+        "title": "Slow Song",
+        "artist": "Slow Artist",
+        "duration": 180.0,
+    }
+
+    monkeypatch.setattr(spotify, "_PLAYBACK_RESOLVER_TIMEOUT_S", 0.05)
+    monkeypatch.delenv("EVEOS_SPOTIFY_PLAYBACK_TIMEOUT_S", raising=False)
+    monkeypatch.setattr(fallback, "stored_track_metadata", lambda value: {
+        "title": value["title"],
+        "artist": value["artist"],
+        "duration": value["duration"],
+    })
+
+    def slow_match(url, searcher=None, opener=None, metadata=None):
+        time.sleep(0.2)
+        return {"ok": False, "message": "still waiting"}
+
+    monkeypatch.setattr(fallback, "find_fallback_match", slow_match)
+
+    result = spotify.resolve_playback_source({"track": track})
+
+    assert result["ok"] is False
+    assert result["failureKind"] == "timeout"
+    assert "timed out" in result["reason"].lower()
+    assert "bot check" in result["reason"].lower()
+
+
+def test_spotify_playback_source_names_youtube_player_data_bot_check(monkeypatch):
+    _clear_cache()
+    track = {
+        "id": "spotify-track-bot-check",
+        "url": "https://open.spotify.com/track/botcheck123",
+        "title": "Blocked Song",
+    }
+
+    monkeypatch.setattr(fallback, "stored_track_metadata", lambda value: {"title": value["title"]})
+    monkeypatch.setattr(
+        fallback,
+        "find_fallback_match",
+        lambda url, searcher=None, opener=None, metadata=None: {
+            "ok": False,
+            "message": "ERROR: Failed to extract any player response",
+        },
+    )
+
+    result = spotify.resolve_playback_source({"track": track})
+
+    assert result["ok"] is False
+    assert result["reason"].startswith("YouTube refused player data (bot check).")
 
 
 def test_playback_youtube_search_uses_web_embedded_client(monkeypatch):
