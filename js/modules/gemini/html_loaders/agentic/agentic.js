@@ -9,8 +9,8 @@
 const AGENTIC_LOADERS_CORE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/agentic/core';
 
 const coreScripts = [
-    `${AGENTIC_LOADERS_CORE_PATH}/agenticLoaderConfig.js?v=614bb9bb6729`,
-    `${AGENTIC_LOADERS_CORE_PATH}/agenticScriptLoader.js?v=5822a74eb324`,
+    `${AGENTIC_LOADERS_CORE_PATH}/agenticLoaderConfig.js?v=20261005.10`,
+    `${AGENTIC_LOADERS_CORE_PATH}/agenticScriptLoader.js?v=20261005.9`,
     `${AGENTIC_LOADERS_CORE_PATH}/agenticComponentOrchestrator.js?v=dd61624900f4`
 ];
 
@@ -23,11 +23,9 @@ function loadCoreScriptsSequentially() {
             return new Promise((resolve, reject) => {
                 const script = document.createElement('script');
                 script.src = scriptPath;
+                script.async = false;
                 script.defer = true;
-                script.onload = () => {
-                    // console.log(`Core script loaded: ${scriptPath}`);
-                    resolve();
-                };
+                script.onload = () => resolve();
                 script.onerror = (e) => {
                     console.error(`Failed to load core script: ${scriptPath}`, e);
                     reject(e);
@@ -38,9 +36,12 @@ function loadCoreScriptsSequentially() {
     }, Promise.resolve());
 }
 
-// Start loading
-loadCoreScriptsSequentially().then(() => {
+// Expose a real readiness promise so the top-level HTML bootstrap can prepare the
+// Agentic UI script graph before Layout mutates the large Gemini workspace DOM.
+window.AgenticHtmlLoadersReady = loadCoreScriptsSequentially().then(() => {
     console.log("agentic_html_loaders.js: Core modules loaded. Ready for initialization.");
+    return true;
 }).catch(err => {
     console.error("agentic_html_loaders.js: Critical error loading core modules:", err);
+    throw err;
 });
