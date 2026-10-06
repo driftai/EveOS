@@ -19,6 +19,85 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
         return (state().music || []).find((item) => String(item?.id ?? '') === id) || track || {};
     }
 
+    async function preparePlaybackSource(item, prepared, resolver = ns.resolveSpotifyPlaybackSource) {
+        const base = prepared || {
+            item: item && typeof item === 'object' ? { ...item } : item,
+            localPath: '',
+            status: ''
+        };
+        const playable = base?.item || (item && typeof item === 'object' ? { ...item } : {});
+
+        // A granted/localized file always wins. Spotify is only provenance once EveOS owns a
+        // local source, so never replace a playable local copy with an online match.
+        if (base?.localPath || !isSpotifyTrack(playable)) return base;
+
+        const canonical = canonicalTrack(item);
+        const identityUrl = text(canonical.url || playable.spotifyUrl || playable.originalUrl || playable.url);
+        let playbackUrl = text(canonical.spotifyPlaybackUrl || playable.spotifyPlaybackUrl);
+        let playbackProvider = text(canonical.spotifyPlaybackProvider || playable.spotifyPlaybackProvider);
+        let playbackTitle = text(canonical.spotifyPlaybackTitle || playable.spotifyPlaybackTitle);
+        let playbackResolver = text(canonical.spotifyPlaybackResolver || playable.spotifyPlaybackResolver);
+
+        // This helper is deliberately idempotent because older boot paths can still have the local
+        // prepare decorator installed. If that path already supplied the verified source, just keep
+        // it and mark the item as Eve-owned instead of resolving twice.
+        if (!playbackUrl && text(playable.spotifyUrl) && text(playable.url) !== text(playable.spotifyUrl)) {
+            playbackUrl = text(playable.url);
+            playbackProvider = playbackProvider || text(playable.spotifyPlaybackProvider);
+            playbackTitle = playbackTitle || text(playable.spotifyPlaybackTitle);
+            playbackResolver = playbackResolver || text(playable.spotifyPlaybackResolver);
+        }
+
+        if (!playbackUrl) {
+            if (typeof resolver !== 'function') return base;
+            const key = text(canonical.id || canonical.spotifyTrackId || identityUrl);
+            if (!key) return base;
+            let pending = pendingPlaybackSources.get(key);
+            if (!pending) {
+                pending = Promise.resolve(resolver(canonical))
+                    .finally(() => pendingPlaybackSources.delete(key));
+                pendingPlaybackSources.set(key, pending);
+            }
+            let resolved = null;
+            try { resolved = await pending; } catch { resolved = null; }
+            if (!resolved?.ok || !text(resolved.url)) return base;
+
+            playbackUrl = text(resolved.url);
+            playbackProvider = text(resolved.provider);
+            playbackTitle = text(resolved.title);
+            playbackResolver = text(resolved.resolver);
+            if (canonical.id !== undefined && canonical.id !== null) {
+                window.EveAudioflixState?.updateItem?.('music', canonical.id, {
+                    spotifyPlaybackUrl: playbackUrl,
+                    spotifyPlaybackProvider: playbackProvider,
+                    spotifyPlaybackTitle: playbackTitle,
+                    spotifyPlaybackResolver: playbackResolver
+                });
+            }
+        }
+
+        // Keep Spotify as identity/provenance only. The verified recording URL is handed to the
+        // ordinary Audioflix transport and marked so provider adapters can prefer an Eve-owned
+        // HTMLMediaElement stream before falling back to an embedded provider controller.
+        return {
+            ...base,
+            item: {
+                ...playable,
+                url: playbackUrl,
+                originalUrl: text(playable.originalUrl || identityUrl),
+                spotifyUrl: identityUrl,
+                sourceProvider: 'spotify',
+                spotifyPlaybackUrl: playbackUrl,
+                spotifyPlaybackProvider: playbackProvider,
+                spotifyPlaybackTitle: playbackTitle,
+                spotifyPlaybackResolver: playbackResolver,
+                eveOwnedPlaybackSource: true,
+                preferEveDirectAudio: true
+            },
+            status: base?.status || 'Spotify identity matched to the EveOS playback transport.'
+        };
+    }
+
     function installPlaybackSourceDecorator(resolveSpotifyPlaybackSource) {
         const localPlayback = window.EveAudioflixLocalPlayback;
         if (!localPlayback?.prepare || localPlayback.__eveSpotifyPlaybackSourceWrapped) return false;
@@ -26,64 +105,7 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
 
         localPlayback.prepare = async function prepareSpotifyIdentity(item) {
             const prepared = await originalPrepare(item);
-            const playable = prepared?.item || (item && typeof item === 'object' ? { ...item } : {});
-            // A granted/localized file always wins. Spotify is only provenance once EveOS owns a
-            // local source, so never replace a playable local copy with an online match.
-            if (prepared?.localPath || !isSpotifyTrack(playable)) return prepared;
-
-            const canonical = canonicalTrack(item);
-            const identityUrl = text(canonical.url || playable.url);
-            let playbackUrl = text(canonical.spotifyPlaybackUrl || playable.spotifyPlaybackUrl);
-            let playbackProvider = text(canonical.spotifyPlaybackProvider || playable.spotifyPlaybackProvider);
-            let playbackTitle = text(canonical.spotifyPlaybackTitle || playable.spotifyPlaybackTitle);
-            let playbackResolver = text(canonical.spotifyPlaybackResolver || playable.spotifyPlaybackResolver);
-
-            if (!playbackUrl) {
-                const key = text(canonical.id || canonical.spotifyTrackId || identityUrl);
-                if (!key) return prepared;
-                let pending = pendingPlaybackSources.get(key);
-                if (!pending) {
-                    pending = Promise.resolve(resolveSpotifyPlaybackSource(canonical))
-                        .finally(() => pendingPlaybackSources.delete(key));
-                    pendingPlaybackSources.set(key, pending);
-                }
-                let resolved = null;
-                try { resolved = await pending; } catch { resolved = null; }
-                if (!resolved?.ok || !text(resolved.url)) return prepared;
-
-                playbackUrl = text(resolved.url);
-                playbackProvider = text(resolved.provider);
-                playbackTitle = text(resolved.title);
-                playbackResolver = text(resolved.resolver);
-                if (canonical.id !== undefined && canonical.id !== null) {
-                    window.EveAudioflixState?.updateItem?.('music', canonical.id, {
-                        spotifyPlaybackUrl: playbackUrl,
-                        spotifyPlaybackProvider: playbackProvider,
-                        spotifyPlaybackTitle: playbackTitle,
-                        spotifyPlaybackResolver: playbackResolver
-                    });
-                }
-            }
-
-            // Keep the Spotify URL as identity/provenance, but hand the normal Audioflix transport
-            // the matched recording URL. From this point volume, seek, pause/resume, queue advance,
-            // output routing and WatchFusion controls all go through the same EveOS path used by
-            // every other Audioflix item instead of depending on Spotify's iframe transport.
-            return {
-                ...prepared,
-                item: {
-                    ...playable,
-                    url: playbackUrl,
-                    originalUrl: text(playable.originalUrl || identityUrl),
-                    spotifyUrl: identityUrl,
-                    sourceProvider: 'spotify',
-                    spotifyPlaybackUrl: playbackUrl,
-                    spotifyPlaybackProvider: playbackProvider,
-                    spotifyPlaybackTitle: playbackTitle,
-                    spotifyPlaybackResolver: playbackResolver
-                },
-                status: prepared?.status || 'Spotify identity matched to the EveOS playback transport.'
-            };
+            return preparePlaybackSource(item, prepared, resolveSpotifyPlaybackSource);
         };
         localPlayback.__eveSpotifyPlaybackSourceWrapped = true;
         return true;
@@ -120,11 +142,15 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
             });
         }
 
+        ns.resolveSpotifyPlaybackSource = resolveSpotifyPlaybackSource;
         // native.js calls this factory after window.EveAudioflixNative exists. Publish the resolver
         // there without making the host facade duplicate provider-specific request plumbing.
         if (window.EveAudioflixNative) {
             window.EveAudioflixNative.resolveSpotifyPlaybackSource = resolveSpotifyPlaybackSource;
         }
+        // Keep the decorator for older direct LocalPlayback callers, but the authoritative
+        // Audioflix play path also invokes preparePlaybackSource explicitly. Correct playback no
+        // longer depends on this one-shot install winning a script/DOMContentLoaded timing race.
         const install = () => installPlaybackSourceDecorator(resolveSpotifyPlaybackSource);
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, { once: true });
         else install();
@@ -132,5 +158,11 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
         return { listSpotifyPlaylist, openSpotifySession, resolveSpotifyPlaybackSource };
     }
 
-    Object.assign(ns, { ready: true, create, isSpotifyTrack, installPlaybackSourceDecorator });
+    Object.assign(ns, {
+        ready: true,
+        create,
+        isSpotifyTrack,
+        preparePlaybackSource,
+        installPlaybackSourceDecorator
+    });
 })();
