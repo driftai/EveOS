@@ -15,3 +15,10 @@ test('World Book lifecycle discovery coalesces bursty status consumers without s
     assert.match(source, /const snapshot = await refresh\(true\)/);
     assert.match(source, /window\.setTimeout\(\(\) => \{ void refresh\(true\); \}, 0\)/);
 });
+
+test('World Book reuses the resolved lifecycle controller before probing every fallback port', () => {
+    assert.match(source, /async function probeController\(baseUrl, index = 0\)/);
+    assert.match(source, /if \(state\.baseUrl\) \{[\s\S]*await probeController\(state\.baseUrl, 0\)/);
+    assert.match(source, /if \(preferred\) return preferred/);
+    assert.match(source, /const bases = candidateBases\(\)/);
+});
