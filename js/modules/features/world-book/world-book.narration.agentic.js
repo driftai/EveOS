@@ -5,7 +5,6 @@ window.EveWorldBookNarrationAgentic = window.EveWorldBookNarrationAgentic || {};
     if (ns.ready) return;
 
     const FIELD = 'browserVoice';
-    let observer = null;
 
     function bridge() {
         return window.EveWorldBookNarrationBridge;
@@ -55,18 +54,17 @@ window.EveWorldBookNarrationAgentic = window.EveWorldBookNarrationAgentic || {};
     }
 
     function start() {
-        if (sync() || observer) return;
-        observer = new MutationObserver(() => {
-            if (sync()) {
-                observer.disconnect();
-                observer = null;
-            }
-        });
-        observer.observe(document.documentElement, { childList: true, subtree: true });
+        sync();
     }
 
+    // The narration module is loaded before the Gemini/World Book dialog necessarily
+    // exists. Re-sync on explicit lifecycle boundaries instead of watching every DOM
+    // mutation in EveOS; the latter turns unrelated workspace rendering into repeated
+    // full-document narration scans while the dialog is absent.
     window.speechSynthesis?.addEventListener?.('voiceschanged', sync);
     window.addEventListener('eve:world-book-narration-settings', sync);
+    window.addEventListener('eve:world-book-ready', sync);
+    window.addEventListener('eve:gemini-workspace-ready', sync);
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
     else start();
 
