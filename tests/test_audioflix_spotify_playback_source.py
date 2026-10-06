@@ -25,6 +25,7 @@ def test_spotify_playback_source_uses_strict_matcher_and_caches(monkeypatch):
         "duration": 201.0,
     }
 
+    monkeypatch.setattr(fallback, "FALLBACK_HYDRATE_LIMIT", 2)
     monkeypatch.setattr(fallback, "stored_track_metadata", lambda value: expected_metadata)
 
     def fake_match(url, searcher=None, opener=None, metadata=None):
@@ -48,10 +49,12 @@ def test_spotify_playback_source_uses_strict_matcher_and_caches(monkeypatch):
     assert first["url"] == "https://www.youtube.com/watch?v=matched-recording"
     assert first["provider"] == "youtube"
     assert first["resolver"] == fallback.STRATEGY
+    assert first["resolverRevision"] == spotify._PLAYBACK_RESOLVER_REVISION
     assert first["identityUrl"] == track["url"]
     assert second["url"] == first["url"]
     assert second.get("cached") is True
     assert calls == [(track["url"], expected_metadata)]
+    assert fallback.FALLBACK_HYDRATE_LIMIT >= fallback.SEARCH_RESULTS_PER_QUERY
 
 
 def test_spotify_playback_source_keeps_identity_when_no_match(monkeypatch):
@@ -77,4 +80,29 @@ def test_spotify_playback_source_keeps_identity_when_no_match(monkeypatch):
     assert result["ok"] is False
     assert result["identityUrl"] == track["url"]
     assert result["resolver"] == fallback.STRATEGY
+    assert result["resolverRevision"] == spotify._PLAYBACK_RESOLVER_REVISION
     assert "No verified recording matched" in result["reason"]
+
+
+def test_spotify_playback_source_surfaces_fallback_message(monkeypatch):
+    _clear_cache()
+    track = {
+        "id": "spotify-track-message",
+        "url": "https://open.spotify.com/track/message123",
+        "title": "Message Song",
+    }
+
+    monkeypatch.setattr(fallback, "stored_track_metadata", lambda value: {"title": value["title"]})
+    monkeypatch.setattr(
+        fallback,
+        "find_fallback_match",
+        lambda url, searcher=None, opener=None, metadata=None: {
+            "ok": False,
+            "message": "Searched six strict candidates and none matched.",
+        },
+    )
+
+    result = spotify.resolve_playback_source({"track": track})
+
+    assert result["ok"] is False
+    assert result["reason"] == "Searched six strict candidates and none matched."
