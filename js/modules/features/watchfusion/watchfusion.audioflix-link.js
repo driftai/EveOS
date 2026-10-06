@@ -26,19 +26,27 @@
     }
     function playable() {
         const playback = audio()?.getPlaybackState?.();
-        const player = audio()?.getWaveformController?.()?.getActivePlayer?.();
-        if (!playback?.item || playback.native || !player || player._eveAudioflixWaveformSafe === false
-            || (playback.browserOnly && playback.provider !== 'direct')) {
-            throw new Error('This source uses a separate provider player. Use Link a playing tab for it, or play a local/browser audio track in Music Library.');
+        if (!playback?.item || playback.native) {
+            throw new Error('Play a Music Library track before connecting Audioflix to WatchFusion.');
         }
-        return { playback, player };
+        const providerOnly = playback.browserOnly === true && playback.provider !== 'direct';
+        const player = providerOnly ? null : audio()?.getWaveformController?.()?.getActivePlayer?.();
+        if (!providerOnly && (!player || player._eveAudioflixWaveformSafe === false)) {
+            throw new Error('This track cannot be captured safely. Play a local or browser-safe Audioflix track, or use a provider-backed Music Library item.');
+        }
+        return { playback, player, providerOnly };
     }
     function snapshot() {
-        const { playback, player } = playable();
+        const { playback, player, providerOnly } = playable();
         const q = queue()?.snapshot?.() || {};
-        return { title: playback.item.title || 'Music Library', group: q.groupName || '', queue: q.entries || [], index: q.currentIndex,
+        const item = playback.item || {};
+        const provider = playback.provider || (providerOnly ? 'provider' : 'direct');
+        return { title: item.title || 'Music Library', group: q.groupName || '', queue: q.entries || [], index: q.currentIndex,
             shuffle: q.shuffle, loop: q.loop, canReorder: typeof queue()?.move === 'function', actions: q.actions || [], paused: playback.paused, currentTime: playback.currentTime,
-            duration: playback.duration, rate: player.playbackRate || 1, volume: player.volume ?? 1 };
+            duration: playback.duration, rate: Number(player?.playbackRate || playback.rate || 1) || 1,
+            volume: Math.max(0, Math.min(1, Number(item.volume ?? player?.volume ?? 1))),
+            provider, providerOnly, itemId: item.id, itemUrl: item.url || '',
+            status: providerOnly ? `${provider} provider linked · queue and controls are synced; provider audio stays in Audioflix on this device.` : '' };
     }
     function publish() {
         try { publisher?.metadata(snapshot()); }
@@ -46,9 +54,10 @@
     }
     async function control(action, value) {
         try {
-            const { playback, player } = playable();
-            if (action === 'toggle') { if (playback.paused) await player.play(); else await audio().pause(); }
-            if (action === 'play') await player.play();
+            const { playback, player, providerOnly } = playable();
+            const playCurrent = () => providerOnly ? audio().playItem?.(playback.item) : player.play();
+            if (action === 'toggle') { if (playback.paused) await playCurrent(); else await audio().pause(); }
+            if (action === 'play') await playCurrent();
             if (action === 'pause') await audio().pause();
             if (action === 'seek') await audio().seek(Math.max(0, Math.min(value, playback.duration || 0)));
             if (action === 'rate') audio().setPlaybackRate(value);
@@ -75,12 +84,16 @@
     }
     async function start(config) {
         if (activeId === config.id && publisher) return;
-        playable(); await loadPeer(); stop();
+        const source = playable(); await loadPeer(); stop();
         try {
-            tap = await audio().getWaveformController().createLiveTap();
-            releaseMonitorMute = audio().getWaveformController().acquireSpeakerMute?.('watchfusion-live') || null;
+            if (!source.providerOnly) {
+                tap = await audio().getWaveformController().createLiveTap();
+                releaseMonitorMute = audio().getWaveformController().acquireSpeakerMute?.('watchfusion-live') || null;
+            }
             activeId = config.id;
-            publisher = new window.WatchFusionLivePeer({ ...config, stream: tap.stream, onReady: publish, onControl: control,
+            publisher = new window.WatchFusionLivePeer({ ...config,
+                ...(tap?.stream ? { stream: tap.stream } : { publisher: true }),
+                onReady: publish, onControl: control,
                 onStatus: status => { if (/stopped|expired|denied|replaced/i.test(status)) stop(); }
             });
             timer = setInterval(publish, 500);
