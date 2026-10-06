@@ -14,6 +14,7 @@ const manifest = read('js/config/manifest/scripts.parts/03-feature-modules.js');
 const resilience = read('js/modules/features/watchfusion/watchfusion.resilience.js');
 const sensor = read('js/modules/features/watchfusion/watchfusion.runtime-sensing.js');
 const outer = read('js/modules/features/watchfusion/watchfusion.js');
+const audioflixLink = read('js/modules/features/watchfusion/watchfusion.audioflix-link.js');
 const bridge = read('tools/WatchFusion/public/client/eveos-embed-bridge.js');
 const staticFiles = read('tools/WatchFusion/src/server/static-files.js');
 const systemRoutes = read('tools/WatchFusion/src/server/system-routes.js');
@@ -58,6 +59,15 @@ check(css.includes('.watchfusion-offline-tabs') && css.includes('.watchfusion-of
     'degraded workspace navigation has no scoped EveOS styling');
 check(css.includes('.topbar-watchfusion-btn[data-detached="1"]'),
     'detached-window presence has no visible EveOS header state');
+
+check(audioflixLink.includes("const providerOnly = playback.browserOnly === true && playback.provider !== 'direct'"),
+    'Audioflix linking still rejects provider-backed URL tracks instead of recognizing control-only providers');
+check(audioflixLink.includes("...(tap?.stream ? { stream: tap.stream } : { publisher: true })"),
+    'provider-backed Audioflix queues cannot create a metadata/control publisher without a capturable stream');
+check(audioflixLink.includes('provider, providerOnly, itemId: item.id, itemUrl: item.url'),
+    'Audioflix provider metadata no longer identifies the active URL-backed queue item');
+check(!audioflixLink.includes('Use Link a playing tab for it, or play a local/browser audio track in Music Library.'),
+    'Audioflix provider queues regressed to the old local-only rejection');
 
 // First-paint regression: resilience inserts .watchfusion-offline-browser between idle copy and
 // component readiness. The shell therefore has four direct grid children in degraded mode. If the
