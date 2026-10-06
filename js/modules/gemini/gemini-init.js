@@ -92,10 +92,6 @@
         if (!container) return;
         const hasFullUi = !!container.querySelector('.mdl-layout__container');
         container.dataset.geminiFullReady = hasFullUi ? '1' : '0';
-        if (hasFullUi && container.dataset.geminiMonitorView === 'full'
-                && window.EveOSSearchMonitorAiHome?.isGeminiOpen?.() && !isWorkspaceCollapsed()) {
-            ensureExpandedWorkspace(container);
-        }
     }
 
     function ensureExpandedWorkspace(container) {
@@ -157,13 +153,14 @@
             button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
         });
 
-        const geminiProviderOpen = window.EveOSSearchMonitorAiHome?.setWorkspaceActive?.(normalized === 'full');
-        if (normalized === 'full' && geminiProviderOpen) {
-            ensureExpandedWorkspace(container);
-            requestGeminiBoot('gemini-provider-open');
-            startFullUiPolling(container);
-        } else {
+        // View/provider state is presentation only. Search Monitor calls onGeminiOpen
+        // only after the explicit Load Gemini Workspace action marks the workspace loaded.
+        window.EveOSSearchMonitorAiHome?.setWorkspaceActive?.(normalized === 'full');
+        if (normalized !== 'full') {
             stopFullUiPolling(container);
+        } else if (container.dataset.geminiFullReady === '1'
+                && window.EveOSSearchMonitorAiHome?.isGeminiOpen?.() && !isWorkspaceCollapsed()) {
+            ensureExpandedWorkspace(container);
         }
     }
 
@@ -180,17 +177,17 @@
 
     function openGeminiProvider(container) {
         if (!container || container.dataset.geminiMonitorView !== 'full') return;
+        // Explicit Load Gemini Workspace owns expansion and heavy frontend boot.
         ensureExpandedWorkspace(container);
-        requestGeminiBoot('gemini-provider-open');
+        requestGeminiBoot('gemini-provider-explicit-load');
         startFullUiPolling(container);
     }
 
     window.addEventListener('eve:gemini-workspace-ready', function () {
         const container = document.getElementById('gemini-ui-root');
         syncFullUiReadiness(container);
-        if (container?.dataset.geminiMonitorView === 'full'
-                && window.EveOSSearchMonitorAiHome?.isGeminiOpen?.()) {
-            ensureExpandedWorkspace(container);
+        if (container?.dataset.geminiFullReady === '1') {
+            stopFullUiPolling(container);
         }
     });
 
