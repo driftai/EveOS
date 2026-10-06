@@ -174,8 +174,14 @@ def test_spotify_playback_source_times_out_before_frontend_request_deadline(monk
     })
 
     def slow_match(url, searcher=None, opener=None, metadata=None):
+        # Return a success after the synthetic stall so the abandoned worker exits cleanly instead
+        # of entering a second fallback call after pytest has restored the monkeypatch.
         time.sleep(0.2)
-        return {"ok": False, "message": "still waiting"}
+        return {
+            "ok": True,
+            "url": "https://www.youtube.com/watch?v=late-success",
+            "match": {"source": "youtube", "title": "Late Success"},
+        }
 
     monkeypatch.setattr(fallback, "find_fallback_match", slow_match)
 
