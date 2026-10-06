@@ -18,14 +18,25 @@
     const roomId = String(correlation.roomId || '');
     const requestId = String(message.requestId || '');
     const correlatedRequestId = String(correlation.requestId || requestId);
-    if (!roomId || !requestId || correlatedRequestId !== requestId || !message.audio) return false;
+    const chunk = String(message.audio || '');
+    if (!roomId || !requestId || correlatedRequestId !== requestId || !chunk) return false;
     const key = audioKey(roomId, requestId);
+    const sampleRate = Math.max(8000, Number(message.sampleRate || 24000));
+    const channels = Math.max(1, Math.min(2, Number(message.channels || 1)));
+    const prior = roomAudio.get(key);
+    const compatible = prior
+      && prior.encoding === (message.encoding || 'pcm_s16le')
+      && prior.sampleRate === sampleRate
+      && prior.channels === channels;
+    const chunks = compatible && Array.isArray(prior.chunks)
+      ? [...prior.chunks, chunk]
+      : [chunk];
     roomAudio.delete(key);
     roomAudio.set(key, {
-      base64: String(message.audio),
+      chunks,
       encoding: message.encoding || 'pcm_s16le',
-      sampleRate: Math.max(8000, Number(message.sampleRate || 24000)),
-      channels: Math.max(1, Math.min(2, Number(message.channels || 1))),
+      sampleRate,
+      channels,
       audioOwner: 'nexus-browser',
       autoplay: false,
       requestId
@@ -39,7 +50,7 @@
   }
 
   function roomAudioForMessage(room, message) {
-    if (message?.audio?.base64 || message?.audio?.audio) return message.audio;
+    if (message?.audio?.base64 || message?.audio?.audio || message?.audio?.chunks?.length) return message.audio;
     const receipt = (room?.finalReceipts || []).find((entry) => entry.messageId === message?.id);
     if (!receipt?.requestId) return null;
     return roomAudio.get(audioKey(room.id, receipt.requestId)) || null;
