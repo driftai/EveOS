@@ -87,7 +87,6 @@ window.EveWorldBook = window.EveWorldBook || {};
     }
 
     function applyDirectStatus(payload) {
-        state.baseUrl = '';
         state.controllerAvailable = false;
         state.directAvailable = true;
         state.installed = true;
@@ -108,19 +107,27 @@ window.EveWorldBook = window.EveWorldBook || {};
         }));
     }
 
+    async function probeController(baseUrl, index = 0) {
+        try {
+            const timeout = baseUrl === window.location.origin ? 1200 : 900;
+            const payload = await fetchJson(`${baseUrl}${STATUS_PATH}`, null, timeout);
+            return { baseUrl, payload, index };
+        } catch (error) {
+            return null;
+        }
+    }
+
     async function findController() {
-        const bases = state.baseUrl
-            ? [state.baseUrl, ...candidateBases().filter((base) => base !== state.baseUrl)]
-            : candidateBases();
-        const attempts = await Promise.all(bases.map(async function (baseUrl, index) {
-            try {
-                const timeout = baseUrl === window.location.origin ? 1200 : 900;
-                const payload = await fetchJson(`${baseUrl}${STATUS_PATH}`, null, timeout);
-                return { baseUrl, payload, index };
-            } catch (error) {
-                return null;
-            }
-        }));
+        // Once discovery has resolved a controller, use that one directly. The previous version
+        // re-probed every candidate (9082, 8765, 3000...) on every refresh, which multiplied one
+        // UI status tick into several /api/world-book/status requests.
+        if (state.baseUrl) {
+            const preferred = await probeController(state.baseUrl, 0);
+            if (preferred) return preferred;
+            state.baseUrl = '';
+        }
+        const bases = candidateBases();
+        const attempts = await Promise.all(bases.map((baseUrl, index) => probeController(baseUrl, index)));
         return attempts.filter(Boolean).sort((a, b) => a.index - b.index)[0] || null;
     }
 
