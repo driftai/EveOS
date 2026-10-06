@@ -26,11 +26,15 @@ window.EveGeminiAgenticDialogPortal = window.EveGeminiAgenticDialogPortal || {};
         return moved;
     }
 
-    const observer = new MutationObserver(() => scan());
-    const start = () => {
+    function start() {
         scan();
-        observer.observe(document.documentElement, { childList: true, subtree: true });
-    };
+    }
+
+    // Gemini HTML components are mounted asynchronously. Scan at explicit component
+    // lifecycle boundaries rather than rescanning the entire EveOS document for every
+    // unrelated subtree mutation during workspace startup.
+    window.addEventListener('eve:gemini-workspace-ready', scan);
+    window.addEventListener('eve:gemini-agentic-ui-refresh', scan);
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', start, { once: true });
