@@ -22,16 +22,29 @@ test('Notes API health checks are single-flight and reused across nearby workspa
     assert.match(client, /A successful Notes API response itself proves the service is healthy/);
 });
 
-test('Notepad files and Spatial Notes keep visible feedback and path tracking avoids duplicate list refreshes', () => {
+test('Notepad files and Spatial Notes keep visible feedback and directly bind critical controls', () => {
     assert.match(workspace, /data-eve-notes-status-toast/);
     assert.match(workspace, /input\.reportValidity\?\.\(\)/);
     assert.match(workspace, /data-eve-notes-track-path.*keydown/);
-    assert.match(workspace, /const workspace = await ns\.notesClient\.workspace\(\)/);
-    assert.doesNotMatch(
-        workspace,
-        /await refreshWorkspace\(\);\s*renderRoots\(payload\.root\?\.id\);\s*currentPath = '';\s*await loadList\(''\);/,
-        'Tracking one path must not refresh/list the workspace twice'
-    );
+    assert.match(workspace, /function bindCriticalControls\(\)/);
+    assert.match(workspace, /trackButton\.addEventListener\('click'/);
+    assert.match(workspace, /querySelectorAll\('\[data-eve-notes-create\]'\)/);
+    assert.match(workspace, /button\.addEventListener\('click'/);
+    assert.match(workspace, /event\.stopPropagation\(\)/);
+});
+
+test('Tracking preserves the newly returned root instead of racing a stale workspace selection', () => {
+    assert.match(workspace, /const rootId = String\(payload\.root\?\.id \|\| ''\)/);
+    assert.match(workspace, /write\(ROOT_KEYS\.files, rootId\)/);
+    assert.match(workspace, /refreshWorkspace\(\{ force: true, preferredRootId: rootId, preserve: true \}\)/);
+    assert.match(workspace, /function normalizeTrackedPath\(value\)/);
+});
+
+test('Workspace metadata refreshes are coalesced during repeated activation', () => {
+    assert.match(workspace, /const WORKSPACE_REFRESH_TTL_MS = 2500/);
+    assert.match(workspace, /let workspaceRefreshPromise = null/);
+    assert.match(workspace, /if \(!force && workspaceRefreshPromise\) return workspaceRefreshPromise/);
+    assert.match(workspace, /Date\.now\(\) - lastWorkspaceAt/);
 });
 
 test('Notes workspace remains usable in the narrow embedded panel', () => {
