@@ -181,7 +181,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                     },
                     onState(state) {
                         playback.paused = state !== 'playing';
-                        if (state === 'playing') emitPlayback(`Playing ${item.title || 'YouTube audio'} with YouTube`);
+                        if (state === 'playing') emitPlayback(`Playing ${playback.item?.title || item.title || 'YouTube audio'} with YouTube`);
                         else if (state === 'paused') emitPlayback('Paused');
                         else if (state === 'ended') emitPlayback('Ended');
                         emitProgress();
@@ -244,7 +244,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                         onStateChange(event) {
                             const states = window.YT.PlayerState || {};
                             playback.paused = event.data !== states.PLAYING;
-                            if (event.data === states.PLAYING) emitPlayback(`Playing ${item.title || 'YouTube audio'} with YouTube`);
+                            if (event.data === states.PLAYING) emitPlayback(`Playing ${playback.item?.title || item.title || 'YouTube audio'} with YouTube`);
                             if (event.data === states.PAUSED) emitPlayback('Paused');
                             if (event.data === states.ENDED) emitPlayback('Ended');
                             emitProgress();
@@ -303,6 +303,21 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 else if (provider !== 'direct') view?.setTransportOnly?.(true);
                 else view?.hide?.();
                 if (playback.paused) await resume();
+                return true;
+            }
+            if (active?.kind === 'youtube' && provider === 'youtube' && typeof active.player?.loadVideoById === 'function') {
+                const nextId = youtubeId(item.url);
+                if (!nextId) throw new Error('This YouTube URL does not contain a playable video ID.');
+                resetPlayback(item, provider);
+                view?.open?.(item, 'YouTube', {
+                    expanded: requestedInternalView,
+                    visible: requestedInternalView
+                });
+                view?.setVisualVisible?.(true);
+                if (requestedInternalView) view?.setExpanded?.(true); else view?.setTransportOnly?.(true);
+                active.player.setVolume?.(Math.round(Math.max(0, Math.min(1, Number(item.volume ?? 1))) * 100));
+                active.player.loadVideoById(nextId);
+                emitProgress();
                 return true;
             }
             if (active?.kind === 'spotify' && provider === 'spotify' && active.player?.loadItem) {
