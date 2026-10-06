@@ -10,8 +10,7 @@ const htmlLoaderAggregatorScripts = [
     `${HTML_LOADERS_BASE_PATH}/layout/layout.js?v=a99ac3b891a6`,
     `${HTML_LOADERS_BASE_PATH}/agentic/agentic.js?v=20261006.1`,
     `${HTML_LOADERS_BASE_PATH}/comm/comm.js?v=e5ce16870cac`,
-    `${HTML_LOADERS_BASE_PATH}/chat_disp/chat_disp.js?v=b898bd562f74`,
-    `${HTML_LOADERS_BASE_PATH}/audio_worklet/audio_worklet.js?v=b08645d3954c`
+    `${HTML_LOADERS_BASE_PATH}/chat_disp/chat_disp.js?v=b898bd562f74`
 ];
 
 function loadHtmlLoaderAggregatorScripts() {
@@ -43,8 +42,6 @@ async function initializeAllHtmlComponents() {
         await loadHtmlLoaderAggregatorScripts();
         console.log('html_initialization_loaders.js: All top-level HTML loader aggregator scripts loaded.');
 
-        // Prepare external styles/runtimes while the provider DOM is still compact.
-        // The late external phase then becomes verification/reuse instead of resource injection.
         if (window.ExternalDependenciesLoadersReady) {
             await window.ExternalDependenciesLoadersReady;
         }
@@ -55,7 +52,6 @@ async function initializeAllHtmlComponents() {
             throw new Error('prepareExternalDependenciesLoaderScripts not found after ext_dep.js load');
         }
 
-        // Prepare the Agentic UI script graph while the Gemini provider DOM is still small.
         if (window.AgenticHtmlLoadersReady) {
             await window.AgenticHtmlLoadersReady;
         }
@@ -112,21 +108,10 @@ async function initializeAllHtmlComponents() {
             console.error('initializeExternalScripts function not found.');
         }
 
-        // Keep the current AudioWorklet HTML phase for this commit; it is removed separately
-        // after the external-dependency/MDL change has its own bisect point.
-        if (typeof window.loadAudioWorkletComponentsHTMLLoaders === 'function') {
-            await window.loadAudioWorkletComponentsHTMLLoaders();
-            console.log('Audio Worklet Components HTML Loaders loaded via html_initialization_loaders.js.');
-
-            if (typeof window.loadPcmProcessorScript === 'function') {
-                await window.loadPcmProcessorScript();
-                console.log('PCM Processor Script HTML Component loaded via html_initialization_loaders.js.');
-            } else {
-                console.error('loadPcmProcessorScript function not found after loading audio worklet components HTML loaders.');
-            }
-        } else {
-            console.error('loadAudioWorkletComponentsHTMLLoaders function not found after loading audio_worklet_components_html_loaders.js.');
-        }
+        // AudioWorklet registration belongs to AudioWorkletInitializer. The historical
+        // HTML loader only appends a loader whose processor-injection path is disabled,
+        // so keeping it here adds a late dynamic script phase without registering audio.
+        console.log('Skipping redundant Audio Worklet HTML loader phase; AudioWorkletInitializer owns processor registration.');
     } catch (error) {
         console.error('Error initializing all HTML components:', error);
     }
