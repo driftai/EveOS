@@ -395,16 +395,26 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     const invokePlay = () => typeof controller.play === 'function'
                         ? controller.play()
                         : controller.resume?.();
+                    const invokeResume = () => typeof controller.resume === 'function'
+                        ? controller.resume()
+                        : controller.play?.();
                     const player = {
                         play: () => {
-                            started = false;
+                            // `play()` on Spotify's Embed can restart the loaded entity in some
+                            // states. A paused, already-started entity must use the API's explicit
+                            // `resume()` method. Newly loaded or naturally ended entities still use
+                            // play(), preserving the queue-load semantics that were previously fixed.
+                            const resumePausedTrack = started && lastPaused && !ended;
+                            if (!resumePausedTrack) started = false;
                             runtimeFailureReported = false;
                             clearStartTimer();
                             clearCompletionTimer();
-                            setStageStatus('Spotify player ready. Starting playback...');
+                            setStageStatus(resumePausedTrack
+                                ? 'Spotify player ready. Resuming playback...'
+                                : 'Spotify player ready. Starting playback...');
                             startTimer = setTimeout(() => reportRuntimeFailure(), startTimeoutMs());
                             try {
-                                const pending = invokePlay();
+                                const pending = resumePausedTrack ? invokeResume() : invokePlay();
                                 Promise.resolve(pending).catch(() => reportRuntimeFailure());
                                 return pending;
                             } catch {
