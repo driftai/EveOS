@@ -18,6 +18,7 @@ window.EveWorldBook = window.EveWorldBook || {};
     let originalContent = '';
     let loading = false;
     let requestGeneration = 0;
+    let statusToastTimer = 0;
 
     function read(key, fallback) {
         try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -29,11 +30,34 @@ window.EveWorldBook = window.EveWorldBook || {};
 
     function one(selector) { return overlay?.querySelector(selector) || null; }
 
+    function ensureStatusToast() {
+        if (!overlay) return null;
+        let toast = overlay.querySelector('[data-eve-notes-status-toast]');
+        if (toast) return toast;
+        toast = document.createElement('div');
+        toast.className = 'eve-notes-status-toast';
+        toast.dataset.eveNotesStatusToast = '';
+        toast.hidden = true;
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('aria-live', 'polite');
+        overlay.querySelector('.notes-world-book-shell')?.appendChild(toast);
+        return toast;
+    }
+
     function status(message, state = '') {
         const target = one('[data-eve-notes-status]');
-        if (!target) return;
-        target.textContent = message;
-        target.dataset.state = state;
+        if (target) {
+            target.textContent = message;
+            target.dataset.state = state;
+        }
+        const toast = ensureStatusToast();
+        if (toast && (state === 'error' || state === 'success')) {
+            toast.textContent = message;
+            toast.dataset.state = state;
+            toast.hidden = false;
+            window.clearTimeout(statusToastTimer);
+            statusToastTimer = window.setTimeout(() => { toast.hidden = true; }, state === 'error' ? 5000 : 2600);
+        }
         overlay?.classList.toggle('has-unsaved-notes', isDirty());
     }
 
@@ -150,7 +174,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         if (!currentRoot) {
             entries = [];
             renderEntries();
-            if (!currentRoot) status(mode === 'files' ? 'Track a .txt, .md, or folder path to begin.' : 'Spatial Notes is unavailable.', mode === 'files' ? '' : 'error');
+            status(mode === 'files' ? 'Track a .txt, .md, or folder path to begin.' : 'Spatial Notes is unavailable.', mode === 'files' ? '' : 'error');
             return;
         }
         const generation = ++requestGeneration;
@@ -198,6 +222,10 @@ window.EveWorldBook = window.EveWorldBook || {};
 
     async function setMode(next) {
         if (!['scratchpad', 'files', 'spatial'].includes(next) || (next !== mode && !(await allowDiscard()))) return;
+        if (next === mode && next !== 'scratchpad' && !loading) {
+            await refreshWorkspace({ preserve: true });
+            return;
+        }
         mode = next;
         write(MODE_KEY, mode);
         applyMode();
@@ -238,12 +266,14 @@ window.EveWorldBook = window.EveWorldBook || {};
             status(error.message, 'error');
         }
     }
+
     async function openReference(rootId, path) {
         if (!(await allowDiscard())) return;
         mode = rootId === 'spatial' ? 'spatial' : 'files'; write(MODE_KEY, mode); applyMode();
         renderRoots(rootId); currentPath = String(path || '').split('/').slice(0, -1).join('/');
         await loadList(currentPath); await openEntry(path, 'file');
     }
+
     async function saveNote() {
         if (!opened) return;
         status('Saving…');
@@ -267,15 +297,29 @@ window.EveWorldBook = window.EveWorldBook || {};
     async function trackPath() {
         const input = one('[data-eve-notes-track-path]');
         const path = String(input?.value || '').trim();
-        if (!path) return status('Enter a .txt, .md, or folder path.', 'error');
+        if (!path) {
+            status('Enter a .txt, .md, or folder path first.', 'error');
+            input?.focus?.();
+            if (input?.setCustomValidity) {
+                input.setCustomValidity('Paste a .txt/.md file or folder path first.');
+                input.reportValidity?.();
+                window.setTimeout(() => input.setCustomValidity(''), 1600);
+            }
+            return;
+        }
+        status('Tracking path…');
         try {
             const payload = await ns.notesClient.track(path);
             input.value = '';
-            await refreshWorkspace();
+            // The track response already identifies the new root. Refresh workspace once, preserving
+            // that root, instead of the old refresh + render + second list request sequence.
+            const workspace = await ns.notesClient.workspace();
+            roots = workspace.roots || [];
             renderRoots(payload.root?.id);
             currentPath = '';
+            clearEditor();
             await loadList('');
-            status(payload.message, 'success');
+            status(payload.message || 'Path tracked.', 'success');
         } catch (error) { status(error.message, 'error'); }
     }
 
@@ -373,6 +417,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         one('[data-eve-notes-font-size]').value = read(FONT_SIZE_KEY, '16');
         applyFont();
         applyMode();
+        ensureStatusToast();
         overlay.addEventListener('click', event => {
             const modeButton = event.target.closest?.('[data-eve-notes-mode]');
             const create = event.target.closest?.('[data-eve-notes-create]');
@@ -400,6 +445,11 @@ window.EveWorldBook = window.EveWorldBook || {};
         });
         one('[data-eve-notes-markdown]').addEventListener('change', event => { write(MARKDOWN_KEY, event.target.checked ? '1' : '0'); void loadList(currentPath); });
         one('[data-eve-notes-filter]').addEventListener('input', renderEntries);
+        one('[data-eve-notes-track-path]')?.addEventListener('keydown', event => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            void trackPath();
+        });
         one('[data-eve-notes-editor]').addEventListener('input', () => status(isDirty() ? 'Unsaved changes.' : 'Ready.'));
         overlay.addEventListener('keydown', event => {
             if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's' || mode === 'scratchpad') return;
