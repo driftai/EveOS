@@ -89,9 +89,13 @@ function main() {
     // ---- localhost provider-host resilience covers the exact live route seen in server logs ----
     assert(resilience.includes(".audioflix-volume-slider, .audioflix-provider-volume"),
         'the resilience layer observes both Audioflix volume controls');
-    assert(resilience.includes("action: 'volume'"),
+    const providerCommand = functionBody(resilience, 'function sendProviderCommand(');
+    assert(providerCommand.includes("type: 'eve-audioflix-provider-command'") && providerCommand.includes('action,'),
+        'the resilience layer routes provider commands through the generic provider-host bridge');
+    const providerVolume = functionBody(resilience, 'function sendProviderVolume(');
+    assert(providerVolume.includes("sendProviderCommand('volume', Math.round(clamp(level) * 100))"),
         'the resilience layer can send a live provider-host volume command');
-    assert(resilience.includes('Math.round(clamp(level) * 100)'),
+    assert(providerVolume.includes('Math.round(clamp(level) * 100)'),
         'provider-host live volume uses YouTube integer 0..100 units');
     assert(resilience.includes("detail.event !== 'state'") && resilience.includes("detail.state !== 'ended'"),
         'raw provider-host Ended state is observed even if an adapter drops the higher-level event');
