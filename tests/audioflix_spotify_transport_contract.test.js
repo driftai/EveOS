@@ -46,9 +46,15 @@ test('YouTube bridge normalizes EveOS 0..1 volume to YouTube 0..100 exactly once
     assert.match(host, /event\.target\.setVolume\(youtubeVolume\(volume\)\)/);
 });
 
+test('active provider identity owns live volume routing', () => {
+    assert.match(audio, /const activeUrlMatch = urlPlayback\?\.matches\?\.\(itemId\) === true/);
+    assert.match(audio, /if \(activeUrlMatch\) urlPlayback\.setVolume\(safeVolume\)/);
+    assert.match(audio, /layerController\.updateVolume\(itemId, safeVolume\)/);
+});
+
 test('routed PCM reads current Audioflix volume for every outgoing chunk', () => {
     assert.match(capture, /encodePcm\?\.\(chunk, 0, chunk\.length, getVolume\(\)\)/);
-    assert.match(audio, /activeStreamVolume = vol/);
+    assert.match(audio, /activeStreamVolume = safeVolume/);
 });
 
 test('all Eve-owned transports expose a natural Ended signal to the group queue', () => {
