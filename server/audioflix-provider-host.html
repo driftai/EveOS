@@ -46,6 +46,14 @@
                 send('error', { message });
             };
             const stateName = (value) => ({ '-1': 'unstarted', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'cued' }[value] || 'unknown');
+            // Audioflix's canonical volume is 0..1, while the YouTube IFrame API uses 0..100.
+            // Older URL-controller callers already converted to percent before crossing this
+            // bridge, so accept either representation at the boundary and normalize exactly once.
+            const youtubeVolume = (value) => {
+                const numeric = Math.max(0, Number(value) || 0);
+                const percent = numeric <= 1 ? numeric * 100 : numeric;
+                return Math.round(Math.max(0, Math.min(100, percent)));
+            };
 
             window.addEventListener('message', (event) => {
                 const command = event.data;
@@ -53,7 +61,7 @@
                 if (command.action === 'play') player.playVideo();
                 else if (command.action === 'pause') player.pauseVideo();
                 else if (command.action === 'seek') player.seekTo(Math.max(0, Number(command.value) || 0), true);
-                else if (command.action === 'volume') player.setVolume(Math.round(Math.max(0, Math.min(100, Number(command.value) || 0))));
+                else if (command.action === 'volume') player.setVolume(youtubeVolume(command.value));
                 else if (command.action === 'stop') player.stopVideo();
             });
 
@@ -70,7 +78,7 @@
                     playerVars: { autoplay: 1, controls: 1, playsinline: 1, rel: 0, origin: location.origin },
                     events: {
                         onReady(event) {
-                            event.target.setVolume(Math.round(volume * 100));
+                            event.target.setVolume(youtubeVolume(volume));
                             document.body.className = 'ready';
                             send('ready', snapshot());
                             event.target.playVideo();
