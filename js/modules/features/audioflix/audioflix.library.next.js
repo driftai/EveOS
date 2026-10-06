@@ -241,18 +241,70 @@ window.EveAudioflixLibraryNext = window.EveAudioflixLibraryNext || {};
         root.querySelector('.audioflix-info-body')?.appendChild(box);
     }
 
+    function enhanceDuplicateBox(box) {
+        if (!box || box.querySelector('.eve-next-tool')) return;
+        const base = box.querySelector('[data-af-action="merge-duplicate"]'); if (!base) return;
+        if (box.querySelector('.audioflix-dup-badge') || box.textContent.includes('Duplicate')) {
+            const tools = document.createElement('div'); tools.style.marginTop = '7px';
+            const hard = box.textContent.includes('Duplicate detected');
+            const b = document.createElement('button'); b.type = 'button'; b.className = 'eve-next-tool'; b.dataset.nextAction = hard ? 'merge-earliest' : 'rename-earliest-soft'; b.dataset.afType = base.dataset.afType || 'music'; b.dataset.afId = base.dataset.afId || ''; b.textContent = hard ? '⏱ Auto-merge: Keep Earliest Added' : '🔤 Rename Earliest Soft Duplicate';
+            b.title = hard ? 'For hard/found duplicates only. Keeps the oldest library item as the survivor.' : 'Keeps the newest item unchanged and adds a numeric suffix to the earliest item.';
+            tools.appendChild(b); box.appendChild(tools);
+        }
+    }
+
     function enhanceDuplicateBoxes(root) {
-        root.querySelectorAll?.('.audioflix-dup-manager-box').forEach((box) => {
-            if (box.querySelector('.eve-next-tool')) return;
-            const base = box.querySelector('[data-af-action="merge-duplicate"]'); if (!base) return;
-            if (box.querySelector('.audioflix-dup-badge') || box.textContent.includes('Duplicate')) {
-                const tools = document.createElement('div'); tools.style.marginTop = '7px';
-                const hard = box.textContent.includes('Duplicate detected');
-                const b = document.createElement('button'); b.type = 'button'; b.className = 'eve-next-tool'; b.dataset.nextAction = hard ? 'merge-earliest' : 'rename-earliest-soft'; b.dataset.afType = base.dataset.afType || 'music'; b.dataset.afId = base.dataset.afId || ''; b.textContent = hard ? '⏱ Auto-merge: Keep Earliest Added' : '🔤 Rename Earliest Soft Duplicate';
-                b.title = hard ? 'For hard/found duplicates only. Keeps the oldest library item as the survivor.' : 'Keeps the newest item unchanged and adds a numeric suffix to the earliest item.';
-                tools.appendChild(b); box.appendChild(tools);
+        root?.querySelectorAll?.('.audioflix-dup-manager-box').forEach(enhanceDuplicateBox);
+    }
+
+    function scanDomDecorators(root) {
+        if (!root || root.nodeType !== 1) return;
+        const modal = root.closest?.('.audioflix-info-modal');
+        if (modal) addModalHealthBox(modal);
+        const duplicateBox = root.closest?.('.audioflix-dup-manager-box');
+        if (duplicateBox) enhanceDuplicateBox(duplicateBox);
+        if (root.matches?.('.audioflix-info-modal')) addModalHealthBox(root);
+        if (root.matches?.('.audioflix-dup-manager-box')) enhanceDuplicateBox(root);
+        root.querySelectorAll?.('.audioflix-info-modal').forEach(addModalHealthBox);
+        root.querySelectorAll?.('.audioflix-dup-manager-box').forEach(enhanceDuplicateBox);
+    }
+
+    function installOverlayDomObserver() {
+        let overlayObserver = null;
+        let bodyObserver = null;
+
+        const connect = () => {
+            const overlay = document.getElementById('audioflix-overlay');
+            if (!overlay || overlayObserver) return false;
+            scanDomDecorators(overlay);
+            overlayObserver = new MutationObserver((records) => {
+                records.forEach((record) => {
+                    record.addedNodes.forEach((node) => {
+                        if (node?.nodeType === 1) scanDomDecorators(node);
+                    });
+                });
+            });
+            overlayObserver.observe(overlay, { childList: true, subtree: true });
+            bodyObserver?.disconnect();
+            bodyObserver = null;
+            return true;
+        };
+
+        if (connect()) return;
+
+        // The AudioFlix overlay is a direct child of body. Observe only that one level until the
+        // overlay appears, then disconnect so unrelated EveOS/Gemini DOM churn never reaches us.
+        bodyObserver = new MutationObserver((records) => {
+            for (const record of records) {
+                for (const node of record.addedNodes) {
+                    if (node?.nodeType === 1 && node.id === 'audioflix-overlay') {
+                        connect();
+                        return;
+                    }
+                }
             }
         });
+        bodyObserver.observe(document.body, { childList: true });
     }
 
     function installDomHooks() {
@@ -284,11 +336,7 @@ window.EveAudioflixLibraryNext = window.EveAudioflixLibraryNext || {};
             }
         }, true);
 
-        const observer = new MutationObserver(() => {
-            document.querySelectorAll('.audioflix-info-modal').forEach(addModalHealthBox);
-            document.querySelectorAll('.audioflix-dup-manager-box').forEach(enhanceDuplicateBoxes);
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
+        installOverlayDomObserver();
         document.addEventListener('eve:audioflix-playback', () => {}, true);
         window.addEventListener?.('eve:audioflix-playback', (event) => {
             // Queue progression has one owner: audioflix.ui.js -> playQueueIndex().
