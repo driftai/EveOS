@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -86,5 +87,10 @@ def test_scoped_svg_fix_cache_chain_is_busted():
     assert "svgLifecycle.js?v=20261006.1" in page_loader
     assert "initializationCoordinator.js?v=20261006.1" in page_loader
     assert "svgFixerLoader.js?v=20261006.1" in master
-    assert "pageInitializerLoader.js?v=20261006.1" in master
-    assert "Script_Loader/Script_Loader.js?v=20261006.1" in manifest
+
+    # Parent loaders are shared cache-chain hops. Their revisions can legitimately advance
+    # when later Gemini work changes siblings (for example displayLoader) without changing
+    # the SVG implementation itself. Guard that the versioned hop exists instead of pinning
+    # an unrelated parent's exact revision forever.
+    assert re.search(r"pageInitializerLoader\.js\?v=[^'\"`]+", master)
+    assert re.search(r"Script_Loader/Script_Loader\.js\?v=[^'\"]+", manifest)
