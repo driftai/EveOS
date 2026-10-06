@@ -1,0 +1,92 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const registry = require('../extension/providers.js');
+const hark = require('../extension/hark-provider.js');
+const harkInput = require('../extension/content/hark-input.js');
+const harkAnswer = require('../extension/content/hark-answer.js');
+
+const extensionDir = path.join(__dirname, '..', 'extension');
+
+test('Hark registers as an Online-Origin target for chat and project workspaces', () => {
+  assert.equal(hark.id, 'hark');
+  assert.equal(hark.name, 'Hark');
+  assert.equal(registry.getProvider('hark'), hark);
+  assert.deepEqual(hark.matchPatterns, [
+    'https://hark.com/chat*',
+    'https://hark.com/projects/*'
+  ]);
+  assert.deepEqual(hark.urlPrefixes, [
+    'https://hark.com/chat',
+    'https://hark.com/projects/'
+  ]);
+  assert.equal(registry.providerForUrl('https://hark.com/chat')?.id, 'hark');
+  assert.equal(registry.providerForUrl('https://hark.com/chat/abc')?.id, 'hark');
+  assert.equal(registry.providerForUrl('https://hark.com/projects/new')?.id, 'hark');
+  assert.equal(registry.providerForUrl('https://hark.com/projects/project-123')?.id, 'hark');
+  assert.equal(registry.providerForUrl('https://hark.com/settings'), null);
+  assert.equal(registry.providerForUrl('https://example.com/chat'), null);
+});
+
+test('Hark advertises the normal Nexus chat/capture contract and spawn surface', () => {
+  assert.deepEqual(hark.capabilities, {
+    chat: true,
+    captureLatest: true,
+    activity: false,
+    searchResults: false
+  });
+  assert.equal(hark.adapterContract.operations.send, true);
+  assert.equal(hark.adapterContract.operations.captureLatest, true);
+  assert.equal(hark.adapterContract.operations.recover, true);
+  assert.equal(hark.qualification.live, true);
+  assert.equal(hark.qualification.warmRecovery, true);
+  assert.equal(hark.qualification.exactOnce, true);
+  assert.equal(hark.orchestration.spawnUrl, 'https://hark.com/chat');
+  assert.equal(registry.publicProviders().find((provider) => provider.id === 'hark')?.orchestration.spawnable, true);
+});
+
+test('Hark bridge group includes revision, transport, Dex control and health adapters', () => {
+  for (const file of [
+    'content/provider-adapter-revision.js',
+    'content/hark-input.js',
+    'content/hark-answer.js',
+    'content/hark.js',
+    'content/dex-provider-control.js',
+    'content/provider-health.js'
+  ]) assert.equal(hark.contentScripts.includes(file), true, file);
+
+  assert.equal(typeof harkInput.findComposer, 'function');
+  assert.equal(typeof harkInput.setComposerText, 'function');
+  assert.equal(typeof harkInput.findSendControl, 'function');
+  assert.equal(typeof harkInput.generationLooksActive, 'function');
+  assert.equal(typeof harkAnswer.assistantNodes, 'function');
+  assert.equal(typeof harkAnswer.latestAssistantText, 'function');
+});
+
+test('extension manifest grants Hark host access and injects only chat/project workspaces', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(extensionDir, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.host_permissions.includes('https://hark.com/*'), true);
+  const group = manifest.content_scripts.find((entry) => entry.js?.includes('content/hark.js'));
+  assert.ok(group);
+  assert.deepEqual(group.matches, ['https://hark.com/chat*', 'https://hark.com/projects/*']);
+  assert.deepEqual(group.js, [
+    'content/provider-adapter-revision.js',
+    'content/hark-input.js',
+    'content/hark-answer.js',
+    'content/hark.js',
+    'content/dex-provider-control.js',
+    'content/provider-health.js'
+  ]);
+});
+
+test('service worker augments the canonical provider array after its base boot', () => {
+  const source = fs.readFileSync(path.join(extensionDir, 'service-worker-entry.js'), 'utf8');
+  const baseIndex = source.indexOf("importScripts('service-worker.js')");
+  const harkIndex = source.indexOf("importScripts('hark-provider.js')");
+  assert.ok(baseIndex >= 0);
+  assert.ok(harkIndex > baseIndex);
+});
