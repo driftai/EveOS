@@ -39,11 +39,13 @@ test('Audioflix prepares local media before explicit Spotify playback ownership'
     assert.match(spotify, /preferEveDirectAudio:\s*true/);
 });
 
-test('YouTube bridge normalizes EveOS 0..1 volume to YouTube 0..100 exactly once', () => {
-    assert.match(host, /const youtubeVolume = \(value\) =>/);
-    assert.match(host, /numeric <= 1 \? numeric \* 100 : numeric/);
-    assert.match(host, /player\.setVolume\(youtubeVolume\(command\.value\)\)/);
-    assert.match(host, /event\.target\.setVolume\(youtubeVolume\(volume\)\)/);
+test('YouTube bridge keeps initial normalized volume distinct from live percent commands', () => {
+    assert.match(host, /const normalizedYoutubeVolume = \(value\) =>/);
+    assert.match(host, /Math\.max\(0, Math\.min\(1, Number\(value\) \|\| 0\)\) \* 100/);
+    assert.match(host, /const percentYoutubeVolume = \(value\) =>/);
+    assert.match(host, /Math\.max\(0, Math\.min\(100, Number\(value\) \|\| 0\)\)/);
+    assert.match(host, /player\.setVolume\(percentYoutubeVolume\(command\.value\)\)/);
+    assert.match(host, /event\.target\.setVolume\(normalizedYoutubeVolume\(volume\)\)/);
 });
 
 test('active provider identity owns live volume routing', () => {
