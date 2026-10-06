@@ -38,21 +38,43 @@ async function loadSessionControlsCard() {
     }
 }
 
+let sessionControlsSettingsDialogScriptPromise = null;
+
 function loadSessionControlsSettingsDialogScript() {
-    return new Promise((resolve, reject) => {
+    // The settings-dialog loader is now part of the pre-layout Agentic script
+    // preparation graph. Reuse that prepared module instead of injecting a new
+    // script after the large Gemini workspace DOM has been mounted.
+    if (typeof window.loadSessionControlsSettingsDialog === 'function') {
+        return Promise.resolve('prepared');
+    }
+    if (sessionControlsSettingsDialogScriptPromise) {
+        return sessionControlsSettingsDialogScriptPromise;
+    }
+
+    sessionControlsSettingsDialogScriptPromise = new Promise((resolve, reject) => {
         const script = document.createElement('script');
-        script.src = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/agentic/sess_ctrl/sessionControlsSettingsDialogUILoader.js?v=e4ab78d5a8ab';
+        script.src = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/agentic/sess_ctrl/sessionControlsSettingsDialogUILoader.js?v=20261005.1';
+        script.async = false;
         script.defer = true;
         script.onload = () => {
+            if (typeof window.loadSessionControlsSettingsDialog !== 'function') {
+                reject(new Error('Session Controls Settings Dialog loader did not register'));
+                return;
+            }
             console.log('Session Controls Settings Dialog UI Loader script loaded.');
-            resolve();
+            resolve('loaded');
         };
         script.onerror = (error) => {
             console.error('Failed to load Session Controls Settings Dialog UI Loader script:', error);
             reject(error);
         };
-        document.body.appendChild(script);
+        document.head.appendChild(script);
+    }).catch((error) => {
+        sessionControlsSettingsDialogScriptPromise = null;
+        throw error;
     });
+
+    return sessionControlsSettingsDialogScriptPromise;
 }
 
 window.loadSessionControlsCard = loadSessionControlsCard;
