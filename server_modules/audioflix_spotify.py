@@ -312,17 +312,6 @@ def resolve_playback_source(payload: dict) -> dict:
 
     from server_modules import audioflix_spotify_fallback as fallback
 
-    # Playback needs to leave Spotify Embed whenever a strict independent recording can be found:
-    # Embed exposes pause/resume/seek state, but no volume control. The localization fallback kept
-    # network work intentionally tiny by hydrating only two search rows; that is too narrow for the
-    # live player because a valid official/Topic recording can easily rank third-sixth in flat
-    # search. Expand detail hydration to the already-bounded six discovered rows while retaining the
-    # exact same title/artist/duration/edition acceptance gates.
-    fallback.FALLBACK_HYDRATE_LIMIT = max(
-        int(getattr(fallback, "FALLBACK_HYDRATE_LIMIT", 0) or 0),
-        int(getattr(fallback, "SEARCH_RESULTS_PER_QUERY", 6) or 6),
-    )
-
     track_key = str(track.get("spotifyTrackId") or track.get("id") or identity_url).strip()
     # Include resolver behavior in the cache key. A long-running EveOS server can otherwise keep a
     # successful source selected by an older resolver for the full cache TTL after frontend reloads.
@@ -336,7 +325,8 @@ def resolve_playback_source(payload: dict) -> dict:
     # First try the player client that matches EveOS's actual iframe transport. This avoids making
     # account cookies or manual PO-token extraction a prerequisite for normal Spotify-derived
     # playback. If the embed-specific pass cannot prove a strict match, keep the existing broad
-    # resolver (including SoundCloud) as a compatibility fallback.
+    # resolver (including SoundCloud) as a compatibility fallback. The embedded search hydrates its
+    # full bounded candidate set internally; do not mutate the localization resolver's global budget.
     result = fallback.find_fallback_match(
         identity_url,
         searcher=_playback_youtube_search,
