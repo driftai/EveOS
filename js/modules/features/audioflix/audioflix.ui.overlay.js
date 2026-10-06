@@ -17,6 +17,40 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
         // Shared mutable view state stays in audioflix.ui.js; reach it through the accessor bag.
         const V = ctx.view;
 
+        // Provider-backed players can report their terminal state while EveOS is backgrounded.
+        // Register this bridge before audioflix.ui.js installs its generic Ended listener so the
+        // provider can move the existing queue immediately without waiting for a foreground render.
+        // The generic listener remains the fallback; its queueRunId guard sees the step below and
+        // therefore cannot skip a second track. Repeat-one stays with the generic restart path.
+        let providerAdvancePending = '';
+        window.addEventListener('eve:audioflix-playback', (event) => {
+            const detail = event.detail || {};
+            if (detail.status !== 'Ended' || detail.browserOnly !== true || detail.provider !== 'spotify') return;
+            const bridge = window.EveAudioflix?.queueConnection;
+            const snapshot = bridge?.snapshot?.();
+            if (!snapshot?.isPlaying || snapshot.repeatOne || !snapshot.entries?.length) return;
+            const expectedIndex = Number(snapshot.currentIndex);
+            const expectedItem = snapshot.entries[expectedIndex];
+            if (!Number.isInteger(expectedIndex) || expectedIndex < 0 || !expectedItem) return;
+            const eventId = String(detail.item?.id ?? '');
+            const expectedId = String(expectedItem.id ?? '');
+            if (eventId && eventId !== expectedId) return;
+            const key = `${expectedId}:${expectedIndex}`;
+            if (providerAdvancePending === key) return;
+            providerAdvancePending = key;
+            Promise.resolve(detail.settle).catch(() => false).then(() => {
+                const latestBridge = window.EveAudioflix?.queueConnection;
+                const latest = latestBridge?.snapshot?.();
+                const latestItem = latest?.entries?.[latest.currentIndex];
+                if (!latest?.isPlaying || latest.repeatOne
+                    || Number(latest.currentIndex) !== expectedIndex
+                    || String(latestItem?.id ?? '') !== expectedId) return false;
+                return latestBridge.step?.(1);
+            }).finally(() => {
+                if (providerAdvancePending === key) providerAdvancePending = '';
+            });
+        });
+
         function ensureOverlay() {
             if (V.overlay) return V.overlay;
             V.overlay = Object.assign(document.createElement('div'), { id: 'audioflix-overlay', className: 'audioflix-overlay', hidden: true });
@@ -88,9 +122,14 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                 } else if (t.classList.contains('audioflix-volume-slider')) {
                     const vol = parseFloat(t.value), id = t.dataset.afId, lbl = t.nextElementSibling;
                     t.style.setProperty('--vol', `${vol * 100}%`); if (lbl) lbl.textContent = `${Math.round(vol * 100)}%`;
-                    window.EveAudioflixAudio?.updateItemVolume?.(id, vol);
+                    // data-* values are always strings, while imported/localized records may keep a
+                    // numeric ID. Hand the playback layer its real active ID when the values are
+                    // equivalent so its active-item update cannot silently miss the live player.
+                    const activeId = window.EveAudioflixAudio?.getPlaybackState?.()?.item?.id;
+                    const playbackId = String(activeId ?? '') === String(id ?? '') ? activeId : id;
+                    window.EveAudioflixAudio?.updateItemVolume?.(playbackId, vol);
                     window.EveAudioflixState?.setItemVolume?.(t.dataset.afType, id, vol);
-                    const ps = V.portedSounds.find(s => s.id === id); if (ps) ps.volume = vol;
+                    const ps = V.portedSounds.find(s => String(s.id ?? '') === String(id ?? '')); if (ps) ps.volume = vol;
                 }
             });
             V.overlay.addEventListener('change', async e => {
