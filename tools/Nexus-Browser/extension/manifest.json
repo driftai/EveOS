@@ -132,7 +132,8 @@
     },
     {
       "matches": [
-        "https://hark.com/*"
+        "https://hark.com/chat*",
+        "https://hark.com/projects/*"
       ],
       "js": [
         "content/provider-adapter-revision.js",
