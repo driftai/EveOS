@@ -9,6 +9,7 @@ const ROOT = path.join(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
 
 const audio = read('js', 'modules', 'features', 'audioflix', 'audioflix.audio.js');
+const capture = read('js', 'modules', 'features', 'audioflix', 'audioflix.audio.capture.js');
 const spotify = read('js', 'modules', 'features', 'audioflix', 'audioflix.native.spotify.js');
 const host = read('server', 'audioflix-provider-host.html');
 const ui = read('js', 'modules', 'features', 'audioflix', 'audioflix.ui.js');
@@ -45,10 +46,17 @@ test('YouTube bridge normalizes EveOS 0..1 volume to YouTube 0..100 exactly once
     assert.match(host, /event\.target\.setVolume\(youtubeVolume\(volume\)\)/);
 });
 
+test('routed PCM reads current Audioflix volume for every outgoing chunk', () => {
+    assert.match(capture, /encodePcm\?\.\(chunk, 0, chunk\.length, getVolume\(\)\)/);
+    assert.match(audio, /activeStreamVolume = vol/);
+});
+
 test('all Eve-owned transports expose a natural Ended signal to the group queue', () => {
     assert.match(audio, /audio\.addEventListener\('ended'/);
+    assert.match(audio, /musicCapture\?\.stop\(\{ drain: true \}\)/);
     assert.match(audio, /status:\s*lastStatus,\s*item:\s*endedItem,\s*settle/);
     assert.match(host, /0:\s*'ended'/);
     assert.match(ui, /status === 'Ended'/);
+    assert.match(ui, /Promise\.resolve\(e\.detail\?\.settle\)/);
     assert.match(ui, /playQueueIndex\(expectedIndex \+ 1\)/);
 });
