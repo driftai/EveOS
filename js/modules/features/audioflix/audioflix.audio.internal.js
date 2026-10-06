@@ -323,6 +323,15 @@ window.EveAudioflixInternalPlayer = window.EveAudioflixInternalPlayer || {};
                 pauseVideo: () => command('pause'),
                 seekTo: (value) => command('seek', Number(value) || 0),
                 setVolume: (value) => command('volume', Number(value) || 0),
+                loadVideoById: (value) => {
+                    const nextId = String(value || '').trim();
+                    if (!/^[A-Za-z0-9_-]{11}$/.test(nextId)) return false;
+                    bridgeState.currentTime = 0;
+                    bridgeState.duration = 0;
+                    bridgeState.paused = true;
+                    command('load', nextId);
+                    return true;
+                },
                 getCurrentTime: () => bridgeState.currentTime,
                 getDuration: () => bridgeState.duration,
                 destroy() { command('stop'); cleanup(); iframe.remove(); }
