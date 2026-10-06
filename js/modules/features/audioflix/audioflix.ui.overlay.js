@@ -20,12 +20,17 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
         // Provider-backed players can report their terminal state while EveOS is backgrounded.
         // Register this bridge before audioflix.ui.js installs its generic Ended listener so the
         // provider can move the existing queue immediately without waiting for a foreground render.
+        // Spotify identities normally resolve onto an Eve-owned provider such as YouTube, so key
+        // this fast-path on Spotify provenance as well as the legacy direct-Spotify adapter name.
         // The generic listener remains the fallback; its queueRunId guard sees the step below and
         // therefore cannot skip a second track. Repeat-one stays with the generic restart path.
         let providerAdvancePending = '';
         window.addEventListener('eve:audioflix-playback', (event) => {
             const detail = event.detail || {};
-            if (detail.status !== 'Ended' || detail.browserOnly !== true || detail.provider !== 'spotify') return;
+            const spotifyBacked = detail.provider === 'spotify'
+                || String(detail.item?.sourceProvider || '').toLowerCase() === 'spotify'
+                || !!detail.item?.spotifyUrl;
+            if (detail.status !== 'Ended' || detail.browserOnly !== true || !spotifyBacked) return;
             const bridge = window.EveAudioflix?.queueConnection;
             const snapshot = bridge?.snapshot?.();
             if (!snapshot?.isPlaying || snapshot.repeatOne || !snapshot.entries?.length) return;
@@ -138,7 +143,6 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                 if (t.classList.contains('audioflix-nexus-select')) {
                     const selected = new Set(V.nexusState.selectedIds || []);
                     if (t.checked) selected.add(id); else selected.delete(id);
-                    V.nexusState = { ...V.nexusState, selectedIds: [...selected] };
                     t.closest('.audioflix-nexus-row')?.classList.toggle('is-selected', t.checked);
                     const counter = V.overlay.querySelector('[data-af-bulk-selected-count]');
                     if (counter) counter.textContent = String(selected.size);
