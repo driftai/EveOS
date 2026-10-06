@@ -98,8 +98,21 @@ async function attachRendererWatchdog(page, overrides = {}) {
     if (!config.enabled || !page) return null;
     if (watchedPages.has(page)) return watchedPages.get(page);
 
+    // Playwright emits the context "page" event while context.newPage() is also
+    // returning that same page. Reserve the page before the first async CDP setup
+    // step so both attachment paths share one initialization instead of racing.
+    let resolveReservation;
+    const reservation = new Promise((resolve) => { resolveReservation = resolve; });
+    watchedPages.set(page, reservation);
+
     let cdp;
-    try { cdp = await page.context().newCDPSession(page); } catch (_) { return null; }
+    try {
+        cdp = await page.context().newCDPSession(page);
+    } catch (_) {
+        if (watchedPages.get(page) === reservation) watchedPages.delete(page);
+        resolveReservation(null);
+        return null;
+    }
     const browser = page.context().browser();
     let browserCdp = null;
     try { browserCdp = await browser?.newBrowserCDPSession?.(); } catch (_) {}
@@ -204,6 +217,7 @@ async function attachRendererWatchdog(page, overrides = {}) {
 
     const controller = { probe, stop, get stalled() { return !!report.stall; }, get reportPath() { return reportPath; } };
     watchedPages.set(page, controller);
+    resolveReservation(controller);
 
     try {
         await cdp.send('Runtime.enable');
