@@ -12,7 +12,8 @@
     { id: 'claude', answer: 'BrowserAiBridgeClaudeAnswer', input: 'BrowserAiBridgeClaudeInput' },
     { id: 'chatgpt', answer: 'BrowserAiBridgeChatGptAnswer', input: 'BrowserAiBridgeChatGptInput' },
     { id: 'gemini', answer: 'BrowserAiBridgeGeminiAnswer', input: 'BrowserAiBridgeGeminiInput' },
-    { id: 'muse', answer: 'BrowserAiBridgeMuseAnswer', input: 'BrowserAiBridgeMuseInput' }
+    { id: 'muse', answer: 'BrowserAiBridgeMuseAnswer', input: 'BrowserAiBridgeMuseInput' },
+    { id: 'hark', answer: 'BrowserAiBridgeHarkAnswer', input: 'BrowserAiBridgeHarkInput' }
   ];
   const SETTLED_MS = 450, MALFORMED_SETTLED_MS = 1800;
 

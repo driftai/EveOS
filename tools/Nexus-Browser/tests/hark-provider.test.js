@@ -164,3 +164,8 @@ test('service worker keeps the Hark compatibility hook after its canonical boot'
   assert.ok(baseIndex >= 0);
   assert.ok(harkIndex > baseIndex);
 });
+
+test('Dex provider control resolves the Hark runtime so Hark replies can issue Dex commands', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '../extension/content/dex-provider-control.js'), 'utf8');
+  assert.match(source, /\{ id: 'hark', answer: 'BrowserAiBridgeHarkAnswer', input: 'BrowserAiBridgeHarkInput' \}/);
+});
