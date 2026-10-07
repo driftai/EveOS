@@ -21,27 +21,38 @@
     };
   }
 
+  function callTimer(timers, name, ...args) {
+    const fn = timers?.[name];
+    if (typeof fn !== 'function') return undefined;
+    // Browser timer functions are Web IDL methods and can throw `Illegal invocation` when
+    // copied onto our plain `timers` object and then invoked with that object as `this`.
+    // Always call them with the host global as the receiver; injected test timers tolerate it.
+    return Reflect.apply(fn, globalThis, args);
+  }
+
   function create({ active, stopWatcher, emit, now = () => Date.now(),
     timers = { setInterval, clearInterval, setTimeout, clearTimeout } } = {}) {
     function arm(requestId, committed, windowMs = MANUAL_COMMIT_WINDOW_MS) {
       const watcher = active?.get?.(requestId);
       if (!watcher || typeof committed !== 'function') return false;
       watcher.awaitingManualCommit = true;
-      watcher.manualPoll = timers.setInterval(() => {
+      watcher.manualPoll = callTimer(timers, 'setInterval', () => {
         if (!active.has(requestId) || !committed()) return;
-        timers.clearInterval(watcher.manualPoll); timers.clearTimeout(watcher.manualDeadline);
+        callTimer(timers, 'clearInterval', watcher.manualPoll);
+        callTimer(timers, 'clearTimeout', watcher.manualDeadline);
         watcher.awaitingManualCommit = false; watcher.promptCommitted = true; watcher.submissionMode = 'manual';
         emit({ type: 'response_activity', requestId, isGenerating: true, generationState: 'active',
           submissionMode: 'manual', observedAt: now() });
       }, POLL_MS);
-      watcher.manualDeadline = timers.setTimeout(() => {
+      watcher.manualDeadline = callTimer(timers, 'setTimeout', () => {
         if (watcher.awaitingManualCommit) stopWatcher(requestId);
       }, windowMs);
       return true;
     }
     function release(watcher) {
       if (!watcher) return;
-      timers.clearInterval(watcher.manualPoll); timers.clearTimeout(watcher.manualDeadline);
+      callTimer(timers, 'clearInterval', watcher.manualPoll);
+      callTimer(timers, 'clearTimeout', watcher.manualDeadline);
     }
     return { arm, release };
   }
