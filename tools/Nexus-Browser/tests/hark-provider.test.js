@@ -75,6 +75,31 @@ test('Hark bridge group includes revision, transport, Dex control and health ada
   assert.equal(typeof harkAnswer.latestAssistantText, 'function');
 });
 
+test('Hark response pruning keeps message leaves instead of the whole thread wrapper', () => {
+  function node(name, order) {
+    return {
+      name,
+      order,
+      descendants: new Set(),
+      contains(other) { return this.descendants.has(other); },
+      compareDocumentPosition(other) {
+        if (this.order < other.order) return 4;
+        if (this.order > other.order) return 2;
+        return 0;
+      }
+    };
+  }
+
+  const thread = node('thread', 0);
+  const olderReply = node('older-reply', 1);
+  const latestReply = node('latest-reply', 2);
+  thread.descendants.add(olderReply);
+  thread.descendants.add(latestReply);
+
+  const pruned = harkAnswer.pruneNestedNodes([thread, latestReply, olderReply]);
+  assert.deepEqual(pruned.map((entry) => entry.name), ['older-reply', 'latest-reply']);
+});
+
 test('extension manifest grants Hark host access and injects only chat/project workspaces', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(extensionDir, 'manifest.json'), 'utf8'));
   assert.equal(manifest.host_permissions.includes('https://hark.com/*'), true);
