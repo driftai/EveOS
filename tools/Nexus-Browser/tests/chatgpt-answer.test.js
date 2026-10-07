@@ -149,6 +149,52 @@ test('prompt-bound response skips an older assistant turn', () => {
   assert.equal(chatgptAnswer.responseTextForUserPrompt('fresh proof prompt', 1, root), '');
 });
 
+test('Dex prompt evidence falls back to the exact current Turn ID', () => {
+  const currentTurnId = 'dex-turn-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const expected = `[DEX ROOM RELAY]\nRoom: Dex Room 1\nTurn ID: ${currentTurnId}\nRecipient: Eve\nCURRENT BODY THAT WAS VIRTUALIZED AWAY`;
+  const renderedHeaderOnly = `[DEX ROOM RELAY]\nRoom: Dex Room 1\nTurn ID: ${currentTurnId}\nRecipient: Eve`;
+  const staleHeader = '[DEX ROOM RELAY]\nTurn ID: dex-turn-11111111-2222-3333-4444-555555555555\nRecipient: Eve';
+  assert.equal(chatgptAnswer.dexTurnIdFromPrompt(expected), currentTurnId);
+  assert.equal(chatgptAnswer.promptMatchesUserText(renderedHeaderOnly, expected), true);
+  assert.equal(chatgptAnswer.promptMatchesUserText(staleHeader, expected), false);
+  assert.equal(chatgptAnswer.promptMatchesUserText(`${renderedHeaderOnly}-suffix`, expected), false);
+  assert.equal(chatgptAnswer.promptMatchesUserText('fresh proof', 'fresh proof'), true);
+  assert.equal(chatgptAnswer.promptMatchesUserText('fresh', 'fresh proof'), false);
+});
+
+test('Dex response capture recovers the current reply from an eight-turn truncated history', () => {
+  const users = [];
+  const turns = [];
+  for (let index = 1; index <= 7; index += 1) {
+    const staleId = `dex-turn-stale-${String(index).padStart(8, '0')}`;
+    const user = node({ 'data-message-author-role': 'user' });
+    user.innerText = `[DEX ROOM RELAY]\nTurn ID: ${staleId}\nPrompt: stale ${index}`;
+    const assistant = node({ 'data-message-author-role': 'assistant' });
+    assistant.innerText = `stale answer ${index}`;
+    users.push(user);
+    turns.push(user, assistant);
+  }
+
+  const currentTurnId = 'dex-turn-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const expected = `[DEX ROOM RELAY]\nRoom: Dex Room 1\nTurn ID: ${currentTurnId}\nRecipient: Eve\nCURRENT BODY THAT IS NOT PRESENT IN THE RENDERED USER TURN`;
+  const currentUser = node({ 'data-message-author-role': 'user' });
+  currentUser.innerText = `[DEX ROOM RELAY]\nRoom: Dex Room 1\nTurn ID: ${currentTurnId}\nRecipient: Eve`;
+  const currentAssistant = node({ 'data-message-author-role': 'assistant' });
+  currentAssistant.innerText = 'current recovered answer';
+  users.push(currentUser);
+  turns.push(currentUser, currentAssistant);
+
+  const root = { querySelectorAll(selector) {
+    if (selector === chatgptAnswer.USER_SELECTOR) return users;
+    if (selector.includes(chatgptAnswer.USER_SELECTOR) && selector.includes(chatgptAnswer.ASSISTANT_SELECTOR)) return turns;
+    return [];
+  } };
+
+  assert.equal(users.length, 8);
+  assert.equal(chatgptAnswer.normalizeText(currentUser.innerText).includes(chatgptAnswer.normalizeText(expected)), false);
+  assert.equal(chatgptAnswer.responseTextForUserPrompt(expected, 0, root), 'current recovered answer');
+});
+
 test('role-free ChatGPT DIL assistant replies are scoped to the selection message and remain readable', () => {
   const message = node({ 'data-chatgpt-selection-message-id': 'assistant-msg' }, 'group flex min-w-0 flex-col');
   const dilRoot = element('DIV', [
