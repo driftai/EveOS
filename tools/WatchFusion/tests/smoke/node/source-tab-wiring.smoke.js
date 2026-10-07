@@ -158,5 +158,50 @@ export async function runSourceTabSmokes() {
     assert.match(liveSourceCss, /\.watch-shell\.linked-tab-active \.live-controls \{ max-height:150px; \}/);
   })();
 
+  await record('ST-17:stale-probe-self-destructs-after-extension-reload', async () => {
+    const { runInNewContext } = await import('node:vm');
+    let intervalCallback = null;
+    const intervalToken = {};
+    let clearedToken = null;
+    let sendCalls = 0;
+    let removedRuntimeListeners = 0;
+    const context = {
+      crypto: { randomUUID: () => 'reload-regression-probe' },
+      navigator: {},
+      location: { href:'https://www.youtube.com/watch?v=reload-regression' },
+      document: {
+        title:'Reload regression',
+        querySelectorAll:() => [],
+        querySelector:() => null,
+        addEventListener:() => {},
+        removeEventListener:() => {}
+      },
+      chrome: { runtime: {
+        sendMessage:() => { sendCalls += 1; throw new Error('Extension context invalidated.'); },
+        onMessage: {
+          addListener:() => {},
+          removeListener:() => { removedRuntimeListeners += 1; }
+        }
+      } },
+      setInterval:(fn) => { intervalCallback = fn; return intervalToken; },
+      clearInterval:(token) => { clearedToken = token; },
+      addEventListener:() => {},
+      removeEventListener:() => {},
+      postMessage:() => {}
+    };
+    context.window = context;
+    context.top = context;
+    context.parent = context;
+
+    assert.doesNotThrow(() => runInNewContext(probe, context, { filename:'source-probe.js' }));
+    assert.equal(sendCalls, 1, 'The initial sample should attempt exactly one runtime send.');
+    assert.equal(clearedToken, intervalToken, 'Runtime invalidation must clear the stale 350 ms sampler.');
+    assert.equal(removedRuntimeListeners, 1, 'Cleanup should detach the stale runtime listener when the API still permits it.');
+    assert.notEqual(context.__watchFusionMediaProbe, true, 'The stale probe marker must be released for a fresh extension context.');
+    assert.equal(typeof intervalCallback, 'function');
+    intervalCallback();
+    assert.equal(sendCalls, 1, 'A disposed sampler callback must not keep hitting the invalid runtime.');
+  })();
+
   return results;
 }

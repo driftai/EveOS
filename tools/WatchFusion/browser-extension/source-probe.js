@@ -7,6 +7,25 @@
   const frameToken = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   const PAGE_CHANNEL = 'eveos.watchfusion.page-media.v1';
 
+  function isRuntimeInvalidated(error) {
+    return /Extension context invalidated/i.test(String(error?.message || error || ''));
+  }
+
+  function sendRuntimeMessage(message) {
+    if (!enabled) return;
+    try {
+      const pending = chrome.runtime.sendMessage(message);
+      if (pending && typeof pending.catch === 'function') {
+        pending.catch(error => {
+          if (isRuntimeInvalidated(error)) cleanup();
+        });
+      }
+    } catch (error) {
+      if (isRuntimeInvalidated(error)) { cleanup(); return; }
+      throw error;
+    }
+  }
+
   function onWindowMessage(event) {
     if (event.source === window && event.data?.channel === PAGE_CHANNEL && event.data.type === 'state') {
       pageMedia = { ...event.data, at:Date.now() };
@@ -15,7 +34,7 @@
 
   function onDocumentLoad(event) {
     if (enabled && event.target?.tagName === 'IFRAME') {
-      chrome.runtime.sendMessage({ to:'worker', type:'refresh-probes' }).catch(() => {});
+      sendRuntimeMessage({ to:'worker', type:'refresh-probes' });
     }
   }
 
@@ -41,7 +60,8 @@
     clearInterval(sampleTimer); sampleTimer = null;
     window.removeEventListener('message', onWindowMessage);
     document.removeEventListener('load', onDocumentLoad, true);
-    chrome.runtime.onMessage.removeListener(onRuntimeMessage);
+    try { chrome.runtime.onMessage.removeListener(onRuntimeMessage); }
+    catch (error) { if (!isRuntimeInvalidated(error)) throw error; }
     window.postMessage({ channel:PAGE_CHANNEL, type:'dispose' }, '*');
     try { delete window.__watchFusionMediaProbeCleanup; } catch { window.__watchFusionMediaProbeCleanup = null; }
     try { delete window.__watchFusionMediaProbe; } catch { window.__watchFusionMediaProbe = false; }
@@ -66,7 +86,7 @@
     const hasMedia = Boolean(element || controller);
     const score = (element && !element.paused ? 4 : 0) + (element?.tagName === 'VIDEO' ? 2 : 0) + (controller ? 3 : 0);
     if (window !== top) parent.postMessage({ type:'watchfusion:media-frame', token:frameToken, hasMedia, score }, '*');
-    chrome.runtime.sendMessage({
+    sendRuntimeMessage({
       to:'worker', type:'sample', token:frameToken, topFrame:window === top, hasMedia, score,
       metadata: {
         pageUrl:location.href,
@@ -80,7 +100,7 @@
         volume:element ? (element.muted ? 0 : element.volume ?? 1) : pageMedia?.volume ?? 1,
         status:hasMedia ? '' : 'Waiting for playable media state.'
       }
-    }).catch(() => {});
+    });
   }
 
   function onRuntimeMessage(message) {
