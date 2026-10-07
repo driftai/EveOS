@@ -352,7 +352,7 @@
     // must get the same pre-gesture readiness and commit checks as Dex results.
     const dexDelivery = isDexRelay(requestId) || String(delivery?.kind || '').startsWith('dex-');
     const sendWaitMs = dexDelivery ? 30000 : 5000;
-    const committed = () => answer.normalizeText(answer.getTurnUserText(answer.userNodes(), userBaselineCount)).includes(answer.normalizeText(text));
+    const committed = () => answer.promptMatchesUserText(answer.getTurnUserText(answer.userNodes(), userBaselineCount), text);
     const ready = await waitForReadyComposer(composer, text, sendWaitMs, requestId, committed);
     let stage = 'post-ready';
     try {
