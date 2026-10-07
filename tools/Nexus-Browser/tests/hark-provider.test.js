@@ -10,6 +10,7 @@ const canonicalHark = registry.getProvider('hark');
 const hark = require('../extension/hark-provider.js');
 const harkInput = require('../extension/content/hark-input.js');
 const harkAnswer = require('../extension/content/hark-answer.js');
+const harkBridge = require('../extension/content/hark.js');
 
 const extensionDir = path.join(__dirname, '..', 'extension');
 
@@ -98,6 +99,28 @@ test('Hark response pruning keeps message leaves instead of the whole thread wra
 
   const pruned = harkAnswer.pruneNestedNodes([thread, latestReply, olderReply]);
   assert.deepEqual(pruned.map((entry) => entry.name), ['older-reply', 'latest-reply']);
+});
+
+test('Hark live response strips only the exact submitted prompt echo', () => {
+  assert.equal(
+    harkBridge.stripPromptEcho('test  Got it, Drift. Coming through clean.', 'test'),
+    'Got it, Drift. Coming through clean.'
+  );
+  assert.equal(
+    harkBridge.stripPromptEcho(
+      'hello 123 from nexus this is drift still testing  Hey Drift, Nexus to Hark is working both ways.',
+      'hello 123 from nexus this is drift still testing'
+    ),
+    'Hey Drift, Nexus to Hark is working both ways.'
+  );
+  assert.equal(
+    harkBridge.stripPromptEcho('testing is useful', 'test'),
+    'testing is useful'
+  );
+  assert.equal(
+    harkBridge.stripPromptEcho('line one\nline two   Clean reply.', 'line one\nline two'),
+    'Clean reply.'
+  );
 });
 
 test('extension manifest grants Hark host access and injects only chat/project workspaces', () => {
