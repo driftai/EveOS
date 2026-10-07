@@ -161,6 +161,10 @@
   let repairOriginTurn = '';
   let observer = null;
   let runtimeListener = null;
+  // A scanner re-injected into a live tab (worker rehydration) has no memory of what the
+  // previous instance dispatched: the trailing command already on screen is history, not new.
+  let bootBaselined = globalThis.__browserAiBridgeDexControlRehydrated !== true;
+  try { delete globalThis.__browserAiBridgeDexControlRehydrated; } catch {}
   const MAX_DISPATCHED_TURNS = 256;
   const telemetry = { samples: 0, lastScanAt: null, assistantNodes: 0, phase: 'boot', candidateAction: null, dispatchedAt: null, duplicateTurnsSuppressed: 0, malformedDetected: 0, nudgesSent: 0, nudgesSuppressed: 0, lastMalformedCode: null, lastError: null };
 
@@ -233,11 +237,16 @@
     telemetry.candidateAction = parsed?.command?.action || null;
     if (!parsed && !malformed) {
       telemetry.phase = telemetry.assistantNodes ? 'no-trailing-command' : 'no-assistant-nodes';
+      if (telemetry.assistantNodes) bootBaselined = true;
       resetCandidate();
       return;
     }
 
     const turnKey = `${runtime.id}:${commandIdentity(answerApi, parsed || malformed)}`;
+    if (!bootBaselined && telemetry.assistantNodes) {
+      bootBaselined = true; rememberDispatch(turnKey, Date.now());
+      telemetry.phase = 'boot-baseline-suppressed'; resetCandidate(); return;
+    }
     const fingerprint = malformed ? `${turnKey}:invalid:${malformed.code}:${controlHash(malformed.raw)}` : `${turnKey}:${parsed.raw}`;
     const observedAt = Date.now();
     if (inFlightTurns.has(turnKey)) { telemetry.phase = 'delivery-pending'; return; }
@@ -407,6 +416,7 @@
     latestCandidateText,
     commandIdentity,
     dispose,
+    sample,
     diagnostics,
     commandReady
   };

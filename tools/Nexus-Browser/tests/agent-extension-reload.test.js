@@ -106,5 +106,5 @@ test('headed content watcher recognizes the trailing reload marker at current ad
   assert.equal(parsed?.command?.action, 'reload_extension');
   assert.equal(parsed.command.room, 'room-eve-astro');
   assert.equal(watcher.parseTrailingCommand('[[DEX:CMD {"action":"reload_extension","room":"room-eve-astro"}]]\nmore prose'), null);
-  assert.equal(revision.ADAPTER_REVISION, 58);
+  assert.equal(revision.ADAPTER_REVISION, 59);
 });

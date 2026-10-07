@@ -104,3 +104,8 @@ test('worker probe accepts only the exact current worker epoch', () => {
   assert.equal(stale.ok, false);
   assert.equal(exact.workerEpoch, rehydration.WORKER_EPOCH);
 });
+
+test('re-injecting the Dex control scanner marks the tab so it baselines on-screen commands', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '../extension/provider-content-rehydration.js'), 'utf8');
+  assert.match(source, /expectedAdapter === 'dex-provider-control'[\s\S]{0,200}__browserAiBridgeDexControlRehydrated = true/);
+});

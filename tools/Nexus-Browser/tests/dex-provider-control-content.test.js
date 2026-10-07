@@ -215,3 +215,48 @@ test('valid command suppression waits for explicit localhost ownership', () => {
   assert.match(bridge, /sendResponse\(result/);
   assert.match(routing, /type: 'provider_control_received'/);
 });
+
+test('a re-injected scanner baselines the command already on screen instead of replaying it', async () => {
+  const vm = require('node:vm');
+  let clock = 1000;
+  const sent = [];
+  const turns = [{ innerText: 'Pulled.\n[[DEX:CMD {"action":"send","text":"old","relay":true}]]' }];
+  for (const turn of turns) turn.closest = () => turn;
+  const context = {
+    module: { exports: {} }, __browserAiBridgeDexControlRehydrated: true,
+    Date: { now: () => clock },
+    setTimeout: () => 1, clearTimeout() {},
+    BrowserAiBridgeHarkAnswer: {
+      latestAssistantText: () => turns.at(-1).innerText,
+      assistantNodes: () => turns
+    },
+    chrome: { runtime: { onMessage: { addListener() {} }, sendMessage: (message) => { sent.push(message); return Promise.resolve({ ok: true, accepted: true }); } } }
+  };
+  vm.runInNewContext(source, context);
+  const scanner = context.module.exports;
+  scanner.sample();
+  assert.equal(scanner.diagnostics().phase, 'boot-baseline-suppressed');
+  clock += 5000; scanner.sample();
+  assert.equal(sent.length, 0, 'the pre-existing trailing command is never dispatched');
+
+  const fresh = { innerText: 'New reply.\n[[DEX:CMD {"action":"status"}]]' };
+  fresh.closest = () => fresh;
+  turns.push(fresh);
+  scanner.sample(); clock += 1000; scanner.sample();
+  assert.equal(sent.length, 1, 'a genuinely new turn still dispatches once');
+  assert.equal(sent[0].command.action, 'status');
+  assert.equal(context.__browserAiBridgeDexControlRehydrated, undefined, 'rehydration flag is consumed once');
+});
+
+test('a normally loaded scanner still dispatches the first command it sees', () => {
+  const vm = require('node:vm');
+  let clock = 1000;
+  const sent = [], turn = { innerText: '[[DEX:CMD {"action":"status"}]]' };
+  turn.closest = () => turn;
+  const context = { module: { exports: {} }, Date: { now: () => clock }, setTimeout: () => 1, clearTimeout() {},
+    BrowserAiBridgeHarkAnswer: { latestAssistantText: () => turn.innerText, assistantNodes: () => [turn] },
+    chrome: { runtime: { onMessage: { addListener() {} }, sendMessage: (message) => { sent.push(message); return Promise.resolve({ ok: true, accepted: true }); } } } };
+  vm.runInNewContext(source, context);
+  context.module.exports.sample(); clock += 1000; context.module.exports.sample();
+  assert.equal(sent.length, 1);
+});

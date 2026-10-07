@@ -58,6 +58,9 @@
   async function rehydrateGroup(tabId, group, chromeApi = globalThis.chrome, resolveAsset = (value) => value) {
     if (await probeGroup(tabId, group, chromeApi)) return false;
     await clearGlobals(tabId, group.globals, chromeApi);
+    if (group.expectedAdapter === 'dex-provider-control') await chromeApi.scripting.executeScript({
+      target: { tabId: Number(tabId) }, func: () => { globalThis.__browserAiBridgeDexControlRehydrated = true; }
+    }).catch(() => {});
     for (const file of group.files || []) {
       await chromeApi.scripting.executeScript({
         target: { tabId: Number(tabId) },
