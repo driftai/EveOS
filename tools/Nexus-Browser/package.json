@@ -18,7 +18,7 @@
     "providers:verify": "node scripts/provider-manifest.js --verify",
     "providers:sync": "node scripts/provider-manifest.js --write",
     "validate:shared": "npm run stabilize && npm run providers:verify && npm run doctor",
-    "extension:reload": "node scripts/dexctl.js reload-extension",
+    "extension:reload": "node ../../tools/extensions/assemble.cjs --write && node scripts/dexctl.js reload-extension",
     "extension:refresh": "npm run validate:shared && npm run extension:reload",
     "soak:headed": "node scripts/headed-soak.js",
     "diagnose": "node scripts/failure-snapshot.js",

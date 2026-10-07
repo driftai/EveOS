@@ -163,6 +163,17 @@ test('Dex prompt evidence falls back to the exact current Turn ID', () => {
   assert.equal(chatgptAnswer.promptMatchesUserText('fresh', 'fresh proof'), false);
 });
 
+test('Dex tool-result submission falls back to its exact control request ID', () => {
+  const current = 'provider-control-ca441440-0fa2-4ea1-8c50-9a86bf8dc1b6';
+  const expected = `[DEX TOOL RESULT]\nOK: Current durable relay budget and room state.\nControl request: ${current}\nDelivery: Control result committed by Dex.\nData: {"configuredTurns":1}`;
+  const rendered = `[DEX TOOL RESULT]\nOK: Current durable relay budget and room state.\nControl request: ${current}\nDelivery: Control result committed by Dex.`;
+  const stale = rendered.replace(current, 'provider-control-11111111-2222-3333-4444-555555555555');
+  assert.equal(chatgptAnswer.controlRequestIdFromPrompt(expected), current);
+  assert.equal(chatgptAnswer.promptMatchesUserText(rendered, expected), true);
+  assert.equal(chatgptAnswer.promptMatchesUserText(stale, expected), false);
+  assert.equal(chatgptAnswer.promptMatchesUserText('Control request: provider-control-short', expected), false);
+});
+
 test('Dex response capture recovers the current reply from an eight-turn truncated history', () => {
   const users = [];
   const turns = [];

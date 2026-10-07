@@ -3,6 +3,7 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 const returnApi = require('../extension/content/chatgpt-return.js');
 const manualCommitApi = require('../extension/content/chatgpt-manual-commit.js');
+const chatgptAnswer = require('../extension/content/chatgpt-answer.js');
 const chatSource = fs.readFileSync(path.join(__dirname, '../extension/content/chatgpt.js'), 'utf8');
 const TURN = 'dex-turn-3da28dc8-2509-4751-b8c5-32b68d0dde8b';
 function node(messageId, content) {
@@ -31,14 +32,15 @@ test('freshReply rejects multiple assistant IDs and reflowed old IDs', () => {
   assert.equal(returnApi.freshReply({ assistantNodes: () => [
     prior, node(null, 'Anonymous fragment'), node(null, 'Anonymous fragment')], assistantText }, before), '');
 });
-function headed({ hasSend = false, commitAfterClick = false, clearWithoutCommit = false, readyTimeout = false } = {}) {
+function headed({ hasSend = false, commitAfterClick = false, clearWithoutCommit = false,
+  readyTimeout = false, prompt = 'Astro qualified relay payload', renderedPrompt = null } = {}) {
   let clock = 0, clicks = 0, enters = 0, confirmation = false;
   const waits = [], gestures = [], finishes = [], userNodes = [], intervals = [], timeouts = [], emits = [];
-  const field = { tagName: 'TEXTAREA', value: 'Astro qualified relay payload', isConnected: true,
+  const field = { tagName: 'TEXTAREA', value: prompt, isConnected: true,
     closest: () => null, dispatchEvent() { enters++; } };
   const button = { isConnected: true, click() {
     clicks++;
-    if (commitAfterClick) { confirmation = true; userNodes.push({ text: field.value }); field.value = ''; }
+    if (commitAfterClick) { confirmation = true; userNodes.push({ text: renderedPrompt || field.value }); field.value = ''; }
     else if (clearWithoutCommit) field.value = '';
   } };
   const input = {
@@ -63,8 +65,7 @@ function headed({ hasSend = false, commitAfterClick = false, clearWithoutCommit 
       getTurnAssistantText: () => '', getTurnUserText: (nodes, baseline) =>
         nodes.slice(baseline).map(n => n.text).join('\n'),
       normalizeText: value => String(value || '').replace(/\s+/g, ' ').trim(),
-      promptMatchesUserText: (observed, expected) =>
-        String(observed || '').replace(/\s+/g, ' ').trim() === String(expected || '').replace(/\s+/g, ' ').trim(),
+      promptMatchesUserText: chatgptAnswer.promptMatchesUserText,
       responseTextForUserPrompt: () => ''
     },
     BrowserAiBridgeChatGptReturn: { baseline: () => ({ count: 0, refs: new Set(), ids: new Set() }) },
@@ -123,6 +124,17 @@ test('bare dex-turn requires the actual committed user turn after exactly one Se
   assert.deepEqual(h.gestures, ['click']);
   assert.equal(h.finishes[0].success, true);
   h.chat.stopWatcher(TURN);
+});
+test('Dex control result confirms one click from exact request ID after rendered text normalization', async () => {
+  const id = 'provider-control-ca441440-0fa2-4ea1-8c50-9a86bf8dc1b6';
+  const prompt = `[DEX TOOL RESULT]\nOK: Current durable relay budget and room state.\nControl request: ${id}\nDelivery: Control result committed by Dex.\nData: {"configuredTurns":1}`;
+  const renderedPrompt = `[DEX TOOL RESULT]\nOK: Current durable relay budget and room state.\nControl request: ${id}\nDelivery: Control result committed by Dex.`;
+  const h = headed({ hasSend: true, commitAfterClick: true, prompt, renderedPrompt });
+  assert.equal(await h.chat.submitPrompt(`dex-control-result-${id}`, prompt,
+    { delivery: { kind: 'dex-control-result' } }), 'click');
+  assert.equal(h.clicks, 1);
+  assert.equal(h.enters, 0);
+  assert.deepEqual(h.gestures, ['click']);
 });
 test('editor clearing alone does NOT acknowledge a Dex relay or trigger fallback Enter', async () => {
   const h = headed({ hasSend: true, clearWithoutCommit: true });

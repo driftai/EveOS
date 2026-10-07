@@ -364,7 +364,7 @@ Preferred one-command gate + Chrome extension reload after extension runtime cha
 npm run extension:refresh
 ```
 
-`extension:refresh` runs `npm run validate:shared` first and only then runs `npm run extension:reload`.
+`extension:refresh` runs `npm run validate:shared` first and only then runs `npm run extension:reload`. Reload always assembles current Nexus source into the unified unpacked EveOS extension first, so a pulled content-script fix cannot leave the generated `extension/` copy stale.
 
 The lower-level reload-only command remains:
 
@@ -372,7 +372,7 @@ The lower-level reload-only command remains:
 npm run extension:reload
 ```
 
-That alias uses `scripts/dexctl.js reload-extension`, waits for a real extension disconnect -> reconnect cycle, and should be preferred over raw WebSocket one-liners. Agents should use the automated npm commands before asking Drift to reload the unpacked extension manually.
+That alias assembles the unified extension, then uses `scripts/dexctl.js reload-extension`, waits for a real extension disconnect -> reconnect cycle, and should be preferred over raw WebSocket one-liners. Agents should use the automated npm commands before asking Drift to reload the unpacked extension manually.
 
 Open:
 

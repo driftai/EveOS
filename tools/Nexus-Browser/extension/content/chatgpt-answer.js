@@ -153,15 +153,28 @@
     return normalized.match(/(?:^|\n)Turn ID:\s*(dex-turn-[A-Za-z0-9-]{8,128})(?:\s|$)/)?.[1] || '';
   }
 
+  function controlRequestIdFromPrompt(value) {
+    const normalized = normalizeText(value);
+    return normalized.match(/(?:^|\n)Control request:\s*(provider-control-[A-Za-z0-9-]{8,128})(?:\s|$)/)?.[1] || '';
+  }
+
   function promptMatchesUserText(observedText, expectedText) {
     const observed = normalizeText(observedText);
     const expected = normalizeText(expectedText);
     if (!observed || !expected) return false;
     if (observed.includes(expected)) return true;
     const dexTurnId = dexTurnIdFromPrompt(expected);
-    if (!dexTurnId) return false;
-    const observedTurnIds = observed.match(/\bdex-turn-[A-Za-z0-9-]{8,128}\b/g) || [];
-    return observedTurnIds.includes(dexTurnId);
+    if (dexTurnId) {
+      const observedTurnIds = observed.match(/\bdex-turn-[A-Za-z0-9-]{8,128}\b/g) || [];
+      return observedTurnIds.includes(dexTurnId);
+    }
+    // ChatGPT can structurally normalize the injected Dex result while keeping
+    // its unique request identity. That exact ID proves the new user turn was
+    // committed without treating editor clearing as successful submission.
+    const controlRequestId = controlRequestIdFromPrompt(expected);
+    if (!controlRequestId) return false;
+    const observedRequestIds = observed.match(/\bprovider-control-[A-Za-z0-9-]{8,128}\b/g) || [];
+    return observedRequestIds.includes(controlRequestId);
   }
 
   function codeLanguage(node) {
@@ -375,7 +388,7 @@
     emojiAlt,
     normalizeText,
     dexTurnIdFromPrompt,
-    promptMatchesUserText,
+    promptMatchesUserText, controlRequestIdFromPrompt,
     structuralText,
     pruneNestedNodes,
     contentNodesForTurn,

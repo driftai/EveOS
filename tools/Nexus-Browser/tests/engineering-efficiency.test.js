@@ -7,7 +7,8 @@ const root = path.resolve(__dirname, '..');
 
 test('canonical efficiency commands stay exposed through package scripts', () => {
   const pkg = require('../package.json');
-  assert.equal(pkg.scripts['extension:reload'], 'node scripts/dexctl.js reload-extension');
+  assert.equal(pkg.scripts['extension:reload'],
+    'node ../../tools/extensions/assemble.cjs --write && node scripts/dexctl.js reload-extension');
   assert.equal(pkg.scripts['validate:shared'], 'npm run stabilize && npm run providers:verify && npm run doctor');
   assert.equal(pkg.scripts['handoff:verify'], 'node scripts/handoff.js --verify');
   assert.equal(pkg.scripts.diagnose, 'node scripts/failure-snapshot.js');
