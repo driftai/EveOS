@@ -48,6 +48,8 @@
     ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim().toLowerCase();
   }
 
+  const TIMESTAMP_ONLY = /^(?:(?:today|yesterday|mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+)?\d{1,2}:\d{2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?$/i;
+
   function excluded(node) {
     if (!node || !visible(node)) return true;
     if (node.matches?.('textarea, input, [contenteditable="true"]')) return true;
@@ -56,7 +58,9 @@
     if (/\b(user|human|prompt-input|composer|sidebar|navigation)\b/.test(meta)
         && !/\b(assistant|agent|response|answer)\b/.test(meta)) return true;
     const text = normalized(node.innerText || node.textContent || '');
-    return !text;
+    if (!text) return true;
+    // Message timestamps ("11:28 PM") render as their own leaves; never treat one as a reply.
+    return TIMESTAMP_ONLY.test(text);
   }
 
   function assistantNodes(root = document) {

@@ -101,6 +101,24 @@ test('Hark response pruning keeps message leaves instead of the whole thread wra
   assert.deepEqual(pruned.map((entry) => entry.name), ['older-reply', 'latest-reply']);
 });
 
+test('Hark capture never treats a timestamp-only leaf as the reply', () => {
+  function leaf(text, attrs = {}) {
+    return {
+      innerText: text,
+      textContent: text,
+      className: attrs.className || 'message-time',
+      getAttribute: (name) => attrs[name] || null,
+      matches: () => false,
+      closest: () => null
+    };
+  }
+  for (const stamp of ['11:28 PM', '9:05 am', '23:17', 'Today 11:28 PM', 'Tue, 10:59 p.m.']) {
+    assert.equal(harkAnswer.excluded(leaf(stamp)), true, stamp);
+  }
+  assert.equal(harkAnswer.excluded(leaf('Vera > Juno > Lyra. Meet at 11:28 PM.')), false);
+  assert.equal(harkAnswer.excluded(leaf('Got it, Drift.', { className: 'assistant message' })), false);
+});
+
 test('Hark live response strips only the exact submitted prompt echo', () => {
   assert.equal(
     harkBridge.stripPromptEcho('test  Got it, Drift. Coming through clean.', 'test'),
