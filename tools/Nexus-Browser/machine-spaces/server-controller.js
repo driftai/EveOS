@@ -2,8 +2,9 @@
 
 const { randomUUID } = require('node:crypto');
 const { createManagedTerminalBroker } = require('./managed-terminal-broker');
-const { createApprovalBroker, commandDigest } = require('./approval-broker');
+const { createApprovalBroker, cleanCommand, commandDigest } = require('./approval-broker');
 const { createOutputSpool } = require('./output-spool');
+const { POLICY_ID, resolveRepoRoot, evaluateRepoSafeCommand, createRepoSafeGrant, publicGrant } = require('./repo-safe-grant');
 const ledgerApi = require('./operation-ledger');
 
 const PROVIDER_ACTIONS = new Set(['terminal_targets', 'terminal_exec', 'terminal_status', 'terminal_output']);
@@ -14,6 +15,7 @@ function cleanName(value, fallback, max = 80) {
   return String(value || fallback).replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, max) || fallback;
 }
 function id(prefix) { return `${prefix}-${randomUUID()}`; }
+function samePath(a, b) { return String(a || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() === String(b || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase(); }
 function machineState(room) {
   if (!room.machineSpaces || typeof room.machineSpaces !== 'object') {
     room.machineSpaces = { version: 1, spaces: [] };
@@ -38,6 +40,10 @@ function publicRequest(request = {}) {
     commandSummary: request.commandSummary || '',
     commandDigest: request.commandDigest || '',
     approvalId: request.approvalId || null,
+    grantId: request.grantId || null,
+    approvalMode: request.approvalMode || null,
+    approvedByMemberId: request.approvedByMemberId || null,
+    approvedByName: request.approvedByName || null,
     risk: request.risk || null,
     challenge: request.challenge || '',
     state: request.state || 'approval-required',
@@ -61,7 +67,8 @@ function createMachineSpacesController({
   broker = createManagedTerminalBroker(),
   approvals = createApprovalBroker(),
   spool = createOutputSpool(),
-  now = () => Date.now()
+  now = () => Date.now(),
+  repoRootResolver = resolveRepoRoot
 } = {}) {
   const watchers = new Set();
   const ownerIds = new WeakMap();
@@ -105,7 +112,7 @@ function createMachineSpacesController({
     if (machine.spaces.filter((space) => space.archived !== true).length >= MAX_SPACES)
       throw machineError('MACHINE_SPACE_LIMIT', 'Archive another Machine Space before creating a new one.');
     const space = { id: id('machine-space'), name: cleanName(name, `Machine Space ${machine.spaces.length + 1}`),
-      archived: false, resourceIds: [], requests: [], ledger: null, createdAt: new Date(now()).toISOString() };
+      archived: false, resourceIds: [], requests: [], ledger: null, grant: null, createdAt: new Date(now()).toISOString() };
     machine.spaces.push(space);
     return space;
   }
@@ -125,6 +132,7 @@ function createMachineSpacesController({
         id: space.id,
         name: space.name,
         archived: space.archived === true,
+        grant: publicGrant(space.grant),
         resources: (space.resourceIds || []).map((terminalId) => {
           const target = broker.target(terminalId);
           return target ? { ...target, available: true } : { id: terminalId, targetId: terminalId, available: false };
@@ -151,6 +159,36 @@ function createMachineSpacesController({
     const text = `${result.stdout || ''}${result.stdout && result.stderr ? '\n' : ''}${result.stderr || ''}`;
     return text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').slice(0, 400);
   }
+  function grantRecord(space, target, command, requestId, room, origin) {
+    const grant = space.grant;
+    if (!grant?.enabled || grant.policy !== POLICY_ID) return null;
+    let currentRoot;
+    try { currentRoot = repoRootResolver(target.cwd); } catch { return null; }
+    if (!samePath(currentRoot, grant.repoRoot)) return null;
+    const exactCommand = cleanCommand(command);
+    const policy = evaluateRepoSafeCommand(exactCommand, { repoRoot: grant.repoRoot, cwd: target.cwd });
+    if (!policy.allowed) return null;
+    const createdAt = now();
+    return {
+      ownerId: `room:${room.id}`,
+      targetId: target.id,
+      requestId,
+      command: exactCommand,
+      commandDigest: commandDigest(exactCommand),
+      commandSummary: exactCommand.replace(/\s+/g, ' ').slice(0, 240),
+      risk: 'repo-safe',
+      approvalId: grant.id,
+      grantId: grant.id,
+      approvalMode: POLICY_ID,
+      approvedByMemberId: origin.executorMemberId,
+      approvedByName: origin.executorName,
+      context: { kind: 'dex', roomId: room.id, spaceId: space.id,
+        actorMemberId: origin.executorMemberId, actorName: origin.executorName,
+        sourceMessageId: origin.agentMessageId },
+      createdAt,
+      expiresAt: null
+    };
+  }
 
   async function execute(record, notifyWs = null) {
     const target = broker.target(record.targetId);
@@ -165,7 +203,7 @@ function createMachineSpacesController({
         ledgerApi.recordRequest(space.ledger, {
           roomId: room.id, spaceId: space.id, requestId: record.requestId,
           actorMemberId: context.actorMemberId, sourceMessageId: context.sourceMessageId,
-          terminalId: record.targetId, grantId: record.approvalId,
+          terminalId: record.targetId, grantId: record.grantId || record.approvalId,
           capability: 'terminal.exec', operationDigest: record.commandDigest,
           commandSummary: record.commandSummary, createdAt: new Date(record.createdAt).toISOString()
         }, () => true);
@@ -247,6 +285,28 @@ function createMachineSpacesController({
       return { roomId: room.id, spaceId: space.id, target };
     });
   }
+  function enableRepoGrant(ws, roomId, spaceRef, targetId) {
+    if (!uiSockets.has(ws)) throw machineError('MACHINE_LOCAL_OWNER_REQUIRED', 'Only the local Machine Spaces panel can create persistent grants.');
+    return mutateRoom(roomId, (room) => {
+      const space = resolveRoomSpace(room, spaceRef);
+      if (!(space.resourceIds || []).includes(targetId)) throw machineError('MACHINE_TARGET_NOT_ATTACHED', 'Grant target must already be attached to this Machine Space.');
+      const target = broker.target(targetId);
+      if (!target) throw machineError('MACHINE_TARGET_NOT_FOUND', 'Managed terminal no longer exists.');
+      const repoRoot = repoRootResolver(target.cwd);
+      space.grant = createRepoSafeGrant({ repoRoot, targetId, ownerId: ownerId(ws), now });
+      return publicGrant(space.grant);
+    });
+  }
+  function revokeRepoGrant(ws, roomId, spaceRef) {
+    if (!uiSockets.has(ws)) throw machineError('MACHINE_LOCAL_OWNER_REQUIRED', 'Only the local Machine Spaces panel can revoke persistent grants.');
+    return mutateRoom(roomId, (room) => {
+      const space = resolveRoomSpace(room, spaceRef);
+      if (!space.grant?.enabled) return publicGrant(space.grant);
+      space.grant.enabled = false;
+      space.grant.revokedAt = new Date(now()).toISOString();
+      return publicGrant(space.grant);
+    });
+  }
   function stopTarget(targetId) {
     const stopped = broker.stopSession(targetId);
     if (!stopped) throw machineError('MACHINE_TARGET_NOT_FOUND', 'Managed terminal no longer exists.');
@@ -299,6 +359,7 @@ function createMachineSpacesController({
           if ((space.requests || []).some((entry) => ['approval-required', 'running'].includes(entry.state)))
             throw machineError('MACHINE_SPACE_BUSY', 'Wait for pending/running terminal requests before archiving.');
           space.archived = true;
+          if (space.grant?.enabled) { space.grant.enabled = false; space.grant.revokedAt = new Date(now()).toISOString(); }
         });
         sendRoomSnapshot(ws, String(msg.roomId || '')); return true;
       }
@@ -313,6 +374,14 @@ function createMachineSpacesController({
             throw machineError('MACHINE_TARGET_BUSY', 'A running command still owns this resource.');
           space.resourceIds = (space.resourceIds || []).filter((value) => value !== msg.targetId);
         });
+        sendRoomSnapshot(ws, String(msg.roomId || '')); return true;
+      }
+      if (type === 'machine_enable_repo_grant') {
+        enableRepoGrant(ws, String(msg.roomId || ''), msg.spaceId, String(msg.targetId || ''));
+        sendRoomSnapshot(ws, String(msg.roomId || '')); return true;
+      }
+      if (type === 'machine_revoke_repo_grant') {
+        revokeRepoGrant(ws, String(msg.roomId || ''), msg.spaceId);
         sendRoomSnapshot(ws, String(msg.roomId || '')); return true;
       }
       return false;
@@ -341,34 +410,72 @@ function createMachineSpacesController({
         const space = resolveRoomSpace(room, command.space);
         if (action === 'terminal_targets') {
           result = { ok: true, action, message: `Machine Space ${space.name} has ${(space.resourceIds || []).length} terminal resource(s).`,
-            data: { roomId: room.id, spaceId: space.id, targets: (space.resourceIds || []).map((targetId) => {
+            data: { roomId: room.id, spaceId: space.id, grant: publicGrant(space.grant), targets: (space.resourceIds || []).map((targetId) => {
               const target = broker.target(targetId); return target ? { id: target.id, title: target.title, type: target.type, busy: target.busy } : { id: targetId, available: false };
             }) } };
         } else if (action === 'terminal_exec') {
           const targetId = String(command.terminal || command.terminalId || '');
-          if (!(space.resourceIds || []).includes(targetId) || !broker.target(targetId))
+          const target = broker.target(targetId);
+          if (!(space.resourceIds || []).includes(targetId) || !target)
             throw machineError('MACHINE_TARGET_NOT_ATTACHED', 'Choose an available terminal attached to this exact Machine Space.');
+          const exactDigest = commandDigest(cleanCommand(String(command.command || '')));
           const existing = (space.requests || []).find((entry) => entry.requestId === requestId);
           if (existing) {
-            if (existing.commandDigest !== commandDigest(String(command.command || '')))
+            if (existing.commandDigest !== exactDigest)
               throw machineError('MACHINE_REQUEST_ID_CONFLICT', 'This request ID already owns another terminal command.');
             result = { ok: true, action, message: `Terminal request already exists in state ${existing.state}.`, data: publicRequest(existing) };
           } else {
-            const prepared = approvals.prepare({ ownerId: `room:${room.id}`, targetId, requestId,
-              command: command.command, context: { kind: 'dex', roomId: room.id, spaceId: space.id,
-                actorMemberId: origin.executorMemberId, actorName: origin.executorName,
-                sourceMessageId: origin.agentMessageId } });
-            const request = { ...prepared, command: approvals.peek(prepared.approvalId).command,
-              actorMemberId: origin.executorMemberId,
-              actorName: origin.executorName, sourceMessageId: origin.agentMessageId,
-              terminalId: targetId, state: 'approval-required', createdAt: new Date(now()).toISOString() };
-            space.requests = Array.isArray(space.requests) ? space.requests : [];
-            space.requests.push(request);
-            if (space.requests.length > MAX_REQUESTS) space.requests.splice(0, space.requests.length - MAX_REQUESTS);
-            const saved = saveState(snapshot); broadcastState(saved);
-            for (const watcher of watchers) sendRoomSnapshot(watcher, room.id);
-            result = { ok: true, action, message: 'Terminal command is pending one-time approval from Drift; nothing executed yet.',
-              data: { roomId: room.id, spaceId: space.id, request: publicRequest(request) } };
+            const granted = grantRecord(space, target, command.command, requestId, room, origin);
+            if (granted) {
+              const request = {
+                requestId,
+                actorMemberId: origin.executorMemberId,
+                actorName: origin.executorName,
+                sourceMessageId: origin.agentMessageId,
+                terminalId: targetId,
+                command: granted.command,
+                commandSummary: granted.commandSummary,
+                commandDigest: granted.commandDigest,
+                approvalId: null,
+                grantId: granted.grantId,
+                approvalMode: granted.approvalMode,
+                approvedByMemberId: granted.approvedByMemberId,
+                approvedByName: granted.approvedByName,
+                risk: granted.risk,
+                state: 'queued',
+                createdAt: new Date(granted.createdAt).toISOString()
+              };
+              space.requests = Array.isArray(space.requests) ? space.requests : [];
+              space.requests.push(request);
+              if (space.requests.length > MAX_REQUESTS) space.requests.splice(0, space.requests.length - MAX_REQUESTS);
+              const saved = saveState(snapshot); broadcastState(saved);
+              for (const watcher of watchers) sendRoomSnapshot(watcher, room.id);
+              void execute(granted).catch((error) => {
+                try {
+                  saveRequest(room.id, space.id, requestId, { state: 'failed', command: undefined,
+                    finishedAt: new Date(now()).toISOString(), reason: error.code || 'grant-exec-failed' });
+                  for (const watcher of watchers) sendRoomSnapshot(watcher, room.id);
+                } catch {}
+              });
+              result = { ok: true, action, message: `Terminal command auto-approved by ${POLICY_ID}; use terminal_status for completion.`,
+                data: { roomId: room.id, spaceId: space.id, request: publicRequest(request), grant: publicGrant(space.grant) } };
+            } else {
+              const prepared = approvals.prepare({ ownerId: `room:${room.id}`, targetId, requestId,
+                command: command.command, context: { kind: 'dex', roomId: room.id, spaceId: space.id,
+                  actorMemberId: origin.executorMemberId, actorName: origin.executorName,
+                  sourceMessageId: origin.agentMessageId } });
+              const request = { ...prepared, command: approvals.peek(prepared.approvalId).command,
+                actorMemberId: origin.executorMemberId,
+                actorName: origin.executorName, sourceMessageId: origin.agentMessageId,
+                terminalId: targetId, state: 'approval-required', createdAt: new Date(now()).toISOString() };
+              space.requests = Array.isArray(space.requests) ? space.requests : [];
+              space.requests.push(request);
+              if (space.requests.length > MAX_REQUESTS) space.requests.splice(0, space.requests.length - MAX_REQUESTS);
+              const saved = saveState(snapshot); broadcastState(saved);
+              for (const watcher of watchers) sendRoomSnapshot(watcher, room.id);
+              result = { ok: true, action, message: 'Terminal command is pending one-time approval from Drift; nothing executed yet.',
+                data: { roomId: room.id, spaceId: space.id, request: publicRequest(request) } };
+            }
           }
         } else if (action === 'terminal_status') {
           const wanted = String(command.requestId || '');
