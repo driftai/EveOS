@@ -32,4 +32,8 @@ if (typeof importScripts === 'function') {
   importScripts('background-dispatch.js');
   importScripts('tab-readiness.js');
   importScripts('service-worker.js');
+  // service-worker.js loads the canonical provider registry first. Mutating that same PROVIDERS
+  // array after boot lets Hark participate in the existing target loader/routing closures without
+  // forcing a rewrite of the six qualified provider definitions.
+  importScripts('hark-provider.js');
 }

@@ -13,11 +13,17 @@
  * urlPlayback.setVolume, so the sound followed, but nothing moved the panel's thumb. The two views
  * showed different numbers for one track and the panel looked stuck.
  *
+ * Provider-host playback also has a resilience layer now: if higher-level adapter identity drops a
+ * live card-volume command, the active localhost provider iframe receives the same 0..100 YouTube
+ * command directly. The same layer observes raw provider Ended state and advances only if the normal
+ * queue handlers have not already moved the queue by the next task.
+ *
  * Pinned as source contracts. Exercising these for real needs a provider SDK, an iframe and a live
  * track, so the wiring would otherwise never be tested at all.
  */
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const AUDIOFLIX = path.join(ROOT, 'js', 'modules', 'features', 'audioflix');
@@ -27,42 +33,86 @@ function assert(condition, message) {
     if (!condition) throw new Error('ASSERT FAILED: ' + message);
 }
 
+function functionBody(source, signature) {
+    const start = source.indexOf(signature);
+    assert(start >= 0, `missing function: ${signature}`);
+    const next = source.indexOf('\n    function ', start + signature.length);
+    return source.slice(start, next >= 0 ? next : source.length);
+}
+
 function main() {
     const url = read('audioflix.audio.url.js');
     const internal = read('audioflix.audio.internal.js');
     const audio = read('audioflix.audio.js');
     const overlay = read('audioflix.ui.overlay.js');
+    const resilience = read('audioflix.transport.resilience.js');
 
     // ---- the panel's slider must persist, exactly as the card's does ----
-    const setVolume = url.slice(url.indexOf('function setVolume('));
-    const body = setVolume.slice(0, setVolume.indexOf('\n        }'));
-    assert(body.includes('setItemVolume'),
+    const setVolume = functionBody(url, 'function setVolume(');
+    assert(setVolume.includes('setItemVolume'),
         'the internal panel persists its level through state, so it survives the next render');
-    assert(body.includes('view?.setVolume?.'),
+    assert(setVolume.includes('view?.setVolume?.'),
         'the internal panel mirrors the level onto its own thumb');
-    assert(/playback\.item\??\.type \|\| 'music'/.test(body),
+    assert(/playback\.item\??\.type \|\| 'music'/.test(setVolume),
         'the item type is passed through rather than assumed, so state updates the right list');
 
     // ---- the card slider persists too (the leg that already worked must not regress) ----
     assert(overlay.includes('setItemVolume'), 'the card slider still persists through state');
     assert(overlay.includes('updateItemVolume'), 'the card slider still reaches the live player');
+    assert(overlay.includes("String(activeId ?? '') === String(id ?? '') ? activeId : id"),
+        'the card slider restores the active item ID type before updating playback');
+    assert(overlay.includes("V.portedSounds.find(s => String(s.id ?? '') === String(id ?? ''))"),
+        'ported/localized volume updates compare IDs by value instead of JS type');
 
-    // ---- the card slider reaches the provider panel's audio ----
-    const update = audio.slice(audio.indexOf('function updateItemVolume('));
-    assert(update.slice(0, 400).includes('urlPlayback.setVolume'),
+    // ---- provider completion must have a foreground-independent queue handoff ----
+    assert(overlay.includes('latestBridge.step?.(1)'),
+        'the primary provider queue bridge advances through the existing queue controller');
+    assert(overlay.includes('snapshot.repeatOne') && overlay.includes('latest.repeatOne'),
+        'the provider fast path preserves repeat-one semantics');
+
+    // ---- the card slider reaches the provider panel's audio by active transport identity ----
+    const update = functionBody(audio, 'function updateItemVolume(');
+    assert(update.includes('const activeUrlMatch = urlPlayback?.matches?.(itemId) === true'),
+        'live provider identity is consulted before deciding whether the slider owns playback');
+    assert(update.includes('urlPlayback.setVolume(safeVolume)'),
         'a card-slider change reaches the provider currently playing');
 
     // ---- and the panel exposes the mirror the url player calls ----
     assert(/setQueue, setRate, setVolume,/.test(internal),
         'the internal view exports setVolume, or the mirror call silently does nothing');
-    const mirror = internal.slice(internal.indexOf('function setVolume('));
-    assert(mirror.slice(0, 300).includes('.audioflix-provider-volume'),
+    const mirror = functionBody(internal, 'function setVolume(');
+    assert(mirror.includes('.audioflix-provider-volume'),
         'the mirror targets the panel volume input');
-    assert(mirror.slice(0, 300).includes('clamp('),
+    assert(mirror.includes('clamp('),
         'the mirrored value is clamped, so an out-of-range level cannot desync the thumb');
 
-    console.log('audioflix volume views OK — panel persists and mirrors, card still reaches the player');
+    // ---- localhost provider-host resilience covers the exact live route seen in server logs ----
+    assert(resilience.includes(".audioflix-volume-slider, .audioflix-provider-volume"),
+        'the resilience layer observes both Audioflix volume controls');
+    const providerCommand = functionBody(resilience, 'function sendProviderCommand(');
+    assert(providerCommand.includes("type: 'eve-audioflix-provider-command'") && providerCommand.includes('action,'),
+        'the resilience layer routes provider commands through the generic provider-host bridge');
+    const providerVolume = functionBody(resilience, 'function sendProviderVolume(');
+    assert(providerVolume.includes("sendProviderCommand('volume', Math.round(clamp(level) * 100))"),
+        'the resilience layer can send a live provider-host volume command');
+    assert(providerVolume.includes('Math.round(clamp(level) * 100)'),
+        'provider-host live volume uses YouTube integer 0..100 units');
+    assert(resilience.includes("detail.event !== 'state'") && resilience.includes("detail.state !== 'ended'"),
+        'raw provider-host Ended state is observed even if an adapter drops the higher-level event');
+    assert(resilience.includes('setTimeout(() => {') && resilience.includes('latestBridge.step?.(1)'),
+        'the Ended fallback waits for normal handlers and advances only if the queue is still stuck');
+
+    console.log('audioflix volume views OK — panel persists/mirrors and provider-host resilience is armed');
     console.log('AUDIOFLIX_VOLUME_VIEWS_SMOKE_OK');
+
+    const backgroundQueue = spawnSync(
+        process.execPath,
+        [path.join(__dirname, 'audioflix_background_queue_smoke.js')],
+        { cwd: ROOT, encoding: 'utf8', windowsHide: true, stdio: 'inherit' }
+    );
+    if (backgroundQueue.status !== 0) {
+        throw new Error(`background queue smoke failed with exit code ${backgroundQueue.status}`);
+    }
 }
 
 main();

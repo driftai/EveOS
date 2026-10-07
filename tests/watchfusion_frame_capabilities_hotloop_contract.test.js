@@ -39,7 +39,7 @@ test('WatchFusion frame capabilities stay dormant during unrelated DOM churn and
     );
     assert.match(
         bootstrap,
-        /watchfusion\.frame-capabilities\.js\?v=55673348c982/,
+        /watchfusion\.frame-capabilities\.js\?v=[a-f0-9]{12}/,
         'The bootstrap cache key must expose the restored frame-isolation runtime'
     );
     assert.equal(
@@ -49,7 +49,7 @@ test('WatchFusion frame capabilities stay dormant during unrelated DOM churn and
     );
     assert.match(
         manifest,
-        /watchfusion\/watchfusion\.bootstrap\.js\?v=b2bb72130891/,
+        /watchfusion\/watchfusion\.bootstrap\.js\?v=[a-f0-9]{12}/,
         'The main manifest must expose the refreshed WatchFusion bootstrap'
     );
 });

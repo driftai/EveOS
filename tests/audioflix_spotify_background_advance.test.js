@@ -150,7 +150,8 @@ async function createSpotifyHarness(options = {}) {
     await provider.playSpotify({
         id: 'song-a',
         title: 'Song A',
-        url: 'https://open.spotify.com/track/AAA111'
+        url: 'https://open.spotify.com/track/AAA111',
+        duration: Number(options.durationSeconds || 0) || 0
     });
     listeners.get('playback_started')?.({});
     return { listeners, playbackEvents, progressEvents, view, workerState, get networkRequests() { return networkRequests; } };
@@ -178,6 +179,25 @@ test('Spotify completion survives throttled page timers through its background w
     assert.equal(harness.view.playback.paused, true);
     assert.equal(harness.view.playback.currentTime, 0.08);
     assert.ok(harness.progressEvents.length > 0);
+});
+
+test('Spotify completion arms from imported duration even when playback_update never arrives', async () => {
+    const harness = await createSpotifyHarness({
+        starvePageTimers: true,
+        workerScheduler: true,
+        durationSeconds: 0.06
+    });
+
+    // Spotify's documented playback_update is state-change driven, not a guaranteed progress
+    // heartbeat. A real track must therefore complete from the duration Audioflix imported even
+    // if the embed emits only playback_started and then stays quiet until its own audio finishes.
+    await wait(100);
+
+    assert.equal(harness.workerState.created, 1);
+    assert.ok(harness.workerState.armed >= 1);
+    assert.equal(harness.playbackEvents.filter((status) => status === 'Ended').length, 1);
+    assert.equal(harness.view.playback.paused, true);
+    assert.equal(harness.view.playback.currentTime, 0.06);
 });
 
 test('Spotify still marks the track ended with the page-timer fallback when workers are unavailable', async () => {

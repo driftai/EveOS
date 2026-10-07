@@ -4,8 +4,8 @@
 
 const MULTIMODAL_COMMUNICATION_HTML_LOADERS_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/comm/mm_comm_load';
 const multimodalCommunicationUILoaderScripts = [
-    `${MULTIMODAL_COMMUNICATION_HTML_LOADERS_BASE_PATH}/scr_share/screen_share_mm_html_loaders.js?v=20261006.3`,
-    `${MULTIMODAL_COMMUNICATION_HTML_LOADERS_BASE_PATH}/voice_input/voice_input_mm_html_loader.js?v=20261006.3`
+    `${MULTIMODAL_COMMUNICATION_HTML_LOADERS_BASE_PATH}/scr_share/screen_share_mm_html_loaders.js?v=389cef3dd4b4`,
+    `${MULTIMODAL_COMMUNICATION_HTML_LOADERS_BASE_PATH}/voice_input/voice_input_mm_html_loader.js?v=1145171d680c`
 ];
 let multimodalPreparePromise = null;
 

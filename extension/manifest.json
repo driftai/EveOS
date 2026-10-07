@@ -23,7 +23,8 @@
     "https://chatgpt.com/*",
     "https://gemini.google.com/*",
     "https://aistudio.google.com/*",
-    "https://muse.ai/*"
+    "https://muse.ai/*",
+    "https://hark.com/*"
   ],
   "background": {
     "service_worker": "service-worker-entry.js"
@@ -113,6 +114,21 @@
         "modules/nexus-browser/content/gemini-input.js",
         "modules/nexus-browser/content/gemini-answer.js",
         "modules/nexus-browser/content/gemini.js",
+        "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/provider-health.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://hark.com/chat*",
+        "https://hark.com/projects/*"
+      ],
+      "js": [
+        "modules/nexus-browser/content/provider-adapter-revision.js",
+        "modules/nexus-browser/content/hark-input.js",
+        "modules/nexus-browser/content/hark-answer.js",
+        "modules/nexus-browser/content/hark.js",
         "modules/nexus-browser/content/dex-provider-control.js",
         "modules/nexus-browser/content/provider-health.js"
       ],

@@ -149,7 +149,8 @@ test('failed response watcher after ready releases the request without clicking 
     BrowserAiBridgeChatGptDeliveryWatchdog: { createDeliveryWatchdog: () => watchdog },
     BrowserAiBridgeChatGptAnswer: {
       assistantNodes: () => [], userNodes: () => [],
-      getTurnAssistantText: () => '', getTurnUserText: () => '', normalizeText: String
+      getTurnAssistantText: () => '', getTurnUserText: () => '', normalizeText: String,
+      promptMatchesUserText: (observed, expected) => String(observed || '') === String(expected || '')
     },
     BrowserAiBridgeResponseDeadline: {
       DEFAULT_RESPONSE_DEADLINES: { idleTimeoutMs: 240000 },

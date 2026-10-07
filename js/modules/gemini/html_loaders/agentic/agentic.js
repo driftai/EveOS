@@ -9,8 +9,8 @@
 const AGENTIC_LOADERS_CORE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/agentic/core';
 
 const coreScripts = [
-    `${AGENTIC_LOADERS_CORE_PATH}/agenticLoaderConfig.js?v=20261005.10`,
-    `${AGENTIC_LOADERS_CORE_PATH}/agenticScriptLoader.js?v=20261005.9`,
+    `${AGENTIC_LOADERS_CORE_PATH}/agenticLoaderConfig.js?v=46a72d54d75a`,
+    `${AGENTIC_LOADERS_CORE_PATH}/agenticScriptLoader.js?v=906cfccd546a`,
     `${AGENTIC_LOADERS_CORE_PATH}/agenticComponentOrchestrator.js?v=dd61624900f4`
 ];
 

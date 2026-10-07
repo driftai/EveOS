@@ -39,10 +39,31 @@ function createExtensionSessionArbiter({
   function liveEntries(exclude = null) {
     return [...sessions.entries()].filter(([socket]) => socket !== exclude && isOpen(socket));
   }
+  function providerIds(state) {
+    return new Set(
+      (state?.providers || [])
+        .map((provider) => String(provider?.id || '').trim())
+        .filter(Boolean)
+    );
+  }
+  function providerCount(state) {
+    return providerIds(state).size;
+  }
+  function hasStrictProviderSuperset(candidate, incumbent) {
+    const candidateIds = providerIds(candidate);
+    const incumbentIds = providerIds(incumbent);
+    if (candidateIds.size <= incumbentIds.size) return false;
+    for (const id of incumbentIds) {
+      if (!candidateIds.has(id)) return false;
+    }
+    return true;
+  }
   function best(exclude = null, { requireTabs = false } = {}) {
     const candidates = liveEntries(exclude)
       .filter(([, state]) => state.hasSnapshot && (!requireTabs || state.tabs.length > 0))
-      .sort((a, b) => (b[1].tabs.length - a[1].tabs.length) || (b[1].updatedAt - a[1].updatedAt));
+      .sort((a, b) => (b[1].tabs.length - a[1].tabs.length)
+        || (providerCount(b[1]) - providerCount(a[1]))
+        || (b[1].updatedAt - a[1].updatedAt));
     if (candidates.length) return candidates[0][0];
     return requireTabs ? null : liveEntries(exclude)[0]?.[0] || null;
   }
@@ -157,12 +178,21 @@ function createExtensionSessionArbiter({
     }
     ensurePrimary();
     const primaryState = sessions.get(primary);
+    const hasMoreTabs = !!primaryState?.hasSnapshot && state.tabs.length > primaryState.tabs.length;
+    const hasSameTabsAndRicherProviders = !!primaryState?.hasSnapshot
+      && state.tabs.length === primaryState.tabs.length
+      && hasStrictProviderSuperset(state, primaryState);
     if (socket === primary && !state.tabs.length) {
       const replacement = best(socket, { requireTabs: true });
       if (replacement) setPrimary(replacement, 'primary-empty-richer-standby');
     } else if (socket !== primary && state.tabs.length
-        && (!primaryState?.hasSnapshot || state.tabs.length > primaryState.tabs.length)) {
-      setPrimary(socket, primaryState?.hasSnapshot ? 'richer-populated-session' : 'first-ready-session');
+        && (!primaryState?.hasSnapshot || hasMoreTabs || hasSameTabsAndRicherProviders)) {
+      const reason = !primaryState?.hasSnapshot
+        ? 'first-ready-session'
+        : hasMoreTabs
+          ? 'richer-populated-session'
+          : 'richer-provider-session';
+      setPrimary(socket, reason);
     }
     return current();
   }
@@ -191,11 +221,14 @@ function createExtensionSessionArbiter({
       primaryReady: authority.ready,
       pendingEmpty: authority.pendingEmpty,
       primaryTabs: state?.hasSnapshot ? state.tabs.length : null,
+      primaryProviders: state?.hasSnapshot ? providerCount(state) : null,
       primarySessionId: state?.sessionId || null,
       primaryConnectionEpoch: state?.connectionEpoch || null,
       standby: liveEntries(primary).map(([, item]) => ({
         sessionId: item.sessionId, connectionEpoch: item.connectionEpoch,
-        ready: item.hasSnapshot, tabs: item.hasSnapshot ? item.tabs.length : null
+        ready: item.hasSnapshot,
+        tabs: item.hasSnapshot ? item.tabs.length : null,
+        providers: item.hasSnapshot ? providerCount(item) : null
       })),
       recentTransitions: recentTransitions.map((entry) => ({ ...entry }))
     };

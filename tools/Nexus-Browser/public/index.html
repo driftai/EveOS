@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/activity-code.css">
   <link rel="stylesheet" href="/target-classes.css">
   <link rel="stylesheet" href="/dex-mode.css">
+  <link rel="stylesheet" href="/machine-spaces.css">
 </head>
 <body>
   <main class="shell">
@@ -100,6 +101,39 @@
           </div>
           <div id="appTargetTiming" class="subtle" hidden></div>
 
+        </div>
+
+        <div id="terminalTargetControls" class="target-class-panel" hidden>
+          <div class="machine-target-grid">
+            <div class="target-row">
+              <label for="terminalTypeSelect">Terminal type</label>
+              <select id="terminalTypeSelect"></select>
+            </div>
+            <div class="target-row">
+              <label for="terminalLabel">Session name</label>
+              <input id="terminalLabel" type="text" maxlength="80" placeholder="Managed PowerShell">
+            </div>
+            <div class="target-row machine-cwd-field">
+              <label for="terminalCwd">Starting folder</label>
+              <input id="terminalCwd" type="text" autocomplete="off" spellcheck="false"
+                placeholder="C:\\Users\\alvin\\Documents\\Workspace">
+            </div>
+          </div>
+          <div class="target-row">
+            <label for="terminalTargetSelect">Managed terminal</label>
+            <div class="target-actions machine-target-actions">
+              <select id="terminalTargetSelect"></select>
+              <button id="refreshTerminalTargets" class="secondary" type="button">Refresh</button>
+              <button id="createTerminalTarget" type="button">Create managed</button>
+            </div>
+          </div>
+          <div class="machine-target-footer">
+            <button id="connectTerminalTarget" class="secondary" type="button">Use terminal</button>
+            <button id="interruptTerminal" class="secondary" type="button">Interrupt command</button>
+            <button id="stopTerminalTarget" class="secondary danger" type="button">Stop terminal</button>
+          </div>
+          <div id="terminalTargetStatus" class="subtle">Create a Nexus-managed terminal. Existing external terminals are not attached.</div>
+          <p class="machine-warning">Commands execute with your Windows user permissions. A folder is context, not a security sandbox; every command requires local allow-once approval.</p>
         </div>
 
         <div id="targetStatus" class="subtle">No target selected.</div>
@@ -245,6 +279,33 @@
             <div id="dexMemberList" class="dex-member-list"></div>
           </section>
 
+          <section id="dexMachineSpaces" class="dex-card machine-spaces-card">
+            <div class="dex-section-head">
+              <div>
+                <h2>Machine Spaces</h2>
+                <p class="dex-note">Managed terminals are room resources, not participants. Agent commands wait for your local allow-once approval.</p>
+              </div>
+              <div class="dex-settings-actions">
+                <button id="machineCreateSpace" type="button">+ Space</button>
+                <button id="machineArchiveSpace" class="secondary" type="button">Archive</button>
+              </div>
+            </div>
+            <div class="machine-space-toolbar">
+              <div class="dex-field">
+                <label for="machineSpaceSelect">Active space</label>
+                <select id="machineSpaceSelect"></select>
+              </div>
+              <div class="dex-field">
+                <label for="machineAttachTarget">Managed terminal</label>
+                <select id="machineAttachTarget"></select>
+              </div>
+              <button id="machineAttach" type="button">Attach</button>
+            </div>
+            <div id="machineSpaceStatus" class="dex-room-status">Choose a room to inspect its Machine Spaces.</div>
+            <div id="machineSpaceResources" class="machine-resource-list"></div>
+            <div id="machineSpaceRequests" class="machine-request-list"></div>
+          </section>
+
           <section id="dexTranscript" class="dex-transcript" aria-live="polite"></section>
 
           <section class="dex-composer">
@@ -299,5 +360,6 @@
   <script src="/dex-human-control.js"></script>
   <script src="/dex-room-view.js"></script>
   <script src="/dex-mode.js"></script>
+  <script src="/machine-spaces-ui.js"></script>
 </body>
 </html>

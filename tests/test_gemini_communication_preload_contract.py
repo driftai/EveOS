@@ -23,13 +23,13 @@ def test_communication_and_chat_graphs_prepare_before_layout_in_order():
     assert "script.async = false" in source
 
     bootstrap = [
-        "comm/comm.js?v=20261006.3",
-        "comm/communicationPanelLoaderConfig.js?v=20261006.3",
-        "comm/communicationPanelScriptLoader.js?v=20261006.3",
-        "comm/communicationPanelComponentInitializer.js?v=20261006.3",
-        "chat_disp/chat_disp.js?v=20261006.3",
+        r"comm/comm\.js\?v=[a-f0-9]{12}",
+        r"comm/communicationPanelLoaderConfig\.js\?v=[a-f0-9]{12}",
+        r"comm/communicationPanelScriptLoader\.js\?v=[a-f0-9]{12}",
+        r"comm/communicationPanelComponentInitializer\.js\?v=[a-f0-9]{12}",
+        r"chat_disp/chat_disp\.js\?v=[a-f0-9]{12}",
     ]
-    positions = [source.index(item) for item in bootstrap]
+    positions = [re.search(item, source).start() for item in bootstrap]
     assert positions == sorted(positions)
 
 
@@ -110,8 +110,8 @@ def test_communication_preload_cache_chain_reaches_manifest():
     master = read("js/modules/gemini/Script_Loader/Script_Loader.js")
     manifest = read("js/config/manifest/scripts.parts/13-gemini.js")
 
-    assert config.count("?v=20261006.3") >= 8
-    assert "html_initialization_loaders.js?v=20261006.3" in display
-    assert "displayLoader.js?v=20261006.3" in page_loader
-    assert re.search(r"pageInitializerLoader\.js\?v=20261006\.3", master)
-    assert re.search(r"Script_Loader/Script_Loader\.js\?v=20261006\.3", manifest)
+    assert len(re.findall(r"\?v=[a-f0-9]{12}", config)) >= 8
+    assert re.search(r"html_initialization_loaders\.js\?v=[a-f0-9]{12}", display)
+    assert re.search(r"displayLoader\.js\?v=[a-f0-9]{12}", page_loader)
+    assert re.search(r"pageInitializerLoader\.js\?v=[a-f0-9]{12}", master)
+    assert re.search(r"Script_Loader/Script_Loader\.js\?v=[a-f0-9]{12}", manifest)

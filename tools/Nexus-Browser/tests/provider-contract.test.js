@@ -99,7 +99,7 @@ test('only explicitly qualified providers advertise fresh-chat managed-worker sp
     .filter((provider) => !!provider.orchestration?.spawnUrl)
     .map((provider) => provider.id)
     .sort();
-  assert.deepEqual(spawnable, ['chatgpt', 'muse']);
+  assert.deepEqual(spawnable, ['chatgpt', 'hark', 'muse']);
   for (const provider of PROVIDERS) {
     const publicEntry = require('../extension/providers.js').publicProviders()
       .find((entry) => entry.id === provider.id);

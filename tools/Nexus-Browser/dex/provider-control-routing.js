@@ -11,7 +11,7 @@ const MUTATING_ACTIONS = new Set([
   'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
   'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
   'stop_relay', 'continue_relay', 'set_room_budget', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
-  'arm_post_idle', 'cancel_post_idle', 'report_post_idle'
+  'arm_post_idle', 'cancel_post_idle', 'report_post_idle', 'terminal_exec'
 ]);
 const DEDUPE_TTL_MS = 120000, MAX_ORIGIN_WAIT_MS = 4 * 60 * 1000, ORIGIN_POLL_MS = 250;
 function stableValue(value) {
@@ -34,7 +34,7 @@ function mutationKey(source, command = {}) {
 }
 function createProviderControlRouting({
   uiSockets, safeSend, validateSource, ensureDexClient, getDexClient,
-  getState, saveState, broadcastState, spawnTarget, closeTarget, recordIncident, getExtension,
+  getState, saveState, broadcastState, spawnTarget, closeTarget, machineCommandRouter, recordIncident, getExtension,
   getMaintenance = () => null, maintenanceBusy = () => false, getScheduler = () => null,
   now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -179,7 +179,7 @@ function createProviderControlRouting({
       fail(ws, requestId, source, settledOrigin.error.code, settledOrigin.error.message);
       return true;
     }
-    const origin = settledOrigin.origin;
+    const origin = settledOrigin.origin; if (machineCommandRouter?.owns(action)) return machineCommandRouter.route({ source, command, requestId, ws, origin }, { sendResult, commitOriginReceipt });
     if (roomTools.ACTIONS.has(action)) return roomTools.route(
       { source, command, requestId, ws, origin },
       { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt });

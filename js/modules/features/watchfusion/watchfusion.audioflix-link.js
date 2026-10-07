@@ -5,6 +5,7 @@
     let publisher = null, tap = null, timer = null, activeId = '', peerLoader = null, releaseMonitorMute = null;
     const pending = new Map();
     const audio = () => window.EveAudioflixAudio;
+    const transport = () => window.EveAudioflixTransportControl;
     const queue = () => window.EveAudioflix?.queueConnection;
     function trusted(event) {
         const embedded = document.querySelector('#watchfusion-overlay .watchfusion-frame')?.contentWindow;
@@ -20,25 +21,33 @@
             script.src = new URL('tools/WatchFusion/browser-extension/live-peer.js?v=3ebe77853c8b', document.baseURI).href;
             script.onload = resolve;
             script.onerror = () => { peerLoader = null; script.remove(); reject(new Error('Could not load the media link. Reload EveOS.')); };
-            document.head.append(script);
+            document.head.appendChild(script);
         });
         return peerLoader;
     }
     function playable() {
         const playback = audio()?.getPlaybackState?.();
-        const player = audio()?.getWaveformController?.()?.getActivePlayer?.();
-        if (!playback?.item || playback.native || !player || player._eveAudioflixWaveformSafe === false
-            || (playback.browserOnly && playback.provider !== 'direct')) {
-            throw new Error('This source uses a separate provider player. Use Link a playing tab for it, or play a local/browser audio track in Music Library.');
+        if (!playback?.item || playback.native) {
+            throw new Error('Play a Music Library track before connecting Audioflix to WatchFusion.');
         }
-        return { playback, player };
+        const providerOnly = playback.browserOnly === true && playback.provider !== 'direct';
+        const player = providerOnly ? null : audio()?.getWaveformController?.()?.getActivePlayer?.();
+        if (!providerOnly && (!player || player._eveAudioflixWaveformSafe === false)) {
+            throw new Error('This track cannot be captured safely. Play a local or browser-safe Audioflix track, or use a provider-backed Music Library item.');
+        }
+        return { playback, player, providerOnly };
     }
     function snapshot() {
-        const { playback, player } = playable();
+        const { playback, player, providerOnly } = playable();
         const q = queue()?.snapshot?.() || {};
-        return { title: playback.item.title || 'Music Library', group: q.groupName || '', queue: q.entries || [], index: q.currentIndex,
+        const item = playback.item || {};
+        const provider = playback.provider || (providerOnly ? 'provider' : 'direct');
+        return { title: item.title || 'Music Library', group: q.groupName || '', queue: q.entries || [], index: q.currentIndex,
             shuffle: q.shuffle, loop: q.loop, canReorder: typeof queue()?.move === 'function', actions: q.actions || [], paused: playback.paused, currentTime: playback.currentTime,
-            duration: playback.duration, rate: player.playbackRate || 1, volume: player.volume ?? 1 };
+            duration: playback.duration, rate: Number(player?.playbackRate || playback.rate || 1) || 1,
+            volume: Math.max(0, Math.min(1, Number(item.volume ?? player?.volume ?? 1))),
+            provider, providerOnly, itemId: item.id, itemUrl: item.url || '',
+            status: providerOnly ? `${provider} provider linked · queue and controls are synced; provider audio stays in Audioflix on this device.` : '' };
     }
     function publish() {
         try { publisher?.metadata(snapshot()); }
@@ -46,16 +55,36 @@
     }
     async function control(action, value) {
         try {
-            const { playback, player } = playable();
-            if (action === 'toggle') { if (playback.paused) await player.play(); else await audio().pause(); }
-            if (action === 'play') await player.play();
-            if (action === 'pause') await audio().pause();
-            if (action === 'seek') await audio().seek(Math.max(0, Math.min(value, playback.duration || 0)));
-            if (action === 'rate') audio().setPlaybackRate(value);
+            const { playback, player, providerOnly } = playable();
+            const controller = transport();
+            const resumeCurrent = async () => {
+                if (typeof controller?.resume === 'function') return controller.resume();
+                return providerOnly ? audio().playItem?.(playback.item) : player.play();
+            };
+            const pauseCurrent = async () => {
+                if (typeof controller?.pause === 'function') return controller.pause();
+                return audio().pause();
+            };
+            if (action === 'toggle') { if (playback.paused) await resumeCurrent(); else await pauseCurrent(); }
+            if (action === 'play') await resumeCurrent();
+            if (action === 'pause') await pauseCurrent();
+            if (action === 'seek') {
+                const target = Math.max(0, Math.min(value, playback.duration || 0));
+                if (typeof controller?.seek === 'function') await controller.seek(target);
+                else await audio().seek(target);
+            }
+            if (action === 'rate') {
+                if (typeof controller?.setRate === 'function') controller.setRate(value);
+                else audio().setPlaybackRate(value);
+            }
             if (action === 'volume') {
                 const volume = Math.max(0, Math.min(1, value));
-                audio().updateItemVolume(playback.item.id, volume);
-                window.EveAudioflixState?.updateItem?.('music', playback.item.id, { volume });
+                if (typeof controller?.setVolume === 'function') {
+                    controller.setVolume(volume, { itemId: playback.item.id, type: 'music', persist: true });
+                } else {
+                    audio().updateItemVolume(playback.item.id, volume);
+                    window.EveAudioflixState?.updateItem?.('music', playback.item.id, { volume });
+                }
             }
             if (action === 'prev' || action === 'next') await queue()?.step?.(action === 'prev' ? -1 : 1);
             if (action === 'jump') await queue()?.jump?.(Math.floor(value));
@@ -75,12 +104,16 @@
     }
     async function start(config) {
         if (activeId === config.id && publisher) return;
-        playable(); await loadPeer(); stop();
+        const source = playable(); await loadPeer(); stop();
         try {
-            tap = await audio().getWaveformController().createLiveTap();
-            releaseMonitorMute = audio().getWaveformController().acquireSpeakerMute?.('watchfusion-live') || null;
+            if (!source.providerOnly) {
+                tap = await audio().getWaveformController().createLiveTap();
+                releaseMonitorMute = audio().getWaveformController().acquireSpeakerMute?.('watchfusion-live') || null;
+            }
             activeId = config.id;
-            publisher = new window.WatchFusionLivePeer({ ...config, stream: tap.stream, onReady: publish, onControl: control,
+            publisher = new window.WatchFusionLivePeer({ ...config,
+                ...(tap?.stream ? { stream: tap.stream } : { publisher: true }),
+                onReady: publish, onControl: control,
                 onStatus: status => { if (/stopped|expired|denied|replaced/i.test(status)) stop(); }
             });
             timer = setInterval(publish, 500);

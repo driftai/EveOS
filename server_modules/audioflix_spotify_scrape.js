@@ -101,6 +101,7 @@ async function launchContext() {
         args: [
             '--disable-blink-features=AutomationControlled',
             '--disable-dev-shm-usage',
+            '--lang=en-US',
             '--window-position=80,80',
             '--window-size=1280,900'
         ]
@@ -150,6 +151,31 @@ function mergePlaylistRows(domRows = [], networkTracks = new Map(), expectedCoun
     const networkRows = networkTracks instanceof Map ? [...networkTracks.values()] : [...(networkTracks || [])];
     if (!domRows.length) return expectedCount ? networkRows.slice(0, expectedCount) : networkRows;
 
+    // Spotify's public embed can render every playlist row without exposing /track/ anchors while
+    // __NEXT_DATA__ contains the complete ordered trackList. In that shape rowIdentity() cannot
+    // anchor by id and artist text can differ slightly, so use the first matching title as a safe
+    // positional anchor and preserve the DOM row's duration/artist fields when its title agrees.
+    const domHasTrackUrls = domRows.some((row) => Boolean(trackId(row?.url || row?.uri)));
+    if (!domHasTrackUrls && networkRows.length) {
+        const firstDomTitle = matchKey(domRows[0]?.title || domRows[0]?.name);
+        const titleAnchor = firstDomTitle
+            ? networkRows.findIndex((row) => matchKey(row?.title || row?.name) === firstDomTitle)
+            : -1;
+        if (titleAnchor >= 0) {
+            const available = networkRows.slice(titleAnchor);
+            const limit = expectedCount
+                ? Math.min(expectedCount, available.length)
+                : Math.min(domRows.length, available.length);
+            const positional = available.slice(0, limit).map((networkRow, index) => {
+                const domRow = domRows[index];
+                const titlesMatch = domRow
+                    && matchKey(domRow.title || domRow.name) === matchKey(networkRow.title || networkRow.name);
+                return titlesMatch ? mergeTrack(networkRow, domRow) : networkRow;
+            });
+            if (positional.length) return positional;
+        }
+    }
+
     const networkByIdentity = new Map(networkRows.map((row) => [rowIdentity(row), row]).filter(([key]) => key));
     const enrichedDom = domRows.map((row) => mergeTrack(networkByIdentity.get(rowIdentity(row)), row));
     const firstIdentity = rowIdentity(enrichedDom[0]);
@@ -197,6 +223,9 @@ function scanValue(value, tracks, depth = 0, seen = new WeakSet()) {
             .map((entry) => entry?.node || entry?.profile || entry)
             .map((entry) => typeof entry === 'string' ? entry : entry?.name || entry?.title)
             .filter(Boolean);
+        if (!artists.length && typeof value.subtitle === 'string') {
+            value.subtitle.split(',').map(clean).filter(Boolean).forEach((artist) => artists.push(artist));
+        }
         const imageSources = value.album?.images || value.albumOfTrack?.coverArt?.sources || value.images || [];
         const image = (Array.isArray(imageSources) ? imageSources : [imageSources])
             .map((entry) => entry?.url || entry?.src).find(Boolean) || '';
@@ -231,6 +260,13 @@ async function extractRows(page) {
             for (let depth = 0; row && depth < 5; depth += 1, row = row.parentElement) {
                 if (!visible(row)) continue;
                 const raw = String(row.innerText || '');
+                const explicitBadge = row.querySelector("[aria-label*='explicit' i],[title*='explicit' i],[data-testid*='explicit' i]");
+                const explicitBadgeText = tidy(explicitBadge?.textContent);
+                const stripExplicitBadge = (value) => {
+                    const text = tidy(value);
+                    if (!explicitBadgeText || !text.startsWith(explicitBadgeText) || text.length <= explicitBadgeText.length) return text;
+                    return tidy(text.slice(explicitBadgeText.length));
+                };
                 const durations = raw.match(/\b\d{1,3}:\d{2}\b/g) || [];
                 if (durations.length !== 1) continue;
                 const lines = raw.split(/\n+/).map(tidy).filter(Boolean)
@@ -239,10 +275,11 @@ async function extractRows(page) {
                 const texts = lines.filter((line) => line !== durationText && !/^\d{1,4}$/.test(line));
                 const link = row.querySelector("a[href*='/track/']");
                 const titleNode = row.querySelector("[data-testid='internal-track-link'],[data-testid*='title'],a[href*='/track/']");
-                const artists = [...row.querySelectorAll("a[href*='/artist/']")].map((a) => tidy(a.textContent)).filter(Boolean);
+                const artists = [...row.querySelectorAll("a[href*='/artist/']")]
+                    .map((a) => stripExplicitBadge(a.textContent)).filter(Boolean);
                 const title = tidy(titleNode?.textContent) || texts[0] || '';
                 if (!title) break;
-                if (!artists.length && texts[1]) artists.push(texts[1]);
+                if (!artists.length && texts[1]) artists.push(stripExplicitBadge(texts[1]));
                 const url = link?.href || link?.getAttribute('href') || '';
                 const key = `${title.toLowerCase()}|${artists.join(',').toLowerCase()}|${durationText}`;
                 if (!used.has(key)) {
@@ -251,7 +288,7 @@ async function extractRows(page) {
                         id: (url.match(/\/track\/([A-Za-z0-9]{10,})/) || [])[1] || '',
                         title, artists, album: tidy(row.querySelector("a[href*='/album/']")?.textContent),
                         image: row.querySelector('img')?.currentSrc || row.querySelector('img')?.src || '',
-                        durationText, explicit: /\bexplicit\b/i.test(raw) || lines.includes('E'), url
+                        durationText, explicit: Boolean(explicitBadge) || /\bexplicit\b/i.test(raw) || lines.includes('E'), url
                     });
                 }
                 break;
@@ -387,6 +424,10 @@ async function scrape(context) {
     async function loadPage(url) {
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await page.waitForTimeout(4500);
+        const title = await page.title().catch(() => '');
+        if (/application error/i.test(title)) {
+            throw new Error('Spotify embed failed to initialize (Application error). EveOS requested the en-US locale; reload once, and if it persists use Open Saved Session so Spotify can initialize in a normal player context.');
+        }
         const body = await page.locator('body').innerText().catch(() => '');
         for (const script of await page.locator('script').allTextContents()) {
             if (script.length < 12000000 && /spotify:track:|\/track\//.test(script)) {
@@ -426,11 +467,19 @@ async function scrape(context) {
     }
     assertAccessible(loaded.body);
     let dom = await collectDomRows(page, loaded.expectedCount);
-    if (scrapeSource === 'embed'
-        && shouldPromoteEmbedAfterScan(playlistUrl, loaded.expectedCount, dom.length)) {
-        loaded = await promoteToFullPlayer();
-        assertAccessible(loaded.body);
-        dom = await collectDomRows(page, loaded.expectedCount);
+    if (scrapeSource === 'embed') {
+        // A public embed may have URL-less DOM rows while its script/network capture already owns
+        // every canonical spotify:track URI. Decide whether to promote from the MERGED usable rows;
+        // otherwise a complete capture is discarded before it ever reaches the final filter.
+        await Promise.allSettled([...pendingNetwork]);
+        const embedScopedNetwork = playlistNetwork.size ? playlistNetwork : network;
+        const embedRows = mergePlaylistRows(dom, embedScopedNetwork, loaded.expectedCount);
+        const embedUsableCount = embedRows.filter((row) => row?.title && row?.url).length;
+        if (shouldPromoteEmbedAfterScan(playlistUrl, loaded.expectedCount, embedUsableCount)) {
+            loaded = await promoteToFullPlayer();
+            assertAccessible(loaded.body);
+            dom = await collectDomRows(page, loaded.expectedCount);
+        }
     }
     await Promise.allSettled([...pendingNetwork]);
     const scopedNetwork = playlistNetwork.size ? playlistNetwork : network;
@@ -491,6 +540,7 @@ if (require.main === module) {
 module.exports = {
     mergeTrack,
     mergePlaylistRows,
+    scanValue,
     playlistCount,
     requestMentionsPlaylist,
     needsFullPlayerPromotion,

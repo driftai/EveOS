@@ -8,7 +8,7 @@ test('read-only room list remains navigable regardless of human editing mode', (
   try {
     globalThis.document = { createElement(tag) {
       return {
-        tagName: tag, className: '', textContent: '', children: [],
+        tagName: tag, className: '', textContent: '', children: [], dataset: {},
         addEventListener(kind, handler) { this[kind] = handler; },
         append(...children) { this.children.push(...children); }
       };

@@ -9,9 +9,9 @@
     const COMPONENT_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/client/page_initialization/svg_fixing/svg_fixing_core';
 
     const scripts = [
-        `${COMPONENT_BASE_PATH}/svgFixLogic.js?v=20261006.1`,
-        `${COMPONENT_BASE_PATH}/svgDomMonitor.js?v=20261006.1`,
-        `${COMPONENT_BASE_PATH}/svgFixerCoordinator.js?v=20261006.1`
+        `${COMPONENT_BASE_PATH}/svgFixLogic.js?v=76e451135a94`,
+        `${COMPONENT_BASE_PATH}/svgDomMonitor.js?v=574c90e56ba7`,
+        `${COMPONENT_BASE_PATH}/svgFixerCoordinator.js?v=d3a93450de47`
     ];
 
     function loadScript(src) {

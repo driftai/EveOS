@@ -74,6 +74,7 @@
     for (const room of state.rooms) {
       const button = document.createElement('button');
       button.className = `dex-room-item${room.id === state.activeRoomId ? ' active' : ''}`;
+      button.dataset.roomId = room.id;
       button.textContent = `${room.name} · ${room.members.length}`;
       button.addEventListener('click', () => {
         onRoomSelect(room);

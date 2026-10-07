@@ -61,6 +61,8 @@ function headed({ hasSend = false, commitAfterClick = false, clearWithoutCommit 
       getTurnAssistantText: () => '', getTurnUserText: (nodes, baseline) =>
         nodes.slice(baseline).map(n => n.text).join('\n'),
       normalizeText: value => String(value || '').replace(/\s+/g, ' ').trim(),
+      promptMatchesUserText: (observed, expected) =>
+        String(observed || '').replace(/\s+/g, ' ').trim() === String(expected || '').replace(/\s+/g, ' ').trim(),
       responseTextForUserPrompt: () => ''
     },
     BrowserAiBridgeChatGptReturn: { baseline: () => ({ count: 0, refs: new Set(), ids: new Set() }) },

@@ -21,7 +21,7 @@ const spawnRouting = fs.readFileSync(path.join(ROOT, 'dex', 'provider-target-spa
 const controlScript = 'content/dex-provider-control.js';
 
 test('every browser provider statically loads the Dex provider-control watcher', () => {
-  assert.equal(manifest.content_scripts.length, 6);
+  assert.equal(manifest.content_scripts.length, providers.PROVIDERS.length);
   for (const item of manifest.content_scripts) {
     assert.ok(item.js.includes(controlScript), `Missing ${controlScript} for ${item.matches.join(', ')}`);
   }

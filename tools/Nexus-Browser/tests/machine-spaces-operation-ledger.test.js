@@ -5,7 +5,8 @@ const m = require('../machine-spaces/operation-ledger');
 const roomId = 'room-one', spaceId = 'machine-one';
 const base = { roomId, spaceId, requestId: 'req-one', actorMemberId: 'eve',
   sourceMessageId: 'msg-one', terminalId: 'terminal-ps-one', grantId: 'grant-read-one',
-  capability: 'files.list', commandSummary: 'List approved directory', createdAt: '2026-09-26T00:00:00Z' };
+  capability: 'files.list', operationDigest: 'a'.repeat(64),
+  commandSummary: 'List approved directory', createdAt: '2026-09-26T00:00:00Z' };
 const allow = () => true;
 const deny = () => false;
 function assertCode(action, code) { assert.throws(action, (error) => error.code === code); }
@@ -41,6 +42,7 @@ test('no cross-room request, unknown capability, malformed identifier or unrefer
   assertCode(() => m.recordRequest(ledger, { ...base, capability: 'terminal.runAsAdmin' }, allow),
     'MACHINE_BAD_CAPABILITY');
   assertCode(() => m.recordRequest(ledger, { ...base, grantId: '../secret' }, allow), 'MACHINE_BAD_ID');
+  assertCode(() => m.recordRequest(ledger, { ...base, operationDigest: '' }, allow), 'MACHINE_BAD_DIGEST');
   assertCode(() => m.settle(ledger, { requestId: 'missing', state: 'completed', outputId: 'one' }),
     'MACHINE_NOT_FOUND');
 });

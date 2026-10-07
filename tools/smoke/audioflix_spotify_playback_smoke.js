@@ -114,7 +114,11 @@ const assert = (condition, message) => {
             const runtimeErrorVisible = document.querySelector('.audioflix-provider-stage')?.classList.contains('has-error');
             await player.seek(61);
             await player.pause();
+            const playBeforePausedResume = window.__spotifyCalls.play;
+            const resumeBeforePausedResume = window.__spotifyCalls.resume;
             await player.play(item);
+            const pausedResumeUsed = window.__spotifyCalls.play === playBeforePausedResume
+                && window.__spotifyCalls.resume === resumeBeforePausedResume + 1;
             // Real Spotify embeds do not expose a dedicated ended event. A finished track may
             // report one final near-end playing position and then rewind to zero as it pauses.
             window.__spotifyController.emit('playback_update', {
@@ -142,10 +146,14 @@ const assert = (condition, message) => {
                 url: 'https://open.spotify.com/track/ABCDEF1234567890',
                 volume: 0.6
             };
+            const playBeforeNextLoad = window.__spotifyCalls.play;
+            const resumeBeforeNextLoad = window.__spotifyCalls.resume;
             await player.play(nextItem);
             const reusedController = window.__spotifyControllers === 1
                 && window.__spotifyCalls.loaded.includes('spotify:track:ABCDEF1234567890')
                 && window.__spotifyCalls.legacyLoaded.length === 0;
+            const nextLoadUsedPlay = window.__spotifyCalls.play === playBeforeNextLoad + 1
+                && window.__spotifyCalls.resume === resumeBeforeNextLoad;
             // The terminal paused update can also land slightly short of the nominal duration.
             window.__spotifyController.emit('playback_update', {
                 playingURI: 'spotify:track:ABCDEF1234567890',
@@ -197,6 +205,8 @@ const assert = (condition, message) => {
                 closePreservedTransport,
                 activeAfterHide,
                 resumedFromMainCard,
+                pausedResumeUsed,
+                nextLoadUsedPlay,
                 runtimeError,
                 runtimeErrorVisible,
                 stalledStatus,
@@ -212,6 +222,8 @@ const assert = (condition, message) => {
         assert(result.calls.uri === 'spotify:track:1234567890ABCDEF', 'Spotify URI is normalized');
         assert(result.stateAt42?.duration === 180, 'Spotify progress milliseconds become seconds');
         assert(result.calls.seek.includes(61), 'Spotify seek receives seconds, not milliseconds');
+        assert(result.pausedResumeUsed, 'paused Spotify fallback resumes the current entity instead of restarting it');
+        assert(result.nextLoadUsedPlay, 'a newly loaded Spotify queue item still starts with play instead of inheriting resume state');
         assert(result.endedCount === 2, 'each Spotify queue track emits Ended exactly once across real terminal state shapes');
         assert(result.firstEndedItemId === 'spotify-track', 'rewind-to-zero completion ends the first Spotify queue item');
         assert(result.reusedController, 'back-to-back Spotify tracks reuse the proven embed controller');
@@ -220,7 +232,7 @@ const assert = (condition, message) => {
         assert(result.compactTransportHidden, 'main-card play keeps its invisible Spotify transport rendered in the viewport');
         assert(result.internalExpanded, 'Internal Player expands the existing Spotify controller');
         assert(result.closePreservedTransport && result.activeAfterHide, 'closing Internal Player preserves playback ownership');
-        assert(result.resumedFromMainCard, 'main-card play resumes the existing Spotify controller after Internal Player closes');
+        assert(result.resumedFromMainCard, 'main-card play can load the requested Spotify entity after Internal Player closes');
         assert(result.calls.destroy === 1, 'stopping destroys the provider controller exactly once');
         assert(result.runtimeError.includes('direct click'), 'runtime provider failure explains the browser interaction requirement');
         assert(result.runtimeErrorVisible === false, 'recoverable provider failure keeps the official control visible');

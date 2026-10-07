@@ -28,7 +28,7 @@ function waitMessage(ws, predicate, timeoutMs = 3000) {
   });
 }
 
-test('UI handshake advertises Online, Local and App-Origin without waiting for native discovery', async () => {
+test('UI handshake advertises Online, Local, App and managed Terminal targets without waiting for discovery', async () => {
   await new Promise((resolve) => server.listen(0, HOST, resolve));
   const port = server.address().port;
   const ws = new WebSocket(`ws://${HOST}:${port}/ws`);
@@ -44,9 +44,11 @@ test('UI handshake advertises Online, Local and App-Origin without waiting for n
     ws.send(JSON.stringify({ type: 'hello', role: 'ui' }));
 
     const classes = await classesPromise;
-    assert.deepEqual(classes.classes.map((entry) => entry.id), ['online-origin', 'local-origin', 'app-origin']);
+    assert.deepEqual(classes.classes.map((entry) => entry.id), ['online-origin', 'local-origin', 'app-origin', 'terminal-origin']);
     assert.deepEqual(classes.localTargetTypes.map((entry) => entry.id), ['terminal-agent', 'provider-workspace']);
     assert.deepEqual(classes.appTargetTypes.map((entry) => entry.id), ['desktop-app']);
+    assert.ok(Array.isArray(classes.terminalTargetTypes));
+    assert.ok(classes.terminalTargetTypes.every((entry) => ['powershell', 'cmd', 'pwsh', 'wsl'].includes(entry.id)));
 
     const localTargets = await localTargetsPromise;
     assert.ok(Array.isArray(localTargets.targets));

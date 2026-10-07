@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,4 +58,4 @@ def test_freeze_era_deferred_headroom_heuristic_stays_retired():
 
 def test_explicit_workspace_boot_cache_key_is_current():
     manifest = read("js/config/manifest/scripts.parts/13-gemini.js")
-    assert "gemini-init.js?v=20261006.4" in manifest
+    assert re.search(r"gemini-init\.js\?v=[a-f0-9]{12}", manifest)

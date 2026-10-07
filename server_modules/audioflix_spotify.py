@@ -14,10 +14,21 @@ import shutil
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pathlib import Path
 from urllib.parse import urlsplit
 
 _CACHE_TTL_S = 300
+_PLAYBACK_RESOLVER_REVISION = "strict-v4-embedded-first"
+_PLAYBACK_RESOLVER_TIMEOUT_S = 30.0
+_YOUTUBE_BOT_CHECK_MARKERS = (
+    "failed to extract any player response",
+    "sign in to confirm you're not a bot",
+    "sign in to confirm you’re not a bot",
+    "confirm you're not a bot",
+    "confirm you’re not a bot",
+    "bot check",
+)
 _cache: dict[str, dict] = {}
 _cache_lock = threading.Lock()
 _scrape_lock = threading.Lock()
@@ -221,7 +232,7 @@ def open_session(value: str) -> dict:
                     close_fds=True,
                 )
         except OSError as exc:
-            return {"ok": False, "reason": f"Could not open the Spotify session: {exc}"}
+            return {"ok": False, "reason": f"Could not open the EveOS Spotify session window: {exc}"}
 
         deadline = time.monotonic() + 8
         status = None
@@ -259,5 +270,168 @@ def open_session(value: str) -> dict:
     }
 
 
+def _playback_youtube_search(query: str, results: int):
+    """Search YouTube for live playback with the embed-compatible client first.
+
+    Audioflix hands successful matches to the localhost YouTube iframe host. yt-dlp's web_embedded
+    client therefore matches the actual playback surface and, unlike the normal web/mweb clients,
+    currently does not require a PO token for GVS requests. Keep this path playback-only so normal
+    localization/download behavior is unchanged.
+    """
+    import yt_dlp
+
+    from server_modules import audioflix_spotify_fallback as fallback
+    from server_modules import audioflix_spotify_match as spotify_match
+
+    count = max(1, int(results or 1))
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "extract_flat": "in_playlist",
+        "ignoreerrors": True,
+        "playlistend": count,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["web_embedded"],
+            },
+        },
+    }
+    wanted = fallback._tokens(query)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        rows = spotify_match._collect_search_rows(ydl, query, count)
+        rows.sort(key=lambda row: -fallback._overlap(wanted, fallback._tokens((row or {}).get("title"))))
+        return spotify_match._hydrate_flat_rows(
+            ydl,
+            rows,
+            limit=max(
+                int(getattr(fallback, "FALLBACK_HYDRATE_LIMIT", 0) or 0),
+                count,
+            ),
+        )
+
+
+def _playback_resolver_timeout_seconds() -> float:
+    raw = str(os.environ.get("EVEOS_SPOTIFY_PLAYBACK_TIMEOUT_S") or "").strip()
+    if raw:
+        try:
+            return max(1.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+    return _PLAYBACK_RESOLVER_TIMEOUT_S
+
+
+def _resolve_playback_match(identity_url: str, metadata: dict | None) -> dict:
+    """Run the complete embed-first resolver sequence on a worker thread."""
+    from server_modules import audioflix_spotify_fallback as fallback
+
+    result = fallback.find_fallback_match(
+        identity_url,
+        searcher=_playback_youtube_search,
+        metadata=metadata or None,
+    )
+    if not result.get("ok"):
+        result = fallback.find_fallback_match(identity_url, metadata=metadata or None)
+    return result
+
+
+def _resolve_playback_match_with_timeout(identity_url: str, metadata: dict | None) -> dict:
+    """Bound yt-dlp stalls below the frontend's 45-second Spotify request timeout."""
+    timeout = _playback_resolver_timeout_seconds()
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="eveos-spotify-playback")
+    future = executor.submit(_resolve_playback_match, identity_url, metadata)
+    try:
+        return future.result(timeout=timeout)
+    except FutureTimeoutError:
+        future.cancel()
+        return {
+            "ok": False,
+            "failureKind": "timeout",
+            "reason": (
+                "YouTube playback matching timed out. YouTube may be refusing player data "
+                "(bot check); retry later or localize this track for deterministic playback."
+            ),
+        }
+    finally:
+        # Do not let a stuck yt-dlp hydration block the request thread after the timeout. The worker
+        # may finish later, but the EveOS API is free to answer immediately and future requests are
+        # not serialized behind this abandoned resolver instance.
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _playback_failure_reason(result: dict) -> str:
+    raw = str(
+        result.get("reason") or result.get("error") or result.get("message")
+        or "No verified playback source matched this Spotify track."
+    ).strip()
+    # A timeout may mention a possible bot check, but timeout is the actual observed failure kind.
+    # Preserve that message instead of rewriting it as a confirmed YouTube bot-check failure.
+    if result.get("failureKind") == "timeout":
+        return raw
+    low = raw.casefold()
+    if any(marker in low for marker in _YOUTUBE_BOT_CHECK_MARKERS):
+        return (
+            "YouTube refused player data (bot check). EveOS could not verify an independent "
+            "playback source for this Spotify track; retry later or localize the track."
+        )
+    return raw
+
+
+def resolve_playback_source(payload: dict) -> dict:
+    """Map a Spotify identity to a stable provider URL without downloading or localizing it."""
+    track = payload.get("track") if isinstance(payload, dict) else {}
+    track = track if isinstance(track, dict) else {}
+    identity_url = str(track.get("url") or "").strip()
+    if not identity_url:
+        return {"ok": False, "reason": "Missing Spotify track URL."}
+
+    from server_modules import audioflix_spotify_fallback as fallback
+
+    track_key = str(track.get("spotifyTrackId") or track.get("id") or identity_url).strip()
+    # Include resolver behavior in the cache key. A long-running EveOS server can otherwise keep a
+    # successful source selected by an older resolver for the full cache TTL after frontend reloads.
+    cache_key = f"playback:{_PLAYBACK_RESOLVER_REVISION}:{track_key}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    metadata = fallback.stored_track_metadata(track)
+
+    # Run embed-first and the broad compatibility fallback as one bounded operation. yt-dlp can hang
+    # while YouTube refuses player-data extraction; the UI should receive a specific bounded failure
+    # rather than waiting past its own 45-second request timeout and collapsing into "URL Down".
+    result = _resolve_playback_match_with_timeout(identity_url, metadata or None)
+
+    matched_url = str(result.get("url") or "").strip()
+    if not matched_url:
+        response = {
+            "ok": False,
+            "reason": _playback_failure_reason(result),
+            "resolver": fallback.STRATEGY,
+            "resolverRevision": _PLAYBACK_RESOLVER_REVISION,
+            "identityUrl": identity_url,
+        }
+        if result.get("failureKind"):
+            response["failureKind"] = result.get("failureKind")
+        return response
+
+    match = result.get("match") if isinstance(result.get("match"), dict) else {}
+    response = {
+        "ok": True,
+        "url": matched_url,
+        "provider": str(match.get("source") or "").strip(),
+        "title": str(match.get("title") or track.get("title") or "").strip(),
+        "resolver": fallback.STRATEGY,
+        "resolverRevision": _PLAYBACK_RESOLVER_REVISION,
+        "identityUrl": identity_url,
+        "toleranceSeconds": result.get("toleranceSeconds"),
+    }
+    _cache_set(cache_key, response)
+    return response
+
+
 def session_action(payload: dict) -> dict:
+    if str(payload.get("action") or "").strip().lower() == "resolve-playback-source":
+        return resolve_playback_source(payload)
     return open_session(str(payload.get("url") or payload.get("embed") or ""))

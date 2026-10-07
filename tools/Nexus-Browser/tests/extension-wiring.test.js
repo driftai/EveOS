@@ -28,9 +28,14 @@ test('every provider has one matching ordered manifest content-script bundle', (
 test('extension grants only supported providers and loopback while keeping injection provider-scoped', () => {
   const manifestMatches = manifest.content_scripts.flatMap((entry) => entry.matches || []);
   const providerMatches = PROVIDERS.flatMap((provider) => provider.matchPatterns);
+  const hostPermissionCovers = (pattern) => {
+    const origin = String(pattern).match(/^([a-z*]+:\/\/[^/]+)\//i)?.[1];
+    return manifest.host_permissions.includes(pattern)
+      || !!origin && manifest.host_permissions.includes(`${origin}/*`);
+  };
   assert.equal(manifest.host_permissions.includes('<all_urls>'), false, 'Extension must not request all-sites access.');
   for (const pattern of providerMatches) {
-    assert.equal(manifest.host_permissions.includes(pattern), true, `Missing provider host permission: ${pattern}`);
+    assert.equal(hostPermissionCovers(pattern), true, `Missing provider host permission: ${pattern}`);
   }
   assert.deepEqual([...new Set(manifestMatches)].sort(), [...new Set(providerMatches)].sort());
   assert.equal(manifestMatches.includes('<all_urls>'), false, 'Content scripts must stay restricted to supported AI providers.');

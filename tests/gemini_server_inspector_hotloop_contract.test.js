@@ -34,5 +34,5 @@ test('Gemini server inspector uses delegated toggle binding instead of a documen
 });
 
 test('Gemini server inspector cache key changes with the hot-loop fix', () => {
-    assert.match(manifest, /geminiServerInspector\.js\?v=20261005\.1/);
+    assert.match(manifest, /geminiServerInspector\.js\?v=[a-f0-9]{12}/);
 });

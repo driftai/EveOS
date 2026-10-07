@@ -285,6 +285,57 @@
       ]
     },
     {
+      id: 'hark',
+      name: 'Hark',
+      matchPatterns: [
+        'https://hark.com/chat*',
+        'https://hark.com/projects/*'
+      ],
+      urlPrefixes: [
+        'https://hark.com/chat',
+        'https://hark.com/projects/'
+      ],
+      capabilities: {
+        chat: true,
+        captureLatest: true,
+        activity: false,
+        searchResults: false
+      },
+      adapterContract: contractApi.createAdapterContract({
+        operations: {
+          probe: true, ensureReady: true, send: true, observe: true,
+          captureLatest: true, recover: true, health: true
+        }
+      }),
+      qualification: {
+        live: true,
+        warmRecovery: true,
+        exactOnce: true,
+        allowStartupRedirect: true,
+        urlPrefix: 'https://hark.com/',
+        deniedWarmUrlPrefixes: ['https://hark.com/login']
+      },
+      orchestration: { spawnUrl: 'https://hark.com/chat' },
+      groups: [
+        {
+          pingType: 'bridge_ping',
+          expectedAdapter: 'hark',
+          files: [
+            'content/hark-input.js',
+            'content/hark-answer.js',
+            'content/hark.js'
+          ],
+          globals: [
+            '__browserAiBridgeHarkInputLoaded',
+            '__browserAiBridgeHarkAnswerLoaded',
+            '__browserAiBridgeHarkLoaded',
+            'BrowserAiBridgeHarkInput',
+            'BrowserAiBridgeHarkAnswer'
+          ]
+        }
+      ]
+    },
+    {
       id: 'muse',
       name: 'Muse',
       matchPatterns: ['https://muse.ai/*'],

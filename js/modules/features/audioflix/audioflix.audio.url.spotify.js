@@ -28,6 +28,14 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
         return Number.isFinite(override) && override >= 0 ? override : END_WATCHDOG_GRACE_MS;
     }
 
+    function itemDurationMs(item) {
+        // Audioflix stores imported/library durations in seconds. Keep resolvedDuration as the first
+        // choice because provider resolution can refine the import-time value. Spotify Embed's
+        // playback_update reports milliseconds, so normalize the library value once at this edge.
+        const seconds = Math.max(0, Number(item?.resolvedDuration || item?.duration || 0));
+        return seconds > 0 ? seconds * 1000 : 0;
+    }
+
     function createCompletionScheduler(onDeadline) {
         const injectedFactory = window.__EveAudioflixSpotifyCompletionSchedulerFactory;
         if (typeof injectedFactory === 'function') {
@@ -387,6 +395,13 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     completionTimer = epoch;
                     ensureCompletionScheduler().arm(Math.max(50, remainingMs + endWatchdogGraceMs()), epoch);
                 };
+                const seedCompletionFromSelectedItem = () => {
+                    const seededDurationMs = itemDurationMs(selectedItem);
+                    if (lastDurationMs <= 0 && seededDurationMs > 0) lastDurationMs = seededDurationMs;
+                    if (lastDurationMs <= 0) return;
+                    V.playback.duration = lastDurationMs / 1000;
+                    scheduleCompletionWatchdog(lastPlayingPositionMs, lastDurationMs);
+                };
                 api.createController(mount, {
                     uri: `spotify:track:${id}`,
                     width: '100%',
@@ -395,16 +410,26 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     const invokePlay = () => typeof controller.play === 'function'
                         ? controller.play()
                         : controller.resume?.();
+                    const invokeResume = () => typeof controller.resume === 'function'
+                        ? controller.resume()
+                        : controller.play?.();
                     const player = {
                         play: () => {
-                            started = false;
+                            // `play()` on Spotify's Embed can restart the loaded entity in some
+                            // states. A paused, already-started entity must use the API's explicit
+                            // `resume()` method. Newly loaded or naturally ended entities still use
+                            // play(), preserving the queue-load semantics that were previously fixed.
+                            const resumePausedTrack = started && lastPaused && !ended;
+                            if (!resumePausedTrack) started = false;
                             runtimeFailureReported = false;
                             clearStartTimer();
                             clearCompletionTimer();
-                            setStageStatus('Spotify player ready. Starting playback...');
+                            setStageStatus(resumePausedTrack
+                                ? 'Spotify player ready. Resuming playback...'
+                                : 'Spotify player ready. Starting playback...');
                             startTimer = setTimeout(() => reportRuntimeFailure(), startTimeoutMs());
                             try {
-                                const pending = invokePlay();
+                                const pending = resumePausedTrack ? invokeResume() : invokePlay();
                                 Promise.resolve(pending).catch(() => reportRuntimeFailure());
                                 return pending;
                             } catch {
@@ -420,8 +445,15 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                         },
                         setCurrentTime: (seconds) => {
                             clearCompletionTimer();
-                            return controller.seek?.(Math.max(0, Number(seconds) || 0));
+                            const positionMs = Math.max(0, Number(seconds) || 0) * 1000;
+                            lastPlayingPositionMs = positionMs;
+                            const pending = controller.seek?.(positionMs / 1000);
+                            if (started && !lastPaused && lastDurationMs > 0) scheduleCompletionWatchdog(positionMs, lastDurationMs);
+                            return pending;
                         },
+                        // Spotify Embed intentionally has no documented volume API. Keep the optional
+                        // call for forward compatibility, but normal EveOS playback is resolved to an
+                        // independent provider where the universal 0..1 volume contract is owned here.
                         setVolume: (volume) => controller.setVolume?.(Math.max(0, Math.min(1, Number(volume) || 0))),
                         destroy: () => {
                             clearStartTimer();
@@ -457,7 +489,12 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     controller.addListener?.('playback_started', () => {
                         markStarted();
                         ended = false;
+                        lastPaused = false;
                         V.playback.paused = false;
+                        // Spotify's iframe API does not guarantee periodic playback_update events.
+                        // Arm completion immediately from the duration captured during playlist import;
+                        // any later authoritative Spotify duration/position sample simply re-arms it.
+                        seedCompletionFromSelectedItem();
                         emitPlayback(`Playing ${selectedItem.title || 'Spotify track'} with Spotify`);
                         emitProgress();
                     });

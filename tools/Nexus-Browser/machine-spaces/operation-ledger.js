@@ -5,6 +5,7 @@ const { createHash } = require('node:crypto');
 const MAX_EVENTS = 128, MAX_SUMMARY = 180, MAX_PREVIEW = 400;
 const STATES = new Set(['queued', 'running', 'completed', 'failed', 'outcome-unknown']);
 const ID = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
+const DIGEST = /^[a-f0-9]{64}$/;
 
 function error(code, message) { return Object.assign(new Error(message), { code }); }
 function identifier(value, label) {
@@ -41,12 +42,15 @@ function recordRequest(ledger, input, authorizer) {
     sourceMessageId: identifier(input?.sourceMessageId, 'sourceMessageId'),
     terminalId: identifier(input?.terminalId, 'terminalId'),
     grantId: identifier(input?.grantId, 'grantId'),
-    capability: input?.capability
+    capability: input?.capability,
+    operationDigest: String(input?.operationDigest || '')
   };
   if (intent.roomId !== ledger.roomId || intent.spaceId !== ledger.spaceId)
     throw error('MACHINE_SCOPE_MISMATCH', 'Operation targets a different room or space.');
   if (!['terminal.exec', 'terminal.inspect', 'files.list', 'files.read', 'files.edit'].includes(intent.capability))
     throw error('MACHINE_BAD_CAPABILITY', 'Unknown operation capability.');
+  if (!DIGEST.test(intent.operationDigest))
+    throw error('MACHINE_BAD_DIGEST', 'Operation content requires an exact SHA-256 digest.');
   // Authorizer must derive member, terminal, grant and source-message ownership
   // from trusted localhost state, never accept a client-provided approval flag.
   if (authorizer(intent) !== true)

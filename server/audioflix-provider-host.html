@@ -46,6 +46,15 @@
                 send('error', { message });
             };
             const stateName = (value) => ({ '-1': 'unstarted', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'cued' }[value] || 'unknown');
+            // The URL query is EveOS's canonical normalized 0..1 level. Live bridge commands come
+            // from the YouTube adapter, whose player contract is already 0..100. Keep those units
+            // explicit so the boundary value `1` can never mean both 1% and 100%.
+            const normalizedYoutubeVolume = (value) => Math.round(
+                Math.max(0, Math.min(1, Number(value) || 0)) * 100
+            );
+            const percentYoutubeVolume = (value) => Math.round(
+                Math.max(0, Math.min(100, Number(value) || 0))
+            );
 
             window.addEventListener('message', (event) => {
                 const command = event.data;
@@ -53,7 +62,14 @@
                 if (command.action === 'play') player.playVideo();
                 else if (command.action === 'pause') player.pauseVideo();
                 else if (command.action === 'seek') player.seekTo(Math.max(0, Number(command.value) || 0), true);
-                else if (command.action === 'volume') player.setVolume(Math.round(Math.max(0, Math.min(100, Number(command.value) || 0))));
+                else if (command.action === 'volume') player.setVolume(percentYoutubeVolume(command.value));
+                else if (command.action === 'load') {
+                    const nextId = String(command.value || '').trim();
+                    if (/^[A-Za-z0-9_-]{11}$/.test(nextId)) {
+                        document.body.className = 'ready';
+                        player.loadVideoById(nextId);
+                    }
+                }
                 else if (command.action === 'stop') player.stopVideo();
             });
 
@@ -70,7 +86,7 @@
                     playerVars: { autoplay: 1, controls: 1, playsinline: 1, rel: 0, origin: location.origin },
                     events: {
                         onReady(event) {
-                            event.target.setVolume(Math.round(volume * 100));
+                            event.target.setVolume(normalizedYoutubeVolume(volume));
                             document.body.className = 'ready';
                             send('ready', snapshot());
                             event.target.playVideo();
