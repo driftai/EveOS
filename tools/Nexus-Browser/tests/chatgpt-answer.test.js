@@ -154,10 +154,11 @@ test('Dex prompt evidence falls back to the exact current Turn ID', () => {
   const expected = `[DEX ROOM RELAY]\nRoom: Dex Room 1\nTurn ID: ${currentTurnId}\nRecipient: Eve\nCURRENT BODY THAT WAS VIRTUALIZED AWAY`;
   const renderedHeaderOnly = `[DEX ROOM RELAY]\nRoom: Dex Room 1\nTurn ID: ${currentTurnId}\nRecipient: Eve`;
   const staleHeader = '[DEX ROOM RELAY]\nTurn ID: dex-turn-11111111-2222-3333-4444-555555555555\nRecipient: Eve';
+  const longerDifferentId = `[DEX ROOM RELAY]\nTurn ID: ${currentTurnId}-suffix\nRecipient: Eve`;
   assert.equal(chatgptAnswer.dexTurnIdFromPrompt(expected), currentTurnId);
   assert.equal(chatgptAnswer.promptMatchesUserText(renderedHeaderOnly, expected), true);
   assert.equal(chatgptAnswer.promptMatchesUserText(staleHeader, expected), false);
-  assert.equal(chatgptAnswer.promptMatchesUserText(`${renderedHeaderOnly}-suffix`, expected), false);
+  assert.equal(chatgptAnswer.promptMatchesUserText(longerDifferentId, expected), false);
   assert.equal(chatgptAnswer.promptMatchesUserText('fresh proof', 'fresh proof'), true);
   assert.equal(chatgptAnswer.promptMatchesUserText('fresh', 'fresh proof'), false);
 });
