@@ -301,6 +301,21 @@
               </div>
               <button id="machineAttach" type="button">Attach</button>
             </div>
+            <div class="machine-space-toolbar machine-new-terminal">
+              <div class="dex-field">
+                <label for="machineNewTerminalType">New managed terminal</label>
+                <select id="machineNewTerminalType"></select>
+              </div>
+              <div class="dex-field">
+                <label for="machineNewTerminalCwd">Starting folder</label>
+                <input id="machineNewTerminalCwd" type="text" autocomplete="off" spellcheck="false" placeholder="Default managed session folder">
+              </div>
+              <div class="dex-settings-actions">
+                <button id="machineNewTerminal" type="button">Create terminal</button>
+                <button id="machineRefreshTerminals" class="secondary" type="button">Refresh</button>
+              </div>
+            </div>
+            <p class="dex-note">Only Nexus-managed terminals can be attached. Windows Terminal or other windows you opened yourself are not visible here.</p>
             <div id="machineSpaceStatus" class="dex-room-status">Choose a room to inspect its Machine Spaces.</div>
             <div id="machineSpaceResources" class="machine-resource-list"></div>
             <div id="machineSpaceRequests" class="machine-request-list"></div>
@@ -360,6 +375,7 @@
   <script src="/dex-human-control.js"></script>
   <script src="/dex-room-view.js"></script>
   <script src="/dex-mode.js"></script>
+  <script src="/machine-dialog.js"></script>
   <script src="/machine-spaces-ui.js"></script>
 </body>
 </html>

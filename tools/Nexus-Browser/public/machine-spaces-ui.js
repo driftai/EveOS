@@ -3,6 +3,8 @@
   const socketApi = globalThis.BrowserAiBridgeUiSocket;
   const handoff = globalThis.BrowserAiBridgeWorkspaceHandoff;
   if (!socketApi) throw new Error('Machine Spaces requires the shared UI socket helper.');
+  const dialog = globalThis.BrowserAiBridgeMachineDialog;
+  if (!dialog) throw new Error('Machine Spaces requires the in-page dialog helper.');
 
   const byId = (id) => document.getElementById(id);
   const el = Object.fromEntries([
@@ -11,7 +13,8 @@
     'createTerminalTarget','connectTerminalTarget','interruptTerminal','stopTerminalTarget','terminalTargetStatus',
     'terminalRelayPanel','bridgeBadge','targetStatus','prompt','captureLatest','sendPrompt','transcript',
     'dexModePanel','dexRoomList','machineCreateSpace','machineArchiveSpace','machineSpaceSelect',
-    'machineAttachTarget','machineAttach','machineSpaceStatus','machineSpaceResources','machineSpaceRequests'
+    'machineAttachTarget','machineAttach','machineSpaceStatus','machineSpaceResources','machineSpaceRequests',
+    'machineNewTerminalType','machineNewTerminalCwd','machineNewTerminal','machineRefreshTerminals'
   ].map((id) => [id, byId(id)]));
   const state = { phase: 'connecting', targets: [], types: [], selectedId: '', roomId: '', room: null };
   const outputs = new Map(), commandText = new Map();
@@ -68,10 +71,11 @@
   function renderTargets() {
     const oldType = el.terminalTypeSelect.value;
     setOptions(el.terminalTypeSelect, state.types, oldType, 'No terminal types', (item) => item.name);
+    setOptions(el.machineNewTerminalType, state.types, el.machineNewTerminalType.value, 'No terminal types', (item) => item.name);
     state.selectedId = setOptions(el.terminalTargetSelect, state.targets, state.selectedId,
       'No managed terminals', (target) => `${target.title} · ${target.type}${target.busy ? ' · running' : ''}`);
     setOptions(el.machineAttachTarget, state.targets, el.machineAttachTarget.value,
-      'No managed terminals', (target) => `${target.title} · ${target.cwd}`);
+      'No managed terminals yet: create one', (target) => `${target.title} · ${target.type} · ${target.cwd}${target.busy ? ' · running' : ''}`);
     const target = activeTarget();
     el.terminalTargetStatus.textContent = target
       ? `${target.title} · ${target.cwd}${target.busy ? ' · command running' : ' · ready'}`
@@ -103,12 +107,14 @@
     el.captureLatest.textContent = 'Explain output history';
   }
 
-  function decide(prepared, room = false) {
+  async function decide(prepared, room = false) {
     const scope = room ? `Dex Machine Space command from ${prepared.actorName || 'agent'}` : 'Base Mode terminal command';
-    const warning = `${scope}\n\nTerminal: ${prepared.terminalId || prepared.targetId}\nFolder: ${prepared.cwd || activeTarget()?.cwd || 'managed session folder'}\nRisk: ${prepared.risk}\n\n${prepared.command}`;
-    if (!globalThis.confirm(`${warning}\n\nAllow this exact command once?`)) return { decision: 'deny', challenge: '' };
+    const warning = `Terminal: ${prepared.terminalId || prepared.targetId}\nFolder: ${prepared.cwd || activeTarget()?.cwd || 'managed session folder'}\nRisk: ${prepared.risk}\n\n${prepared.command}`;
+    if (!(await dialog.confirm(`${scope}: allow this exact command once?`, warning, { confirmText: 'Allow once', cancelText: 'Deny' })))
+      return { decision: 'deny', challenge: '' };
     if (prepared.risk !== 'high') return { decision: 'allow-once', challenge: '' };
-    const entered = globalThis.prompt(`${warning}\n\nHigh-risk command. Type challenge ${prepared.challenge} to allow once.`, '');
+    const entered = await dialog.prompt(`High-risk command. Type challenge ${prepared.challenge} to allow once.`, '',
+      { body: warning, confirmText: 'Allow once', danger: true });
     return entered == null ? { decision: 'deny', challenge: '' }
       : { decision: 'allow-once', challenge: String(entered).trim() };
   }
@@ -119,8 +125,8 @@
     if (!send({ type: 'machine_prepare_command', requestId: id, targetId: target.id, command }))
       message('system', 'Nexus is not connected; the command was not prepared.');
   }
-  function prepared(msg) {
-    const choice = decide(msg);
+  async function prepared(msg) {
+    const choice = await decide(msg);
     if (choice.decision === 'allow-once') {
       message('user', commandText.get(msg.requestId) || msg.command, `user-${msg.requestId}`);
       if (el.prompt.value.trim() === commandText.get(msg.requestId)) el.prompt.value = '';
@@ -171,6 +177,8 @@
     el.machineCreateSpace.disabled = !state.roomId || !editable;
     el.machineArchiveSpace.disabled = !space || !editable;
     el.machineAttach.disabled = !space || !state.targets.length || !editable;
+    el.machineNewTerminal.disabled = !connected() || !state.types.length || !editable;
+    el.machineRefreshTerminals.disabled = !connected();
     el.machineSpaceStatus.textContent = !state.roomId ? 'Choose a room to inspect its Machine Spaces.'
       : !space ? 'No active Machine Space. Enable Human Input to create one.'
         : `${space.name} · ${(space.resources || []).length} terminal resource(s) · ${(space.requests || []).length} request(s)`;
@@ -180,8 +188,8 @@
       const head = document.createElement('div'); head.className = 'machine-resource-head';
       const title = document.createElement('div'); title.className = 'machine-resource-title';
       title.textContent = resource.available ? `${resource.title} · ${resource.type}` : `${resource.id} · unavailable`;
-      head.append(title, actionButton('Detach', () => {
-        if (globalThis.confirm(`Detach ${resource.title || resource.id} from ${space.name}?`))
+      head.append(title, actionButton('Detach', async () => {
+        if (await dialog.confirm(`Detach ${resource.title || resource.id} from ${space.name}?`, '', { confirmText: 'Detach', danger: true }))
           send({ type: 'machine_detach_target', roomId: state.roomId, spaceId: space.id, targetId: resource.id });
       }, { danger: true, disabled: !editable }));
       const meta = document.createElement('div'); meta.className = 'machine-meta';
@@ -206,8 +214,8 @@
     meta.textContent = `${request.risk || 'recorded'}${request.exitCode == null ? '' : ` · exit ${request.exitCode}`}${request.bytes == null ? '' : ` · ${request.bytes} bytes`}`;
     const actions = document.createElement('div'); actions.className = 'machine-request-actions';
     if (request.state === 'approval-required') {
-      actions.append(actionButton('Allow once', () => {
-        const choice = decide(request, true);
+      actions.append(actionButton('Allow once', async () => {
+        const choice = await decide(request, true);
         send({ type: 'machine_approve_command', approvalId: request.approvalId, ...choice });
       }), actionButton('Deny', () => send({ type: 'machine_approve_command', approvalId: request.approvalId,
         decision: 'deny' }), { danger: true }));
@@ -266,14 +274,14 @@
     targetType: el.terminalTypeSelect.value, label: el.terminalLabel.value, cwd: el.terminalCwd.value }));
   el.connectTerminalTarget.addEventListener('click', () => send({ type: 'machine_select_target', targetId: el.terminalTargetSelect.value }));
   el.terminalTargetSelect.addEventListener('change', () => { state.selectedId = el.terminalTargetSelect.value; renderTargets(); });
-  el.stopTerminalTarget.addEventListener('click', () => {
+  el.stopTerminalTarget.addEventListener('click', async () => {
     const target = activeTarget();
-    if (target && globalThis.confirm(`Stop ${target.title} and detach it from all Machine Spaces?`))
+    if (target && await dialog.confirm(`Stop ${target.title} and detach it from all Machine Spaces?`, '', { confirmText: 'Stop', danger: true }))
       send({ type: 'machine_stop_target', targetId: target.id });
   });
-  el.interruptTerminal.addEventListener('click', () => {
+  el.interruptTerminal.addEventListener('click', async () => {
     const target = activeTarget();
-    if (target && globalThis.confirm(`Interrupt the running command in ${target.title}? Its outcome will be marked unknown.`))
+    if (target && await dialog.confirm(`Interrupt the running command in ${target.title}?`, 'Its outcome will be marked unknown.', { confirmText: 'Interrupt', danger: true }))
       send({ type: 'machine_interrupt', targetId: target.id });
   });
   el.sendPrompt.addEventListener('click', (event) => { if (isMachine()) { event.preventDefault(); event.stopImmediatePropagation(); prepareBase(); } }, true);
@@ -286,20 +294,24 @@
     if (isMachine()) { event.preventDefault(); event.stopImmediatePropagation(); message('system', 'Terminal output is retained in bounded pages beside each command. Select Load more when available.'); }
   }, true);
   el.machineSpaceSelect.addEventListener('change', renderRoom);
-  el.machineCreateSpace.addEventListener('click', () => {
-    const name = globalThis.prompt('Machine Space name', 'Machine Space');
-    if (name) send({ type: 'machine_create_space', roomId: state.roomId, name });
+  el.machineCreateSpace.addEventListener('click', async () => {
+    const roomId = state.roomId;
+    const name = String(await dialog.prompt('New Machine Space name', 'Machine Space', { confirmText: 'Create space' }) || '').trim();
+    if (name && roomId) send({ type: 'machine_create_space', roomId, name });
   });
-  el.machineArchiveSpace.addEventListener('click', () => {
+  el.machineArchiveSpace.addEventListener('click', async () => {
     const space = activeSpace();
-    if (space && globalThis.confirm(`Archive ${space.name}? Terminal outputs remain bounded local records.`))
+    if (space && await dialog.confirm(`Archive ${space.name}?`, 'Terminal outputs remain bounded local records.', { confirmText: 'Archive', danger: true }))
       send({ type: 'machine_archive_space', roomId: state.roomId, spaceId: space.id });
   });
   el.machineAttach.addEventListener('click', () => {
+    // The Attach button itself is the explicit local action; no second dialog.
     const space = activeSpace(), targetId = el.machineAttachTarget.value;
-    if (space && targetId && globalThis.confirm('Attach this managed terminal to the selected room Machine Space?'))
-      send({ type: 'machine_attach_target', roomId: state.roomId, spaceId: space.id, targetId });
+    if (space && targetId) send({ type: 'machine_attach_target', roomId: state.roomId, spaceId: space.id, targetId });
   });
+  el.machineRefreshTerminals.addEventListener('click', () => send({ type: 'request_machine_targets', ownerId }));
+  el.machineNewTerminal.addEventListener('click', () => send({ type: 'machine_create_target',
+    targetType: el.machineNewTerminalType.value, label: '', cwd: el.machineNewTerminalCwd.value }));
   new MutationObserver(() => requestRoom()).observe(el.dexRoomList, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
   new MutationObserver(renderRoom).observe(el.dexModePanel, { attributes: true, attributeFilter: ['data-human-input'] });
   const client = { snapshot: () => ({ selectedId: state.selectedId, roomId: state.roomId }),

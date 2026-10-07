@@ -51,3 +51,14 @@ test('all provider command surfaces agree on the four terminal operations', () =
   }
   assert.equal(browser.MUTATING_ACTIONS.has('terminal_exec'), true);
 });
+
+test('Machine Spaces never relies on native dialogs that a sandboxed EveOS iframe blocks', () => {
+  const html = read('public/index.html');
+  const source = read('public/machine-spaces-ui.js');
+  assert.doesNotMatch(source, /globalThis\.(confirm|prompt|alert)\(|window\.(confirm|prompt|alert)\(/);
+  assert.match(source, /BrowserAiBridgeMachineDialog/);
+  assert.ok(html.indexOf('/machine-dialog.js') > -1 && html.indexOf('/machine-dialog.js') < html.indexOf('/machine-spaces-ui.js'));
+  for (const id of ['machineNewTerminalType', 'machineNewTerminalCwd', 'machineNewTerminal', 'machineRefreshTerminals'])
+    assert.match(html, new RegExp(`id="${id}"`), id);
+  assert.match(source, /machine_create_target/);
+});
