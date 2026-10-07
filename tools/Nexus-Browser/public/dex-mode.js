@@ -10,13 +10,15 @@
   const humanInputApi = globalThis.BrowserAiBridgeDexHumanControl;
   const roomViewApi = globalThis.BrowserAiBridgeDexRoomView;
   const hostAccessUiApi = globalThis.BrowserAiBridgeHostAccessUi;
-  if (!protocol || !memberApi || !controlApi || !stateSyncApi || !runtimeApi || !socketApi || !sessionPolicyApi || !humanInputApi || !roomViewApi || !hostAccessUiApi) {
+  const relayTimingApi = globalThis.BrowserAiBridgeDexRelayTiming;
+  if (!protocol || !memberApi || !controlApi || !stateSyncApi || !runtimeApi || !socketApi || !sessionPolicyApi || !humanInputApi || !roomViewApi || !hostAccessUiApi || !relayTimingApi) {
     throw new Error('Dex helpers must load before Dex Mode.');
   }
   const STORAGE_KEY = 'browser-ai-bridge.dex.rooms.v1';
   const VIEW_KEY = 'browser-ai-bridge.dex.viewer-state.v1';
   const RELOAD_REASON_KEY = 'browser-ai-bridge.dex.reload-reason.v1';
   let dexWorkspace = null;
+  const relayTiming = relayTimingApi.createTracker();
   const state = {
     uiConnectionPhase: 'connecting',
     rooms: [],
@@ -28,8 +30,6 @@
     appTargets: [], appTypes: [],
     reloading: false,
     runtimeRole: 'unknown',
-    lastRelayFinalAt: 0,
-    lastRelayFinalProvider: ''
   };
   const el = Object.fromEntries([
     'baseModeTab','dexModeTab','baseModePanel','dexModePanel','dexRoomList','dexNewRoom',
@@ -224,20 +224,13 @@
       return;
     }
     if (msg.type === 'response_final') {
-      const observedAt = Number(msg.observedAt || Date.now());
-      state.lastRelayFinalAt = observedAt;
-      state.lastRelayFinalProvider = msg.providerName || msg.providerId || 'provider';
-      const settleMs = Number(msg.detail?.adapterSettleMs), totalMs = Number(msg.detail?.totalResponseMs), firstMs = Number(msg.detail?.timeToFirstResponseMs);
-      log(`Relay timing: ${state.lastRelayFinalProvider} final${Number.isFinite(totalMs) ? ` in ${totalMs} ms · first response ${Number.isFinite(firstMs) ? firstMs : '?'} ms` : Number.isFinite(settleMs) ? ` settled in ${settleMs} ms` : ''}.`);
+      const line = relayTiming.onFinal(msg);
+      if (line) log(line);
       return;
     }
     if (msg.type === 'prompt_accepted') {
-      const acceptedAt = Number(msg.observedAt || Date.now());
-      if (state.lastRelayFinalAt) {
-        const handoffMs = Math.max(0, acceptedAt - state.lastRelayFinalAt);
-        log(`Relay timing: ${state.lastRelayFinalProvider || 'previous provider'} → ${msg.providerName || msg.providerId || 'provider'} accepted in ${handoffMs} ms.`);
-        state.lastRelayFinalAt = 0; state.lastRelayFinalProvider = '';
-      }
+      const line = relayTiming.onAccepted(msg);
+      if (line) log(line);
       return;
     }
     if (msg.type === 'dex_scheduler_event') {

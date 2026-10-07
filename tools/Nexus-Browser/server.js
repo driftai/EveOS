@@ -8,6 +8,7 @@ const { createDexStateStore } = require('./dex/state-store'), { createDexServerS
 const { startPostIdleMaintenance } = require('./dex/server-post-idle'), { startTaskCompletion } = require('./dex/server-task-completion'), { createServerStreamNudgeAuth } = require('./dex/server-stream-nudge-auth');
 const { createEnsureDexClient } = require('./dex/server-ensure-ui');
 const { mergeClientSnapshot } = require('./dex/server-state-merge'), finalState = require('./dex/server-scheduler-state');
+const finalReceiptDisposition = require('./dex/final-receipt-disposition');
 const { createServerDurability } = require('./dex/server-durability');
 const { createExtensionSessionArbiter } = require('./dex/extension-session-arbiter');
 const { assetRevision } = require('./server-asset-revision');
@@ -360,9 +361,12 @@ wss.on('connection', (ws, req) => {
       }
       await dexScheduler.handleTransportEvent(msg);
       if (msg.type === 'response_final' && msg.requestId) {
-        const receipt = finalState.findFinalReceipt(dexStateStore.load(), msg.requestId);
-        if (receipt) safeSend(ws, { type: 'dex_turn_receipt', requestId: msg.requestId,
-          messageId: receipt.messageId, roomId: receipt.roomId, state: 'committed' });
+        // Terminal receipt for every Dex final outcome so the outbox stops replaying it.
+        const receipt = finalReceiptDisposition.finalDisposition(dexStateStore.load(), msg.requestId, {
+          currentRequestId: dexScheduler.diagnostics?.()?.current?.requestId || null,
+          findFinalReceipt: finalState.findFinalReceipt
+        });
+        if (receipt) safeSend(ws, receipt);
       }
       dexRouting.broadcastExtensionEvent(msg);
       return;

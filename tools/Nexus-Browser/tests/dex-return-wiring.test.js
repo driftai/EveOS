@@ -29,8 +29,10 @@ test('returned final text is durably queued before delivery and only acknowledge
   assert.match(entry, /importScripts\('provider-return-routing\.js'\)/);
   assert.match(returnRouting, /finalDelivery\.onFinal\(message, sender, sendResponse, provider\)/);
   assert.match(worker, /finalDelivery\.onReceipt\(msg\)/);
-  assert.match(server, /finalState\.findFinalReceipt\(dexStateStore\.load\(\), msg\.requestId\)/);
-  assert.match(server, /type: 'dex_turn_receipt'/);
+  assert.match(server, /finalReceiptDisposition\.finalDisposition\(dexStateStore\.load\(\), msg\.requestId,/);
+  assert.match(server, /findFinalReceipt: finalState\.findFinalReceipt/);
+  assert.match(read('dex/final-receipt-disposition.js'), /type: 'dex_turn_receipt'/);
+  assert.match(server, /if \(receipt\) safeSend\(ws, receipt\)/);
   assert.match(scheduler, /rememberFinalReceipt\(room, current\.requestId, message\.id/);
   assert.match(recovery, /rememberFinalReceipt\(room, recovery\.requestId, message\.id/);
   assert.match(recovery, /originalTurnRequestId: recovery\.requestId/);

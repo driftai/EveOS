@@ -48,8 +48,11 @@ test('warm adapter readiness cache prevents duplicate full-stack verification wi
 test('Dex diagnostics report provider settle and cross-provider handoff timing', () => {
   const worker = source('extension/service-worker.js');
   const dex = source('public/dex-mode.js');
+  const timing = source('public/dex-relay-timing.js');
   assert.match(worker, /prompt_accepted[^\n]+observedAt: Date\.now\(\)/);
-  assert.match(dex, /Relay timing:/);
-  assert.match(dex, /adapterSettleMs/);
-  assert.match(dex, /accepted in \$\{handoffMs\} ms/);
+  assert.match(dex, /relayTiming\.onFinal\(msg\)/);
+  assert.match(dex, /relayTiming\.onAccepted\(msg\)/);
+  assert.match(timing, /Relay timing:/);
+  assert.match(timing, /adapterSettleMs/);
+  assert.match(timing, /accepted in \$\{handoffMs\} ms/);
 });

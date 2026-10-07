@@ -2,6 +2,8 @@
   // Only Dex final RESULTS are replayed. Dispatched prompts and Base results are never retried here.
   const KEY = 'nexusDexPendingFinalsV1';
   const TTL_MS = 30 * 60 * 1000, MIN_RETRY_MS = 10000, MAX_PENDING = 16;
+  // committed: the room recorded it. superseded/rejected: no turn will ever take it.
+  const TERMINAL_STATES = new Set(['committed', 'superseded', 'rejected']);
   const isDexRequestId = (requestId) => String(requestId || '').startsWith('dex-');
   function createOutbox({ storage, now = () => Date.now() } = {}) {
     const pending = new Map();
@@ -72,7 +74,7 @@
       return { sent, pending: pending.size };
     }
     async function acknowledge(message) {
-      if (message?.type !== 'dex_turn_receipt' || message.state !== 'committed') return false;
+      if (message?.type !== 'dex_turn_receipt' || !TERMINAL_STATES.has(message.state)) return false;
       await restore();
       if (!pending.has(message.requestId)) return false;
       pending.delete(message.requestId);
@@ -84,7 +86,7 @@
       pendingRequestIds: [...pending.keys()] }; }
     return { queue, restore, flush, acknowledge, diagnostics };
   }
-  const api = { KEY, TTL_MS, MIN_RETRY_MS, MAX_PENDING, isDexRequestId, createOutbox };
+  const api = { KEY, TERMINAL_STATES, TTL_MS, MIN_RETRY_MS, MAX_PENDING, isDexRequestId, createOutbox };
   if (typeof globalThis !== 'undefined') globalThis.BrowserAiBridgeDexFinalReceipt = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
