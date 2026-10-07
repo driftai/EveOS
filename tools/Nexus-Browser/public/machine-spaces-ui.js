@@ -169,6 +169,38 @@
     button.className = `secondary${danger ? ' danger' : ''}`; button.disabled = disabled;
     button.addEventListener('click', action); return button;
   }
+  async function enableRepoGrant(space, resource) {
+    const body = [
+      `Repository will be resolved from: ${resource.cwd || '(unknown folder)'}`,
+      '',
+      'Auto-run only: git pull --ff-only, git fetch/status/log/diff, npm test, node --test, and bounded read-only PowerShell Get-Location/Get-ChildItem/Get-Content inside that repo.',
+      '',
+      'Still requires explicit approval: restart/kill commands, git push/reset/clean/branch switching, deletes, installs, shell chaining/substitution, and anything outside the repo.',
+      '',
+      'Existing 30 second runtime and 1 MiB output caps remain in force.'
+    ].join('\n');
+    if (await dialog.confirm(`Enable persistent repo-safe agent grant for ${space.name}?`, body,
+      { confirmText: 'Enable grant', cancelText: 'Cancel' }))
+      send({ type: 'machine_enable_repo_grant', roomId: state.roomId, spaceId: space.id, targetId: resource.id });
+  }
+  async function revokeRepoGrant(space) {
+    if (await dialog.confirm(`Revoke the repo-safe grant for ${space.name}?`,
+      'Future agent terminal commands will return to one-time approval unless another local grant is enabled.',
+      { confirmText: 'Revoke grant', cancelText: 'Keep grant', danger: true }))
+      send({ type: 'machine_revoke_repo_grant', roomId: state.roomId, spaceId: space.id });
+  }
+  function grantCard(space, editable) {
+    if (!space?.grant?.enabled) return null;
+    const card = document.createElement('div'); card.className = 'machine-resource';
+    const head = document.createElement('div'); head.className = 'machine-resource-head';
+    const title = document.createElement('div'); title.className = 'machine-resource-title';
+    title.textContent = 'Repo-safe agent grant · enabled';
+    head.append(title, actionButton('Revoke grant', () => revokeRepoGrant(space), { danger: true, disabled: !editable }));
+    const meta = document.createElement('div'); meta.className = 'machine-meta';
+    meta.textContent = `${space.grant.policy} · scope ${space.grant.repoRoot} · created ${space.grant.createdAt || 'locally'}`;
+    card.append(head, meta);
+    return card;
+  }
   function renderRoom() {
     const spaces = (state.room?.spaces || []).filter((space) => !space.archived);
     const wanted = el.machineSpaceSelect.value;
@@ -181,22 +213,28 @@
     el.machineRefreshTerminals.disabled = !connected();
     el.machineSpaceStatus.textContent = !state.roomId ? 'Choose a room to inspect its Machine Spaces.'
       : !space ? 'No active Machine Space. Enable Human Input to create one.'
-        : `${space.name} · ${(space.resources || []).length} terminal resource(s) · ${(space.requests || []).length} request(s)`;
+        : `${space.name} · ${(space.resources || []).length} terminal resource(s) · ${(space.requests || []).length} request(s)${space.grant?.enabled ? ' · repo-safe grant on' : ''}`;
     el.machineSpaceResources.replaceChildren();
+    const grant = grantCard(space, editable);
+    if (grant) el.machineSpaceResources.append(grant);
     for (const resource of space?.resources || []) {
       const card = document.createElement('div'); card.className = 'machine-resource';
       const head = document.createElement('div'); head.className = 'machine-resource-head';
       const title = document.createElement('div'); title.className = 'machine-resource-title';
       title.textContent = resource.available ? `${resource.title} · ${resource.type}` : `${resource.id} · unavailable`;
-      head.append(title, actionButton('Detach', async () => {
+      const actions = document.createElement('div'); actions.className = 'machine-request-actions';
+      if (!space.grant?.enabled && resource.available) actions.append(actionButton('Enable repo-safe grant',
+        () => enableRepoGrant(space, resource), { disabled: !editable }));
+      actions.append(actionButton('Detach', async () => {
         if (await dialog.confirm(`Detach ${resource.title || resource.id} from ${space.name}?`, '', { confirmText: 'Detach', danger: true }))
           send({ type: 'machine_detach_target', roomId: state.roomId, spaceId: space.id, targetId: resource.id });
       }, { danger: true, disabled: !editable }));
+      head.append(title, actions);
       const meta = document.createElement('div'); meta.className = 'machine-meta';
       meta.textContent = resource.cwd || 'Managed session is no longer running.';
       card.append(head, meta); el.machineSpaceResources.append(card);
     }
-    if (!space?.resources?.length) el.machineSpaceResources.innerHTML = '<div class="machine-empty">No managed terminals attached.</div>';
+    if (!space?.resources?.length && !grant) el.machineSpaceResources.innerHTML = '<div class="machine-empty">No managed terminals attached.</div>';
     el.machineSpaceRequests.replaceChildren();
     for (const request of [...(space?.requests || [])].reverse()) renderRequest(space, request);
     if (!space?.requests?.length) el.machineSpaceRequests.innerHTML = '<div class="machine-empty">No agent terminal requests yet.</div>';
@@ -211,7 +249,9 @@
     const command = document.createElement('pre'); command.className = 'machine-request-command';
     command.textContent = request.command || request.commandSummary || '(command unavailable)';
     const meta = document.createElement('div'); meta.className = 'machine-meta';
-    meta.textContent = `${request.risk || 'recorded'}${request.exitCode == null ? '' : ` · exit ${request.exitCode}`}${request.bytes == null ? '' : ` · ${request.bytes} bytes`}`;
+    const approval = request.approvalMode === 'repo-safe-v1'
+      ? `repo-safe auto-approved for ${request.approvedByName || request.actorName || 'agent'}` : (request.risk || 'recorded');
+    meta.textContent = `${approval}${request.exitCode == null ? '' : ` · exit ${request.exitCode}`}${request.bytes == null ? '' : ` · ${request.bytes} bytes`}`;
     const actions = document.createElement('div'); actions.className = 'machine-request-actions';
     if (request.state === 'approval-required') {
       actions.append(actionButton('Allow once', async () => {
