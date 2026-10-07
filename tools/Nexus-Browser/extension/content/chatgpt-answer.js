@@ -148,6 +148,22 @@
       .trim();
   }
 
+  function dexTurnIdFromPrompt(value) {
+    const normalized = normalizeText(value);
+    return normalized.match(/(?:^|\n)Turn ID:\s*(dex-turn-[A-Za-z0-9-]{8,128})(?:\s|$)/)?.[1] || '';
+  }
+
+  function promptMatchesUserText(observedText, expectedText) {
+    const observed = normalizeText(observedText);
+    const expected = normalizeText(expectedText);
+    if (!observed || !expected) return false;
+    if (observed.includes(expected)) return true;
+    const dexTurnId = dexTurnIdFromPrompt(expected);
+    if (!dexTurnId) return false;
+    const observedTurnIds = observed.match(/\bdex-turn-[A-Za-z0-9-]{8,128}\b/g) || [];
+    return observedTurnIds.includes(dexTurnId);
+  }
+
   function codeLanguage(node) {
     const direct = node?.getAttribute?.('data-language') || node?.getAttribute?.('data-lang') || '';
     if (direct) return String(direct).trim();
@@ -305,7 +321,7 @@
     if (!wanted) return '';
     const users = userNodes(root);
     const userTurn = users.slice(Math.max(0, baselineUserCount))
-      .find((node) => normalizeText(userText(node)).includes(wanted));
+      .find((node) => promptMatchesUserText(userText(node), wanted));
     if (!userTurn) return '';
     const turns = conversationTurns(root);
     const start = turns.indexOf(userTurn);
@@ -358,6 +374,8 @@
     isAssistantOwned,
     emojiAlt,
     normalizeText,
+    dexTurnIdFromPrompt,
+    promptMatchesUserText,
     structuralText,
     pruneNestedNodes,
     contentNodesForTurn,
