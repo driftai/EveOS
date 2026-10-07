@@ -1,12 +1,35 @@
 'use strict';
 // Shared, fail-closed source check for ALL localhost provider-control actions.
 const identity = require('../public/dex-members');
+const controlReceipt = require('./provider-control-receipt');
 const UNBOUND_ACTIONS = new Set(['help', 'create_room']);
+const ONLINE_ORIGIN_MUTATING_ACTIONS = new Set([
+  'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
+  'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
+  'stop_relay', 'continue_relay', 'set_room_budget', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
+  'arm_post_idle', 'cancel_post_idle', 'report_post_idle', 'terminal_exec'
+]);
 const fail = (code, message) => ({ ok: false, code, message });
+const isOnlineOrigin = (source = {}) => String(source.targetClassId || '').trim().toLowerCase() === 'online-origin';
+function onlineOriginMutationGate(snapshot, source = {}, command = {}) {
+  const action = String(command.action || '').trim().toLowerCase();
+  if (!isOnlineOrigin(source) || !ONLINE_ORIGIN_MUTATING_ACTIONS.has(action)) return null;
+  if (!snapshot || !Array.isArray(snapshot.rooms))
+    return fail('DEX_ENTRY_STATE_UNAVAILABLE', 'Durable room state unavailable; no command executed.');
+  if (controlReceipt.findIntent(snapshot, source, command)) return null;
+  // A command emitted by the currently active source turn may arrive just before
+  // response_final records its exact durable intent. Let routing settle that turn,
+  // but reject historical/unsolicited Online-Origin mutations with no durable origin.
+  if (controlReceipt.activeSourceTurn(snapshot, source)) return null;
+  return fail('DEX_CONTROL_ORIGIN_REQUIRED',
+    'Online-Origin state-changing provider-control requires an exact durable control origin; no mutation was executed.');
+}
 function authorize(snapshot, source = {}, command = {}) {
   const action = String(command.action || '').trim().toLowerCase();
   if (!source.targetClassId || !source.providerId)
     return fail('DEX_CONTROL_BAD_SOURCE', 'Exact authenticated provider identity required.');
+  const originGate = onlineOriginMutationGate(snapshot, source, command);
+  if (originGate) return originGate;
   if (UNBOUND_ACTIONS.has(action)) return { ok: true, scope: 'unbound-action' };
   if (!snapshot || !Array.isArray(snapshot.rooms))
     return fail('DEX_ENTRY_STATE_UNAVAILABLE', 'Durable room state unavailable; no command executed.');
@@ -28,4 +51,4 @@ function authorize(snapshot, source = {}, command = {}) {
   return exact.length === 1 ? { ok: true, scope: 'unique-room', roomId: exact[0].id }
     : { ok: true, scope: 'multiple-exact-rooms' };
 }
-module.exports = { UNBOUND_ACTIONS, authorize };
+module.exports = { UNBOUND_ACTIONS, ONLINE_ORIGIN_MUTATING_ACTIONS, isOnlineOrigin, onlineOriginMutationGate, authorize };
