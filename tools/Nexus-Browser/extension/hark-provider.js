@@ -21,8 +21,7 @@
     deniedWarmUrlPrefixes: ['https://hark.com/login']
   };
   const orchestration = {
-    spawnUrl: 'https://hark.com/chat',
-    establishedUrlPrefixes: ['https://hark.com/chat', 'https://hark.com/projects/']
+    spawnUrl: 'https://hark.com/chat'
   };
 
   // Hark may already be present in the canonical provider registry when another remote agent has
