@@ -177,6 +177,7 @@ export async function runSourceTabSmokes() {
         removeEventListener:() => {}
       },
       chrome: { runtime: {
+        id:'reload-regression-extension',
         sendMessage:() => { sendCalls += 1; throw new Error('Extension context invalidated.'); },
         onMessage: {
           addListener:() => {},
@@ -201,6 +202,37 @@ export async function runSourceTabSmokes() {
     assert.equal(typeof intervalCallback, 'function');
     intervalCallback();
     assert.equal(sendCalls, 1, 'A disposed sampler callback must not keep hitting the invalid runtime.');
+  })();
+
+  await record('ST-18:probe-injected-into-dead-runtime-never-throws', async () => {
+    const { runInNewContext } = await import('node:vm');
+    let intervals = 0, added = 0, removed = 0, sends = 0;
+    const deadRuntime = {
+      get id() { return undefined; },
+      sendMessage:() => { sends += 1; throw new Error('Extension context invalidated.'); },
+      onMessage: {
+        addListener:() => { added += 1; throw new Error('Extension context invalidated.'); },
+        removeListener:() => { removed += 1; throw new Error('Extension context invalidated.'); }
+      }
+    };
+    const context = {
+      crypto: { randomUUID: () => 'dead-runtime-probe' },
+      navigator: {},
+      location: { href:'https://www.youtube.com/watch?v=dead-runtime' },
+      document: { title:'Dead runtime', querySelectorAll:() => [], querySelector:() => null,
+        addEventListener:() => {}, removeEventListener:() => {} },
+      chrome: { runtime: deadRuntime },
+      setInterval:() => { intervals += 1; return {}; },
+      clearInterval:() => {},
+      addEventListener:() => {},
+      removeEventListener:() => {},
+      postMessage:() => {}
+    };
+    context.window = context; context.top = context; context.parent = context;
+    assert.doesNotThrow(() => runInNewContext(probe, context, { filename:'source-probe.js' }));
+    assert.equal(added + removed + sends, 0, 'A probe with a dead runtime must not touch chrome.runtime.');
+    assert.equal(intervals, 0, 'A probe with a dead runtime must not start the sampler.');
+    assert.notEqual(context.__watchFusionMediaProbe, true, 'The marker must be released so a fresh context can inject.');
   })();
 
   return results;

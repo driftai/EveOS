@@ -3,7 +3,7 @@
 (() => {
   if (window.__watchFusionMediaProbe) return;
   window.__watchFusionMediaProbe = true;
-  let enabled = true, pageMedia = null, sampleTimer = null;
+  let enabled = true, pageMedia = null, sampleTimer = null, runtimeListenerAttached = false;
   const frameToken = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   const PAGE_CHANNEL = 'eveos.watchfusion.page-media.v1';
 
@@ -11,10 +11,21 @@
     return /Extension context invalidated/i.test(String(error?.message || error || ''));
   }
 
+  // A reloaded extension leaves this isolated world behind with a dead runtime.
+  // Every runtime touch goes through here so a stale probe never throws.
+  function runtimeApi() {
+    try {
+      const runtime = globalThis.chrome?.runtime;
+      return runtime?.id ? runtime : null;
+    } catch { return null; }
+  }
+
   function sendRuntimeMessage(message) {
     if (!enabled) return;
+    const runtime = runtimeApi();
+    if (!runtime) { cleanup(); return; }
     try {
-      const pending = chrome.runtime.sendMessage(message);
+      const pending = runtime.sendMessage(message);
       if (pending && typeof pending.catch === 'function') {
         pending.catch(error => {
           if (isRuntimeInvalidated(error)) cleanup();
@@ -60,8 +71,12 @@
     clearInterval(sampleTimer); sampleTimer = null;
     window.removeEventListener('message', onWindowMessage);
     document.removeEventListener('load', onDocumentLoad, true);
-    try { chrome.runtime.onMessage.removeListener(onRuntimeMessage); }
-    catch (error) { if (!isRuntimeInvalidated(error)) throw error; }
+    const runtime = runtimeListenerAttached ? runtimeApi() : null;
+    runtimeListenerAttached = false;
+    if (runtime) {
+      try { runtime.onMessage.removeListener(onRuntimeMessage); }
+      catch (error) { if (!isRuntimeInvalidated(error)) throw error; }
+    }
     window.postMessage({ channel:PAGE_CHANNEL, type:'dispose' }, '*');
     try { delete window.__watchFusionMediaProbeCleanup; } catch { window.__watchFusionMediaProbeCleanup = null; }
     try { delete window.__watchFusionMediaProbe; } catch { window.__watchFusionMediaProbe = false; }
@@ -126,7 +141,16 @@
 
   window.addEventListener('message', onWindowMessage);
   document.addEventListener('load', onDocumentLoad, true);
-  chrome.runtime.onMessage.addListener(onRuntimeMessage);
+  const runtime = runtimeApi();
+  if (!runtime) { cleanup(); return; }
+  try {
+    runtime.onMessage.addListener(onRuntimeMessage);
+    runtimeListenerAttached = true;
+  } catch (error) {
+    cleanup();
+    if (isRuntimeInvalidated(error)) return;
+    throw error;
+  }
   sampleTimer = setInterval(snapshot, 350);
   snapshot();
 })();
