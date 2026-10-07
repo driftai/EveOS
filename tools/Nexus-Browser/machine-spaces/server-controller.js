@@ -325,13 +325,19 @@ function createMachineSpacesController({
 
   const providerControl = {
     owns: (action) => PROVIDER_ACTIONS.has(String(action || '').toLowerCase()),
-    route({ source, command, requestId, ws, origin }, { sendResult, commitOriginReceipt }) {
+    route({ source, command, requestId, ws, origin, boundRoomId = null }, { sendResult, commitOriginReceipt }) {
       let result;
       try {
         const snapshot = getState();
-        const room = (snapshot?.rooms || []).find((entry) => entry.id === origin?.roomId);
-        if (!room) throw machineError('MACHINE_ROOM_NOT_FOUND', 'Originating Dex room no longer exists.');
         const action = String(command.action || '').toLowerCase();
+        // terminal_exec needs a relay-turn origin for its audit provenance; read-only
+        // lookups outside a relay turn use the caller's one exact bound room.
+        if (!origin?.roomId && action === 'terminal_exec')
+          throw machineError('MACHINE_ORIGIN_REQUIRED', 'terminal_exec must trail a reply to a Dex relay turn so the request has an exact originating message.');
+        const roomId = origin?.roomId || boundRoomId;
+        if (!roomId) throw machineError('MACHINE_ROOM_REQUIRED', 'Name one exact authorized room with "room".');
+        const room = (snapshot?.rooms || []).find((entry) => entry.id === roomId);
+        if (!room) throw machineError('MACHINE_ROOM_NOT_FOUND', 'Originating Dex room no longer exists.');
         const space = resolveRoomSpace(room, command.space);
         if (action === 'terminal_targets') {
           result = { ok: true, action, message: `Machine Space ${space.name} has ${(space.resourceIds || []).length} terminal resource(s).`,

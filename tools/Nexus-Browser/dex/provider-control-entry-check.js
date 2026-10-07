@@ -25,6 +25,7 @@ function authorize(snapshot, source = {}, command = {}) {
     if (selected.length !== 1) return fail('DEX_ROOM_AMBIGUOUS', 'Specify one unique authorized room ID.');
     return { ok: true, scope: 'exact-room', roomId: selected[0].id };
   }
-  return { ok: true, scope: exact.length === 1 ? 'unique-room' : 'multiple-exact-rooms' };
+  return exact.length === 1 ? { ok: true, scope: 'unique-room', roomId: exact[0].id }
+    : { ok: true, scope: 'multiple-exact-rooms' };
 }
 module.exports = { UNBOUND_ACTIONS, authorize };

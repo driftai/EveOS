@@ -135,5 +135,19 @@ test('Base and Dex commands never execute before local approval and settle into 
   assert.equal(settled.state, 'completed');
   assert.ok(settled.outputId);
   assert.equal(snapshot.rooms[0].messages.length, 0, 'terminal output never floods the ordinary room transcript');
+
+  // Outside a relay turn (no origin): read-only lookups use the exact bound room,
+  // while terminal_exec still demands a relay origin for provenance.
+  const loose = [];
+  const sink = { commitOriginReceipt: () => null, sendResult: (_r, result) => loose.push(result) };
+  controller.providerControl.route({ source: {}, command: { action: 'terminal_targets', space: space.id },
+    requestId: 'loose-targets', ws, origin: null, boundRoomId: 'room-one' }, sink);
+  assert.equal(loose[0].ok, true, JSON.stringify(loose[0]));
+  assert.equal(loose[0].data.targets[0].id, target.id);
+  controller.providerControl.route({ source: {}, command: { action: 'terminal_exec', space: space.id,
+    terminal: target.id, command: 'Write-Output Loose' }, requestId: 'loose-exec', ws, origin: null, boundRoomId: 'room-one' }, sink);
+  assert.equal(loose[1].ok, false);
+  assert.equal(loose[1].code, 'MACHINE_ORIGIN_REQUIRED');
+  assert.equal(runs, 2, 'an origin-less exec never runs or queues');
   controller.stop();
 });

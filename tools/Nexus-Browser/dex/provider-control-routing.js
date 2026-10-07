@@ -179,7 +179,7 @@ function createProviderControlRouting({
       fail(ws, requestId, source, settledOrigin.error.code, settledOrigin.error.message);
       return true;
     }
-    const origin = settledOrigin.origin; if (machineCommandRouter?.owns(action)) return machineCommandRouter.route({ source, command, requestId, ws, origin }, { sendResult, commitOriginReceipt });
+    const origin = settledOrigin.origin; if (machineCommandRouter?.owns(action)) return machineCommandRouter.route({ source, command, requestId, ws, origin, boundRoomId: entryGate.roomId || null }, { sendResult, commitOriginReceipt });
     if (roomTools.ACTIONS.has(action)) return roomTools.route(
       { source, command, requestId, ws, origin },
       { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt });
