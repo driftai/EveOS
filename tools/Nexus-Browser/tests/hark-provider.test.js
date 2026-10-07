@@ -6,11 +6,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const registry = require('../extension/providers.js');
+const canonicalHark = registry.getProvider('hark');
 const hark = require('../extension/hark-provider.js');
 const harkInput = require('../extension/content/hark-input.js');
 const harkAnswer = require('../extension/content/hark-answer.js');
 
 const extensionDir = path.join(__dirname, '..', 'extension');
+
+test('Hark is canonical before the compatibility hook loads', () => {
+  assert.ok(canonicalHark);
+  assert.equal(canonicalHark.id, 'hark');
+  assert.equal(canonicalHark, hark);
+  assert.equal(registry.PROVIDERS.includes(canonicalHark), true);
+});
 
 test('Hark registers as an Online-Origin target for chat and project workspaces', () => {
   assert.equal(hark.id, 'hark');
@@ -83,7 +91,7 @@ test('extension manifest grants Hark host access and injects only chat/project w
   ]);
 });
 
-test('service worker augments the canonical provider array after its base boot', () => {
+test('service worker keeps the Hark compatibility hook after its canonical boot', () => {
   const source = fs.readFileSync(path.join(extensionDir, 'service-worker-entry.js'), 'utf8');
   const baseIndex = source.indexOf("importScripts('service-worker.js')");
   const harkIndex = source.indexOf("importScripts('hark-provider.js')");
