@@ -21,8 +21,8 @@ recovery state in the ignored runtime checkpoint instead:
 | Field | Value |
 |---|---|
 | Branch | `eve/nexus-machine-spaces` |
-| Last reconciled remote base | `d01c3d55626aa3b52470b572532489058088cb14` |
-| Current Phase-0 implementation commit | `61ea2f78a` |
+| Last reconciled remote base | `044edb6c85284b3a12a5409630f655d1857ba4b9` |
+| Current Phase-0 implementation commit | `12dfec316` |
 | Worktree at checkpoint | ledger update only; runtime checkpoint is ignored |
 | Runtime | Nexus Browser only; Local MoE is out of scope |
 | Current phase | `MS-P0` |
@@ -150,8 +150,9 @@ recovery state in the ignored runtime checkpoint instead:
   `provider-control-nova-phase0-stop-room-be-001` succeeded; authoritative
   follow-up status reported `deferredSends: 0` with no active/recovery work.
 - Observation: the immediate stop receipt showed the pre-cleanup queue count.
-  The follow-up status was correct, but this acknowledgement timing is a small
-  API/UX follow-up so callers do not mistake accepted stop for settled state.
+  The follow-up status was correct. Commit `12dfec316` now reports the stop as
+  accepted with `authoritativeStatePending: true`, omits the stale queue count,
+  and reports a rejected stop mutation as `DEX_CONTROL_STOP_FAILED`.
 
 ### `MS-P0-09` — Current exact-once send recovery
 
@@ -186,7 +187,9 @@ recovery state in the ignored runtime checkpoint instead:
 |---|---|
 | Phase-0 focused matrix | `68/68` pass at `d01c3d556` |
 | Rehydration/control affected tests | `45/45` pass with `61ea2f78a` |
-| Full Nexus Browser test suite | pass with `61ea2f78a` |
+| Stop/control focused lane | `24/24` pass with `12dfec316` |
+| Full Nexus Browser test suite | pass with `12dfec316` |
+| Unified extension assembly/audit | pass with 103 assets at `12dfec316` |
 | Root structural guardrail | reached current assets and 100% smoke registration, then blocked only by pre-existing Audioflix line-growth debt listed below |
 
 ## Quota-stop protocol
