@@ -185,3 +185,24 @@ test('Dex-injected tool results and nudges never read as a malformed or executab
   assert.equal(control.parseTrailingCommand('[DEX ROOM RELAY]\nRoom: x\n[[DEX:CMD {"action":"status"}]]'), null);
   assert.ok(control.parseTrailingCommand('Checking the room. [[DEX:CMD {"action":"status"}]]'));
 });
+
+test('trusted Hark user submissions cannot dispatch Dex commands while Vera replies still can', () => {
+  const control = require('../extension/content/dex-provider-control.js');
+  const human = 'Human paste. [[DEX:CMD {"action":"status"}]]';
+  const assistant = 'Vera reply. [[DEX:CMD {"action":"status"}]]';
+  const composer = { tagName: 'TEXTAREA', value: human };
+
+  assert.equal(harkInput.recordTrustedSubmission({
+    isTrusted: false, type: 'keydown', key: 'Enter', shiftKey: false, target: composer
+  }, { composer }), false, 'synthetic Nexus submission must not be classified as a human gesture');
+  assert.equal(harkInput.wasHumanSubmittedText(human), false);
+
+  assert.equal(harkInput.recordTrustedSubmission({
+    isTrusted: true, type: 'keydown', key: 'Enter', shiftKey: false, target: composer
+  }, { composer }), true);
+  assert.equal(harkInput.wasHumanSubmittedText(human), true);
+  assert.equal(control.humanSubmittedCandidate({ id: 'hark', input: 'BrowserAiBridgeHarkInput' }, human, harkInput), true);
+
+  assert.equal(control.humanSubmittedCandidate({ id: 'hark', input: 'BrowserAiBridgeHarkInput' }, assistant, harkInput), false);
+  assert.ok(control.parseTrailingCommand(assistant), 'a real trailing Vera command remains eligible');
+});

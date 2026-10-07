@@ -17,6 +17,46 @@
     return String(value || '').replace(/\s+/g, ' ').trim();
   }
 
+  const HUMAN_SUBMISSION_TTL_MS = 5 * 60 * 1000;
+  const MAX_HUMAN_SUBMISSIONS = 32;
+  const humanSubmissions = [];
+  let submissionTrackingInstalled = false;
+
+  function submissionFingerprint(value) {
+    const text = normalized(value);
+    let first = 2166136261, second = 2246822507;
+    for (const character of text) {
+      const code = character.charCodeAt(0);
+      first = Math.imul(first ^ code, 16777619);
+      second = Math.imul(second ^ code, 3266489909);
+    }
+    return `${text.length}:${(first >>> 0).toString(16)}:${(second >>> 0).toString(16)}`;
+  }
+
+  function pruneHumanSubmissions(at = Date.now()) {
+    while (humanSubmissions.length && at - humanSubmissions[0].at > HUMAN_SUBMISSION_TTL_MS) humanSubmissions.shift();
+  }
+
+  function rememberHumanSubmission(value, at = Date.now()) {
+    const text = normalized(value);
+    if (!text || text.length > 65536) return false;
+    pruneHumanSubmissions(at);
+    const fingerprint = submissionFingerprint(text);
+    const existing = humanSubmissions.find((entry) => entry.fingerprint === fingerprint && entry.text === text);
+    if (existing) existing.at = at;
+    else humanSubmissions.push({ fingerprint, text, at });
+    while (humanSubmissions.length > MAX_HUMAN_SUBMISSIONS) humanSubmissions.shift();
+    return true;
+  }
+
+  function wasHumanSubmittedText(value, at = Date.now()) {
+    const text = normalized(value);
+    if (!text) return false;
+    pruneHumanSubmissions(at);
+    const fingerprint = submissionFingerprint(text);
+    return humanSubmissions.some((entry) => entry.fingerprint === fingerprint && entry.text === text);
+  }
+
   function composerMetadata(element) {
     if (!element) return '';
     return [
@@ -175,6 +215,35 @@
     return candidates.find((entry) => entry.score >= 90)?.control || null;
   }
 
+  function recordTrustedSubmission(event, { composer = null, sendControl = null, at = Date.now() } = {}) {
+    if (event?.isTrusted !== true) return false;
+    const activeComposer = composer || findComposer();
+    if (!activeComposer) return false;
+    const target = event.target || null;
+    const insideComposer = target === activeComposer || !!activeComposer.contains?.(target);
+    let committed = false;
+    if (event.type === 'keydown') {
+      committed = event.key === 'Enter' && event.shiftKey !== true && insideComposer;
+    } else if (event.type === 'click') {
+      const control = sendControl || findSendControl(activeComposer);
+      committed = !!control && (target === control || !!control.contains?.(target));
+    } else if (event.type === 'submit') {
+      const form = activeComposer.closest?.('form');
+      committed = !!form && (target === form || !!target?.contains?.(activeComposer));
+    }
+    return committed && rememberHumanSubmission(composerText(activeComposer), at);
+  }
+
+  function installHumanSubmissionTracking(root = typeof document === 'undefined' ? null : document) {
+    if (submissionTrackingInstalled || !root?.addEventListener) return false;
+    submissionTrackingInstalled = true;
+    const capture = (event) => { recordTrustedSubmission(event); };
+    root.addEventListener('keydown', capture, true);
+    root.addEventListener('click', capture, true);
+    root.addEventListener('submit', capture, true);
+    return true;
+  }
+
   function generationLooksActive() {
     const busy = [
       '[aria-busy="true"]',
@@ -196,11 +265,18 @@
     composerText,
     setComposerText,
     composerContainsText,
+    submissionFingerprint,
+    rememberHumanSubmission,
+    wasHumanSubmittedText,
+    recordTrustedSubmission,
+    installHumanSubmissionTracking,
     controlMetadata,
     sendControlScore,
     findSendControl,
     generationLooksActive
   };
+
+  installHumanSubmissionTracking();
 
   if (typeof window !== 'undefined') globalThis.BrowserAiBridgeHarkInput = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

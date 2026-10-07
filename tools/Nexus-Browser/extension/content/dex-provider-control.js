@@ -21,6 +21,13 @@
     return PROVIDERS.find((entry) => globalThis[entry.answer]?.latestAssistantText) || null;
   }
 
+  function humanSubmittedCandidate(runtime, text, inputApi = null) {
+    if (runtime?.id !== 'hark') return false;
+    const input = inputApi || globalThis[runtime.input];
+    try { return input?.wasHumanSubmittedText?.(text) === true; }
+    catch { return false; }
+  }
+
   function insideFence(text, index) {
     const before = String(text || '').slice(0, index);
     return (before.match(/```/g) || []).length % 2 === 1;
@@ -213,6 +220,9 @@
     const answerApi = globalThis[runtime.answer];
     telemetry.assistantNodes = nodeCount(answerApi);
     const text = latestCandidateText(answerApi);
+    if (humanSubmittedCandidate(runtime, text)) {
+      telemetry.phase = 'human-command-suppressed'; telemetry.candidateAction = null; resetCandidate(); return;
+    }
     const parsed = parseTrailingCommand(text);
     const malformed = parsed ? null : malformedTrailingCommand(text);
     if (runtime.id === 'chatgpt' && globalThis.BrowserAiBridgeChatGptReturn?.isNotificationReply?.(answerApi, text)) {
@@ -361,6 +371,7 @@
     PROVIDERS,
     SETTLED_MS,
     providerRuntime,
+    humanSubmittedCandidate,
     insideFence,
     ignorableUiSuffix,
     parseTrailingCommand,
