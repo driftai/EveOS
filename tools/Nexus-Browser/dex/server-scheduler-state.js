@@ -92,11 +92,31 @@ function requestStop(room, reason, at) {
   room.updatedAt = at;
 }
 
+function explicitStopReason(reason) {
+  const text = String(reason || '').trim();
+  return text === 'Stopped' || /^Stopped by\b/i.test(text);
+}
+
+function cancelDeferredRelays(room, reason, at) {
+  if (!explicitStopReason(reason)) return 0;
+  const queued = Array.isArray(room.deferredRelays) ? room.deferredRelays : [];
+  if (!queued.length) return 0;
+  const requestIds = new Set(queued.map((entry) => String(entry?.requestId || '')).filter(Boolean));
+  room.deferredSendReceipts = (room.deferredSendReceipts || []).map((receipt) =>
+    requestIds.has(String(receipt?.requestId || ''))
+      ? { ...receipt, phase: 'cancelled', cancelledAt: at, cancelReason: reason || 'Stopped' }
+      : receipt);
+  room.deferredRelays = [];
+  room.lastDeferredCancellation = { at, reason: reason || 'Stopped', count: queued.length };
+  return queued.length;
+}
+
 function setStopped(room, reason, at) {
   requestStop(room, reason, at);
   room.relay.waitingFor = null;
   delete room.pendingTurn;
   delete room.recovery;
+  return cancelDeferredRelays(room, reason, at);
 }
 
 function validPending(room) {
@@ -269,6 +289,7 @@ module.exports = {
   TURN_CORRELATION_TTL_MS, TURN_CORRELATION_MAX,
   rememberTurnCorrelation, correlationForRequest, forgetTurnCorrelation,
   roomById, memberById, messageById, addMessage, rememberFinalReceipt, findFinalReceipt, requestStop, setStopped,
+  explicitStopReason, cancelDeferredRelays,
   validPending, queueTurn, enqueueNext, pendingRooms, duePendingRooms, nextPendingDelay,
   createRecoveryJournal, resolveOnline, resolveLocal, resolveApp, appConversationMatches, priorReply, safeBudget, extendBudget,
   providerById, supportsOperation
