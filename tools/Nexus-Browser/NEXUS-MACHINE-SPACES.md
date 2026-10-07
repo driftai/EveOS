@@ -1,11 +1,20 @@
 # Nexus Machine Spaces — implementation contract (draft v0.1)
 
-Status: architecture and implementation handoff only. No terminal execution, filesystem access, agent polling, or automatic arbitrary-task completion is enabled by this document.
+Status: the managed typed-execution slice is implemented on `eve/nexus-machine-spaces`; filesystem capabilities, persistent grants, agent polling, external-terminal attachment, supervised-server sessions, and automatic arbitrary-task completion remain disabled.
 Base: main 71fb6d6d1c6665c0436da15ba085c63ab371f76c. Single integration branch: eve/nexus-machine-spaces. Preserve Astro's uncommitted terminal-wrap patch and the currently deployed bridge until a separately qualified cutover.
 
 ## Purpose and exact scope
 
 Introduce a third target class, terminal-origin, representing an actual locally authenticated terminal resource, NOT an LLM room member. Make local files, terminals, file editing, managed server sessions and exact-once task completion available in Base mode (one attached terminal) and Dex mode (one room may contain many independent Terminal Spaces). The extension is the UI/transport; an explicitly installed localhost broker owns native computer access. Never pretend a browser content script can execute OS commands or freely inspect the disk.
+
+### Implemented managed-execution slice (2026-10-07)
+
+- Nexus owns bounded managed CMD, Windows PowerShell, PowerShell 7 (when installed), and WSL Bash targets. Arbitrary existing terminal windows remain discovery-only/unsupported.
+- Base Mode requires an exact local allow-once confirmation before each command. High-risk commands require the displayed challenge as a second local confirmation.
+- Dex rooms can create/archive Machine Spaces, attach/detach managed terminals as resources, and request `terminal_targets`, `terminal_exec`, `terminal_status`, and paged `terminal_output` actions. Agent requests remain pending until local owner approval and never become room participants.
+- Execution is serialized per target, uses explicit executables with `shell:false`, and is bounded to 30 seconds and 1 MiB. Timeout, interrupt, or output overflow is recorded as outcome-unknown and is never replayed automatically.
+- Output stays in an audience-scoped bounded localhost spool and appears in a separate Machine Spaces surface, not the ordinary agent transcript. The full command is removed from persisted room state after approval/denial.
+- The next security boundary is still the scoped filesystem/grant phase. A chosen working directory is not a sandbox and free-form shell approval remains OS-user-wide.
 
 Integrate into existing source boundaries, not a second generic agent executor. Reuse architectural concepts, not World Book's unauthenticated or differently scoped APIs.
 

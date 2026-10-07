@@ -107,10 +107,10 @@ def test_external_dependency_cache_chain_reaches_manifest():
     manifest = read("js/config/manifest/scripts.parts/13-gemini.js")
 
     # Pin the external-dependency implementation and its direct loader edges.
-    assert "externalStylesheetsAndScriptsUILoader.js?v=20261006.2" in ext_dep
-    assert "mdlLayoutWrapperUILoader.js?v=20261006.2" in layout
-    assert "ext_dep/ext_dep.js?v=20261006.2" in initializer
-    assert "layout/layout.js?v=20261006.2" in initializer
+    assert re.search(r"externalStylesheetsAndScriptsUILoader\.js\?v=[a-f0-9]{12}", ext_dep)
+    assert re.search(r"mdlLayoutWrapperUILoader\.js\?v=[a-f0-9]{12}", layout)
+    assert re.search(r"ext_dep/ext_dep\.js\?v=[a-f0-9]{12}", initializer)
+    assert re.search(r"layout/layout\.js\?v=[a-f0-9]{12}", initializer)
 
     # The remaining files are shared cache-chain parents. Their revisions legitimately
     # advance when later Gemini work changes siblings such as Comm/Chat without touching

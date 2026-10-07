@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,7 +95,7 @@ def test_gemini_shutdown_ui_observer_cannot_feedback_on_its_own_render():
 
     assert "if (!document.getElementById(BUTTON_ID))" in shutdown_ui
     assert "if (icon && icon.textContent !== desiredIcon)" in shutdown_ui
-    assert "geminiShutdownUI.js?v=20261005.1" in manifest
+    assert re.search(r"geminiShutdownUI\.js\?v=[a-f0-9]{12}", manifest)
 
 
 def test_gemini_credential_status_requests_are_cached_and_single_flight():
@@ -106,7 +107,7 @@ def test_gemini_credential_status_requests_are_cached_and_single_flight():
     assert "return statusRequest.promise;" in credentials
     assert "return status || getStatus(baseUrl, { force });" in credentials
     assert "rememberStatus(baseUrl, payload);" in credentials
-    assert "geminiCredentialBridge.js?v=20261005.4" in manifest
+    assert re.search(r"geminiCredentialBridge\.js\?v=[a-f0-9]{12}", manifest)
 
 
 def test_search_monitor_local_moe_refresh_is_open_only_and_single_flight():
@@ -120,7 +121,7 @@ def test_search_monitor_local_moe_refresh_is_open_only_and_single_flight():
     assert "if (localMoe?.open) refreshLocalMoe();" in ai_home
     assert "if (active && localMoe?.open) refreshLocalMoe();" in ai_home
     assert "if (active) refreshLocalMoe();" not in ai_home
-    assert "searchMonitorAiHome.js?v=20261005.4" in manifest
+    assert re.search(r"searchMonitorAiHome\.js\?v=[a-f0-9]{12}", manifest)
 
 
 def test_search_monitor_restores_explicit_loading_targeted_reload_and_passive_edges():
@@ -162,12 +163,11 @@ def test_search_monitor_restores_explicit_loading_targeted_reload_and_passive_ed
     assert "if (!isSessionAuthorized()) return false;" in gemini_control
     assert "function shouldPollLifecycle()" in gemini_control
 
-    assert "nexusServiceChatBridge.js?v=20261005.3" in manifest
-    assert "searchMonitorAiHome.js?v=20261005.4" in manifest
-    assert "eveosControlPlane.js?v=20261005.3" in manifest
-    assert "geminiPassiveBoot.js?v=20261005.2" in manifest
-    assert "geminiServerControl.connection.js?v=20261005.2" in manifest
-    assert "geminiServerControl.js?v=20261005.2" in manifest
+    for asset in [
+        "nexusServiceChatBridge.js", "searchMonitorAiHome.js", "eveosControlPlane.js",
+        "geminiPassiveBoot.js", "geminiServerControl.connection.js", "geminiServerControl.js",
+    ]:
+        assert re.search(re.escape(asset) + r"\?v=[a-f0-9]{12}", manifest)
 
 
 def test_local_moe_ready_status_cache_reduces_runtime_probe_pressure():

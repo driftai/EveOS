@@ -81,12 +81,12 @@ def test_scoped_svg_fix_cache_chain_is_busted():
     master = read("js/modules/gemini/Script_Loader/Script_Loader.js")
     manifest = read("js/config/manifest/scripts.parts/13-gemini.js")
 
-    assert "svgFixLogic.js?v=20261006.1" in svg_loader
-    assert "svgDomMonitor.js?v=20261006.1" in svg_loader
-    assert "svgFixerCoordinator.js?v=20261006.1" in svg_loader
-    assert "svgLifecycle.js?v=20261006.1" in page_loader
-    assert "initializationCoordinator.js?v=20261006.1" in page_loader
-    assert "svgFixerLoader.js?v=20261006.1" in master
+    assert re.search(r"svgFixLogic\.js\?v=[a-f0-9]{12}", svg_loader)
+    assert re.search(r"svgDomMonitor\.js\?v=[a-f0-9]{12}", svg_loader)
+    assert re.search(r"svgFixerCoordinator\.js\?v=[a-f0-9]{12}", svg_loader)
+    assert re.search(r"svgLifecycle\.js\?v=[a-f0-9]{12}", page_loader)
+    assert re.search(r"initializationCoordinator\.js\?v=[a-f0-9]{12}", page_loader)
+    assert re.search(r"svgFixerLoader\.js\?v=[a-f0-9]{12}", master)
 
     # Parent loaders are shared cache-chain hops. Their revisions can legitimately advance
     # when later Gemini work changes siblings (for example displayLoader) without changing

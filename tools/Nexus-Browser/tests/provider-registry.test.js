@@ -2,11 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { PROVIDERS, getProvider, providerForUrl, publicProviders } = require('../extension/providers.js');
 
-test('provider registry exposes six concrete Online-Origin target providers', () => {
-  assert.deepEqual(PROVIDERS.map((provider) => provider.id), ['deepseek', 'grok', 'claude', 'chatgpt', 'gemini', 'muse']);
+test('provider registry exposes seven concrete Online-Origin target providers', () => {
+  assert.deepEqual(PROVIDERS.map((provider) => provider.id), ['deepseek', 'grok', 'claude', 'chatgpt', 'gemini', 'hark', 'muse']);
   for (const [id, name] of [
     ['deepseek', 'DeepSeek'], ['grok', 'Grok'], ['claude', 'Claude'],
-    ['chatgpt', 'ChatGPT'], ['gemini', 'Gemini'], ['muse', 'Muse']
+    ['chatgpt', 'ChatGPT'], ['gemini', 'Gemini'], ['hark', 'Hark'], ['muse', 'Muse']
   ]) assert.equal(getProvider(id).name, name);
 
   assert.equal(providerForUrl('https://chat.deepseek.com/a/chat/s/test')?.id, 'deepseek');
@@ -16,6 +16,7 @@ test('provider registry exposes six concrete Online-Origin target providers', ()
   assert.equal(providerForUrl('https://chatgpt.com/c/test')?.id, 'chatgpt');
   assert.equal(providerForUrl('https://gemini.google.com/app/test')?.id, 'gemini');
   assert.equal(providerForUrl('https://aistudio.google.com/prompts/test')?.id, 'gemini');
+  assert.equal(providerForUrl('https://hark.com/chat')?.id, 'hark');
   assert.equal(providerForUrl('https://muse.ai/')?.id, 'muse');
   assert.equal(providerForUrl('https://muse.ai/chat')?.id, 'muse');
   assert.equal(providerForUrl('https://auth.muse.ai/aymh/')?.id, undefined);
@@ -99,6 +100,7 @@ test('provider capabilities describe current bridge parity without inventing uns
   const claude = getProvider('claude');
   const chatgpt = getProvider('chatgpt');
   const gemini = getProvider('gemini');
+  const hark = getProvider('hark');
   const muse = getProvider('muse');
 
   assert.deepEqual(deepseek.capabilities, { chat: true, captureLatest: true, activity: true, searchResults: true });
@@ -106,6 +108,7 @@ test('provider capabilities describe current bridge parity without inventing uns
   assert.deepEqual(claude.capabilities, { chat: true, captureLatest: true, activity: true, searchResults: false });
   assert.deepEqual(chatgpt.capabilities, { chat: true, captureLatest: true, activity: false, searchResults: false });
   assert.deepEqual(gemini.capabilities, { chat: true, captureLatest: true, activity: false, searchResults: false });
+  assert.deepEqual(hark.capabilities, { chat: true, captureLatest: true, activity: false, searchResults: false });
   assert.deepEqual(muse.capabilities, { chat: true, captureLatest: true, activity: false, searchResults: false });
 
   assert.deepEqual(
@@ -116,6 +119,7 @@ test('provider capabilities describe current bridge parity without inventing uns
       { id: 'claude', name: 'Claude' },
       { id: 'chatgpt', name: 'ChatGPT' },
       { id: 'gemini', name: 'Gemini' },
+      { id: 'hark', name: 'Hark' },
       { id: 'muse', name: 'Muse' }
     ]
   );
@@ -131,7 +135,10 @@ test('live qualification capabilities are provider-declared rather than Muse-spe
   }
   assert.deepEqual(getProvider('gemini').qualification.deniedWarmUrlPrefixes, ['https://aistudio.google.com/']);
   assert.equal(getProvider('gemini').qualification.allowStartupRedirect, true);
-  assert.equal(PROVIDERS.filter((item) => item.id !== 'gemini').some((item) => item.qualification.allowStartupRedirect), false);
+  assert.deepEqual(
+    PROVIDERS.filter((item) => item.qualification.allowStartupRedirect).map((item) => item.id),
+    ['gemini', 'hark']
+  );
   assert.equal(publicProviders().every((item) => item.qualification?.exactOnce === true), true);
 });
 

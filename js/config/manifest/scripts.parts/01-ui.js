@@ -6,7 +6,7 @@ window.EveModuleManifestScriptChunks.push([
     // UI Modules
     "js/modules/ui/notifications/templates.js?v=a711c0e80ec3",
     "js/modules/ui/notifications/toast.js?v=a890ad1f5ec5",
-    "js/modules/ui/notifications/dialogs.js?v=cdbac54c46d5",
+    "js/modules/ui/notifications/dialogs.js?v=82c0b498fc58",
     "js/modules/features/data-state/data-state.capture.clone.js?v=b8d26904c633",
     "js/modules/features/data-state/data-state.capture.scoped.filters.js?v=bc01d08c51c2",
     "js/modules/features/data-state/data-state.capture.scoped.structure.js?v=8ccd9b5987aa",

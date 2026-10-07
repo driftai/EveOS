@@ -80,17 +80,17 @@ async function prepareCommunicationPanelModules() {
         // or legacy entry points that still load only comm.js.
         if (!window.communicationPanelLoaderConfig) {
             await loadCommunicationScriptOnce(
-                `${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelLoaderConfig.js?v=20261006.3`
+                `${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelLoaderConfig.js?v=85f2668919a2`
             );
         }
         if (!window.communicationPanelScriptLoader?.prepare) {
             await loadCommunicationScriptOnce(
-                `${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelScriptLoader.js?v=20261006.3`
+                `${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelScriptLoader.js?v=1aad8be40f64`
             );
         }
         if (typeof window.initializeCommunicationPanelComponents !== 'function') {
             await loadCommunicationScriptOnce(
-                `${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelComponentInitializer.js?v=20261006.3`
+                `${COMMUNICATION_PANEL_MODULE_BASE_PATH}/communicationPanelComponentInitializer.js?v=1f70125d6ce4`
             );
         }
 

@@ -53,7 +53,7 @@ function loadSessionControlsSettingsDialogScript() {
 
     sessionControlsSettingsDialogScriptPromise = new Promise((resolve, reject) => {
         const script = document.createElement('script');
-        script.src = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/agentic/sess_ctrl/sessionControlsSettingsDialogUILoader.js?v=20261005.1';
+        script.src = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/agentic/sess_ctrl/sessionControlsSettingsDialogUILoader.js?v=e4ab78d5a8ab';
         script.async = false;
         script.defer = true;
         script.onload = () => {

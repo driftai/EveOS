@@ -54,7 +54,7 @@ function mergeIdleRoom(serverRoom, clientRoom) {
   const messages = Array.isArray(client.messages) && client.messages.length === 0
     ? []
     : mergeMessages(serverRoom.messages || [], client.messages || []);
-  const merged = { ...client, settings: mergeSettings(serverRoom, client), ...mergeDoneWatchFields(serverRoom, client), messages, finalReceipts: serverRoom.finalReceipts || [], lastHeadsUp: serverRoom.lastHeadsUp || null, deferredRelays: serverRoom.deferredRelays || [], deferredSendReceipts: serverRoom.deferredSendReceipts || [], lateFinalWatches: serverRoom.lateFinalWatches || [], localToolResults: serverRoom.localToolResults || [], localToolResultFailure: serverRoom.localToolResultFailure || null, relay: { ...(serverRoom.relay || {}) } };
+  const merged = { ...client, settings: mergeSettings(serverRoom, client), ...mergeDoneWatchFields(serverRoom, client), messages, finalReceipts: serverRoom.finalReceipts || [], lastHeadsUp: serverRoom.lastHeadsUp || null, deferredRelays: serverRoom.deferredRelays || [], deferredSendReceipts: serverRoom.deferredSendReceipts || [], lateFinalWatches: serverRoom.lateFinalWatches || [], localToolResults: serverRoom.localToolResults || [], localToolResultFailure: serverRoom.localToolResultFailure || null, machineSpaces: serverRoom.machineSpaces || client.machineSpaces || null, relay: { ...(serverRoom.relay || {}) } };
   delete merged.pendingTurn;
   delete merged.recovery;
   return merged;
@@ -67,7 +67,7 @@ function mergeBusyRoom(serverRoom, clientRoom) {
     ...mergeDoneWatchFields(serverRoom, client),
     finalReceipts: serverRoom.finalReceipts || [],
     deferredRelays: serverRoom.deferredRelays || [], deferredSendReceipts: serverRoom.deferredSendReceipts || [], lateFinalWatches: serverRoom.lateFinalWatches || [],
-    localToolResults: serverRoom.localToolResults || [], localToolResultFailure: serverRoom.localToolResultFailure || null,
+    localToolResults: serverRoom.localToolResults || [], localToolResultFailure: serverRoom.localToolResultFailure || null, machineSpaces: serverRoom.machineSpaces || client.machineSpaces || null,
     ...(client.name != null ? { name: client.name } : {}),
     ...(client.userName != null ? { userName: client.userName } : {}),
     ...(client.settings && typeof client.settings === 'object' ? {

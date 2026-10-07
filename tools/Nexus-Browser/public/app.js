@@ -197,16 +197,16 @@ function renderLocalTargets() {
   if (wanted && targets.some((target) => target.id === wanted)) el.localTargetSelect.value = wanted;
 }
 function renderStatus() {
-  const local = state.selectedTargetClassId === 'local-origin', app = state.selectedTargetClassId === 'app-origin';
-  const uiConnected = state.uiConnectionPhase === 'connected', browser = !local && !app;
+  const local = state.selectedTargetClassId === 'local-origin', app = state.selectedTargetClassId === 'app-origin', terminal = state.selectedTargetClassId === 'terminal-origin';
+  const uiConnected = state.uiConnectionPhase === 'connected', browser = !local && !app && !terminal;
   el.onlineTargetControls.hidden = !browser;
   el.localTargetControls.hidden = !local;
   el.bridgeBadge.textContent = !uiConnected
     ? state.uiConnectionPhase === 'suspended' ? 'Workspace standby' : state.uiConnectionPhase === 'disconnected' ? 'Nexus disconnected' : 'Nexus reconnecting'
-    : app ? 'App bridge ready' : local ? 'Local bridge ready'
+    : terminal ? 'Terminal bridge ready' : app ? 'App bridge ready' : local ? 'Local bridge ready'
       : state.extensionConnected ? 'Extension connected' : 'Extension offline';
   el.bridgeBadge.classList.toggle('offline', (state.uiConnectionPhase !== 'suspended' && !uiConnected) || (browser && !state.extensionConnected));
-  el.bridgeBadge.classList.toggle('online', uiConnected && (!browser || state.extensionConnected));
+  el.bridgeBadge.classList.toggle('online', uiConnected && (!browser || state.extensionConnected)); if (terminal) { appMirrorUi?.render(); appTargetsUi?.render(); return; }
   const target = activeTarget();
   if (target) {
     if (app) el.targetStatus.textContent = `Bound to app: ${target.providerName || target.title || target.id}`;
@@ -363,7 +363,7 @@ function connectSocket() {
   uiSocket.connect();
 }
 
-function submitPrompt() {
+function submitPrompt() { if (state.selectedTargetClassId === 'terminal-origin') return globalThis.BrowserAiBridgeMachineSpacesUi?.prepareBase?.();
   const text = el.prompt.value.trim();
   if (!text) return;
   const target = activeTarget();
@@ -419,7 +419,7 @@ el.prompt.addEventListener('keydown', (event) => {
     submitPrompt();
   }
 });
-el.captureLatest.addEventListener('click', () => {
+el.captureLatest.addEventListener('click', () => { if (state.selectedTargetClassId === 'terminal-origin') return globalThis.BrowserAiBridgeMachineSpacesUi?.explainOutput?.();
   const target = activeTarget(), payload = { type: 'capture_latest', requestId: requestId(), targetClassId: state.selectedTargetClassId };
   if (state.selectedTargetClassId === 'app-origin') payload.targetId = target?.id || '';
   send(payload);

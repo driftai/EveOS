@@ -14,6 +14,7 @@ const tests = fs.readdirSync(path.join(TOOL, 'tests')).filter((name) => name.end
 const suites = [
   { id: 'lifecycle', command: process.platform === 'win32' ? 'python.exe' : 'python3', args: ['tools/smoke/nexus_browser_control_smoke.py'], cwd: ROOT },
   { id: 'surface', command: process.execPath, args: ['tools/smoke/nexus_browser_surface_smoke.js'], cwd: ROOT },
+  { id: 'machine-spaces-browser', command: process.execPath, args: ['tools/smoke/nexus_machine_spaces_browser_smoke.js'], cwd: ROOT },
   { id: 'upstream-contracts', command: process.execPath, args: ['--test', ...tests.map((name) => path.join('tests', name))], cwd: TOOL }
 ];
 

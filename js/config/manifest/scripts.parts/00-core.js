@@ -11,7 +11,7 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/core/favicon-utils.js?v=92f839fe284e",
     "js/modules/core/search-monitor-boot.trace.js?v=967fda766c78",
     "js/modules/core/search-monitor-boot.js?v=58b0f3b41338",
-    "js/modules/core/search-monitor-scroll-preserve.js?v=89593d552b3e",
+    "js/modules/core/search-monitor-scroll-preserve.js?v=3641b9c8249a",
     "js/modules/core/performance-monitor.js?v=297f2c614a35",
     "js/modules/core/indexeddb-store.js?v=7243fcdecb6e",
     "js/modules/core/storage.runtime.shared.js?v=2c0b95ecb96a",

@@ -117,21 +117,6 @@
     },
     {
       "matches": [
-        "https://muse.ai/*"
-      ],
-      "js": [
-        "content/provider-adapter-revision.js",
-        "content/prompt-delivery.js",
-        "content/muse-input.js",
-        "content/muse-answer.js",
-        "content/muse.js",
-        "content/dex-provider-control.js",
-        "content/provider-health.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
         "https://hark.com/chat*",
         "https://hark.com/projects/*"
       ],
@@ -140,6 +125,21 @@
         "content/hark-input.js",
         "content/hark-answer.js",
         "content/hark.js",
+        "content/dex-provider-control.js",
+        "content/provider-health.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://muse.ai/*"
+      ],
+      "js": [
+        "content/provider-adapter-revision.js",
+        "content/prompt-delivery.js",
+        "content/muse-input.js",
+        "content/muse-answer.js",
+        "content/muse.js",
         "content/dex-provider-control.js",
         "content/provider-health.js"
       ],

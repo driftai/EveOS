@@ -10,7 +10,7 @@ window.PageInitializationCore.DisplayLoader = {
         return new Promise((resolve, reject) => {
             const loadScript = () => {
                 const htmlLoadersScript = document.createElement('script');
-                htmlLoadersScript.src = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/html_initialization_loaders.js?v=20261006.3';
+                htmlLoadersScript.src = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/html_initialization_loaders.js?v=ab35b918f064';
 
                 // Set a safety timeout
                 const timeoutId = setTimeout(() => {

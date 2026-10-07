@@ -36,5 +36,5 @@ test('Gemini section collapse is event-driven instead of document-mutation drive
 });
 
 test('Gemini section collapse cache key changes with the hot-loop fix', () => {
-    assert.match(manifest, /geminiSectionCollapse\.js\?v=20261005\.1/);
+    assert.match(manifest, /geminiSectionCollapse\.js\?v=[a-f0-9]{12}/);
 });

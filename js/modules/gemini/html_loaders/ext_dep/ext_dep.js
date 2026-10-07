@@ -5,7 +5,7 @@
 const EXTERNAL_DEPENDENCIES_HTML_LOADERS_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders/ext_dep';
 
 const LOCAL_STYLESHEET_LOADER_SRC = `${EXTERNAL_DEPENDENCIES_HTML_LOADERS_BASE_PATH}/loc_style/localStylesheetUILoader.js?v=ad1adc053d56`;
-const EXTERNAL_SCRIPTS_LOADER_SRC = `${EXTERNAL_DEPENDENCIES_HTML_LOADERS_BASE_PATH}/ext_scripts/externalStylesheetsAndScriptsUILoader.js?v=20261006.2`;
+const EXTERNAL_SCRIPTS_LOADER_SRC = `${EXTERNAL_DEPENDENCIES_HTML_LOADERS_BASE_PATH}/ext_scripts/externalStylesheetsAndScriptsUILoader.js?v=3ca5b8d6f880`;
 
 let localStylesheetLoaderPromise = null;
 let externalScriptsLoaderPromise = null;
@@ -43,7 +43,7 @@ function loadLocalStylesheetLoaderScript() {
     return loadDependencyLoaderScriptOnce(
         LOCAL_STYLESHEET_LOADER_SRC,
         () => typeof window.loadLocalStylesheet === 'function',
-        'localStylesheetUILoader.js',
+        'localStylesheetUILoader.js?v=ad1adc053d56',
         localStylesheetLoaderPromise,
         (value) => { localStylesheetLoaderPromise = value; }
     );
@@ -53,7 +53,7 @@ function loadExternalScriptsLoaderScript() {
     return loadDependencyLoaderScriptOnce(
         EXTERNAL_SCRIPTS_LOADER_SRC,
         () => typeof window.loadExternalStylesheetsAndScripts === 'function',
-        'externalStylesheetsAndScriptsUILoader.js',
+        'externalStylesheetsAndScriptsUILoader.js?v=3ca5b8d6f880',
         externalScriptsLoaderPromise,
         (value) => { externalScriptsLoaderPromise = value; }
     );

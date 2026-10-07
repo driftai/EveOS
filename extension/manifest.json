@@ -23,8 +23,8 @@
     "https://chatgpt.com/*",
     "https://gemini.google.com/*",
     "https://aistudio.google.com/*",
-    "https://hark.com/*",
-    "https://muse.ai/*"
+    "https://muse.ai/*",
+    "https://hark.com/*"
   ],
   "background": {
     "service_worker": "service-worker-entry.js"

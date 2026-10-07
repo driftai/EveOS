@@ -6,14 +6,14 @@
 const HTML_LOADERS_BASE_PATH = (window.GEMINI_APP_ROOT || '') + 'js/modules/gemini/html_loaders';
 
 const htmlLoaderAggregatorScripts = [
-    `${HTML_LOADERS_BASE_PATH}/ext_dep/ext_dep.js?v=20261006.2`,
-    `${HTML_LOADERS_BASE_PATH}/layout/layout.js?v=20261006.2`,
-    `${HTML_LOADERS_BASE_PATH}/agentic/agentic.js?v=20261006.1`,
-    `${HTML_LOADERS_BASE_PATH}/comm/comm.js?v=20261006.3`,
-    `${HTML_LOADERS_BASE_PATH}/comm/communicationPanelLoaderConfig.js?v=20261006.3`,
-    `${HTML_LOADERS_BASE_PATH}/comm/communicationPanelScriptLoader.js?v=20261006.3`,
-    `${HTML_LOADERS_BASE_PATH}/comm/communicationPanelComponentInitializer.js?v=20261006.3`,
-    `${HTML_LOADERS_BASE_PATH}/chat_disp/chat_disp.js?v=20261006.3`
+    `${HTML_LOADERS_BASE_PATH}/ext_dep/ext_dep.js?v=96aeaf4f0847`,
+    `${HTML_LOADERS_BASE_PATH}/layout/layout.js?v=bc371346c58d`,
+    `${HTML_LOADERS_BASE_PATH}/agentic/agentic.js?v=cf1ba3ad51e6`,
+    `${HTML_LOADERS_BASE_PATH}/comm/comm.js?v=539e9cdac9db`,
+    `${HTML_LOADERS_BASE_PATH}/comm/communicationPanelLoaderConfig.js?v=85f2668919a2`,
+    `${HTML_LOADERS_BASE_PATH}/comm/communicationPanelScriptLoader.js?v=1aad8be40f64`,
+    `${HTML_LOADERS_BASE_PATH}/comm/communicationPanelComponentInitializer.js?v=1f70125d6ce4`,
+    `${HTML_LOADERS_BASE_PATH}/chat_disp/chat_disp.js?v=feb69597198c`
 ];
 
 function loadHtmlLoaderAggregatorScripts() {

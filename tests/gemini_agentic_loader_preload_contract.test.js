@@ -27,7 +27,7 @@ test('Agentic loader graph is prepared sequentially and before Gemini layout mou
     assert.doesNotMatch(loader, /Promise\.all\(promises\)/);
     assert.match(loader, /window\.prepareAgenticUILoaderScripts = prepareAgenticUILoaderScripts/);
 
-    assert.match(config, /sessionControlsSettingsDialogUILoader\.js\?v=20261005\.1/);
+    assert.match(config, /sessionControlsSettingsDialogUILoader\.js\?v=[a-f0-9]{12}/);
     assert.match(session, /typeof window\.loadSessionControlsSettingsDialog === 'function'/);
     assert.match(session, /script\.async\s*=\s*false/);
 

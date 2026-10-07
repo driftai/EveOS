@@ -14,6 +14,7 @@ const { assetRevision } = require('./server-asset-revision');
 const { ADAPTER_REVISION: EXPECTED_ADAPTER_REVISION } = require('./extension/content/provider-adapter-revision');
 const { createDiagnosticsSnapshot } = require('./server-diagnostics'), { createServerLocalRelay } = require('./dex/server-local-relay'), { createAppTargetServerController } = require('./app-targets/server-controller');
 const { createServerLocalMessaging } = require('./server-local-messaging');
+const { createMachineSpacesController } = require('./machine-spaces/server-controller');
 const { attachWebSocketHeartbeat } = require('./dex/ws-heartbeat'), { createDisposableRoomCleanup } = require('./dex/disposable-room-cleanup');
 const runtimeConfig = require('./runtime-config');
 const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
@@ -58,6 +59,7 @@ function syncExtensionAuthority(state = extensionSessions.current()) {
 }
 function broadcastDexState(snapshot = dexStateStore.load()) { for (const ws of uiSockets) if (ws.clientKind === 'dex') safeSend(ws, { type: 'dex_state_snapshot', snapshot }); }
 const dexRouting = createDexServerRouting({ uiSockets, safeSend });
+const machineSpaces = createMachineSpacesController({ safeSend, uiSockets, getState: () => dexStateStore.load(), saveState: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState });
 const ensureDexClient = createEnsureDexClient({
   dexRouting, sendToExtension: (payload) => safeSend(extensionSocket, payload)
 });
@@ -67,6 +69,7 @@ const providerControlRouting = createProviderControlRouting({
   uiSockets,
   safeSend,
   ensureDexClient,
+  machineCommandRouter: machineSpaces.providerControl,
   getDexClient: () => dexRouting.dexClient(), getScheduler: () => dexScheduler, getState: () => dexStateStore.load(), saveState: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState,
   getMaintenance: () => postIdleMaintenance, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), getExtension: () => { const s = extensionSessions.current(); return { socket: extensionSocket, ready: s.ready, epoch: s.primaryConnectionEpoch, sessionCount: s.sessionCount, targets: lastTabs }; }, spawnTarget: (input) => providerTargetSpawnRouting.spawn(input), closeTarget: (input) => providerTargetSpawnRouting.close(input), recordIncident: (input) => { const event = durability.recordIncident(input); console.log(`[bridge] incident ${event.code} [${event.requestId || 'n/a'}] source=${event.source || 'unknown'}`); return event; },
   async validateSource(source, ws) {
@@ -108,7 +111,7 @@ function extensionStatus() {
   return { type: 'bridge_status', connected: !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN, authorityReady: extensionSessions.current().ready };
 }
 function classSnapshot() {
-  return { type: 'target_classes_update', classes: [...localTargets.publicTargetClasses(), ...appTargets.publicTargetClasses()], localTargetTypes: localTargets.publicLocalTargetTypes(), appTargetTypes: appTargets.publicAppTargetTypes() };
+  return { type: 'target_classes_update', classes: [...localTargets.publicTargetClasses(), ...appTargets.publicTargetClasses(), ...machineSpaces.publicTargetClasses()], localTargetTypes: localTargets.publicLocalTargetTypes(), appTargetTypes: appTargets.publicAppTargetTypes(), terminalTargetTypes: machineSpaces.publicTargetTypes() };
 }
 async function refreshLocalTargets(destination = null, { force = false } = {}) {
   lastLocalTargets = await localTargets.listLocalTargets({ force });
@@ -276,7 +279,7 @@ wss.on('connection', (ws, req) => {
         const result = msg.type === 'dex_relay_start' ? dexScheduler.startRelay(msg) : msg.type === 'dex_relay_stop' ? dexScheduler.stopRelay(msg) : dexScheduler.continueRelay(msg);
         safeSend(ws, { type: 'dex_relay_result', requestId: msg.requestId || null, result }); return;
       }
-      if (await providerControlRouting.handle(ws, msg) || await appTargetController.handle(ws, msg)) return;
+      if (await machineSpaces.handle(ws, msg) || await providerControlRouting.handle(ws, msg) || await appTargetController.handle(ws, msg)) return;
       if (ws.clientKind === 'dex' && ['select_target', 'ensure_target', 'send_prompt', 'capture_latest'].includes(msg.type)) {
         safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'DEX_SERVER_SCHEDULER_OWNS_TRANSPORT', message: 'Localhost scheduler owns Dex provider transport.' }); return;
       }
@@ -407,7 +410,7 @@ server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
 wss.on('error', (error) => console.error('[bridge] websocket server error:', error.message));
-server.on('close', () => { heartbeat.stop(); localTargets.stopLocalTargets(); appTargetController.stop(); });
+server.on('close', () => { heartbeat.stop(); localTargets.stopLocalTargets(); appTargetController.stop(); machineSpaces.stop(); });
 if (require.main === module) {
   server.listen(PORT, HOST, () => {
     console.log(`[Nexus Browser] UI: http://${HOST}:${PORT}`);
