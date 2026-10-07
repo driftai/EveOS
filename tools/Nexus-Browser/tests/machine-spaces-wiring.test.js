@@ -62,3 +62,12 @@ test('Machine Spaces never relies on native dialogs that a sandboxed EveOS ifram
     assert.match(html, new RegExp(`id="${id}"`), id);
   assert.match(source, /machine_create_target/);
 });
+
+test('Machine Spaces folds finished terminal requests into a collapsed history', () => {
+  const source = read('public/machine-spaces-ui.js');
+  assert.match(source, /LIVE_STATES = new Set\(\['approval-required', 'queued', 'running'\]\)/);
+  assert.match(source, /machine-request-history/);
+  assert.match(source, /details\.open = historyOpen/);
+  assert.match(source, /Earlier requests \(/);
+  assert.match(read('public/machine-spaces.css'), /\.machine-request-history > summary/);
+});

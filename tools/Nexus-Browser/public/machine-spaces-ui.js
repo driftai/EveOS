@@ -235,9 +235,29 @@
       card.append(head, meta); el.machineSpaceResources.append(card);
     }
     if (!space?.resources?.length && !grant) el.machineSpaceResources.innerHTML = '<div class="machine-empty">No managed terminals attached.</div>';
+    renderRequests(space);
+  }
+  const LIVE_STATES = new Set(['approval-required', 'queued', 'running']);
+  let historyOpen = false;
+  function renderRequests(space) {
     el.machineSpaceRequests.replaceChildren();
-    for (const request of [...(space?.requests || [])].reverse()) renderRequest(space, request);
-    if (!space?.requests?.length) el.machineSpaceRequests.innerHTML = '<div class="machine-empty">No agent terminal requests yet.</div>';
+    const requests = [...(space?.requests || [])].reverse();
+    if (!requests.length) {
+      el.machineSpaceRequests.innerHTML = '<div class="machine-empty">No agent terminal requests yet.</div>'; return;
+    }
+    // Keep live requests and the newest one in view; older finished requests fold into a collapsed history.
+    const pinned = requests.filter((request, index) => index === 0 || LIVE_STATES.has(request.state));
+    const history = requests.filter((request) => !pinned.includes(request));
+    for (const request of pinned) el.machineSpaceRequests.append(renderRequest(space, request));
+    if (!history.length) return;
+    const details = document.createElement('details'); details.className = 'machine-request-history';
+    details.open = historyOpen;
+    details.addEventListener('toggle', () => { historyOpen = details.open; });
+    const summary = document.createElement('summary');
+    summary.textContent = `Earlier requests (${history.length})`;
+    const list = document.createElement('div'); list.className = 'machine-request-list';
+    for (const request of history) list.append(renderRequest(space, request));
+    details.append(summary, list); el.machineSpaceRequests.append(details);
   }
   function renderRequest(space, request) {
     const card = document.createElement('div'); card.className = 'machine-request';
@@ -271,7 +291,7 @@
       const preview = document.createElement('pre'); preview.className = 'machine-output'; preview.textContent = request.preview;
       card.append(preview);
     }
-    el.machineSpaceRequests.append(card);
+    return card;
   }
 
   function handle(msg) {

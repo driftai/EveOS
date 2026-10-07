@@ -87,3 +87,6 @@ body[data-bridge-mode="dex"] #terminalTargetControls { display: none !important;
 .machine-dialog-body { margin: 0 0 12px; padding: 10px; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word; border-radius: 8px; background: rgba(15, 23, 42, 0.8); font-size: 12px; }
 .machine-dialog-input { width: 100%; box-sizing: border-box; margin-bottom: 12px; }
 .machine-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.machine-request-history > summary { cursor: pointer; font-size: 12px; font-weight: 700; opacity: .8; padding: 4px 0; }
+.machine-request-history > .machine-request-list { margin-top: 8px; }
