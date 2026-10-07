@@ -52,6 +52,7 @@ test('ChatGPT provider owns chatgpt.com root and conversation routes', () => {
     'content/chatgpt-delivery-watchdog.js',
     'content/chatgpt-answer.js',
     'content/chatgpt-return.js',
+    'content/chatgpt-manual-commit.js',
     'content/chatgpt.js',
     'content/chatgpt-stream-nudge.js',
     'content/dex-provider-control.js',

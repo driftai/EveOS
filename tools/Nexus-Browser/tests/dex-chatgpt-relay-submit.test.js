@@ -32,7 +32,7 @@ test('freshReply rejects multiple assistant IDs and reflowed old IDs', () => {
 });
 function headed({ hasSend = false, commitAfterClick = false, clearWithoutCommit = false, readyTimeout = false } = {}) {
   let clock = 0, clicks = 0, enters = 0, confirmation = false;
-  const waits = [], gestures = [], finishes = [], userNodes = [];
+  const waits = [], gestures = [], finishes = [], userNodes = [], intervals = [], timeouts = [], emits = [];
   const field = { tagName: 'TEXTAREA', value: 'Astro qualified relay payload', isConnected: true,
     closest: () => null, dispatchEvent() { enters++; } };
   const button = { isConnected: true, click() {
@@ -55,6 +55,7 @@ function headed({ hasSend = false, commitAfterClick = false, clearWithoutCommit 
   };
   const context = {
     module: { exports: {} }, BrowserAiBridgeChatGptInput: input,
+    BrowserAiBridgeChatGptManualCommit: require('../extension/content/chatgpt-manual-commit.js'),
     BrowserAiBridgeChatGptDeliveryWatchdog: { createDeliveryWatchdog: () => guard },
     BrowserAiBridgeChatGptAnswer: {
       assistantNodes: () => [], userNodes: () => userNodes,
@@ -79,15 +80,16 @@ function headed({ hasSend = false, commitAfterClick = false, clearWithoutCommit 
     },
     Date: { now: () => clock += 1000 },
     document: { body: {} }, MutationObserver: class { observe() {} disconnect() {} },
-    chrome: { runtime: { onMessage: { addListener() {} }, sendMessage: () => Promise.resolve({ ok: true }) } },
-    setInterval: () => 1, clearInterval() {}, clearTimeout() {},
+    chrome: { runtime: { onMessage: { addListener() {} }, sendMessage: (m) => { emits.push(m); return Promise.resolve({ ok: true }); } } },
+    setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; }, clearInterval() {}, clearTimeout() {},
     setTimeout(fn, delay) {
       if (delay === 40) { Promise.resolve().then(fn); return 1; }
-      return 1; // Do not start real watcher deadlines in this isolated test.
+      timeouts.push({ fn, delay }); return 1; // Do not start real watcher deadlines in this isolated test.
     }
   };
   vm.runInNewContext(chatSource, context);
-  return { chat: context.module.exports, field, waits, gestures, finishes,
+  return { chat: context.module.exports, field, waits, gestures, finishes, intervals, timeouts, emits, userNodes,
+    pending: () => context.BrowserAiBridgeChatGptRuntime.responsePending(),
     get clicks() { return clicks; }, get enters() { return enters; },
     get confirmed() { return confirmation; } };
 }
@@ -128,4 +130,41 @@ test('editor clearing alone does NOT acknowledge a Dex relay or trigger fallback
   assert.equal(h.clicks, 1);
   assert.equal(h.enters, 0);
   assert.equal(h.finishes[0].success, false);
+});
+
+test('unconfirmed Dex click keeps the watcher for a later manual Enter without a second gesture', async () => {
+  const h = headed({ hasSend: true });
+  const error = await h.chat.submitPrompt(TURN, h.field.value).catch((e) => e);
+  assert.match(error.message, /Send click unconfirmed; draft preserved; no automatic replay/);
+  assert.equal(error.awaitingManualCommit, true);
+  assert.equal(error.sendDiagnostics.controlConnected, true);
+  assert.equal(error.sendDiagnostics.controlDisabled, false);
+  assert.equal(error.sendDiagnostics.composerTextLength, h.field.value.length);
+  const poll = h.intervals.find((entry) => entry.ms === 500);
+  assert.ok(poll, 'manual-commit poll armed');
+  assert.ok(h.timeouts.some((entry) => entry.delay === 5 * 60 * 1000), 'bounded five-minute manual window');
+  poll.fn();
+  assert.equal(h.emits.some((m) => m.submissionMode === 'manual'), false, 'no acceptance before the user turn exists');
+  h.userNodes.push({ text: h.field.value }); // Drift presses Enter by hand.
+  poll.fn();
+  const accepted = h.emits.find((m) => m.submissionMode === 'manual');
+  assert.equal(accepted?.requestId, TURN);
+  assert.equal(h.clicks, 1, 'never a second click');
+  assert.equal(h.enters, 0, 'never a synthetic Enter');
+  h.chat.stopWatcher(TURN);
+});
+test('manual-commit window expiry releases the watcher', async () => {
+  const h = headed({ hasSend: true });
+  await h.chat.submitPrompt(TURN, h.field.value).catch(() => {});
+  const expiry = h.timeouts.find((entry) => entry.delay === 5 * 60 * 1000);
+  assert.ok(expiry, 'manual window armed');
+  assert.equal(h.pending(), true, 'watcher still held inside the window');
+  expiry.fn();
+  assert.equal(h.pending(), false, 'watcher released after the window');
+});
+test('pre-gesture failures still stop the watcher immediately', async () => {
+  const h = headed({ hasSend: true, readyTimeout: true });
+  const error = await h.chat.submitPrompt(TURN, h.field.value).catch((e) => e);
+  assert.notEqual(error.awaitingManualCommit, true);
+  assert.equal(h.intervals.some((entry) => entry.ms === 500), false);
 });

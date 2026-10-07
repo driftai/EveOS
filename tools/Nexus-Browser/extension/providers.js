@@ -218,6 +218,7 @@
             'content/chatgpt-delivery-watchdog.js',
             'content/chatgpt-answer.js',
             'content/chatgpt-return.js',
+            'content/chatgpt-manual-commit.js',
             'content/chatgpt.js',
             'content/chatgpt-stream-nudge.js'
           ],

@@ -15,7 +15,8 @@
   const { DEFAULT_RESPONSE_DEADLINES, nextResponseDeadline, minutes } = deadline;
   const deliveryGuard = deliveryWatchdogApi.createDeliveryWatchdog({ input });
   deliveryWatchdogApi.active = deliveryGuard;
-  const active = new Map();
+  const manualCommitApi = globalThis.BrowserAiBridgeChatGptManualCommit || (typeof require === 'function' && typeof module !== 'undefined' && module.exports ? require('./chatgpt-manual-commit.js') : null);
+  const active = new Map(), manualCommit = manualCommitApi?.create({ active, stopWatcher: (id) => stopWatcher(id), emit: (payload) => emit(payload), timers: { setInterval, clearInterval, setTimeout, clearTimeout } });
   const RELIABLE_GENERATION_SETTLE_MS = 1500, STATUS_SIGNAL_SETTLE_MS = 3000, NO_SIGNAL_SETTLE_MS = 5000;
   const INCOMPLETE_NO_SIGNAL_SETTLE_MS = 60000, SUBMIT_ATTEMPT_SETTLE_MS = 2400, SUBMIT_FINAL_SETTLE_MS = 1200;
   const DEX_CONTROL_SEND_WAIT_MS = 12000, GENERATION_HEARTBEAT_MS = 15000;
@@ -38,7 +39,7 @@
     if (!watcher) return;
     watcher.observer?.disconnect();
     clearInterval(watcher.timer);
-    clearTimeout(watcher.timeout);
+    clearTimeout(watcher.timeout); manualCommit?.release(watcher);
     active.delete(requestId);
   }
   function reportGenerationActivity(watcher, requestId, isGenerating, force = false) {
@@ -375,7 +376,9 @@
         onGesture: (kind) => deliveryGuard.gesture(requestId, kind) });
       deliveryGuard.finish(requestId, true, mode); watcher.promptCommitted = true; return mode;
     } catch (error) {
-      deliveryGuard.finish(requestId, false, stage); stopWatcher(requestId); throw error;
+      deliveryGuard.finish(requestId, false, stage);
+      if (manualCommitApi?.recoverable(error, stage, dexDelivery) && manualCommit.arm(requestId, committed)) Object.assign(error, { awaitingManualCommit: true, sendDiagnostics: manualCommitApi.sendDiagnostics(input, composer, input.findSendControl?.(composer)) }); else stopWatcher(requestId);
+      throw error;
     }
   }
 
@@ -407,11 +410,11 @@
         submitPrompt(msg.requestId, msg.text, { qualification: msg.qualification || null, delivery: msg.delivery || null })
           .then((submissionMode) => sendResponse({ ok: true, submissionMode }))
           .catch((error) => {
-            stopWatcher(msg.requestId);
+            if (!error?.awaitingManualCommit) stopWatcher(msg.requestId);
             const last = deliveryGuard.diagnostics().last;
             const evidence = last?.requestId === msg.requestId && ['blocked', 'uncertain'].includes(last.phase)
               ? { requestId: msg.requestId, phase: last.phase, gestureAttempted: !!last.gesture } : null;
-            if (!['dex-control-nudge', 'dex-stream-nudge'].includes(msg.delivery?.kind)) emit({ type: 'adapter_error', requestId: msg.requestId, code: 'PROMPT_SEND_FAILED', message: error.message, detail: evidence ? { deliveryEvidence: evidence } : null });
+            if (!['dex-control-nudge', 'dex-stream-nudge'].includes(msg.delivery?.kind)) emit({ type: 'adapter_error', requestId: msg.requestId, code: 'PROMPT_SEND_FAILED', message: error.message, detail: (evidence || error?.awaitingManualCommit) ? { ...(evidence ? { deliveryEvidence: evidence } : {}), awaitingManualCommit: !!error?.awaitingManualCommit, sendDiagnostics: error?.sendDiagnostics || null } : null });
             sendResponse({ ok: false, error: error.message });
           });
         return true;
