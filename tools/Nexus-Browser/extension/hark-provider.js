@@ -3,14 +3,45 @@
     || (typeof module !== 'undefined' && module.exports ? require('./providers.js') : null);
   if (!registry?.contractApi) throw new Error('Hark provider requires the Nexus provider registry.');
 
+  const contractApi = registry.contractApi;
+  const targetMatchPatterns = [
+    'https://hark.com/chat*',
+    'https://hark.com/projects/*'
+  ];
+  const targetUrlPrefixes = [
+    'https://hark.com/chat',
+    'https://hark.com/projects/'
+  ];
+  const qualification = {
+    live: true,
+    warmRecovery: true,
+    exactOnce: true,
+    allowStartupRedirect: true,
+    urlPrefix: 'https://hark.com/',
+    deniedWarmUrlPrefixes: ['https://hark.com/login']
+  };
+  const orchestration = {
+    spawnUrl: 'https://hark.com/chat',
+    establishedUrlPrefixes: ['https://hark.com/chat', 'https://hark.com/projects/']
+  };
+
+  // Hark may already be present in the canonical provider registry when another remote agent has
+  // advanced providers.js. Refine that same registered object in place instead of creating a second
+  // provider. The canonical registry map has already attached adapter-revision, Dex-control and
+  // provider-health groups, so all existing service-worker closures continue to use this one object.
   const existing = registry.getProvider?.('hark');
   if (existing) {
+    existing.matchPatterns = [...targetMatchPatterns];
+    existing.urlPrefixes = [...targetUrlPrefixes];
+    existing.qualification = { ...existing.qualification, ...qualification };
+    existing.orchestration = { ...(existing.orchestration || {}), ...orchestration };
+    contractApi.assertProviderDefinition(existing);
+    contractApi.assertProviderRegistry(registry.PROVIDERS);
     globalThis.BrowserAiBridgeHarkProvider = existing;
     if (typeof module !== 'undefined' && module.exports) module.exports = existing;
     return;
   }
 
-  const contractApi = registry.contractApi;
   const providerControlGroup = {
     pingType: 'dex_provider_control_ping',
     expectedAdapter: 'dex-provider-control',
@@ -44,16 +75,8 @@
   const registered = {
     id: 'hark',
     name: 'Hark',
-    // Only chat/project workspaces become Nexus targets. The manifest grants host-wide permission so
-    // the extension can survive Hark's authenticated navigation without advertising settings/login tabs.
-    matchPatterns: [
-      'https://hark.com/chat*',
-      'https://hark.com/projects/*'
-    ],
-    urlPrefixes: [
-      'https://hark.com/chat',
-      'https://hark.com/projects/'
-    ],
+    matchPatterns: [...targetMatchPatterns],
+    urlPrefixes: [...targetUrlPrefixes],
     capabilities: {
       chat: true,
       captureLatest: true,
@@ -71,15 +94,8 @@
         health: true
       }
     }),
-    qualification: {
-      live: true,
-      warmRecovery: true,
-      exactOnce: true,
-      urlPrefix: 'https://hark.com/'
-    },
-    orchestration: {
-      spawnUrl: 'https://hark.com/chat'
-    },
+    qualification,
+    orchestration,
     groups,
     contentScripts: groups.flatMap((group) => group.files)
   };
