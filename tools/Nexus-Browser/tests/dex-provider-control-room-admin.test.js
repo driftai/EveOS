@@ -119,6 +119,24 @@ test('bound agent can stop and continue its relay', () => {
   assert.deepEqual(calls.at(-1), ['start', 'room-1', 'm1', 500]);
 });
 
+test('stop receipt reports accepted intent instead of stale pre-cleanup room state', () => {
+  const state = fixture();
+  state.rooms[0].relay.active = true;
+  state.rooms[0].deferredRelays = [{ requestId: 'queued-before-stop' }];
+  const result = control.createController({
+    state, storage: memoryStorage(), roomMessage() {},
+    stopRoom() { return true; }, persist() {}, renderAll() {}
+  }).handle({ source: eveSource, command: { action: 'stop_relay' } });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.message, 'Stop request accepted for Core Room.');
+  assert.deepEqual(result.data, {
+    roomId: 'room-1', stopRequested: true, authoritativeStatePending: true
+  });
+  assert.equal(Object.hasOwn(result.data, 'deferredSends'), false,
+    'the async stop receipt must not publish a stale queue count');
+});
+
 
 test('onboarding tells agents to delete disposable proof rooms after managed cleanup', () => {
   const state = fixture();

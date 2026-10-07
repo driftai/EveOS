@@ -346,8 +346,10 @@
       }
       if (action === 'stop_relay') {
         if (typeof stopRoom !== 'function') return { ok: false, code: 'DEX_CONTROL_STOP_UNAVAILABLE', message: 'Relay stop is unavailable in this runtime.' };
-        stopRoom(room, `Stopped by ${member.name}`); renderAll();
-        return { ok: true, action, message: `Stopped relay for ${room.name}.`, data: roomSummary(room, member, true) };
+        if (stopRoom(room, `Stopped by ${member.name}`) === false) return { ok: false, code: 'DEX_CONTROL_STOP_FAILED', message: `Could not request a relay stop for ${room.name}.` };
+        renderAll();
+        return { ok: true, action, message: `Stop request accepted for ${room.name}.`,
+          data: { roomId: room.id, stopRequested: true, authoritativeStatePending: true } };
       }
       if (action === 'continue_relay') {
         if (roomBusy(state, room)) return { ok: false, code: 'DEX_CONTROL_ROOM_BUSY', message: `Dex room ${room.name} is already busy.` };
