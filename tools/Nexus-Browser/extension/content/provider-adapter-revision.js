@@ -1,5 +1,5 @@
 (() => {
-  const ADAPTER_REVISION = 55;
+  const ADAPTER_REVISION = 56;
   if (typeof window !== 'undefined' && globalThis.__browserAiBridgeProviderAdapterRevisionLoaded === ADAPTER_REVISION) return;
   if (typeof window !== 'undefined') globalThis.__browserAiBridgeProviderAdapterRevisionLoaded = ADAPTER_REVISION;
 

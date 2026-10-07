@@ -169,3 +169,19 @@ test('Dex provider control resolves the Hark runtime so Hark replies can issue D
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '../extension/content/dex-provider-control.js'), 'utf8');
   assert.match(source, /\{ id: 'hark', answer: 'BrowserAiBridgeHarkAnswer', input: 'BrowserAiBridgeHarkInput' \}/);
 });
+
+test('Dex-injected tool results and nudges never read as a malformed or executable command', () => {
+  const control = require('../extension/content/dex-provider-control.js');
+  const toolResult = [
+    '[DEX TOOL RESULT]',
+    'OK: New message committed to the durable FIFO.',
+    'If another Dex control action is needed, end your next reply with one trailing marker.',
+    'Use [[DEX:CMD {"action":"help"}]] for the full room-admin command set.',
+    'Common: [[DEX:CMD {"action":"status"}]] or [[DEX:CMD {"action":"send","text":"<message>","relay":true}]].',
+    'Otherwise do not emit a Dex command.'
+  ].join('\n');
+  assert.equal(control.malformedTrailingCommand(toolResult), null);
+  assert.equal(control.parseTrailingCommand(toolResult), null);
+  assert.equal(control.parseTrailingCommand('[DEX ROOM RELAY]\nRoom: x\n[[DEX:CMD {"action":"status"}]]'), null);
+  assert.ok(control.parseTrailingCommand('Checking the room. [[DEX:CMD {"action":"status"}]]'));
+});

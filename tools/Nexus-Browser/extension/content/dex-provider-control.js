@@ -33,8 +33,14 @@
     return lines.every((line) => allowed.test(line));
   }
 
+  // Providers whose DOM cannot tell user turns from assistant turns (Hark) can surface
+  // Dex's own injected turns as the "latest reply". Their help examples must never parse.
+  const DEX_INJECTED = /^\s*\[DEX (?:TOOL RESULT|FORMAT NUDGE|ROOM RELAY)\b/;
+  function dexInjectedText(value) { return DEX_INJECTED.test(String(value || '')); }
+
   function parseTrailingCommand(value) {
     const text = String(value || '').trim();
+    if (dexInjectedText(text)) return null;
     const closeIndex = text.lastIndexOf(']]');
     if (closeIndex < 0 || !ignorableUiSuffix(text.slice(closeIndex + 2))) return null;
     let index = text.indexOf(PREFIX);
@@ -60,6 +66,7 @@
     'INCOMPLETE_JSON', 'INVALID_JSON', 'UNKNOWN_ACTION', 'TRAILING_TEXT'
   ]);
   function malformedTrailingCommand(value) {
+    if (dexInjectedText(value)) return null;
     const lines = String(value || '').trim().split(/\r?\n/);
     const ui = /^(copy|copy response|good response|bad response|read aloud|share|more|retry|regenerate|edit|edit message)$/i;
     while (lines.length && ui.test(lines.at(-1).trim())) lines.pop();
@@ -358,6 +365,7 @@
     ignorableUiSuffix,
     parseTrailingCommand,
     malformedTrailingCommand,
+    dexInjectedText,
     MALFORMED_CODES,
     MALFORMED_SETTLED_MS,
     assistantNodes,
