@@ -80,7 +80,7 @@ def test_mdl_wrapper_upgrades_only_its_inserted_workspace_subtree():
 
 def test_workspace_boot_skips_redundant_audio_worklet_html_loader_phase():
     initializer = read("js/modules/gemini/html_loaders/html_initialization_loaders.js")
-    pcm_loader = read(
+    pcm_loader = ROOT / (
         "js/modules/gemini/html_loaders/audio_worklet/pcm_proc/pcmProcessorScriptUILoader.js"
     )
     worklet_initializer = read(
@@ -92,7 +92,7 @@ def test_workspace_boot_skips_redundant_audio_worklet_html_loader_phase():
     assert "loadPcmProcessorScript" not in initializer
     assert "Skipping redundant Audio Worklet HTML loader phase" in initializer
 
-    assert "Skipping script injection (handled by AudioWorkletInitializer)" in pcm_loader
+    assert not pcm_loader.exists()
     assert "audioWorklet.addModule" in worklet_initializer
     assert "window.AudioWorkletCode.getProcessorCode" in worklet_initializer
 
