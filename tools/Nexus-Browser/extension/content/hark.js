@@ -19,6 +19,20 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  function escapeRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function stripPromptEcho(value, prompt) {
+    const text = String(value || '').trim();
+    const echo = String(prompt || '').trim();
+    if (!text || !echo) return text;
+    const pattern = escapeRegExp(echo).replace(/\s+/g, '\\s+');
+    const match = text.match(new RegExp(`^${pattern}(?=$|\\s|[:—–-])`));
+    if (!match) return text;
+    return text.slice(match[0].length).replace(/^[\s:—–-]+/, '').trim();
+  }
+
   function stopWatcher(requestId) {
     const watcher = active.get(requestId);
     if (!watcher) return;
@@ -45,10 +59,11 @@
     emit({ type: 'response_activity', requestId, isGenerating, generationState: state, observedAt: stamp });
   }
 
-  function watchResponse(requestId, baseline) {
+  function watchResponse(requestId, baseline, promptText = '') {
     const watcher = {
       baselineCount: baseline.count,
       baselineText: baseline.text,
+      promptText: String(promptText || ''),
       lastText: '',
       lastChangedAt: Date.now(),
       started: false,
@@ -62,9 +77,10 @@
 
     function current() {
       const nodes = answer.assistantNodes(document);
+      const rawText = answer.getTurnAssistantText(nodes, watcher.baselineCount);
       return {
         nodes,
-        text: answer.getTurnAssistantText(nodes, watcher.baselineCount)
+        text: stripPromptEcho(rawText, watcher.promptText)
       };
     }
 
@@ -175,7 +191,7 @@
       throw new Error('Hark composer did not retain the prompt text after insertion.');
     }
 
-    watchResponse(requestId, baseline);
+    watchResponse(requestId, baseline, text);
     const exactOnce = qualification?.exactOnce === true;
     const sendControl = await waitForSendControl(composer);
     if (sendControl) {
@@ -228,6 +244,7 @@
     module.exports = {
       ...input,
       ...answer,
+      stripPromptEcho,
       watchResponse,
       submitPrompt,
       stopWatcher,
