@@ -24,7 +24,16 @@
   }
 
   function pruneNestedNodes(nodes) {
-    return nodes.filter((node) => !nodes.some((other) => other !== node && other.contains?.(node)));
+    const unique = [...new Set((nodes || []).filter(Boolean))];
+    const leaves = unique.filter((node) => !unique.some((other) => (
+      other !== node && node.contains?.(other)
+    )));
+    return leaves.sort((a, b) => {
+      const relation = a.compareDocumentPosition?.(b) || 0;
+      if (relation & 4) return -1;
+      if (relation & 2) return 1;
+      return 0;
+    });
   }
 
   function metadata(node) {
