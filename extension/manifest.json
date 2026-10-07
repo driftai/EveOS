@@ -97,6 +97,7 @@
         "modules/nexus-browser/content/chatgpt-delivery-watchdog.js",
         "modules/nexus-browser/content/chatgpt-answer.js",
         "modules/nexus-browser/content/chatgpt-return.js",
+        "modules/nexus-browser/content/chatgpt-manual-commit.js",
         "modules/nexus-browser/content/chatgpt.js",
         "modules/nexus-browser/content/chatgpt-stream-nudge.js",
         "modules/nexus-browser/content/dex-provider-control.js",

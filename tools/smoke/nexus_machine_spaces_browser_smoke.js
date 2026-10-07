@@ -48,18 +48,19 @@ async function pointerClick(page, selector) {
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 }
 async function main() {
-  const port = await reservePort();
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eveos-machine-spaces-'));
+  const livePort = Number(process.env.NEXUS_BROWSER_LIVE_PORT || 0);
+  const port = Number.isSafeInteger(livePort) && livePort > 0 ? livePort : await reservePort();
+  const dataDir = livePort ? null : fs.mkdtempSync(path.join(os.tmpdir(), 'eveos-machine-spaces-'));
   const logs = [];
-  const child = spawn(process.execPath, ['server.js'], { cwd: TOOL, windowsHide: true,
+  const child = livePort ? null : spawn(process.execPath, ['server.js'], { cwd: TOOL, windowsHide: true,
     env: { ...process.env, NEXUS_BROWSER_PORT: String(port), NEXUS_BROWSER_DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe'] });
-  child.stdout.on('data', (chunk) => logs.push(String(chunk)));
-  child.stderr.on('data', (chunk) => logs.push(String(chunk)));
-  let browser, page;
+  child?.stdout.on('data', (chunk) => logs.push(String(chunk)));
+  child?.stderr.on('data', (chunk) => logs.push(String(chunk)));
+  let browser, page, createdTargetId = '';
   const pageErrors = [], frames = [];
   try {
-    await waitHealth(port, child);
+    await waitHealth(port, child || { exitCode: null });
     ({ browser } = await launchChromiumOrConnect({ headless: true }));
     page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
     page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -72,29 +73,38 @@ async function main() {
     if (process.platform === 'win32') {
       await page.selectOption('#terminalTypeSelect', 'cmd');
       await page.fill('#terminalCwd', ROOT);
+      const sessionLabel = livePort ? `Nexus Live Proof ${Date.now()}` : 'Managed Command Prompt';
+      if (livePort) await page.fill('#terminalLabel', sessionLabel);
       await pointerClick(page, '#createTerminalTarget');
-      await page.locator('#terminalTargetSelect option').filter({ hasText: 'Managed Command Prompt' }).waitFor({ state: 'attached' });
+      const createdOption = page.locator('#terminalTargetSelect option').filter({ hasText: sessionLabel });
+      await createdOption.waitFor({ state: 'attached' });
+      createdTargetId = await createdOption.getAttribute('value');
+      if (!createdTargetId) throw new Error('Created terminal did not expose a stable target ID.');
+      await page.selectOption('#terminalTargetSelect', createdTargetId);
       await page.fill('#prompt', 'echo NEXUS_MACHINE_SPACES_BROWSER_OK');
       const mode = await page.evaluate(async () => ({ dom: document.getElementById('targetClassSelect').value,
         app: typeof state === 'object' ? state.selectedTargetClassId : 'unavailable',
         api: !!globalThis.BrowserAiBridgeMachineSpacesUi }));
       if (mode.dom !== 'terminal-origin' || mode.app !== 'terminal-origin' || !mode.api)
         throw new Error(`Terminal mode diverged: ${JSON.stringify(mode)}`);
-      page.once('dialog', (dialog) => dialog.accept());
       await pointerClick(page, '#sendPrompt');
+      await page.locator('.machine-dialog').getByText('Base Mode terminal command', { exact: false }).waitFor();
+      await pointerClick(page, '.machine-dialog-actions button:last-child');
       await page.locator('#transcript').getByText('NEXUS_MACHINE_SPACES_BROWSER_OK', { exact: false }).last().waitFor({ timeout: 10000 });
 
-      await pointerClick(page, '#dexModeTab');
-      await pointerClick(page, '#dexHumanToggle');
-      page.once('dialog', (dialog) => dialog.accept('Browser Proof'));
-      await pointerClick(page, '#machineCreateSpace');
-      await page.locator('#machineSpaceSelect option').filter({ hasText: 'Browser Proof' }).waitFor({ state: 'attached' });
-      page.once('dialog', (dialog) => dialog.accept());
-      await pointerClick(page, '#machineAttach');
-      await page.locator('#machineSpaceResources').getByText('Managed Command Prompt', { exact: false }).waitFor();
+      if (!livePort) {
+        await pointerClick(page, '#dexModeTab');
+        await pointerClick(page, '#dexHumanToggle');
+        await pointerClick(page, '#machineCreateSpace');
+        await page.locator('.machine-dialog-input').fill('Browser Proof');
+        await pointerClick(page, '.machine-dialog-actions button:last-child');
+        await page.locator('#machineSpaceSelect option').filter({ hasText: 'Browser Proof' }).waitFor({ state: 'attached' });
+        await pointerClick(page, '#machineAttach');
+        await page.locator('#machineSpaceResources').getByText('Managed Command Prompt', { exact: false }).waitFor();
+      }
     }
     if (pageErrors.length) throw new Error(`Browser errors: ${pageErrors.join(' | ')}`);
-    console.log(`NEXUS_MACHINE_SPACES_BROWSER_SMOKE_OK native=${process.platform === 'win32' ? 'cmd' : 'ui-only'}`);
+    console.log(`NEXUS_MACHINE_SPACES_BROWSER_SMOKE_OK native=${process.platform === 'win32' ? 'cmd' : 'ui-only'} mode=${livePort ? 'live' : 'isolated'}`);
   } catch (error) {
     const ui = page ? await page.locator('body').innerText().catch(() => '') : '';
     const debug = page ? await page.evaluate(() => ({ targetClass: document.getElementById('targetClassSelect')?.value,
@@ -102,10 +112,20 @@ async function main() {
       machineApi: !!globalThis.BrowserAiBridgeMachineSpacesUi })).catch(() => null) : null;
     throw new Error(`${error.message}\nDebug: ${JSON.stringify(debug)}\nSent frames:\n${frames.slice(-12).join('\n')}\nPage errors: ${pageErrors.join(' | ') || 'none'}\nUI tail:\n${ui.split(/\r?\n/).filter(Boolean).slice(-35).join('\n')}\nNexus tail:\n${logs.join('').split(/\r?\n/).filter(Boolean).slice(-20).join('\n')}`);
   } finally {
+    if (livePort && page && createdTargetId) {
+      try {
+        await page.selectOption('#targetClassSelect', 'terminal-origin');
+        await page.selectOption('#terminalTargetSelect', createdTargetId);
+        await pointerClick(page, '#stopTerminalTarget');
+        await page.locator('.machine-dialog').getByText('Stop', { exact: false }).waitFor();
+        await pointerClick(page, '.machine-dialog-actions button:last-child');
+        await page.locator(`#terminalTargetSelect option[value="${createdTargetId}"]`).waitFor({ state: 'detached' });
+      } catch (error) { logs.push(`Live cleanup warning: ${error.message}`); }
+    }
     await browser?.close().catch(() => {});
-    if (child.exitCode == null) child.kill();
-    await new Promise((resolve) => child.exitCode != null ? resolve() : child.once('exit', resolve));
-    if (path.dirname(dataDir) === os.tmpdir() && path.basename(dataDir).startsWith('eveos-machine-spaces-'))
+    if (child && child.exitCode == null) child.kill();
+    if (child) await new Promise((resolve) => child.exitCode != null ? resolve() : child.once('exit', resolve));
+    if (dataDir && path.dirname(dataDir) === os.tmpdir() && path.basename(dataDir).startsWith('eveos-machine-spaces-'))
       fs.rmSync(dataDir, { recursive: true, force: true });
   }
 }
