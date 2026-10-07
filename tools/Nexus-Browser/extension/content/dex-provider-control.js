@@ -159,6 +159,8 @@
   let nextTurnIdentity = 0;
   let lastDuplicateKey = '';
   let repairOriginTurn = '';
+  let observer = null;
+  let runtimeListener = null;
   const MAX_DISPATCHED_TURNS = 256;
   const telemetry = { samples: 0, lastScanAt: null, assistantNodes: 0, phase: 'boot', candidateAction: null, dispatchedAt: null, duplicateTurnsSuppressed: 0, malformedDetected: 0, nudgesSent: 0, nudgesSuppressed: 0, lastMalformedCode: null, lastError: null };
 
@@ -335,7 +337,19 @@
   }
 
   if (typeof chrome !== 'undefined' && chrome.runtime) {
-    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    runtimeListener = (msg, _sender, sendResponse) => {
+      if (msg?.type === 'dex_provider_control_worker_ping') {
+        const expectedEpoch = String(msg.workerEpoch || '');
+        Promise.resolve(chrome.runtime.sendMessage({
+          type: 'dex_provider_control_worker_probe', workerEpoch: expectedEpoch
+        })).then((probe) => sendResponse({
+          ok: probe?.ok === true && probe?.workerEpoch === expectedEpoch,
+          adapter: 'dex-provider-control', workerEpoch: probe?.workerEpoch || null,
+          revision: Number(globalThis.BrowserAiBridgeProviderAdapterRevision?.ADAPTER_REVISION || 0),
+          phase: telemetry.phase
+        })).catch(() => sendResponse({ ok: false, adapter: 'dex-provider-control' }));
+        return true;
+      }
       if (!['dex_provider_control_ping', 'dex_provider_control_rescan'].includes(msg?.type)) return;
       const revision = Number(globalThis.BrowserAiBridgeProviderAdapterRevision?.ADAPTER_REVISION || 0);
       if (msg.type === 'dex_provider_control_rescan') {
@@ -345,13 +359,14 @@
       sendResponse({ ok: true, adapter: 'dex-provider-control', revision,
         phase: telemetry.phase });
       return true;
-    });
+    };
+    chrome.runtime.onMessage.addListener(runtimeListener);
   }
 
   if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined') {
     const start = () => {
       if (!document.body) return setTimeout(start, 100);
-      const observer = new MutationObserver(() => schedule());
+      observer = new MutationObserver(() => schedule());
       observer.observe(document.body, {
         subtree: true,
         childList: true,
@@ -362,6 +377,14 @@
       schedule(250);
     };
     start();
+  }
+
+  function dispose() {
+    if (timer !== null) { clearTimeout(timer); timer = null; }
+    try { observer?.disconnect?.(); } catch {}
+    observer = null;
+    try { if (runtimeListener) chrome.runtime.onMessage.removeListener(runtimeListener); } catch {}
+    runtimeListener = null;
   }
 
   const api = {
@@ -383,6 +406,7 @@
     assistantTurn,
     latestCandidateText,
     commandIdentity,
+    dispose,
     diagnostics,
     commandReady
   };

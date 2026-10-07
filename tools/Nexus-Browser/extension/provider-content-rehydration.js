@@ -1,6 +1,23 @@
 'use strict';
 (() => {
   const DEFAULT_PROBE_TIMEOUT_MS = 1000;
+  const CONTROL_PING_TYPE = 'dex_provider_control_worker_ping';
+  const WORKER_PROBE_TYPE = 'dex_provider_control_worker_probe';
+  const WORKER_EPOCH = globalThis.crypto?.randomUUID?.()
+    || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  let workerProbeInstalled = false;
+
+  function installWorkerProbe(chromeApi = globalThis.chrome) {
+    if (workerProbeInstalled || !chromeApi?.runtime?.onMessage?.addListener) return false;
+    chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type !== WORKER_PROBE_TYPE) return;
+      const matches = String(message.workerEpoch || '') === WORKER_EPOCH;
+      sendResponse({ ok: matches, adapter: 'dex-provider-control-worker', workerEpoch: WORKER_EPOCH });
+      return false;
+    });
+    workerProbeInstalled = true;
+    return true;
+  }
 
   function providerForTab(providers = [], tab = {}) {
     const url = String(tab?.url || tab?.pendingUrl || '');
@@ -11,10 +28,15 @@
 
   async function probeGroup(tabId, group, chromeApi = globalThis.chrome, timeoutMs = DEFAULT_PROBE_TIMEOUT_MS) {
     try {
-      const probe = chromeApi.tabs.sendMessage(Number(tabId), { type: group.pingType });
+      const workerBound = group.expectedAdapter === 'dex-provider-control';
+      const message = workerBound
+        ? { type: CONTROL_PING_TYPE, workerEpoch: WORKER_EPOCH }
+        : { type: group.pingType };
+      const probe = chromeApi.tabs.sendMessage(Number(tabId), message);
       const timeout = new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs));
       const result = await Promise.race([probe, timeout]);
-      return !!result?.ok && (!group.expectedAdapter || result.adapter === group.expectedAdapter);
+      return !!result?.ok && (!group.expectedAdapter || result.adapter === group.expectedAdapter)
+        && (!workerBound || result.workerEpoch === WORKER_EPOCH);
     } catch {
       return false;
     }
@@ -25,6 +47,7 @@
     await chromeApi.scripting.executeScript({
       target: { tabId: Number(tabId) },
       func: (names) => names.forEach((name) => {
+        try { globalThis[name]?.dispose?.(); } catch {}
         try { delete globalThis[name]; }
         catch { try { globalThis[name] = undefined; } catch {} }
       }),
@@ -98,6 +121,10 @@
 
   const api = {
     DEFAULT_PROBE_TIMEOUT_MS,
+    CONTROL_PING_TYPE,
+    WORKER_PROBE_TYPE,
+    WORKER_EPOCH,
+    installWorkerProbe,
     providerForTab,
     probeGroup,
     clearGlobals,
@@ -112,6 +139,7 @@
   // Schedule one post-bootstrap pass in the new worker so those tabs regain their
   // adapters/provider-control scanner without a manual page refresh or tab reload.
   if (typeof chrome !== 'undefined' && chrome?.runtime && chrome?.tabs && chrome?.scripting) {
+    installWorkerProbe(chrome);
     Promise.resolve().then(() => autoRehydrate()).catch((error) =>
       console.warn('[bridge] provider content rehydration failed:', error?.message || error));
   }

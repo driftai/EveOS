@@ -75,6 +75,15 @@ test('provider command watcher never executes while generation is active', () =>
   assert.equal(content.commandReady(true, 60000), false);
 });
 
+test('provider control rehydration requires a worker-backed generation handshake', () => {
+  assert.match(source, /dex_provider_control_worker_ping/);
+  assert.match(source, /dex_provider_control_worker_probe/);
+  assert.match(source, /probe\?\.workerEpoch === expectedEpoch/);
+  assert.match(source, /function dispose\(\)/);
+  assert.match(source, /observer\?\.disconnect/);
+  assert.match(source, /removeListener\(runtimeListener\)/);
+});
+
 test('provider command watcher stabilizes the exact marker before runtime dispatch', () => {
   assert.match(source, /candidateFingerprint = fingerprint;\s*candidateSince = observedAt;\s*schedule\(malformed \? MALFORMED_SETTLED_MS : SETTLED_MS\);/);
   assert.match(source, /commandReady\(generationActive\(runtime\), stableMs\)/);

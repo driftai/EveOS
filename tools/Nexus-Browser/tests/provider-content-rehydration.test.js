@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const rehydration = require('../extension/provider-content-rehydration.js');
 
-function fakeChrome({ initiallyReady = false } = {}) {
+function fakeChrome({ initiallyReady = false, legacyReady = initiallyReady } = {}) {
   let ready = initiallyReady;
   const executions = [];
   return {
@@ -17,10 +17,16 @@ function fakeChrome({ initiallyReady = false } = {}) {
           ];
         },
         async sendMessage(tabId, message) {
-          if (tabId !== 11 || message.type !== 'dex_provider_control_ping' || !ready) {
+          if (tabId !== 11) throw new Error('Receiving end does not exist.');
+          if (message.type === rehydration.CONTROL_PING_TYPE && ready) {
+            return { ok: true, adapter: 'dex-provider-control', workerEpoch: message.workerEpoch };
+          }
+          if (message.type === 'dex_provider_control_ping' && (legacyReady || ready)) {
+            return { ok: true, adapter: 'dex-provider-control' };
+          }
+          {
             throw new Error('Receiving end does not exist.');
           }
-          return { ok: true, adapter: 'dex-provider-control' };
         }
       },
       scripting: {
@@ -72,4 +78,29 @@ test('healthy provider tabs are left untouched', async () => {
   assert.equal(result.rehydratedGroups, 0);
   assert.deepEqual(result.failed, []);
   assert.equal(h.executions.length, 0);
+});
+
+test('legacy presence ping cannot mask a scanner disconnected from the current worker', async () => {
+  const h = fakeChrome({ legacyReady: true, initiallyReady: false });
+  const result = await rehydration.rehydrateOpenProviderTabs({
+    chromeApi: h.chrome,
+    providers,
+    resolveAsset: (file) => `assembled/${file}`
+  });
+
+  assert.equal(result.rehydratedTabs, 1);
+  assert.equal(result.rehydratedGroups, 1);
+  assert.equal(h.executions.some((entry) => entry.files?.[0] === 'assembled/content/dex-provider-control.js'), true);
+});
+
+test('worker probe accepts only the exact current worker epoch', () => {
+  let listener;
+  const chrome = { runtime: { onMessage: { addListener(value) { listener = value; } } } };
+  assert.equal(rehydration.installWorkerProbe(chrome), true);
+  let exact, stale;
+  listener({ type: rehydration.WORKER_PROBE_TYPE, workerEpoch: rehydration.WORKER_EPOCH }, {}, value => { exact = value; });
+  listener({ type: rehydration.WORKER_PROBE_TYPE, workerEpoch: 'stale-worker' }, {}, value => { stale = value; });
+  assert.equal(exact.ok, true);
+  assert.equal(stale.ok, false);
+  assert.equal(exact.workerEpoch, rehydration.WORKER_EPOCH);
 });
