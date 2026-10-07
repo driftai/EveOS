@@ -6,6 +6,7 @@ if (typeof importScripts === 'function') {
   importScripts('dex-ui-refresh.js');
   importScripts('content/provider-adapter-revision.js');
   importScripts('provider-adapter-freshness.js');
+  importScripts('provider-content-rehydration.js');
   importScripts('provider-target-list.js');
   importScripts('provider-target-spawn.js');
   importScripts('chatgpt-app-mirror.js');
