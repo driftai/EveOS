@@ -2,6 +2,7 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 const returnApi = require('../extension/content/chatgpt-return.js');
+const manualCommitApi = require('../extension/content/chatgpt-manual-commit.js');
 const chatSource = fs.readFileSync(path.join(__dirname, '../extension/content/chatgpt.js'), 'utf8');
 const TURN = 'dex-turn-3da28dc8-2509-4751-b8c5-32b68d0dde8b';
 function node(messageId, content) {
@@ -55,7 +56,7 @@ function headed({ hasSend = false, commitAfterClick = false, clearWithoutCommit 
   };
   const context = {
     module: { exports: {} }, BrowserAiBridgeChatGptInput: input,
-    BrowserAiBridgeChatGptManualCommit: require('../extension/content/chatgpt-manual-commit.js'),
+    BrowserAiBridgeChatGptManualCommit: manualCommitApi,
     BrowserAiBridgeChatGptDeliveryWatchdog: { createDeliveryWatchdog: () => guard },
     BrowserAiBridgeChatGptAnswer: {
       assistantNodes: () => [], userNodes: () => userNodes,
@@ -130,6 +131,26 @@ test('editor clearing alone does NOT acknowledge a Dex relay or trigger fallback
   assert.equal(h.clicks, 1);
   assert.equal(h.enters, 0);
   assert.equal(h.finishes[0].success, false);
+});
+
+test('manual-commit timer functions preserve their browser host receiver', () => {
+  const requestId = 'dex-turn-timer-receiver';
+  const watcher = {}, active = new Map([[requestId, watcher]]), calls = [];
+  const timers = {
+    setInterval: function (_fn, ms) { assert.equal(this, globalThis); calls.push(['setInterval', ms]); return 17; },
+    clearInterval: function (id) { assert.equal(this, globalThis); calls.push(['clearInterval', id]); },
+    setTimeout: function (_fn, ms) { assert.equal(this, globalThis); calls.push(['setTimeout', ms]); return 23; },
+    clearTimeout: function (id) { assert.equal(this, globalThis); calls.push(['clearTimeout', id]); }
+  };
+  const manual = manualCommitApi.create({ active, stopWatcher() {}, emit() {}, timers });
+  assert.equal(manual.arm(requestId, () => false), true);
+  manual.release(watcher);
+  assert.deepEqual(calls, [
+    ['setInterval', manualCommitApi.POLL_MS],
+    ['setTimeout', manualCommitApi.MANUAL_COMMIT_WINDOW_MS],
+    ['clearInterval', 17],
+    ['clearTimeout', 23]
+  ]);
 });
 
 test('unconfirmed Dex click keeps the watcher for a later manual Enter without a second gesture', async () => {
