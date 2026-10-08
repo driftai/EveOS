@@ -72,12 +72,70 @@
 }
 .machine-empty { color: #8290a3; font-size: 12px; }
 .machine-state-running, .machine-state-approval-required { color: #efd185; }
+.machine-state-queued, .machine-state-deferred { color: #d5c18a; }
 .machine-state-completed { color: #91dfae; }
-.machine-state-failed, .machine-state-outcome-unknown, .machine-state-denied { color: #eda7ad; }
+.machine-state-failed, .machine-state-outcome-unknown, .machine-state-denied, .machine-state-cancelled { color: #eda7ad; }
 body[data-bridge-mode="dex"] #terminalTargetControls { display: none !important; }
+
+.machine-request-view-panel { margin-top: 12px; }
+.machine-request-view-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
+}
+.machine-request-view-filters {
+  display: grid;
+  grid-template-columns: minmax(130px, .65fr) minmax(150px, .75fr) minmax(150px, 1fr) minmax(190px, 1.4fr) auto auto;
+  gap: 8px;
+  align-items: end;
+  margin-top: 9px;
+}
+.machine-request-view-filters label {
+  display: grid;
+  gap: 4px;
+  color: #8796aa;
+  font-size: 11px;
+}
+.machine-request-view-filters select,
+.machine-request-view-filters input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.machine-request-view-live {
+  display: flex !important;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: start;
+  padding-bottom: 8px;
+  white-space: nowrap;
+}
+.machine-request-view-live input { width: auto !important; }
+.machine-request-view-kind {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #8290a3;
+}
+.machine-request-view-provenance {
+  margin-top: 6px;
+  color: #78879a;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.machine-request-view-more { margin-top: 9px; }
+
+@media (max-width: 900px) {
+  .machine-request-view-filters { grid-template-columns: 1fr 1fr; }
+  .machine-request-view-live { padding-bottom: 0; }
+}
 @media (max-width: 760px) {
   .machine-target-grid, .machine-space-toolbar, .machine-target-actions { grid-template-columns: 1fr; }
   .machine-target-footer { align-items: stretch; }
+}
+@media (max-width: 560px) {
+  .machine-request-view-filters { grid-template-columns: 1fr; }
 }
 
 .machine-new-terminal { margin-top: 8px; }
