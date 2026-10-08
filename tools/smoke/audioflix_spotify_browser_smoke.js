@@ -24,10 +24,10 @@ const assert = (condition, message) => {
                 createController: function (_mount, options, ready) {
                     var listeners = {};
                     var totals = window.__spotifyUiTotals = window.__spotifyUiTotals || {
-                        created: 0, play: 0, pause: 0, destroy: 0
+                        created: 0, play: 0, pause: 0, destroy: 0, loaded: []
                     };
                     totals.created += 1;
-                    var controller = {
+                    var controller = window.__spotifyController = {
                         addListener: function (name, listener) { listeners[name] = listener; },
                         play: function () {
                             totals.play += 1;
@@ -50,6 +50,7 @@ const assert = (condition, message) => {
                             });
                         },
                         seek: function () {},
+                        loadUri: function (uri) { totals.loaded.push(uri); },
                         destroy: function () { totals.destroy += 1; },
                         emit: function (name, data) {
                             if (listeners[name]) listeners[name]({ data: data });
@@ -78,7 +79,7 @@ const assert = (condition, message) => {
     await page.click('[data-af-action="select-playlist-mode"][data-af-mode="spotify"]');
     await page.waitForSelector('[data-af-form="import-playlist"][data-af-mode="spotify"]');
     assert(
-        await page.locator('[data-af-form="import-playlist"] textarea[name="url"]').isVisible(),
+        await page.locator('[data-af-form="import-playlist"] input[name="url"]').isVisible(),
         'Spotify import accepts a URL, embed URL, or iframe'
     );
     assert(
@@ -89,7 +90,7 @@ const assert = (condition, message) => {
         (await page.locator('[data-af-form="import-playlist"]').innerText()).includes('separate saved EveOS Edge profile'),
         'Spotify import explains that private-playlist login uses a dedicated persistent profile'
     );
-    await page.fill('[data-af-form="import-playlist"] textarea[name="url"]', '<iframe src="https://open.spotify.com/embed/playlist/privatePlaylist"></iframe>');
+    await page.fill('[data-af-form="import-playlist"] input[name="url"]', '<iframe src="https://open.spotify.com/embed/playlist/privatePlaylist"></iframe>');
     await page.fill('[data-af-form="import-playlist"] input[name="folder"]', 'Test-Spotify');
     await page.evaluate(() => {
         window.EveAudioflixNative.listSpotifyPlaylist = async () => ({
@@ -104,7 +105,7 @@ const assert = (condition, message) => {
         'Spotify import failure is visible inside the import form'
     );
     assert(
-        (await page.inputValue('[data-af-form="import-playlist"] textarea[name="url"]')).includes('privatePlaylist')
+        (await page.inputValue('[data-af-form="import-playlist"] input[name="url"]')).includes('privatePlaylist')
             && await page.inputValue('[data-af-form="import-playlist"] input[name="folder"]') === 'Test-Spotify',
         'failed Spotify import retains its iframe and target folder'
     );
@@ -249,6 +250,50 @@ const assert = (condition, message) => {
     assert(
         await page.evaluate(() => /spotify\.com/i.test(window.EveAudioflixAudio.getPlaybackState()?.item?.url || '')),
         'frontend group Play uses the same Spotify provider controller'
+    );
+    const queueBeforeEnd = await page.evaluate(() => window.EveAudioflix.queueConnection.snapshot());
+    const currentQueueIndex = Number(queueBeforeEnd.currentIndex);
+    const nextQueueItem = queueBeforeEnd.entries[currentQueueIndex + 1];
+    assert(nextQueueItem, 'frontend group queue has a second Spotify track to advance into');
+    const nextSpotifyUrl = await page.evaluate((id) => window.EveAudioflixState.ensure().music
+        .find((item) => String(item.id) === String(id))?.url || '', nextQueueItem.id);
+    const nextSpotifyTrackId = String(nextSpotifyUrl).match(/track\/([A-Za-z0-9]+)/)?.[1] || '';
+    assert(nextSpotifyTrackId, 'next queued group item retains its Spotify track identity');
+    await page.evaluate(() => {
+        window.__spotifyController.emit('playback_update', {
+            position: 179200, duration: 180000, isPaused: false
+        });
+        window.__spotifyController.emit('playback_update', {
+            position: 0, duration: 180000, isPaused: true
+        });
+    });
+    await page.waitForFunction(
+        ({ index, id }) => {
+            const snapshot = window.EveAudioflix.queueConnection.snapshot();
+            return Number(snapshot.currentIndex) === index && String(snapshot.entries[index]?.id) === String(id);
+        },
+        { index: currentQueueIndex + 1, id: nextQueueItem.id }
+    );
+    await page.waitForTimeout(100);
+    const naturalAdvance = await page.evaluate(() => ({
+        queue: window.EveAudioflix.queueConnection.snapshot(),
+        playbackId: window.EveAudioflixAudio.getPlaybackState()?.item?.id,
+        loaded: [...(window.__spotifyUiTotals?.loaded || [])],
+        totals: { ...(window.__spotifyUiTotals || {}) }
+    }));
+    assert(
+        Number(naturalAdvance.queue.currentIndex) === currentQueueIndex + 1
+            && String(naturalAdvance.playbackId) === String(nextQueueItem.id),
+        'natural Spotify completion advances exactly once to the next group track'
+    );
+    assert(
+        naturalAdvance.loaded.some((uri) => uri === `spotify:track:${nextSpotifyTrackId}`),
+        `back-to-back Spotify group tracks load through the existing official embed controller (${JSON.stringify({
+            nextUrl: nextSpotifyUrl,
+            loaded: naturalAdvance.loaded,
+            created: naturalAdvance.totals.created,
+            play: naturalAdvance.totals.play
+        })})`
     );
     await page.evaluate(() => window.EveAudioflixAudio.stopAll());
     await page.click('[data-af-action="toggle-view-mode"][data-af-type="music"]');

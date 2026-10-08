@@ -23,15 +23,13 @@ function harness({ localPath = '', canonicalPatch = {} } = {}) {
     };
     const state = { music: [canonical] };
     const updates = [];
+    const requests = [];
     const window = {
         EveAudioflixNativeSpotify: {},
+        EveAudioflixNative: {},
         EveAudioflixState: {
             ensure: () => state,
-            updateItem(type, id, patch) {
-                updates.push({ type, id, patch });
-                const item = state.music.find((entry) => String(entry.id) === String(id));
-                if (item) Object.assign(item, patch);
-            }
+            updateItem(type, id, patch) { updates.push({ type, id, patch }); }
         },
         EveAudioflixLocalPlayback: {
             async prepare(item) {
@@ -44,153 +42,118 @@ function harness({ localPath = '', canonicalPatch = {} } = {}) {
         }
     };
     vm.runInNewContext(SOURCE, { window });
-    return { window, canonical, updates };
-}
-
-function verifiedSource() {
-    return {
-        ok: true,
-        url: 'https://www.youtube.com/watch?v=verified-recording',
-        provider: 'youtube',
-        title: 'Example Artist - Example Song',
-        resolver: 'expanded-youtube-search',
-        resolverRevision: 'strict-v3-full-hydration'
-    };
-}
-
-test('Spotify identity resolves once then reuses the cached EveOS playback source', async () => {
-    const { window, canonical, updates } = harness();
-    let resolves = 0;
-    const resolve = async () => {
-        resolves += 1;
-        return verifiedSource();
-    };
-
-    assert.equal(window.EveAudioflixNativeSpotify.installPlaybackSourceDecorator(resolve), true);
-    const first = await window.EveAudioflixLocalPlayback.prepare(canonical);
-    const second = await window.EveAudioflixLocalPlayback.prepare(canonical);
-
-    assert.equal(first.item.url, 'https://www.youtube.com/watch?v=verified-recording');
-    assert.equal(first.item.spotifyUrl, canonical.url);
-    assert.equal(first.item.sourceProvider, 'spotify');
-    assert.equal(first.item.spotifyPlaybackProvider, 'youtube');
-    assert.equal(first.item.spotifyPlaybackResolverRevision, 'strict-v3-full-hydration');
-    assert.equal(first.item.eveOwnedPlaybackSource, true);
-    assert.equal(first.item.preferEveDirectAudio, true);
-    assert.equal(second.item.url, first.item.url);
-    assert.equal(resolves, 1, 'current-revision cached playback source must not require the resolver server again');
-    assert.equal(updates.length, 1);
-    assert.equal(updates[0].type, 'music');
-    assert.equal(updates[0].patch.spotifyPlaybackUrl, first.item.url);
-    assert.equal(updates[0].patch.spotifyPlaybackResolverRevision, 'strict-v3-full-hydration');
-});
-
-test('explicit playback-boundary preparation does not depend on LocalPlayback decoration', async () => {
-    const { window, canonical, updates } = harness();
-    let resolves = 0;
-    const basePrepared = await window.EveAudioflixLocalPlayback.prepare(canonical);
-
-    const prepared = await window.EveAudioflixNativeSpotify.preparePlaybackSource(
-        canonical,
-        basePrepared,
-        async () => {
-            resolves += 1;
-            return verifiedSource();
-        }
-    );
-
-    assert.equal(prepared.item.url, 'https://www.youtube.com/watch?v=verified-recording');
-    assert.equal(prepared.item.spotifyUrl, canonical.url);
-    assert.equal(prepared.item.eveOwnedPlaybackSource, true);
-    assert.equal(prepared.item.preferEveDirectAudio, true);
-    assert.equal(resolves, 1);
-    assert.equal(updates.length, 1);
-});
-
-test('explicit playback preparation is idempotent after the verified source is persisted', async () => {
-    const { window, canonical } = harness();
-    let resolves = 0;
-    const resolve = async () => {
-        resolves += 1;
-        return verifiedSource();
-    };
-
-    const first = await window.EveAudioflixNativeSpotify.preparePlaybackSource(
-        canonical,
-        await window.EveAudioflixLocalPlayback.prepare(canonical),
-        resolve
-    );
-    const second = await window.EveAudioflixNativeSpotify.preparePlaybackSource(
-        canonical,
-        await window.EveAudioflixLocalPlayback.prepare(canonical),
-        resolve
-    );
-
-    assert.equal(first.item.url, second.item.url);
-    assert.equal(second.item.eveOwnedPlaybackSource, true);
-    assert.equal(resolves, 1, 'current-revision persisted playback URL must bypass repeat matching');
-});
-
-test('legacy persisted Spotify playback source is re-resolved once instead of surviving reloads forever', async () => {
-    const { window, canonical, updates } = harness({
-        canonicalPatch: {
-            spotifyPlaybackUrl: 'https://www.youtube.com/watch?v=legacy-recording',
-            spotifyPlaybackProvider: 'youtube',
-            spotifyPlaybackTitle: 'Old match',
-            spotifyPlaybackResolver: 'expanded-youtube-search'
+    const api = window.EveAudioflixNativeSpotify.create({
+        async fetchJson(url, options) {
+            requests.push({ url, options });
+            return {
+                ok: true,
+                url: 'https://www.youtube.com/watch?v=alternate-recording',
+                provider: 'youtube'
+            };
         }
     });
-    let resolves = 0;
+    return { window, canonical, updates, requests, api };
+}
 
-    const prepared = await window.EveAudioflixNativeSpotify.preparePlaybackSource(
-        canonical,
-        await window.EveAudioflixLocalPlayback.prepare(canonical),
-        async () => {
-            resolves += 1;
-            return verifiedSource();
-        }
-    );
-
-    assert.equal(resolves, 1);
-    assert.equal(prepared.item.url, 'https://www.youtube.com/watch?v=verified-recording');
-    assert.notEqual(prepared.item.url, 'https://www.youtube.com/watch?v=legacy-recording');
-    assert.equal(prepared.item.spotifyPlaybackResolverRevision, 'strict-v3-full-hydration');
-    assert.equal(updates.length, 1);
-});
-
-test('stale Python server response is not persisted as a current playback match', async () => {
-    const { window, canonical, updates } = harness();
+test('ordinary Spotify playback preserves the official URL and never invokes alternate matching', async () => {
+    const { window, canonical, updates, requests } = harness();
+    let resolverCalls = 0;
     const base = await window.EveAudioflixLocalPlayback.prepare(canonical);
     const prepared = await window.EveAudioflixNativeSpotify.preparePlaybackSource(
         canonical,
         base,
-        async () => ({
-            ok: true,
-            url: 'https://www.youtube.com/watch?v=old-server-source',
-            provider: 'youtube',
-            resolver: 'expanded-youtube-search'
-        })
+        async () => { resolverCalls += 1; }
     );
 
     assert.equal(prepared.item.url, canonical.url);
+    assert.equal(prepared.item.spotifyUrl, canonical.url);
+    assert.equal(prepared.item.sourceProvider, 'spotify');
+    assert.equal(prepared.item.spotifyPlaybackMode, 'official-embed');
+    assert.equal(prepared.item.eveOwnedPlaybackSource, false);
+    assert.equal(prepared.item.preferEveDirectAudio, false);
+    assert.match(prepared.status, /official embedded player/i);
+    assert.equal(resolverCalls, 0);
+    assert.equal(requests.length, 0);
     assert.equal(updates.length, 0);
 });
 
-test('localized Spotify tracks keep the local source and never invoke online matching', async () => {
-    const { window, canonical, updates } = harness({ localPath: 'C:/Music/example.mp3' });
-    let resolves = 0;
-    const basePrepared = await window.EveAudioflixLocalPlayback.prepare(canonical);
+test('retired cached YouTube playback matches cannot override the Spotify embed', async () => {
+    const { window, canonical, updates } = harness({
+        canonicalPatch: {
+            spotifyPlaybackUrl: 'https://www.youtube.com/watch?v=old-match',
+            spotifyPlaybackProvider: 'youtube',
+            spotifyPlaybackResolver: 'expanded-youtube-search',
+            spotifyPlaybackResolverRevision: 'strict-v4-embedded-first'
+        }
+    });
+
     const prepared = await window.EveAudioflixNativeSpotify.preparePlaybackSource(
         canonical,
-        basePrepared,
-        async () => {
-            resolves += 1;
-            return verifiedSource();
+        await window.EveAudioflixLocalPlayback.prepare(canonical)
+    );
+
+    assert.equal(prepared.item.url, 'https://open.spotify.com/track/abc123');
+    assert.notEqual(prepared.item.url, canonical.spotifyPlaybackUrl);
+    assert.equal(prepared.item.spotifyPlaybackMode, 'official-embed');
+    assert.equal(updates.length, 0);
+});
+
+test('old transformed items recover their Spotify identity from spotifyUrl', async () => {
+    const official = 'https://open.spotify.com/track/RESTORED123';
+    const { window, canonical } = harness({
+        canonicalPatch: {
+            url: 'https://www.youtube.com/watch?v=old-match',
+            originalUrl: 'https://www.youtube.com/watch?v=old-match',
+            spotifyUrl: official,
+            spotifyTrackId: 'RESTORED123',
+            eveOwnedPlaybackSource: true,
+            preferEveDirectAudio: true
         }
+    });
+
+    const prepared = await window.EveAudioflixNativeSpotify.preparePlaybackSource(
+        canonical,
+        await window.EveAudioflixLocalPlayback.prepare(canonical)
+    );
+
+    assert.equal(prepared.item.url, official);
+    assert.equal(prepared.item.originalUrl, official);
+    assert.equal(prepared.item.eveOwnedPlaybackSource, false);
+    assert.equal(prepared.item.preferEveDirectAudio, false);
+});
+
+test('localized Spotify tracks keep the user-owned file', async () => {
+    const { window, canonical, requests, updates } = harness({ localPath: 'C:/Music/example.mp3' });
+    const prepared = await window.EveAudioflixNativeSpotify.preparePlaybackSource(
+        canonical,
+        await window.EveAudioflixLocalPlayback.prepare(canonical)
     );
 
     assert.equal(prepared.localPath, 'C:/Music/example.mp3');
     assert.equal(prepared.item.url, 'blob:localized-track');
-    assert.equal(resolves, 0);
+    assert.equal(requests.length, 0);
     assert.equal(updates.length, 0);
+});
+
+test('non-Spotify items pass through unchanged', async () => {
+    const { window } = harness();
+    const item = { id: 'direct-1', url: 'https://cdn.example/song.mp3', sourceProvider: 'direct' };
+    const base = { item: { ...item }, localPath: '', status: '' };
+    const prepared = await window.EveAudioflixNativeSpotify.preparePlaybackSource(item, base);
+
+    assert.equal(prepared, base);
+});
+
+test('alternate recording lookup remains explicit and is never installed into LocalPlayback', async () => {
+    const { window, canonical, api, requests } = harness();
+
+    assert.equal(window.EveAudioflixNativeSpotify.installPlaybackSourceDecorator(), false);
+    assert.equal(window.EveAudioflixLocalPlayback.__eveSpotifyPlaybackSourceWrapped, undefined);
+    assert.equal(requests.length, 0);
+
+    const result = await api.resolveSpotifyPlaybackSource(canonical);
+    assert.equal(result.provider, 'youtube');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, '/api/audioflix/spotify-session');
+    assert.equal(JSON.parse(requests[0].options.body).action, 'resolve-playback-source');
 });

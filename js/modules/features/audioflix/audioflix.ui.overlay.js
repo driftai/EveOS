@@ -20,8 +20,8 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
         // Provider-backed players can report their terminal state while EveOS is backgrounded.
         // Register this bridge before audioflix.ui.js installs its generic Ended listener so the
         // provider can move the existing queue immediately without waiting for a foreground render.
-        // Spotify identities normally resolve onto an Eve-owned provider such as YouTube, so key
-        // this fast-path on Spotify provenance as well as the legacy direct-Spotify adapter name.
+        // Official Spotify embeds report terminal state through the browser-provider path. Key the
+        // fast-path on Spotify provenance too so imported items advance even across old snapshots.
         // The generic listener remains the fallback; its queueRunId guard sees the step below and
         // therefore cannot skip a second track. Repeat-one stays with the generic restart path.
         let providerAdvancePending = '';

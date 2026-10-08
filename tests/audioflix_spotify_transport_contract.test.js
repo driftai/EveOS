@@ -22,21 +22,23 @@ function ordered(source, first, second, message) {
     assert.ok(a < b, message);
 }
 
-test('Audioflix prepares local media before explicit Spotify playback ownership', () => {
+test('Audioflix prepares local media before restoring official Spotify playback ownership', () => {
     ordered(
         audio,
         'EveAudioflixLocalPlayback?.prepare?.(item)',
         'EveAudioflixNativeSpotify?.preparePlaybackSource?.(item, prepared)',
-        'localized media must win before Spotify online matching runs'
+        'localized media must win before Spotify provider routing runs'
     );
     ordered(
         audio,
         'EveAudioflixNativeSpotify?.preparePlaybackSource?.(item, prepared)',
         'EveAudioflixAudioSource?.needsResolution?.(requestedItem.url)',
-        'verified Spotify source must be established before provider/direct resolution'
+        'official Spotify identity must be established before provider/direct resolution'
     );
-    assert.match(spotify, /eveOwnedPlaybackSource:\s*true/);
-    assert.match(spotify, /preferEveDirectAudio:\s*true/);
+    assert.match(spotify, /spotifyPlaybackMode:\s*'official-embed'/);
+    assert.match(spotify, /eveOwnedPlaybackSource:\s*false/);
+    assert.match(spotify, /preferEveDirectAudio:\s*false/);
+    assert.doesNotMatch(spotify, /installPlaybackSourceDecorator\(resolveSpotifyPlaybackSource\)/);
 });
 
 test('YouTube bridge keeps initial normalized volume distinct from live percent commands', () => {
