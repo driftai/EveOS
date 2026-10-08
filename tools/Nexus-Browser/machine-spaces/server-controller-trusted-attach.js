@@ -6,6 +6,7 @@ const { createExternalTerminalProcessAdapter } = require('./external-terminal-pr
 
 function machineError(code, message) { return Object.assign(new Error(message), { code }); }
 function cleanId(value) { return String(value ?? '').trim().slice(0, 128); }
+function isExternalProcessTarget(targetId) { return /^external-pid-\d+$/.test(cleanId(targetId)); }
 
 function enhanceMachineSpacesTrustedAttachController(createBaseController, options = {}) {
   const uiSockets = options.uiSockets || new Set();
@@ -49,6 +50,12 @@ function enhanceMachineSpacesTrustedAttachController(createBaseController, optio
     if (!decision.allowed)
       throw machineError('MACHINE_TRUSTED_ATTACH_NOT_AUTHORIZED', `Trusted terminal ${capability} is unavailable: ${decision.reason}.`);
     return decision.attachment;
+  }
+  function requireExternalAttachment(attachmentId, capability) {
+    const trusted = authorize(attachmentId, capability);
+    if (!isExternalProcessTarget(trusted.targetId))
+      throw machineError('MACHINE_EXTERNAL_PROCESS_TARGET_INVALID', 'This trusted attachment is not an external process target.');
+    return trusted;
   }
   function registerAdapter(ws, msg) {
     requireLocal(ws);
@@ -101,16 +108,17 @@ function enhanceMachineSpacesTrustedAttachController(createBaseController, optio
       }
       if (type === 'machine_attest_trusted_attach') {
         requireLocal(ws);
-        const attachment = registry.attest({ challengeId: msg.challengeId, ownerId: msg.ownerId, proof: msg.proof });
-        // Attestation is accepted only while the exact external process epoch still exists.
-        processAdapter.observe({ targetId: attachment.targetId, processEpoch: attachment.processEpoch });
-        safeSend(ws, { type: 'machine_trusted_attach_changed', action: 'trusted', attachment });
+        const trusted = registry.attest({ challengeId: msg.challengeId, ownerId: msg.ownerId, proof: msg.proof });
+        // External PID attachments are accepted only while the exact process epoch still exists.
+        if (isExternalProcessTarget(trusted.targetId))
+          processAdapter.observe({ targetId: trusted.targetId, processEpoch: trusted.processEpoch });
+        safeSend(ws, { type: 'machine_trusted_attach_changed', action: 'trusted', attachment: trusted });
         sendSnapshot(ws);
         return true;
       }
       if (type === 'machine_trusted_attach_observe') {
         requireLocal(ws);
-        const trusted = authorize(msg.attachmentId, 'observe');
+        const trusted = requireExternalAttachment(msg.attachmentId, 'observe');
         const observation = processAdapter.observe({ targetId: trusted.targetId, processEpoch: trusted.processEpoch });
         safeSend(ws, { type: 'machine_trusted_attach_observation', requestId: msg.requestId || null,
           attachmentId: trusted.attachmentId, observation });
@@ -118,7 +126,7 @@ function enhanceMachineSpacesTrustedAttachController(createBaseController, optio
       }
       if (type === 'machine_trusted_attach_interrupt') {
         requireLocal(ws);
-        const trusted = authorize(msg.attachmentId, 'interrupt');
+        const trusted = requireExternalAttachment(msg.attachmentId, 'interrupt');
         const result = processAdapter.interrupt({ targetId: trusted.targetId, processEpoch: trusted.processEpoch });
         safeSend(ws, { type: 'machine_trusted_attach_interrupt_result', requestId: msg.requestId || null,
           attachmentId: trusted.attachmentId, result });
@@ -149,4 +157,4 @@ function enhanceMachineSpacesTrustedAttachController(createBaseController, optio
   };
 }
 
-module.exports = { enhanceMachineSpacesTrustedAttachController };
+module.exports = { isExternalProcessTarget, enhanceMachineSpacesTrustedAttachController };
