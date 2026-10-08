@@ -50,10 +50,22 @@ function chooseTarget(values, providerId, explicitId = null) {
   return values.find((entry) => !providerId || entry.providerId === providerId) || null;
 }
 
+function addOnlineAgentCommand(roomId, target, providerId, name) {
+  return {
+    action: 'add_agent',
+    room: roomId,
+    targetClassId: 'online-origin',
+    targetId: target.id,
+    providerId,
+    name
+  };
+}
+
 function parseArgs(argv = process.argv.slice(2)) {
   const value = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : null; };
   return {
     sourceTargetId: value('--source-target-id') || process.env.DEX_QUALIFY_SOURCE_TARGET_ID || null,
+    chatgptTabId: value('--chatgpt-tab-id') || process.env.DEX_QUALIFY_CHATGPT_TAB_ID || null,
     harkTabId: value('--hark-tab-id') || process.env.DEX_QUALIFY_HARK_TAB_ID || null,
     skipQuorum: argv.includes('--skip-quorum'),
     timeoutMs: Math.max(30000, Math.min(5 * 60 * 1000, Number(value('--timeout-ms') || 180000)))
@@ -65,6 +77,8 @@ async function main() {
   const discovered = await discoverTargets();
   const sourceTarget = chooseTarget(discovered.local, null, options.sourceTargetId);
   if (!sourceTarget) throw Object.assign(new Error('No Local-Origin target is available for disposable-room orchestration.'), { code: 'QUALIFY_LOCAL_SOURCE_REQUIRED' });
+  const chatgptTarget = chooseTarget(discovered.online, 'chatgpt', options.chatgptTabId);
+  if (!chatgptTarget) throw Object.assign(new Error('No live ChatGPT Online-Origin target is available for provider provenance qualification.'), { code: 'QUALIFY_CHATGPT_TARGET_REQUIRED' });
   const harkTarget = options.skipQuorum ? null : chooseTarget(discovered.online, 'hark', options.harkTabId);
   const source = sourceFromTarget(sourceTarget);
   const roomName = `MS Provider Proof ${randomUUID().slice(0, 8)}`;
@@ -77,7 +91,12 @@ async function main() {
   let parentMemberId = null;
   let harkMemberId = null;
   let ambiguous = false;
-  const evidence = { roomName, sourceTarget: { id: sourceTarget.id, providerId: sourceTarget.providerId }, harkTarget: harkTarget ? { id: harkTarget.id, providerId: harkTarget.providerId } : null };
+  const evidence = {
+    roomName,
+    sourceTarget: { id: sourceTarget.id, providerId: sourceTarget.providerId },
+    chatgptTarget: { id: chatgptTarget.id, providerId: chatgptTarget.providerId },
+    harkTarget: harkTarget ? { id: harkTarget.id, providerId: harkTarget.providerId } : null
+  };
 
   async function control(command) {
     const requestId = `qualify-control-${randomUUID()}`;
@@ -122,10 +141,12 @@ async function main() {
     await control({ action: 'configure_room', room: roomId, maxTurns: 1, contextDefaultMessages: 6, autoRelay: true });
     await control({ action: 'set_self_relay', room: roomId, enabled: false });
 
-    const parent = await control({ action: 'spawn_agent', room: roomId, providerId: 'chatgpt', name: parentName });
-    parentMemberId = parent.data?.addedMemberId;
-    if (!parentMemberId) throw new Error('Qualification parent ChatGPT worker did not bind to the room.');
-    evidence.parent = { memberId: parentMemberId, name: parentName };
+    const parent = await control(addOnlineAgentCommand(roomId, chatgptTarget, 'chatgpt', parentName));
+    const addedParent = (parent.data?.memberDetails || []).find((entry) => entry.name === parentName);
+    parentMemberId = addedParent?.memberId || null;
+    if (!parentMemberId) throw new Error('Existing ChatGPT qualification target did not bind to the disposable room.');
+    evidence.parent = { memberId: parentMemberId, name: parentName, targetId: chatgptTarget.id, managed: false };
+    await setRelay(parentMemberId, true);
 
     const originCommand = { action: 'send', room: roomId, text: originText, relay: false };
     await sendOne(`Automated Nexus exact-origin proof. Reply briefly, then make your FINAL line exactly this one command and emit no other Dex command:\n${marker(originCommand)}`);
@@ -143,7 +164,7 @@ async function main() {
     await control({ action: 'despawn_agent', room: roomId, member: children[0].memberId });
 
     if (!options.skipQuorum && harkTarget) {
-      const addedHark = await control({ action: 'add_agent', room: roomId, targetClassId: 'online-origin', targetId: harkTarget.id, providerId: 'hark', name: veraName });
+      const addedHark = await control(addOnlineAgentCommand(roomId, harkTarget, 'hark', veraName));
       const added = (addedHark.data?.memberDetails || []).find((entry) => entry.name === veraName);
       harkMemberId = added?.memberId || null;
       if (!harkMemberId) throw new Error('Hark qualification target did not bind as Vera.');
@@ -186,13 +207,14 @@ async function main() {
   } finally {
     if (roomId && !ambiguous) {
       const cleanup = [];
-      try { const current = await status();
+      try {
+        const current = await status();
         const child = (current.memberDetails || []).find((entry) => entry.name === childName);
         if (child) cleanup.push(await control({ action: 'despawn_agent', room: roomId, member: child.memberId }));
       } catch (error) { cleanup.push({ ok: false, step: 'child-cleanup', code: error.code, message: error.message }); }
       try { if (harkMemberId) cleanup.push(await control({ action: 'remove_agent', room: roomId, member: harkMemberId })); }
       catch (error) { cleanup.push({ ok: false, step: 'hark-cleanup', code: error.code, message: error.message }); }
-      try { if (parentMemberId) cleanup.push(await control({ action: 'despawn_agent', room: roomId, member: parentMemberId })); }
+      try { if (parentMemberId) cleanup.push(await control({ action: 'remove_agent', room: roomId, member: parentMemberId })); }
       catch (error) { cleanup.push({ ok: false, step: 'parent-cleanup', code: error.code, message: error.message }); }
       try { cleanup.push(await control({ action: 'delete_room', room: roomId })); }
       catch (error) { cleanup.push({ ok: false, step: 'room-cleanup', code: error.code, message: error.message }); }
@@ -217,4 +239,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { marker, discoverTargets, sourceFromTarget, chooseTarget, parseArgs, main };
+module.exports = { marker, discoverTargets, sourceFromTarget, chooseTarget, addOnlineAgentCommand, parseArgs, main };
