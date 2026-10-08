@@ -40,6 +40,9 @@ assert(port.render(state).includes('EveOS Song Output Port'), 'routing UI expose
 
 const stateSource = read('audioflix.state.js');
 const audio = read('audioflix.audio.js');
+const audioSource = read('audioflix.audio.source.js');
+const spotifyNative = read('audioflix.native.spotify.js');
+const nativeFacade = read('audioflix.native.js');
 const url = read('audioflix.audio.url.js');
 const layers = read('audioflix.audio.layers.js');
 const native = read('audioflix.audio.native.js');
@@ -68,5 +71,19 @@ assert(overlay.includes('EveAudioflixOutputPort?.handleInput?.(t)'),
     'the routing slider is connected to live input handling');
 assert(overlay.includes('EveAudioflixOutputPort?.handleChange?.(t)'),
     'the routing slider persists once on its change event');
+
+// Spotify URL playback must leave the provider iframe whenever the strict resolver proves an
+// equivalent recording. That provider URL then follows the normal resolver -> localhost proxy ->
+// shared HTMLMediaElement path, so the same master output gain controls it as every other song.
+assert(spotifyNative.includes("PLAYBACK_RESOLVER_REVISION = 'strict-v4-embedded-first'"),
+    'Spotify source handoff requires the same strict resolver revision as the localhost backend');
+assert(spotifyNative.includes("action: 'resolve-playback-source'")
+    && spotifyNative.includes('eveOwnedPlaybackSource: true')
+    && spotifyNative.includes('preferEveDirectAudio: true'),
+    'verified Spotify matches are handed to EveOS-owned playback instead of staying iframe-owned');
+assert(audioSource.includes('safeItem.url = window.EveAudioflixNative?.getProxyUrl?.(resolved.audioUrl) || resolved.audioUrl'),
+    'resolved platform audio is wrapped by the EveOS localhost media proxy');
+assert(nativeFacade.includes('/api/proxy?media=1&url='),
+    'the EveOS media proxy URL explicitly uses localhost media mode');
 
 console.log('AUDIOFLIX_OUTPUT_PORT_SMOKE_OK');
