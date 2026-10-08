@@ -15,6 +15,7 @@
  * browser dependency is intentionally absent from the current machine.
  */
 
+const crypto = require('node:crypto');
 const http = require('node:http');
 const path = require('node:path');
 const { URL } = require('node:url');
@@ -22,6 +23,7 @@ const { URL } = require('node:url');
 const SERVICE = 'eveos-audioflix-spotify-browser';
 const PROTOCOL_VERSION = 1;
 const { MAX_MEDIA_REFS, browserInit } = require('./audioflix_spotify_browser_hook.js');
+const { scrapeManagedPlaylist } = require('./audioflix_spotify_managed_import.js');
 const MAX_DIAGNOSTICS = 32;
 const TOKEN_HEADER = 'x-eveos-spotify-token';
 
@@ -119,7 +121,8 @@ async function main() {
         lastError: '',
         browserChannel: '',
         authState: 'unknown',
-        closing: false
+        closing: false,
+        importing: false
     };
 
     const launchOptions = {
@@ -200,7 +203,8 @@ async function main() {
         const snapshots = await spotifySnapshots(null, '');
         const mediaCount = snapshots.reduce((sum, item) => sum + Number(item.mediaCount || 0), 0);
         const playingCount = snapshots.reduce((sum, item) => sum + Number(item.playingCount || 0), 0);
-        if (!page || page.isClosed()) runtime.state = 'page-closed';
+        if (runtime.importing) runtime.state = 'importing';
+        else if (!page || page.isClosed()) runtime.state = 'page-closed';
         else if (playingCount > 0) runtime.state = 'controlling';
         else if (snapshots.length > 0) runtime.state = 'spotify-ready';
         else runtime.state = 'ready';
@@ -224,14 +228,20 @@ async function main() {
             browserChannel: runtime.browserChannel,
             playwrightVersion,
             profileOpen: true,
+            importing: runtime.importing,
             diagnostics: diagnostics.slice(-8)
         };
     }
 
+    function sameSession(candidate) {
+        const actual = Buffer.from(String(candidate || ''));
+        const expected = Buffer.from(sessionId);
+        if (actual.length !== expected.length) return false;
+        try { return crypto.timingSafeEqual(actual, expected); } catch { return false; }
+    }
+
     async function applyVolume(body) {
-        const requestedSession = String(body?.sessionId || '');
-        const sessionMatch = requestedSession === sessionId;
-        if (!sessionMatch) {
+        if (!sameSession(body?.sessionId)) {
             return { ok: false, sessionMatch: false, reason: 'Managed browser session mismatch.' };
         }
         const trackId = normalizeTrackId(body?.trackId || '');
@@ -262,6 +272,26 @@ async function main() {
         };
     }
 
+    async function importPlaylist(body) {
+        if (runtime.importing) return { ok: false, reason: 'A Spotify playlist import is already running.' };
+        const url = String(body?.url || '').trim();
+        runtime.importing = true;
+        runtime.state = 'importing';
+        note('playlist-import', 'started');
+        try {
+            const result = await scrapeManagedPlaylist(context, url);
+            runtime.lastError = '';
+            note('playlist-import', `completed ${Number(result?.count || 0)} tracks`);
+            return result;
+        } catch (error) {
+            runtime.lastError = String(error?.message || error).slice(0, 240);
+            note('playlist-import-error', runtime.lastError);
+            return { ok: false, reason: runtime.lastError };
+        } finally {
+            runtime.importing = false;
+        }
+    }
+
     async function openManagedPage(body) {
         const next = String(body?.pageUrl || runtime.pageUrl || pageUrl);
         if (!validateLoopbackPageUrl(next)) return { ok: false, reason: 'Managed page must be a loopback URL.' };
@@ -290,7 +320,7 @@ async function main() {
     function authorized(req) {
         const candidate = String(req.headers[TOKEN_HEADER] || '');
         if (candidate.length !== token.length) return false;
-        try { return require('node:crypto').timingSafeEqual(Buffer.from(candidate), Buffer.from(token)); }
+        try { return crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(token)); }
         catch { return false; }
     }
 
@@ -344,6 +374,7 @@ async function main() {
             if (req.method !== 'POST') return send(res, 404, { ok: false, reason: 'Not found.' });
             const body = await readBody(req);
             if (requestUrl.pathname === '/volume') return send(res, 200, await applyVolume(body));
+            if (requestUrl.pathname === '/playlist') return send(res, 200, await importPlaylist(body));
             if (requestUrl.pathname === '/open') return send(res, 200, await openManagedPage(body));
             if (requestUrl.pathname === '/auth') return send(res, 200, await openAuth(body));
             if (requestUrl.pathname === '/shutdown') {
