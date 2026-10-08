@@ -29,6 +29,7 @@ function Show-Status($Status) {
         state = $Status.state
         authState = $Status.authState
         pageAttached = $Status.pageAttached
+        sessionPresent = $Status.sessionPresent
         spotifyFrameCount = $Status.spotifyFrameCount
         mediaCount = $Status.mediaCount
         playingCount = $Status.playingCount
@@ -46,12 +47,14 @@ switch ($Action) {
         $result = Invoke-EvePost '/api/audioflix/spotify-browser/start' @{ pageUrl = $PageUrl }
         Show-Status $result
         if (-not $result.ok -or -not $result.helperReachable) { throw 'Managed Spotify browser did not become ready.' }
+        if (-not $result.sessionPresent) { throw 'Managed Spotify browser started without a private session identity.' }
         Write-Host 'Managed Edge is ready. Use the EveOS window that it opened for Spotify playback/volume.'
     }
     'status' {
         $result = Invoke-EveGet '/api/audioflix/spotify-browser/status'
         Show-Status $result
         if (-not $result.ok) { exit 1 }
+        if ($null -ne $result.sessionId) { throw 'Public status must never expose the managed session id.' }
     }
     'stop' {
         $result = Invoke-EvePost '/api/audioflix/spotify-browser/stop'
@@ -70,6 +73,8 @@ switch ($Action) {
         if (-not $result.playwrightAvailable) { throw 'Playwright readiness check failed.' }
         if (-not $result.helperReachable) { throw 'Managed helper connection check failed.' }
         if (-not $result.pageAttached) { throw 'Managed EveOS page is not attached.' }
+        if (-not $result.sessionPresent) { throw 'Managed session identity is not active.' }
+        if ($null -ne $result.sessionId) { throw 'Public start/status response leaked the managed session id.' }
         if ($RequireSignedIn -and $result.authState -ne 'signed-in') {
             throw "Spotify signed-in state is '$($result.authState)'. Run -Action auth, sign in, then qualify again."
         }
