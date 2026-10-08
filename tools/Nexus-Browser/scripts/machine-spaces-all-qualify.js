@@ -2,6 +2,7 @@
 'use strict';
 
 const { spawnSync } = require('node:child_process');
+const path = require('node:path');
 const terminal = require('./machine-spaces-terminal-qualify');
 
 const CONTROL_TESTS = Object.freeze([
@@ -31,20 +32,37 @@ function runControlTests() {
   };
 }
 
+function runExternalAdapterLive(enabled) {
+  if (!enabled) return { status: 'SKIP', reason: 'Use --external-live to exercise trusted external PID observe/interrupt through the running Nexus server.' };
+  const script = path.join(__dirname, 'external-terminal-adapter-qualify.js');
+  const result = spawnSync(process.execPath, [script], {
+    cwd: process.cwd(), encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024
+  });
+  return {
+    status: result.status === 0 ? 'PASS' : 'FAIL',
+    exitCode: result.status,
+    stdout: String(result.stdout || '').trim(),
+    stderr: String(result.stderr || '').trim()
+  };
+}
+
 async function main() {
-  const options = terminal.parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const options = terminal.parseArgs(argv);
   const deterministicControl = runControlTests();
   const machine = await terminal.runQualificationReport(options);
-  const status = deterministicControl.status === 'FAIL' || machine.status === 'FAIL'
+  const externalAdapter = runExternalAdapterLive(argv.includes('--external-live'));
+  const sections = [deterministicControl, machine, externalAdapter].filter((entry) => entry.status !== 'SKIP');
+  const status = sections.some((entry) => entry.status === 'FAIL')
     ? 'FAIL'
-    : deterministicControl.status === 'BLOCKED' || machine.status === 'BLOCKED'
-      ? 'BLOCKED' : 'PASS';
+    : sections.some((entry) => entry.status === 'BLOCKED') ? 'BLOCKED' : 'PASS';
   const report = {
     kind: 'machine-spaces-all-qualification',
     at: new Date().toISOString(),
     status,
     deterministicControl,
     machine,
+    externalAdapter,
     liveStillRequired: {
       exactOriginFinalization: 'REAL_COMMITTED_PROVIDER_REPLY',
       managedEveSpawn: 'REAL_COMMITTED_CHATGPT_REPLY',
@@ -66,4 +84,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { CONTROL_TESTS, runControlTests, main };
+module.exports = { CONTROL_TESTS, runControlTests, runExternalAdapterLive, main };
