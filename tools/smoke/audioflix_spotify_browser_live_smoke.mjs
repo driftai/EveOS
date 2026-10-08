@@ -32,7 +32,8 @@ function checkStatus(status) {
     if (!status.playwrightAvailable) throw new Error('Playwright readiness failed.');
     if (!status.browserRunning || !status.helperReachable) throw new Error('Managed browser/helper is not reachable.');
     if (!status.pageAttached) throw new Error('Managed EveOS page is not attached.');
-    if (!status.sessionId) throw new Error('Managed session identity is missing.');
+    if (!status.sessionPresent) throw new Error('Managed session is not present.');
+    if (Object.prototype.hasOwnProperty.call(status, 'sessionId')) throw new Error('Public status leaked the managed session id.');
     if (!['signed-in', 'signed-out', 'unknown'].includes(String(status.authState))) throw new Error(`Invalid authState ${status.authState}`);
     if (requireSignedIn && status.authState !== 'signed-in') throw new Error(`Spotify auth state is ${status.authState}; signed-in required.`);
     if (requirePlaying) {
@@ -56,6 +57,7 @@ console.log(JSON.stringify({
     browserChannel: status.browserChannel,
     authState: status.authState,
     pageAttached: status.pageAttached,
+    sessionPresent: status.sessionPresent,
     spotifyFrameCount: status.spotifyFrameCount,
     mediaCount: status.mediaCount,
     playingCount: status.playingCount,
@@ -66,11 +68,13 @@ if (sweep) {
     if (!requirePlaying && Number(status.playingCount || 0) < 1) {
         throw new Error('Volume sweep needs a currently playing Spotify track. Add --require-playing after starting playback.');
     }
-    const sessionId = status.sessionId;
     const results = [];
     for (const volume of [1, 0.25, 0, 1]) {
-        const result = await jsonRequest('/api/audioflix/spotify-browser/volume', 'POST', { sessionId, volume });
-        if (!result.ok || !result.sessionMatch) throw new Error(`Volume ${volume} was not acknowledged by this managed session.`);
+        // This fixed qualification route accepts no session id and is rejected when an Origin header
+        // is present. It is for an explicit localhost CLI smoke only; ordinary browser tabs must use
+        // the injected session proof on the normal /volume route.
+        const result = await jsonRequest('/api/audioflix/spotify-browser/qualify-volume', 'POST', { volume });
+        if (!result.ok || !result.sessionMatch) throw new Error(`Volume ${volume} was not acknowledged by the managed helper.`);
         if (Number(result.mediaCount || 0) < 1) throw new Error(`Volume ${volume} found no Spotify media element.`);
         if (result.held !== true) throw new Error(`Volume ${volume} did not hold on the playing Spotify element.`);
         results.push({ volume, playingCount: result.playingCount, reached: result.reached, held: result.held, readback: result.playingVolumes });
