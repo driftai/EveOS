@@ -17,7 +17,7 @@
     'stop_relay', 'continue_relay', 'room_budget', 'set_room_budget', 'room_log', 'tool_result_status', 'reload_extension', 'watch_done', 'unwatch_done',
     'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle', 'terminal_targets', 'terminal_exec', 'terminal_status', 'terminal_output', ...roomAdminApi.ACTIONS
   ]);
-  const MUTATING_ACTIONS = new Set(['checkpoint','create_room','rename_room','configure_room','add_agent','spawn_agent','despawn_agent','rename_agent','set_agent_relay','remove_agent','rename_self','set_self_relay','stop_relay','continue_relay','set_room_budget','clear_chat','delete_room','send','handoff_room','reload_extension','watch_done','unwatch_done','arm_post_idle','cancel_post_idle','report_post_idle','terminal_exec']);
+  const MUTATING_ACTIONS = new Set(['checkpoint','create_room','rename_room','configure_room','add_agent','spawn_agent','despawn_agent','rename_agent','set_agent_relay','remove_agent','rename_self','set_self_relay','stop_relay','continue_relay','set_room_budget','clear_chat','delete_room','send','handoff_room','reload_extension','watch_done','unwatch_done','arm_post_idle','cancel_post_idle','report_post_idle','terminal_exec','quorum_presence','quorum_open','quorum_vote','quorum_close']);
   function clean(value, max = 16000) {
     return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, max);
   }
