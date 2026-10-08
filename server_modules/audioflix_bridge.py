@@ -59,6 +59,13 @@ def _can_control(handler) -> bool:
     return not origin or origin == "null" or origin.startswith("file://") or origin.startswith("http://127.0.0.1:") or origin.startswith("http://localhost:")
 
 
+def _can_cli_control(handler) -> bool:
+    """Allow explicit localhost CLI qualification without granting browser tabs a session bypass."""
+    if not _can_control(handler):
+        return False
+    return not str(handler.headers.get("Origin", "")).strip()
+
+
 def handle_get_request(handler, path: str, query) -> bool:
     logger.info(f"[Bridge] handle_get_request: path={path}")
     if path == "/api/audioflix/status":
@@ -207,9 +214,19 @@ def spotify_browser_stop(payload: dict) -> dict:
     return audioflix_spotify_browser.stop(payload)
 
 
+def spotify_browser_session_status(payload: dict) -> dict:
+    from server_modules import audioflix_spotify_browser
+    return audioflix_spotify_browser.session_status(payload)
+
+
 def spotify_browser_volume(payload: dict) -> dict:
     from server_modules import audioflix_spotify_browser
     return audioflix_spotify_browser.set_volume(payload)
+
+
+def spotify_browser_qualify_volume(payload: dict) -> dict:
+    from server_modules import audioflix_spotify_browser
+    return audioflix_spotify_browser.qualify_volume(payload)
 
 
 def spotify_browser_auth(payload: dict) -> dict:
@@ -255,6 +272,16 @@ def save_soundlab_recording(payload: dict) -> dict:
 
 
 def handle_post_request(handler, path: str) -> bool:
+    if path == "/api/audioflix/spotify-browser/qualify-volume":
+        if not _can_cli_control(handler):
+            _send_json(handler, {"ok": False, "message": "CLI localhost access required."}, HTTPStatus.FORBIDDEN)
+            return True
+        try:
+            _send_json(handler, spotify_browser_qualify_volume(_read_json(handler)))
+        except Exception as exc:
+            _send_json(handler, {"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+        return True
+
     action = {
         "/api/audioflix/play-pcm": play_pcm,
         "/api/audioflix/play-tone": play_tone,
@@ -274,6 +301,7 @@ def handle_post_request(handler, path: str) -> bool:
         "/api/audioflix/spotify-session": spotify_session,
         "/api/audioflix/spotify-browser/start": spotify_browser_start,
         "/api/audioflix/spotify-browser/stop": spotify_browser_stop,
+        "/api/audioflix/spotify-browser/session-status": spotify_browser_session_status,
         "/api/audioflix/spotify-browser/volume": spotify_browser_volume,
         "/api/audioflix/spotify-browser/auth": spotify_browser_auth,
         "/api/audioflix/instagram-session": instagram_session_import,
