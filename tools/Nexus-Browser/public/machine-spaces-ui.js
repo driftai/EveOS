@@ -19,6 +19,8 @@
   const state = { phase: 'connecting', targets: [], types: [], selectedId: '', roomId: '', room: null };
   const outputs = new Map(), commandText = new Map();
   const OWNER_KEY = 'browser-ai-bridge.machine-owner.v1';
+  const FILE_READ_CAPS = Object.freeze(['files.list', 'files.stat', 'files.read', 'files.search']);
+  const FILE_EDIT_CAPS = Object.freeze([...FILE_READ_CAPS, 'files.create', 'files.write', 'files.patch', 'files.move', 'files.delete']);
   let socket = null;
 
   function stableOwner() {
@@ -43,13 +45,10 @@
       node = document.createElement('article');
       node.className = `message ${role}`;
       if (id) node.dataset.machineMessageId = id;
-      const label = document.createElement('div');
-      label.className = 'message-label';
+      const label = document.createElement('div'); label.className = 'message-label';
       label.textContent = role === 'user' ? 'You' : role === 'assistant' ? 'Managed terminal' : 'System';
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      node.append(label, body);
-      el.transcript?.append(node);
+      const body = document.createElement('div'); body.className = 'message-body';
+      node.append(label, body); el.transcript?.append(node);
     }
     node.querySelector('.message-body').textContent = text;
     if (el.transcript) el.transcript.scrollTop = el.transcript.scrollHeight;
@@ -62,8 +61,7 @@
       select.append(option); return '';
     }
     for (const item of items) {
-      const option = document.createElement('option'); option.value = item.id; option.textContent = label(item);
-      select.append(option);
+      const option = document.createElement('option'); option.value = item.id; option.textContent = label(item); select.append(option);
     }
     const next = items.some((item) => item.id === value) ? value : items[0].id;
     select.value = next; return next;
@@ -83,28 +81,23 @@
     el.connectTerminalTarget.disabled = !connected() || !target;
     el.stopTerminalTarget.disabled = !connected() || !target;
     el.interruptTerminal.disabled = !connected() || !target?.busy;
-    syncBaseMode();
-    renderRoom();
+    syncBaseMode(); renderRoom();
   }
   function syncBaseMode() {
     const active = isMachine();
     el.terminalTargetControls.hidden = !active;
     if (!active) { el.terminalRelayPanel.hidden = false; return; }
-    el.onlineTargetControls.hidden = true;
-    el.localTargetControls.hidden = true;
+    el.onlineTargetControls.hidden = true; el.localTargetControls.hidden = true;
     if (el.appTargetControls) el.appTargetControls.hidden = true;
     el.terminalRelayPanel.hidden = true;
     const target = activeTarget();
     el.bridgeBadge.textContent = connected() ? 'Terminal bridge ready' : 'Nexus reconnecting';
-    el.bridgeBadge.classList.toggle('online', connected());
-    el.bridgeBadge.classList.toggle('offline', !connected());
+    el.bridgeBadge.classList.toggle('online', connected()); el.bridgeBadge.classList.toggle('offline', !connected());
     el.targetStatus.textContent = target ? `Bound to managed terminal: ${target.title}` : 'No managed terminal selected.';
     el.prompt.placeholder = target ? `Enter a ${target.type} command. Local allow-once approval is required.` : 'Create and select a managed terminal first.';
     el.sendPrompt.textContent = target ? `Run in ${target.title}` : 'Run command';
     el.sendPrompt.disabled = !connected() || !target || target.busy;
-    el.captureLatest.hidden = false;
-    el.captureLatest.disabled = !target;
-    el.captureLatest.textContent = 'Explain output history';
+    el.captureLatest.hidden = false; el.captureLatest.disabled = !target; el.captureLatest.textContent = 'Explain output history';
   }
 
   async function decide(prepared, room = false) {
@@ -115,8 +108,7 @@
     if (prepared.risk !== 'high') return { decision: 'allow-once', challenge: '' };
     const entered = await dialog.prompt(`High-risk command. Type challenge ${prepared.challenge} to allow once.`, '',
       { body: warning, confirmText: 'Allow once', danger: true });
-    return entered == null ? { decision: 'deny', challenge: '' }
-      : { decision: 'allow-once', challenge: String(entered).trim() };
+    return entered == null ? { decision: 'deny', challenge: '' } : { decision: 'allow-once', challenge: String(entered).trim() };
   }
   function prepareBase() {
     const command = el.prompt.value.trim(), target = activeTarget();
@@ -131,8 +123,7 @@
       message('user', commandText.get(msg.requestId) || msg.command, `user-${msg.requestId}`);
       if (el.prompt.value.trim() === commandText.get(msg.requestId)) el.prompt.value = '';
     }
-    send({ type: 'machine_approve_command', approvalId: msg.approvalId, ...choice });
-    commandText.delete(msg.requestId);
+    send({ type: 'machine_approve_command', approvalId: msg.approvalId, ...choice }); commandText.delete(msg.requestId);
   }
   function outputPage(msg) {
     const prior = outputs.get(msg.outputId);
@@ -140,13 +131,11 @@
     const page = { ...(prior || {}), ...msg, text }; outputs.set(msg.outputId, page);
     const node = message('assistant', text || `(no ${msg.stream || 'combined'} output)`, `output-${msg.requestId}`);
     node.dataset.machineOutputId = msg.outputId;
-    let more = node.querySelector('[data-machine-more]');
-    more?.remove();
+    node.querySelector('[data-machine-more]')?.remove();
     if (msg.nextOffset != null) {
-      more = document.createElement('button'); more.type = 'button'; more.className = 'secondary';
+      const more = document.createElement('button'); more.type = 'button'; more.className = 'secondary';
       more.dataset.machineMore = '1'; more.textContent = `Load more (${msg.nextOffset}/${msg.totalChars})`;
-      more.addEventListener('click', () => send({ type: 'machine_output_page', outputId: msg.outputId,
-        offset: msg.nextOffset, stream: msg.stream }));
+      more.addEventListener('click', () => send({ type: 'machine_output_page', outputId: msg.outputId, offset: msg.nextOffset, stream: msg.stream }));
       node.append(more);
     }
     renderRoom();
@@ -166,17 +155,13 @@
   }
   function actionButton(text, action, { danger = false, disabled = false } = {}) {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = text;
-    button.className = `secondary${danger ? ' danger' : ''}`; button.disabled = disabled;
-    button.addEventListener('click', action); return button;
+    button.className = `secondary${danger ? ' danger' : ''}`; button.disabled = disabled; button.addEventListener('click', action); return button;
   }
   async function enableRepoGrant(space, resource) {
     const body = [
-      `Repository will be resolved from: ${resource.cwd || '(unknown folder)'}`,
-      '',
-      'Auto-run only: git pull --ff-only, git fetch/status/log/diff, npm test, node --test, and bounded read-only PowerShell Get-Location/Get-ChildItem/Get-Content inside that repo.',
-      '',
-      'Still requires explicit approval: restart/kill commands, git push/reset/clean/branch switching, deletes, installs, shell chaining/substitution, and anything outside the repo.',
-      '',
+      `Repository will be resolved from: ${resource.cwd || '(unknown folder)'}`, '',
+      'Auto-run only: git pull --ff-only, git fetch/status/log/diff, npm test, node --test, and bounded read-only PowerShell Get-Location/Get-ChildItem/Get-Content inside that repo.', '',
+      'Still requires explicit approval: restart/kill commands, git push/reset/clean/branch switching, deletes, installs, shell chaining/substitution, and anything outside the repo.', '',
       'Existing 30 second runtime and 1 MiB output caps remain in force.'
     ].join('\n');
     if (await dialog.confirm(`Enable persistent repo-safe agent grant for ${space.name}?`, body,
@@ -189,72 +174,103 @@
       { confirmText: 'Revoke grant', cancelText: 'Keep grant', danger: true }))
       send({ type: 'machine_revoke_repo_grant', roomId: state.roomId, spaceId: space.id });
   }
+  async function enableFileGrant(space, resource, mode, capabilities, label) {
+    const persistent = mode === 'persistent';
+    const body = [
+      `Repository root is resolved from managed terminal: ${resource.cwd || '(unknown folder)'}`,
+      `Target: ${resource.title || resource.id}`,
+      `Mode: ${persistent ? 'persistent (8 hour default expiry)' : 'allow once (consumed by the first attempted operation)'}`,
+      `Capabilities: ${capabilities.join(', ')}`,
+      '',
+      'Paths remain repository-relative, canonicalized, symlink-escape protected and bounded. Existing-file mutations require the exact current SHA-256 hash; writes are atomic.',
+      '',
+      'This filesystem grant is separate from the terminal repo-safe grant and does not authorize shell commands.'
+    ].join('\n');
+    if (await dialog.confirm(`${label} for ${space.name}?`, body,
+      { confirmText: persistent ? 'Enable grant' : 'Allow once', cancelText: 'Cancel', danger: capabilities.includes('files.delete') }))
+      send({ type: 'machine_enable_file_grant', roomId: state.roomId, spaceId: space.id, targetId: resource.id,
+        ownerId, mode, capabilities });
+  }
+  async function revokeFileGrant(space, grant) {
+    if (await dialog.confirm(`Revoke filesystem grant ${grant.id}?`,
+      `${grant.capabilities?.join(', ') || 'No capabilities'}\n${grant.repoRoot || ''}`,
+      { confirmText: 'Revoke grant', cancelText: 'Keep grant', danger: true }))
+      send({ type: 'machine_revoke_file_grant', roomId: state.roomId, spaceId: space.id, grantId: grant.id });
+  }
   function grantCard(space, editable) {
     if (!space?.grant?.enabled) return null;
     const card = document.createElement('div'); card.className = 'machine-resource';
     const head = document.createElement('div'); head.className = 'machine-resource-head';
-    const title = document.createElement('div'); title.className = 'machine-resource-title';
-    title.textContent = 'Repo-safe agent grant · enabled';
+    const title = document.createElement('div'); title.className = 'machine-resource-title'; title.textContent = 'Repo-safe terminal grant · enabled';
     head.append(title, actionButton('Revoke grant', () => revokeRepoGrant(space), { danger: true, disabled: !editable }));
     const meta = document.createElement('div'); meta.className = 'machine-meta';
     meta.textContent = `${space.grant.policy} · scope ${space.grant.repoRoot} · created ${space.grant.createdAt || 'locally'}`;
-    card.append(head, meta);
-    return card;
+    card.append(head, meta); return card;
+  }
+  function fileGrantCard(space, grant, editable) {
+    const card = document.createElement('div'); card.className = 'machine-resource';
+    const head = document.createElement('div'); head.className = 'machine-resource-head';
+    const title = document.createElement('div'); title.className = 'machine-resource-title';
+    title.textContent = `Filesystem grant · ${grant.enabled ? grant.mode : grant.revokedReason || 'inactive'}`;
+    head.append(title, actionButton('Revoke', () => revokeFileGrant(space, grant), { danger: true, disabled: !editable || !grant.enabled }));
+    const meta = document.createElement('div'); meta.className = 'machine-meta';
+    meta.textContent = `${grant.capabilities?.join(', ') || 'no capabilities'} · ${grant.repoRoot || ''} · target ${grant.targetId || ''} · expires ${grant.expiresAt || 'n/a'}${grant.usesRemaining == null ? '' : ` · ${grant.usesRemaining} use remaining`}`;
+    card.append(head, meta); return card;
   }
   function renderRoom() {
     const spaces = (state.room?.spaces || []).filter((space) => !space.archived);
-    const wanted = el.machineSpaceSelect.value;
-    setOptions(el.machineSpaceSelect, spaces, wanted, 'No Machine Spaces', (space) => space.name);
+    setOptions(el.machineSpaceSelect, spaces, el.machineSpaceSelect.value, 'No Machine Spaces', (space) => space.name);
     const space = activeSpace(), editable = humanInput();
-    el.machineCreateSpace.disabled = !state.roomId || !editable;
-    el.machineArchiveSpace.disabled = !space || !editable;
+    el.machineCreateSpace.disabled = !state.roomId || !editable; el.machineArchiveSpace.disabled = !space || !editable;
     el.machineAttach.disabled = !space || !state.targets.length || !editable;
-    el.machineNewTerminal.disabled = !connected() || !state.types.length || !editable;
-    el.machineRefreshTerminals.disabled = !connected();
+    el.machineNewTerminal.disabled = !connected() || !state.types.length || !editable; el.machineRefreshTerminals.disabled = !connected();
     el.machineSpaceStatus.textContent = !state.roomId ? 'Choose a room to inspect its Machine Spaces.'
       : !space ? 'No active Machine Space. Enable Human Input to create one.'
-        : `${space.name} · ${(space.resources || []).length} terminal resource(s) · ${(space.requests || []).length} request(s)${space.grant?.enabled ? ' · repo-safe grant on' : ''}`;
+        : `${space.name} · ${(space.resources || []).length} terminal resource(s) · ${(space.requests || []).length} terminal request(s) · ${(space.fileRequests || []).length} file request(s) · ${(space.fileGrants || []).filter((g) => g.enabled).length} active file grant(s)${space.grant?.enabled ? ' · repo-safe terminal grant on' : ''}`;
     el.machineSpaceResources.replaceChildren();
-    const grant = grantCard(space, editable);
-    if (grant) el.machineSpaceResources.append(grant);
+    const terminalGrant = grantCard(space, editable); if (terminalGrant) el.machineSpaceResources.append(terminalGrant);
+    for (const fileGrant of space?.fileGrants || []) el.machineSpaceResources.append(fileGrantCard(space, fileGrant, editable));
     for (const resource of space?.resources || []) {
       const card = document.createElement('div'); card.className = 'machine-resource';
       const head = document.createElement('div'); head.className = 'machine-resource-head';
       const title = document.createElement('div'); title.className = 'machine-resource-title';
       title.textContent = resource.available ? `${resource.title} · ${resource.type}` : `${resource.id} · unavailable`;
       const actions = document.createElement('div'); actions.className = 'machine-request-actions';
-      if (!space.grant?.enabled && resource.available) actions.append(actionButton('Enable repo-safe grant',
-        () => enableRepoGrant(space, resource), { disabled: !editable }));
+      if (!space.grant?.enabled && resource.available) actions.append(actionButton('Terminal repo-safe', () => enableRepoGrant(space, resource), { disabled: !editable }));
+      if (resource.available) {
+        actions.append(
+          actionButton('Files once', () => enableFileGrant(space, resource, 'once', FILE_EDIT_CAPS, 'Allow one filesystem operation'), { disabled: !editable }),
+          actionButton('Persistent read', () => enableFileGrant(space, resource, 'persistent', FILE_READ_CAPS, 'Enable persistent read-only filesystem grant'), { disabled: !editable }),
+          actionButton('Persistent edit', () => enableFileGrant(space, resource, 'persistent', FILE_EDIT_CAPS, 'Enable persistent filesystem edit grant'), { disabled: !editable })
+        );
+      }
       actions.append(actionButton('Detach', async () => {
-        if (await dialog.confirm(`Detach ${resource.title || resource.id} from ${space.name}?`, '', { confirmText: 'Detach', danger: true }))
+        if (await dialog.confirm(`Detach ${resource.title || resource.id} from ${space.name}?`, 'Target-scoped filesystem grants will be revoked.', { confirmText: 'Detach', danger: true }))
           send({ type: 'machine_detach_target', roomId: state.roomId, spaceId: space.id, targetId: resource.id });
       }, { danger: true, disabled: !editable }));
       head.append(title, actions);
-      const meta = document.createElement('div'); meta.className = 'machine-meta';
-      meta.textContent = resource.cwd || 'Managed session is no longer running.';
+      const meta = document.createElement('div'); meta.className = 'machine-meta'; meta.textContent = resource.cwd || 'Managed session is no longer running.';
       card.append(head, meta); el.machineSpaceResources.append(card);
     }
-    if (!space?.resources?.length && !grant) el.machineSpaceResources.innerHTML = '<div class="machine-empty">No managed terminals attached.</div>';
+    if (!space?.resources?.length && !terminalGrant && !(space?.fileGrants || []).length)
+      el.machineSpaceResources.innerHTML = '<div class="machine-empty">No managed terminals attached.</div>';
     renderRequests(space);
   }
   const LIVE_STATES = new Set(['approval-required', 'queued', 'running']);
   let historyOpen = false;
   function renderRequests(space) {
     el.machineSpaceRequests.replaceChildren();
-    const requests = [...(space?.requests || [])].reverse();
-    if (!requests.length) {
-      el.machineSpaceRequests.innerHTML = '<div class="machine-empty">No agent terminal requests yet.</div>'; return;
-    }
-    // Keep live requests and the newest one in view; older finished requests fold into a collapsed history.
+    const terminalRequests = [...(space?.requests || [])].map((request) => ({ ...request, requestKind: 'terminal' }));
+    const fileRequests = [...(space?.fileRequests || [])].map((request) => ({ ...request, requestKind: 'filesystem' }));
+    const requests = [...terminalRequests, ...fileRequests].sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+    if (!requests.length) { el.machineSpaceRequests.innerHTML = '<div class="machine-empty">No agent machine requests yet.</div>'; return; }
     const pinned = requests.filter((request, index) => index === 0 || LIVE_STATES.has(request.state));
     const history = requests.filter((request) => !pinned.includes(request));
     for (const request of pinned) el.machineSpaceRequests.append(renderRequest(space, request));
     if (!history.length) return;
-    const details = document.createElement('details'); details.className = 'machine-request-history';
-    details.open = historyOpen;
+    const details = document.createElement('details'); details.className = 'machine-request-history'; details.open = historyOpen;
     details.addEventListener('toggle', () => { historyOpen = details.open; });
-    const summary = document.createElement('summary');
-    summary.textContent = `Earlier requests (${history.length})`;
+    const summary = document.createElement('summary'); summary.textContent = `Earlier requests (${history.length})`;
     const list = document.createElement('div'); list.className = 'machine-request-list';
     for (const request of history) list.append(renderRequest(space, request));
     details.append(summary, list); el.machineSpaceRequests.append(details);
@@ -263,41 +279,44 @@
     const card = document.createElement('div'); card.className = 'machine-request';
     const head = document.createElement('div'); head.className = 'machine-request-head';
     const title = document.createElement('div'); title.className = 'machine-request-title';
-    title.textContent = `${request.actorName || 'Agent'} · ${request.terminalId}`;
+    title.textContent = request.requestKind === 'filesystem'
+      ? `${request.actorName || 'Agent'} · ${request.capability || 'filesystem'} · ${request.terminalId}`
+      : `${request.actorName || 'Agent'} · ${request.terminalId}`;
     const badge = document.createElement('span'); badge.className = `machine-state-${request.state}`; badge.textContent = request.state;
     head.append(title, badge);
     const command = document.createElement('pre'); command.className = 'machine-request-command';
-    command.textContent = request.command || request.commandSummary || '(command unavailable)';
+    command.textContent = request.requestKind === 'filesystem'
+      ? request.operationSummary || '(filesystem operation unavailable)'
+      : request.command || request.commandSummary || '(command unavailable)';
     const meta = document.createElement('div'); meta.className = 'machine-meta';
-    const approval = request.approvalMode === 'repo-safe-v1'
-      ? `repo-safe auto-approved for ${request.approvedByName || request.actorName || 'agent'}` : (request.risk || 'recorded');
-    meta.textContent = `${approval}${request.exitCode == null ? '' : ` · exit ${request.exitCode}`}${request.bytes == null ? '' : ` · ${request.bytes} bytes`}`;
+    if (request.requestKind === 'filesystem') {
+      meta.textContent = `grant ${request.grantId || 'none'} · digest ${String(request.operationDigest || '').slice(0, 12)}${request.errorCode ? ` · ${request.errorCode}` : ''}${request.resultSummary ? ` · ${request.resultSummary}` : ''}`;
+    } else {
+      const approval = request.approvalMode === 'repo-safe-v1'
+        ? `repo-safe auto-approved for ${request.approvedByName || request.actorName || 'agent'}` : (request.risk || 'recorded');
+      meta.textContent = `${approval}${request.exitCode == null ? '' : ` · exit ${request.exitCode}`}${request.bytes == null ? '' : ` · ${request.bytes} bytes`}`;
+    }
     const actions = document.createElement('div'); actions.className = 'machine-request-actions';
-    if (request.state === 'approval-required') {
+    if (request.requestKind !== 'filesystem' && request.state === 'approval-required') {
       actions.append(actionButton('Allow once', async () => {
-        const choice = await decide(request, true);
-        send({ type: 'machine_approve_command', approvalId: request.approvalId, ...choice });
-      }), actionButton('Deny', () => send({ type: 'machine_approve_command', approvalId: request.approvalId,
-        decision: 'deny' }), { danger: true }));
+        const choice = await decide(request, true); send({ type: 'machine_approve_command', approvalId: request.approvalId, ...choice });
+      }), actionButton('Deny', () => send({ type: 'machine_approve_command', approvalId: request.approvalId, decision: 'deny' }), { danger: true }));
     }
     if (request.outputId) actions.append(actionButton('View output', () => send({ type: 'machine_output_page',
       roomId: state.roomId, outputId: request.outputId, offset: 0, stream: 'combined' })));
     const cached = outputs.get(request.outputId);
     card.append(head, command, meta, actions);
     if (cached) {
-      const output = document.createElement('pre'); output.className = 'machine-output';
-      output.textContent = cached.text || '(no terminal output)'; card.append(output);
+      const output = document.createElement('pre'); output.className = 'machine-output'; output.textContent = cached.text || '(no terminal output)'; card.append(output);
     } else if (request.preview) {
-      const preview = document.createElement('pre'); preview.className = 'machine-output'; preview.textContent = request.preview;
-      card.append(preview);
+      const preview = document.createElement('pre'); preview.className = 'machine-output'; preview.textContent = request.preview; card.append(preview);
     }
     return card;
   }
 
   function handle(msg) {
     if (msg.type === 'machine_targets_update') {
-      state.targets = Array.isArray(msg.targets) ? msg.targets : [];
-      state.types = Array.isArray(msg.targetTypes) ? msg.targetTypes : [];
+      state.targets = Array.isArray(msg.targets) ? msg.targets : []; state.types = Array.isArray(msg.targetTypes) ? msg.targetTypes : [];
       state.selectedId = msg.selectedTarget?.id || (state.targets.some((item) => item.id === state.selectedId) ? state.selectedId : '');
       renderTargets(); return;
     }
@@ -310,10 +329,8 @@
     if (msg.type === 'machine_output_page') return outputPage(msg);
     if (msg.type === 'machine_room_snapshot') { if (msg.roomId === state.roomId) { state.room = msg; renderRoom(); } return; }
     if (msg.type === 'machine_command_denied') { message('system', 'Command denied; nothing executed.', `status-${msg.requestId}`); requestRoom(); return; }
-    if (msg.type === 'machine_space_created') { requestRoom(); return; }
-    if (msg.type === 'error' && String(msg.code || '').startsWith('MACHINE_')) {
-      message('system', `${msg.code}: ${msg.message}`); requestRoom();
-    }
+    if (msg.type === 'machine_space_created' || msg.type === 'machine_file_grant_changed') { requestRoom(); return; }
+    if (msg.type === 'error' && String(msg.code || '').startsWith('MACHINE_')) { message('system', `${msg.code}: ${msg.message}`); requestRoom(); }
   }
   function connect() {
     if (socket) return;
@@ -323,15 +340,13 @@
       onOpen: () => { send({ type: 'request_machine_targets', ownerId }); requestRoom(); },
       onPhase: ({ phase }) => { state.phase = phase; syncBaseMode(); },
       onMalformed: (error) => message('system', `Machine Spaces received malformed data: ${error.message}`)
-    });
-    socket.connect();
+    }); socket.connect();
   }
   function disconnect() { socket?.stop(); socket = null; state.phase = 'suspended'; syncBaseMode(); }
 
   el.targetClassSelect.addEventListener('change', () => { syncBaseMode(); if (isMachine()) send({ type: 'request_machine_targets', ownerId }); });
   el.refreshTerminalTargets.addEventListener('click', () => send({ type: 'request_machine_targets', ownerId }));
-  el.createTerminalTarget.addEventListener('click', () => send({ type: 'machine_create_target',
-    targetType: el.terminalTypeSelect.value, label: el.terminalLabel.value, cwd: el.terminalCwd.value }));
+  el.createTerminalTarget.addEventListener('click', () => send({ type: 'machine_create_target', targetType: el.terminalTypeSelect.value, label: el.terminalLabel.value, cwd: el.terminalCwd.value }));
   el.connectTerminalTarget.addEventListener('click', () => send({ type: 'machine_select_target', targetId: el.terminalTargetSelect.value }));
   el.terminalTargetSelect.addEventListener('change', () => { state.selectedId = el.terminalTargetSelect.value; renderTargets(); });
   el.stopTerminalTarget.addEventListener('click', async () => {
@@ -345,33 +360,26 @@
       send({ type: 'machine_interrupt', targetId: target.id });
   });
   el.sendPrompt.addEventListener('click', (event) => { if (isMachine()) { event.preventDefault(); event.stopImmediatePropagation(); prepareBase(); } }, true);
-  el.prompt.addEventListener('keydown', (event) => {
-    if (isMachine() && event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault(); event.stopImmediatePropagation(); prepareBase();
-    }
-  }, true);
+  el.prompt.addEventListener('keydown', (event) => { if (isMachine() && event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.stopImmediatePropagation(); prepareBase(); } }, true);
   el.captureLatest.addEventListener('click', (event) => {
     if (isMachine()) { event.preventDefault(); event.stopImmediatePropagation(); message('system', 'Terminal output is retained in bounded pages beside each command. Select Load more when available.'); }
   }, true);
   el.machineSpaceSelect.addEventListener('change', renderRoom);
   el.machineCreateSpace.addEventListener('click', async () => {
-    const roomId = state.roomId;
-    const name = String(await dialog.prompt('New Machine Space name', 'Machine Space', { confirmText: 'Create space' }) || '').trim();
+    const roomId = state.roomId, name = String(await dialog.prompt('New Machine Space name', 'Machine Space', { confirmText: 'Create space' }) || '').trim();
     if (name && roomId) send({ type: 'machine_create_space', roomId, name });
   });
   el.machineArchiveSpace.addEventListener('click', async () => {
     const space = activeSpace();
-    if (space && await dialog.confirm(`Archive ${space.name}?`, 'Terminal outputs remain bounded local records.', { confirmText: 'Archive', danger: true }))
+    if (space && await dialog.confirm(`Archive ${space.name}?`, 'Terminal outputs remain bounded local records and active filesystem grants will be revoked.', { confirmText: 'Archive', danger: true }))
       send({ type: 'machine_archive_space', roomId: state.roomId, spaceId: space.id });
   });
   el.machineAttach.addEventListener('click', () => {
-    // The Attach button itself is the explicit local action; no second dialog.
     const space = activeSpace(), targetId = el.machineAttachTarget.value;
     if (space && targetId) send({ type: 'machine_attach_target', roomId: state.roomId, spaceId: space.id, targetId });
   });
   el.machineRefreshTerminals.addEventListener('click', () => send({ type: 'request_machine_targets', ownerId }));
-  el.machineNewTerminal.addEventListener('click', () => send({ type: 'machine_create_target',
-    targetType: el.machineNewTerminalType.value, label: '', cwd: el.machineNewTerminalCwd.value }));
+  el.machineNewTerminal.addEventListener('click', () => send({ type: 'machine_create_target', targetType: el.machineNewTerminalType.value, label: '', cwd: el.machineNewTerminalCwd.value }));
   new MutationObserver(() => requestRoom()).observe(el.dexRoomList, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
   new MutationObserver(renderRoom).observe(el.dexModePanel, { attributes: true, attributeFilter: ['data-human-input'] });
   const client = { snapshot: () => ({ selectedId: state.selectedId, roomId: state.roomId }),
