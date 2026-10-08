@@ -110,31 +110,32 @@ def handle_get_request(handler, path: str, query) -> bool:
         from server_modules import audioflix_spotify
         from server_modules import audioflix_spotify_browser
         values = query.get("url") or []
-        # The playlist scraper and managed volume browser intentionally share one signed-in
-        # persistent profile. Chromium locks persistent profiles, so release the managed helper
-        # around the existing importer and restore it afterwards. This keeps >100-track import and
-        # volume control on one identity instead of creating competing login stores.
-        ticket = audioflix_spotify_browser.suspend_for_profile_task("playlist-import")
-        if not ticket.get("ok"):
-            _send_json(handler, {
-                "ok": False,
-                "reason": ticket.get("reason") or "Could not release the shared Spotify browser profile for import.",
-            }, HTTPStatus.CONFLICT)
+        raw_url = values[0] if values else ""
+        normalized = audioflix_spotify.normalize_playlist_input(raw_url)
+        if not normalized.get("ok"):
+            _send_json(handler, normalized, HTTPStatus.BAD_REQUEST)
             return True
-        payload = None
-        try:
+
+        # Never stop the managed browser from a request that originated inside that same browser.
+        # When it is healthy, scrape the playlist in a temporary page in its existing Playwright
+        # context so the EveOS page, playback session, and signed-in profile stay alive. Only use the
+        # legacy one-shot persistent-context scraper when no managed browser owns the profile.
+        managed = audioflix_spotify_browser.status()
+        if managed.get("helperReachable"):
+            payload = audioflix_spotify_browser.list_playlist({"url": normalized.get("url") or raw_url})
+            if isinstance(payload, dict) and payload.get("ok"):
+                payload.update({
+                    "url": normalized.get("url") or raw_url,
+                    "embedUrl": normalized.get("embedUrl") or "",
+                    "provider": "spotify",
+                    "cached": False,
+                    "managedBrowserImport": True,
+                })
+        else:
             payload = audioflix_spotify.list_playlist(
-                values[0] if values else "",
+                raw_url,
                 force=bool(query.get("refresh") or query.get("force")),
             )
-        finally:
-            resumed = audioflix_spotify_browser.resume_after_profile_task(ticket)
-        if isinstance(payload, dict) and ticket.get("shouldResume"):
-            payload["managedBrowserResumed"] = bool(resumed.get("resumed"))
-            if not resumed.get("ok"):
-                payload["managedBrowserResumeWarning"] = str(
-                    (resumed.get("status") or {}).get("reason") or "Managed Spotify browser did not resume."
-                )[:300]
         _send_json(handler, payload)
         return True
     elif path.startswith("/api/audioflix/port/"):
