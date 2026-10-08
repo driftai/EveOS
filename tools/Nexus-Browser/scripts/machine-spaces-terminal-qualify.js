@@ -301,7 +301,7 @@ async function runQualificationReport(options = parseArgs()) {
       exactOriginFinalization: 'PENDING_NORMAL_DEX_PROVENANCE_PROOF',
       managedEveSpawn: 'PENDING_NORMAL_DEX_PROVENANCE_PROOF',
       realAgentQuorum: 'PENDING_NORMAL_DEX_PROVENANCE_PROOF',
-      externalTerminalAdapter: 'SOURCE_GAP'
+      externalTerminalAdapter: 'SOURCE_IMPLEMENTED_USE_--external-live_FOR_ACCEPTANCE'
     }
   };
   if (options.chatgptLive) report.chatgptLive = await chatgptLive({ doctor: report.doctor, ...options });
