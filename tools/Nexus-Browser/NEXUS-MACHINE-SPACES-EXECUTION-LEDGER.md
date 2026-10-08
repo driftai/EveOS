@@ -22,26 +22,26 @@ machine state only in the ignored runtime checkpoint:
 | Field | Value |
 |---|---|
 | Branch | `eve/nexus-machine-spaces` |
-| Post-qualification source HEAD before this ledger update | `b870970b855ba7e18d7af3fd171e5989d4e7e945` |
+| Source HEAD immediately before this ledger update | `0fe2123471deeabc0e59cd59375e3b20d7c32c45` |
 | Last independently qualified Machine Spaces source HEAD | `667fb612a66aecd9c45ffa85707e22872a570720` — Vera, Linux ARM64 / pwsh 7.6.6 / headless Chromium |
-| Last Drift Windows qualification | `0f2960e6f8fb38a720503c6444d2ff064000851f` — then-current Windows-focused gates passed |
+| Latest Drift Windows lower/live qualification | `728d3c28bd6a2e95e2a4e157488ee6cf0f3e1f14` — all-live gate PASS; provider-provenance lane continued separately |
 | Source roadmap | `MS-P0` through `MS-08` all have implementation paths; no planned stage is intentionally left source-unimplemented |
-| Current acceptance state | source complete, **current head not yet independently rerun** |
-| Next action | pull current branch, restart Nexus, run `npm test`, then `npm run qualify:machine-spaces:complete`; paste the single bounded report back to Eve |
+| Current acceptance state | source complete; Windows lower/live stack accepted at `728d3c28`; provider exact-origin/spawn/quorum lane pending rerun after exact-origin finalization-race fix |
+| Next action | pull current branch, run the focused origin/provider regressions, inspect any leftover failed disposable qualification rooms, then run only `npm run qualify:machine-spaces:providers` against the exact intended ChatGPT conversation URL and live Hark target |
 
 ## Roadmap state
 
 | ID | Status | Source state / remaining proof |
 |---|---|---|
-| `MS-P0` | source-implemented / live qualification pending | cleanup, exact-origin correlation, rehydration, dedupe, result-query, spawn cleanup and terminal-driven provider qualification exist; no-refresh exact-origin + managed-worker live acceptance still need current bundle run |
+| `MS-P0` | source-implemented / final provider proof pending | cleanup, exact-origin correlation, late-finalization grace, rehydration, dedupe, result-query, spawn cleanup and terminal-driven provider qualification exist; Windows no-refresh exact-once recovery is live-qualified, while the corrected provider-origin/spawn lane needs one rerun |
 | `MS-01` | source-implemented | canonical repository roots + local Allow Once/Persistent/Deny filesystem grants |
 | `MS-02` | source-implemented | tree/stat/bounded reads/line counts/search |
 | `MS-03` | source-implemented | SHA-guarded create/write/patch/move/delete + atomic replacement |
 | `MS-04` | source-implemented | capability-specific persistent/once grants, expiry and revocation |
-| `MS-05` | source-implemented / live quorum pending | Eve/Nova/Vera identity, presence and exact-origin voting; terminal provider qualifier drives real Eve/ChatGPT + Vera/Hark when Hark is connected |
-| `MS-06` | source-implemented; older supervised flow qualified | supervised start/defer/rebound/interrupt/paging, busy preflight, monotonic leases, process-tree termination, trusted external PID observe/interrupt transport; current external live probe pending |
-| `MS-07` | source-implemented / current UI qualification pending | primary unified terminal/filesystem/supervised request list now uses server-side filters/provenance/cursor paging with legacy fallback and CSP-clean external styling |
-| `MS-08` | source-implemented / current bundle pending | destructive/exact-once matrix and native-shell probes exist; older Linux/Windows evidence remains historical until current source is rerun |
+| `MS-05` | source-implemented / live quorum pending | Eve/Nova/Vera identity, presence and exact-origin voting; terminal provider qualifier drives real Eve/ChatGPT + Vera/Hark and now waits for exact durable provider-control receipts |
+| `MS-06` | source-implemented / live accepted | supervised start/defer/rebound/interrupt/paging, busy preflight, monotonic leases, process-tree termination, trusted external PID observe/interrupt transport; external adapter passed live on Windows and Vera's host |
+| `MS-07` | source-implemented / deterministic bundle accepted | primary unified terminal/filesystem/supervised request list uses server-side filters/provenance/cursor paging with legacy fallback and CSP-clean external styling; request-view regressions are in the Windows all-live bundle |
+| `MS-08` | source-implemented / lower live bundle accepted | destructive/exact-once matrix and native-shell probes exist; current Windows lower/live bundle passed at `728d3c28` |
 
 ## Terminal-first qualification
 
@@ -56,11 +56,63 @@ From `tools/Nexus-Browser`:
 - `npm run qualify:machine-spaces:chatgpt`
   - adds extension assembly/reload plus warm authenticated ChatGPT exact-once/recovery proof without requiring a manual page refresh;
 - `npm run qualify:machine-spaces:providers`
-  - disposable real-provider provenance room; fresh ChatGPT worker; exact-origin effect + managed spawn; Eve/Vera quorum when a genuine Hark target is connected;
+  - creates a disposable provider-proof room, attaches the exact existing ChatGPT Online-Origin parent selected by tab/URL, proves exact-origin mutation, has that genuine provider reply spawn exactly one fresh managed ChatGPT child, then drives Eve/Vera quorum when a genuine Hark target is connected;
 - `npm run qualify:machine-spaces:complete`
   - emits one top-level `MACHINE_SPACES_COMPLETE_QUALIFICATION_BEGIN/END` report combining the all-live gate and, only after that passes, the provider provenance gate.
 
 The complete wrapper does **not** start provider mutations when the lower deterministic/live Machine Spaces gate fails or blocks. It never retries an uncertain provider mutation.
+
+## 2026-10-08 Windows/provider qualification evidence
+
+### Lower/live stack — accepted at `728d3c28`
+
+Drift's Windows all-live run passed the complete lower stack before the provider-only lane:
+
+- deterministic Machine Spaces/control bundle: `70/70` PASS;
+- focused Machine Spaces bundle: `21/21` PASS;
+- CMD, Windows PowerShell and WSL probes: PASS;
+- real Windows descendant/process-tree termination: PASS, no orphan;
+- inherited-pipe exit-grace: PASS;
+- trusted external terminal PID adapter: live PASS through observe -> interrupt -> revoke, no execute capability;
+- warm ChatGPT no-refresh recovery: PASS with one dispatch, one submission, one captured reply after server-session change and no duplicate decrement/dispatch.
+
+Do not rerun this whole lower/live stack merely because the later provider-proof harness changed.
+
+### Provider proof at `2bd49b9` — exact URL selected; origin race exposed
+
+The provider qualifier correctly selected the intended ChatGPT conversation:
+
+`https://chatgpt.com/c/6ac740be-c8f0-83ea-a511-a1f36e45b59c`
+
+and the live Hark target. Two fresh disposable qualification rooms reached the same fail-closed boundary:
+
+- `room-00ae2dd8-1144-47aa-aaf9-39cc294b23d7`
+- `room-563a72d4-51b0-4fed-b329-315d63eb4615`
+
+Observed provider-control failure:
+
+- request: `provider-control-2713e2d5-a82a-436f-9ca3-63fd7453a439`
+- code: `MACHINE_QUORUM_ORIGIN_REQUIRED`
+- meaning: quorum mutation reached the strict machine handler before the exact committed Dex relay origin was available; no quorum mutation was accepted.
+
+**Do not replay that exact control request.** It is a completed failed request, not a command to retry manually.
+
+At failure time, structural cleanup raced the still-finishing relay and returned `DEX_CONTROL_ROOM_BUSY`. Before deleting either failed qualification room, inspect its status. Delete only if it is clearly idle with no waiting/recovery/deferred/pending work. Never create a replacement merely to hide unresolved state.
+
+### Exact-origin finalization race fix after `2bd49b9`
+
+The source now preserves the quorum provenance guard and fixes the race one layer earlier:
+
+- all provenance-requiring quorum mutations are classified as provider-control mutations: `quorum_presence`, `quorum_open`, `quorum_vote`, `quorum_close`; `quorum_status` remains read-only;
+- an authenticated Online-Origin mutation already authorized to one exact room gets a bounded 5-second late-finalization grace if its provider-control packet beats `response_final`;
+- that grace does **not** authorize by timing alone: execution remains blocked until the exact matching durable `pendingProviderControlReceipt` appears;
+- the provider qualifier includes the disposable `room` ID inside every provider-side quorum command, so the same ChatGPT tab may safely participate in other rooms without broad correlation;
+- the qualifier waits for the exact randomized executor's durable `[DEX CONTROL RECEIPT]` before checking presence/spawn/quorum effects or touching room membership;
+- a failed receipt is surfaced with its exact control request ID and code;
+- cleanup waits for the room to become structurally idle before removing attached parents/peers or deleting the disposable room;
+- focused regressions cover late durable intent success, no-intent fail-closed behavior, all quorum mutation classifications, exact URL selection, exact room-scoped quorum commands, and durable success/failure receipt parsing.
+
+Qualification report files (`machine-spaces-complete-*.txt` and `machine-spaces-provider-*.txt`) are ignored as local evidence; they are not source and should not dirty the worktree.
 
 ## Post-qualification source additions
 
@@ -157,7 +209,7 @@ PASS evidence at that HEAD:
 
 `pwsh.exe` was not installed on PATH. Linux real pwsh was already qualified by Vera.
 
-That older extension run proved reload/reconnect, not the final no-refresh committed ChatGPT result acceptance item.
+That older extension run proved reload/reconnect, not the later no-refresh committed ChatGPT result acceptance item, which subsequently passed in the `728d3c28` all-live run.
 
 ## Filesystem capability plane (`MS-01`–`MS-04`)
 
@@ -238,8 +290,9 @@ Fail-closed codes:
 - `DEX_CONTROL_ORIGIN_TIMEOUT`
 - `DEX_CONTROL_ORIGIN_UNCORRELATED`
 - `DEX_CONTROL_ORIGIN_AMBIGUOUS`
+- `MACHINE_QUORUM_ORIGIN_REQUIRED`
 
-Deterministic regressions cover early wait, exact final correlation, stale/wrong rejection, ambiguity, bounded timeout and dedupe. Real provider-origin proof remains in the provider qualifier.
+Deterministic regressions cover early wait, exact final correlation, stale/wrong rejection, ambiguity, bounded timeout, late exact-room finalization grace and dedupe. Real provider-origin proof remains in the provider qualifier.
 
 ### `MS-P0-07` — Managed ChatGPT worker spawn
 
@@ -253,7 +306,7 @@ Acceptance:
 - duplicate same-control delivery creates no second worker;
 - failed/late spawn closes the temporary target and leaves no member.
 
-Provider qualification now performs this in a disposable room with a fresh qualification ChatGPT worker.
+Provider qualification performs this in a disposable room by attaching the exact pinned existing ChatGPT parent and having that genuine Online-Origin reply request exactly one fresh managed child.
 
 ### `MS-P0-08` — Stale setup handoff cleanup
 
@@ -275,13 +328,17 @@ If the original draft is visibly still present, Drift may commit that exact visi
 | Phase-0 focused matrix | prior `68/68` at `d01c3d556` |
 | Rehydration/control lane | prior `45/45` with `61ea2f78a` |
 | Stop/control lane | prior `24/24` with `12dfec316` |
-| Full Nexus suite latest Vera rerun | `667fb61`: 1608 total, 1590 pass, 18 fail; same 18 as `main` |
+| Full Nexus suite latest Vera baseline rerun | `667fb61`: 1608 total, 1590 pass, 18 fail; same 18 as `main` |
 | Vera supervised/Linux/pwsh flow | PASS at `667fb61` |
-| Drift Windows focused MS matrix | `21/21` PASS at `0f2960e6` |
-| Drift Windows CMD/PowerShell/WSL broker | PASS at `0f2960e6` |
-| Drift Windows descendant tree-kill | PASS at `0f2960e6` |
-| Drift extension assembly/reload/reconnect | PASS at `0f2960e6` |
-| Current post-qualification source | **not yet rerun**; current bundle includes request-view, external adapter, complete-report helper and provider provenance lanes |
+| Vera exact `e2a610d` follow-up | same 18 baseline failures as `main`; live external-terminal adapter observe -> interrupt passed with no orphan |
+| Drift Windows focused MS matrix | `21/21` PASS at `0f2960e6`; later `21/21` again in all-live run at `728d3c28` |
+| Drift Windows all-live deterministic controls | `70/70` PASS at `728d3c28` |
+| Drift Windows CMD/PowerShell/WSL broker | PASS at `728d3c28` |
+| Drift Windows descendant tree-kill + inherited-pipe exit-grace | PASS at `728d3c28` |
+| Drift Windows external terminal adapter | live PASS at `728d3c28`, no orphan and no execute capability |
+| Drift warm ChatGPT no-refresh exact-once recovery | PASS at `728d3c28` |
+| Provider provenance at `2bd49b9` | correct ChatGPT URL selected; FAIL-CLOSED at `MACHINE_QUORUM_ORIGIN_REQUIRED`, exposing origin-finalization race; no acceptance credit |
+| Current post-race-fix provider source | **not yet live-rerun**; focused source regressions added after the `2bd49b9` failure |
 | Unconfirmed-interrupt lease edge | unit-covered only; not naturally forced live |
 
 ## Quota-stop protocol
