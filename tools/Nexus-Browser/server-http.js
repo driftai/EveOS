@@ -11,11 +11,22 @@ const MIME = Object.freeze({
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8'
 });
+const INDEX_ENHANCEMENTS = Object.freeze([
+  '<script src="/machine-supervised-jobs-ui.js"></script>'
+]);
 
 function setSecurityHeaders(res) {
   res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; img-src 'self' data:; frame-ancestors http://127.0.0.1:* http://localhost:* file:");
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
+}
+
+function enhanceIndex(data) {
+  const html = Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
+  if (!html.includes('</body>')) return html;
+  const missing = INDEX_ENHANCEMENTS.filter((tag) => !html.includes(tag));
+  if (!missing.length) return html;
+  return html.replace('</body>', `  ${missing.join('\n  ')}\n</body>`);
 }
 
 function sendFile(res, filePath) {
@@ -25,8 +36,9 @@ function sendFile(res, filePath) {
       res.end(error.code === 'ENOENT' ? 'Not found' : 'Server error');
       return;
     }
+    const body = path.basename(filePath) === 'index.html' ? enhanceIndex(data) : data;
     res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-    res.end(data);
+    res.end(body);
   });
 }
 
@@ -82,4 +94,4 @@ function websocketOriginAllowed(origin, port) {
   }
 }
 
-module.exports = { createHttpHandler, websocketOriginAllowed };
+module.exports = { INDEX_ENHANCEMENTS, enhanceIndex, createHttpHandler, websocketOriginAllowed };
