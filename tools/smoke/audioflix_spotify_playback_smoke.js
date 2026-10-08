@@ -32,8 +32,12 @@ const assert = (condition, message) => {
         'frontend group play enters the serialized queue controller');
     assert(uiMain.includes('await window.EveAudioflixAudio?.playItem?.(track)'),
         'serialized queue playback delegates to the shared Audioflix controller');
-    assert(spotifyVolume.includes("[data-af-spv=\"slider\"], .audioflix-volume-slider, .audioflix-provider-volume"),
-        'both ordinary Audioflix volume controls can establish localhost Spotify gain');
+    assert(spotifyVolume.includes("const VOLUME_SELECTOR = [")
+        && spotifyVolume.includes("'[data-af-spv=\"slider\"]'")
+        && spotifyVolume.includes("'.audioflix-volume-slider'")
+        && spotifyVolume.includes("'.audioflix-provider-volume'")
+        && spotifyVolume.includes("'.audioflix-output-port-volume'"),
+        'Spotify capture listens to provider, card, and master Audioflix volume controls');
     assert(spotifyVolume.includes('audio.suppressLocalAudioPlayback = true')
         && spotifyVolume.includes('audio.restrictOwnAudio = false')
         && !spotifyVolume.includes('audioTrack.applyConstraints('),
