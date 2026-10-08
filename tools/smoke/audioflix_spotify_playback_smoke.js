@@ -34,9 +34,10 @@ const assert = (condition, message) => {
         'serialized queue playback delegates to the shared Audioflix controller');
     assert(spotifyVolume.includes("[data-af-spv=\"slider\"], .audioflix-volume-slider, .audioflix-provider-volume"),
         'both ordinary Audioflix volume controls can establish localhost Spotify gain');
-    assert(spotifyVolume.includes('restrictOwnAudio: false')
-        && spotifyVolume.includes('suppressLocalAudioPlayback = { exact: true }'),
-        'localhost capture keeps Spotify audio in the stream and suppresses duplicate direct output');
+    assert(spotifyVolume.includes('audio.suppressLocalAudioPlayback = true')
+        && spotifyVolume.includes('audio.restrictOwnAudio = false')
+        && !spotifyVolume.includes('audioTrack.applyConstraints('),
+        'localhost capture requests suppression/own-audio policy up front and never reapplies it after capture');
     assert(uiMain.includes("status === 'Ended'") && uiMain.includes('playQueueIndex(expectedIndex + 1)'),
         'frontend queue consumes Ended and advances to the next track');
     const fixture = path.join(os.tmpdir(), `eveos-spotify-playback-${process.pid}.html`);
@@ -63,7 +64,7 @@ const assert = (condition, message) => {
                     var listeners = {};
                     var calls = window.__spotifyCalls = {
                         uri: options.uri, play: 0, resume: 0, pause: 0, seek: [], destroy: 0,
-                        volume: [], loaded: [], legacyLoaded: [], controllers: (window.__spotifyControllers || 0) + 1
+                        loaded: [], legacyLoaded: [], controllers: (window.__spotifyControllers || 0) + 1
                     };
                     window.__spotifyControllers = calls.controllers;
                     var controller = window.__spotifyController = {
@@ -72,7 +73,6 @@ const assert = (condition, message) => {
                         resume: function () { calls.resume += 1; },
                         pause: function () { calls.pause += 1; },
                         seek: function (seconds) { calls.seek.push(seconds); },
-                        setVolume: function (volume) { calls.volume.push(volume); },
                         loadUri: function (uri) { calls.loaded.push(uri); },
                         loadEntity: function (uri) { calls.legacyLoaded.push(uri); },
                         destroy: function () { calls.destroy += 1; },
@@ -104,6 +104,16 @@ const assert = (condition, message) => {
             player.setVolume(0.48);
             const volumeBar = document.querySelector('.audioflix-provider-stage .af-spotify-volume')?.textContent || '';
             const volumeWhilePlaying = window.EveAudioflixSpotifyVolume.snapshot();
+            let applyConstraintsCalls = 0;
+            const capturePolicy = await window.EveAudioflixSpotifyVolume.applyCapturePolicy({
+                getVideoTracks: () => [{ getSettings: () => ({ displaySurface: 'browser' }) }]
+            }, {
+                getSettings: () => ({
+                    suppressLocalAudioPlayback: true,
+                    restrictOwnAudio: false
+                }),
+                applyConstraints: async () => { applyConstraintsCalls += 1; }
+            });
             const stage = document.querySelector('.audioflix-provider-stage');
             const mainCardTransportOnly = stage?.classList.contains('is-transport-only') === true
                 && stage.hidden === false
@@ -212,6 +222,8 @@ const assert = (condition, message) => {
                 volumeBar,
                 volumeWhilePlaying,
                 volumeAfterStop,
+                capturePolicy,
+                applyConstraintsCalls,
                 calls: firstCalls,
                 stateAt42: progress.find((entry) => entry.currentTime === 42),
                 endedCount: events.filter((status) => status === 'Ended').length,
@@ -258,11 +270,13 @@ const assert = (condition, message) => {
         assert(result.stalledState.paused === true, 'ready-but-stalled playback returns to paused state');
         assert(result.stalledErrorCount === 1, 'startup watchdog emits one error without retrying or advancing');
         assert(result.volumeBar.includes('localhost'), 'file mode explains that Spotify volume control is available on localhost');
-        assert(result.calls.volume.includes(0.7) && result.calls.volume.includes(0.48),
-            'localhost Spotify controller receives initial and live slider volume values');
         assert(result.volumeWhilePlaying.spotifyActive && result.volumeWhilePlaying.volume === 0.48
-            && result.volumeWhilePlaying.directControl === true,
-            'controller-owned Spotify volume prevents unnecessary tab-capture fallback');
+            && result.volumeWhilePlaying.directControl === false,
+            'realistic Spotify embed shape selects localhost capture gain instead of a fictional controller volume API');
+        assert(result.applyConstraintsCalls === 0
+            && result.capturePolicy.suppression === true
+            && result.capturePolicy.restrictOwnAudio === false,
+            'post-capture policy only inspects the returned track and never reapplies capture-only constraints');
         assert(result.volumeAfterStop.spotifyActive === false && result.volumeAfterStop.gain === 1,
             'stopping Spotify returns the shared tab gain to unity');
         assert(result.spotifyNeedsResolution === false, 'Spotify track URLs bypass raw-audio resolution');
