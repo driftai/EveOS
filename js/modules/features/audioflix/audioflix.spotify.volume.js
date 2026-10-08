@@ -109,9 +109,6 @@
         return { context, gain };
     }
 
-    // Capture-only constraints such as suppressLocalAudioPlayback belong on getDisplayMedia().
-    // Re-applying them afterward with MediaStreamTrack.applyConstraints() is unreliable in Chromium
-    // and can tear down an otherwise valid capture. This helper deliberately INSPECTS only.
     async function applyCapturePolicy(stream, audioTrack) {
         const audioSettings = audioTrack.getSettings?.() || {};
         const videoSettings = stream.getVideoTracks()[0]?.getSettings?.() || {};
@@ -133,8 +130,6 @@
         if (supportedConstraints.suppressLocalAudioPlayback) {
             audio.suppressLocalAudioPlayback = true;
         }
-        // EveOS is capturing the SAME tab that contains the Spotify iframe. If Chromium's own-audio
-        // filter is supported, explicitly disable it so Spotify remains present in the captured track.
         if (supportedConstraints.restrictOwnAudio) {
             audio.restrictOwnAudio = false;
         }
@@ -179,19 +174,12 @@
         state.message = 'Choose “This tab” and keep “Also share tab audio” enabled.';
         notify();
 
-        // This must execute directly inside the trusted pointer/key gesture. Both window.open() and
-        // getDisplayMedia() are user-activation gated in Chromium.
-        const win = window.open('', OUTPUT_WINDOW, 'width=360,height=150');
-        if (!win) {
-            state.status = 'error';
-            state.message = 'Allow the AudioFlix sound-output window and move the volume slider again.';
-            notify();
-            return snapshot();
-        }
-
+        // getDisplayMedia needs transient activation. Window.open() can CONSUME that activation,
+        // so claim the capture first, then open the separate output window in the same trusted call
+        // stack before awaiting the picker result.
+        let capturePromise;
         try {
-            writeOutputWindow(win);
-            const stream = await navigator.mediaDevices.getDisplayMedia({
+            capturePromise = navigator.mediaDevices.getDisplayMedia({
                 video: { frameRate: { max: 1 } },
                 audio: captureAudioConstraints(),
                 preferCurrentTab: true,
@@ -200,6 +188,28 @@
                 systemAudio: 'exclude',
                 monitorTypeSurfaces: 'exclude'
             });
+        } catch (error) {
+            state.status = 'error';
+            state.message = error?.message || 'Spotify tab capture could not start.';
+            notify();
+            return snapshot();
+        }
+
+        const win = window.open('', OUTPUT_WINDOW, 'width=360,height=150');
+        if (!win) {
+            try {
+                const orphaned = await capturePromise;
+                orphaned?.getTracks?.().forEach((track) => track.stop());
+            } catch { /* permission denial is handled as a blocked attempt */ }
+            state.status = 'error';
+            state.message = 'Allow the AudioFlix sound-output window and move the volume slider again.';
+            notify();
+            return snapshot();
+        }
+
+        try {
+            writeOutputWindow(win);
+            const stream = await capturePromise;
             const audioTrack = stream.getAudioTracks()[0];
             if (!audioTrack) {
                 stream.getTracks().forEach((track) => track.stop());
@@ -357,8 +367,6 @@
         }
     });
 
-    // Capture permission requires transient activation. Arm at the actual pointer/key gesture rather
-    // than waiting for the range input event, which can occur after Chromium considers activation spent.
     document.addEventListener('pointerdown', (event) => {
         armFromTrustedGesture(event.target);
     }, true);
@@ -389,8 +397,6 @@
             });
         }
 
-        // Do not depend on URL-player identity matching. If Spotify is the active provider, update
-        // the authoritative localhost gain directly from the visible slider state.
         if (playback) {
             const itemVolume = isMaster ? clamp(playback.item?.volume ?? 1) : level;
             const effective = window.EveAudioflixOutputPort?.effective?.(itemVolume) ?? itemVolume;
