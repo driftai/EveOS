@@ -45,25 +45,38 @@ assert(manager.includes('audioflix_spotify._profile_dir()')
 assert(manager.includes('nodeAvailable') && manager.includes('playwrightAvailable')
     && manager.includes('helperReachable') && manager.includes('authState'),
     'manager status reports runtime, Playwright, connection, and auth readiness');
-assert(manager.includes('if not session_id or session_id != self._session_id'),
-    'backend rejects volume commands from an unmanaged/stale EveOS browser session');
+assert(manager.includes('hmac.compare_digest(candidate, expected)')
+    && manager.includes('def session_status(')
+    && manager.includes('"sessionPresent": bool(self._session_id if running else "")'),
+    'backend compares managed-session proofs in constant time without publishing the session id');
+assert(!manager.includes('"sessionId": helper.get("sessionId")'),
+    'public manager status never serializes the managed session id');
 assert(!/"token"\s*:/.test(manager), 'manager public status does not expose its helper token');
 
 for (const route of [
     '/api/audioflix/spotify-browser/status',
     '/api/audioflix/spotify-browser/start',
     '/api/audioflix/spotify-browser/stop',
+    '/api/audioflix/spotify-browser/session-status',
     '/api/audioflix/spotify-browser/volume',
+    '/api/audioflix/spotify-browser/qualify-volume',
     '/api/audioflix/spotify-browser/auth'
 ]) assert(bridge.includes(route), `bridge exposes ${route}`);
+assert(bridge.includes('def _can_cli_control(handler)')
+    && bridge.includes('if path == "/api/audioflix/spotify-browser/qualify-volume"')
+    && bridge.includes('if not _can_cli_control(handler):'),
+    'live qualifier has a fixed no-Origin localhost gate and cannot be invoked by an ordinary browser tab');
 assert(bridge.includes('suspend_for_profile_task("playlist-import")')
     && bridge.includes('resume_after_profile_task(ticket)'),
     'Spotify playlist import releases/restores the shared managed profile instead of profile-locking');
 
 assert(volume.includes('__EveAudioflixManagedBrowserSession')
+    && volume.includes("api('/session-status'")
     && volume.includes("api('/volume'")
     && volume.includes('sessionId: state.managedSessionId'),
-    'Audioflix volume adapter sends writes only from the injected managed session');
+    'Audioflix proves and writes only from the injected managed session without reading it from public status');
+assert(!volume.includes("String(result?.sessionId || '') === state.managedSessionId"),
+    'managed capability no longer depends on a session id echoed by the public status route');
 assert(volume.includes('effectiveVolume(state.itemVolume)')
     && volume.includes('EveAudioflixOutputPort?.effective?.(safe)'),
     'Spotify gain applies the existing track x output/master volume policy exactly once');
