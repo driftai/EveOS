@@ -45,9 +45,29 @@ function sourceFromTarget(target) {
   };
 }
 
-function chooseTarget(values, providerId, explicitId = null) {
-  if (explicitId != null) return values.find((entry) => String(entry.id) === String(explicitId) && (!providerId || entry.providerId === providerId)) || null;
-  return values.find((entry) => !providerId || entry.providerId === providerId) || null;
+function normalizedTargetUrl(value) {
+  if (!value) return null;
+  try {
+    const url = new URL(String(value));
+    url.hash = '';
+    url.search = '';
+    url.pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : url.pathname;
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return String(value).trim().replace(/\/+$/, '');
+  }
+}
+
+function chooseTarget(values, providerId, explicitId = null, explicitUrl = null) {
+  const providerMatch = (entry) => !providerId || entry.providerId === providerId;
+  if (explicitId != null) {
+    return values.find((entry) => String(entry.id) === String(explicitId) && providerMatch(entry)) || null;
+  }
+  if (explicitUrl) {
+    const wanted = normalizedTargetUrl(explicitUrl);
+    return values.find((entry) => providerMatch(entry) && normalizedTargetUrl(entry.url) === wanted) || null;
+  }
+  return values.find(providerMatch) || null;
 }
 
 function addOnlineAgentCommand(roomId, target, providerId, name) {
@@ -61,11 +81,34 @@ function addOnlineAgentCommand(roomId, target, providerId, name) {
   };
 }
 
+function exactOriginPresence(snapshot, { roomId, memberId }) {
+  const presence = (snapshot?.presence || []).find((entry) =>
+    entry.agent === 'Eve'
+    && entry.provider === 'chatgpt'
+    && String(entry.roomId || '') === String(roomId)
+    && String(entry.memberId || '') === String(memberId)
+    && entry.source === 'dex-provider-control'
+    && entry.evidenceId
+  ) || null;
+  if (!presence) return { presence: null, events: [] };
+  const events = (snapshot?.events || []).filter((entry) =>
+    entry.type === 'presence'
+    && entry.agent === 'Eve'
+    && entry.provider === 'chatgpt'
+    && String(entry.roomId || '') === String(roomId)
+    && String(entry.memberId || '') === String(memberId)
+    && String(entry.evidenceId || '') === String(presence.evidenceId)
+    && entry.source === 'dex-provider-control'
+  );
+  return { presence, events };
+}
+
 function parseArgs(argv = process.argv.slice(2)) {
   const value = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : null; };
   return {
     sourceTargetId: value('--source-target-id') || process.env.DEX_QUALIFY_SOURCE_TARGET_ID || null,
     chatgptTabId: value('--chatgpt-tab-id') || process.env.DEX_QUALIFY_CHATGPT_TAB_ID || null,
+    chatgptUrl: value('--chatgpt-url') || process.env.DEX_QUALIFY_CHATGPT_URL || null,
     harkTabId: value('--hark-tab-id') || process.env.DEX_QUALIFY_HARK_TAB_ID || null,
     skipQuorum: argv.includes('--skip-quorum'),
     timeoutMs: Math.max(30000, Math.min(5 * 60 * 1000, Number(value('--timeout-ms') || 180000)))
@@ -77,12 +120,14 @@ async function main() {
   const discovered = await discoverTargets();
   const sourceTarget = chooseTarget(discovered.local, null, options.sourceTargetId);
   if (!sourceTarget) throw Object.assign(new Error('No Local-Origin target is available for disposable-room orchestration.'), { code: 'QUALIFY_LOCAL_SOURCE_REQUIRED' });
-  const chatgptTarget = chooseTarget(discovered.online, 'chatgpt', options.chatgptTabId);
-  if (!chatgptTarget) throw Object.assign(new Error('No live ChatGPT Online-Origin target is available for provider provenance qualification.'), { code: 'QUALIFY_CHATGPT_TARGET_REQUIRED' });
+  const chatgptTarget = chooseTarget(discovered.online, 'chatgpt', options.chatgptTabId, options.chatgptUrl);
+  if (!chatgptTarget) {
+    const detail = options.chatgptUrl ? ` for URL ${options.chatgptUrl}` : '';
+    throw Object.assign(new Error(`No live ChatGPT Online-Origin target is available${detail} for provider provenance qualification.`), { code: 'QUALIFY_CHATGPT_TARGET_REQUIRED' });
+  }
   const harkTarget = options.skipQuorum ? null : chooseTarget(discovered.online, 'hark', options.harkTabId);
   const source = sourceFromTarget(sourceTarget);
   const roomName = `MS Provider Proof ${randomUUID().slice(0, 8)}`;
-  const originText = shortId('P0_ORIGIN_EXECUTED');
   const childName = shortId('Eve-Managed-Child');
   const parentName = shortId('Eve-Main-Agent-Qualification');
   const veraName = shortId('Vera-Hark-Agent-Qualification');
@@ -94,8 +139,8 @@ async function main() {
   const evidence = {
     roomName,
     sourceTarget: { id: sourceTarget.id, providerId: sourceTarget.providerId },
-    chatgptTarget: { id: chatgptTarget.id, providerId: chatgptTarget.providerId },
-    harkTarget: harkTarget ? { id: harkTarget.id, providerId: harkTarget.providerId } : null
+    chatgptTarget: { id: chatgptTarget.id, providerId: chatgptTarget.providerId, url: chatgptTarget.url || null },
+    harkTarget: harkTarget ? { id: harkTarget.id, providerId: harkTarget.providerId, url: harkTarget.url || null } : null
   };
 
   async function control(command) {
@@ -128,8 +173,9 @@ async function main() {
   async function setRelay(member, enabled) {
     await control({ action: 'set_agent_relay', room: roomId, member, enabled });
   }
-  async function quorumStatus() {
-    const result = await control({ action: 'quorum_status', workflowId });
+  async function quorumStatus(workflow = workflowId) {
+    const command = workflow ? { action: 'quorum_status', workflowId: workflow } : { action: 'quorum_status' };
+    const result = await control(command);
     return result.data;
   }
 
@@ -145,15 +191,23 @@ async function main() {
     const addedParent = (parent.data?.memberDetails || []).find((entry) => entry.name === parentName);
     parentMemberId = addedParent?.memberId || null;
     if (!parentMemberId) throw new Error('Existing ChatGPT qualification target did not bind to the disposable room.');
-    evidence.parent = { memberId: parentMemberId, name: parentName, targetId: chatgptTarget.id, managed: false };
+    evidence.parent = { memberId: parentMemberId, name: parentName, targetId: chatgptTarget.id, targetUrl: chatgptTarget.url || null, managed: false };
     await setRelay(parentMemberId, true);
 
-    const originCommand = { action: 'send', room: roomId, text: originText, relay: false };
+    const originCommand = { action: 'quorum_presence' };
     await sendOne(`Automated Nexus exact-origin proof. Reply briefly, then make your FINAL line exactly this one command and emit no other Dex command:\n${marker(originCommand)}`);
-    const originState = await waitFor((state) => (state.latest || []).filter((entry) => entry.text === originText).length === 1, 'exactly one origin proof control effect');
-    const exactEffects = (originState.latest || []).filter((entry) => entry.text === originText).length;
-    if (exactEffects !== 1) throw new Error(`Expected exactly one committed origin effect; saw ${exactEffects}.`);
-    evidence.exactOrigin = { pass: true, marker: originText, exactEffects };
+    const originSnapshot = await quorumStatus(null);
+    const origin = exactOriginPresence(originSnapshot, { roomId, memberId: parentMemberId });
+    if (!origin.presence) throw new Error('Expected a committed Eve/ChatGPT exact-origin presence record for this qualification room.');
+    if (origin.events.length !== 1) throw new Error(`Expected exactly one committed exact-origin presence event; saw ${origin.events.length}.`);
+    evidence.exactOrigin = {
+      pass: true,
+      action: 'quorum_presence',
+      evidenceId: origin.presence.evidenceId,
+      exactEffects: origin.events.length,
+      roomId: origin.presence.roomId,
+      memberId: origin.presence.memberId
+    };
 
     const spawnCommand = { action: 'spawn_agent', room: roomId, providerId: 'chatgpt', name: childName };
     await sendOne(`Automated managed-worker proof. Reply briefly, then make your FINAL line exactly this command and emit no other Dex command:\n${marker(spawnCommand)}`);
@@ -239,4 +293,14 @@ if (require.main === module) {
   });
 }
 
-module.exports = { marker, discoverTargets, sourceFromTarget, chooseTarget, addOnlineAgentCommand, parseArgs, main };
+module.exports = {
+  marker,
+  discoverTargets,
+  sourceFromTarget,
+  normalizedTargetUrl,
+  chooseTarget,
+  addOnlineAgentCommand,
+  exactOriginPresence,
+  parseArgs,
+  main
+};
