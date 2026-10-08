@@ -82,6 +82,9 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
     const target = base.broker.target(current.targetId);
     if (!target || target.processEpoch !== current.processEpoch)
       throw machineError('MACHINE_JOB_TARGET_EPOCH_MISMATCH', 'The prepared terminal was replaced before launch.');
+    const active = base.broker.activeInfo(target.id);
+    if (active)
+      throw machineError('MACHINE_TARGET_BUSY', `The managed terminal is already running ${active.mode || 'a command'}; the supervised job remains queued.`);
     const sessionId = localSession(ws);
     const running = jobs.start(current.jobId, { sessionId, targetId: target.id, processEpoch: target.processEpoch });
     const run = base.broker.runSupervised({
@@ -110,11 +113,27 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
     if (['completed', 'failed', 'cancelled', 'outcome-unknown'].includes(current.state)) return current;
     const active = base.broker.activeInfo(current.targetId);
     if (active?.mode === 'supervised' && active.requestId === current.requestId) {
-      if (!base.broker.interrupt(current.targetId))
-        return jobs.settle(current.jobId, { state: 'outcome-unknown', reason: 'interrupt-not-confirmed', errorCode: 'MACHINE_JOB_INTERRUPT_UNCONFIRMED' });
+      if (!base.broker.interrupt(current.targetId)) {
+        const lease = current.state === 'running' ? current.lease : null;
+        const settled = jobs.settle(current.jobId, {
+          state: 'outcome-unknown',
+          sessionId: lease?.holderSessionId,
+          leaseId: lease?.leaseId,
+          reason: 'interrupt-not-confirmed',
+          errorCode: 'MACHINE_JOB_INTERRUPT_UNCONFIRMED'
+        });
+        commandStore.delete(current.jobId);
+        broadcastJobs('settled', [settled]);
+        return settled;
+      }
       return jobs.status(current.jobId);
     }
-    const cancelled = jobs.cancel(current.jobId, { reason: 'cancelled-by-local-owner' });
+    const lease = current.state === 'running' ? current.lease : null;
+    const cancelled = jobs.cancel(current.jobId, {
+      reason: 'cancelled-by-local-owner',
+      sessionId: lease?.holderSessionId,
+      leaseId: lease?.leaseId
+    });
     commandStore.delete(current.jobId); broadcastJobs('cancelled', [cancelled]); return cancelled;
   }
 
