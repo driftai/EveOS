@@ -11,7 +11,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
     const START_TIMEOUT_MS = 10000;
     const END_TOLERANCE_MS = 1500;
     const END_RESET_MAX_MS = 500;
-    const END_WATCHDOG_GRACE_MS = 1250;
+    const completion = window.EveAudioflixSpotifyCompletion;
     let apiPromise = null;
 
     function spotifyTrackId(value) {
@@ -21,212 +21,6 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
     function startTimeoutMs() {
         const override = Number(window.__EveAudioflixSpotifyStartTimeoutMs);
         return Number.isFinite(override) && override >= 50 ? override : START_TIMEOUT_MS;
-    }
-
-    function endWatchdogGraceMs() {
-        const override = Number(window.__EveAudioflixSpotifyEndWatchdogGraceMs);
-        return Number.isFinite(override) && override >= 0 ? override : END_WATCHDOG_GRACE_MS;
-    }
-
-    function itemDurationMs(item) {
-        // Audioflix stores imported/library durations in seconds. Keep resolvedDuration as the first
-        // choice because provider resolution can refine the import-time value. Spotify Embed's
-        // playback_update reports milliseconds, so normalize the library value once at this edge.
-        const seconds = Math.max(0, Number(item?.resolvedDuration || item?.duration || 0));
-        return seconds > 0 ? seconds * 1000 : 0;
-    }
-
-    function createCompletionScheduler(onDeadline) {
-        const injectedFactory = window.__EveAudioflixSpotifyCompletionSchedulerFactory;
-        if (typeof injectedFactory === 'function') {
-            try {
-                const injected = injectedFactory(onDeadline);
-                if (injected?.arm && injected?.cancel) return injected;
-            } catch {}
-        }
-
-        const WorkerCtor = window.Worker;
-        const workerSource = `
-            self.postMessage({ type: 'ready' });
-            let timer = 0;
-            self.onmessage = (event) => {
-                const message = event && event.data || {};
-                if (message.type === 'cancel') {
-                    if (timer) clearTimeout(timer);
-                    timer = 0;
-                    return;
-                }
-                if (message.type !== 'arm') return;
-                if (timer) clearTimeout(timer);
-                const delay = Math.max(0, Number(message.delay) || 0);
-                const token = Number(message.token) || 0;
-                timer = setTimeout(() => {
-                    timer = 0;
-                    self.postMessage({ type: 'deadline', token });
-                }, delay);
-            };
-        `;
-
-        if (typeof WorkerCtor === 'function') {
-            const factories = [];
-            const BlobCtor = window.Blob;
-            const urlApi = window.URL;
-
-            // Blob workers inherit the owning page's origin and are the most compatible
-            // standalone option for Chromium file:// documents. They stay fully inline:
-            // no localhost server, fetch(), or external worker file is required.
-            if (typeof BlobCtor === 'function' && typeof urlApi?.createObjectURL === 'function') {
-                factories.push(() => {
-                    let objectUrl = '';
-                    try {
-                        objectUrl = urlApi.createObjectURL(new BlobCtor([workerSource], { type: 'text/javascript' }));
-                        const worker = new WorkerCtor(objectUrl);
-                        return {
-                            worker,
-                            cleanup() {
-                                if (!objectUrl) return;
-                                try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
-                                objectUrl = '';
-                            }
-                        };
-                    } catch {
-                        if (objectUrl) {
-                            try { urlApi.revokeObjectURL?.(objectUrl); } catch {}
-                        }
-                        return null;
-                    }
-                });
-            }
-
-            // Keep an inline data: worker as a second local-only path. Some browser/file
-            // policies reject one inline worker scheme but accept the other.
-            factories.push(() => ({
-                worker: new WorkerCtor(`data:text/javascript;charset=utf-8,${encodeURIComponent(workerSource)}`),
-                cleanup() {}
-            }));
-
-            let factoryIndex = 0;
-            let activeWorker = null;
-            let armed = null;
-            let backupTimer = 0;
-            let destroyed = false;
-
-            const clearBackup = () => {
-                if (backupTimer) clearTimeout(backupTimer);
-                backupTimer = 0;
-            };
-            const disposeWorker = () => {
-                const entry = activeWorker;
-                activeWorker = null;
-                if (!entry) return;
-                try { entry.worker.onmessage = null; } catch {}
-                try { entry.worker.onerror = null; } catch {}
-                try { entry.worker.terminate?.(); } catch {}
-                try { entry.cleanup?.(); } catch {}
-            };
-            const remainingDelay = () => Math.max(0, Number(armed?.dueAt || 0) - Date.now());
-            const activateNextWorker = () => {
-                disposeWorker();
-                while (!destroyed && factoryIndex < factories.length) {
-                    let entry = null;
-                    try { entry = factories[factoryIndex++](); } catch {}
-                    if (!entry?.worker) continue;
-                    const worker = entry.worker;
-                    activeWorker = entry;
-                    worker.onmessage = (event) => {
-                        if (activeWorker?.worker !== worker) return;
-                        const message = event?.data || {};
-                        if (message.type === 'ready') return;
-                        if (message.type !== 'deadline') return;
-                        const token = Number(message.token) || 0;
-                        if (armed?.token === token) {
-                            armed = null;
-                            clearBackup();
-                        }
-                        onDeadline(token);
-                    };
-                    worker.onerror = () => {
-                        if (destroyed || activeWorker?.worker !== worker) return;
-                        // Worker construction can succeed and still fail asynchronously under
-                        // file:// policy. Move to the next inline candidate and preserve the
-                        // original absolute deadline rather than waiting for foreground recovery.
-                        activateNextWorker();
-                    };
-                    if (armed) {
-                        try {
-                            worker.postMessage({ type: 'arm', delay: remainingDelay(), token: armed.token });
-                        } catch {
-                            disposeWorker();
-                            continue;
-                        }
-                    }
-                    return true;
-                }
-                return false;
-            };
-
-            activateNextWorker();
-            if (activeWorker) {
-                return {
-                    mode: 'worker',
-                    arm(delay, token) {
-                        const safeDelay = Math.max(0, Number(delay) || 0);
-                        armed = { token: Number(token) || 0, dueAt: Date.now() + safeDelay };
-                        clearBackup();
-                        // A page timer is only a safety net for environments where every inline
-                        // worker fails silently. The worker remains authoritative in background.
-                        backupTimer = setTimeout(() => {
-                            backupTimer = 0;
-                            if (!armed || armed.token !== (Number(token) || 0)) return;
-                            armed = null;
-                            onDeadline(Number(token) || 0);
-                        }, safeDelay + 2000);
-
-                        while (!destroyed) {
-                            if (!activeWorker && !activateNextWorker()) break;
-                            try {
-                                activeWorker.worker.postMessage({ type: 'arm', delay: remainingDelay(), token: armed.token });
-                                return;
-                            } catch {
-                                activateNextWorker();
-                            }
-                        }
-                    },
-                    cancel(token) {
-                        const numericToken = Number(token) || 0;
-                        if (armed && (!numericToken || armed.token === numericToken)) armed = null;
-                        clearBackup();
-                        try { activeWorker?.worker?.postMessage({ type: 'cancel', token: numericToken }); } catch {}
-                    },
-                    destroy() {
-                        destroyed = true;
-                        armed = null;
-                        clearBackup();
-                        disposeWorker();
-                    }
-                };
-            }
-        }
-
-        let timer = 0;
-        return {
-            mode: 'page-timer',
-            arm(delay, token) {
-                if (timer) clearTimeout(timer);
-                timer = setTimeout(() => {
-                    timer = 0;
-                    onDeadline(token);
-                }, delay);
-            },
-            cancel() {
-                if (timer) clearTimeout(timer);
-                timer = 0;
-            },
-            destroy() {
-                if (timer) clearTimeout(timer);
-                timer = 0;
-            }
-        };
     }
 
     function loadApi() {
@@ -273,7 +67,6 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
             const mount = document.createElement('div');
             mount.className = 'audioflix-spotify-player';
             host.appendChild(mount);
-            window.EveAudioflixSpotifyVolume?.mount?.(host);
             const api = await loadApi();
 
             await new Promise((resolve, reject) => {
@@ -375,7 +168,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     if (markEnded(deadline.durationMs)) emitProgress();
                 };
                 const ensureCompletionScheduler = () => {
-                    if (!completionScheduler) completionScheduler = createCompletionScheduler(handleCompletionDeadline);
+                    if (!completionScheduler) completionScheduler = completion.createScheduler(handleCompletionDeadline);
                     return completionScheduler;
                 };
                 const scheduleCompletionWatchdog = (positionMs, durationMs) => {
@@ -394,10 +187,10 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                         durationMs: effectiveDurationMs
                     };
                     completionTimer = epoch;
-                    ensureCompletionScheduler().arm(Math.max(50, remainingMs + endWatchdogGraceMs()), epoch);
+                    ensureCompletionScheduler().arm(Math.max(50, remainingMs + completion.endWatchdogGraceMs()), epoch);
                 };
                 const seedCompletionFromSelectedItem = () => {
-                    const seededDurationMs = itemDurationMs(selectedItem);
+                    const seededDurationMs = completion.itemDurationMs(selectedItem);
                     if (lastDurationMs <= 0 && seededDurationMs > 0) lastDurationMs = seededDurationMs;
                     if (lastDurationMs <= 0) return;
                     V.playback.duration = lastDurationMs / 1000;
@@ -452,11 +245,12 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                             if (started && !lastPaused && lastDurationMs > 0) scheduleCompletionWatchdog(positionMs, lastDurationMs);
                             return pending;
                         },
-                        // No embed volume API: audioflix.spotify.volume.js gains the shared tab audio.
-                        setVolume: (volume) => window.EveAudioflixSpotifyVolume?.setSpotifyVolume?.(Math.max(0, Math.min(1, Number(volume) || 0))),
+                        // Spotify Embed intentionally has no documented volume API. Keep the optional
+                        // call for forward compatibility, but normal EveOS playback is resolved to an
+                        // independent provider where the universal 0..1 volume contract is owned here.
+                        setVolume: (volume) => controller.setVolume?.(Math.max(0, Math.min(1, Number(volume) || 0))),
                         destroy: () => {
                             clearStartTimer();
-                            window.EveAudioflixSpotifyVolume?.clearSpotify?.();
                             destroyCompletionScheduler();
                             return controller.destroy?.();
                         },
