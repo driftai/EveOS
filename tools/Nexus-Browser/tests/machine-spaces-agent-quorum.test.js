@@ -31,6 +31,27 @@ test('provider identity is pinned to Eve=ChatGPT, Nova=Codex, Vera=Hark', () => 
   assert.throws(() => online(quorum, 'Unknown', 'chatgpt'), { code: 'MACHINE_AGENT_UNKNOWN' });
 });
 
+test('presence evidence is exact-once and conflicting provenance reuse is rejected', () => {
+  const { quorum, advance } = coordinator();
+  const input = {
+    agent: 'Eve', provider: 'chatgpt', available: true,
+    roomId: 'room-machine-spaces', memberId: 'member-eve',
+    evidenceId: 'msg-eve-proof', source: 'dex-provider-control'
+  };
+  const first = quorum.reportPresence(input);
+  advance(5000);
+  const duplicate = quorum.reportPresence(input);
+  assert.deepEqual(duplicate, first);
+  let snapshot = quorum.snapshot();
+  assert.equal(snapshot.events.filter((entry) => entry.type === 'presence' && entry.evidenceId === 'msg-eve-proof').length, 1);
+
+  assert.throws(() => quorum.reportPresence({ ...input, roomId: 'room-other' }), {
+    code: 'MACHINE_AGENT_PRESENCE_EVIDENCE_CONFLICT'
+  });
+  snapshot = quorum.snapshot();
+  assert.equal(snapshot.events.filter((entry) => entry.type === 'presence' && entry.evidenceId === 'msg-eve-proof').length, 1);
+});
+
 test('fresh availability evidence controls quorum eligibility', () => {
   const { quorum, advance } = coordinator();
   online(quorum, 'Eve', 'chatgpt');
