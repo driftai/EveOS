@@ -53,7 +53,7 @@ web_modules/
 # Optional eslint cache
 .eslintcache
 
-# Optional stylelint cache
+# Optional stylelint cache directory
 .stylelintcache
 
 # Optional REPL history
@@ -201,6 +201,10 @@ chat_history.json
 
 # Audioflix: machine-local list of folders authorized for local file serving (absolute paths).
 server_modules/audioflix_allowed_dirs.json
+
+# Audioflix Spotify probe artifacts contain machine-local browser/session state; never commit.
+/.spotify-probe-profile/
+/spotify-volume-probe.mjs
 
 # World Book: application code is public; every runtime/user-data artifact stays local.
 extension/modules/
