@@ -2,18 +2,26 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createTrustedTerminalAttachmentRegistry } = require('../machine-spaces/trusted-terminal-attachment');
+const { calculateProof, createTrustedTerminalAttachmentRegistry } = require('../machine-spaces/trusted-terminal-attachment');
 
-function fixture() {
+const ADAPTER_SECRET = 'server-side-adapter-secret';
+
+function fixture({ trusted = true } = {}) {
   let clock = Date.parse('2026-10-08T13:00:00.000Z');
   let n = 0;
+  let secret = trusted ? ADAPTER_SECRET : null;
   const registry = createTrustedTerminalAttachmentRegistry({
     now: () => clock,
     idFactory: () => `id-${++n}`,
+    getAdapterSecret: (adapterId) => adapterId === 'adapter-one' ? secret : null,
     challengeTtlMs: 10000,
     trustTtlMs: 60000
   });
-  return { registry, advance(ms) { clock += ms; } };
+  return {
+    registry,
+    advance(ms) { clock += ms; },
+    revokeAdapterCredential() { secret = null; }
+  };
 }
 
 function challenge(registry) {
@@ -23,51 +31,58 @@ function challenge(registry) {
   });
 }
 
+function proof(opened, secret = ADAPTER_SECRET) {
+  return calculateProof(opened, secret);
+}
+
+test('unregistered adapters cannot even obtain an attachment challenge', () => {
+  const { registry } = fixture({ trusted: false });
+  assert.throws(() => challenge(registry), { code: 'MACHINE_TRUSTED_ATTACH_ADAPTER_UNTRUSTED' });
+});
+
 test('trusted attach requires exact one-time challenge proof and local owner identity', () => {
   const { registry } = fixture();
   const opened = challenge(registry);
-  const adapterSecret = 'ephemeral-adapter-proof';
-  const proof = registry.expectedProof({
-    ...opened,
-    cwd: 'C:\\repo', shellType: 'powershell', ownerId: 'machine-owner-one'
-  }, adapterSecret);
-  const record = registry.attest({ challengeId: opened.challengeId, ownerId: 'machine-owner-one', adapterSecret, proof });
+  const record = registry.attest({ challengeId: opened.challengeId, ownerId: 'machine-owner-one', proof: proof(opened) });
   assert.equal(record.enabled, true);
   assert.deepEqual(record.capabilities, ['observe', 'interrupt']);
-  assert.throws(() => registry.attest({ challengeId: opened.challengeId, ownerId: 'machine-owner-one', adapterSecret, proof }), {
+  assert.throws(() => registry.attest({ challengeId: opened.challengeId, ownerId: 'machine-owner-one', proof: proof(opened) }), {
     code: 'MACHINE_TRUSTED_ATTACH_CHALLENGE_UNKNOWN'
   });
 });
 
-test('bad proof, wrong owner and expired challenge fail closed', () => {
+test('bad proof, wrong owner, revoked adapter credential and expired challenge fail closed', () => {
   const wrongProof = fixture();
   const first = challenge(wrongProof.registry);
-  assert.throws(() => wrongProof.registry.attest({ challengeId: first.challengeId, ownerId: 'machine-owner-one', adapterSecret: 'x', proof: 'bad' }), {
+  assert.throws(() => wrongProof.registry.attest({ challengeId: first.challengeId, ownerId: 'machine-owner-one', proof: 'bad' }), {
     code: 'MACHINE_TRUSTED_ATTACH_PROOF_INVALID'
   });
 
   const wrongOwner = fixture();
   const second = challenge(wrongOwner.registry);
-  const secret = 'proof';
-  const proof = wrongOwner.registry.expectedProof({ ...second, cwd: 'C:\\repo', shellType: 'powershell', ownerId: 'machine-owner-one' }, secret);
-  assert.throws(() => wrongOwner.registry.attest({ challengeId: second.challengeId, ownerId: 'other-owner', adapterSecret: secret, proof }), {
+  assert.throws(() => wrongOwner.registry.attest({ challengeId: second.challengeId, ownerId: 'other-owner', proof: proof(second) }), {
     code: 'MACHINE_TRUSTED_ATTACH_OWNER_MISMATCH'
+  });
+
+  const revoked = fixture();
+  const revokedChallenge = challenge(revoked.registry);
+  revoked.revokeAdapterCredential();
+  assert.throws(() => revoked.registry.attest({ challengeId: revokedChallenge.challengeId, ownerId: 'machine-owner-one', proof: proof(revokedChallenge) }), {
+    code: 'MACHINE_TRUSTED_ATTACH_ADAPTER_UNTRUSTED'
   });
 
   const expired = fixture();
   const third = challenge(expired.registry);
   expired.advance(10001);
-  const expiredProof = expired.registry.expectedProof({ ...third, cwd: 'C:\\repo', shellType: 'powershell', ownerId: 'machine-owner-one' }, secret);
-  assert.throws(() => expired.registry.attest({ challengeId: third.challengeId, ownerId: 'machine-owner-one', adapterSecret: secret, proof: expiredProof }), {
+  assert.throws(() => expired.registry.attest({ challengeId: third.challengeId, ownerId: 'machine-owner-one', proof: proof(third) }), {
     code: 'MACHINE_TRUSTED_ATTACH_CHALLENGE_EXPIRED'
   });
 });
 
 test('trusted attachment never grants command execution authority', () => {
   const { registry } = fixture();
-  const opened = challenge(registry), secret = 'proof';
-  const proof = registry.expectedProof({ ...opened, cwd: 'C:\\repo', shellType: 'powershell', ownerId: 'machine-owner-one' }, secret);
-  const record = registry.attest({ challengeId: opened.challengeId, ownerId: 'machine-owner-one', adapterSecret: secret, proof });
+  const opened = challenge(registry);
+  const record = registry.attest({ challengeId: opened.challengeId, ownerId: 'machine-owner-one', proof: proof(opened) });
   assert.equal(registry.authorize(record.attachmentId, {
     targetId: record.targetId, processEpoch: record.processEpoch, adapterId: record.adapterId, capability: 'observe'
   }).allowed, true);
@@ -81,17 +96,15 @@ test('trusted attachment never grants command execution authority', () => {
 
 test('expiry and local revocation invalidate attachment immediately', () => {
   const { registry, advance } = fixture();
-  const opened = challenge(registry), secret = 'proof';
-  const proof = registry.expectedProof({ ...opened, cwd: 'C:\\repo', shellType: 'powershell', ownerId: 'machine-owner-one' }, secret);
-  const record = registry.attest({ challengeId: opened.challengeId, ownerId: 'machine-owner-one', adapterSecret: secret, proof });
+  const opened = challenge(registry);
+  const record = registry.attest({ challengeId: opened.challengeId, ownerId: 'machine-owner-one', proof: proof(opened) });
   advance(60001);
   assert.equal(registry.authorize(record.attachmentId, {
     targetId: record.targetId, processEpoch: record.processEpoch, adapterId: record.adapterId, capability: 'observe'
   }).reason, 'attachment-expired');
 
   const next = challenge(registry);
-  const nextProof = registry.expectedProof({ ...next, cwd: 'C:\\repo', shellType: 'powershell', ownerId: 'machine-owner-one' }, secret);
-  const trusted = registry.attest({ challengeId: next.challengeId, ownerId: 'machine-owner-one', adapterSecret: secret, proof: nextProof });
+  const trusted = registry.attest({ challengeId: next.challengeId, ownerId: 'machine-owner-one', proof: proof(next) });
   registry.revoke(trusted.attachmentId);
   assert.equal(registry.authorize(trusted.attachmentId, {
     targetId: trusted.targetId, processEpoch: trusted.processEpoch, adapterId: trusted.adapterId, capability: 'observe'
