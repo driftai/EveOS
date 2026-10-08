@@ -68,6 +68,17 @@ function focusedTests() {
   };
 }
 
+function assembleExtension() {
+  const script = path.resolve(__dirname, '../../extensions/assemble.cjs');
+  const result = run(process.execPath, [script, '--write']);
+  return {
+    status: result.status === 0 ? 'PASS' : 'FAIL',
+    exitCode: result.status,
+    stdout: String(result.stdout || '').trim(),
+    stderr: String(result.stderr || '').trim()
+  };
+}
+
 function liveSafety(doctor) {
   const reasons = [];
   if (!doctor?.ok) reasons.push(...(doctor?.issues || ['bridge doctor did not pass']));
@@ -248,8 +259,10 @@ async function doctorSnapshot() {
 async function chatgptLive({ doctor, warmTabId, timeoutMs }) {
   const safety = liveSafety(doctor);
   if (!safety.ok) return { status: 'BLOCKED', reason: 'Unsafe to disturb provider state.', safety };
+  const assembly = assembleExtension();
+  if (assembly.status !== 'PASS') return { status: 'FAIL', assembly, reason: 'Extension assembly failed.' };
   const reload = await runExtensionReload();
-  if (!reload?.ok) return { status: 'FAIL', reload, reason: reload?.message || 'Extension reload failed.' };
+  if (!reload?.ok) return { status: 'FAIL', assembly, reload, reason: reload?.message || 'Extension reload failed.' };
   const qualification = await runQualification({
     providerId: 'chatgpt',
     recoveryTarget: 'warm',
@@ -258,6 +271,7 @@ async function chatgptLive({ doctor, warmTabId, timeoutMs }) {
   });
   return {
     status: qualification.status,
+    assembly,
     reload,
     noRefreshWarmTarget: qualification.postDispatchRecovery?.targetMode === 'preexisting-warm',
     qualification
@@ -319,6 +333,7 @@ module.exports = {
   liveSafety,
   gitSnapshot,
   focusedTests,
+  assembleExtension,
   windowsLive,
   chatgptLive,
   runQualificationReport,
