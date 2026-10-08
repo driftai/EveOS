@@ -82,7 +82,6 @@
             controllerDirect: state.controllerDirect,
             managedControl: state.managedControl,
             helperReachable: state.helperReachable,
-            managedSessionId: state.managedSessionId,
             authState: state.authState,
             itemVolume: state.itemVolume,
             volume: state.spotifyVolume,
@@ -205,9 +204,11 @@
             return snapshot();
         }
         try {
-            const result = await api('/status');
-            const match = result?.helperReachable === true
-                && String(result?.sessionId || '') === state.managedSessionId;
+            const result = await api('/session-status', {
+                method: 'POST',
+                body: JSON.stringify({ sessionId: state.managedSessionId })
+            });
+            const match = result?.helperReachable === true && result?.sessionMatch === true;
             state.helperReachable = match;
             state.managedControl = match;
             state.authState = String(result?.authState || 'unknown');
