@@ -110,7 +110,7 @@
             <!-- MODULE INJECTION POINT -->
             <div class="info-row">
                 <div id="weather-span" onclick="fetchWeather()"
-                    style="display:none; cursor:pointer; align-items:center; gap:8px;">
+                    style="display:none; cursor:pointer; align-items:center; gap:8px; margin-bottom:10px;">
                     <span id="weather-icon">☁️</span>
                     <span id="weather-text">Weather</span>
                 </div>
@@ -160,7 +160,7 @@
                     <button class="popup-nav-btn" id="popupBackBtn" onclick="PopupManager.navigatePopupBack()"
                         title="Go back" disabled>←</button>
                     <button class="popup-nav-btn" id="popupForwardBtn" onclick="PopupManager.navigatePopupForward()"
-                        title="Go forward">→</button>
+                        title="Go forward" disabled>→</button>
                 </div>
                 <h3 class="popup-title" id="wikiPopupTitle">Wiki Preview</h3>
                 <button class="popup-close" onclick="PopupManager.closePopup()">×</button>
