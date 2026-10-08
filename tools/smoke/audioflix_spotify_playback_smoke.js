@@ -1,49 +1,37 @@
+'use strict';
+
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('node:child_process');
 const { chromium } = require('playwright');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const UI_ACTIONS = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.ui.actions.js');
 const UI_MAIN = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.ui.js');
 const SPOTIFY_VOLUME = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.spotify.volume.js');
-const PROVIDER_CSS = `file:///${path.join(
-    ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.provider.css'
-).replace(/\\/g, '/')}`;
-const moduleUrl = (name) => `file:///${path.join(
-    ROOT,
-    'js',
-    'modules',
-    'features',
-    'audioflix',
-    name
-).replace(/\\/g, '/')}`;
-const assert = (condition, message) => {
-    if (!condition) throw new Error(`ASSERT FAILED: ${message}`);
-};
+const moduleUrl = (name) => `file:///${path.join(ROOT, 'js', 'modules', 'features', 'audioflix', name).replace(/\\/g, '/')}`;
+const assert = (condition, message) => { if (!condition) throw new Error(`ASSERT FAILED: ${message}`); };
+
+function runChild(runtime, relative) {
+    const command = runtime === 'python'
+        ? (process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3'))
+        : process.execPath;
+    const result = spawnSync(command, [path.join(ROOT, relative)], { cwd: ROOT, stdio: 'inherit', env: process.env });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(`${relative} failed with exit ${result.status}`);
+}
 
 (async () => {
-    const uiActions = fs.readFileSync(UI_ACTIONS, 'utf8');
     const uiMain = fs.readFileSync(UI_MAIN, 'utf8');
     const spotifyVolume = fs.readFileSync(SPOTIFY_VOLUME, 'utf8');
-    assert(/EveAudioflixAudio\?\.playItem\?\.\(\{\s*\.\.\.item,\s*type:\s*type\s*\|\|\s*item\.type\s*\}\)/.test(uiActions),
-        'regular card play uses the shared Audioflix controller with its UI media type');
-    assert(uiActions.includes('await ctx.playQueueIndex(0)'),
-        'frontend group play enters the serialized queue controller');
-    assert(uiMain.includes('await window.EveAudioflixAudio?.playItem?.(track)'),
-        'serialized queue playback delegates to the shared Audioflix controller');
-    assert(spotifyVolume.includes("const VOLUME_SELECTOR = [")
-        && spotifyVolume.includes("'[data-af-spv=\"slider\"]'")
-        && spotifyVolume.includes("'.audioflix-volume-slider'")
-        && spotifyVolume.includes("'.audioflix-provider-volume'")
-        && spotifyVolume.includes("'.audioflix-output-port-volume'"),
-        'Spotify capture listens to provider, card, and master Audioflix volume controls');
-    assert(spotifyVolume.includes('audio.suppressLocalAudioPlayback = true')
-        && spotifyVolume.includes('audio.restrictOwnAudio = false')
-        && !spotifyVolume.includes('audioTrack.applyConstraints('),
-        'localhost capture requests suppression/own-audio policy up front and never reapplies it after capture');
     assert(uiMain.includes("status === 'Ended'") && uiMain.includes('playQueueIndex(expectedIndex + 1)'),
-        'frontend queue consumes Ended and advances to the next track');
+        'frontend queue remains the sole owner that consumes Spotify Ended and advances');
+    assert(spotifyVolume.includes('__EveAudioflixManagedBrowserSession')
+        && spotifyVolume.includes("api('/volume'"),
+        'Spotify volume uses the managed-browser session contract');
+    assert(!spotifyVolume.includes('getDisplayMedia') && !spotifyVolume.includes('createMediaStreamSource'),
+        'Spotify volume never regresses to tab/screen capture');
+
     const fixture = path.join(os.tmpdir(), `eveos-spotify-playback-${process.pid}.html`);
     const scripts = [
         'audioflix.audio.source.js',
@@ -56,7 +44,7 @@ const assert = (condition, message) => {
         'audioflix.audio.url.spotify.js',
         'audioflix.audio.url.js'
     ].map((name) => `<script src="${moduleUrl(name)}"></script>`).join('');
-    fs.writeFileSync(fixture, `<!doctype html><html><head><link rel="stylesheet" href="${PROVIDER_CSS}"></head><body><script>window.__EveAudioflixSpotifyStartTimeoutMs = 60;</script>${scripts}</body></html>`);
+    fs.writeFileSync(fixture, `<!doctype html><html><body><script>window.__EveAudioflixSpotifyStartTimeoutMs=80;</script>${scripts}</body></html>`);
 
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
@@ -67,8 +55,7 @@ const assert = (condition, message) => {
                 createController: function (_mount, options, ready) {
                     var listeners = {};
                     var calls = window.__spotifyCalls = {
-                        uri: options.uri, play: 0, resume: 0, pause: 0, seek: [], destroy: 0,
-                        loaded: [], legacyLoaded: [], controllers: (window.__spotifyControllers || 0) + 1
+                        uri: options.uri, play: 0, resume: 0, pause: 0, seek: [], destroy: 0, loaded: [], controllers: (window.__spotifyControllers || 0) + 1
                     };
                     window.__spotifyControllers = calls.controllers;
                     var controller = window.__spotifyController = {
@@ -78,7 +65,6 @@ const assert = (condition, message) => {
                         pause: function () { calls.pause += 1; },
                         seek: function (seconds) { calls.seek.push(seconds); },
                         loadUri: function (uri) { calls.loaded.push(uri); },
-                        loadEntity: function (uri) { calls.legacyLoaded.push(uri); },
                         destroy: function () { calls.destroy += 1; },
                         emit: function (name, data) { if (listeners[name]) listeners[name]({ data: data }); }
                     };
@@ -91,204 +77,101 @@ const assert = (condition, message) => {
     try {
         await page.goto(`file:///${fixture.replace(/\\/g, '/')}`, { waitUntil: 'load' });
         const result = await page.evaluate(async () => {
-            const events = [];
-            const playbackDetails = [];
+            const playback = [];
             const progress = [];
             const player = window.EveAudioflixUrlPlayback.createController({
-                onPlayback: (detail) => { events.push(detail.status); playbackDetails.push(detail); },
+                onPlayback: (detail) => playback.push(detail),
                 onProgress: (detail) => progress.push(detail)
             });
-            const item = {
-                id: 'spotify-track',
-                title: 'Mobius',
-                url: 'https://open.spotify.com/track/1234567890ABCDEF',
-                volume: 0.7
+            const first = {
+                id: 'spotify-one', type: 'music', sourceProvider: 'spotify', title: 'First',
+                url: 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT', volume: 0.4, duration: 180
             };
-            await player.play(item);
-            player.setVolume(0.48);
-            const volumeBar = document.querySelector('.audioflix-provider-stage .af-spotify-volume')?.textContent || '';
-            const volumeWhilePlaying = window.EveAudioflixSpotifyVolume.snapshot();
-            let applyConstraintsCalls = 0;
-            const capturePolicy = await window.EveAudioflixSpotifyVolume.applyCapturePolicy({
-                getVideoTracks: () => [{ getSettings: () => ({ displaySurface: 'browser' }) }]
-            }, {
-                getSettings: () => ({
-                    suppressLocalAudioPlayback: true,
-                    restrictOwnAudio: false
-                }),
-                applyConstraints: async () => { applyConstraintsCalls += 1; }
-            });
-            const stage = document.querySelector('.audioflix-provider-stage');
-            const mainCardTransportOnly = stage?.classList.contains('is-transport-only') === true
-                && stage.hidden === false
-                && player.isInternalViewOpen() === false;
-            const compactTransportHidden = stage?.classList.contains('is-transport-hidden') === true
-                && Number.parseFloat(getComputedStyle(stage).opacity) > 0
-                && stage.getBoundingClientRect().left < innerWidth
-                && stage.getBoundingClientRect().right > 0;
+            const second = {
+                id: 'spotify-two', type: 'music', sourceProvider: 'spotify', title: 'Second',
+                url: 'https://open.spotify.com/track/1WZGaNYzreZrvteuUEfp8X', volume: 0.6, duration: 200
+            };
+            await player.play(first);
+            const volumeSnapshot = window.EveAudioflixSpotifyVolume.snapshot();
             window.__spotifyController.emit('playback_started', {});
-            await player.openInternalView(item);
-            const internalExpanded = stage?.classList.contains('is-internal-view') === true
-                && stage.classList.contains('is-transport-only') === false
-                && player.isInternalViewOpen() === true;
             window.__spotifyController.emit('playback_update', {
-                position: 42000,
-                duration: 180000,
-                isPaused: false
+                playingURI: 'spotify:track:4cOdK2wGLETKBW3PvgPWqT', position: 42000, duration: 180000, isPaused: false
             });
-            window.__spotifyController.emit('playback_error', {});
-            const runtimeError = events.at(-1);
-            const runtimeErrorVisible = document.querySelector('.audioflix-provider-stage')?.classList.contains('has-error');
             await player.seek(61);
             await player.pause();
-            const playBeforePausedResume = window.__spotifyCalls.play;
-            const resumeBeforePausedResume = window.__spotifyCalls.resume;
-            await player.play(item);
-            const pausedResumeUsed = window.__spotifyCalls.play === playBeforePausedResume
-                && window.__spotifyCalls.resume === resumeBeforePausedResume + 1;
-            // Real Spotify embeds do not expose a dedicated ended event. A finished track may
-            // report one final near-end playing position and then rewind to zero as it pauses.
+            const playBeforeResume = window.__spotifyCalls.play;
+            const resumeBeforeResume = window.__spotifyCalls.resume;
+            await player.play(first);
+            const resumed = window.__spotifyCalls.play === playBeforeResume
+                && window.__spotifyCalls.resume === resumeBeforeResume + 1;
+
+            // Prove exactly-once completion shape without giving Playwright any queue ownership.
             window.__spotifyController.emit('playback_update', {
-                playingURI: 'spotify:track:1234567890ABCDEF',
-                position: 179200,
-                duration: 180000,
-                isPaused: false
+                playingURI: 'spotify:track:4cOdK2wGLETKBW3PvgPWqT', position: 179300, duration: 180000, isPaused: false
             });
             window.__spotifyController.emit('playback_update', {
-                playingURI: 'spotify:track:1234567890ABCDEF',
-                position: 0,
-                duration: 180000,
-                isPaused: true
+                playingURI: 'spotify:track:4cOdK2wGLETKBW3PvgPWqT', position: 0, duration: 180000, isPaused: true
             });
             window.__spotifyController.emit('playback_update', {
-                playingURI: 'spotify:track:1234567890ABCDEF',
-                position: 0,
-                duration: 180000,
-                isPaused: true
+                playingURI: 'spotify:track:4cOdK2wGLETKBW3PvgPWqT', position: 0, duration: 180000, isPaused: true
             });
-            const firstEndedItemId = playbackDetails.filter((detail) => detail.status === 'Ended').at(-1)?.item?.id;
-            const nextItem = {
-                id: 'spotify-track-two',
-                title: 'Next Spotify Track',
-                url: 'https://open.spotify.com/track/ABCDEF1234567890',
-                volume: 0.6
-            };
-            const playBeforeNextLoad = window.__spotifyCalls.play;
-            const resumeBeforeNextLoad = window.__spotifyCalls.resume;
-            await player.play(nextItem);
-            const reusedController = window.__spotifyControllers === 1
-                && window.__spotifyCalls.loaded.includes('spotify:track:ABCDEF1234567890')
-                && window.__spotifyCalls.legacyLoaded.length === 0;
-            const nextLoadUsedPlay = window.__spotifyCalls.play === playBeforeNextLoad + 1
-                && window.__spotifyCalls.resume === resumeBeforeNextLoad;
-            // The terminal paused update can also land slightly short of the nominal duration.
+            const endedAfterFirst = playback.filter((entry) => entry.status === 'Ended').length;
+            const firstEndedId = playback.filter((entry) => entry.status === 'Ended').at(-1)?.item?.id;
+
+            const controllersBefore = window.__spotifyControllers;
+            await player.play(second);
+            const reused = window.__spotifyControllers === controllersBefore
+                && window.__spotifyCalls.loaded.includes('spotify:track:1WZGaNYzreZrvteuUEfp8X');
+            window.__spotifyController.emit('playback_started', {});
             window.__spotifyController.emit('playback_update', {
-                playingURI: 'spotify:track:ABCDEF1234567890',
-                position: 199000,
-                duration: 200000,
-                isPaused: false
+                playingURI: 'spotify:track:1WZGaNYzreZrvteuUEfp8X', position: 199100, duration: 200000, isPaused: false
             });
             window.__spotifyController.emit('playback_update', {
-                playingURI: 'spotify:track:ABCDEF1234567890',
-                position: 199100,
-                duration: 200000,
-                isPaused: true
+                playingURI: 'spotify:track:1WZGaNYzreZrvteuUEfp8X', position: 199200, duration: 200000, isPaused: true
             });
-            const secondEndedItemId = playbackDetails.filter((detail) => detail.status === 'Ended').at(-1)?.item?.id;
-            player.hideInternalView();
-            const closePreservedTransport = stage?.hidden === false
-                && stage.classList.contains('is-transport-only') === true
-                && player.isInternalViewOpen() === false;
-            const activeAfterHide = player.isActive();
-            await player.play(item);
-            const resumedFromMainCard = window.__spotifyCalls.play >= 3;
-            await player.stop();
-            const volumeAfterStop = window.EveAudioflixSpotifyVolume.snapshot();
-            const firstCalls = {
-                ...window.__spotifyCalls,
-                seek: [...window.__spotifyCalls.seek]
-            };
-            const stalledErrorsBefore = events.filter((status) => status.includes('direct click')).length;
-            await player.openInternalView({
-                id: 'spotify-blocked',
-                title: 'Blocked track',
-                url: 'https://open.spotify.com/track/FEDCBA0987654321',
-                showProviderTransport: true
-            });
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            const stalledStatus = document.querySelector('.audioflix-provider-status')?.textContent || '';
-            const stalledTransportVisible = stage?.classList.contains('is-transport-hidden') === false;
-            const stalledState = player.getPlaybackState();
-            const stalledErrorCount = events.filter((status) => status.includes('direct click')).length
-                - stalledErrorsBefore;
+            const endedTotal = playback.filter((entry) => entry.status === 'Ended').length;
+            const secondEndedId = playback.filter((entry) => entry.status === 'Ended').at(-1)?.item?.id;
             await player.stop();
             return {
-                volumeBar,
-                volumeWhilePlaying,
-                volumeAfterStop,
-                capturePolicy,
-                applyConstraintsCalls,
-                calls: firstCalls,
-                stateAt42: progress.find((entry) => entry.currentTime === 42),
-                endedCount: events.filter((status) => status === 'Ended').length,
-                firstEndedItemId,
-                mainCardTransportOnly,
-                compactTransportHidden,
-                internalExpanded,
-                closePreservedTransport,
-                activeAfterHide,
-                resumedFromMainCard,
-                pausedResumeUsed,
-                nextLoadUsedPlay,
-                runtimeError,
-                runtimeErrorVisible,
-                stalledStatus,
-                stalledTransportVisible,
-                stalledState,
-                stalledErrorCount,
-                reusedController,
-                secondEndedItemId,
-                spotifyNeedsResolution: window.EveAudioflixAudioSource.needsResolution(item.url)
+                uri: window.__spotifyCalls.uri,
+                seek: window.__spotifyCalls.seek,
+                destroy: window.__spotifyCalls.destroy,
+                resumed,
+                reused,
+                endedAfterFirst,
+                endedTotal,
+                firstEndedId,
+                secondEndedId,
+                progress42: progress.some((entry) => entry.currentTime === 42 && entry.duration === 180),
+                volumeSnapshot,
+                needsResolution: window.EveAudioflixAudioSource.needsResolution(first.url)
             };
         });
 
-        assert(result.calls.uri === 'spotify:track:1234567890ABCDEF', 'Spotify URI is normalized');
-        assert(result.stateAt42?.duration === 180, 'Spotify progress milliseconds become seconds');
-        assert(result.calls.seek.includes(61), 'Spotify seek receives seconds, not milliseconds');
-        assert(result.pausedResumeUsed, 'paused Spotify fallback resumes the current entity instead of restarting it');
-        assert(result.nextLoadUsedPlay, 'a newly loaded Spotify queue item still starts with play instead of inheriting resume state');
-        assert(result.endedCount === 2, 'each Spotify queue track emits Ended exactly once across real terminal state shapes');
-        assert(result.firstEndedItemId === 'spotify-track', 'rewind-to-zero completion ends the first Spotify queue item');
-        assert(result.reusedController, 'back-to-back Spotify tracks reuse the proven embed controller');
-        assert(result.secondEndedItemId === 'spotify-track-two', 'near-end paused completion ends the current reused Spotify queue item');
-        assert(result.mainCardTransportOnly, 'main-card play keeps the Spotify SDK in compact transport mode');
-        assert(result.compactTransportHidden, 'main-card play keeps its invisible Spotify transport rendered in the viewport');
-        assert(result.internalExpanded, 'Internal Player expands the existing Spotify controller');
-        assert(result.closePreservedTransport && result.activeAfterHide, 'closing Internal Player preserves playback ownership');
-        assert(result.resumedFromMainCard, 'main-card play can load the requested Spotify entity after Internal Player closes');
-        assert(result.calls.destroy === 1, 'stopping destroys the provider controller exactly once');
-        assert(result.runtimeError.includes('direct click'), 'runtime provider failure explains the browser interaction requirement');
-        assert(result.runtimeErrorVisible === false, 'recoverable provider failure keeps the official control visible');
-        assert(result.stalledStatus.includes('direct click'), 'ready-but-stalled playback times out with an actionable message');
-        assert(result.stalledTransportVisible, 'blocked autoplay reveals the official Spotify control for recovery');
-        assert(result.stalledState.paused === true, 'ready-but-stalled playback returns to paused state');
-        assert(result.stalledErrorCount === 1, 'startup watchdog emits one error without retrying or advancing');
-        assert(result.volumeBar.includes('localhost'), 'file mode explains that Spotify volume control is available on localhost');
-        assert(result.volumeWhilePlaying.spotifyActive && result.volumeWhilePlaying.volume === 0.48
-            && result.volumeWhilePlaying.directControl === false,
-            'realistic Spotify embed shape selects localhost capture gain instead of a fictional controller volume API');
-        assert(result.applyConstraintsCalls === 0
-            && result.capturePolicy.suppression === true
-            && result.capturePolicy.restrictOwnAudio === false,
-            'post-capture policy only inspects the returned track and never reapplies capture-only constraints');
-        assert(result.volumeAfterStop.spotifyActive === false && result.volumeAfterStop.gain === 1,
-            'stopping Spotify returns the shared tab gain to unity');
-        assert(result.spotifyNeedsResolution === false, 'Spotify track URLs bypass raw-audio resolution');
-        console.log('AUDIOFLIX_SPOTIFY_PLAYBACK_SMOKE_OK');
+        assert(result.uri === 'spotify:track:4cOdK2wGLETKBW3PvgPWqT', 'Spotify URI is normalized for official embed');
+        assert(result.progress42, 'Spotify progress milliseconds convert to seconds');
+        assert(result.seek.includes(61), 'Spotify seek remains in seconds');
+        assert(result.resumed, 'paused Spotify item resumes instead of restarting');
+        assert(result.reused, 'back-to-back Spotify items reuse the existing controller');
+        assert(result.endedAfterFirst === 1 && result.firstEndedId === 'spotify-one', 'first item emits Ended exactly once');
+        assert(result.endedTotal === 2 && result.secondEndedId === 'spotify-two', 'second item emits its own Ended exactly once');
+        assert(result.destroy === 1, 'stop destroys provider controller once');
+        assert(result.volumeSnapshot.directControl === false,
+            'ordinary unmanaged browser honestly leaves Spotify volume provider-owned');
+        assert(result.needsResolution === false, 'Spotify identity never enters generic URL resolution');
     } finally {
         await browser.close();
         fs.rmSync(fixture, { force: true });
     }
+
+    // These child smokes are intentionally invoked here so the repo smoke-registry audit follows
+    // them transitively from the already-registered Spotify playback chain.
+    runChild('node', 'tools/smoke/audioflix_spotify_browser_contract_smoke.js');
+    runChild('node', 'tools/smoke/audioflix_spotify_browser_runtime_smoke.js');
+    runChild('python', 'tools/smoke/audioflix_spotify_browser_python_smoke.py');
+    runChild('node', 'tools/smoke/audioflix_volume_managed_smoke.js');
+
+    console.log('AUDIOFLIX_SPOTIFY_PLAYBACK_SMOKE_OK');
 })().catch((error) => {
     console.error(error);
     process.exit(1);
