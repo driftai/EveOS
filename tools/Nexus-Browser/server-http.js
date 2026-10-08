@@ -12,6 +12,7 @@ const MIME = Object.freeze({
   '.json': 'application/json; charset=utf-8'
 });
 const INDEX_ENHANCEMENTS = Object.freeze([
+  '<script src="/machine-human-gate-ui.js"></script>',
   '<script src="/machine-supervised-jobs-ui.js"></script>'
 ]);
 
