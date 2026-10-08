@@ -47,6 +47,7 @@ function createManagedTerminalBroker({
   now = () => Date.now(),
   idFactory = () => randomUUID(),
   executableCheck = null,
+  processKill = (pid, signal) => process.kill(pid, signal),
   timeoutMs = DEFAULT_TIMEOUT_MS,
   maxOutputBytes = DEFAULT_OUTPUT_BYTES,
   supervisedTimeoutMs = DEFAULT_SUPERVISED_TIMEOUT_MS
@@ -62,6 +63,18 @@ function createManagedTerminalBroker({
     return directories.some((directory) => {
       try { return fsImpl.statSync(path.join(directory, file)).isFile(); } catch { return false; }
     });
+  }
+
+  // POSIX: children run in their own process group so an interrupt/timeout reaches
+  // native grandchildren too (e.g. `sleep` resolves to /usr/bin/sleep under pwsh on
+  // Linux). Killing only the shell orphans the grandchild, which keeps stdio open, so
+  // 'close' never fires and the terminal stays busy forever. Windows keeps child.kill()
+  // until a Job Object/tree-kill adapter exists.
+  function killTree(child) {
+    if (platform !== 'win32' && Number.isInteger(child?.pid) && child.pid > 0) {
+      try { processKill(-child.pid, 'SIGTERM'); return true; } catch {}
+    }
+    try { return child.kill(); } catch { return false; }
   }
 
   function canonicalDirectory(input) {
@@ -148,6 +161,7 @@ function createManagedTerminalBroker({
         env: process.env,
         shell: false,
         windowsHide: true,
+        detached: platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe']
       });
     } catch (error) {
@@ -180,7 +194,7 @@ function createManagedTerminalBroker({
       let bytes = 0, finished = false;
       const timer = setTimeout(() => {
         state.timedOut = true;
-        try { child.kill(); } catch {}
+        killTree(child);
       }, timeoutMs);
       const collect = (bucket) => (chunk) => {
         if (finished) return;
@@ -188,7 +202,7 @@ function createManagedTerminalBroker({
         bytes += buffer.length;
         if (bytes > maxOutputBytes) {
           state.exceeded = true;
-          try { child.kill(); } catch {}
+          killTree(child);
           return;
         }
         bucket.push(buffer);
@@ -238,7 +252,7 @@ function createManagedTerminalBroker({
       let storedBytes = 0, totalBytes = 0, finished = false, outputTruncated = false;
       const timer = setTimeout(() => {
         state.timedOut = true;
-        try { child.kill(); } catch {}
+        killTree(child);
       }, supervisedTimeoutMs);
       const collect = (stream, bucket) => (chunk) => {
         if (finished) return;
@@ -293,7 +307,7 @@ function createManagedTerminalBroker({
     const state = active.get(String(targetId || ''));
     if (!state) return false;
     state.interrupted = true;
-    try { return state.child.kill(); } catch { return false; }
+    return killTree(state.child);
   }
 
   function activeInfo(targetId) {

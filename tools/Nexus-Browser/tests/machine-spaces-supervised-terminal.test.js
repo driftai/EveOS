@@ -86,3 +86,35 @@ test('interrupting a supervised server settles as outcome-unknown rather than su
     assert.equal(result.reason, 'interrupted');
   } finally { f.cleanup(); }
 });
+
+test('POSIX interrupt signals the whole process group so native grandchildren cannot pin the terminal', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-supervised-posix-'));
+  const kills = []; let child = null; let spawnOptions = null;
+  const broker = createManagedTerminalBroker({
+    platform: 'linux', defaultCwd: root, executableCheck: () => true,
+    idFactory: (() => { let n = 0; return () => `posix-${++n}`; })(),
+    spawnImpl(file, args, options) { spawnOptions = options; child = fakeChild(); child.kill = () => { kills.push('child'); return true; }; return child; },
+    processKill(pid, signal) { kills.push([pid, signal]); queueMicrotask(() => child.emit('close', null, 'SIGTERM')); }
+  });
+  try {
+    const target = broker.createSession({ type: 'pwsh', cwd: root });
+    const promise = broker.runSupervised({ targetId: target.id, processEpoch: target.processEpoch, requestId: 'posix-tree', command: 'sleep 300' });
+    assert.equal(spawnOptions.detached, true);
+    assert.equal(broker.interrupt(target.id), true);
+    assert.deepEqual(kills, [[-4242, 'SIGTERM']]);
+    const result = await promise;
+    assert.equal(result.state, 'outcome-unknown');
+    assert.equal(result.reason, 'interrupted');
+    assert.equal(broker.target(target.id).busy, false);
+  } finally { broker.stopAll(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Windows interrupt keeps the direct child kill and does not detach', async () => {
+  const f = fixture();
+  try {
+    const promise = f.broker.runSupervised({ targetId: f.target.id, processEpoch: f.target.processEpoch, requestId: 'win-kill', command: 'npm run dev' });
+    assert.equal(f.broker.interrupt(f.target.id), true);
+    const result = await promise;
+    assert.equal(result.state, 'outcome-unknown');
+  } finally { f.cleanup(); }
+});
