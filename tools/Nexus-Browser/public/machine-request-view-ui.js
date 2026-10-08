@@ -75,10 +75,12 @@
   let appendRequest = false;
   let reconnectTimer = null;
   let refreshTimer = null;
+  let watchedContext = '';
   const outputs = new Map();
 
   const roomId = () => roomList.querySelector('.dex-room-item.active')?.dataset.roomId || '';
   const spaceId = () => String(spaceSelect.value || '');
+  const contextKey = () => `${roomId()}|${spaceId()}`;
   const editable = () => dexPanel.dataset.humanInput === 'enabled';
   const id = (prefix) => `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
   const send = (payload) => {
@@ -96,9 +98,9 @@
     node.disabled = phase !== 'connected' || (options.owner === true && !editable());
     node.addEventListener('click', action); return node;
   }
-  function setFallback(value) {
-    legacy.hidden = value === false;
-    panel.hidden = value === false;
+  function useUnified(value) {
+    legacy.hidden = value === true;
+    panel.hidden = false;
   }
   function filters() {
     return {
@@ -128,8 +130,14 @@
     refreshTimer = setTimeout(() => requestView(), 80);
   }
   function watchRoom() {
-    const room = roomId();
-    if (room && phase === 'connected') send({ type: 'machine_room_snapshot', roomId: room });
+    const key = contextKey();
+    if (key !== watchedContext) {
+      watchedContext = key;
+      available = false; items = []; nextCursor = null; activeRequestId = '';
+      useUnified(false);
+      const room = roomId();
+      if (room && phase === 'connected') send({ type: 'machine_room_snapshot', roomId: room });
+    }
     scheduleRefresh();
   }
   async function approval(item, decision) {
@@ -214,19 +222,22 @@
     list.replaceChildren();
     refreshButton.disabled = phase !== 'connected';
     if (!roomId() || !spaceId()) {
+      useUnified(false);
       status.textContent = 'Choose a room and Machine Space to inspect requests.';
       list.innerHTML = '<div class="machine-empty">No Machine Space selected.</div>';
       moreButton.hidden = true; return;
     }
     if (phase !== 'connected') {
+      useUnified(false);
       status.textContent = 'Unified request view is reconnecting; legacy request history remains available.';
-      setFallback(false); return;
+      moreButton.hidden = true; return;
     }
     if (!available) {
+      useUnified(false);
       status.textContent = 'Waiting for the unified request-view service; legacy request history remains available.';
-      setFallback(false); return;
+      moreButton.hidden = true; return;
     }
-    setFallback(true);
+    useUnified(true);
     status.textContent = `${items.length} request${items.length === 1 ? '' : 's'} shown${nextCursor ? ' · more available' : ''}`;
     if (!items.length) list.innerHTML = '<div class="machine-empty">No requests match these filters.</div>';
     else for (const item of items) list.append(renderItem(item));
@@ -258,7 +269,8 @@
     if (payload.type === 'error' && payload.requestId === activeRequestId) {
       available = false; activeRequestId = ''; appendRequest = false;
       status.textContent = `${payload.code || 'MACHINE_REQUEST_VIEW_FAILED'}: ${payload.message || 'Unified request view unavailable.'}`;
-      setFallback(false);
+      useUnified(false);
+      render();
     }
   }
   function connect() {
@@ -266,13 +278,13 @@
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
     socket = new WebSocket(`${scheme}://${location.host}/ws`);
     socket.addEventListener('open', () => {
-      phase = 'connected'; available = false;
+      phase = 'connected'; available = false; watchedContext = '';
       send({ type: 'hello', role: 'ui', clientKind: 'machine-request-view' });
       setTimeout(watchRoom, 50); render();
     });
     socket.addEventListener('message', (event) => { try { handle(JSON.parse(event.data)); } catch {} });
     socket.addEventListener('close', () => {
-      phase = 'reconnecting'; available = false; socket = null; setFallback(false); render();
+      phase = 'reconnecting'; available = false; socket = null; useUnified(false); render();
       reconnectTimer = setTimeout(connect, 1000);
     });
     socket.addEventListener('error', () => {});
