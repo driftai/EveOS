@@ -101,6 +101,28 @@ window.EveAudioflixBulk = window.EveAudioflixBulk || {};
         return { ok: true, changed, selected: selected.size };
     }
 
+    // Replace a prepared music list in one normalized store mutation. Playlist sync uses this
+    // instead of add + update + group writes for every row, which became quadratic at scale.
+    function replaceMusic(items, patch = {}, reason = 'audioflix-bulk-music') {
+        const snapshot = state();
+        const schema = window.EveAudioflixStateSchema;
+        const cleaner = schema?.create?.({ text: schema.text, normalizeVolume: schema.normalizeVolume, id: schema.id });
+        if (!cleaner?.cleanItem || !store()?.update) return { ok: false, reason: 'Audioflix state schema is unavailable.' };
+        const music = (Array.isArray(items) ? items : [])
+            .map((item) => cleaner.cleanItem(item, 'music'))
+            .filter((item) => !!item.url || !!item.localPath)
+            .slice(-10000);
+        const validIds = new Set(music.map((item) => item.id));
+        const sourceMap = patch.musicGroupMap || snapshot.musicGroupMap || {};
+        const musicGroupMap = Object.fromEntries(Object.entries(sourceMap)
+            .filter(([id, groups]) => validIds.has(id) && names(groups).length)
+            .map(([id, groups]) => [id, names(groups)]));
+        const next = { ...patch, music, musicGroupMap };
+        next.musicFolders = window.EveAudioflixStateRecovery?.folderRegistry?.({ ...snapshot, ...next }) || snapshot.musicFolders || [];
+        store().update(next, reason);
+        return { ok: true, music, state: state() };
+    }
+
     function musicFolders() {
         return [...new Set((state().music || [])
             .map((track) => text(track.folder || track.card))
@@ -111,6 +133,7 @@ window.EveAudioflixBulk = window.EveAudioflixBulk || {};
     Object.assign(ns, {
         ready: true,
         applyMusicChanges,
+        replaceMusic,
         musicFolders
     });
 })();

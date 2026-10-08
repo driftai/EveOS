@@ -42,6 +42,23 @@ window.EveDataStore = window.EveDataStore || {};
         return Math.max(liveCount, Number.isFinite(loadedCount) ? loadedCount : 0);
     }
 
+    function getAudioflix(sourceState) {
+        if (sourceState?.audioflix && typeof sourceState.audioflix === 'object') return sourceState.audioflix;
+        const legacy = sourceState?.bookmarks?.config?.audioflix;
+        return legacy && typeof legacy === 'object' ? legacy : null;
+    }
+
+    function shouldRejectShrinkingRemoteAudioflix(incomingState, options = {}) {
+        if (options?.allowDestructiveRemoteApply) return false;
+        const incoming = getAudioflix(incomingState);
+        if (!incoming) return false;
+        const local = window.EveAudioflixState?.ensure?.() || window.eveState?.config?.audioflix;
+        const localCount = Array.isArray(local?.music) ? local.music.length : 0;
+        const incomingCount = Array.isArray(incoming.music) ? incoming.music.length : 0;
+        if (localCount < 25 || incomingCount >= localCount) return false;
+        return localCount - incomingCount >= 10 && incomingCount / Math.max(1, localCount) < 0.5;
+    }
+
     function shouldRejectEmptyRemoteState(incomingState, options = {}) {
         if (options?.allowEmptyRemoteApply || options?.allowDestructiveRemoteApply) return false;
         const localRealLinks = getLocalRealLinkCount();
@@ -118,6 +135,13 @@ window.EveDataStore = window.EveDataStore || {};
             state.rejectedRemoteReason = 'destructive-shrink';
             state.rejectedRemoteSignature = payload?.status?.signature || knownSignature || '';
             console.warn('[ModularStateSync] Skipped shrinking remote state over larger local state.');
+            return false;
+        }
+        if (shouldRejectShrinkingRemoteAudioflix(incomingState, options)) {
+            state.lastRejectedRemoteAt = Date.now();
+            state.rejectedRemoteReason = 'destructive-audioflix-shrink';
+            state.rejectedRemoteSignature = payload?.status?.signature || knownSignature || '';
+            console.warn('[ModularStateSync] Skipped shrinking remote Audioflix state over a larger local library.');
             return false;
         }
 

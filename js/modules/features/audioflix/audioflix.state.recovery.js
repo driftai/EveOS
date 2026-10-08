@@ -319,10 +319,10 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         const incoming = countEntries(state);
         const existing = read(key);
         if (incoming === 0 && options.allowEmpty !== true) {
-            if (existing.damaged) return { written: false, reason: 'stored data is unreadable; refusing to overwrite it' };
+            if (existing.damaged) return { written: false, kind: 'guard', reason: 'stored data is unreadable; refusing to overwrite it' };
             if (countEntries(existing.state) > 0) {
                 console.warn('[Audioflix] Refused to save an empty library over populated stored data.');
-                return { written: false, reason: 'empty state would have replaced stored entries' };
+                return { written: false, kind: 'guard', reason: 'empty state would have replaced stored entries' };
             }
         }
 
@@ -332,7 +332,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             && structuralScore(state) < structuralScore(existing.state)
             && (existing.state?.music || []).length > (state?.music || []).length) {
             console.warn('[Audioflix] Refused a stale partial rollback over richer music structure.');
-            return { written: false, reason: 'stale state would have rolled back richer music structure' };
+            return { written: false, kind: 'guard', reason: 'stale state would have rolled back richer music structure' };
         }
 
         // The small journal is written first so topology can survive even if the large state hits quota.
@@ -343,10 +343,10 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
                 Number(revisionFloors.get(key) || 0),
                 Number(state?.durabilityRevision || 0) || 0
             ));
-            return { written: true, reason: '' };
+            return { written: true, kind: '', reason: '' };
         } catch (error) {
             console.warn('[Audioflix] library write failed:', error);
-            return { written: false, reason: String(error?.message || error) };
+            return { written: false, kind: 'storage', reason: String(error?.message || error) };
         }
     }
 
