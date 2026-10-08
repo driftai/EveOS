@@ -1,5 +1,5 @@
 // Shared Audioflix output-port contract: one persisted master gain must sit after per-item volume
-// and every playback family must consume the resulting effective level.
+// and every EveOS-owned playback family must consume the resulting effective level.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -11,7 +11,6 @@ const assert = (condition, message) => { if (!condition) throw new Error(`ASSERT
 
 const updates = [];
 const events = [];
-let spotifyEnableCalls = 0;
 const state = { outputVolume: 0.4 };
 const context = vm.createContext({
     console,
@@ -20,15 +19,6 @@ const context = vm.createContext({
         EveAudioflixState: {
             ensure: () => state,
             update: (patch, reason) => { Object.assign(state, patch); updates.push({ patch, reason }); }
-        },
-        EveAudioflixSpotifyVolume: {
-            snapshot: () => ({
-                spotifyActive: true,
-                directControl: false,
-                active: false,
-                status: 'off'
-            }),
-            enable: () => { spotifyEnableCalls += 1; }
         },
         dispatchEvent: (event) => events.push(event)
     }
@@ -47,6 +37,7 @@ assert(state.outputVolume === 0.25, 'output gain is persisted in Audioflix state
 assert(updates.at(-1)?.reason === 'audioflix-output-volume', 'output gain uses a named persistence reason');
 assert(events.at(-1)?.type === 'eve:audioflix-output-volume', 'live transports receive the output-gain event');
 assert(port.render(state).includes('EveOS Song Output Port'), 'routing UI exposes the shared output port');
+assert(!port.render(state).includes('tab-audio capture'), 'routing UI no longer advertises tab capture');
 
 const sliderLabel = { textContent: '' };
 const slider = {
@@ -57,11 +48,9 @@ const slider = {
 };
 const eventCountBeforeGesture = events.length;
 assert(port.handleInput(slider) === true, 'Song Output Port input is handled');
-assert(spotifyEnableCalls === 1,
-    'Spotify capture enable is invoked synchronously inside the trusted Song Output Port input gesture');
 assert(events.length === eventCountBeforeGesture + 1
     && events.at(-1)?.type === 'eve:audioflix-output-volume',
-    'effective provider gain is dispatched before capture arming');
+    'effective gain is dispatched during live slider input');
 assert(sliderLabel.textContent === '35%', 'master slider label follows the live value');
 
 const stateSource = read('audioflix.state.js');
@@ -99,54 +88,35 @@ assert(overlay.includes('EveAudioflixOutputPort?.handleInput?.(t)'),
 assert(overlay.includes('EveAudioflixOutputPort?.handleChange?.(t)'),
     'the routing slider persists once on its change event');
 
-// Spotify URL playback must stay on Spotify. The frontend playback module intentionally exposes no
-// alternate recording lookup, while preparePlaybackSource restores the canonical Spotify URL and
-// keeps generic direct-media/yt-dlp routing disabled.
 const spotifyPrepare = spotifyNative.slice(
     spotifyNative.indexOf('async function preparePlaybackSource'),
     spotifyNative.indexOf('function installPlaybackSourceDecorator')
 );
-assert(spotifyNative.includes("PLAYBACK_POLICY_REVISION = 'official-embed-localhost-volume-v2'"),
-    'Spotify normal playback policy is the official embed with localhost volume control');
-assert(spotifyPrepare.includes("spotifyPlaybackMode: 'official-embed-localhost-volume'")
+assert(spotifyNative.includes("PLAYBACK_POLICY_REVISION = 'official-embed-v3'"),
+    'Spotify normal playback policy is the official embed');
+assert(spotifyPrepare.includes("spotifyPlaybackMode: 'official-embed'")
     && spotifyPrepare.includes('eveOwnedPlaybackSource: false')
     && spotifyPrepare.includes('preferEveDirectAudio: false'),
     'Spotify preparation keeps the official Spotify provider authoritative');
+assert(spotifyNative.includes("'spotifyPlaybackUrl'") && spotifyNative.includes("'rawAudioUrl'")
+    && spotifyNative.includes("'youtubeUrl'") && spotifyNative.includes('delete clean[key]'),
+    'Spotify preparation strips stale alternate-media resolver residue');
 assert(!spotifyNative.includes('resolveSpotifyPlaybackSource')
     && !spotifyNative.includes("action: 'resolve-playback-source'"),
     'the frontend Spotify playback module cannot invoke alternate recording matching');
-assert(spotifyVolume.includes('navigator.mediaDevices.getDisplayMedia')
-    && spotifyVolume.includes('audio.suppressLocalAudioPlayback = true')
-    && spotifyVolume.includes('audio.restrictOwnAudio = false')
-    && spotifyVolume.includes('context.createGain()'),
-    'localhost Spotify volume requests official-tab capture policy up front and uses an EveOS GainNode');
-assert(!spotifyVolume.includes('audioTrack.applyConstraints('),
-    'capture-only audio policy is never reapplied after getDisplayMedia resolves');
-assert(spotifyAdapter.includes('setSpotifyVolume?.(safe, { direct: false })')
-    && !spotifyAdapter.includes('controller.setVolume'),
-    'Spotify adapter always selects localhost GainNode ownership instead of trusting an iframe volume shortcut');
-const armSource = outputPortSource.slice(
-    outputPortSource.indexOf('function armSpotifyCaptureFromGesture'),
-    outputPortSource.indexOf('function handleInput')
-);
-assert(armSource.includes('void spotify.enable?.()') && !armSource.includes('queueMicrotask'),
-    'Song Output Port capture arming stays in the trusted synchronous input stack');
-assert(spotifyVolume.includes("'.audioflix-volume-slider'")
-    && spotifyVolume.includes("'.audioflix-output-port-volume'")
-    && spotifyVolume.includes("document.addEventListener('pointerdown'")
-    && spotifyVolume.includes('armFromTrustedGesture(event.target)'),
-    'both card and master volume controls arm Spotify capture from the original pointer gesture');
-assert(spotifyVolume.includes('activeSpotifyPlayback()')
-    && spotifyVolume.includes('setSpotifyVolume(effective, { direct: false })'),
-    'Spotify gain follows active provider state even when provider item identity matching misses');
-const enableSource = spotifyVolume.slice(
-    spotifyVolume.indexOf('async function enable()'),
-    spotifyVolume.indexOf('function setSpotifyVolume')
-);
-assert(enableSource.indexOf('capturePromise = navigator.mediaDevices.getDisplayMedia') >= 0
-    && enableSource.indexOf("window.open('', OUTPUT_WINDOW") >= 0
-    && enableSource.indexOf('capturePromise = navigator.mediaDevices.getDisplayMedia')
-        < enableSource.indexOf("window.open('', OUTPUT_WINDOW"),
-    'getDisplayMedia claims transient activation before window.open can consume it');
+assert(!spotifyVolume.includes('getDisplayMedia')
+    && !spotifyVolume.includes('window.open(')
+    && !spotifyVolume.includes('createGain()')
+    && !spotifyVolume.includes('createMediaStreamSource'),
+    'Spotify volume coordination never captures or replays tab audio');
+assert(!outputPortSource.includes('armSpotifyCaptureFromGesture')
+    && !outputPortSource.includes('spotify.enable'),
+    'Song Output Port slider never arms a capture permission flow');
+assert(spotifyAdapter.includes("typeof controller.setVolume === 'function'")
+    && spotifyAdapter.includes('direct ? controller.setVolume(safe) : undefined'),
+    'Spotify only uses volume control when the official controller really exposes it');
+assert(spotifyVolume.includes("status: state.status")
+    && spotifyVolume.includes("'provider-owned'"),
+    'Spotify reports provider-owned volume instead of pretending EveOS controls iframe audio');
 
 console.log('AUDIOFLIX_OUTPUT_PORT_SMOKE_OK');

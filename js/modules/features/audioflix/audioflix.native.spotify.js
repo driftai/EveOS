@@ -5,9 +5,7 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
     const ns = window.EveAudioflixNativeSpotify;
     if (ns.ready) return;
 
-    const PLAYBACK_POLICY_REVISION = 'official-embed-localhost-volume-v2';
-    // Compatibility export for diagnostics: this is a playback policy revision now, not an
-    // alternate-recording resolver revision.
+    const PLAYBACK_POLICY_REVISION = 'official-embed-v3';
     const PLAYBACK_RESOLVER_REVISION = PLAYBACK_POLICY_REVISION;
     const text = (value) => String(value ?? '').trim();
     const trackId = (value) => text(value)
@@ -44,6 +42,15 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
         return '';
     }
 
+    function stripAlternatePlaybackFields(track) {
+        const clean = { ...(track || {}) };
+        [
+            'spotifyPlaybackUrl', 'rawAudioUrl', 'audioUrl', 'resolvedAudioUrl', 'resolvedUrl',
+            'youtubeUrl', 'youtubeId', 'matchedUrl', 'matchUrl', 'resolverUrl', 'resolverProvider'
+        ].forEach((key) => { delete clean[key]; });
+        return clean;
+    }
+
     async function preparePlaybackSource(item, prepared) {
         const base = prepared || {
             item: item && typeof item === 'object' ? { ...item } : item,
@@ -53,34 +60,31 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
         const playable = base?.item || (item && typeof item === 'object' ? { ...item } : {});
 
         // User-owned/localized files remain stronger than the provider. Every non-local Spotify item
-        // is restored to its canonical Spotify identity so old saved YouTube/SoundCloud matches can
-        // never silently take ownership of normal playback again.
+        // is restored to its canonical Spotify identity and alternate resolver residue is discarded,
+        // so normal playback cannot silently become a YouTube/googlevideo stream again.
         if (base?.localPath || !isSpotifyTrack(playable)) return base;
         const canonical = canonicalTrack(item);
         const officialUrl = identityUrl(canonical, playable, item);
         if (!officialUrl) return base;
+        const cleanPlayable = stripAlternatePlaybackFields(playable);
 
         return {
             ...base,
             item: {
-                ...playable,
+                ...cleanPlayable,
                 url: officialUrl,
                 originalUrl: officialUrl,
                 spotifyUrl: officialUrl,
                 sourceProvider: 'spotify',
-                spotifyPlaybackMode: 'official-embed-localhost-volume',
+                spotifyPlaybackMode: 'official-embed',
                 spotifyPlaybackPolicyRevision: PLAYBACK_POLICY_REVISION,
-                // Explicit false values prevent stale persisted resolver flags from routing this
-                // clone through the generic direct-media / yt-dlp transport.
                 eveOwnedPlaybackSource: false,
                 preferEveDirectAudio: false
             },
-            status: base?.status || 'Playing Spotify through the official embed; localhost owns volume control.'
+            status: base?.status || 'Playing Spotify through the official embed.'
         };
     }
 
-    // Normal playback has one explicit preparation boundary in audioflix.audio.js. Do not decorate
-    // LocalPlayback or inject an alternate-source resolver into that path.
     function installPlaybackSourceDecorator() {
         return false;
     }

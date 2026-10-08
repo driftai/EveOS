@@ -121,8 +121,6 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     clearStartTimer();
                     clearCompletionTimer();
                     V.playback.paused = true;
-                    // Keep normal playback invisible. Reveal the official transport only when
-                    // Spotify requires an additional direct click to satisfy browser policy.
                     V.revealTransportFallback?.();
                     setStageStatus(message);
                     emitPlayback(message, true);
@@ -159,9 +157,6 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                     const elapsedMs = Math.max(0, Date.now() - deadline.observedAt);
                     const projectedPositionMs = deadline.positionMs + elapsedMs;
                     const stillRemainingMs = deadline.durationMs - projectedPositionMs;
-                    // Dedicated-worker deadlines remain available when normal page timers are
-                    // heavily throttled by a minimized/backgrounded renderer. If the deadline
-                    // arrives early, project from the last authoritative Spotify sample and re-arm.
                     if (stillRemainingMs > END_TOLERANCE_MS) {
                         scheduleCompletionWatchdog(projectedPositionMs, deadline.durationMs);
                         return;
@@ -210,10 +205,6 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                         : controller.play?.();
                     const player = {
                         play: () => {
-                            // `play()` on Spotify's Embed can restart the loaded entity in some
-                            // states. A paused, already-started entity must use the API's explicit
-                            // `resume()` method. Newly loaded or naturally ended entities still use
-                            // play(), preserving the queue-load semantics that were previously fixed.
                             const resumePausedTrack = started && lastPaused && !ended;
                             if (!resumePausedTrack) started = false;
                             runtimeFailureReported = false;
@@ -246,13 +237,11 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                             if (started && !lastPaused && lastDurationMs > 0) scheduleCompletionWatchdog(positionMs, lastDurationMs);
                             return pending;
                         },
-                        // Normal Spotify playback deliberately never trusts an iframe volume method.
-                        // The official embed remains the source; localhost tab capture + GainNode is
-                        // the one authoritative volume path, even if an undocumented method appears.
                         setVolume: (volume) => {
                             const safe = Math.max(0, Math.min(1, Number(volume) || 0));
-                            window.EveAudioflixSpotifyVolume?.setSpotifyVolume?.(safe, { direct: false });
-                            return undefined;
+                            const direct = typeof controller.setVolume === 'function';
+                            window.EveAudioflixSpotifyVolume?.setSpotifyVolume?.(safe, { direct });
+                            return direct ? controller.setVolume(safe) : undefined;
                         },
                         destroy: () => {
                             clearStartTimer();
@@ -291,9 +280,6 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                         ended = false;
                         lastPaused = false;
                         V.playback.paused = false;
-                        // Spotify's iframe API does not guarantee periodic playback_update events.
-                        // Arm completion immediately from the duration captured during playlist import;
-                        // any later authoritative Spotify duration/position sample simply re-arms it.
                         seedCompletionFromSelectedItem();
                         emitPlayback(`Playing ${selectedItem.title || 'Spotify track'} with Spotify`);
                         emitProgress();
@@ -310,9 +296,6 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                             && lastPlayingPositionMs >= Math.max(0, lastDurationMs - END_TOLERANCE_MS);
                         const atEnd = effectiveDurationMs > 0
                             && positionMs >= Math.max(0, effectiveDurationMs - END_TOLERANCE_MS);
-                        // Spotify has no dedicated ended event. In real embeds the terminal update can
-                        // arrive slightly before duration, or rewind position to zero as it becomes
-                        // paused. Preserve the prior playing edge so both forms produce one Ended.
                         const resetAfterEnd = started && paused && lastPaused === false
                             && previousNearEnd && positionMs <= END_RESET_MAX_MS;
 

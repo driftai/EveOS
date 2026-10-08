@@ -30,24 +30,10 @@ window.EveAudioflixOutputPort = window.EveAudioflixOutputPort || {};
             window.EveAudioflixState?.update?.({ outputVolume: next }, 'audioflix-output-volume');
             liveLevel = null;
         }
-        // CustomEvent dispatch is synchronous. Active provider adapters therefore consume the new
-        // effective gain before handleInput() attempts to arm Spotify capture below.
         window.dispatchEvent?.(new CustomEvent('eve:audioflix-output-volume', {
             detail: { volume: next }
         }));
         return next;
-    }
-
-    function armSpotifyCaptureFromGesture() {
-        // IMPORTANT: keep enable() in the slider's synchronous input call stack. window.open() and
-        // getDisplayMedia() are user-activation gated; deferring this to a microtask made real Chrome
-        // intermittently reject/block the capture even though source-only smoke tests were green.
-        const spotify = window.EveAudioflixSpotifyVolume;
-        const snapshot = spotify?.snapshot?.();
-        if (!snapshot?.spotifyActive || snapshot.directControl || snapshot.active
-            || snapshot.status === 'starting') return false;
-        void spotify.enable?.();
-        return true;
     }
 
     function handleInput(target) {
@@ -56,7 +42,6 @@ window.EveAudioflixOutputPort = window.EveAudioflixOutputPort || {};
         target.style.setProperty('--vol', `${next * 100}%`);
         const label = target.parentElement?.querySelector('.audioflix-output-port-label');
         if (label) label.textContent = `${Math.round(next * 100)}%`;
-        armSpotifyCaptureFromGesture();
         return true;
     }
 
@@ -70,8 +55,8 @@ window.EveAudioflixOutputPort = window.EveAudioflixOutputPort || {};
         const value = clamp(snapshot?.outputVolume, 1);
         return `<article class="audioflix-status-card audioflix-output-port-card is-on">
             <span>EveOS Song Output Port</span>
-            <strong>All Audioflix providers · ${Math.round(value * 100)}%</strong>
-            <p>Master gain after each track level. Direct files and native/provider adapters follow this control. Spotify stays on its official embed and, on localhost, uses tab-audio capture through the EveOS gain path.</p>
+            <strong>Audioflix output · ${Math.round(value * 100)}%</strong>
+            <p>Master gain after each track level. Local files, direct media URLs, native routes, and provider adapters with a real volume API follow this control. Cross-origin provider embeds remain provider-owned when they expose no volume API.</p>
             <label class="audioflix-output-port-control">
                 <span>Output volume</span>
                 <input class="audioflix-output-port-volume" type="range" min="0" max="1" step="0.01" value="${value}" style="--vol:${value * 100}%" aria-label="EveOS song output volume">
@@ -87,7 +72,6 @@ window.EveAudioflixOutputPort = window.EveAudioflixOutputPort || {};
         setVolume,
         handleInput,
         handleChange,
-        armSpotifyCaptureFromGesture,
         render
     });
 })();
