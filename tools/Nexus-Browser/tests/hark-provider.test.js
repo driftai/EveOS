@@ -58,13 +58,16 @@ test('Hark advertises the normal Nexus chat/capture contract and spawn surface',
   assert.equal(registry.publicProviders().find((provider) => provider.id === 'hark')?.orchestration.spawnable, true);
 });
 
-test('Hark bridge group includes revision, transport, Dex control and health adapters', () => {
+test('Hark bridge group includes revision, transport, Machine actions, Dex control and health adapters', () => {
   for (const file of [
     'content/provider-adapter-revision.js',
     'content/hark-input.js',
     'content/hark-answer.js',
     'content/hark.js',
     'content/dex-provider-control.js',
+    'content/machine-file-actions.js',
+    'content/machine-quorum-actions.js',
+    'content/machine-job-actions.js',
     'content/provider-health.js'
   ]) assert.equal(hark.contentScripts.includes(file), true, file);
 
@@ -153,6 +156,9 @@ test('extension manifest grants Hark host access and injects only chat/project w
     'content/hark-answer.js',
     'content/hark.js',
     'content/dex-provider-control.js',
+    'content/machine-file-actions.js',
+    'content/machine-quorum-actions.js',
+    'content/machine-job-actions.js',
     'content/provider-health.js'
   ]);
 });
