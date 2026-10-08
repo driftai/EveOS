@@ -6,6 +6,7 @@ const {
   chooseTarget,
   addOnlineAgentCommand,
   exactOriginPresence,
+  controlReceiptFromStatus,
   parseArgs
 } = require('../scripts/provider-provenance-qualify');
 
@@ -68,6 +69,33 @@ test('relay-safe exact-origin proof requires one matching committed presence eve
   snapshot.events.push({ ...snapshot.events[0] });
   const duplicate = exactOriginPresence(snapshot, { roomId: 'room-proof', memberId: 'eve-member' });
   assert.equal(duplicate.events.length, 2);
+});
+
+test('provider qualifier recognizes durable success and failure receipts for the exact randomized executor', () => {
+  const state = {
+    latest: [
+      { sender: 'Dex', kind: 'system', text: '[DEX CONTROL RECEIPT]\nOther-Agent · quorum_presence · OK: ignored\nControl request: provider-control-old' },
+      { sender: 'Dex', kind: 'system', text: '[DEX CONTROL RECEIPT]\nEve-Main-Agent-Qualification-abc123 · quorum_presence · OK: Eve availability evidence recorded.\nOrigin room: MS Provider Proof\nControl request: provider-control-good' }
+    ]
+  };
+  assert.deepEqual(
+    controlReceiptFromStatus(state, { executorName: 'Eve-Main-Agent-Qualification-abc123', action: 'quorum_presence' }),
+    {
+      ok: true,
+      code: null,
+      requestId: 'provider-control-good',
+      text: state.latest[1].text
+    }
+  );
+
+  state.latest.push({
+    sender: 'Dex', kind: 'system',
+    text: '[DEX CONTROL RECEIPT]\nEve-Main-Agent-Qualification-abc123 · quorum_vote · ERROR MACHINE_QUORUM_ORIGIN_REQUIRED: exact origin required\nControl request: provider-control-fail'
+  });
+  const failure = controlReceiptFromStatus(state, { executorName: 'Eve-Main-Agent-Qualification-abc123', action: 'quorum_vote' });
+  assert.equal(failure.ok, false);
+  assert.equal(failure.code, 'MACHINE_QUORUM_ORIGIN_REQUIRED');
+  assert.equal(failure.requestId, 'provider-control-fail');
 });
 
 test('provider qualifier accepts explicit ChatGPT URL/tab and Hark target pins', () => {
