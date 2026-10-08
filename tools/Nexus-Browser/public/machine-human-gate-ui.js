@@ -3,12 +3,17 @@
 
   const panel = document.getElementById('dexModePanel');
   if (!panel) return;
+  const roomList = document.getElementById('dexRoomList');
+  const newTerminal = document.getElementById('machineNewTerminal');
+  const newTerminalType = document.getElementById('machineNewTerminalType');
+  const newTerminalCwd = document.getElementById('machineNewTerminalCwd');
 
   let socket = null;
   let reconnectTimer = null;
   let lastSent = null;
 
   function enabled() { return panel.dataset.humanInput === 'enabled'; }
+  function activeRoomId() { return roomList?.querySelector('.dex-room-item.active')?.dataset.roomId || ''; }
   function send(payload) {
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
     socket.send(JSON.stringify(payload));
@@ -18,6 +23,19 @@
     const value = enabled();
     if (!force && value === lastSent) return;
     if (send({ type: 'machine_set_human_input', enabled: value })) lastSent = value;
+  }
+  function createDexTerminal(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const roomId = activeRoomId();
+    if (!enabled() || !roomId) return;
+    send({
+      type: 'machine_create_target',
+      roomId,
+      targetType: String(newTerminalType?.value || ''),
+      label: '',
+      cwd: String(newTerminalCwd?.value || '')
+    });
   }
   function connect() {
     clearTimeout(reconnectTimer);
@@ -47,6 +65,7 @@
   }
 
   new MutationObserver(() => sync()).observe(panel, { attributes: true, attributeFilter: ['data-human-input'] });
+  newTerminal?.addEventListener('click', createDexTerminal, true);
   addEventListener('pagehide', () => {
     clearTimeout(reconnectTimer);
     try { if (socket?.readyState === WebSocket.OPEN) send({ type: 'machine_set_human_input', enabled: false }); } catch {}
