@@ -63,7 +63,7 @@ const assert = (condition, message) => {
                     var listeners = {};
                     var calls = window.__spotifyCalls = {
                         uri: options.uri, play: 0, resume: 0, pause: 0, seek: [], destroy: 0,
-                        loaded: [], legacyLoaded: [], controllers: (window.__spotifyControllers || 0) + 1
+                        volume: [], loaded: [], legacyLoaded: [], controllers: (window.__spotifyControllers || 0) + 1
                     };
                     window.__spotifyControllers = calls.controllers;
                     var controller = window.__spotifyController = {
@@ -72,6 +72,7 @@ const assert = (condition, message) => {
                         resume: function () { calls.resume += 1; },
                         pause: function () { calls.pause += 1; },
                         seek: function (seconds) { calls.seek.push(seconds); },
+                        setVolume: function (volume) { calls.volume.push(volume); },
                         loadUri: function (uri) { calls.loaded.push(uri); },
                         loadEntity: function (uri) { calls.legacyLoaded.push(uri); },
                         destroy: function () { calls.destroy += 1; },
@@ -100,6 +101,7 @@ const assert = (condition, message) => {
                 volume: 0.7
             };
             await player.play(item);
+            player.setVolume(0.48);
             const volumeBar = document.querySelector('.audioflix-provider-stage .af-spotify-volume')?.textContent || '';
             const volumeWhilePlaying = window.EveAudioflixSpotifyVolume.snapshot();
             const stage = document.querySelector('.audioflix-provider-stage');
@@ -256,8 +258,11 @@ const assert = (condition, message) => {
         assert(result.stalledState.paused === true, 'ready-but-stalled playback returns to paused state');
         assert(result.stalledErrorCount === 1, 'startup watchdog emits one error without retrying or advancing');
         assert(result.volumeBar.includes('localhost'), 'file mode explains that Spotify volume control is available on localhost');
-        assert(result.volumeWhilePlaying.spotifyActive && result.volumeWhilePlaying.volume === 0.7,
-            'the active official Spotify embed hands its saved volume to the localhost gain path');
+        assert(result.calls.volume.includes(0.7) && result.calls.volume.includes(0.48),
+            'localhost Spotify controller receives initial and live slider volume values');
+        assert(result.volumeWhilePlaying.spotifyActive && result.volumeWhilePlaying.volume === 0.48
+            && result.volumeWhilePlaying.directControl === true,
+            'controller-owned Spotify volume prevents unnecessary tab-capture fallback');
         assert(result.volumeAfterStop.spotifyActive === false && result.volumeAfterStop.gain === 1,
             'stopping Spotify returns the shared tab gain to unity');
         assert(result.spotifyNeedsResolution === false, 'Spotify track URLs bypass raw-audio resolution');

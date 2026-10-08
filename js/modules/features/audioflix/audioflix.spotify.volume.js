@@ -15,6 +15,7 @@
         context: null,
         gain: null,
         spotifyActive: false,
+        directControl: false,
         spotifyVolume: 1,
         status: 'off',
         message: '',
@@ -29,7 +30,7 @@
         && window.isSecureContext === true
         && !!navigator.mediaDevices
         && typeof navigator.mediaDevices.getDisplayMedia === 'function';
-    const targetGain = () => state.spotifyActive ? state.spotifyVolume : 1;
+    const targetGain = () => state.spotifyActive && !state.directControl ? state.spotifyVolume : 1;
 
     function snapshot() {
         return {
@@ -38,6 +39,7 @@
             message: state.message,
             active: state.status === 'on' || state.status === 'needs-click',
             spotifyActive: state.spotifyActive,
+            directControl: state.directControl,
             volume: state.spotifyVolume,
             gain: targetGain(),
             tabLabel: state.tabLabel
@@ -234,8 +236,9 @@
         return snapshot();
     }
 
-    function setSpotifyVolume(volume) {
+    function setSpotifyVolume(volume, options = {}) {
         state.spotifyActive = true;
+        state.directControl = options.direct === true;
         state.spotifyVolume = clamp(volume);
         applyGain();
         notify();
@@ -244,6 +247,7 @@
     function clearSpotify() {
         if (!state.spotifyActive) return;
         state.spotifyActive = false;
+        state.directControl = false;
         applyGain();
         notify();
     }
@@ -306,7 +310,6 @@
         const isSharedTransportSlider = slider.matches(
             '.audioflix-volume-slider, .audioflix-provider-volume'
         );
-        if (isSharedTransportSlider && !state.spotifyActive) return;
         const level = clamp(slider.value);
         const audio = window.EveAudioflixAudio;
         const activeId = audio?.getPlaybackState?.()?.item?.id;
@@ -322,9 +325,14 @@
             const label = card.parentElement?.querySelector('.audioflix-volume-label');
             if (label) label.textContent = `${Math.round(level * 100)}%`;
         });
-        // A volume-slider gesture is sufficient to open Chrome's mandatory picker. This lets the
-        // ordinary Audioflix control establish localhost gain without a separate setup click.
-        if (!snapshot().active && state.status !== 'starting') void enable();
+        // The shared slider's normal Audioflix handler runs later in the same input event and calls
+        // the Spotify controller. Defer fallback selection to a microtask so that direct controller
+        // ownership wins without opening an unnecessary capture picker.
+        queueMicrotask(() => {
+            if (!state.spotifyActive || state.directControl || snapshot().active
+                || state.status === 'starting') return;
+            void enable();
+        });
     });
 
     window.EveAudioflixSpotifyVolume = {
