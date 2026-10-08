@@ -16,6 +16,7 @@ import logging
 import threading
 import time
 from http import HTTPStatus
+from urllib.parse import urlparse
 
 logger = logging.getLogger("EveOSAudioflixYTDL")
 
@@ -54,6 +55,17 @@ def _version_tuple(value: str):
     while len(parts) < 3:
         parts.append(0)
     return tuple(parts)
+
+
+def _is_spotify_provider_url(url: str) -> bool:
+    raw = str(url or "").strip()
+    if raw.lower().startswith("spotify:"):
+        return True
+    try:
+        host = (urlparse(raw).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    return host == "spotify.com" or host.endswith(".spotify.com")
 
 
 def youtube_ydl_options(*, playlist: bool = False, extra: dict | None = None) -> dict:
@@ -125,6 +137,15 @@ def _get_yt_dlp():
 
 def resolve(url: str, force: bool = False) -> dict:
     """Extract the best audio stream URL from a platform link."""
+    # Spotify's official iframe is the normal provider. Alternate-recording matching exists only
+    # behind the explicit localization fallback endpoint; never let a stale playback retry route a
+    # Spotify identity into yt-dlp/YouTube and silently substitute another recording.
+    if _is_spotify_provider_url(url):
+        return {
+            "ok": False,
+            "reason": "Spotify playback stays on the official Spotify provider; alternate URL resolution is disabled.",
+        }
+
     if not force:
         cached = _cache_get(url)
         if cached is not None:
