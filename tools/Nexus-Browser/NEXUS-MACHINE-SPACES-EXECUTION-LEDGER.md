@@ -323,6 +323,18 @@ Previously qualified. Control `provider-control-nova-phase0-stop-room-be-001` su
 Do **not** resend it, infer its original outcome, intentionally reproduce it to clear the ledger, refresh that historical provider tab, or reload the extension merely to clear this entry.
 If the original draft is visibly still present, Drift may commit that exact visible draft once; otherwise recovery remains capture-only.
 
+### `MS-P0-10` — Provider qualifier exit -1 and pending control receipts
+
+- Status: **partially diagnosed; awaiting Drift's read-only receipt inspection**. Owner: Vera. Base `838e2d43`.
+- Exit -1: no code path in `provider-provenance-qualify.js` exits with -1, and `complete-qualify` uses `spawnSync` with no timeout. -1 (0xFFFFFFFF) matches an external hard kill (.NET `Process.Kill`/`Stop-Process`, or a calling tool's timeout), which skips both report writers. Most likely sequence (inferred): the room went idle without a `[DEX CONTROL RECEIPT]`, the qualifier kept polling up to `--timeout-ms` (180 s default per wait), and the caller killed it first. Not yet proven which caller.
+- Second defect found: the qualifier's cleanup called `remove_agent` and `delete_room`, which breaks the room-preservation rule. A timed-out run would have deleted the evidence room.
+- Registry drift: e76d3205 added `quorum_*` to the server's `MUTATING_ACTIONS` but not to `public/dex-provider-control.js`, which raised the suite from 18 to 21 failures at `838e2d43`.
+- Fixes: (1) quorum actions added to the browser mutating registry (back to the 18 baseline); (2) the qualifier now preserves the room and members unless `--allow-room-delete` is passed, records every mutating control request ID in `evidence.controls`, and rewrites `machine-spaces-provider-progress.txt` after each step so a hard kill keeps the room and control IDs; (3) a new read-only `npm run inspect:control-receipts` prints every room with a `pendingProviderControlReceipt`: executor member, origin and agent message IDs, `turnRequestId`, the captured CMD, relay state, receipts already in the room, and the last qualifier progress.
+- Protected invariants: no replay of `quorum_presence`, `provider-control-2713e2d5-…` or `dex-turn-df81360e-…`; no new live mutation until both pending receipts are classified; rooms are never deleted by the qualifier by default.
+- Tests: `tests/provider-receipt-inspect.test.js` (3/3); full suite 1644 / 1626 pass / 18 baseline failures.
+- Immediate next action: Drift runs `npm run doctor` and `npm run inspect:control-receipts` (both read-only) and pastes the reports. Then classify each pending receipt as (a) the c05adce6 `quorum_presence` intent whose provider-control request never reached the server, or (b) an older room's stranded intent.
+- Remaining uncertainty: why Eve's captured `quorum_presence` CMD produced no provider-control result. A pending intent also has no expiry, so it blocks `post-idle-maintenance` globally until resolved. That needs Eve's design (an explicit read-only "abandoned" disposition, never an auto-replay).
+
 ## Validation history
 
 | Gate | Evidence |
