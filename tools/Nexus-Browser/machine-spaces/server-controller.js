@@ -5,15 +5,19 @@ const { enhanceMachineSpacesController } = require('./server-controller-filesyst
 const { enhanceMachineSpacesQuorumController } = require('./server-controller-quorum');
 const { enhanceMachineSpacesSupervisedController } = require('./server-controller-supervised');
 const { enhanceMachineSpacesTrustedAttachController } = require('./server-controller-trusted-attach');
+const { enhanceMachineSpacesHumanGateController } = require('./server-controller-human-gate');
 
 function createMachineSpacesController(options = {}) {
-  return enhanceMachineSpacesTrustedAttachController(
-    (trustedAttachOptions) => enhanceMachineSpacesSupervisedController(
-      (supervisedOptions) => enhanceMachineSpacesQuorumController(
-        (quorumOptions) => enhanceMachineSpacesController(base.createMachineSpacesController, quorumOptions),
-        supervisedOptions
+  return enhanceMachineSpacesHumanGateController(
+    (humanGateOptions) => enhanceMachineSpacesTrustedAttachController(
+      (trustedAttachOptions) => enhanceMachineSpacesSupervisedController(
+        (supervisedOptions) => enhanceMachineSpacesQuorumController(
+          (quorumOptions) => enhanceMachineSpacesController(base.createMachineSpacesController, quorumOptions),
+          supervisedOptions
+        ),
+        trustedAttachOptions
       ),
-      trustedAttachOptions
+      humanGateOptions
     ),
     options
   );
