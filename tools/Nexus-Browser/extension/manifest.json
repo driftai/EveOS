@@ -32,9 +32,7 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://chat.deepseek.com/*"
-      ],
+      "matches": ["https://chat.deepseek.com/*"],
       "js": [
         "content/provider-adapter-revision.js",
         "content/deepseek-input.js",
@@ -44,15 +42,13 @@
         "content/activity.js",
         "content/search-recovery.js",
         "content/dex-provider-control.js",
+        "content/machine-file-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
     },
     {
-      "matches": [
-        "https://grok.com/*",
-        "https://x.com/i/grok*"
-      ],
+      "matches": ["https://grok.com/*", "https://x.com/i/grok*"],
       "js": [
         "content/provider-adapter-revision.js",
         "content/grok-input.js",
@@ -60,14 +56,13 @@
         "content/grok.js",
         "content/grok-activity.js",
         "content/dex-provider-control.js",
+        "content/machine-file-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
     },
     {
-      "matches": [
-        "https://claude.ai/*"
-      ],
+      "matches": ["https://claude.ai/*"],
       "js": [
         "content/provider-adapter-revision.js",
         "content/claude-input.js",
@@ -77,14 +72,13 @@
         "content/claude-activity-command.js",
         "content/claude-activity.js",
         "content/dex-provider-control.js",
+        "content/machine-file-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
     },
     {
-      "matches": [
-        "https://chatgpt.com/*"
-      ],
+      "matches": ["https://chatgpt.com/*"],
       "js": [
         "content/provider-adapter-revision.js",
         "content/response-deadline.js",
@@ -97,44 +91,39 @@
         "content/chatgpt.js",
         "content/chatgpt-stream-nudge.js",
         "content/dex-provider-control.js",
+        "content/machine-file-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
     },
     {
-      "matches": [
-        "https://gemini.google.com/*",
-        "https://aistudio.google.com/*"
-      ],
+      "matches": ["https://gemini.google.com/*", "https://aistudio.google.com/*"],
       "js": [
         "content/provider-adapter-revision.js",
         "content/gemini-input.js",
         "content/gemini-answer.js",
         "content/gemini.js",
         "content/dex-provider-control.js",
+        "content/machine-file-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
     },
     {
-      "matches": [
-        "https://hark.com/chat*",
-        "https://hark.com/projects/*"
-      ],
+      "matches": ["https://hark.com/chat*", "https://hark.com/projects/*"],
       "js": [
         "content/provider-adapter-revision.js",
         "content/hark-input.js",
         "content/hark-answer.js",
         "content/hark.js",
         "content/dex-provider-control.js",
+        "content/machine-file-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
     },
     {
-      "matches": [
-        "https://muse.ai/*"
-      ],
+      "matches": ["https://muse.ai/*"],
       "js": [
         "content/provider-adapter-revision.js",
         "content/prompt-delivery.js",
@@ -142,6 +131,7 @@
         "content/muse-answer.js",
         "content/muse.js",
         "content/dex-provider-control.js",
+        "content/machine-file-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
