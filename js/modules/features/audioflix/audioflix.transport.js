@@ -74,13 +74,20 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
 
     function spotifyProviderOwned(item, type) {
         if ((type || item?.type) !== 'music') return false;
-        const effectiveLocal = window.EveAudioflixLocalize?.effectiveLocalPath?.(item) || item?.localPath || '';
+        const directControl = window.EveAudioflixSpotifyVolume?.snapshot?.()?.directControl === true;
+        if (directControl) return false;
+
+        const playback = window.EveAudioflixAudio?.getPlaybackState?.() || {};
+        const sameActiveItem = String(playback.item?.id ?? '') === String(item?.id ?? '');
+        if (sameActiveItem && playback.provider === 'spotify' && playback.browserOnly === true) return true;
+
+        const effectiveLocal = item?.missingLocal === true
+            ? ''
+            : (window.EveAudioflixLocalize?.effectiveLocalPath?.(item) || item?.localPath || '');
         if (String(effectiveLocal).trim()) return false;
-        const spotifyTrack = window.EveAudioflixNativeSpotify?.isSpotifyTrack?.(item) === true
+        return window.EveAudioflixNativeSpotify?.isSpotifyTrack?.(item) === true
             || String(item?.sourceProvider || '').toLowerCase() === 'spotify'
             || /(?:spotify:track:|open\.spotify\.com\/(?:embed\/)?track\/)/i.test(String(item?.url || item?.spotifyUrl || item?.originalUrl || ''));
-        if (!spotifyTrack) return false;
-        return window.EveAudioflixSpotifyVolume?.snapshot?.()?.directControl !== true;
     }
 
     function render(item, type, escapeHtml) {
