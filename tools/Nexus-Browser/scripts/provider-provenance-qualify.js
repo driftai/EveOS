@@ -103,6 +103,23 @@ function exactOriginPresence(snapshot, { roomId, memberId }) {
   return { presence, events };
 }
 
+function controlReceiptFromStatus(state, { executorName, action }) {
+  const needle = `${executorName} · ${action} · `;
+  const entries = Array.isArray(state?.latest) ? state.latest : [];
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index] || {};
+    const text = String(entry.text || '');
+    if (!text.includes('[DEX CONTROL RECEIPT]') || !text.includes(needle)) continue;
+    const statusLine = text.split('\n').find((line) => line.includes(needle)) || '';
+    const outcome = statusLine.slice(statusLine.indexOf(needle) + needle.length);
+    const requestId = text.match(/Control request:\s*([^\s]+)/)?.[1] || null;
+    if (outcome.startsWith('OK:')) return { ok: true, code: null, requestId, text };
+    const code = outcome.match(/^ERROR\s+([^:]+):/)?.[1] || 'DEX_CONTROL_FAILED';
+    return { ok: false, code, requestId, text };
+  }
+  return null;
+}
+
 function parseArgs(argv = process.argv.slice(2)) {
   const value = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : null; };
   return {
@@ -166,9 +183,24 @@ async function main() {
     }
     throw Object.assign(new Error(`Timed out waiting for ${label}.`), { code: 'QUALIFY_PROVIDER_TIMEOUT', latest });
   }
-  async function sendOne(text) {
+  async function sendOne(text, expected = null) {
     await control({ action: 'send', room: roomId, text, contextMessages: 6, relay: true });
-    return waitFor((state) => state.relayActive === false && !state.waitingFor && !state.recoveryPending, 'provider relay to settle');
+    const settled = (state) => state.relayActive === false && !state.waitingFor && !state.recoveryPending;
+    if (!expected?.action || !expected?.executorName) {
+      return { state: await waitFor(settled, 'provider relay to settle'), receipt: null };
+    }
+    const state = await waitFor((current) => settled(current)
+      && !!controlReceiptFromStatus(current, expected), `${expected.action} provider-control receipt`);
+    const receipt = controlReceiptFromStatus(state, expected);
+    if (!receipt?.ok) {
+      const error = Object.assign(new Error(`Provider control ${expected.action} failed with ${receipt?.code || 'unknown status'}.`), {
+        code: receipt?.code || 'QUALIFY_PROVIDER_CONTROL_FAILED',
+        providerControlRequestId: receipt?.requestId || null,
+        latest: state
+      });
+      throw error;
+    }
+    return { state, receipt };
   }
   async function setRelay(member, enabled) {
     await control({ action: 'set_agent_relay', room: roomId, member, enabled });
@@ -195,7 +227,10 @@ async function main() {
     await setRelay(parentMemberId, true);
 
     const originCommand = { action: 'quorum_presence' };
-    await sendOne(`Automated Nexus exact-origin proof. Reply briefly, then make your FINAL line exactly this one command and emit no other Dex command:\n${marker(originCommand)}`);
+    const originDelivery = await sendOne(
+      `Automated Nexus exact-origin proof. Reply briefly, then make your FINAL line exactly this one command and emit no other Dex command:\n${marker(originCommand)}`,
+      { action: 'quorum_presence', executorName: parentName }
+    );
     const originSnapshot = await quorumStatus(null);
     const origin = exactOriginPresence(originSnapshot, { roomId, memberId: parentMemberId });
     if (!origin.presence) throw new Error('Expected a committed Eve/ChatGPT exact-origin presence record for this qualification room.');
@@ -203,6 +238,7 @@ async function main() {
     evidence.exactOrigin = {
       pass: true,
       action: 'quorum_presence',
+      controlRequestId: originDelivery.receipt?.requestId || null,
       evidenceId: origin.presence.evidenceId,
       exactEffects: origin.events.length,
       roomId: origin.presence.roomId,
@@ -210,11 +246,14 @@ async function main() {
     };
 
     const spawnCommand = { action: 'spawn_agent', room: roomId, providerId: 'chatgpt', name: childName };
-    await sendOne(`Automated managed-worker proof. Reply briefly, then make your FINAL line exactly this command and emit no other Dex command:\n${marker(spawnCommand)}`);
+    const spawnDelivery = await sendOne(
+      `Automated managed-worker proof. Reply briefly, then make your FINAL line exactly this command and emit no other Dex command:\n${marker(spawnCommand)}`,
+      { action: 'spawn_agent', executorName: parentName }
+    );
     const spawnState = await waitFor((state) => (state.memberDetails || []).filter((entry) => entry.name === childName).length === 1, 'exactly one managed child worker');
     const children = (spawnState.memberDetails || []).filter((entry) => entry.name === childName);
     if (children.length !== 1) throw new Error(`Expected exactly one managed child; saw ${children.length}.`);
-    evidence.managedSpawn = { pass: true, childMemberId: children[0].memberId, childName, exactCount: children.length };
+    evidence.managedSpawn = { pass: true, controlRequestId: spawnDelivery.receipt?.requestId || null, childMemberId: children[0].memberId, childName, exactCount: children.length };
     await control({ action: 'despawn_agent', room: roomId, member: children[0].memberId });
 
     if (!options.skipQuorum && harkTarget) {
@@ -226,19 +265,28 @@ async function main() {
       await setRelay(parentMemberId, true);
 
       const openCommand = { action: 'quorum_open', workflowId, topic: 'Machine Spaces live provider provenance', expectedAgents: ['Eve', 'Vera'], requiredAgents: ['Eve', 'Vera'], minVotes: 2 };
-      await sendOne(`Automated Machine Spaces quorum proof. You are Eve. Reply briefly and end with exactly this command, no other Dex command:\n${marker(openCommand)}`);
+      await sendOne(
+        `Automated Machine Spaces quorum proof. You are Eve. Reply briefly and end with exactly this command, no other Dex command:\n${marker(openCommand)}`,
+        { action: 'quorum_open', executorName: parentName }
+      );
       let workflow = await quorumStatus();
       if (workflow.workflowId !== workflowId) throw new Error('Eve did not open the expected quorum workflow.');
 
       const eveVote = { action: 'quorum_vote', workflowId, decision: 'approve' };
-      await sendOne(`Continue the automated quorum proof as Eve. Reply briefly and end with exactly this command, no other Dex command:\n${marker(eveVote)}`);
+      await sendOne(
+        `Continue the automated quorum proof as Eve. Reply briefly and end with exactly this command, no other Dex command:\n${marker(eveVote)}`,
+        { action: 'quorum_vote', executorName: parentName }
+      );
       workflow = await quorumStatus();
       if (!(workflow.votes || []).some((vote) => vote.agent === 'Eve' && vote.provider === 'chatgpt')) throw new Error('Real Eve/ChatGPT vote was not recorded.');
 
       await setRelay(parentMemberId, false);
       await setRelay(harkMemberId, true);
       const veraVote = { action: 'quorum_vote', workflowId, decision: 'approve' };
-      await sendOne(`Automated Machine Spaces quorum proof. You are Vera. Reply briefly and end with exactly this command, no other Dex command:\n${marker(veraVote)}`);
+      await sendOne(
+        `Automated Machine Spaces quorum proof. You are Vera. Reply briefly and end with exactly this command, no other Dex command:\n${marker(veraVote)}`,
+        { action: 'quorum_vote', executorName: veraName }
+      );
       workflow = await quorumStatus();
       const eveRecorded = (workflow.votes || []).some((vote) => vote.agent === 'Eve' && vote.provider === 'chatgpt');
       const veraRecorded = (workflow.votes || []).some((vote) => vote.agent === 'Vera' && vote.provider === 'hark');
@@ -257,10 +305,14 @@ async function main() {
   } catch (error) {
     evidence.status = ambiguous ? 'OUTCOME_UNKNOWN' : 'FAIL';
     evidence.error = { code: error.code || error.name, message: error.message };
+    if (error.providerControlRequestId) evidence.error.providerControlRequestId = error.providerControlRequestId;
     if (error.latest) evidence.latest = error.latest;
   } finally {
     if (roomId && !ambiguous) {
       const cleanup = [];
+      try {
+        await waitFor((state) => state.relayActive === false && !state.waitingFor && !state.recoveryPending, 'qualification room to become structurally idle before cleanup');
+      } catch (error) { cleanup.push({ ok: false, step: 'idle-before-cleanup', code: error.code, message: error.message }); }
       try {
         const current = await status();
         const child = (current.memberDetails || []).find((entry) => entry.name === childName);
@@ -301,6 +353,7 @@ module.exports = {
   chooseTarget,
   addOnlineAgentCommand,
   exactOriginPresence,
+  controlReceiptFromStatus,
   parseArgs,
   main
 };
