@@ -65,7 +65,12 @@ test('every provider can dynamically recover the Dex watcher on an already-open 
     const group = provider.groups.find((entry) => entry.pingType === 'dex_provider_control_ping');
     assert.ok(group, `Missing dynamic Dex control group for ${provider.id}`);
     assert.equal(group.expectedAdapter, 'dex-provider-control');
-    assert.deepEqual(group.files, ['content/dex-provider-control.js']);
+    assert.deepEqual(group.files, [
+      'content/dex-provider-control.js',
+      'content/machine-file-actions.js',
+      'content/machine-quorum-actions.js',
+      'content/machine-job-actions.js'
+    ]);
   }
 });
 

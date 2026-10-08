@@ -56,6 +56,9 @@ test('ChatGPT provider owns chatgpt.com root and conversation routes', () => {
     'content/chatgpt.js',
     'content/chatgpt-stream-nudge.js',
     'content/dex-provider-control.js',
+    'content/machine-file-actions.js',
+    'content/machine-quorum-actions.js',
+    'content/machine-job-actions.js',
     'content/provider-health.js'
   ]);
 });
@@ -70,6 +73,9 @@ test('Gemini provider owns both Gemini app and AI Studio without creating a seco
     'content/gemini-answer.js',
     'content/gemini.js',
     'content/dex-provider-control.js',
+    'content/machine-file-actions.js',
+    'content/machine-quorum-actions.js',
+    'content/machine-job-actions.js',
     'content/provider-health.js'
   ]);
 });
@@ -85,6 +91,9 @@ test('Muse provider owns the authenticated muse.ai app and advertises agent-nati
     'content/muse-answer.js',
     'content/muse.js',
     'content/dex-provider-control.js',
+    'content/machine-file-actions.js',
+    'content/machine-quorum-actions.js',
+    'content/machine-job-actions.js',
     'content/provider-health.js'
   ]);
   assert.deepEqual(muse.capabilities, { chat: true, captureLatest: true, activity: false, searchResults: false });
