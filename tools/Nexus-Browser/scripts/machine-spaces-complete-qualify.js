@@ -57,6 +57,7 @@ function childArgs(argv = process.argv.slice(2)) {
   const shared = forwardedArgs(argv, ['--timeout-ms']);
   const warmTabId = argumentValue(argv, '--warm-tab-id');
   const providerChatgptTabId = argumentValue(argv, '--chatgpt-tab-id') || warmTabId;
+  const providerChatgptUrl = argumentValue(argv, '--chatgpt-url');
   const allLive = [
     '--chatgpt-live',
     '--external-live',
@@ -68,6 +69,7 @@ function childArgs(argv = process.argv.slice(2)) {
     ...forwardedArgs(argv, ['--source-target-id', '--hark-tab-id'], ['--skip-quorum'])
   ];
   if (providerChatgptTabId != null) providers.push('--chatgpt-tab-id', providerChatgptTabId);
+  if (providerChatgptUrl != null) providers.push('--chatgpt-url', providerChatgptUrl);
   return { allLive, providers };
 }
 
@@ -89,6 +91,7 @@ function main() {
     arguments: {
       warmTabPinned: args.allLive.includes('--warm-tab-id'),
       providerChatgptTabPinned: args.providers.includes('--chatgpt-tab-id'),
+      providerChatgptUrlPinned: args.providers.includes('--chatgpt-url'),
       harkTabPinned: args.providers.includes('--hark-tab-id'),
       sourceTargetPinned: args.providers.includes('--source-target-id'),
       quorumSkipped: args.providers.includes('--skip-quorum')
