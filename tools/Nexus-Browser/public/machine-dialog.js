@@ -1,5 +1,21 @@
 (() => {
   'use strict';
+
+  const fileActions = [
+    'files_grants', 'files_status', 'files_list', 'files_tree', 'files_stat', 'files_read', 'files_search',
+    'files_create', 'files_write', 'files_patch', 'files_move', 'files_delete'
+  ];
+  const mutatingFileActions = ['files_create', 'files_write', 'files_patch', 'files_move', 'files_delete'];
+  for (const action of fileActions) {
+    globalThis.BrowserAiBridgeDexProtocol?.PROVIDER_CONTROL_ACTIONS?.add?.(action);
+    globalThis.BrowserAiBridgeDexProviderControl?.ACTIONS?.add?.(action);
+  }
+  for (const action of mutatingFileActions) globalThis.BrowserAiBridgeDexProviderControl?.MUTATING_ACTIONS?.add?.(action);
+  globalThis.BrowserAiBridgeMachineFileActions = Object.freeze({
+    ACTIONS: new Set(fileActions),
+    MUTATING_ACTIONS: new Set(mutatingFileActions)
+  });
+
   // In-page replacement for window.confirm/prompt. EveOS embeds Nexus in a
   // sandboxed iframe without allow-modals, where native dialogs silently return
   // null/false, so every Machine Spaces decision uses this DOM dialog instead.
