@@ -21,10 +21,10 @@ machine state only in the ignored runtime checkpoint:
 | Field | Value |
 |---|---|
 | Branch | `eve/nexus-machine-spaces` |
-| Last independently qualified HEAD | `cd457db9069a0375570c99f260fb1ce1ada92f59` (Vera) |
-| Post-qualification implementation HEAD before this ledger commit | `457e28a51e33d0d2b6f94e787bb7fea84a92fde2` |
+| Last independently qualified source HEAD | `667fb612a66aecd9c45ffa85707e22872a570720` (Vera, Linux ARM64 / pwsh 7.6.6 / headless Chromium) |
+| Qualification range | `cd457db9069a0375570c99f260fb1ce1ada92f59` -> `667fb612a66aecd9c45ffa85707e22872a570720` locally qualified on Linux |
 | Main unresolved live blocker | `MS-P0` exact-origin / managed-worker live qualification |
-| Current safe next action | Vera/Drift pull current HEAD, run Nexus tests + extension/asset gates, then run Windows-specific and P0 live proofs without disturbing the unresolved exact-once recovery |
+| Current safe next action | Run Windows-specific shell/process-tree gates on Drift's laptop, continue P0 live proofs without disturbing the unresolved exact-once recovery, and build/qualify the real external-terminal adapter transport beyond the existing trust plane |
 
 ## Roadmap state
 
@@ -36,9 +36,9 @@ machine state only in the ignored runtime checkpoint:
 | `MS-03` | source-implemented | hash-guarded create/write/patch/move/delete + atomic writes exist |
 | `MS-04` | source-implemented | capability grants, expiry, revocation and once-use consumption exist |
 | `MS-05` | source-implemented / live-quorum pending | Eve/Nova/Vera identity, presence, voting, quorum and provider controls wired; real-origin quorum still pending |
-| `MS-06` | Linux/pwsh flow qualified at `cd457db`; post-hardening retest pending | supervised lifecycle worked live for Vera; Windows tree-kill, busy preflight, lease-safe cancel and monotonic lease generation were hardened afterward; external terminal trust plane exists but real adapter transport remains |
-| `MS-07` | supervised UX qualified at `cd457db`; post-gate retest pending | headed Chromium start/defer/rebound/interrupt/paging passed for Vera; server-side Human Input interlock added afterward; generic filter view model is source-ready but not yet the primary visible request list |
-| `MS-08` | partial local qualification | Vera passed real pwsh 7.6.6 contract 17/17 on Linux ARM64; Windows CMD/Windows PowerShell/WSL and Windows process-tree behavior remain |
+| `MS-06` | Linux/pwsh supervised flow qualified at `667fb61`; Windows + external adapter pending | start/defer/rebound/interrupt/paging, busy-target preflight, monotonic leases, server Human Input gate and POSIX tree-kill passed Vera's live rerun; unconfirmed-interrupt lease edge is unit-only; real external adapter transport and Windows tree behavior remain |
+| `MS-07` | supervised UX + server Human Input gate locally qualified at `667fb61` | headed Chromium flow and bounded paging passed; generic filter view model is source-ready but not yet the primary visible request list |
+| `MS-08` | partial local qualification at `667fb61` | real pwsh 7.6.6 contract 17/17 and Linux/POSIX safety lanes pass; Windows CMD/Windows PowerShell/WSL, Windows tree-kill and exit-grace remain |
 
 ## Independent qualification evidence — Vera at `cd457db`
 
@@ -63,36 +63,71 @@ Qualification caveat: the `job_prepare` test used a synthetic Dex origin because
 
 Vera found and fixed one real runtime bug in `cd457db`: on POSIX, interrupting only the shell could orphan descendants that held stdout/stderr pipes open and left the terminal busy. Supervised POSIX processes now get their own process group and interrupt/timeout terminates that group. Shutdown must continue to call `stopAll` because detached POSIX children no longer inherit console Ctrl+C.
 
-## Post-`cd457db` hardening — requires retest at current HEAD
+## Independent qualification evidence — Vera at `667fb61`
 
-The following source changes were added after Vera's qualified checkpoint and must not be described as independently qualified yet.
+Environment: Linux ARM64, real PowerShell 7.6.6, headless Chromium UI.
+
+PASS:
+
+- `npm test`: 1608 tests, 1590 pass, 18 fail; the same 18 baseline failures as `main`, with nothing new;
+- supervised UI flow: Start issued lease generation 1;
+- disconnect -> `deferred`, same PID, no relaunch;
+- reattach -> same PID and process epoch, lease generation 2;
+- second reattach refused;
+- interrupt -> `outcome-unknown` with no leftover processes;
+- output paging over 3000 lines is contiguous;
+- browser console remained clean;
+- raw local UI socket with Human Input locked gets `MACHINE_HUMAN_INPUT_LOCKED` on Start, Cancel and Reattach;
+- busy-target Start returns `MACHINE_TARGET_BUSY`, leaves the job `queued`, then runs and completes exit 0 after the terminal becomes free;
+- POSIX tree-kill works for `sleep`, `Start-Sleep` and `/bin/sleep`, all interrupting to `outcome-unknown` with no orphaned descendants;
+- real `pwsh` shell contract: `17/17` pass.
+
+Not exercised live at `667fb61`:
+
+- the deliberately unconfirmed-interrupt lease path could not be forced naturally; its protection remains unit-test-covered rather than live-qualified;
+- Windows `taskkill /T /F` process-tree termination;
+- Windows inherited-pipe exit-grace behavior;
+- Windows CMD, Windows PowerShell and WSL shell contracts.
+
+Human Input design note: the gate state is shared across trusted local UI sockets. If any trusted local Nexus UI socket enables Human Input, the local UI gate is open for the other trusted local UI sockets, and a local UI socket can send `machine_set_human_input`. This is intentional only under the current trusted-loopback-UI model. It is a safety interlock, not protection against hostile local processes.
+
+`dex-turn-df81360e-109f-4ec1-bd84-7a7798c0502c` was not touched by this qualification.
+
+## Post-`cd457db` hardening — Linux-qualified at `667fb61`; Windows-specific proof pending
+
+The following source changes were added after Vera's original `cd457db` checkpoint. Vera's rerun at `667fb61` qualified the Linux/pwsh and headed-browser behavior described below except where explicitly marked unit-only or Windows-pending.
 
 ### Busy target preflight
 
-`server-controller-supervised.js` now checks broker activity before changing a queued job to running.
+`server-controller-supervised.js` checks broker activity before changing a queued job to running.
 
-Protected behavior:
+Protected and live-qualified at `667fb61`:
 
 - a busy terminal returns `MACHINE_TARGET_BUSY`;
 - the job remains `queued`;
 - the prepared command remains in the command store;
-- no supervised process is spawned.
+- no supervised process is spawned;
+- after the target becomes free the same queued job can Start and complete normally.
 
 ### Lease-safe cancel / uncertain interrupt settlement
 
-A running job now carries its current supervision lease into local cancel/settlement paths.
+A running job carries its current supervision lease into local cancel/settlement paths.
 If interrupt cannot be confirmed, settlement becomes `outcome-unknown` with
 `MACHINE_JOB_INTERRUPT_UNCONFIRMED` instead of throwing `MACHINE_JOB_LEASE_INVALID` and leaving the job stuck running.
 
+The ordinary live interrupt path passed at `667fb61` and left no descendants. The specifically unconfirmed-interrupt branch could not be forced naturally and remains unit-test-covered only.
+
 ### Monotonic rebound lease generation
 
-`supervised-job.js` now stores an independent `leaseGeneration` counter.
+`supervised-job.js` stores an independent `leaseGeneration` counter.
 Start uses generation 1; defer preserves that generation; rebound issues generation 2, then 3, etc.
 The transient lease may be cleared, but its generation never resets during the same job lifecycle.
 
+Live-qualified at `667fb61`: Start generation 1 -> defer -> rebound generation 2 with the same PID and process epoch and no command replay.
+
 ### Windows process-tree termination and pipe-close grace
 
-`managed-terminal-broker.js` now has a Windows supervised termination path using
+`managed-terminal-broker.js` has a Windows supervised termination path using
 `taskkill.exe /pid <pid> /t /f`, with direct `child.kill()` as fallback.
 Bounded and supervised runs also settle from process `exit` after a short grace period rather than waiting indefinitely for `close` while inherited child pipes remain open.
 
@@ -104,11 +139,13 @@ Source regressions cover:
 - POSIX process-group termination;
 - same-terminal busy exclusion.
 
+POSIX process-group termination was re-qualified live at `667fb61`.
+
 **Windows behavior is not live-qualified yet.** Drift must run the Windows shell/process-tree gates on the real laptop.
 
 ### Server-side Human Input safety interlock
 
-A new outer Machine Spaces controller layer mirrors the Dex Human Input toggle to the server.
+An outer Machine Spaces controller layer mirrors the Dex Human Input toggle to the server.
 It defaults locked and gates local Dex resource/process mutations including:
 
 - create/archive space;
@@ -126,7 +163,9 @@ Provider-control does not gain authority from this toggle and remains governed b
 `public/machine-human-gate-ui.js` mirrors the browser `data-human-input` state to this server gate.
 Dex `Create terminal` is intercepted in capture phase and resent with the active `roomId`, preventing it from being misclassified as a Base Mode terminal mutation.
 
-Security note: this is a **loopback safety interlock, not an authentication boundary**. Nexus UI WebSockets are not cryptographically authenticated, so hostile local software that can impersonate an allowed loopback UI is outside this gate's trust claim.
+Live-qualified at `667fb61`: a raw local UI socket is rejected with `MACHINE_HUMAN_INPUT_LOCKED` for supervised Start, Cancel and Reattach while the gate is locked.
+
+Security note: this is a **loopback safety interlock, not an authentication boundary**. Nexus UI WebSockets are not cryptographically authenticated, so hostile local software that can impersonate an allowed loopback UI is outside this gate's trust claim. Gate state is shared among trusted local UI sockets.
 
 ### Post-qualification commits
 
@@ -235,9 +274,7 @@ Implemented:
 - output `Load More`;
 - unified `request-view.js` projection with kind/state/actor/query filters, exact provenance and cursor paging.
 
-Vera qualified the supervised panel and paging at `cd457db`.
-The newly added server Human Input interlock needs headed retest.
-The generic request-view filter model remains source-ready but is not yet the primary visible request list.
+Vera qualified the supervised panel, bounded paging and server Human Input gate at `667fb61` with headless Chromium. The generic request-view filter model remains source-ready but is not yet the primary visible request list.
 
 ## `MS-08` — Destructive/exact-once security matrix
 
@@ -256,8 +293,11 @@ Source tests cover:
 - supervised UI authority/output paging;
 - POSIX and Windows process-tree termination paths.
 
-Qualified: real pwsh 7.6.6 contract `17/17` on Vera's Linux ARM64 machine at `cd457db`.
-Still required on Drift's Windows laptop: CMD, Windows PowerShell, pwsh if desired, WSL, and Windows process-tree interruption/timeout behavior at the current post-hardening HEAD.
+Qualified at `667fb61`: real pwsh 7.6.6 contract `17/17` on Vera's Linux ARM64 machine; supervised lifecycle; busy-target preservation; monotonic lease rebound; Human Input server gate; POSIX descendant termination with no orphans; contiguous large-output paging.
+
+Unit-only caveat: the specifically unconfirmed-interrupt lease settlement branch is regression-covered but was not naturally forced live.
+
+Still required on Drift's Windows laptop: CMD, Windows PowerShell, pwsh if desired, WSL, Windows `taskkill /T /F`, and Windows inherited-pipe exit-grace behavior.
 
 ## `MS-P0` durable evidence
 
@@ -341,10 +381,14 @@ This record must not be hidden by later source progress.
 | Phase-0 focused matrix | prior `68/68` at `d01c3d556` |
 | Rehydration/control lane | prior `45/45` with `61ea2f78a` |
 | Stop/control lane | prior `24/24` with `12dfec316` |
-| Full Nexus suite at Vera handoff | `cd457db`: same 18 pre-existing failures as `main`; zero new Machine Spaces failures |
-| Real supervised flow | PASS on Vera Linux ARM64 / pwsh 7.6.6 / headless Chromium at `cd457db` |
-| Real pwsh shell contract | `17/17` PASS at `cd457db` |
-| Current post-hardening HEAD | **not yet independently rerun**; source/tests added after `cd457db` require Vera/Drift retest |
+| Full Nexus suite at latest Vera rerun | `667fb61`: 1608 total, 1590 pass, 18 fail; same 18 failures as `main`, zero new failures |
+| Real supervised flow | PASS on Vera Linux ARM64 / pwsh 7.6.6 / headless Chromium at `667fb61` |
+| Human Input server gate | PASS at `667fb61`; raw local UI socket rejected with `MACHINE_HUMAN_INPUT_LOCKED` on Start/Cancel/Reattach while locked |
+| Busy-target preflight | PASS at `667fb61`; job stayed queued, then ran after target freed |
+| POSIX process-tree kill | PASS at `667fb61`; `sleep`, `Start-Sleep`, `/bin/sleep` interrupted with no orphans |
+| Real pwsh shell contract | `17/17` PASS at `667fb61` |
+| Unconfirmed-interrupt lease edge | unit-test-covered only; not forced naturally in Vera live rerun |
+| Windows process-tree / exit-grace / native shells | pending Drift laptop qualification |
 
 ## Quota-stop protocol
 
