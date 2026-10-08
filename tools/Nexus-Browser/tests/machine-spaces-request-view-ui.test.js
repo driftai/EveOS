@@ -6,7 +6,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { INDEX_ENHANCEMENTS, enhanceIndex } = require('../server-http');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'machine-request-view-ui.js'), 'utf8');
+const root = path.join(__dirname, '..');
+const source = fs.readFileSync(path.join(root, 'public', 'machine-request-view-ui.js'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'public', 'machine-spaces.css'), 'utf8');
 
 test('server injects the unified request-view companion after the base Machine Spaces UI', () => {
   assert.ok(INDEX_ENHANCEMENTS.includes('<script src="/machine-request-view-ui.js"></script>'));
@@ -44,4 +46,12 @@ test('primary unified cards preserve provenance, local approval and bounded outp
   assert.match(source, /machine_approve_command/);
   assert.match(source, /machine_output_page/);
   assert.match(source, /data-human-input/);
+});
+
+test('request-view styling stays in external CSS under the Nexus CSP', () => {
+  assert.doesNotMatch(source, /createElement\(['"]style['"]\)/);
+  assert.doesNotMatch(source, /styles\.textContent/);
+  assert.match(css, /\.machine-request-view-panel/);
+  assert.match(css, /\.machine-request-view-filters/);
+  assert.match(css, /\.machine-request-view-provenance/);
 });
