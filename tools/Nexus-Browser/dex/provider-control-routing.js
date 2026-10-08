@@ -11,9 +11,9 @@ const MUTATING_ACTIONS = new Set([
   'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
   'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
   'stop_relay', 'continue_relay', 'set_room_budget', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
-  'arm_post_idle', 'cancel_post_idle', 'report_post_idle', 'terminal_exec'
+  'arm_post_idle', 'cancel_post_idle', 'report_post_idle', 'terminal_exec', 'quorum_presence', 'quorum_vote'
 ]);
-const DEDUPE_TTL_MS = 120000, MAX_ORIGIN_WAIT_MS = 4 * 60 * 1000, ORIGIN_POLL_MS = 250;
+const DEDUPE_TTL_MS = 120000, MAX_ORIGIN_WAIT_MS = 4 * 60 * 1000, ORIGIN_POLL_MS = 250, LATE_ORIGIN_GRACE_MS = 5000;
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
   if (!value || typeof value !== 'object') return value;
@@ -108,17 +108,50 @@ function createProviderControlRouting({
     }
     return authorization;
   }
-  async function settleOrigin(source, command, requestId, timeoutMs = MAX_ORIGIN_WAIT_MS) {
+  async function settleOrigin(source, command, requestId, timeoutMs = MAX_ORIGIN_WAIT_MS, roomIdHint = null) {
     if (typeof getState !== 'function') return { origin: null };
+    const action = String(command?.action || '').trim().toLowerCase();
+    const onlineMutation = String(source?.targetClassId || '').trim().toLowerCase() === 'online-origin'
+      && MUTATING_ACTIONS.has(action);
+    const findExactIntent = (snapshot) => roomIdHint
+      ? controlReceiptApi.findIntentInRoom(snapshot, roomIdHint, source, command)
+      : controlReceiptApi.findIntent(snapshot, source, command);
     let snapshot = getState();
-    let origin = controlReceiptApi.findIntent(snapshot, source, command);
+    let origin = findExactIntent(snapshot);
     if (origin) return { origin };
-    const active = controlReceiptApi.activeSourceTurn(snapshot, source);
-    if (!active) return { origin: null };
-    if (active.ambiguous) {
+    let active = controlReceiptApi.activeSourceTurn(snapshot, source);
+    if (active?.ambiguous) {
       return { error: {
         code: 'DEX_CONTROL_ORIGIN_AMBIGUOUS',
         message: 'Dex found more than one active relay turn for this provider-control source; refusing to execute without a unique origin.'
+      } };
+    }
+    // A provider-control packet can beat response_final by a few milliseconds.
+    // If the authenticated Online-Origin is already bound to one exact room,
+    // give that room a short bounded grace to persist the matching durable
+    // command intent. Nothing executes unless the exact command intent appears.
+    if (!active && onlineMutation && roomIdHint) {
+      const graceDeadline = now() + Math.min(timeoutMs, LATE_ORIGIN_GRACE_MS);
+      while (now() < graceDeadline) {
+        await sleep(ORIGIN_POLL_MS);
+        snapshot = getState();
+        origin = controlReceiptApi.findIntentInRoom(snapshot, roomIdHint, source, command);
+        if (origin) return { origin };
+        const candidate = controlReceiptApi.activeSourceTurn(snapshot, source);
+        if (candidate?.ambiguous) {
+          return { error: {
+            code: 'DEX_CONTROL_ORIGIN_AMBIGUOUS',
+            message: 'Dex found more than one active relay turn for this provider-control source; refusing to execute without a unique origin.'
+          } };
+        }
+        if (candidate) { active = candidate; break; }
+      }
+    }
+    if (!active) return { origin: null };
+    if (roomIdHint && active.roomId !== roomIdHint) {
+      return { error: {
+        code: 'DEX_CONTROL_ORIGIN_UNCORRELATED',
+        message: 'The active relay turn does not match the exact authorized room for this provider-control source.'
       } };
     }
     const deadline = now() + timeoutMs;
@@ -167,7 +200,7 @@ function createProviderControlRouting({
     if (directRoomSend(command) && getState && saveState) {
       let origin = null;
       if (String(source.targetClassId || '').trim().toLowerCase() === 'online-origin') {
-        const settledOrigin = await settleOrigin(source, command, requestId);
+        const settledOrigin = await settleOrigin(source, command, requestId, MAX_ORIGIN_WAIT_MS, entryGate.roomId || null);
         if (settledOrigin.error) {
           fail(ws, requestId, source, settledOrigin.error.code, settledOrigin.error.message);
           return true;
@@ -188,7 +221,7 @@ function createProviderControlRouting({
     if (['room_budget', 'room_log', 'tool_result_status'].includes(action)) return roomTools.route(
       { source, command, requestId, ws, origin: null },
       { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt });
-    const settledOrigin = await settleOrigin(source, command, requestId);
+    const settledOrigin = await settleOrigin(source, command, requestId, MAX_ORIGIN_WAIT_MS, entryGate.roomId || null);
     if (settledOrigin.error) {
       fail(ws, requestId, source, settledOrigin.error.code, settledOrigin.error.message);
       return true;
@@ -455,6 +488,6 @@ function createProviderControlRouting({
 }
 
 module.exports = {
-  MUTATING_ACTIONS, DEDUPE_TTL_MS, MAX_ORIGIN_WAIT_MS, ORIGIN_POLL_MS, stableValue, sourceFingerprint, mutationKey,
+  MUTATING_ACTIONS, DEDUPE_TTL_MS, MAX_ORIGIN_WAIT_MS, ORIGIN_POLL_MS, LATE_ORIGIN_GRACE_MS, stableValue, sourceFingerprint, mutationKey,
   createProviderControlRouting
 };
