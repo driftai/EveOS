@@ -36,12 +36,27 @@ window.EveAudioflixOutputPort = window.EveAudioflixOutputPort || {};
         return next;
     }
 
+    function armSpotifyCaptureFromGesture() {
+        // Spotify's official iframe has no documented volume API. When an official Spotify track is
+        // active, a user gesture on this master slider is therefore the right moment to arm EveOS's
+        // localhost tab-audio capture/GainNode path. Defer one microtask so the output-volume event
+        // can first update the effective Spotify gain that capture will consume.
+        queueMicrotask(() => {
+            const spotify = window.EveAudioflixSpotifyVolume;
+            const snapshot = spotify?.snapshot?.();
+            if (!snapshot?.spotifyActive || snapshot.directControl || snapshot.active
+                || snapshot.status === 'starting') return;
+            void spotify.enable?.();
+        });
+    }
+
     function handleInput(target) {
         if (!target?.matches?.('.audioflix-output-port-volume')) return false;
         const next = setVolume(target.value, { persist: false });
         target.style.setProperty('--vol', `${next * 100}%`);
         const label = target.parentElement?.querySelector('.audioflix-output-port-label');
         if (label) label.textContent = `${Math.round(next * 100)}%`;
+        armSpotifyCaptureFromGesture();
         return true;
     }
 
