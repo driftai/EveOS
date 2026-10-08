@@ -9,9 +9,36 @@ window.EveAudioflixLocalPlayback = window.EveAudioflixLocalPlayback || {};
     if (ns.ready) return;
 
     const text = (value) => String(value ?? '').trim();
+    const PROVIDER_PAGE_RE = /^https?:\/\/(?:www\.|music\.)?(?:youtube\.com|youtu\.be|soundcloud\.com|bandcamp\.com|vimeo\.com|open\.spotify\.com|instagram\.com)\b/i;
+    const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
     function mediaSource(player) {
         return text(player?.getAttribute?.('src') || player?.src);
+    }
+
+    function bridgeBase() {
+        const saved = text(window.EveAudioflixState?.ensure?.()?.nativeBridgeBase);
+        if (saved) return saved.replace('localhost', '127.0.0.1').replace(/\/$/, '');
+        if (/^https?:$/.test(location.protocol)) {
+            return location.origin.replace('localhost', '127.0.0.1').replace(/\/$/, '');
+        }
+        return '';
+    }
+
+    function getRemoteMediaPortUrl(url) {
+        const raw = text(url);
+        if (!/^https?:\/\//i.test(raw) || PROVIDER_PAGE_RE.test(raw)) return '';
+        let parsed;
+        try { parsed = new URL(raw, location.href); } catch { return ''; }
+        if (!/^https?:$/.test(parsed.protocol) || LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase())) return '';
+
+        const base = bridgeBase();
+        if (!base) return '';
+        try {
+            const baseUrl = new URL(base);
+            if (parsed.origin === baseUrl.origin) return '';
+        } catch { return ''; }
+        return `${base}/api/audioflix/port/url?url=${encodeURIComponent(parsed.href)}`;
     }
 
     function clearMediaSource(player, preserveUrl = '') {
@@ -28,8 +55,9 @@ window.EveAudioflixLocalPlayback = window.EveAudioflixLocalPlayback || {};
     }
 
     function setMediaSource(player, url) {
-        const next = text(url);
-        if (!player || !next) throw new Error('Audioflix media source is unavailable.');
+        const requested = text(url);
+        if (!player || !requested) throw new Error('Audioflix media source is unavailable.');
+        const next = getRemoteMediaPortUrl(requested) || requested;
         if (mediaSource(player) === next) return false;
         clearMediaSource(player);
         player.src = next;
@@ -90,5 +118,11 @@ window.EveAudioflixLocalPlayback = window.EveAudioflixLocalPlayback || {};
         return { item: playable, localPath: '', status: '' };
     }
 
-    Object.assign(ns, { ready: true, prepare, setMediaSource, clearMediaSource });
+    Object.assign(ns, {
+        ready: true,
+        prepare,
+        setMediaSource,
+        clearMediaSource,
+        getRemoteMediaPortUrl
+    });
 })();
