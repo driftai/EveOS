@@ -76,6 +76,12 @@ def handle_get_request(handler, path: str, query) -> bool:
             return True
         from server_modules import audioflix_hotkeys
         _send_json(handler, audioflix_hotkeys.status())
+    elif path == "/api/audioflix/spotify-browser/status":
+        if not _can_control(handler):
+            _send_json(handler, {"ok": False, "message": "Forbidden."}, HTTPStatus.FORBIDDEN)
+            return True
+        from server_modules import audioflix_spotify_browser
+        _send_json(handler, audioflix_spotify_browser.status())
     elif path == "/api/audioflix/resolve-url":
         if not _can_control(handler):
             _send_json(handler, {"ok": False, "message": "Forbidden."}, HTTPStatus.FORBIDDEN)
@@ -95,11 +101,33 @@ def handle_get_request(handler, path: str, query) -> bool:
             _send_json(handler, {"ok": False, "message": "Forbidden."}, HTTPStatus.FORBIDDEN)
             return True
         from server_modules import audioflix_spotify
+        from server_modules import audioflix_spotify_browser
         values = query.get("url") or []
-        payload = audioflix_spotify.list_playlist(
-            values[0] if values else "",
-            force=bool(query.get("refresh") or query.get("force")),
-        )
+        # The playlist scraper and managed volume browser intentionally share one signed-in
+        # persistent profile. Chromium locks persistent profiles, so release the managed helper
+        # around the existing importer and restore it afterwards. This keeps >100-track import and
+        # volume control on one identity instead of creating competing login stores.
+        ticket = audioflix_spotify_browser.suspend_for_profile_task("playlist-import")
+        if not ticket.get("ok"):
+            _send_json(handler, {
+                "ok": False,
+                "reason": ticket.get("reason") or "Could not release the shared Spotify browser profile for import.",
+            }, HTTPStatus.CONFLICT)
+            return True
+        payload = None
+        try:
+            payload = audioflix_spotify.list_playlist(
+                values[0] if values else "",
+                force=bool(query.get("refresh") or query.get("force")),
+            )
+        finally:
+            resumed = audioflix_spotify_browser.resume_after_profile_task(ticket)
+        if isinstance(payload, dict) and ticket.get("shouldResume"):
+            payload["managedBrowserResumed"] = bool(resumed.get("resumed"))
+            if not resumed.get("ok"):
+                payload["managedBrowserResumeWarning"] = str(
+                    (resumed.get("status") or {}).get("reason") or "Managed Spotify browser did not resume."
+                )[:300]
         _send_json(handler, payload)
         return True
     elif path.startswith("/api/audioflix/port/"):
@@ -153,7 +181,40 @@ def wpl_read(payload: dict) -> dict:
 
 def spotify_session(payload: dict) -> dict:
     from server_modules import audioflix_spotify
+    from server_modules import audioflix_spotify_browser
+
+    action = str(payload.get("action") or "").strip().lower()
+    if action == "resolve-playback-source":
+        return audioflix_spotify.session_action(payload)
+    # If the managed browser already owns the shared profile, open the Spotify login/playlist in
+    # that exact context instead of launching a second persistent context that would profile-lock.
+    managed = audioflix_spotify_browser.status()
+    if managed.get("helperReachable"):
+        return audioflix_spotify_browser.auth({
+            "openLogin": True,
+            "url": str(payload.get("url") or payload.get("embed") or "https://open.spotify.com/"),
+        })
     return audioflix_spotify.session_action(payload)
+
+
+def spotify_browser_start(payload: dict) -> dict:
+    from server_modules import audioflix_spotify_browser
+    return audioflix_spotify_browser.start(payload)
+
+
+def spotify_browser_stop(payload: dict) -> dict:
+    from server_modules import audioflix_spotify_browser
+    return audioflix_spotify_browser.stop(payload)
+
+
+def spotify_browser_volume(payload: dict) -> dict:
+    from server_modules import audioflix_spotify_browser
+    return audioflix_spotify_browser.set_volume(payload)
+
+
+def spotify_browser_auth(payload: dict) -> dict:
+    from server_modules import audioflix_spotify_browser
+    return audioflix_spotify_browser.auth(payload)
 
 
 def instagram_session_import(payload: dict) -> dict:
@@ -211,6 +272,10 @@ def handle_post_request(handler, path: str) -> bool:
         "/api/audioflix/localize-link": localize_link,
         "/api/audioflix/wpl-read": wpl_read,
         "/api/audioflix/spotify-session": spotify_session,
+        "/api/audioflix/spotify-browser/start": spotify_browser_start,
+        "/api/audioflix/spotify-browser/stop": spotify_browser_stop,
+        "/api/audioflix/spotify-browser/volume": spotify_browser_volume,
+        "/api/audioflix/spotify-browser/auth": spotify_browser_auth,
         "/api/audioflix/instagram-session": instagram_session_import,
         "/api/audioflix/instagram-session/connect-browser": instagram_session_connect_browser,
         "/api/audioflix/instagram-session/status": instagram_session_status,
