@@ -9,11 +9,12 @@ machine state only in the ignored runtime checkpoint:
 ## Operating invariants
 
 - Active development branch: `eve/nexus-machine-spaces`. Do not merge or move `main` unless Drift explicitly requests it.
-- Never replay an uncertain send, spawn, terminal command, file mutation, or supervised job.
+- Never replay an uncertain send, spawn, terminal command, file mutation, supervised job, or provider-control mutation.
 - Provider and agent identities are distinct: ChatGPT/Eve, Codex/Nova, Hark/Vera.
 - Exact room/member/message/request/control/target/process-epoch/grant/job provenance wins over inferred transcript state.
 - Human/local approval gates are not substitutable by provider text.
 - Source implementation, automated regression coverage, local qualification, and live qualification are separate states.
+- UI participation may be part of a live proof, but UI clicking is not the only supported control surface. Qualification must be terminal-drivable wherever the underlying operation is automatable.
 - Commit only coherent source work. Runtime state and credentials stay untracked.
 
 ## Current checkpoint
@@ -21,25 +22,117 @@ machine state only in the ignored runtime checkpoint:
 | Field | Value |
 |---|---|
 | Branch | `eve/nexus-machine-spaces` |
-| Current branch HEAD at latest Windows qualification | `0f2960e6f8fb38a720503c6444d2ff064000851f` |
+| Post-qualification source HEAD before this ledger update | `437dc749a0838e6463ac5ed8d435c9cf68ec4833` |
 | Last independently qualified Machine Spaces source HEAD | `667fb612a66aecd9c45ffa85707e22872a570720` (Vera, Linux ARM64 / pwsh 7.6.6 / headless Chromium) |
-| Windows qualification | PASS on Drift laptop at `0f2960e6`; Machine Spaces source is unchanged from `667fb61` apart from later docs and unrelated AudioFlix integration |
-| Main unresolved live blocker | `MS-P0` provider-tab exact-origin / no-refresh rehydration / managed-worker live qualification |
-| Current safe next action | Run the real Windows inherited-pipe exit-grace probe, then continue P0 provider-tab live proofs without replaying historical uncertain work; external-terminal adapter transport remains the next source implementation gap |
+| Last Drift Windows qualification | PASS at `0f2960e6f8fb38a720503c6444d2ff064000851f` for the then-current Windows-focused gates |
+| Source roadmap | `MS-P0` through `MS-08` now have implementation paths; no known planned stage remains intentionally unimplemented |
+| Qualification state | post-`667fb61` source is **not yet independently rerun**; do not describe the current branch as live-qualified until the terminal bundle passes on Drift's machine |
+| Main remaining work | run deterministic + Windows + external-adapter + ChatGPT warm-recovery + real-provider provenance qualification and fix any failures found |
+| Safe next action | pull current branch, restart Nexus, run `npm test`, then `npm run qualify:machine-spaces:complete`; paste the bounded reports back to Eve |
 
 ## Roadmap state
 
 | ID | Status | Source state / remaining proof |
 |---|---|---|
-| `MS-P0` | active-live-qualification | cleanup/rehydration/correlation fixes exist; extension reload command now passes on Drift Windows, but no-refresh provider response, exact-origin lifecycle and managed-worker proof remain |
-| `MS-01` | source-implemented | canonical repo roots + local Allow Once/Persistent/Deny filesystem grants exist |
-| `MS-02` | source-implemented | tree/stat/bounded read/search primitives exist |
-| `MS-03` | source-implemented | hash-guarded create/write/patch/move/delete + atomic writes exist |
-| `MS-04` | source-implemented | capability grants, expiry, revocation and once-use consumption exist |
-| `MS-05` | source-implemented / live-quorum pending | Eve/Nova/Vera identity, presence, voting, quorum and provider controls wired; genuine relay-origin quorum remains |
-| `MS-06` | supervised flow qualified on Linux and Windows tree-kill qualified | start/defer/rebound/interrupt/paging, busy-target preflight, monotonic leases, Human Input gate and POSIX tree-kill passed Vera; Windows supervised descendant tree-kill passed Drift; unconfirmed-interrupt branch is unit-only; real external adapter transport remains |
-| `MS-07` | supervised UX + server Human Input gate locally qualified | headed Chromium flow and bounded paging passed; generic filter view model is source-ready but not yet the primary visible request list |
-| `MS-08` | mostly qualified; one Windows live edge remains | Linux pwsh 17/17; Windows CMD, Windows PowerShell, WSL and real taskkill tree termination pass; Windows pwsh is not installed on Drift PATH; real inherited-pipe exit-grace is still pending |
+| `MS-P0` | source-implemented / live qualification pending | cleanup, exact-origin correlation, rehydration, dedupe, spawn cleanup and terminal-driven real-provider qualification paths exist; no-refresh committed provider result + managed worker exact-once still need the new live bundle run |
+| `MS-01` | source-implemented | canonical repo roots + local Allow Once/Persistent/Deny filesystem grants |
+| `MS-02` | source-implemented | tree/stat/bounded read/search primitives |
+| `MS-03` | source-implemented | hash-guarded create/write/patch/move/delete + atomic writes |
+| `MS-04` | source-implemented | capability grants, expiry, revocation and once-use consumption |
+| `MS-05` | source-implemented / live quorum pending | Eve/Nova/Vera identity, availability and exact-origin voting wired; terminal provider qualifier drives real Eve/ChatGPT + Vera/Hark when Hark is connected |
+| `MS-06` | source-implemented; older supervised flow qualified | start/defer/rebound/interrupt/paging, busy preflight, monotonic leases, process-tree termination and trusted external PID observe/interrupt transport exist; new external-adapter live qualifier still needs Drift run |
+| `MS-07` | source-implemented / current UI qualification pending | primary unified terminal/filesystem/supervised request view now uses server-side kind/state/actor/query/live filters, exact provenance and cursor paging with legacy fallback |
+| `MS-08` | source-implemented / current bundle pending | destructive/exact-once matrix and native shell probes exist; older Linux/Windows qualification remains evidence, while the current source head still needs rerun |
+
+## Terminal-first qualification model
+
+The acceptance workflow is intentionally usable from PowerShell without manually driving Nexus controls one-by-one.
+
+From `tools/Nexus-Browser`:
+
+- `npm test`
+  - full Nexus regression suite;
+- `npm run qualify:machine-spaces`
+  - deterministic P0/origin/dedupe/spawn/quorum/request-view/trusted-attachment tests plus focused Machine Spaces and native-shell probes;
+- `npm run qualify:machine-spaces:external`
+  - deterministic bundle + real trusted external PID probe/attest/observe/interrupt/revoke path through the running Nexus server;
+- `npm run qualify:machine-spaces:chatgpt`
+  - deterministic bundle + assembled-extension reload and warm authenticated ChatGPT exact-once/recovery proof without requiring a manual page refresh;
+- `npm run qualify:machine-spaces:providers`
+  - disposable real-provider provenance room; uses a fresh ChatGPT worker, verifies exact-origin effect and managed spawn, and runs Eve/Vera quorum when a real Hark target is connected;
+- `npm run qualify:machine-spaces:complete`
+  - all live Machine Spaces lanes followed by the real-provider provenance qualifier.
+
+Safety behavior of the provider qualifier:
+
+- it uses a disposable qualification room rather than mutating a normal chat room;
+- provider-control mutations must still come from genuinely committed provider replies;
+- no uncertain provider-control/spawn outcome is retried;
+- if outcome becomes ambiguous/unknown, the room is retained and reported for inspection instead of force-cleaned;
+- Hark quorum is reported blocked when no genuine Hark target is connected; it is never simulated as a live pass.
+
+## Post-qualification source work after `667fb61`
+
+The following work exists in source but is not covered by Vera's `667fb61` qualification stamp.
+
+### Supervised/job hardening
+
+- monotonic supervision lease generations across defer/rebound;
+- busy-target preflight before queued job transitions to running;
+- lease-safe cancel/outcome-unknown settlement;
+- Windows process-tree termination using `taskkill /T /F` with direct-child fallback;
+- exit + short pipe-drain grace so inherited descendant pipes cannot hold a terminal busy forever;
+- server-side Human Input interlock for Dex Machine Spaces mutations;
+- Dex terminal creation is room-scoped through the gate.
+
+### Trusted external terminal transport
+
+Implemented source includes:
+
+- `machine-spaces/trusted-terminal-attachment.js`
+- `machine-spaces/server-controller-trusted-attach.js`
+- `machine-spaces/external-terminal-process-adapter.js`
+- `scripts/external-terminal-adapter-qualify.js`
+
+Behavior:
+
+- attach/probe a pre-existing external PID;
+- pin the exact process start epoch so PID reuse fails closed;
+- observe bounded process identity/liveness metadata;
+- interrupt the exact process tree;
+- Windows interrupt uses tree termination semantics;
+- trusted capabilities remain `observe` and `interrupt` only;
+- **no external execute capability exists**.
+
+The live qualifier launches only a harmless temporary process, registers a temporary adapter credential, proves exact PID/epoch attestation, observes, interrupts, verifies termination, revokes trust and disables Human Input.
+
+### Primary unified request view (`MS-07`)
+
+Implemented source includes:
+
+- `machine-spaces/request-view.js`
+- `machine-spaces/server-controller-request-view.js`
+- `public/machine-request-view-ui.js`
+
+Server API:
+
+- `machine_request_view`
+- local UI sockets only;
+- combines terminal requests, filesystem requests and exact room/space supervised jobs;
+- filters: kind, state, actor, query and live-only;
+- stable newest-first cursor paging;
+- exact request/source-message/actor/terminal/process-epoch/grant/capability/digest/output provenance.
+
+Primary visible UI:
+
+- unified request list is shown after the server successfully answers;
+- original request list remains available automatically as a fail-safe during reconnect/unsupported-server conditions;
+- filters and Load More are driven by the server projection instead of duplicated browser filtering;
+- approval-required terminal cards retain local Allow Once/Deny controls and Human Input gating;
+- bounded output pages remain available from the unified cards;
+- specialized supervised-job controls may remain as the dedicated Start/Reattach/Interrupt surface even though those jobs also appear in the unified audit list.
+
+Terminal automation covers the server API and companion injection; manual clicking is not required to exercise the deterministic request-view acceptance lane.
 
 ## Independent qualification — Vera at `667fb61`
 
@@ -104,21 +197,16 @@ Real Windows supervised process-tree proof:
 - descendant check -> `childAlive: false`;
 - broker target -> `busy: false`.
 
-This closes the live Windows `taskkill /T /F` descendant-termination acceptance item.
-
-Still pending on Windows:
-
-- real inherited-pipe exit-grace proof where the shell exits but a descendant temporarily retains inherited stdout/stderr; unit regression is green, but a real live pin has not yet been recorded;
-- Windows pwsh is optional and currently unavailable on PATH; Linux real pwsh is already qualified by Vera.
+This closes the older live Windows `taskkill /T /F` descendant-termination acceptance item.
 
 Extension reload command at `0f2960e6`:
 
 - `npm run extension:reload` -> `EVEOS_EXTENSION_ASSEMBLY_OK modules=3 assets=106`;
-- Nexus reports `reload_extension` successful and extension reconnected.
+- Nexus reported `reload_extension` successful and extension reconnected.
 
-This proves reload/reconnect itself on Drift's machine. It does **not** yet prove `MS-P0-04` no-refresh rehydration because the remaining acceptance step is a committed harmless Dex control result from an already-open logged-in ChatGPT tab without refreshing that page.
+That older run proved reload/reconnect itself. It did **not** prove the final no-refresh committed ChatGPT result acceptance item.
 
-Historical uncertain turn `dex-turn-df81360e-109f-4ec1-bd84-7a7798c0502c` was not intentionally replayed. Current doctor reported no active recovery rooms and no pending provider controls, but that does not retroactively establish the historical send outcome.
+Historical uncertain turn `dex-turn-df81360e-109f-4ec1-bd84-7a7798c0502c` was not intentionally replayed. A later doctor showing no active recovery rooms does not retroactively establish the historical send outcome.
 
 ## `MS-01` through `MS-04` — Filesystem capability plane
 
@@ -171,7 +259,7 @@ Rules:
 - required-agent and majority rules deterministic;
 - human-pasted provider text is not presence and cannot vote.
 
-Remaining live proof: genuine relay origins with Eve/ChatGPT and Vera/Hark (Nova/Codex when available).
+Live proof remains genuine provider-origin voting; the provider qualifier now automates the orchestration while keeping provider provenance real.
 
 ## `MS-06` — Supervised servers, rebound and trusted external attachment
 
@@ -181,39 +269,30 @@ Provider controls intentionally stop at:
 - `job_status`
 - `job_list`
 
-Only local UI may Start/Reattach/Interrupt.
+Only the local owner may Start/Reattach/Interrupt.
 Reconnect is never authority to replay a command; rebound requires proof that the original managed request remains alive on the exact target/process epoch.
 Target loss terminalizes active work as `outcome-unknown`.
 
-Trusted external attachment source:
-
-- `machine-spaces/trusted-terminal-attachment.js`
-- `machine-spaces/server-controller-trusted-attach.js`
-
-Trust plane:
-
-- local adapter credential;
-- one-time HMAC challenge bound to target ID, process epoch, adapter ID, cwd, shell type;
-- capabilities remain `observe` and `interrupt` only;
-- external `execute` deliberately excluded.
-
-Remaining source/integration gap: real external-terminal adapter transport. It must carry challenge/proof and implement observe/interrupt against a pre-existing external terminal. The trust plane alone is not a claim that arbitrary Windows Terminal processes are already controllable.
+Trusted external attachment remains observe/interrupt-only. External command execution is deliberately excluded.
 
 ## `MS-07` — Machine Spaces UX
 
-Implemented:
+Source implementation now includes:
 
-- collapsible request history;
-- terminal/filesystem request cards;
+- collapsible/fallback legacy request history;
+- primary unified request cards for terminal/filesystem/supervised work;
+- kind/state/actor/query/live filters;
+- exact provenance rendering;
+- stable cursor paging and Load More;
 - local grant/resource controls;
 - bounded output paging;
 - supervised-job panel with queued/running/deferred/terminal states;
 - Human-gated Start/Reattach/Interrupt;
-- no-replay rebound copy;
-- output `Load More`;
-- unified `request-view.js` projection with kind/state/actor/query filters, exact provenance and cursor paging.
+- no-replay rebound behavior;
+- local terminal Allow Once/Deny preserved in the primary request view.
 
-Vera qualified supervised panel, bounded paging and server Human Input gate at `667fb61`. Generic request-view filtering remains source-ready but is not yet the primary visible list.
+Older supervised panel/bounded paging/Human Input behavior was qualified by Vera at `667fb61`.
+The new primary unified request companion and controller are post-qualification source and must be rerun in the current terminal bundle before being marked locally/live qualified.
 
 ## `MS-08` — Destructive/exact-once security matrix
 
@@ -229,19 +308,17 @@ Source coverage includes:
 - same-terminal race prevention;
 - explicit argv contracts for CMD, Windows PowerShell, pwsh and WSL;
 - trusted adapter registration/attestation/revocation and no external execute authority;
+- external PID epoch-reuse rejection;
 - supervised UI authority/output paging;
+- unified request-view authority/filter/cursor coverage;
 - POSIX and Windows process-tree termination paths.
 
-Qualified:
+Historical qualification:
 
 - Vera Linux ARM64: real pwsh 7.6.6 contract `17/17`, supervised lifecycle, busy-target preservation, monotonic lease rebound, Human Input gate, POSIX descendant termination, contiguous large-output paging;
 - Drift Windows: real CMD, Windows PowerShell and WSL through EveOS broker; real Windows supervised descendant tree termination; focused Windows matrix 21/21.
 
-Remaining:
-
-- real Windows inherited-pipe exit-grace acceptance;
-- unconfirmed-interrupt lease edge remains unit-only because it was not naturally forced;
-- Windows pwsh is not a blocker unless explicitly desired because it is not installed, while real pwsh is already qualified on Vera's host.
+Current-source qualification still required. Windows pwsh is not a blocker unless explicitly desired because it is not installed, while real pwsh is already qualified on Vera's host.
 
 ## `MS-P0` durable evidence
 
@@ -264,15 +341,15 @@ Room `room-9b5c892d-4daf-4568-a669-6126d9e27305` reached `deferredSends: 0`, no 
 
 Source implemented with worker-generation handshake: `c1c415d3d`, `0e05087ed`, `d01c3d556`, `61ea2f78a`.
 
-Drift Windows reload/reconnect command now passes at `0f2960e6`.
+Acceptance remains:
 
-Live acceptance still required:
+1. use an already-open authenticated ChatGPT target;
+2. reload/assemble the EveOS extension;
+3. do **not** refresh the ChatGPT page merely to restore the bridge;
+4. send one harmless qualification turn;
+5. receive the committed result from that same target with exact-once recovery evidence.
 
-1. keep an already-open logged-in ChatGPT tab bound;
-2. reload EveOS Bridge / Nexus extension;
-3. **do not refresh ChatGPT**;
-4. send one harmless exact Dex status/control;
-5. receive the committed result from that same already-open tab.
+`qualify:machine-spaces:chatgpt` automates this lane and blocks itself when recovery/provider-control state makes the run unsafe.
 
 Historical exact-tab reload request: `provider-control-767a3f28-825c-432e-9276-05e654de7155`.
 
@@ -283,25 +360,28 @@ Human-pasted Hark command text rejected; genuine Vera assistant trailing command
 
 ### `MS-P0-06` — Control-origin finalization
 
-Live provider-tab proof still required.
+Source regressions cover:
+
+- exact early command waiting for finalization;
+- exact matching finalized command acceptance;
+- stale/wrong turn rejection;
+- ambiguous origin rejection;
+- bounded timeout;
+- duplicate control/mutation dedupe.
+
 Fail-closed codes include:
 
 - `DEX_CONTROL_ORIGIN_TIMEOUT`
 - `DEX_CONTROL_ORIGIN_UNCORRELATED`
-- `DEX_CONTROL_ORIGIN_AMBIGUOUS`
+- `DEX_CONTROL_ORIGIN_AMIGUOUS` is **not** valid; the actual code is `DEX_CONTROL_ORIGIN_AMBIGUOUS`.
 
-Acceptance:
-
-- exact early command waits for finalization and executes once;
-- exact matching late command accepted;
-- stale/wrong turn rejected;
-- duplicate same control ID cannot execute twice.
+Real provider-origin proof remains part of `qualify:machine-spaces:providers`.
 
 ### `MS-P0-07` — Managed ChatGPT worker spawn
 
-Live proof pending.
+Source and deterministic cleanup/dedupe paths exist.
 
-Original setup room: `room-be09577d-69ac-4048-b4c2-fb8a8118be73`.
+Original historical setup room: `room-be09577d-69ac-4048-b4c2-fb8a8118be73`.
 Bootstrap conversation: `6ac18ef7-5b68-83e9-bc6a-f7ad944096b3`.
 
 Acceptance:
@@ -309,9 +389,9 @@ Acceptance:
 - exactly one fresh managed ChatGPT tab;
 - exactly one intended room member;
 - duplicate same-control delivery creates no second worker;
-- failed spawn closes temporary target and leaves no member.
+- failed/late spawn closes temporary target and leaves no member.
 
-Never infer missing member makes an uncertain historical spawn safe to replay.
+The provider qualifier now performs this using a disposable room and a fresh qualification ChatGPT worker. Never infer a missing historical member makes an uncertain old spawn safe to replay.
 
 ### `MS-P0-08` — Stale setup handoff cleanup
 
@@ -324,7 +404,8 @@ Qualified previously. Control ID `provider-control-nova-phase0-stop-room-be-001`
 - recovery classification: `gesture-outcome-unknown`, capture-only
 
 Do **not** resend it, infer the original outcome, or intentionally reproduce it merely to clear the ledger.
-Current Drift doctor at `0f2960e6` reports no active recovery rooms and no pending provider controls; this is current runtime health, not retrospective proof of that turn's send outcome.
+Do not refresh that historical provider tab or reload the extension merely to clear this ledger entry.
+If the original draft is visibly still present, Drift may commit that exact visible draft once; otherwise recovery remains capture-only.
 
 ## Validation history
 
@@ -346,13 +427,13 @@ Current Drift doctor at `0f2960e6` reports no active recovery rooms and no pendi
 | Drift Windows supervised descendant tree-kill | PASS; child dead, outcome-unknown/interrupted, terminal free at `0f2960e6` |
 | Drift Windows pwsh | unavailable on PATH; not a failure of broker semantics |
 | Drift extension assembly/reload/reconnect | PASS; 3 modules / 106 assets at `0f2960e6` |
-| Windows inherited-pipe exit-grace | unit regression PASS; real live acceptance still pending |
+| Current post-qualification source | **not yet rerun**; terminal bundle now includes deterministic request-view, external adapter and provider provenance lanes |
 | Unconfirmed-interrupt lease edge | unit-covered only; not naturally forced live |
 
 ## Quota-stop protocol
 
 1. Finish or explicitly abort current mutation.
-2. Never retry uncertain send/spawn/terminal/file/supervised mutation.
+2. Never retry uncertain send/spawn/terminal/file/supervised/provider mutation.
 3. Record exact Git HEAD, worktree state and relevant room/turn/request/control/grant/job/target/process-epoch IDs.
 4. Commit/push only coherent work.
 5. Update this ledger with the next single action.
