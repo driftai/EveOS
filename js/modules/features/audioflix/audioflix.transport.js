@@ -72,13 +72,34 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
         return duration > 0 ? persistDuration(item, duration, itemType) : 0;
     }
 
+    function spotifyProviderOwned(item, type) {
+        if ((type || item?.type) !== 'music') return false;
+        const effectiveLocal = window.EveAudioflixLocalize?.effectiveLocalPath?.(item) || item?.localPath || '';
+        if (String(effectiveLocal).trim()) return false;
+        const spotifyTrack = window.EveAudioflixNativeSpotify?.isSpotifyTrack?.(item) === true
+            || String(item?.sourceProvider || '').toLowerCase() === 'spotify'
+            || /(?:spotify:track:|open\.spotify\.com\/(?:embed\/)?track\/)/i.test(String(item?.url || item?.spotifyUrl || item?.originalUrl || ''));
+        if (!spotifyTrack) return false;
+        return window.EveAudioflixSpotifyVolume?.snapshot?.()?.directControl !== true;
+    }
+
     function render(item, type, escapeHtml) {
         const esc = escapeHtml || ((value) => String(value || ''));
         const volume = window.EveAudioflixState.normalizeVolume(item?.volume, 1);
         const id = esc(item?.id || '');
         const safeType = esc(type || 'sound');
         const knownDuration = Math.max(0, Number(item?.duration || 0) || 0);
-        return `<div class="audioflix-item-transport" data-af-transport-id="${id}" data-af-duration="${knownDuration}"><span class="audioflix-time-current">0:00</span><input type="range" class="audioflix-seek-slider" min="0" max="${knownDuration || 1}" step="0.05" value="0" data-af-id="${id}" aria-label="Seek ${esc(item?.title || 'audio')}" disabled><span class="audioflix-time-duration">${knownDuration > 0 ? formatTime(knownDuration) : '--:--'}</span></div><div class="audioflix-item-volume-wrapper" title="Volume"><input type="range" class="audioflix-volume-slider" min="0" max="1" step="0.01" value="${volume}" data-af-type="${safeType}" data-af-id="${id}" style="--vol: ${volume * 100}%"><span class="audioflix-volume-label">${Math.round(volume * 100)}%</span></div>`;
+        const providerOwnedVolume = spotifyProviderOwned(item, type);
+        const volumeTitle = providerOwnedVolume
+            ? `Spotify's official embed owns playback volume. EveOS saved ${Math.round(volume * 100)}% for a local/direct copy, but the current Spotify stream cannot be attenuated by this slider.`
+            : 'Volume';
+        const volumeAttrs = providerOwnedVolume
+            ? ' disabled aria-disabled="true" data-af-volume-provider-owned="spotify"'
+            : '';
+        const volumeStyle = `--vol: ${volume * 100}%${providerOwnedVolume ? '; opacity: 0.42; cursor: not-allowed' : ''}`;
+        const volumeLabel = providerOwnedVolume ? 'Spotify' : `${Math.round(volume * 100)}%`;
+        const labelStyle = providerOwnedVolume ? ' style="opacity:1;visibility:visible;color:#1ed760"' : '';
+        return `<div class="audioflix-item-transport" data-af-transport-id="${id}" data-af-duration="${knownDuration}"><span class="audioflix-time-current">0:00</span><input type="range" class="audioflix-seek-slider" min="0" max="${knownDuration || 1}" step="0.05" value="0" data-af-id="${id}" aria-label="Seek ${esc(item?.title || 'audio')}" disabled><span class="audioflix-time-duration">${knownDuration > 0 ? formatTime(knownDuration) : '--:--'}</span></div><div class="audioflix-item-volume-wrapper${providerOwnedVolume ? ' is-provider-owned' : ''}" title="${esc(volumeTitle)}"${providerOwnedVolume ? ' data-af-volume-provider-owned="spotify"' : ''}><input type="range" class="audioflix-volume-slider" min="0" max="1" step="0.01" value="${volume}" data-af-type="${safeType}" data-af-id="${id}" style="${volumeStyle}"${volumeAttrs}><span class="audioflix-volume-label"${labelStyle}>${esc(volumeLabel)}</span></div>`;
     }
 
     function preview(slider) {
@@ -127,5 +148,5 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
         if (slider) delete slider.dataset.afSeeking;
     }
 
-    Object.assign(ns, { ready: true, render, preview, sync, finishSeek, formatTime, persistDuration, probeItem });
+    Object.assign(ns, { ready: true, render, preview, sync, finishSeek, formatTime, persistDuration, probeItem, spotifyProviderOwned });
 })();
