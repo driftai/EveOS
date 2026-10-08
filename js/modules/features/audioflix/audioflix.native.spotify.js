@@ -6,8 +6,8 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
     if (ns.ready) return;
 
     const PLAYBACK_POLICY_REVISION = 'official-embed-localhost-volume-v2';
-    // Compatibility export for diagnostics. Normal Spotify playback is intentionally provider-owned
-    // and does not invoke the alternate recording resolver.
+    // Compatibility export for diagnostics: this is a playback policy revision now, not an
+    // alternate-recording resolver revision.
     const PLAYBACK_RESOLVER_REVISION = PLAYBACK_POLICY_REVISION;
     const text = (value) => String(value ?? '').trim();
     const trackId = (value) => text(value)
@@ -106,20 +106,7 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
             });
         }
 
-        // Explicit compatibility/diagnostic lookup only. Normal playback never calls this function.
-        // Keeping it available avoids breaking older tooling while the player itself remains Spotify-only.
-        async function resolveSpotifyPlaybackSource(track) {
-            if (!isSpotifyTrack(track)) return { ok: false, reason: 'Not a Spotify track.' };
-            return fetchJson('/api/audioflix/spotify-session', {
-                method: 'POST',
-                body: JSON.stringify({ action: 'resolve-playback-source', track }),
-                timeout: 45000,
-                probe: true
-            });
-        }
-
-        ns.resolveSpotifyPlaybackSource = resolveSpotifyPlaybackSource;
-        return { listSpotifyPlaylist, openSpotifySession, resolveSpotifyPlaybackSource };
+        return { listSpotifyPlaylist, openSpotifySession };
     }
 
     Object.assign(ns, {
