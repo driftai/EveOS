@@ -69,6 +69,7 @@ const audio = read('audioflix.audio.js');
 const outputPortSource = read('audioflix.output.port.js');
 const spotifyNative = read('audioflix.native.spotify.js');
 const spotifyVolume = read('audioflix.spotify.volume.js');
+const spotifyAdapter = read('audioflix.audio.url.spotify.js');
 const url = read('audioflix.audio.url.js');
 const layers = read('audioflix.audio.layers.js');
 const native = read('audioflix.audio.native.js');
@@ -121,6 +122,9 @@ assert(spotifyVolume.includes('navigator.mediaDevices.getDisplayMedia')
     'localhost Spotify volume requests official-tab capture policy up front and uses an EveOS GainNode');
 assert(!spotifyVolume.includes('audioTrack.applyConstraints('),
     'capture-only audio policy is never reapplied after getDisplayMedia resolves');
+assert(spotifyAdapter.includes('setSpotifyVolume?.(safe, { direct: false })')
+    && !spotifyAdapter.includes('controller.setVolume'),
+    'Spotify adapter always selects localhost GainNode ownership instead of trusting an iframe volume shortcut');
 const armSource = outputPortSource.slice(
     outputPortSource.indexOf('function armSpotifyCaptureFromGesture'),
     outputPortSource.indexOf('function handleInput')
