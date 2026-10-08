@@ -77,4 +77,35 @@ assert captured["body"]["volume"] == 0.25
 rejected = manager.set_volume({"sessionId": "wrong-session", "volume": 0.5})
 assert rejected["ok"] is False and rejected["sessionMatch"] is False
 
+# Profile-task coordination must release a running managed context exactly once and restore it only
+# after the final nested task exits. This is how the existing >100-track importer shares one login.
+coordinator = mod.SpotifyBrowserManager()
+coordinator._process = type("P", (), {"poll": lambda self: None})()
+coordinator._session_id = "profile-session"
+coordinator._page_url = "http://127.0.0.1:8765/EveOS.html"
+coordinator._helper_status = lambda: {
+    "ok": True, "sessionId": "profile-session", "pageUrl": coordinator._page_url
+}
+stops = []
+starts = []
+def fake_stop(force=False):
+    stops.append(force)
+    coordinator._process = None
+    return {"ok": True, "state": "stopped"}
+def fake_start(payload=None):
+    starts.append(dict(payload or {}))
+    return {"ok": True, "helperReachable": True}
+coordinator._stop_locked = fake_stop
+coordinator.start = fake_start
+first_ticket = coordinator.suspend_for_profile_task("playlist-import")
+second_ticket = coordinator.suspend_for_profile_task("playlist-import-nested")
+assert first_ticket["ok"] and first_ticket["shouldResume"] is True
+assert second_ticket["ok"] and second_ticket["nested"] is True
+assert len(stops) == 1
+first_resume = coordinator.resume_after_profile_task(second_ticket)
+assert first_resume["resumed"] is False and first_resume["nested"] is True
+final_resume = coordinator.resume_after_profile_task(first_ticket)
+assert final_resume["ok"] and final_resume["resumed"] is True
+assert starts == [{"pageUrl": "http://127.0.0.1:8765/EveOS.html"}]
+
 print("AUDIOFLIX_SPOTIFY_BROWSER_PYTHON_SMOKE_OK")
