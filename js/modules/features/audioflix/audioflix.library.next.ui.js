@@ -39,17 +39,24 @@ window.EveAudioflixLibraryNextUi = window.EveAudioflixLibraryNextUi || {};
         if (!play || !row) return;
         const id = play.dataset.afId;
         if (!id || row.querySelector('.eve-url-health-badge')) return;
-        const item = next.health(id);
+        const libraryItem = (window.EveAudioflixState?.ensure?.().music || []).find((entry) => entry.id === id);
+        const item = next.effectiveHealth?.(libraryItem) || next.health(id);
         if (!item?.status) return;
         const pref = next.prefs(id);
-        if (item.status === 'down' && !pref.hideDown) {
-            const marker = document.createElement('span');
+        const marker = document.createElement('span');
+        if (item.status === 'provider') {
+            marker.className = 'eve-url-health-badge is-provider';
+            marker.title = 'Spotify playback uses the official embedded player; generic URL resolution is intentionally bypassed';
+            marker.textContent = '● Spotify';
+            row.insertBefore(marker, row.querySelector('strong') || null);
+        } else if (item.status === 'down' && !pref.hideDown) {
             marker.className = 'eve-url-health-badge is-down';
-            marker.title = 'URL checked when played and is currently unavailable';
-            marker.textContent = '● URL Down';
+            marker.title = item.source === 'spotify-provider-error'
+                ? 'Spotify\'s official player reported a playback failure'
+                : 'URL checked when played and is currently unavailable';
+            marker.textContent = item.source === 'spotify-provider-error' ? '● Spotify Down' : '● URL Down';
             row.insertBefore(marker, row.querySelector('strong') || null);
         } else if (item.status === 'live' && pref.showLive) {
-            const marker = document.createElement('span');
             marker.className = 'eve-url-health-badge is-live';
             marker.title = 'URL checked when played and is currently live';
             marker.textContent = '● Live URL';
