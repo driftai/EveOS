@@ -42,7 +42,7 @@ function createSupervisedJobCoordinator(options = {}) {
         expiresAt: job.lease.expiresAt, generation: job.lease.generation
       } : null,
       result: job.result, errorCode: job.errorCode, reason: job.reason,
-      reboundCount: job.reboundCount
+      reboundCount: job.reboundCount, leaseGeneration: job.leaseGeneration
     });
   }
   function prune() {
@@ -77,7 +77,7 @@ function createSupervisedJobCoordinator(options = {}) {
       ownerMemberId: text(input.ownerMemberId) || null,
       targetId, processEpoch, commandDigest: text(input.commandDigest) || null,
       createdAt: stamp(), startedAt: null, deferredAt: null, finishedAt: null,
-      lease: null, result: null, errorCode: null, reason: null, reboundCount: 0
+      lease: null, leaseGeneration: 0, result: null, errorCode: null, reason: null, reboundCount: 0
     };
     jobs.set(job.jobId, job); requestIndex.set(requestId, job.jobId); prune();
     record('created', job);
@@ -85,11 +85,12 @@ function createSupervisedJobCoordinator(options = {}) {
   }
 
   function issueLease(job, sessionId) {
+    job.leaseGeneration += 1;
     const lease = {
       leaseId: `job-lease-${idFactory()}`,
       holderSessionId: text(sessionId),
       expiresAt: new Date(now() + leaseTtlMs).toISOString(),
-      generation: (job.lease?.generation || 0) + 1
+      generation: job.leaseGeneration
     };
     job.lease = lease;
     return lease;
@@ -111,7 +112,7 @@ function createSupervisedJobCoordinator(options = {}) {
     const sessionId = text(input.sessionId);
     if (!sessionId) throw makeError('MACHINE_JOB_SESSION_REQUIRED', 'A supervising sessionId is required.');
     issueLease(job, sessionId); job.state = 'running'; job.startedAt = stamp();
-    record('started', job, { leaseId: job.lease.leaseId, sessionId });
+    record('started', job, { leaseId: job.lease.leaseId, sessionId, generation: job.lease.generation });
     return publicJob(job);
   }
 
@@ -123,7 +124,7 @@ function createSupervisedJobCoordinator(options = {}) {
       throw makeError('MACHINE_JOB_LEASE_INVALID', 'Only the current supervising session may defer this job.');
     job.state = 'deferred'; job.deferredAt = stamp(); job.reason = text(input.reason) || 'session-disconnected';
     job.lease = null;
-    record('deferred', job, { reason: job.reason });
+    record('deferred', job, { reason: job.reason, generation: job.leaseGeneration });
     return publicJob(job);
   }
 
@@ -135,7 +136,7 @@ function createSupervisedJobCoordinator(options = {}) {
     const sessionId = text(input.sessionId);
     if (!sessionId) throw makeError('MACHINE_JOB_SESSION_REQUIRED', 'A new supervising sessionId is required.');
     issueLease(job, sessionId); job.state = 'running'; job.reboundCount += 1; job.reason = null;
-    record('rebound', job, { leaseId: job.lease.leaseId, sessionId, reboundCount: job.reboundCount });
+    record('rebound', job, { leaseId: job.lease.leaseId, sessionId, reboundCount: job.reboundCount, generation: job.lease.generation });
     return publicJob(job);
   }
 
@@ -154,7 +155,7 @@ function createSupervisedJobCoordinator(options = {}) {
       throw makeError('MACHINE_JOB_LEASE_INVALID', 'Running job settlement requires the current supervision lease.');
     job.state = state; job.result = clone(input.result ?? null); job.errorCode = text(input.errorCode) || null;
     job.reason = text(input.reason) || job.reason; job.finishedAt = stamp(); job.lease = null;
-    record('settled', job, { state, errorCode: job.errorCode, reason: job.reason });
+    record('settled', job, { state, errorCode: job.errorCode, reason: job.reason, generation: job.leaseGeneration });
     return publicJob(job);
   }
 
@@ -170,7 +171,7 @@ function createSupervisedJobCoordinator(options = {}) {
     for (const job of jobs.values()) {
       if (job.state === 'running' && job.lease?.holderSessionId === id) {
         job.state = 'deferred'; job.deferredAt = stamp(); job.reason = reason; job.lease = null;
-        record('deferred', job, { reason }); changed.push(publicJob(job));
+        record('deferred', job, { reason, generation: job.leaseGeneration }); changed.push(publicJob(job));
       }
     }
     return changed;
@@ -181,7 +182,7 @@ function createSupervisedJobCoordinator(options = {}) {
     for (const job of jobs.values()) {
       if (!ACTIVE_STATES.has(job.state) || job.targetId !== id || (epoch && job.processEpoch !== epoch)) continue;
       job.state = 'outcome-unknown'; job.reason = reason; job.errorCode = 'MACHINE_JOB_TARGET_LOST'; job.finishedAt = stamp(); job.lease = null;
-      record('settled', job, { state: job.state, errorCode: job.errorCode, reason }); changed.push(publicJob(job));
+      record('settled', job, { state: job.state, errorCode: job.errorCode, reason, generation: job.leaseGeneration }); changed.push(publicJob(job));
     }
     return changed;
   }
