@@ -299,10 +299,14 @@
     });
 
     document.addEventListener('input', (event) => {
-        const slider = event.target?.closest?.('[data-af-spv="slider"], .audioflix-volume-slider');
+        const slider = event.target?.closest?.(
+            '[data-af-spv="slider"], .audioflix-volume-slider, .audioflix-provider-volume'
+        );
         if (!slider) return;
-        const isCardSlider = slider.matches('.audioflix-volume-slider');
-        if (isCardSlider && !state.spotifyActive) return;
+        const isSharedTransportSlider = slider.matches(
+            '.audioflix-volume-slider, .audioflix-provider-volume'
+        );
+        if (isSharedTransportSlider && !state.spotifyActive) return;
         const level = clamp(slider.value);
         const audio = window.EveAudioflixAudio;
         const activeId = audio?.getPlaybackState?.()?.item?.id;
