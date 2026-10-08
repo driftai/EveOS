@@ -14,6 +14,9 @@ const CONTROL_TESTS = Object.freeze([
   'tests/provider-target-spawn-routing.test.js',
   'tests/machine-spaces-agent-quorum.test.js',
   'tests/machine-spaces-agent-quorum-provider-control.test.js',
+  'tests/machine-spaces-request-view.test.js',
+  'tests/machine-spaces-request-view-controller.test.js',
+  'tests/machine-spaces-request-view-ui.test.js',
   'tests/machine-spaces-external-terminal-process-adapter.test.js',
   'tests/machine-spaces-trusted-attach-controller.test.js',
   'tests/machine-spaces-trusted-terminal-attachment.test.js'
