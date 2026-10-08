@@ -48,6 +48,9 @@
         "modules/nexus-browser/content/activity.js",
         "modules/nexus-browser/content/search-recovery.js",
         "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/machine-file-actions.js",
+        "modules/nexus-browser/content/machine-quorum-actions.js",
+        "modules/nexus-browser/content/machine-job-actions.js",
         "modules/nexus-browser/content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -64,6 +67,9 @@
         "modules/nexus-browser/content/grok.js",
         "modules/nexus-browser/content/grok-activity.js",
         "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/machine-file-actions.js",
+        "modules/nexus-browser/content/machine-quorum-actions.js",
+        "modules/nexus-browser/content/machine-job-actions.js",
         "modules/nexus-browser/content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -81,6 +87,9 @@
         "modules/nexus-browser/content/claude-activity-command.js",
         "modules/nexus-browser/content/claude-activity.js",
         "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/machine-file-actions.js",
+        "modules/nexus-browser/content/machine-quorum-actions.js",
+        "modules/nexus-browser/content/machine-job-actions.js",
         "modules/nexus-browser/content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -101,6 +110,9 @@
         "modules/nexus-browser/content/chatgpt.js",
         "modules/nexus-browser/content/chatgpt-stream-nudge.js",
         "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/machine-file-actions.js",
+        "modules/nexus-browser/content/machine-quorum-actions.js",
+        "modules/nexus-browser/content/machine-job-actions.js",
         "modules/nexus-browser/content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -116,6 +128,9 @@
         "modules/nexus-browser/content/gemini-answer.js",
         "modules/nexus-browser/content/gemini.js",
         "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/machine-file-actions.js",
+        "modules/nexus-browser/content/machine-quorum-actions.js",
+        "modules/nexus-browser/content/machine-job-actions.js",
         "modules/nexus-browser/content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -131,6 +146,9 @@
         "modules/nexus-browser/content/hark-answer.js",
         "modules/nexus-browser/content/hark.js",
         "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/machine-file-actions.js",
+        "modules/nexus-browser/content/machine-quorum-actions.js",
+        "modules/nexus-browser/content/machine-job-actions.js",
         "modules/nexus-browser/content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -146,6 +164,9 @@
         "modules/nexus-browser/content/muse-answer.js",
         "modules/nexus-browser/content/muse.js",
         "modules/nexus-browser/content/dex-provider-control.js",
+        "modules/nexus-browser/content/machine-file-actions.js",
+        "modules/nexus-browser/content/machine-quorum-actions.js",
+        "modules/nexus-browser/content/machine-job-actions.js",
         "modules/nexus-browser/content/provider-health.js"
       ],
       "run_at": "document_idle"
