@@ -61,12 +61,14 @@ manager._helper_status = lambda: {
     "browserChannel": "msedge",
     "lastAppliedAt": 123,
     "lastError": "",
+    "importing": False,
 }
 public = manager.status()
 assert public["helperReachable"] is True
 assert public["authState"] == "signed-in"
 assert public["playingCount"] == 1
 assert public["sessionPresent"] is True
+assert public["importing"] is False
 assert "sessionId" not in public
 assert "expected-session" not in repr(public)
 assert "token" not in " ".join(public.keys()).lower()
@@ -104,35 +106,23 @@ assert captured["route"] == "/volume"
 assert captured["body"]["sessionId"] == "expected-session"
 assert captured["body"]["volume"] == 0.4
 
-# Profile-task coordination must release a running managed context exactly once and restore it only
-# after the final nested task exits. This is how the existing >100-track importer shares one login.
-coordinator = mod.SpotifyBrowserManager()
-coordinator._process = type("P", (), {"poll": lambda self: None})()
-coordinator._session_id = "profile-session"
-coordinator._page_url = "http://127.0.0.1:8765/EveOS.html"
-coordinator._helper_status = lambda: {
-    "ok": True, "sessionId": "profile-session", "pageUrl": coordinator._page_url
-}
-stops = []
-starts = []
-def fake_stop(force=False):
-    stops.append(force)
-    coordinator._process = None
-    return {"ok": True, "state": "stopped"}
-def fake_start(payload=None):
-    starts.append(dict(payload or {}))
-    return {"ok": True, "helperReachable": True}
-coordinator._stop_locked = fake_stop
-coordinator.start = fake_start
-first_ticket = coordinator.suspend_for_profile_task("playlist-import")
-second_ticket = coordinator.suspend_for_profile_task("playlist-import-nested")
-assert first_ticket["ok"] and first_ticket["shouldResume"] is True
-assert second_ticket["ok"] and second_ticket["nested"] is True
-assert len(stops) == 1
-first_resume = coordinator.resume_after_profile_task(second_ticket)
-assert first_resume["resumed"] is False and first_resume["nested"] is True
-final_resume = coordinator.resume_after_profile_task(first_ticket)
-assert final_resume["ok"] and final_resume["resumed"] is True
-assert starts == [{"pageUrl": "http://127.0.0.1:8765/EveOS.html"}]
+# A large/private playlist import must be forwarded into the already-running helper without
+# stopping the managed process or dropping the pt= share capability URL.
+private_share = (
+    "https://open.spotify.com/playlist/1fY2i6tthQptx5Z3nn1g17"
+    "?si=a60e8f62ad464b26&pt=48ecfbe39b719caf600d2c23196f587e"
+)
+playlist_capture = {}
+def fake_playlist_request(method, route, body=None, timeout=0):
+    playlist_capture.update({"method": method, "route": route, "body": body, "timeout": timeout})
+    return {"ok": True, "count": 163, "expectedCount": 163, "scrapeSource": "managed-session"}
+manager._request = fake_playlist_request
+process_before = manager._process
+playlist = manager.list_playlist({"url": private_share})
+assert playlist["ok"] and playlist["count"] == 163
+assert playlist_capture["method"] == "POST" and playlist_capture["route"] == "/playlist"
+assert playlist_capture["body"]["url"] == private_share
+assert playlist_capture["timeout"] >= 90
+assert manager._process is process_before, "playlist import must not stop the managed browser process"
 
 print("AUDIOFLIX_SPOTIFY_BROWSER_PYTHON_SMOKE_OK")
