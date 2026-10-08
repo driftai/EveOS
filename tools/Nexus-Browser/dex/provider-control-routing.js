@@ -161,12 +161,26 @@ function createProviderControlRouting({
     try { entryGate = entryCheck.authorize(getState?.(), source, command); }
     catch { entryGate = { ok: false, code: 'DEX_ENTRY_STATE_UNAVAILABLE', message: 'Room state unavailable; no command executed.' }; }
     if (!entryGate.ok) { fail(ws, requestId, source, entryGate.code, entryGate.message); return true; }
-    // New authenticated room sends are admitted to the durable inbox without
-    // waiting on a different agent's unfinished or NOTE-stopped relay.
+    // New authenticated Local-Origin room sends are admitted directly. Online-Origin
+    // sends first settle their exact durable control origin, then enter the same
+    // request-ID deduped mailbox exactly once.
     if (directRoomSend(command) && getState && saveState) {
-      const run = admissionLane.then(() => directSend.route({ source, command, requestId, ws },
-        { getState, saveState, broadcastState, getScheduler, now, sendResult,
-          commitOriginReceipt, findOrigin: controlReceiptApi.findIntent }));
+      let origin = null;
+      if (String(source.targetClassId || '').trim().toLowerCase() === 'online-origin') {
+        const settledOrigin = await settleOrigin(source, command, requestId);
+        if (settledOrigin.error) {
+          fail(ws, requestId, source, settledOrigin.error.code, settledOrigin.error.message);
+          return true;
+        }
+        origin = settledOrigin.origin;
+        if (!origin) {
+          fail(ws, requestId, source, 'DEX_CONTROL_ORIGIN_REQUIRED',
+            'Online-Origin state-changing provider-control requires an exact durable control origin; no mutation was executed.');
+          return true;
+        }
+      }
+      const run = admissionLane.then(() => directSend.route({ source, command, requestId, ws, origin },
+        { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt }));
       admissionLane = run.catch(() => {});
       return run.catch(() => (fail(ws, requestId, source, 'DEX_SEND_ADMISSION_UNCERTAIN',
         'Storage error: the outcome may be uncertain. Inspect the same request ID; do not create a new send.'), true));
@@ -179,7 +193,14 @@ function createProviderControlRouting({
       fail(ws, requestId, source, settledOrigin.error.code, settledOrigin.error.message);
       return true;
     }
-    const origin = settledOrigin.origin; if (machineCommandRouter?.owns(action)) return machineCommandRouter.route({ source, command, requestId, ws, origin, boundRoomId: entryGate.roomId || null }, { sendResult, commitOriginReceipt });
+    const origin = settledOrigin.origin;
+    if (String(source.targetClassId || '').trim().toLowerCase() === 'online-origin'
+      && MUTATING_ACTIONS.has(action) && !origin) {
+      fail(ws, requestId, source, 'DEX_CONTROL_ORIGIN_REQUIRED',
+        'Online-Origin state-changing provider-control requires an exact durable control origin; no mutation was executed.');
+      return true;
+    }
+    if (machineCommandRouter?.owns(action)) return machineCommandRouter.route({ source, command, requestId, ws, origin, boundRoomId: entryGate.roomId || null }, { sendResult, commitOriginReceipt });
     if (roomTools.ACTIONS.has(action)) return roomTools.route(
       { source, command, requestId, ws, origin },
       { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt });
