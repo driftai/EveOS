@@ -8,18 +8,22 @@ const { enhanceIndex, INDEX_ENHANCEMENTS } = require('../server-http');
 
 const root = path.join(__dirname, '..');
 
-test('Nexus index response injects Human Input gate and supervised jobs companions exactly once', () => {
+test('Nexus index response injects Machine Spaces companions exactly once in dependency order', () => {
   const html = '<html><body><script src="/machine-spaces-ui.js"></script></body></html>';
   const enhanced = enhanceIndex(html);
   assert.match(enhanced, /machine-human-gate-ui\.js/);
   assert.match(enhanced, /machine-supervised-jobs-ui\.js/);
+  assert.match(enhanced, /machine-request-view-ui\.js/);
   assert.ok(enhanced.indexOf('machine-spaces-ui.js') < enhanced.indexOf('machine-human-gate-ui.js'));
   assert.ok(enhanced.indexOf('machine-human-gate-ui.js') < enhanced.indexOf('machine-supervised-jobs-ui.js'));
+  assert.ok(enhanced.indexOf('machine-supervised-jobs-ui.js') < enhanced.indexOf('machine-request-view-ui.js'));
   assert.equal((enhanceIndex(enhanced).match(/machine-human-gate-ui\.js/g) || []).length, 1);
   assert.equal((enhanceIndex(enhanced).match(/machine-supervised-jobs-ui\.js/g) || []).length, 1);
+  assert.equal((enhanceIndex(enhanced).match(/machine-request-view-ui\.js/g) || []).length, 1);
   assert.deepEqual(INDEX_ENHANCEMENTS, [
     '<script src="/machine-human-gate-ui.js"></script>',
-    '<script src="/machine-supervised-jobs-ui.js"></script>'
+    '<script src="/machine-supervised-jobs-ui.js"></script>',
+    '<script src="/machine-request-view-ui.js"></script>'
   ]);
 });
 
