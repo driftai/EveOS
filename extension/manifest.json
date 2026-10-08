@@ -7,10 +7,8 @@
   "permissions": [
     "storage",
     "tabs",
-    "activeTab",
-    "offscreen",
     "scripting",
-    "tabCapture"
+    "activeTab"
   ],
   "optional_permissions": [
     "management"
@@ -18,7 +16,6 @@
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",
-    "file:///*",
     "https://chat.deepseek.com/*",
     "https://grok.com/*",
     "https://x.com/i/grok*",
@@ -38,18 +35,6 @@
   },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzOat9lk4CsVQa3/pbnVj6c4YBvTgr9ppCQnjKqU+X/Zi+A2PNtg7SjiyaoCEY0PAMExaWe1kT6dPNwG2oMkRluPWS+lI4EPH9ZbTNJKQnDDJkryz7kDo4Kvrjvr86avJZtsmvugUViwA7iCGVDe7n1zIi0p4FKY2abrMd8+C/lVCL6MrHYy0jYAftyxKhiec/D1MLbnnw3dwgS7ngIXfvw3DdeEOhLBFaiaxlRIqYfM5ln4e5JasKEQ3cLh1O4s4xYB72z5ksTp5etYgk4jTMikljC/fCFexIY9Ss1EGSlkb4M83e/TxBFhwjPiRSlyv8cwag9XVqFjVJ+6AEVW8HwIDAQAB",
   "content_scripts": [
-    {
-      "matches": [
-        "file:///*",
-        "http://127.0.0.1/*",
-        "http://localhost/*"
-      ],
-      "js": [
-        "modules/nexus-browser/content/audioflix-tab-audio.js"
-      ],
-      "run_at": "document_idle",
-      "all_frames": false
-    },
     {
       "matches": [
         "https://chat.deepseek.com/*"

@@ -21,17 +21,7 @@ async function main() {
   assert(!manifest.permissions.includes('management'));
   assert(!JSON.stringify(manifest).includes('<all_urls>'));
   assert(manifest.permissions.includes('scripting') && manifest.permissions.includes('activeTab'));
-  // Capture permissions are allowed only because the Nexus module declares them for AudioFlix tab
-  // audio; the Bridge must carry exactly the union of its modules, never extra capture authority.
-  const nexusTool = json('tools', 'Nexus-Browser', 'extension', 'manifest.json');
-  for (const permission of ['tabCapture', 'offscreen']) {
-    assert.equal(manifest.permissions.includes(permission), nexusTool.permissions.includes(permission),
-      `Bridge ${permission} must mirror the Nexus module`);
-  }
-  // Module pages live under modules/<id>/ in the Bridge; a bare offscreen URL would 404 there.
-  const tabAudio = read('tools', 'Nexus-Browser', 'extension', 'audioflix-tab-audio.js');
-  assert(tabAudio.includes("EveOSExtensionModuleRoots?.['nexus-browser']"),
-    'AudioFlix offscreen page must resolve through the Bridge module root');
+  assert(!manifest.permissions.includes('tabCapture') && !manifest.permissions.includes('offscreen'));
   const assembly = require('../extensions/assemble.cjs').audit();
   assert.equal(assembly.registry.length, 3);
   assert(assembly.files.has('modules/nexus-browser/content/chatgpt.js'));

@@ -21,19 +21,6 @@
       <div class="row"><span>Session</span><code id="session">—</code></div>
       <div class="row"><span>State saved</span><strong id="saved">—</strong></div>
     </section>
-    <section class="panel audio-panel" aria-labelledby="audio-title">
-      <div class="panel-heading">
-        <h2 id="audio-title">AudioFlix Tab Audio</h2>
-        <span id="audioState" class="audio-state">OFF</span>
-      </div>
-      <p id="audioSummary" class="audio-summary">Enable this on the EveOS tab to give AudioFlix real captured-tab volume control.</p>
-      <button id="audioToggle" class="audio-toggle" type="button">Enable audio control</button>
-      <label class="gain-label" for="audioGain"><span>Captured tab gain</span><output id="audioGainLabel">100%</output></label>
-      <input id="audioGain" class="gain-slider" type="range" min="0" max="1" step="0.01" value="1">
-      <div class="row"><span>Captured tab</span><strong id="audioTab">—</strong></div>
-      <div class="row"><span>file:// slider sync</span><strong id="fileAccess">Checking…</strong></div>
-      <p class="audio-note">Spotify stays in its official embed. This gain affects every sound produced by the captured EveOS tab; AudioFlix queue/end handling stays separate.</p>
-    </section>
   </main>
   <footer><span id="updated">Not updated yet</span><button id="refresh" type="button">Refresh</button></footer>
   <script src="runtime-config.js"></script><script src="popup.js"></script>

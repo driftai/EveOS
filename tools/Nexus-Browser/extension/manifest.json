@@ -5,15 +5,11 @@
   "description": "EveOS headed-browser transport for authenticated AI tabs, exact-target routing, and Dex rooms.",
   "minimum_chrome_version": "116",
   "permissions": [
-    "activeTab",
-    "offscreen",
+    "tabs",
     "scripting",
-    "storage",
-    "tabCapture",
-    "tabs"
+    "storage"
   ],
   "host_permissions": [
-    "file:///*",
     "http://127.0.0.1/*",
     "http://localhost/*",
     "https://chat.deepseek.com/*",
@@ -29,28 +25,12 @@
   "background": {
     "service_worker": "service-worker-entry.js"
   },
-  "action": {
-    "default_title": "EveOS Nexus Browser",
-    "default_popup": "popup.html"
-  },
   "externally_connectable": {
     "ids": [
       "doioapjnmiknkdigmdoapoahlhcaikag"
     ]
   },
   "content_scripts": [
-    {
-      "matches": [
-        "file:///*",
-        "http://127.0.0.1/*",
-        "http://localhost/*"
-      ],
-      "js": [
-        "content/audioflix-tab-audio.js"
-      ],
-      "run_at": "document_idle",
-      "all_frames": false
-    },
     {
       "matches": [
         "https://chat.deepseek.com/*"
