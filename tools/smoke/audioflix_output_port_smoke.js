@@ -40,9 +40,8 @@ assert(port.render(state).includes('EveOS Song Output Port'), 'routing UI expose
 
 const stateSource = read('audioflix.state.js');
 const audio = read('audioflix.audio.js');
-const audioSource = read('audioflix.audio.source.js');
 const spotifyNative = read('audioflix.native.spotify.js');
-const nativeFacade = read('audioflix.native.js');
+const spotifyVolume = read('audioflix.spotify.volume.js');
 const url = read('audioflix.audio.url.js');
 const layers = read('audioflix.audio.layers.js');
 const native = read('audioflix.audio.native.js');
@@ -58,7 +57,7 @@ assert(audio.includes("'eve:audioflix-output-volume'") && audio.includes('update
 assert(url.includes('const audible = outputVolume(safe)')
     && url.includes('Math.round(audible * 100)')
     && url.includes("active.player.setVolume?.(audible)"),
-    'provider APIs receive effective gain in both 0..100 and 0..1 formats');
+    'provider APIs receive the effective output gain');
 assert(url.includes('setItemVolume?.(playback.item.type') && url.includes('view?.setVolume?.(safe)'),
     'provider controls still persist and display per-item gain, not multiplied master gain');
 assert(layers.includes("'eve:audioflix-output-volume'") && layers.includes('outputVolume(layer.volume)'),
@@ -72,21 +71,26 @@ assert(overlay.includes('EveAudioflixOutputPort?.handleInput?.(t)'),
 assert(overlay.includes('EveAudioflixOutputPort?.handleChange?.(t)'),
     'the routing slider persists once on its change event');
 
-// Spotify URL playback must leave the provider iframe whenever the strict resolver proves an
-// equivalent recording. That provider URL then follows the normal resolver -> localhost proxy ->
-// shared HTMLMediaElement path, so the same master output gain controls it as every other song.
-assert(spotifyNative.includes("PLAYBACK_RESOLVER_REVISION = 'strict-v4-embedded-first'"),
-    'Spotify source handoff requires the same strict resolver revision as the localhost backend');
-assert(spotifyNative.includes("action: 'resolve-playback-source'")
-    && spotifyNative.includes("spotifyPlaybackMode: 'localhost-resolved'")
-    && spotifyNative.includes('eveOwnedPlaybackSource: true')
-    && spotifyNative.includes('preferEveDirectAudio: true'),
-    'verified Spotify matches are handed to EveOS-owned playback instead of staying iframe-owned');
-assert(audioSource.includes('item?.eveOwnedPlaybackSource === true && PLATFORM_RE.test(ownedUrl)'),
-    'Eve-owned matched provider URL wins over the preserved Spotify provenance URL during media resolution');
-assert(audioSource.includes('safeItem.url = window.EveAudioflixNative?.getProxyUrl?.(resolved.audioUrl) || resolved.audioUrl'),
-    'resolved platform audio is wrapped by the EveOS localhost media proxy');
-assert(nativeFacade.includes('/api/proxy?media=1&url='),
-    'the EveOS media proxy URL explicitly uses localhost media mode');
+// Normal Spotify playback must stay on Spotify. Alternate-source lookup may remain available for
+// explicit compatibility tooling, but preparePlaybackSource itself must restore the canonical
+// Spotify URL and keep generic direct-media/yt-dlp routing disabled.
+const spotifyPrepare = spotifyNative.slice(
+    spotifyNative.indexOf('async function preparePlaybackSource'),
+    spotifyNative.indexOf('function installPlaybackSourceDecorator')
+);
+assert(spotifyNative.includes("PLAYBACK_POLICY_REVISION = 'official-embed-localhost-volume-v2'"),
+    'Spotify normal playback policy is the official embed with localhost volume control');
+assert(spotifyPrepare.includes("spotifyPlaybackMode: 'official-embed-localhost-volume'")
+    && spotifyPrepare.includes('eveOwnedPlaybackSource: false')
+    && spotifyPrepare.includes('preferEveDirectAudio: false'),
+    'Spotify preparation keeps the official Spotify provider authoritative');
+assert(!spotifyPrepare.includes('resolveSpotifyPlaybackSource')
+    && !spotifyPrepare.includes("action: 'resolve-playback-source'"),
+    'normal Spotify preparation never invokes alternate recording matching');
+assert(spotifyVolume.includes('navigator.mediaDevices.getDisplayMedia')
+    && spotifyVolume.includes('suppressLocalAudioPlayback')
+    && spotifyVolume.includes('restrictOwnAudio: false')
+    && spotifyVolume.includes('context.createGain()'),
+    'localhost Spotify volume uses captured official Spotify tab audio through an EveOS GainNode');
 
 console.log('AUDIOFLIX_OUTPUT_PORT_SMOKE_OK');
