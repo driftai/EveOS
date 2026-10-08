@@ -1,57 +1,13 @@
 'use strict';
-// Route authenticated room SEND directly into localhost's durable FIFO. Online-Origin
-// sends must first correlate to the exact durable control origin; authenticated
-// Local-Origin unsolicited sends intentionally remain originless-capable.
+// Route an authenticated room SEND directly into localhost's durable FIFO.
+// Online-Origin callers must pass an already-settled durable control origin;
+// authenticated Local-Origin unsolicited sends intentionally pass origin=null.
 const mailbox = require('./recovery-mailbox');
 const binding = require('../public/dex-members');
-const controlReceipt = require('./provider-control-receipt');
-const MAX_ORIGIN_WAIT_MS = 4 * 60 * 1000;
-const ORIGIN_POLL_MS = 250;
-const isOnlineOrigin = (source = {}) => String(source.targetClassId || '').trim().toLowerCase() === 'online-origin';
-const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-async function settleOrigin({ source, command, requestId }, { getState, now, sleep = defaultSleep }) {
-  let snapshot = getState();
-  let origin = controlReceipt.findIntent(snapshot, source, command);
-  if (origin || !isOnlineOrigin(source)) return { origin: origin || null };
-  const active = controlReceipt.activeSourceTurn(snapshot, source);
-  if (!active) return { error: {
-    code: 'DEX_CONTROL_ORIGIN_REQUIRED',
-    message: 'Online-Origin state-changing provider-control requires an exact durable control origin; no message was enqueued.'
-  } };
-  if (active.ambiguous) return { error: {
-    code: 'DEX_CONTROL_ORIGIN_AMBIGUOUS',
-    message: 'Dex found more than one active relay turn for this provider-control source; refusing to enqueue without a unique origin.'
-  } };
-  const deadline = now() + MAX_ORIGIN_WAIT_MS;
-  while (now() < deadline) {
-    await sleep(ORIGIN_POLL_MS);
-    snapshot = getState();
-    origin = controlReceipt.findIntentInRoom(snapshot, active.roomId, source, command);
-    if (origin) return { origin };
-    const current = controlReceipt.activeSourceTurn(snapshot, source);
-    const sameTurn = current && !current.ambiguous
-      && current.roomId === active.roomId
-      && (!active.requestId || !current.requestId || current.requestId === active.requestId);
-    if (!sameTurn) return { error: {
-      code: 'DEX_CONTROL_ORIGIN_UNCORRELATED',
-      message: 'The relay turn settled without recording this Online-Origin send. Dex refused to enqueue it because the originating turn could not be correlated.'
-    } };
-  }
-  return { error: {
-    code: 'DEX_CONTROL_ORIGIN_TIMEOUT',
-    message: `The Online-Origin send arrived before relay turn ${active.requestId || requestId || 'unknown'} finalized. Dex waited for exact origin correlation and refused to enqueue after timeout.`
-  } };
-}
-async function route({ source, command, requestId, ws }, {
+function route({ source, command, requestId, ws, origin = null }, {
   getState, saveState, broadcastState, getScheduler, now,
-  sendResult, commitOriginReceipt, sleep
+  sendResult, commitOriginReceipt
 }) {
-  const settled = await settleOrigin({ source, command, requestId }, { getState, now, sleep });
-  if (settled.error) {
-    sendResult({ sourceSocket: ws, requestId, source }, { ok: false, ...settled.error }, null);
-    return true;
-  }
-  const origin = settled.origin;
   const snapshot = getState();
   const queued = mailbox.queueRoomSend(snapshot, {
     source, command, requestId, at: new Date(now()).toISOString()
@@ -85,4 +41,4 @@ async function route({ source, command, requestId, ws }, {
   sendResult({ sourceSocket: ws, requestId, source }, queued.result, receipt);
   return true;
 }
-module.exports = { MAX_ORIGIN_WAIT_MS, ORIGIN_POLL_MS, isOnlineOrigin, settleOrigin, route };
+module.exports = { route };
