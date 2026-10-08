@@ -175,6 +175,9 @@ test_comick.txt
 tmp_comick_data.json
 tmp_comick_out.txt
 
+# Nexus Machine Spaces qualification reports are local evidence, never source.
+tools/Nexus-Browser/machine-spaces-complete-*.txt
+
 # Lightpanda binary
 bin/lightpanda
 
