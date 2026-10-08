@@ -65,13 +65,25 @@ async function waitForStatus(url, timeoutMs = 60000) {
     throw new Error(`Timed out waiting for ${url}`);
 }
 
-function buildRemoteState() {
+function buildMusic(count, prefix) {
+    return Array.from({ length: count }, (_, index) => ({
+        id: `${prefix}-music-${index}`,
+        title: `${prefix} Music ${index}`,
+        url: `https://${prefix}.example/music/${index}`,
+        type: 'music'
+    }));
+}
+
+function buildRemoteState({ linkCount = 2, musicCount = 0 } = {}) {
     return {
         bookmarks: {
-            links: [
-                { id: 'remote-1', title: 'Tiny Remote One', url: 'https://remote.example/1', workspace: 'main', category: 'Remote' },
-                { id: 'remote-2', title: 'Tiny Remote Two', url: 'https://remote.example/2', workspace: 'main', category: 'Remote' }
-            ],
+            links: Array.from({ length: linkCount }, (_, index) => ({
+                id: `remote-${index}`,
+                title: `Remote Bookmark ${index}`,
+                url: `https://remote.example/${index}`,
+                workspace: 'main',
+                category: 'Remote'
+            })),
             folders: {},
             pins: [],
             config: {
@@ -83,7 +95,8 @@ function buildRemoteState() {
             }
         },
         library: { categories: {}, connections: [] },
-        knowledge: { scopedStorage: {} }
+        knowledge: { scopedStorage: {} },
+        audioflix: { music: buildMusic(musicCount, 'remote'), soundboard: [] }
     };
 }
 
@@ -96,6 +109,32 @@ function buildLocalLinks(count = 60) {
         category: index % 2 ? 'Local A' : 'Local B',
         done: false
     }));
+}
+
+async function openLocalContext(browser, baseUrl, { links, music = [] }) {
+    const context = await browser.newContext();
+    await context.addInitScript(({ localLinks, localMusic }) => {
+        const audioflix = { music: localMusic, soundboard: [] };
+        localStorage.setItem('eveAudioflixFallbackState', JSON.stringify(audioflix));
+        localStorage.setItem('eveV22Data', JSON.stringify(localLinks));
+        localStorage.setItem('eveV22Config', JSON.stringify({
+            activeWorkspace: 'main',
+            viewMode: 'grid',
+            modularStateSyncEnabled: true,
+            modularStateConflictStrategy: 'remote_wins',
+            workspaces: [{ id: 'main', name: 'Main', icon: 'M', subTabs: [] }],
+            categoryOrder: ['Local A', 'Local B'],
+            collapsed: [],
+            collapsedTabs: [],
+            audioflix
+        }));
+    }, { localLinks: links, localMusic: music });
+    const page = await context.newPage();
+    await page.goto(`${baseUrl}/EveOS.html`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await page.waitForFunction(() => window.__eveCoreDataLoaded === true, undefined, { timeout: 180000 });
+    await page.waitForFunction(() => window.EveDataStore?._modularSync?.state?.initialized === true, undefined, { timeout: 120000 });
+    await sleep(2500);
+    return { context, page };
 }
 
 (async () => {
@@ -112,32 +151,15 @@ function buildLocalLinks(count = 60) {
     let browser = null;
     try {
         await waitForStatus(`http://localhost:${port}/api/status`);
-        const saved = await requestJson(`http://localhost:${port}/api/eve-state/modular/save`, buildRemoteState());
+        const baseUrl = `http://localhost:${port}`;
+        const saved = await requestJson(`${baseUrl}/api/eve-state/modular/save`, buildRemoteState());
         if (!saved.ok) throw new Error(`Failed to seed remote state: ${JSON.stringify(saved)}`);
 
         browser = await chromium.launch({ headless: true });
-        const context = await browser.newContext();
         const localLinks = buildLocalLinks();
-        await context.addInitScript(({ links }) => {
-            localStorage.setItem('eveV22Data', JSON.stringify(links));
-            localStorage.setItem('eveV22Config', JSON.stringify({
-                activeWorkspace: 'main',
-                viewMode: 'grid',
-                modularStateSyncEnabled: true,
-                modularStateConflictStrategy: 'remote_wins',
-                workspaces: [{ id: 'main', name: 'Main', icon: 'M', subTabs: [] }],
-                categoryOrder: ['Local A', 'Local B'],
-                collapsed: [],
-                collapsedTabs: []
-            }));
-        }, { links: localLinks });
-        const page = await context.newPage();
-        await page.goto(`http://localhost:${port}/EveOS.html`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-        await page.waitForFunction(() => window.__eveCoreDataLoaded === true, undefined, { timeout: 180000 });
-        await page.waitForFunction(() => window.EveDataStore?._modularSync?.state?.initialized === true, undefined, { timeout: 120000 });
-        await sleep(2500);
+        const first = await openLocalContext(browser, baseUrl, { links: localLinks });
 
-        const result = await page.evaluate(() => ({
+        const result = await first.page.evaluate(() => ({
             linkCount: window.eveState.links.length,
             renderedLinks: document.querySelectorAll('[data-link-id]').length,
             rejectedReason: window.EveDataStore?._modularSync?.state?.rejectedRemoteReason || '',
@@ -152,9 +174,46 @@ function buildLocalLinks(count = 60) {
         if (result.rejectedReason !== 'destructive-shrink') {
             throw new Error(`Expected destructive-shrink rejection, got ${JSON.stringify(result)}`);
         }
+        await first.context.close();
 
-        console.log('MODULAR_STARTUP_SHRINK_GUARD_BROWSER_SMOKE_OK', JSON.stringify(result));
-        await context.close();
+        const localMusic = buildMusic(1180, 'local');
+        const remoteAudioState = buildRemoteState({ linkCount: localLinks.length, musicCount: 60 });
+        const audioSeed = await requestJson(`${baseUrl}/api/eve-state/modular/save`, remoteAudioState);
+        if (!audioSeed.ok) throw new Error(`Failed to seed Audioflix shrink state: ${JSON.stringify(audioSeed)}`);
+        const second = await openLocalContext(browser, baseUrl, { links: localLinks, music: localMusic });
+        const guarded = await second.page.evaluate(() => ({
+            linkCount: window.eveState.links.length,
+            musicCount: window.EveAudioflixState?.ensure?.().music?.length || 0,
+            rejectedReason: window.EveDataStore?._modularSync?.state?.rejectedRemoteReason || ''
+        }));
+        const pushed = await requestJson(`${baseUrl}/api/eve-state/modular/load`);
+        if (guarded.linkCount !== localLinks.length || guarded.musicCount !== localMusic.length
+            || guarded.rejectedReason !== 'destructive-audioflix-shrink') {
+            throw new Error(`Audioflix shrink was not rejected without damaging local state: ${JSON.stringify(guarded)}`);
+        }
+        if ((pushed.state?.audioflix?.music || []).length !== localMusic.length) {
+            throw new Error(`Rejected Audioflix shrink did not push preserved local state: ${JSON.stringify({
+                remoteMusicCount: pushed.state?.audioflix?.music?.length || 0
+            })}`);
+        }
+
+        await second.page.evaluate(() => window.EveDataStore._modularSync.stopPolling());
+        const overrideSeed = await requestJson(`${baseUrl}/api/eve-state/modular/save`, remoteAudioState);
+        const overrideApplied = await second.page.evaluate(async ({ signature }) => {
+            const applied = await window.EveDataStore._modularSync.pullRemoteState(true, signature, {
+                allowDestructiveRemoteApply: true
+            });
+            return {
+                applied,
+                musicCount: window.EveAudioflixState?.ensure?.().music?.length || 0
+            };
+        }, { signature: overrideSeed.status?.signature || '' });
+        if (!overrideApplied.applied || overrideApplied.musicCount !== 60) {
+            throw new Error(`Explicit destructive apply did not accept remote Audioflix state: ${JSON.stringify(overrideApplied)}`);
+        }
+
+        console.log('MODULAR_STARTUP_SHRINK_GUARD_BROWSER_SMOKE_OK');
+        await second.context.close();
     } finally {
         if (browser) await browser.close();
         server.kill();

@@ -12,7 +12,7 @@
         'activeFrontendGroup', 'hotkeyBypassCombo'
     ];
     const MUSIC_FIELDS = [
-        'music', 'musicGroups', 'musicGroupMap', 'musicPlaylists', 'musicPortConnections',
+        'music', 'musicFolders', 'musicGroups', 'musicGroupParents', 'musicGroupMap', 'musicPlaylists', 'musicPortConnections',
         'musicClassifiers', 'dupDismissedPairs', 'musicViewMode', 'activeFrontendMusicGroup',
         'activeFrontendMusicArtist', 'activeFrontendMusicClassifier', 'activeMusicFolderScope',
         'showPlaylistMarkersOnCard', 'localizeDir', 'localizeScopeDirs'
@@ -90,6 +90,12 @@
         return keys;
     }
 
+    function itemScopesMatch(left, right) {
+        const leftPlaylist = String(left?.playlistId || '').trim().toLowerCase();
+        const rightPlaylist = String(right?.playlistId || '').trim().toLowerCase();
+        return !leftPlaylist || !rightPlaylist || leftPlaylist === rightPlaylist;
+    }
+
     function mergeLocalizations(left, right) {
         const seen = new Set();
         return [...list(left), ...list(right)].filter((entry) => {
@@ -122,7 +128,7 @@
             if (!incoming || typeof incoming !== 'object') continue;
             const identities = new Set(itemIdentity(incoming));
             const index = result.findIndex((entry) => String(entry.id) === String(incoming.id)
-                || itemIdentity(entry).some((key) => identities.has(key)));
+                || (itemScopesMatch(entry, incoming) && itemIdentity(entry).some((key) => identities.has(key))));
             if (index >= 0) {
                 idMap.set(String(incoming.id || ''), String(result[index].id));
                 result[index] = mergeItem(result[index], incoming);
@@ -231,7 +237,9 @@
                 if (data[field] != null) patch[field] = data[field];
             });
         } else {
+            patch.musicFolders = unique([...list(current.musicFolders), ...list(data.musicFolders)]);
             patch.musicGroups = unique([...list(current.musicGroups), ...list(data.musicGroups)]);
+            patch.musicGroupParents = { ...object(current.musicGroupParents), ...object(data.musicGroupParents) };
             patch.musicGroupMap = mergeIdMap(current.musicGroupMap, data.musicGroupMap, mergedItems.idMap);
             patch.musicPlaylists = playlistSet.records;
             patch.musicPortConnections = mergeRecords(current.musicPortConnections, data.musicPortConnections, ['id', 'path']);
@@ -261,7 +269,10 @@
             const data = object(payload.data);
             if (!hasImportContent(tab, data)) throw new Error('The backup contains no Audioflix user content to merge.');
             const merged = mergeBackup(tab, data);
-            window.EveAudioflixState?.flush?.(`audioflix-${tab}-backup-import`);
+            const persisted = await Promise.resolve(window.EveAudioflixState?.flush?.(`audioflix-${tab}-backup-import`));
+            if (persisted?.written === false) {
+                throw new Error(`The ${tab === 'soundboard' ? 'Soundboard' : 'Music Library'} loaded in this tab but could not be saved: ${persisted.reason || 'persistent storage rejected the update'}. Keep this tab open and free storage before retrying.`);
+            }
             const count = tab === 'soundboard' ? list(merged.soundboard).length : list(merged.music).length;
             refreshAudioflixBackupPanel();
             status(`Merged the ${tab === 'soundboard' ? 'Soundboard' : 'Music Library'} backup. The library now contains ${count} items.`, 'success');

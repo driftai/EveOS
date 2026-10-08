@@ -144,6 +144,48 @@ window.EveAudioflixPlaylists = window.EveAudioflixPlaylists || {};
         });
     }
 
+    function reconcileBatch(connection, upstreamEntries, targetFolder, nextConnections, reason) {
+        const entries = Array.isArray(upstreamEntries) ? upstreamEntries : [];
+        const diff = diffPlaylist(tracksFor(connection.id), entries);
+        const bulk = window.EveAudioflixBulk;
+        if (!bulk?.replaceMusic) {
+            saveConnections(nextConnections, reason);
+            applyDiff(connection, diff, targetFolder);
+            ensurePlacement(connection, targetFolder);
+            refreshProviderMetadata(connection, entries);
+            return diff;
+        }
+
+        const snapshot = state();
+        const folder = text(targetFolder) || text(connection.folder);
+        const group = text(connection.group);
+        const upstream = new Map(entries.map((entry) => [text(entry?.sourceId), entry]));
+        const missingIds = new Set(diff.missing.map((track) => track.id));
+        const groupMap = { ...(snapshot.musicGroupMap || {}) };
+        const music = (snapshot.music || []).map((track) => {
+            if (track.playlistId !== connection.id) return track;
+            const entry = upstream.get(text(track.sourceId));
+            const patch = entry ? (providers()?.entryPatch?.(connection.provider, entry) || {}) : {};
+            const next = Object.assign({}, track, patch, {
+                upstreamMissing: entry ? false : missingIds.has(track.id) || track.upstreamMissing,
+                ...(folder ? { folder } : {})
+            });
+            if (group) groupMap[track.id] = [...new Set([...(groupMap[track.id] || []), group])];
+            return next;
+        });
+        diff.add.forEach((entry) => {
+            const patch = providers()?.entryPatch?.(connection.provider, entry) || {};
+            const duration = Number(patch.duration !== undefined ? patch.duration : (entry?.duration || 0)) || 0;
+            const id = window.EveAudioflixStateSchema?.id?.('music') || `music_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+            music.push({ id, type: 'music', title: text(patch.title || entry?.title, 'Untitled Track'), url: text(entry?.url), artist: text(patch.artist || entry?.artist), folder, duration, ...patch, sourceId: text(entry?.sourceId), playlistId: connection.id, upstreamMissing: false });
+            if (group) groupMap[id] = [...new Set([...(groupMap[id] || []), group])];
+        });
+        const musicGroups = [...new Set([...(snapshot.musicGroups || []), ...(group ? [group] : [])])];
+        const result = bulk.replaceMusic(music, { musicPlaylists: nextConnections, musicGroupMap: groupMap, musicGroups }, reason);
+        if (!result?.ok) throw new Error(result?.reason || 'Audioflix could not apply the playlist batch.');
+        return diff;
+    }
+
     async function fetchUpstream(url, force, provider = 'youtube', options = {}) {
         const payload = await providers()?.fetchPlaylist?.(provider, url, force, options);
         if (!payload || payload.ok !== true) {
@@ -189,11 +231,9 @@ window.EveAudioflixPlaylists = window.EveAudioflixPlaylists || {};
             trackCount: (upstream.entries || []).length,
             ...providers()?.connectionPatch?.(provider, { ...upstream, ...normalized })
         };
-        if (connection.group) window.EveAudioflixState?.addMusicGroup?.(connection.group);
-        saveConnections(connections().concat(connection), 'audioflix-playlist-import');
-        applyDiff(connection, diffPlaylist([], upstream.entries || []), options.folder);
-        ensurePlacement(connection, options.folder);
-        return { ok: true, connection, added: (upstream.entries || []).length, missing: 0 };
+        const diff = reconcileBatch(connection, upstream.entries || [], options.folder,
+            connections().concat(connection), 'audioflix-playlist-import');
+        return { ok: true, connection, added: diff.add.length, missing: 0 };
     }
 
     // Re-read the upstream playlist and reconcile against what EveOS holds.
@@ -214,10 +254,6 @@ window.EveAudioflixPlaylists = window.EveAudioflixPlaylists || {};
             window.EveAudioflixState?.renameGroup?.('music', connection.group, nextGroup);
         }
         const syncedConnection = { ...connection, title: nextTitle, group: nextGroup, folder: folderToUse };
-        const diff = diffPlaylist(tracksFor(connection.id), upstream.entries || []);
-        applyDiff(syncedConnection, diff, folderToUse);
-        ensurePlacement(syncedConnection, targetFolder);
-        refreshProviderMetadata(syncedConnection, upstream.entries || []);
         const next = connections().map((entry) => entry.id === connection.id
             ? Object.assign({}, entry, {
                 title: nextTitle,
@@ -229,7 +265,8 @@ window.EveAudioflixPlaylists = window.EveAudioflixPlaylists || {};
                 ...providers()?.connectionPatch?.(connection.provider, upstream)
             })
             : entry);
-        saveConnections(next, 'audioflix-playlist-sync');
+        const diff = reconcileBatch(syncedConnection, upstream.entries || [], folderToUse,
+            next, 'audioflix-playlist-sync');
         return { ok: true, connection: syncedConnection, added: diff.add.length, restored: diff.restore.length, missing: diff.missing.length };
     }
 

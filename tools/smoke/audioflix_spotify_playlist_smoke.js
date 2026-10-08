@@ -17,6 +17,7 @@ const store = {
 };
 let sequence = 0;
 let playlistTitle = 'Gilded age Music';
+let updateCalls = 0;
 
 global.window = {
     EveAudioflixNative: {
@@ -59,7 +60,10 @@ global.window = {
     },
     EveAudioflixState: {
         ensure: () => store,
-        update(patch) { Object.assign(store, JSON.parse(JSON.stringify(patch))); },
+        update(patch) {
+            updateCalls += 1;
+            Object.assign(store, JSON.parse(JSON.stringify(patch)));
+        },
         addMusicGroup(name) {
             if (!store.musicGroups.includes(name)) store.musicGroups.push(name);
         },
@@ -101,6 +105,8 @@ global.window = {
 global.CustomEvent = class CustomEvent {};
 
 [
+    'audioflix.state.schema.js',
+    'audioflix.bulk.js',
     'audioflix.audio.url.providers.js',
     'audioflix.audio.url.spotify.js',
     'audioflix.playlists.providers.js',
@@ -141,11 +147,12 @@ global.CustomEvent = class CustomEvent {};
     const iframe = '<iframe src="https://open.spotify.com/embed/playlist/37i9dQZF1DX4WYpdgoIcn6?utm_source=generator"></iframe>';
     const normalized = window.EveAudioflixSpotify.normalizeInput(iframe);
     assert(normalized.ok, 'Spotify iframe snippets normalize');
-    assert(normalized.url === 'https://open.spotify.com/playlist/37i9dQZF1DX4WYpdgoIcn6', 'canonical public URL is stored');
-    assert(normalized.embedUrl.endsWith('/37i9dQZF1DX4WYpdgoIcn6'), 'canonical embed URL is retained');
+    assert(normalized.url === 'https://open.spotify.com/playlist/37i9dQZF1DX4WYpdgoIcn6?utm_source=generator', 'canonical public URL preserves Spotify share parameters');
+    assert(normalized.embedUrl.endsWith('/37i9dQZF1DX4WYpdgoIcn6?utm_source=generator'), 'canonical embed URL preserves Spotify share parameters');
 
     const result = await window.EveAudioflixPlaylists.importPlaylist(iframe, { folder: 'Test-Spotify' });
     assert(result.ok && result.added === 2, 'Spotify playlist imports every extracted row');
+    assert(updateCalls === 1, 'Spotify playlist import commits one state batch instead of per-track mutations');
     const connection = store.musicPlaylists[0];
     assert(connection.provider === 'spotify', 'connection records the Spotify provider');
     assert(connection.group === 'Gilded age Music', 'playlist title becomes the live Audioflix group');
@@ -162,8 +169,10 @@ global.CustomEvent = class CustomEvent {};
     assert(store.music.every((track) => track.folder === 'Test-Spotify'), 'every imported track uses the requested Audioflix folder');
 
     playlistTitle = 'Gilded age Music Updated';
+    const callsBeforeRetry = updateCalls;
     const retried = await window.EveAudioflixPlaylists.importPlaylist(iframe, { folder: 'Moved Spotify' });
     assert(retried.ok && retried.added === 0, 're-import syncs the existing playlist without duplicate tracks');
+    assert(updateCalls === callsBeforeRetry + 1, 'Spotify playlist re-import commits one state batch');
     assert(store.music.every((track) => track.folder === 'Moved Spotify'), 'retrying with a target folder moves every existing member');
     assert(store.musicPlaylists[0].group === playlistTitle, 'an automatic playlist group follows the current Spotify title');
     assert(store.music.every((track) => store.musicGroupMap[track.id]?.includes(playlistTitle)), 'sync repairs group membership for every track');
