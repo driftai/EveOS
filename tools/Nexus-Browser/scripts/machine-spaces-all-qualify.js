@@ -17,6 +17,7 @@ const CONTROL_TESTS = Object.freeze([
   'tests/machine-spaces-request-view.test.js',
   'tests/machine-spaces-request-view-controller.test.js',
   'tests/machine-spaces-request-view-ui.test.js',
+  'tests/machine-spaces-supervised-ui.test.js',
   'tests/machine-spaces-external-terminal-process-adapter.test.js',
   'tests/machine-spaces-trusted-attach-controller.test.js',
   'tests/machine-spaces-trusted-terminal-attachment.test.js'
