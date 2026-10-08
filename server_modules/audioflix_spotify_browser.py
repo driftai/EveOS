@@ -1,9 +1,12 @@
-"""Managed Playwright Spotify browser for Audioflix volume control.
-The helper owns the same persistent Spotify profile used by playlist import. It never exposes
-profile contents or its control token. Browser control is limited to a small localhost protocol.
+"""Managed Playwright Spotify browser for Audioflix playback-side capabilities.
+
+The helper owns the same persistent Spotify identity used by playlist import. Browser control is
+loopback-only, token protected, and never exposes cookies, profile contents, or session secrets.
 """
 from __future__ import annotations
-import hmac, json
+
+import hmac
+import json
 import os
 import secrets
 import shutil
@@ -14,41 +17,54 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
 from server_modules.audioflix_spotify_browser_utils import (
     clamp_volume,
     normalize_track_id,
     validate_loopback_page_url,
 )
+
 _DEFAULT_EVEOS_URL = "http://127.0.0.1:8765/EveOS.html"
 _ENV_CACHE_TTL_S = 10.0
 _STATUS_TIMEOUT_S = 2.5
 _START_TIMEOUT_S = 18.0
 _STOP_TIMEOUT_S = 6.0
+_PLAYLIST_TIMEOUT_S = 175.0
+
+
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
+
+
 def _helper_path() -> Path:
     return _project_root() / "server_modules" / "audioflix_spotify_browser.js"
+
+
 def _profile_dir() -> Path:
-    # Import lazily to avoid coupling module initialization to Spotify metadata extraction.
     from server_modules import audioflix_spotify
-    return audioflix_spotify._profile_dir()  # shared persistent Audioflix Spotify identity
+    return audioflix_spotify._profile_dir()
+
+
 def _runtime_dir() -> Path:
     target = _profile_dir().parent
     target.mkdir(parents=True, exist_ok=True)
     return target
+
+
 def _allocate_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
 def _node_playwright_probe() -> dict:
     node = shutil.which("node")
-    helper_exists = _helper_path().is_file()
     result = {
         "nodeAvailable": bool(node),
         "nodePath": node or "",
         "playwrightAvailable": False,
         "playwrightVersion": "",
-        "helperExists": helper_exists,
+        "helperExists": _helper_path().is_file(),
     }
     if not node:
         result["reason"] = "Node.js was not found on PATH."
@@ -74,6 +90,8 @@ def _node_playwright_probe() -> dict:
         detail = (completed.stderr or completed.stdout or "Playwright is not installed.").strip().splitlines()
         result["reason"] = detail[-1][:300] if detail else "Playwright is not installed."
     return result
+
+
 class SpotifyBrowserManager:
     def __init__(self):
         self._lock = threading.RLock()
@@ -86,8 +104,7 @@ class SpotifyBrowserManager:
         self._last_error = ""
         self._log_handle = None
         self._env_cache: tuple[float, dict] | None = None
-        self._suspend_depth = 0
-        self._resume_ticket: dict | None = None
+
     def environment_status(self, force: bool = False) -> dict:
         with self._lock:
             now = time.monotonic()
@@ -106,13 +123,17 @@ class SpotifyBrowserManager:
                 info["profileError"] = str(exc)[:300]
             self._env_cache = (now, dict(info))
             return info
+
     def _process_running(self) -> bool:
         return bool(self._process and self._process.poll() is None)
+
     def _session_matches(self, candidate) -> bool:
         candidate = str(candidate or "")
         expected = str(self._session_id or "")
         return bool(candidate and expected and hmac.compare_digest(candidate, expected))
-    def _request(self, method: str, route: str, body: dict | None = None, timeout: float = _STATUS_TIMEOUT_S) -> dict:
+
+    def _request(self, method: str, route: str, body: dict | None = None,
+                 timeout: float = _STATUS_TIMEOUT_S) -> dict:
         if not self._port or not self._token:
             raise RuntimeError("Spotify managed browser helper is not running.")
         data = None if body is None else json.dumps(body).encode("utf-8")
@@ -138,6 +159,7 @@ class SpotifyBrowserManager:
             if isinstance(payload, dict) and payload:
                 return payload
             raise RuntimeError(f"Spotify helper HTTP {exc.code}") from exc
+
     def _helper_status(self) -> dict | None:
         if not self._process_running():
             return None
@@ -150,17 +172,7 @@ class SpotifyBrowserManager:
         except Exception as exc:
             self._last_error = str(exc)[:300]
         return None
-    @staticmethod
-    def _public_helper(payload: dict | None) -> dict:
-        if not payload:
-            return {}
-        allowed = {
-            "ok", "service", "protocolVersion", "state", "startedAt", "pageUrl",
-            "pageAttached", "spotifyFrameCount", "mediaCount", "playingCount", "desiredVolume",
-            "lastAppliedAt", "lastError", "authState", "browserChannel", "playwrightVersion",
-            "profileOpen", "diagnostics",
-        }
-        return {key: payload.get(key) for key in allowed if key in payload}
+
     def status(self, payload: dict | None = None) -> dict:
         del payload
         with self._lock:
@@ -186,12 +198,12 @@ class SpotifyBrowserManager:
                 "browserChannel": (helper or {}).get("browserChannel") or "",
                 "lastAppliedAt": (helper or {}).get("lastAppliedAt") or 0,
                 "lastError": (helper or {}).get("lastError") or self._last_error,
-                "suspendedForProfileTask": self._suspend_depth > 0,
+                "importing": bool((helper or {}).get("importing")),
             }
             if helper and helper.get("diagnostics"):
                 result["diagnostics"] = helper.get("diagnostics")
-            # Deliberately never expose token, session identity, cookie data, or raw process environment.
             return result
+
     def session_status(self, payload: dict | None = None) -> dict:
         payload = payload if isinstance(payload, dict) else {}
         with self._lock:
@@ -199,14 +211,13 @@ class SpotifyBrowserManager:
             result = self.status()
             result["sessionMatch"] = session_match
             return result
+
     def start(self, payload: dict | None = None) -> dict:
         payload = payload if isinstance(payload, dict) else {}
         with self._lock:
             page_url = str(payload.get("pageUrl") or self._page_url or _DEFAULT_EVEOS_URL).strip()
             if not validate_loopback_page_url(page_url):
                 return {"ok": False, "reason": "Managed Spotify browser requires a loopback EveOS URL."}
-            if self._suspend_depth > 0:
-                return {"ok": False, "reason": "Spotify browser is temporarily suspended for a profile task."}
             helper = self._helper_status()
             if helper:
                 self._page_url = page_url
@@ -216,8 +227,6 @@ class SpotifyBrowserManager:
                         return opened
                 return self.status()
             if self._process_running():
-                # A stale/unreachable helper can still hold Chromium's persistent-profile lock.
-                # Tear it down before attempting a replacement process.
                 self._stop_locked(force=True)
             else:
                 self._cleanup_process_locked()
@@ -228,6 +237,7 @@ class SpotifyBrowserManager:
                 return {"ok": False, **env, "reason": env.get("reason") or "Playwright is required."}
             if not env.get("helperExists"):
                 return {"ok": False, **env, "reason": "Spotify managed-browser helper is missing."}
+
             self._port = _allocate_loopback_port()
             self._token = secrets.token_urlsafe(32)
             self._session_id = secrets.token_hex(16)
@@ -236,15 +246,11 @@ class SpotifyBrowserManager:
             self._last_error = ""
             profile = _profile_dir()
             profile.mkdir(parents=True, exist_ok=True)
-            runtime_dir = _runtime_dir()
-            log_path = runtime_dir / "spotify-managed-browser.log"
+            log_path = _runtime_dir() / "spotify-managed-browser.log"
             command = [
-                env.get("nodePath") or "node",
-                str(_helper_path()),
-                "--port", str(self._port),
-                "--profile", str(profile),
-                "--page", page_url,
-                "--session", self._session_id,
+                env.get("nodePath") or "node", str(_helper_path()),
+                "--port", str(self._port), "--profile", str(profile),
+                "--page", page_url, "--session", self._session_id,
             ]
             child_env = os.environ.copy()
             child_env["EVEOS_SPOTIFY_BROWSER_TOKEN"] = self._token
@@ -252,25 +258,20 @@ class SpotifyBrowserManager:
             try:
                 self._log_handle = log_path.open("a", encoding="utf-8", errors="replace")
                 self._process = subprocess.Popen(
-                    command,
-                    cwd=str(_project_root()),
-                    env=child_env,
-                    stdin=subprocess.DEVNULL,
-                    stdout=self._log_handle,
-                    stderr=subprocess.STDOUT,
-                    creationflags=flags,
-                    close_fds=True,
+                    command, cwd=str(_project_root()), env=child_env,
+                    stdin=subprocess.DEVNULL, stdout=self._log_handle,
+                    stderr=subprocess.STDOUT, creationflags=flags, close_fds=True,
                 )
             except OSError as exc:
                 self._last_error = str(exc)[:300]
                 self._cleanup_process_locked()
                 return {"ok": False, **env, "reason": f"Could not launch managed Spotify browser: {exc}"}
+
             deadline = time.monotonic() + _START_TIMEOUT_S
             while time.monotonic() < deadline:
                 if not self._process_running():
                     break
-                helper = self._helper_status()
-                if helper:
+                if self._helper_status():
                     return self.status()
                 time.sleep(0.15)
             reason = self._last_error or "Managed Spotify browser did not become ready in time."
@@ -283,6 +284,7 @@ class SpotifyBrowserManager:
                     reason = detail.splitlines()[-1][:500]
             self._stop_locked(force=True)
             return {"ok": False, **env, "reason": reason}
+
     def _cleanup_process_locked(self) -> None:
         if self._process and self._process.poll() is not None:
             self._process = None
@@ -296,6 +298,7 @@ class SpotifyBrowserManager:
             except Exception:
                 pass
             self._log_handle = None
+
     def _stop_locked(self, force: bool = False) -> dict:
         process = self._process
         if not process:
@@ -321,10 +324,12 @@ class SpotifyBrowserManager:
         self._process = None
         self._cleanup_process_locked()
         return {"ok": True, "state": "stopped"}
+
     def stop(self, payload: dict | None = None) -> dict:
         del payload
         with self._lock:
             return self._stop_locked(force=False)
+
     def _set_volume_locked(self, payload: dict, session_id: str) -> dict:
         body = {
             "sessionId": session_id,
@@ -336,34 +341,36 @@ class SpotifyBrowserManager:
         except Exception as exc:
             self._last_error = str(exc)[:300]
             return {"ok": False, "sessionMatch": False, "reason": self._last_error}
+
     def set_volume(self, payload: dict | None = None) -> dict:
         payload = payload if isinstance(payload, dict) else {}
         with self._lock:
             if not self._helper_status():
-                return {
-                    "ok": False,
-                    "sessionMatch": False,
-                    "reason": "Managed Spotify browser is not running or not reachable.",
-                }
+                return {"ok": False, "sessionMatch": False,
+                        "reason": "Managed Spotify browser is not running or not reachable."}
             session_id = str(payload.get("sessionId") or "")
             if not self._session_matches(session_id):
-                return {"ok": False, "sessionMatch": False, "reason": "This EveOS tab is not the managed browser session."}
+                return {"ok": False, "sessionMatch": False,
+                        "reason": "This EveOS tab is not the managed browser session."}
             return self._set_volume_locked(payload, session_id)
+
     def qualify_volume(self, payload: dict | None = None) -> dict:
         payload = payload if isinstance(payload, dict) else {}
         with self._lock:
             if not self._helper_status() or not self._session_id:
-                return {"ok": False, "sessionMatch": False, "reason": "Managed Spotify browser is not running or not reachable."}
+                return {"ok": False, "sessionMatch": False,
+                        "reason": "Managed Spotify browser is not running or not reachable."}
             result = self._set_volume_locked(payload, self._session_id)
             if result.get("ok"):
                 result["sessionMatch"] = True
             return result
+
     def auth(self, payload: dict | None = None) -> dict:
         payload = payload if isinstance(payload, dict) else {}
         with self._lock:
-            helper = self._helper_status()
-            if not helper:
-                return {"ok": False, "authState": "unknown", "reason": "Managed Spotify browser is not running."}
+            if not self._helper_status():
+                return {"ok": False, "authState": "unknown",
+                        "reason": "Managed Spotify browser is not running."}
             body = {
                 "openLogin": bool(payload.get("openLogin")),
                 "url": str(payload.get("url") or "https://open.spotify.com/")[:2000],
@@ -373,60 +380,53 @@ class SpotifyBrowserManager:
             except Exception as exc:
                 self._last_error = str(exc)[:300]
                 return {"ok": False, "authState": "unknown", "reason": self._last_error}
-    def suspend_for_profile_task(self, reason: str = "profile-task") -> dict:
-        """Temporarily release Chromium's persistent-profile lock for the existing importer.
-        Nested callers share one ticket. The final resume restores the managed EveOS browser only
-        when it was running before the first suspend.
-        """
+
+    def list_playlist(self, payload: dict | None = None) -> dict:
+        payload = payload if isinstance(payload, dict) else {}
+        url = str(payload.get("url") or "").strip()
         with self._lock:
-            self._suspend_depth += 1
-            if self._suspend_depth > 1:
-                return {"ok": True, "nested": True, "shouldResume": bool(self._resume_ticket and self._resume_ticket.get("shouldResume"))}
-            helper = self._helper_status()
-            was_running = self._process_running()
-            self._resume_ticket = {
-                "reason": str(reason or "profile-task")[:80],
-                "shouldResume": bool(helper or was_running),
-                "pageUrl": (helper or {}).get("pageUrl") or self._page_url,
-            }
-            if helper or was_running:
-                stopped = self._stop_locked(force=not bool(helper))
-                if not stopped.get("ok"):
-                    self._suspend_depth = 0
-                    ticket = dict(self._resume_ticket)
-                    self._resume_ticket = None
-                    return {"ok": False, **ticket, "reason": "Could not release Spotify browser profile."}
-            return {"ok": True, **self._resume_ticket}
-    def resume_after_profile_task(self, ticket: dict | None = None) -> dict:
-        del ticket
-        with self._lock:
-            if self._suspend_depth <= 0:
-                return {"ok": True, "resumed": False}
-            self._suspend_depth -= 1
-            if self._suspend_depth > 0:
-                return {"ok": True, "resumed": False, "nested": True}
-            resume = dict(self._resume_ticket or {})
-            self._resume_ticket = None
-            if not resume.get("shouldResume"):
-                return {"ok": True, "resumed": False}
-            started = self.start({"pageUrl": resume.get("pageUrl") or self._page_url})
-            return {"ok": bool(started.get("ok")), "resumed": bool(started.get("ok")), "status": started}
+            if not self._helper_status():
+                return {"ok": False, "reason": "Managed Spotify browser is not running."}
+        try:
+            result = self._request("POST", "/playlist", {"url": url}, timeout=_PLAYLIST_TIMEOUT_S)
+            if result.get("ok"):
+                self._last_error = ""
+            return result
+        except Exception as exc:
+            self._last_error = str(exc)[:300]
+            return {"ok": False, "reason": self._last_error}
+
+
 _manager = SpotifyBrowserManager()
+
+
 def status(payload: dict | None = None) -> dict:
     return _manager.status(payload)
+
+
 def session_status(payload: dict | None = None) -> dict:
     return _manager.session_status(payload)
+
+
 def start(payload: dict | None = None) -> dict:
     return _manager.start(payload)
+
+
 def stop(payload: dict | None = None) -> dict:
     return _manager.stop(payload)
+
+
 def set_volume(payload: dict | None = None) -> dict:
     return _manager.set_volume(payload)
+
+
 def qualify_volume(payload: dict | None = None) -> dict:
     return _manager.qualify_volume(payload)
+
+
 def auth(payload: dict | None = None) -> dict:
     return _manager.auth(payload)
-def suspend_for_profile_task(reason: str = "profile-task") -> dict:
-    return _manager.suspend_for_profile_task(reason)
-def resume_after_profile_task(ticket: dict | None = None) -> dict:
-    return _manager.resume_after_profile_task(ticket)
+
+
+def list_playlist(payload: dict | None = None) -> dict:
+    return _manager.list_playlist(payload)
