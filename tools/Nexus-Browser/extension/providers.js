@@ -18,10 +18,18 @@
   const PROVIDER_CONTROL_GROUP = {
     pingType: 'dex_provider_control_ping',
     expectedAdapter: 'dex-provider-control',
-    files: ['content/dex-provider-control.js'],
+    files: [
+      'content/dex-provider-control.js',
+      'content/machine-file-actions.js',
+      'content/machine-quorum-actions.js',
+      'content/machine-job-actions.js'
+    ],
     globals: [
       '__browserAiBridgeDexProviderControlLoaded',
-      'BrowserAiBridgeDexProviderControlContent'
+      'BrowserAiBridgeDexProviderControlContent',
+      'BrowserAiBridgeMachineFileContentActions',
+      'BrowserAiBridgeMachineQuorumContentActions',
+      'BrowserAiBridgeMachineJobContentActions'
     ]
   };
 
