@@ -5,6 +5,8 @@ const { createCapabilityGrant, publicCapabilityGrant, revokeCapabilityGrant } = 
 const { createFilesystemBroker } = require('./filesystem-broker');
 const { FILE_ACTIONS, fileRequestProjection } = require('./provider-control');
 const { createFilesystemProviderControl } = require('./filesystem-provider-control');
+const dexProtocol = require('../public/dex-protocol');
+for (const action of FILE_ACTIONS) dexProtocol.PROVIDER_CONTROL_ACTIONS.add(action);
 
 const MAX_FILE_GRANTS = 32;
 const MAX_FILE_REQUESTS = 64;
