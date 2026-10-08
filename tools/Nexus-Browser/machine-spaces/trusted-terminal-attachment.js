@@ -48,6 +48,15 @@ function createTrustedTerminalAttachmentRegistry(options = {}) {
   const challenges = new Map();
   const records = new Map();
 
+  function disable(record, reason) {
+    if (record?.enabled) {
+      record.enabled = false;
+      record.revokedAt = new Date(now()).toISOString();
+      record.revokedReason = text(reason).slice(0, 80) || 'revoked';
+    }
+    return publicRecord(record);
+  }
+
   function begin(input = {}) {
     const targetId = text(input.targetId), processEpoch = text(input.processEpoch), adapterId = text(input.adapterId);
     const ownerId = text(input.ownerId), cwd = text(input.cwd), shellType = text(input.shellType);
@@ -63,13 +72,7 @@ function createTrustedTerminalAttachmentRegistry(options = {}) {
       createdAtMs, expiresAtMs: createdAtMs + challengeTtlMs
     });
     return {
-      challengeId,
-      nonce,
-      targetId,
-      processEpoch,
-      adapterId,
-      cwd,
-      shellType,
+      challengeId, nonce, targetId, processEpoch, adapterId, cwd, shellType,
       expiresAt: new Date(createdAtMs + challengeTtlMs).toISOString()
     };
   }
@@ -117,10 +120,11 @@ function createTrustedTerminalAttachmentRegistry(options = {}) {
   function authorize(attachmentId, input = {}) {
     const record = records.get(text(attachmentId));
     if (!record || record.enabled !== true) return { allowed: false, reason: 'attachment-disabled', attachment: publicRecord(record) };
-    if (Date.parse(record.expiresAt) <= now()) {
-      record.enabled = false; record.revokedAt = new Date(now()).toISOString(); record.revokedReason = 'expired';
-      return { allowed: false, reason: 'attachment-expired', attachment: publicRecord(record) };
+    if (!text(getAdapterSecret(record.adapterId))) {
+      return { allowed: false, reason: 'adapter-credential-revoked', attachment: disable(record, 'adapter-credential-revoked') };
     }
+    if (Date.parse(record.expiresAt) <= now())
+      return { allowed: false, reason: 'attachment-expired', attachment: disable(record, 'expired') };
     if (text(input.targetId) !== record.targetId || text(input.processEpoch) !== record.processEpoch || text(input.adapterId) !== record.adapterId)
       return { allowed: false, reason: 'identity-mismatch', attachment: publicRecord(record) };
     const capability = text(input.capability);
@@ -131,15 +135,19 @@ function createTrustedTerminalAttachmentRegistry(options = {}) {
   function revoke(attachmentId, reason = 'owner-revoked') {
     const record = records.get(text(attachmentId));
     if (!record) return null;
-    if (record.enabled) {
-      record.enabled = false; record.revokedAt = new Date(now()).toISOString(); record.revokedReason = text(reason).slice(0, 80) || 'owner-revoked';
-    }
-    return publicRecord(record);
+    return disable(record, reason);
+  }
+
+  function revokeAdapter(adapterId, reason = 'adapter-credential-revoked') {
+    const wanted = text(adapterId), changed = [];
+    for (const record of records.values()) if (record.adapterId === wanted && record.enabled) changed.push(disable(record, reason));
+    for (const [challengeId, challenge] of challenges) if (challenge.adapterId === wanted) challenges.delete(challengeId);
+    return changed;
   }
 
   function list() { return [...records.values()].map(publicRecord); }
 
-  return { begin, attest, authorize, revoke, list };
+  return { begin, attest, authorize, revoke, revokeAdapter, list };
 }
 
 module.exports = { calculateProof, createTrustedTerminalAttachmentRegistry };
