@@ -3,6 +3,7 @@ The helper owns the same persistent Spotify profile used by playlist import. It 
 profile contents or its control token. Browser control is limited to a small localhost protocol.
 """
 from __future__ import annotations
+import hmac
 import json
 import os
 import secrets
@@ -127,6 +128,10 @@ class SpotifyBrowserManager:
             return info
     def _process_running(self) -> bool:
         return bool(self._process and self._process.poll() is None)
+    def _session_matches(self, candidate) -> bool:
+        candidate = str(candidate or "")
+        expected = str(self._session_id or "")
+        return bool(candidate and expected and hmac.compare_digest(candidate, expected))
     def _request(self, method: str, route: str, body: dict | None = None, timeout: float = _STATUS_TIMEOUT_S) -> dict:
         if not self._port or not self._token:
             raise RuntimeError("Spotify managed browser helper is not running.")
@@ -169,7 +174,7 @@ class SpotifyBrowserManager:
         if not payload:
             return {}
         allowed = {
-            "ok", "service", "protocolVersion", "sessionId", "state", "startedAt", "pageUrl",
+            "ok", "service", "protocolVersion", "state", "startedAt", "pageUrl",
             "pageAttached", "spotifyFrameCount", "mediaCount", "playingCount", "desiredVolume",
             "lastAppliedAt", "lastError", "authState", "browserChannel", "playwrightVersion",
             "profileOpen", "diagnostics",
@@ -189,7 +194,7 @@ class SpotifyBrowserManager:
                 "profileBusy": running,
                 "managed": bool(helper),
                 "state": helper.get("state") if helper else ("starting" if running else "stopped"),
-                "sessionId": helper.get("sessionId") if helper else (self._session_id if running else ""),
+                "sessionPresent": bool(self._session_id if running else ""),
                 "pageUrl": helper.get("pageUrl") if helper else self._page_url,
                 "pageAttached": bool(helper and helper.get("pageAttached")),
                 "spotifyFrameCount": int((helper or {}).get("spotifyFrameCount") or 0),
@@ -204,7 +209,14 @@ class SpotifyBrowserManager:
             }
             if helper and helper.get("diagnostics"):
                 result["diagnostics"] = helper.get("diagnostics")
-            # Deliberately never expose token, cookie data, or raw process environment.
+            # Deliberately never expose token, session identity, cookie data, or raw process environment.
+            return result
+    def session_status(self, payload: dict | None = None) -> dict:
+        payload = payload if isinstance(payload, dict) else {}
+        with self._lock:
+            session_match = self._session_matches(payload.get("sessionId")) and bool(self._helper_status())
+            result = self.status()
+            result["sessionMatch"] = session_match
             return result
     def start(self, payload: dict | None = None) -> dict:
         payload = payload if isinstance(payload, dict) else {}
@@ -332,6 +344,17 @@ class SpotifyBrowserManager:
         del payload
         with self._lock:
             return self._stop_locked(force=False)
+    def _set_volume_locked(self, payload: dict, session_id: str) -> dict:
+        body = {
+            "sessionId": session_id,
+            "volume": clamp_volume(payload.get("volume"), 1),
+            "trackId": normalize_track_id(payload.get("trackId") or ""),
+        }
+        try:
+            return self._request("POST", "/volume", body, timeout=3)
+        except Exception as exc:
+            self._last_error = str(exc)[:300]
+            return {"ok": False, "sessionMatch": False, "reason": self._last_error}
     def set_volume(self, payload: dict | None = None) -> dict:
         payload = payload if isinstance(payload, dict) else {}
         with self._lock:
@@ -342,18 +365,17 @@ class SpotifyBrowserManager:
                     "reason": "Managed Spotify browser is not running or not reachable.",
                 }
             session_id = str(payload.get("sessionId") or "")
-            if not session_id or session_id != self._session_id:
+            if not self._session_matches(session_id):
                 return {"ok": False, "sessionMatch": False, "reason": "This EveOS tab is not the managed browser session."}
-            body = {
-                "sessionId": session_id,
-                "volume": clamp_volume(payload.get("volume"), 1),
-                "trackId": normalize_track_id(payload.get("trackId") or ""),
-            }
-            try:
-                result = self._request("POST", "/volume", body, timeout=3)
-            except Exception as exc:
-                self._last_error = str(exc)[:300]
-                return {"ok": False, "sessionMatch": False, "reason": self._last_error}
+            return self._set_volume_locked(payload, session_id)
+    def qualify_volume(self, payload: dict | None = None) -> dict:
+        payload = payload if isinstance(payload, dict) else {}
+        with self._lock:
+            if not self._helper_status() or not self._session_id:
+                return {"ok": False, "sessionMatch": False, "reason": "Managed Spotify browser is not running or not reachable."}
+            result = self._set_volume_locked(payload, self._session_id)
+            if result.get("ok"):
+                result["sessionMatch"] = True
             return result
     def auth(self, payload: dict | None = None) -> dict:
         payload = payload if isinstance(payload, dict) else {}
@@ -411,12 +433,16 @@ class SpotifyBrowserManager:
 _manager = SpotifyBrowserManager()
 def status(payload: dict | None = None) -> dict:
     return _manager.status(payload)
+def session_status(payload: dict | None = None) -> dict:
+    return _manager.session_status(payload)
 def start(payload: dict | None = None) -> dict:
     return _manager.start(payload)
 def stop(payload: dict | None = None) -> dict:
     return _manager.stop(payload)
 def set_volume(payload: dict | None = None) -> dict:
     return _manager.set_volume(payload)
+def qualify_volume(payload: dict | None = None) -> dict:
+    return _manager.qualify_volume(payload)
 def auth(payload: dict | None = None) -> dict:
     return _manager.auth(payload)
 def suspend_for_profile_task(reason: str = "profile-task") -> dict:
