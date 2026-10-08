@@ -22,6 +22,16 @@ assert mod.clamp_volume(-2) == 0
 assert mod.normalize_track_id("spotify:track:4cOdK2wGLETKBW3PvgPWqT") == "4cOdK2wGLETKBW3PvgPWqT"
 assert mod.normalize_track_id("bad") == ""
 
+# A recovered helper must clear an earlier refused-connection diagnostic instead of leaving status red.
+health = mod.SpotifyBrowserManager()
+health._process = type("P", (), {"poll": lambda self: None})()
+health._port = 31337
+health._token = "health-token"
+health._last_error = "stale connection refused"
+health._request = lambda method, route, body=None, timeout=0: {"ok": True, "state": "ready"}
+assert health._helper_status()["ok"] is True
+assert health._last_error == ""
+
 manager = mod.SpotifyBrowserManager()
 manager.environment_status = lambda force=False: {
     "nodeAvailable": True,
