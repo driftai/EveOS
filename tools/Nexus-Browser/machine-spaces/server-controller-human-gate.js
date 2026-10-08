@@ -16,6 +16,7 @@ const MUTATING_TYPES = new Set([
   'machine_revoke_trusted_adapter',
   'machine_begin_trusted_attach',
   'machine_attest_trusted_attach',
+  'machine_trusted_attach_interrupt',
   'machine_revoke_trusted_attach'
 ]);
 
