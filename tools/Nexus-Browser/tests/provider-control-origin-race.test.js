@@ -127,7 +127,10 @@ test('late quorum presence waits for exact durable intent before machine routing
   });
 
   assert.equal(MUTATING_ACTIONS.has('quorum_presence'), true);
+  assert.equal(MUTATING_ACTIONS.has('quorum_open'), true);
   assert.equal(MUTATING_ACTIONS.has('quorum_vote'), true);
+  assert.equal(MUTATING_ACTIONS.has('quorum_close'), true);
+  assert.equal(MUTATING_ACTIONS.has('quorum_status'), false);
   await routing.handle(caller, { type: 'provider_control_request', requestId: 'late-quorum-ok', source, command });
 
   assert.equal(sleeps, 1);
