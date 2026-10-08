@@ -11,15 +11,9 @@ window.EveAudioflixAudioSource = window.EveAudioflixAudioSource || {};
     const PROVIDER_NATIVE_RE = /^https?:\/\/open\.spotify\.com\/track\/[A-Za-z0-9]+(?:[/?#]|$)/i;
 
     function getOriginalPlatformUrl(item) {
-        // When a provider identity has already been mapped to an Eve-owned playback source, that
-        // mapped URL is authoritative for media resolution. Its originalUrl may deliberately remain
-        // the provenance URL (for example Spotify), and must not pull resolution back to the provider
-        // iframe after the strict matcher has selected a YouTube/SoundCloud recording.
-        const ownedUrl = String(item?.url || '').trim();
-        if (item?.eveOwnedPlaybackSource === true && PLATFORM_RE.test(ownedUrl)) return ownedUrl;
         if (item?.sourceUrl && PLATFORM_RE.test(item.sourceUrl)) return item.sourceUrl;
         if (item?.originalUrl && PLATFORM_RE.test(item.originalUrl)) return item.originalUrl;
-        const raw = ownedUrl;
+        const raw = String(item?.url || '').trim();
         if (PLATFORM_RE.test(raw)) return raw;
         if (raw.includes('/api/proxy?') && raw.includes('url=')) {
             try {
