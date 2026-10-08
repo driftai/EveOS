@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   chooseTarget,
   addOnlineAgentCommand,
+  scopedQuorumCommand,
   exactOriginPresence,
   controlReceiptFromStatus,
   parseArgs
@@ -49,6 +50,17 @@ test('provider qualifier attaches an existing Online-Origin parent instead of lo
     name: 'Eve-Main-Agent-Qualification'
   });
   assert.notEqual(command.action, 'spawn_agent');
+});
+
+test('provider quorum mutations carry the exact disposable room anchor', () => {
+  assert.deepEqual(scopedQuorumCommand('quorum_presence', 'room-proof'), {
+    action: 'quorum_presence', room: 'room-proof'
+  });
+  assert.deepEqual(scopedQuorumCommand('quorum_vote', 'room-proof', {
+    workflowId: 'wf-1', decision: 'approve'
+  }), {
+    action: 'quorum_vote', room: 'room-proof', workflowId: 'wf-1', decision: 'approve'
+  });
 });
 
 test('relay-safe exact-origin proof requires one matching committed presence event', () => {
