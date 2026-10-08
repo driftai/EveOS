@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>EveOS Spotify Engine</title>
+    <style>
+        :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+        body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111; color: #eee; }
+        main { width: min(720px, 92vw); padding: 24px; border: 1px solid #333; border-radius: 16px; background: #181818; }
+        h1 { margin: 0 0 8px; font-size: 1.2rem; }
+        p { margin: 0 0 18px; opacity: .75; }
+        #spotify-engine-player { min-height: 152px; }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>EveOS Spotify Engine</h1>
+        <p>This managed window supplies Spotify playback to ordinary EveOS tabs. Control it from Audioflix.</p>
+        <div id="spotify-engine-player" aria-label="Managed Spotify player"></div>
+    </main>
+    <script src="js/modules/features/audioflix/audioflix.spotify.engine.js"></script>
+</body>
+</html>
