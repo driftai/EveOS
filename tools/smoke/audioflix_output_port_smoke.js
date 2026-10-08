@@ -131,5 +131,22 @@ const armSource = outputPortSource.slice(
 );
 assert(armSource.includes('void spotify.enable?.()') && !armSource.includes('queueMicrotask'),
     'Song Output Port capture arming stays in the trusted synchronous input stack');
+assert(spotifyVolume.includes("'.audioflix-volume-slider'")
+    && spotifyVolume.includes("'.audioflix-output-port-volume'")
+    && spotifyVolume.includes("document.addEventListener('pointerdown'")
+    && spotifyVolume.includes('armFromTrustedGesture(event.target)'),
+    'both card and master volume controls arm Spotify capture from the original pointer gesture');
+assert(spotifyVolume.includes('activeSpotifyPlayback()')
+    && spotifyVolume.includes('setSpotifyVolume(effective, { direct: false })'),
+    'Spotify gain follows active provider state even when provider item identity matching misses');
+const enableSource = spotifyVolume.slice(
+    spotifyVolume.indexOf('async function enable()'),
+    spotifyVolume.indexOf('function setSpotifyVolume')
+);
+assert(enableSource.indexOf('capturePromise = navigator.mediaDevices.getDisplayMedia') >= 0
+    && enableSource.indexOf("window.open('', OUTPUT_WINDOW") >= 0
+    && enableSource.indexOf('capturePromise = navigator.mediaDevices.getDisplayMedia')
+        < enableSource.indexOf("window.open('', OUTPUT_WINDOW"),
+    'getDisplayMedia claims transient activation before window.open can consume it');
 
 console.log('AUDIOFLIX_OUTPUT_PORT_SMOKE_OK');
