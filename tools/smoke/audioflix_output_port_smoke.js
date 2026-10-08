@@ -14,6 +14,7 @@ const events = [];
 const state = { outputVolume: 0.4 };
 const context = vm.createContext({
     console,
+    queueMicrotask,
     CustomEvent: class CustomEvent { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
     window: {
         EveAudioflixState: {
@@ -40,6 +41,7 @@ assert(port.render(state).includes('EveOS Song Output Port'), 'routing UI expose
 
 const stateSource = read('audioflix.state.js');
 const audio = read('audioflix.audio.js');
+const outputPortSource = read('audioflix.output.port.js');
 const spotifyNative = read('audioflix.native.spotify.js');
 const spotifyVolume = read('audioflix.spotify.volume.js');
 const url = read('audioflix.audio.url.js');
@@ -92,5 +94,9 @@ assert(spotifyVolume.includes('navigator.mediaDevices.getDisplayMedia')
     && spotifyVolume.includes('restrictOwnAudio: false')
     && spotifyVolume.includes('context.createGain()'),
     'localhost Spotify volume uses captured official Spotify tab audio through an EveOS GainNode');
+assert(outputPortSource.includes('armSpotifyCaptureFromGesture()')
+    && outputPortSource.includes('EveAudioflixSpotifyVolume')
+    && outputPortSource.includes('void spotify.enable?.()'),
+    'moving the Song Output Port slider arms Spotify localhost gain from the user gesture');
 
 console.log('AUDIOFLIX_OUTPUT_PORT_SMOKE_OK');
