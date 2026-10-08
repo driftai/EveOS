@@ -44,6 +44,7 @@
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
         "content/machine-quorum-actions.js",
+        "content/machine-job-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -59,6 +60,7 @@
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
         "content/machine-quorum-actions.js",
+        "content/machine-job-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -76,6 +78,7 @@
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
         "content/machine-quorum-actions.js",
+        "content/machine-job-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -96,6 +99,7 @@
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
         "content/machine-quorum-actions.js",
+        "content/machine-job-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -110,6 +114,7 @@
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
         "content/machine-quorum-actions.js",
+        "content/machine-job-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -124,6 +129,7 @@
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
         "content/machine-quorum-actions.js",
+        "content/machine-job-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -139,6 +145,7 @@
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
         "content/machine-quorum-actions.js",
+        "content/machine-job-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
