@@ -7,6 +7,7 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 MODULE = ROOT / "server_modules" / "audioflix_spotify_browser.py"
 spec = importlib.util.spec_from_file_location("audioflix_spotify_browser_under_test", MODULE)
 mod = importlib.util.module_from_spec(spec)
