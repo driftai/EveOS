@@ -28,6 +28,7 @@ function createAgentQuorumCoordinator(options = {}) {
   const defaultTtlMs = Math.max(1000, Number(options.defaultTtlMs) || 120000);
   const identities = new Map();
   const presence = new Map();
+  const presenceEvidence = new Map();
   const workflows = new Map();
   const events = [];
   let eventSequence = 0;
@@ -77,6 +78,7 @@ function createAgentQuorumCoordinator(options = {}) {
     const ttlMs = Math.max(1000, Number(input.ttlMs) || defaultTtlMs);
     const observedAtMs = Number.isFinite(Number(input.observedAtMs)) ? Number(input.observedAtMs) : now();
     const available = input.available !== false;
+    const evidenceId = input.evidenceId ? String(input.evidenceId) : null;
     const record = {
       agentKey: identity.key,
       agent: identity.agent,
@@ -86,10 +88,29 @@ function createAgentQuorumCoordinator(options = {}) {
       expiresAt: new Date(observedAtMs + ttlMs).toISOString(),
       roomId: input.roomId ? String(input.roomId) : null,
       memberId: input.memberId ? String(input.memberId) : null,
-      evidenceId: input.evidenceId ? String(input.evidenceId) : null,
+      evidenceId,
       source: input.source ? String(input.source) : null
     };
+    const evidenceKey = evidenceId ? `${identity.key}|${evidenceId}` : null;
+    if (evidenceKey && presenceEvidence.has(evidenceKey)) {
+      const prior = presenceEvidence.get(evidenceKey);
+      const same = prior.available === record.available
+        && prior.roomId === record.roomId
+        && prior.memberId === record.memberId
+        && prior.source === record.source;
+      if (!same) {
+        throw makeError('MACHINE_AGENT_PRESENCE_EVIDENCE_CONFLICT',
+          `Presence evidence ${evidenceId} was already used with different provenance for ${identity.agent}.`, {
+            agent: identity.agent,
+            evidenceId,
+            prior: clone(prior),
+            received: clone(record)
+          });
+      }
+      return clone(prior);
+    }
     presence.set(identity.key, record);
+    if (evidenceKey) presenceEvidence.set(evidenceKey, clone(record));
     event('presence', record);
     return clone(record);
   }
