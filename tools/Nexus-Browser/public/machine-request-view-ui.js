@@ -49,23 +49,6 @@
   const resetButton = panel.querySelector('[data-request-view-reset]');
   const moreButton = panel.querySelector('[data-request-view-more]');
 
-  const styles = document.createElement('style');
-  styles.textContent = `
-    .machine-request-view-panel{margin-top:12px}
-    .machine-request-view-head{display:flex;align-items:end;justify-content:space-between;gap:10px}
-    .machine-request-view-filters{display:grid;grid-template-columns:minmax(130px,.65fr) minmax(150px,.75fr) minmax(150px,1fr) minmax(190px,1.4fr) auto auto;gap:8px;align-items:end;margin-top:9px}
-    .machine-request-view-filters label{display:grid;gap:4px;color:#8796aa;font-size:11px}
-    .machine-request-view-filters select,.machine-request-view-filters input{min-width:0;width:100%;box-sizing:border-box}
-    .machine-request-view-live{display:flex!important;grid-auto-flow:column;align-items:center;justify-content:start;padding-bottom:8px;white-space:nowrap}
-    .machine-request-view-live input{width:auto!important}
-    .machine-request-view-kind{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#8290a3}
-    .machine-request-view-provenance{font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:#78879a;overflow-wrap:anywhere;margin-top:6px}
-    .machine-request-view-more{margin-top:9px}
-    @media(max-width:900px){.machine-request-view-filters{grid-template-columns:1fr 1fr}.machine-request-view-live{padding-bottom:0}}
-    @media(max-width:560px){.machine-request-view-filters{grid-template-columns:1fr}}
-  `;
-  document.head.append(styles);
-
   let socket = null;
   let phase = 'connecting';
   let available = false;
