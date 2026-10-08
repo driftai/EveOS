@@ -56,8 +56,9 @@ function argumentValue(argv, name) {
 function childArgs(argv = process.argv.slice(2)) {
   const shared = forwardedArgs(argv, ['--timeout-ms']);
   const warmTabId = argumentValue(argv, '--warm-tab-id');
-  const providerChatgptTabId = argumentValue(argv, '--chatgpt-tab-id') || warmTabId;
+  const explicitChatgptTabId = argumentValue(argv, '--chatgpt-tab-id');
   const providerChatgptUrl = argumentValue(argv, '--chatgpt-url');
+  const providerChatgptTabId = explicitChatgptTabId || (providerChatgptUrl ? null : warmTabId);
   const allLive = [
     '--chatgpt-live',
     '--external-live',
