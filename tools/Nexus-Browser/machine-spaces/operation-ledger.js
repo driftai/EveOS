@@ -4,6 +4,11 @@
 const { createHash } = require('node:crypto');
 const MAX_EVENTS = 128, MAX_SUMMARY = 180, MAX_PREVIEW = 400;
 const STATES = new Set(['queued', 'running', 'completed', 'failed', 'outcome-unknown']);
+const CAPABILITIES = new Set([
+  'terminal.exec', 'terminal.inspect',
+  'files.list', 'files.stat', 'files.read', 'files.search',
+  'files.create', 'files.write', 'files.patch', 'files.move', 'files.delete'
+]);
 const ID = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 const DIGEST = /^[a-f0-9]{64}$/;
 
@@ -47,7 +52,7 @@ function recordRequest(ledger, input, authorizer) {
   };
   if (intent.roomId !== ledger.roomId || intent.spaceId !== ledger.spaceId)
     throw error('MACHINE_SCOPE_MISMATCH', 'Operation targets a different room or space.');
-  if (!['terminal.exec', 'terminal.inspect', 'files.list', 'files.read', 'files.edit'].includes(intent.capability))
+  if (!CAPABILITIES.has(intent.capability))
     throw error('MACHINE_BAD_CAPABILITY', 'Unknown operation capability.');
   if (!DIGEST.test(intent.operationDigest))
     throw error('MACHINE_BAD_DIGEST', 'Operation content requires an exact SHA-256 digest.');
@@ -105,5 +110,5 @@ function projection(entry) {
   const { intentDigest, ...publicEntry } = entry;
   return { ...publicEntry };
 }
-module.exports = { MAX_EVENTS, MAX_SUMMARY, MAX_PREVIEW, createLedger, recordRequest,
+module.exports = { MAX_EVENTS, MAX_SUMMARY, MAX_PREVIEW, CAPABILITIES, createLedger, recordRequest,
   markRunning, settle, projection, entryFor };
