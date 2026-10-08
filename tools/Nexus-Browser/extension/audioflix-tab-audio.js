@@ -17,7 +17,11 @@
   });
 
   const STORAGE_KEY = 'eveAudioflixTabAudioState';
-  const OFFSCREEN_URL = 'audioflix-offscreen.html';
+  // Standalone Nexus serves this page from the extension root; the EveOS Bridge assembles the same
+  // file under modules/nexus-browser/. Resolve through the Bridge's module root when present so
+  // both packages create (and later find) the offscreen document at its real path.
+  const MODULE_ROOT = String(globalThis.EveOSExtensionModuleRoots?.['nexus-browser'] || '');
+  const OFFSCREEN_URL = `${/^modules\/[a-z0-9-]+\/$/.test(MODULE_ROOT) ? MODULE_ROOT : ''}audioflix-offscreen.html`;
   const DEFAULT_STATE = Object.freeze({
     active: false,
     tabId: null,
