@@ -56,8 +56,18 @@ public = manager.status()
 assert public["helperReachable"] is True
 assert public["authState"] == "signed-in"
 assert public["playingCount"] == 1
+assert public["sessionPresent"] is True
+assert "sessionId" not in public
+assert "expected-session" not in repr(public)
 assert "token" not in " ".join(public.keys()).lower()
 assert "this-token-must-never-be-public" not in repr(public)
+
+matched = manager.session_status({"sessionId": "expected-session"})
+assert matched["sessionMatch"] is True
+assert "sessionId" not in matched and "expected-session" not in repr(matched)
+wrong = manager.session_status({"sessionId": "wrong-session"})
+assert wrong["sessionMatch"] is False
+assert "sessionId" not in wrong
 
 captured = {}
 def fake_request(method, route, body=None, timeout=0):
@@ -73,9 +83,16 @@ assert result["ok"] and result["sessionMatch"]
 assert captured["route"] == "/volume"
 assert captured["body"]["trackId"] == "4cOdK2wGLETKBW3PvgPWqT"
 assert captured["body"]["volume"] == 0.25
+assert captured["body"]["sessionId"] == "expected-session"
 
 rejected = manager.set_volume({"sessionId": "wrong-session", "volume": 0.5})
 assert rejected["ok"] is False and rejected["sessionMatch"] is False
+
+qualified = manager.qualify_volume({"volume": 0.4})
+assert qualified["ok"] and qualified["sessionMatch"]
+assert captured["route"] == "/volume"
+assert captured["body"]["sessionId"] == "expected-session"
+assert captured["body"]["volume"] == 0.4
 
 # Profile-task coordination must release a running managed context exactly once and restore it only
 # after the final nested task exits. This is how the existing >100-track importer shares one login.
