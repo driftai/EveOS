@@ -12,6 +12,7 @@ const CONTROL_TESTS = Object.freeze([
   'tests/dex-provider-control-dedup.test.js',
   'tests/dex-managed-worker-provider-control.test.js',
   'tests/provider-target-spawn-routing.test.js',
+  'tests/provider-provenance-qualify.test.js',
   'tests/machine-spaces-agent-quorum.test.js',
   'tests/machine-spaces-agent-quorum-provider-control.test.js',
   'tests/machine-spaces-request-view.test.js',
