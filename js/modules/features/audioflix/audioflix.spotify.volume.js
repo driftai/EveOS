@@ -9,6 +9,12 @@
     'use strict';
 
     const OUTPUT_WINDOW = 'eveos_audioflix_sound_output';
+    const VOLUME_SELECTOR = [
+        '[data-af-spv="slider"]',
+        '.audioflix-volume-slider',
+        '.audioflix-provider-volume',
+        '.audioflix-output-port-volume'
+    ].join(', ');
     const state = {
         stream: null,
         output: null,
@@ -31,6 +37,19 @@
         && !!navigator.mediaDevices
         && typeof navigator.mediaDevices.getDisplayMedia === 'function';
     const targetGain = () => state.spotifyActive && !state.directControl ? state.spotifyVolume : 1;
+    const spotifyTrack = (item) => String(item?.sourceProvider || '').toLowerCase() === 'spotify'
+        || !!item?.spotifyUrl
+        || /(?:spotify:track:|open\.spotify\.com\/(?:embed\/)?track\/)/i.test(String(item?.url || item?.originalUrl || ''));
+
+    function activeSpotifyPlayback() {
+        const playback = window.EveAudioflixAudio?.getPlaybackState?.() || {};
+        return playback.provider === 'spotify' || spotifyTrack(playback.item) ? playback : null;
+    }
+
+    function effectiveTrackGain(playback = activeSpotifyPlayback()) {
+        const itemVolume = clamp(playback?.item?.volume ?? 1);
+        return window.EveAudioflixOutputPort?.effective?.(itemVolume) ?? itemVolume;
+    }
 
     function snapshot() {
         return {
@@ -160,7 +179,7 @@
         state.message = 'Choose “This tab” and keep “Also share tab audio” enabled.';
         notify();
 
-        // This must execute directly inside the trusted slider/click event. Both window.open() and
+        // This must execute directly inside the trusted pointer/key gesture. Both window.open() and
         // getDisplayMedia() are user-activation gated in Chromium.
         const win = window.open('', OUTPUT_WINDOW, 'width=360,height=150');
         if (!win) {
@@ -265,6 +284,26 @@
         notify();
     }
 
+    function syncSpotifyFromPlayback(explicitItemVolume) {
+        const playback = activeSpotifyPlayback();
+        if (!playback) return null;
+        const itemVolume = explicitItemVolume == null
+            ? clamp(playback.item?.volume ?? 1)
+            : clamp(explicitItemVolume);
+        const effective = window.EveAudioflixOutputPort?.effective?.(itemVolume) ?? itemVolume;
+        setSpotifyVolume(effective, { direct: false });
+        return playback;
+    }
+
+    function armFromTrustedGesture(target) {
+        if (!target?.closest?.(VOLUME_SELECTOR) && !target?.matches?.(VOLUME_SELECTOR)) return false;
+        const playback = syncSpotifyFromPlayback();
+        if (!playback) return false;
+        const value = snapshot();
+        if (!value.active && value.status !== 'starting') void enable();
+        return true;
+    }
+
     const escapeHtml = (value) => String(value).replace(/[&<>"]/g,
         (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]);
 
@@ -312,35 +351,51 @@
         const button = event.target?.closest?.('[data-af-spv="toggle"]');
         if (!button) return;
         if (snapshot().active) disable();
-        else void enable();
+        else {
+            syncSpotifyFromPlayback();
+            void enable();
+        }
     });
 
+    // Capture permission requires transient activation. Arm at the actual pointer/key gesture rather
+    // than waiting for the range input event, which can occur after Chromium considers activation spent.
+    document.addEventListener('pointerdown', (event) => {
+        armFromTrustedGesture(event.target);
+    }, true);
+    document.addEventListener('keydown', (event) => {
+        if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return;
+        armFromTrustedGesture(event.target);
+    }, true);
+
     document.addEventListener('input', (event) => {
-        const slider = event.target?.closest?.(
-            '[data-af-spv="slider"], .audioflix-volume-slider, .audioflix-provider-volume'
-        );
+        const slider = event.target?.closest?.(VOLUME_SELECTOR);
         if (!slider) return;
         const level = clamp(slider.value);
         const audio = window.EveAudioflixAudio;
+        const playback = activeSpotifyPlayback();
         const activeId = audio?.getPlaybackState?.()?.item?.id;
-        if (activeId != null && typeof audio?.updateItemVolume === 'function') {
-            // updateItemVolume -> UrlPlayback.setVolume -> Spotify player.setVolume ->
-            // EveAudioflixSpotifyVolume.setSpotifyVolume all run synchronously in this event.
-            audio.updateItemVolume(activeId, level);
-        } else {
-            setSpotifyVolume(level);
+        const isMaster = slider.matches('.audioflix-output-port-volume');
+
+        if (!isMaster) {
+            if (activeId != null && typeof audio?.updateItemVolume === 'function') {
+                audio.updateItemVolume(activeId, level);
+            }
+            document.querySelectorAll('.audioflix-volume-slider').forEach((card) => {
+                if (String(card.dataset.afId) !== String(activeId)) return;
+                card.value = String(level);
+                card.style.setProperty('--vol', `${level * 100}%`);
+                const label = card.parentElement?.querySelector('.audioflix-volume-label');
+                if (label) label.textContent = `${Math.round(level * 100)}%`;
+            });
         }
-        document.querySelectorAll('.audioflix-volume-slider').forEach((card) => {
-            if (String(card.dataset.afId) !== String(activeId)) return;
-            card.value = String(level);
-            card.style.setProperty('--vol', `${level * 100}%`);
-            const label = card.parentElement?.querySelector('.audioflix-volume-label');
-            if (label) label.textContent = `${Math.round(level * 100)}%`;
-        });
-        // Do not defer this: getDisplayMedia/window.open need the trusted slider input activation.
-        if (state.spotifyActive && !state.directControl && !snapshot().active
-            && state.status !== 'starting') {
-            void enable();
+
+        // Do not depend on URL-player identity matching. If Spotify is the active provider, update
+        // the authoritative localhost gain directly from the visible slider state.
+        if (playback) {
+            const itemVolume = isMaster ? clamp(playback.item?.volume ?? 1) : level;
+            const effective = window.EveAudioflixOutputPort?.effective?.(itemVolume) ?? itemVolume;
+            setSpotifyVolume(effective, { direct: false });
+            if (!snapshot().active && state.status !== 'starting') void enable();
         }
     });
 
@@ -351,6 +406,9 @@
         clearSpotify,
         applyCapturePolicy,
         captureAudioConstraints,
+        activeSpotifyPlayback,
+        syncSpotifyFromPlayback,
+        armFromTrustedGesture,
         mount,
         snapshot,
         subscribe(listener) {
