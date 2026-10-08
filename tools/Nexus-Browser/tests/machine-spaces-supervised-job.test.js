@@ -29,13 +29,17 @@ test('request id is exact-once and conflicting payload is rejected', () => {
   });
 });
 
-test('rebound requires the same trusted terminal process epoch and rotates the lease', () => {
+test('rebound requires the same trusted terminal process epoch and rotates the lease monotonically', () => {
   const { jobs } = fixture();
   const job = create(jobs);
   const started = jobs.start(job.jobId, { sessionId: 'browser-session-a', targetId: job.targetId, processEpoch: job.processEpoch });
   const firstLease = started.lease.leaseId;
+  assert.equal(started.lease.generation, 1);
+  assert.equal(started.leaseGeneration, 1);
   const deferred = jobs.defer(job.jobId, { sessionId: 'browser-session-a', leaseId: firstLease, reason: 'socket-lost' });
   assert.equal(deferred.state, 'deferred');
+  assert.equal(deferred.lease, null);
+  assert.equal(deferred.leaseGeneration, 1);
 
   assert.throws(() => jobs.rebound(job.jobId, { sessionId: 'browser-session-b', targetId: job.targetId, processEpoch: 'replacement-process' }), {
     code: 'MACHINE_JOB_TARGET_EPOCH_MISMATCH'
@@ -45,6 +49,8 @@ test('rebound requires the same trusted terminal process epoch and rotates the l
   assert.equal(rebound.state, 'running');
   assert.equal(rebound.reboundCount, 1);
   assert.notEqual(rebound.lease.leaseId, firstLease);
+  assert.equal(rebound.lease.generation, 2);
+  assert.equal(rebound.leaseGeneration, 2);
 });
 
 test('stale supervision lease cannot settle a running job', () => {
@@ -96,4 +102,5 @@ test('audit snapshot exposes lifecycle without secret lease tokens beyond lease 
   const snapshot = jobs.snapshot();
   assert.deepEqual(snapshot.events.map((entry) => entry.type), ['created', 'started', 'deferred', 'rebound']);
   assert.equal(snapshot.jobs[0].reboundCount, 1);
+  assert.equal(snapshot.jobs[0].leaseGeneration, 2);
 });
