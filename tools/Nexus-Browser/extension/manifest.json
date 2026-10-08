@@ -43,6 +43,7 @@
         "content/search-recovery.js",
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
+        "content/machine-quorum-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -57,6 +58,7 @@
         "content/grok-activity.js",
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
+        "content/machine-quorum-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -73,6 +75,7 @@
         "content/claude-activity.js",
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
+        "content/machine-quorum-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -92,6 +95,7 @@
         "content/chatgpt-stream-nudge.js",
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
+        "content/machine-quorum-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -105,6 +109,7 @@
         "content/gemini.js",
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
+        "content/machine-quorum-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -118,6 +123,7 @@
         "content/hark.js",
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
+        "content/machine-quorum-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
@@ -132,6 +138,7 @@
         "content/muse.js",
         "content/dex-provider-control.js",
         "content/machine-file-actions.js",
+        "content/machine-quorum-actions.js",
         "content/provider-health.js"
       ],
       "run_at": "document_idle"
