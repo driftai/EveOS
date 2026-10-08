@@ -10,7 +10,7 @@
     "test:deep": "node tools/smoke/eveos_profile_runner.mjs --profile deep",
     "test:security": "node tools/smoke/eveos_profile_runner.mjs --profile security",
     "test:ai-control": "node tools/smoke/eveos_profile_runner.mjs --profile ai-control",
-    "test:guardrails": "npm run --silent smoke:qualification-guardrails-contract && npm run --silent audit:asset-versions && npm run --silent audit:smoke-registry && npm run --silent smoke:coverage-map && npm run --silent smoke:file-growth && npm run --silent smoke:file-size",
+    "test:guardrails": "npm run --silent smoke:qualification-guardrails-contract && npm run --silent audit:eveos-extension && npm run --silent audit:asset-versions && npm run --silent audit:smoke-registry && npm run --silent smoke:coverage-map && npm run --silent smoke:file-growth && npm run --silent smoke:file-size",
     "test:handoff": "node tools/smoke/eveos_chat_handoff.mjs",
     "runtime:search-monitor:start": "node tools/runtime/search-monitor-runtime.mjs start",
     "runtime:search-monitor:status": "node tools/runtime/search-monitor-runtime.mjs status",

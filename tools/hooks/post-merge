@@ -1,0 +1,18 @@
+#!/bin/sh
+# EveOS post-merge: keep the local EveOS Bridge extension in step with pulled tool sources.
+# extension/modules/ is a git-ignored build of tools/*/extension, so a pull alone never updates
+# what Chrome loads. Enable once per clone with:
+#   git config core.hooksPath tools/hooks
+
+changed=$(git diff --name-only ORIG_HEAD HEAD 2>/dev/null | grep -E '^(tools/Nexus-Browser/extension/|tools/WatchFusion/browser-extension/|tools/Tab-Collector/extension/|extension/)')
+[ -z "$changed" ] && exit 0
+
+if node tools/extensions/assemble.cjs --write >/dev/null 2>&1; then
+    echo ""
+    echo "EveOS Bridge rebuilt from pulled extension changes."
+    echo "Reload EveOS Bridge in chrome://extensions, then refresh open EveOS/provider tabs."
+else
+    echo ""
+    echo "WARNING: EveOS Bridge rebuild failed. Run npm run build:eveos-extension for details." >&2
+fi
+exit 0

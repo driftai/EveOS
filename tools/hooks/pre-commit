@@ -36,4 +36,11 @@ if ! node tools/audit/runtime-asset-reachability-audit.js >/dev/null; then
     exit 1
 fi
 
+if ! node tools/extensions/assemble.cjs >/dev/null 2>&1; then
+    echo "COMMIT BLOCKED: the EveOS Bridge extension manifest is stale." >&2
+    echo "A tool extension (Nexus Browser, WatchFusion, Tab Collector) changed without a Bridge rebuild." >&2
+    echo "Run npm run build:eveos-extension, then stage extension/manifest.json." >&2
+    exit 1
+fi
+
 exit 0
