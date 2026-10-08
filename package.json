@@ -86,7 +86,7 @@
     "smoke:gemini-context": "node tools/smoke/gemini_selective_context_smoke.js && node tools/smoke/gemini_deep_nesting_payload_smoke.js && node tools/smoke/gemini_context_detail_tiers_smoke.js && node tools/smoke/gemini_context_chunked_transport_smoke.js && node tools/smoke/gemini_mode2_context_routing_smoke.js && python tools/smoke/gemini_mode2_live_context_handoff_smoke.py",
     "verify:gemini:audio": "node --check js/modules/gemini/agentic/audio_proc/playback_proc/audio_injest_core/interimIngestHandler.js && node --check js/modules/gemini/agentic/audio_proc/settings_dialog/audioSettingsDialogHandler.js && npm run smoke:gemini-audio",
     "verify:gemini": "npm run verify:gemini:audio && npm run smoke:search-monitor && npm run smoke:gemini-context && node tools/smoke/gemini_agentic_controls_browser_smoke.js",
-    "smoke:bookmark-intel": "python tools/smoke/bookmark_intel_integration_smoke.py",
+    "smoke:bookmark-intel": "python tools/smoke/bookmark_intel_integration_smoke.py && node tools/smoke/bookmark_intel_browser_smoke.js",
     "smoke:bookmark-mutation-integrity": "node tools/smoke/bookmark_edit_dashboard_render_smoke.js && node tools/smoke/bookmark_edit_url_draft_sync_browser_smoke.js && node tools/smoke/bookmark_folder_drop_ui_browser_smoke.js && node tools/smoke/bookmark_folder_mutation_cleanup_smoke.js && node tools/smoke/bookmark_identifiers_browser_smoke.js && node tools/smoke/bookmark_merge_heuristics_smoke.js",
     "smoke:agent-management": "python tools/smoke/agent_management_smoke.py",
     "smoke:agent-portability": "python tools/smoke/agent_portability_smoke.py",
