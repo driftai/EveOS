@@ -5,31 +5,14 @@ const MAX_MEDIA_REFS = 32;
 
 function browserInit(payload) {
     'use strict';
-    const sessionId = String(payload?.sessionId || '');
     const maxRefs = Math.max(4, Math.min(128, Number(payload?.maxRefs) || 32));
+    const initialVolume = Math.max(0, Math.min(1, Number(payload?.initialVolume ?? 1) || 0));
     const host = String(location.hostname || '').toLowerCase();
-    const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
-
-    if (loopback) {
-        try {
-            Object.defineProperty(window, '__EveAudioflixManagedBrowserSession', {
-                configurable: false,
-                enumerable: false,
-                writable: false,
-                value: sessionId
-            });
-        } catch {
-            window.__EveAudioflixManagedBrowserSession = sessionId;
-        }
-        return;
-    }
-
     if (host !== 'open.spotify.com' || !String(location.pathname || '').startsWith('/embed/')) return;
     if (window.__eveSpotifyManagedControl) return;
 
     const state = {
-        sessionId,
-        desiredVolume: 1,
+        desiredVolume: initialVolume,
         media: [],
         nextId: 1,
         writes: 0,
@@ -37,11 +20,8 @@ function browserInit(payload) {
         lastError: '',
         lastPlayingAt: 0
     };
-
     const safeError = (error) => String(error?.message || error || '').slice(0, 160);
     const prune = () => {
-        // Keep playing/recent media first. Spotify uses detached media, so isConnected is not a
-        // validity signal. Bound the strong-reference set to prevent long-running sessions leaking.
         if (state.media.length <= maxRefs) return;
         const ranked = state.media.slice().sort((a, b) => {
             const ap = a.el && !a.el.paused && !a.el.ended ? 1 : 0;
@@ -110,14 +90,12 @@ function browserInit(payload) {
     } catch (error) { state.lastError = `create-hook: ${safeError(error)}`; }
 
     const discoverDom = () => {
-        try {
-            document.querySelectorAll('audio,video').forEach((element) => tag(element, 'dom'));
-        } catch (error) { state.lastError = `dom-scan: ${safeError(error)}`; }
+        try { document.querySelectorAll('audio,video').forEach((element) => tag(element, 'dom')); }
+        catch (error) { state.lastError = `dom-scan: ${safeError(error)}`; }
     };
 
     window.__eveSpotifyManagedControl = {
-        version: 1,
-        sessionId,
+        version: 2,
         setVolume(value) {
             const n = Number(value);
             if (!Number.isFinite(n)) return this.snapshot();
@@ -147,7 +125,6 @@ function browserInit(payload) {
                 };
             });
             return {
-                sessionId,
                 desiredVolume: state.desiredVolume,
                 media,
                 mediaCount: media.length,
