@@ -11,6 +11,7 @@ const localPlayback = read('js/modules/features/audioflix/audioflix.audio.local.
 const source = read('js/modules/features/audioflix/audioflix.audio.source.js');
 const spotifyNative = read('js/modules/features/audioflix/audioflix.native.spotify.js');
 const spotifyVolume = read('js/modules/features/audioflix/audioflix.spotify.volume.js');
+const transport = read('js/modules/features/audioflix/audioflix.transport.js');
 const ytdl = read('server_modules/audioflix_ytdl.py');
 
 assert(ports.includes('path == "/api/audioflix/port/url"'),
@@ -59,5 +60,11 @@ assert(!spotifyVolume.includes('getDisplayMedia')
     && !spotifyVolume.includes('window.open(')
     && !spotifyVolume.includes('createMediaStreamSource'),
     'Spotify volume path cannot reopen the removed tab-share/capture flow');
+assert(transport.includes('function spotifyProviderOwned(item, type)')
+    && transport.includes('data-af-volume-provider-owned="spotify"')
+    && transport.includes('disabled aria-disabled="true"'),
+    'provider-owned Spotify playback cannot expose a fake adjustable EveOS volume slider');
+assert(transport.includes('EveAudioflixLocalize?.effectiveLocalPath?.(item)'),
+    'localized Spotify copies keep normal EveOS volume control');
 
 console.log('AUDIOFLIX_URL_PORT_SMOKE_OK');
