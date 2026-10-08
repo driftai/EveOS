@@ -41,7 +41,8 @@ window.EveAudioflixTransportResilience = window.EveAudioflixTransportResilience 
 
     function sendProviderVolume(level) {
         // Provider-host live commands use the YouTube player contract: integer 0..100.
-        return sendProviderCommand('volume', Math.round(clamp(level) * 100));
+        const audible = window.EveAudioflixOutputPort?.effective?.(level) ?? clamp(level);
+        return sendProviderCommand('volume', Math.round(audible * 100));
     }
 
     async function resume() {
@@ -165,6 +166,11 @@ window.EveAudioflixTransportResilience = window.EveAudioflixTransportResilience 
         const detail = event.detail || {};
         if (detail.status !== 'Ended') return;
         scheduleQueueAdvance(detail.item?.id, 'playback event');
+    });
+
+    window.addEventListener('eve:audioflix-output-volume', () => {
+        const playback = audio()?.getPlaybackState?.();
+        if (playback?.browserOnly === true) sendProviderVolume(playback.item?.volume ?? 1);
     });
 
     // Observe the provider-host signal before any higher-level adapter can lose provenance/identity.

@@ -221,7 +221,10 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
         if (!window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()) return false;
         const isWav = String(safeItem.url || '').toLowerCase().split('?')[0].split('#')[0].endsWith('.wav');
         if (!isWav) return false;
-        const payload = await window.EveAudioflixNative?.playMediaItem?.(safeItem);
+        const payload = await window.EveAudioflixNative?.playMediaItem?.({
+            ...safeItem,
+            volume: window.EveAudioflixOutputPort?.effective?.(safeItem.volume) ?? safeItem.volume
+        });
         if (payload?.ok !== true) {
             return false;
         }

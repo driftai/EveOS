@@ -93,10 +93,10 @@ function main() {
     assert(providerCommand.includes("type: 'eve-audioflix-provider-command'") && providerCommand.includes('action,'),
         'the resilience layer routes provider commands through the generic provider-host bridge');
     const providerVolume = functionBody(resilience, 'function sendProviderVolume(');
-    assert(providerVolume.includes("sendProviderCommand('volume', Math.round(clamp(level) * 100))"),
-        'the resilience layer can send a live provider-host volume command');
-    assert(providerVolume.includes('Math.round(clamp(level) * 100)'),
-        'provider-host live volume uses YouTube integer 0..100 units');
+    assert(providerVolume.includes('EveAudioflixOutputPort?.effective?.(level)'),
+        'the provider-host safety net applies the shared EveOS output gain');
+    assert(providerVolume.includes("sendProviderCommand('volume', Math.round(audible * 100))"),
+        'provider-host live volume uses effective YouTube integer 0..100 units');
     assert(resilience.includes("detail.event !== 'state'") && resilience.includes("detail.state !== 'ended'"),
         'raw provider-host Ended state is observed even if an adapter drops the higher-level event');
     assert(resilience.includes('setTimeout(() => {') && resilience.includes('latestBridge.step?.(1)'),

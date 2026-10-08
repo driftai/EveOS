@@ -7,13 +7,11 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
     const YOUTUBE_FILE_MESSAGE = 'YouTube requires an HTTPS/app identity that a plain file:// page cannot send. Use Play on YouTube, replace this track URL with a direct media URL, cache a local copy, or start EveOS localhost to play it inside Audioflix.';
     const { loadScript, loadYouTubeApi } = window.EveAudioflixUrlLoaders;
     const { providerFor, youtubeId, shouldPreferBrowser } = window.EveAudioflixUrlProviders;
-    function itemKey(item) {
-        return String(item?.id || item?.url || '');
-    }
+    const outputVolume = (value) => window.EveAudioflixOutputPort?.effective?.(value) ?? Math.max(0, Math.min(1, Number(value ?? 1)));
+    function itemKey(item) { return String(item?.id || item?.url || ''); }
     function routedOutputNote() {
         const s = window.EveAudioflixState?.ensure?.() || {};
-        return (s.preferredSinkId || (s.nativeBridgeEnabled === true && s.nativeOutputId))
-            ? ' Note: provider players cannot follow the routed output, so this audio uses the system default device.' : '';
+        return (s.preferredSinkId || (s.nativeBridgeEnabled === true && s.nativeOutputId)) ? ' Note: provider players cannot follow the routed output, so this audio uses the system default device.' : '';
     }
     function createController(options = {}) {
         let active = null;
@@ -286,8 +284,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
         });
         const providerView = { get active() { return active; }, set active(v) { active = v; }, get playback() { return playback; } };
         const providerDeps = { ensureStage, setStageStatus, emitPlayback, emitProgress, view: providerView };
-        const spotifyAdapter = window.EveAudioflixSpotifyPlayback?.create?.(providerDeps);
-        const instagramAdapter = window.EveAudioflixInstagramPlayback?.create?.({ ...providerDeps, isInternalView: () => requestedInternalView });
+        const spotifyAdapter = window.EveAudioflixSpotifyPlayback?.create?.(providerDeps), instagramAdapter = window.EveAudioflixInstagramPlayback?.create?.({ ...providerDeps, isInternalView: () => requestedInternalView });
         const playSpotify = spotifyAdapter?.playSpotify || (async () => { throw new Error('Spotify playback support is not loaded yet.'); });
         const playInstagram = instagramAdapter?.playInstagram || (async () => { throw new Error('Instagram playback support is not loaded yet.'); });
 
@@ -309,13 +306,10 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 const nextId = youtubeId(item.url);
                 if (!nextId) throw new Error('This YouTube URL does not contain a playable video ID.');
                 resetPlayback(item, provider);
-                view?.open?.(item, 'YouTube', {
-                    expanded: requestedInternalView,
-                    visible: requestedInternalView
-                });
+                view?.open?.(item, 'YouTube', { expanded: requestedInternalView, visible: requestedInternalView });
                 view?.setVisualVisible?.(true);
                 if (requestedInternalView) view?.setExpanded?.(true); else view?.setTransportOnly?.(true);
-                active.player.setVolume?.(Math.round(Math.max(0, Math.min(1, Number(item.volume ?? 1))) * 100));
+                setVolume(item.volume ?? 1);
                 active.player.loadVideoById(nextId);
                 emitProgress();
                 return true;
@@ -324,6 +318,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 resetPlayback(item, provider);
                 if (requestedInternalView) view?.setExpanded?.(true); else view?.setTransportOnly?.(true);
                 await active.player.loadItem(item);
+                setVolume(item.volume ?? 1);
                 return true;
             }
             await stop();
@@ -335,6 +330,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                 else if (provider === 'soundcloud') await playSoundCloud(item);
                 else if (provider === 'vimeo') await playVimeo(item);
                 else await playDirect(item);
+                setVolume(item.volume ?? 1);
                 return true;
             } catch (error) {
                 clearTimer();
@@ -399,9 +395,10 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
         function setVolume(volume) {
             if (!active) return;
             const safe = Math.max(0, Math.min(1, Number(volume || 0)));
-            if (active.kind === 'direct') active.player.volume = safe;
-            else if (active.kind === 'youtube' || active.kind === 'soundcloud') active.player.setVolume?.(Math.round(safe * 100));
-            else if (['vimeo', 'spotify', 'instagram'].includes(active.kind)) active.player.setVolume?.(safe)?.catch?.(() => {});
+            const audible = outputVolume(safe);
+            if (active.kind === 'direct') active.player.volume = audible;
+            else if (active.kind === 'youtube' || active.kind === 'soundcloud') active.player.setVolume?.(Math.round(audible * 100));
+            else if (['vimeo', 'spotify', 'instagram'].includes(active.kind)) active.player.setVolume?.(audible)?.catch?.(() => {});
             if (playback.item) playback.item.volume = safe;
             if (playback.item?.id) window.EveAudioflixState?.setItemVolume?.(playback.item.type || 'music', playback.item.id, safe);
             view?.setVolume?.(safe);

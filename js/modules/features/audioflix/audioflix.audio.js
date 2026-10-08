@@ -45,31 +45,24 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     }) || null;
     let queueBridge = null;
     function setQueueBridge(bridge) { queueBridge = bridge || null; }
-    function syncQueueView() {
-        urlPlayback?.setQueue?.(queueBridge?.list?.() || [], queueBridge?.index?.() ?? 0);
-    }
+    function syncQueueView() { urlPlayback?.setQueue?.(queueBridge?.list?.() || [], queueBridge?.index?.() ?? 0); }
     function setPlaybackRate(rate) {
         const safe = Math.max(0.25, Math.min(4, Number(rate) || 1));
         try { ensureAudio().playbackRate = safe; } catch { /* element not built yet */ }
-        urlPlayback?.setRate?.(safe);
-        return safe;
+        urlPlayback?.setRate?.(safe); return safe;
     }
     const nativeRuntime = {
         get controller() { return activeNativeController; }, set controller(v) { activeNativeController = v; },
         get buffer() { return activeNativeBuffer; }, set buffer(v) { activeNativeBuffer = v; },
-        get mode() { return activeNativeMode; }, set mode(v) { activeNativeMode = v; },
-        get pausedAt() { return nativePausedAt; }, set pausedAt(v) { nativePausedAt = v; },
+        get mode() { return activeNativeMode; }, set mode(v) { activeNativeMode = v; }, get pausedAt() { return nativePausedAt; }, set pausedAt(v) { nativePausedAt = v; },
         get generation() { return nativeGeneration; }, set generation(v) { nativeGeneration = v; },
         get streamVolume() { return activeStreamVolume; }, set streamVolume(v) { activeStreamVolume = v; },
         get lastStatus() { return lastStatus; }, set lastStatus(v) { lastStatus = v; }
     };
-    const { nativeProgress, finishNative, startNativeBuffer, stopNativePlayback } =
-        window.EveAudioflixAudioNative.createController({
-            runtime: nativeRuntime, dispatch, getCurrentItem: () => currentItem, encodeBufferToBase64,
-            playBufferWaveform: (...args) => waveformController?.playBufferWaveform?.(...args),
-            stopWaveform: () => waveformController?.stop?.()
-        });
-
+    const { nativeProgress, finishNative, startNativeBuffer, stopNativePlayback } = window.EveAudioflixAudioNative.createController({
+        runtime: nativeRuntime, dispatch, getCurrentItem: () => currentItem, encodeBufferToBase64,
+        playBufferWaveform: (...args) => waveformController?.playBufferWaveform?.(...args), stopWaveform: () => waveformController?.stop?.()
+    });
     function getPlaybackState() {
         if (urlPlayback?.isActive?.()) return urlPlayback.getPlaybackState();
         if (activeNativeMode) {
@@ -130,33 +123,17 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         });
         return audio;
     }
-
     waveformController = window.EveAudioflixAudioWaveform?.createController?.(ensureAudio) || null;
-
     const outputRuntime = {
-        get lastStatus() { return lastStatus; },
-        set lastStatus(value) { lastStatus = value; },
+        get lastStatus() { return lastStatus; }, set lastStatus(value) { lastStatus = value; },
         get currentItem() { return currentItem; },
         set currentItem(value) { currentItem = value; }
     };
     const outputController = window.EveAudioflixAudioOutput.createController({
-        ensureAudio, getAudioContext: () => waveformController?.getContext?.(),
-        state,
-        dispatch,
-        runtime: outputRuntime
+        ensureAudio, getAudioContext: () => waveformController?.getContext?.(), state, dispatch, runtime: outputRuntime
     });
-    const {
-        applySink,
-        selectOutput,
-        listOutputs,
-        setOutputById,
-        unlockDeviceLabels,
-        tryNativePlayback,
-        browserOutputStatus,
-        resolvePlaybackSink,
-        routeBrowserStream
-    } = outputController;
-
+    const { applySink, selectOutput, listOutputs, setOutputById, unlockDeviceLabels, tryNativePlayback,
+        browserOutputStatus, resolvePlaybackSink, routeBrowserStream } = outputController;
     // Label of the endpoint the continuous browser music stream was routed to (for status text).
     let activeBrowserRouteLabel = '';
     const musicCapture = window.EveAudioflixAudioCapture?.createController?.(
@@ -305,7 +282,8 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
 
         const player = ensureAudio();
         waveformController?.attachPlayer?.(player);
-        player.volume = activeStreamVolume = window.EveAudioflixState.normalizeVolume(safeItem.volume, 1);
+        player.volume = activeStreamVolume = (window.EveAudioflixOutputPort?.effective?.(safeItem.volume)
+            ?? window.EveAudioflixState.normalizeVolume(safeItem.volume, 1));
         window.EveAudioflixLocalPlayback?.setMediaSource?.(player, safeItem.url) || (player.src = safeItem.url);
         currentItem = safeItem;
         const directRoute = await routeBrowserStream(safeItem) || '';
@@ -420,22 +398,23 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
 
     function updateItemVolume(itemId, vol) {
         const safeVolume = Math.max(0, Math.min(1, Number(vol) || 0));
+        const outputVolume = window.EveAudioflixOutputPort?.effective?.(safeVolume) ?? safeVolume;
         const requestedId = String(itemId ?? '');
         const currentId = String(currentItem?.id ?? currentItem?.url ?? '');
         const activeUrlMatch = urlPlayback?.matches?.(itemId) === true;
         if ((requestedId && currentId === requestedId) || activeUrlMatch) {
-            // The provider controller is the authoritative live identity. Resolved Spotify tracks
-            // can cross several adapters before reaching a YouTube/provider iframe, so do not let
-            // an intermediate ID representation prevent a live volume command from reaching it.
+            // Provider identity is authoritative: resolved tracks can cross several adapters
+            // before reaching an iframe, so intermediate IDs must not drop the live command.
             if (activeUrlMatch) urlPlayback.setVolume(safeVolume);
-            ensureAudio().volume = safeVolume;
-            window.EveAudioflixNative?.setVoiceVolume?.('singleton-main', safeVolume);
-            activeStreamVolume = safeVolume;
-            activeNativeController?.setVolume?.(safeVolume);
+            ensureAudio().volume = outputVolume;
+            window.EveAudioflixNative?.setVoiceVolume?.('singleton-main', outputVolume);
+            activeStreamVolume = outputVolume;
+            activeNativeController?.setVolume?.(outputVolume);
             if (currentItem) currentItem.volume = safeVolume;
         }
         layerController.updateVolume(itemId, safeVolume);
     }
+    window.addEventListener?.('eve:audioflix-output-volume', () => currentItem && updateItemVolume(currentItem.id ?? currentItem.url, currentItem.volume ?? 1));
 
     function attachWaveform(targetCanvas) {
         waveformController?.attach?.(targetCanvas);
@@ -446,16 +425,12 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     }
 
     Object.assign(ns, {
-        ready: true, playItem, openInternalView, pause, seek, selectOutput, listOutputs, setOutputById,
-        unlockDeviceLabels, playTestSignal, applySink, attachWaveform, browserOutputStatus, resolvePlaybackSink,
-        layerPlay, stopItemLayers, stopAll, updateItemVolume, getDecodedBuffer, encodeBufferToBase64,
-        getAudioElement: ensureAudio, getPlaybackState,
-        setQueueBridge, syncQueueView, setPlaybackRate,
-        isInternalViewOpen: () => urlPlayback?.isInternalViewOpen?.() === true,
-        hideInternalView: () => urlPlayback?.hideInternalView?.(),
-        closeInternalView: () => urlPlayback?.closeInternalView?.(),
-        getPlaybackRate: () => urlPlayback?.getRate?.() ?? 1,
-        getMusicCapture: () => musicCapture,
+        ready: true, playItem, openInternalView, pause, seek, selectOutput, listOutputs, setOutputById, unlockDeviceLabels,
+        playTestSignal, applySink, attachWaveform, browserOutputStatus, resolvePlaybackSink, layerPlay, stopItemLayers,
+        stopAll, updateItemVolume, getDecodedBuffer, encodeBufferToBase64, getAudioElement: ensureAudio, getPlaybackState,
+        setQueueBridge, syncQueueView, setPlaybackRate, isInternalViewOpen: () => urlPlayback?.isInternalViewOpen?.() === true,
+        hideInternalView: () => urlPlayback?.hideInternalView?.(), closeInternalView: () => urlPlayback?.closeInternalView?.(),
+        getPlaybackRate: () => urlPlayback?.getRate?.() ?? 1, getMusicCapture: () => musicCapture,
         getWaveformController: () => waveformController,
         getStatus() {
             const o = browserOutputStatus();

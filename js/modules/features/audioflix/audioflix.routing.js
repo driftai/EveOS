@@ -190,7 +190,7 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
                 <button type="button" data-af-action="copy-route-status">Copy Route</button>
             </div>
         </section>
-        <section class="audioflix-status-grid">
+        <section class="audioflix-status-grid">${window.EveAudioflixOutputPort?.render?.(snapshot) || ''}
             <article class="audioflix-status-card is-core">
                 <span>Browser Output Core</span>
                 <strong>${esc(browserCore.title)}</strong>

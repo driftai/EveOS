@@ -48,7 +48,7 @@ window.EveAudioflixAudioNative = window.EveAudioflixAudioNative || {};
             rt.buffer = buffer;
             rt.mode = mode;
             rt.pausedAt = 0;
-            rt.streamVolume = normalizeVolume(item.volume, 1);
+            rt.streamVolume = window.EveAudioflixOutputPort?.effective?.(item.volume) ?? normalizeVolume(item.volume, 1);
 
             const timelineOptions = {
                 duration: buffer.duration,

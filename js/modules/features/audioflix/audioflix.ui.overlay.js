@@ -96,6 +96,7 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
             V.overlay.addEventListener('input', e => {
                 const t = e.target;
                 if (window.EveAudioflixSoundLabUi?.handleInput?.(t, e)) return;
+                if (window.EveAudioflixOutputPort?.handleInput?.(t)) return;
                 if (t.hasAttribute && t.hasAttribute('data-af-nexus-search')) {
                     // Live search: refresh only the results container so the input keeps focus.
                     V.nexusState = { ...V.nexusState, query: t.value };
@@ -139,6 +140,7 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
             });
             V.overlay.addEventListener('change', async e => {
                 const t = e.target, id = t.dataset.afId, type = t.dataset.afType || 'sound';
+                if (window.EveAudioflixOutputPort?.handleChange?.(t)) return;
                 if (await window.EveAudioflixSoundLabUi?.handleChange?.(t, e)) return;
                 if (t.classList.contains('audioflix-nexus-select')) {
                     const selected = new Set(V.nexusState.selectedIds || []);

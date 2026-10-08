@@ -59,7 +59,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const legacyClassifier = legacyMusicFocus.startsWith('class:') ? legacyMusicFocus : '';
         return {
             schemaVersion: 3, durabilityRevision: Math.max(0, Number(source.durabilityRevision || 0) || 0), durabilityUpdatedAt: Math.max(0, Number(source.durabilityUpdatedAt || 0) || 0),
-            enabled: source.enabled !== false,
+            enabled: source.enabled !== false, outputVolume: normalizeVolume(source.outputVolume, 1),
             routeMode: source.nativeRouteDefaultV2Applied === true && ['browser', 'browser-selective', 'vb-cable', 'manual', 'native-bridge'].includes(source.routeMode) ? source.routeMode : 'browser',
             preferredSinkId: source.nativeRouteDefaultV2Applied === true ? text(source.preferredSinkId, '') : '',
             preferredSinkLabel: source.nativeRouteDefaultV2Applied === true ? text(source.preferredSinkLabel, '') : '',

@@ -25,6 +25,8 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             epoch(id) !== itemEpoch || globalEpoch !== startEpoch
         );
         const now = () => Date.now();
+        const outputVolume = (value) => window.EveAudioflixOutputPort?.effective?.(value)
+            ?? window.EveAudioflixState.normalizeVolume(value, 1);
         const durationOf = (record) => {
             const playerDuration = Number(record?.player?.duration);
             if (Number.isFinite(playerDuration) && playerDuration > 0) return playerDuration;
@@ -107,6 +109,7 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
                 sequence: layerSequence,
                 itemId: id,
                 title: String(item?.title || 'Layered sound'),
+                volume: window.EveAudioflixState.normalizeVolume(item?.volume, 1),
                 startedAt: now(),
                 duration: Number(values.duration ?? item?.duration) || 0,
                 ...values
@@ -223,7 +226,7 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
                     const ok = await window.EveAudioflixNative.playVoice(deps.encodeBufferToBase64(buffer), {
                         sampleRate: buffer.sampleRate,
                         channels: 1,
-                        volume: safeItem.volume ?? 1,
+                        volume: outputVolume(safeItem.volume),
                         voiceId: record.id
                     });
                     if (cancelled()) {
@@ -245,7 +248,7 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             player.crossOrigin = 'anonymous';
             player.src = safeItem.url;
             player.loop = false;
-            player.volume = window.EveAudioflixState.normalizeVolume(safeItem.volume, 1);
+            player.volume = outputVolume(safeItem.volume);
             window.EveAudioflixAudio?.getWaveformController?.()?.attachPlayer?.(player);
             const sinkId = deps.state().preferredSinkId;
             if (sinkId && typeof player.setSinkId === 'function') {
@@ -320,10 +323,16 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             const id = String(value || '');
             const safe = Math.max(0, Math.min(1, Number(volume || 0)));
             (activeLayers.get(id) || []).forEach(layer => {
-                if (layer?.player && typeof layer.player.volume !== 'undefined') layer.player.volume = safe;
-                if (layer?.native) window.EveAudioflixNative?.setVoiceVolume?.(layer.id, safe);
+                layer.volume = safe;
+                if (layer?.player && typeof layer.player.volume !== 'undefined') layer.player.volume = outputVolume(safe);
+                if (layer?.native) window.EveAudioflixNative?.setVoiceVolume?.(layer.id, outputVolume(safe));
             });
         }
+
+        window.addEventListener?.('eve:audioflix-output-volume', () => activeLayers.forEach(layers => layers.forEach(layer => {
+            if (layer?.player && typeof layer.player.volume !== 'undefined') layer.player.volume = outputVolume(layer.volume);
+            if (layer?.native) window.EveAudioflixNative?.setVoiceVolume?.(layer.id, outputVolume(layer.volume));
+        })));
 
         return { layerPlay, stopItemLayers, stopAll, updateVolume, getSnapshot: itemSnapshot };
     }
