@@ -6,6 +6,7 @@ const { chromium } = require('playwright');
 const ROOT = path.resolve(__dirname, '..', '..');
 const UI_ACTIONS = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.ui.actions.js');
 const UI_MAIN = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.ui.js');
+const SPOTIFY_VOLUME = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.spotify.volume.js');
 const PROVIDER_CSS = `file:///${path.join(
     ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.provider.css'
 ).replace(/\\/g, '/')}`;
@@ -24,12 +25,18 @@ const assert = (condition, message) => {
 (async () => {
     const uiActions = fs.readFileSync(UI_ACTIONS, 'utf8');
     const uiMain = fs.readFileSync(UI_MAIN, 'utf8');
+    const spotifyVolume = fs.readFileSync(SPOTIFY_VOLUME, 'utf8');
     assert(/EveAudioflixAudio\?\.playItem\?\.\(\{\s*\.\.\.item,\s*type:\s*type\s*\|\|\s*item\.type\s*\}\)/.test(uiActions),
         'regular card play uses the shared Audioflix controller with its UI media type');
     assert(uiActions.includes('await ctx.playQueueIndex(0)'),
         'frontend group play enters the serialized queue controller');
     assert(uiMain.includes('await window.EveAudioflixAudio?.playItem?.(track)'),
         'serialized queue playback delegates to the shared Audioflix controller');
+    assert(spotifyVolume.includes("[data-af-spv=\"slider\"], .audioflix-volume-slider"),
+        'the ordinary song-card volume gesture can establish localhost Spotify gain');
+    assert(spotifyVolume.includes('restrictOwnAudio: false')
+        && spotifyVolume.includes('suppressLocalAudioPlayback = { exact: true }'),
+        'localhost capture keeps Spotify audio in the stream and suppresses duplicate direct output');
     assert(uiMain.includes("status === 'Ended'") && uiMain.includes('playQueueIndex(expectedIndex + 1)'),
         'frontend queue consumes Ended and advances to the next track');
     const fixture = path.join(os.tmpdir(), `eveos-spotify-playback-${process.pid}.html`);

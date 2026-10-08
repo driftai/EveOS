@@ -88,6 +88,27 @@
         return { context, gain };
     }
 
+    async function applyCapturePolicy(stream, audioTrack) {
+        const supportedConstraints = navigator.mediaDevices.getSupportedConstraints?.() || {};
+        const constraints = {};
+        if (supportedConstraints.suppressLocalAudioPlayback) {
+            constraints.suppressLocalAudioPlayback = { exact: true };
+        }
+        // Chromium may otherwise filter sound produced by the capturing tab out of its own
+        // captured stream. Spotify is inside that tab, so the gain path needs this explicitly off.
+        if (supportedConstraints.restrictOwnAudio) constraints.restrictOwnAudio = { exact: false };
+        if (Object.keys(constraints).length && typeof audioTrack.applyConstraints === 'function') {
+            await audioTrack.applyConstraints(constraints);
+        }
+        const audioSettings = audioTrack.getSettings?.() || {};
+        const videoSettings = stream.getVideoTracks()[0]?.getSettings?.() || {};
+        return {
+            surface: videoSettings.displaySurface || '',
+            suppression: audioSettings.suppressLocalAudioPlayback
+                ?? videoSettings.suppressLocalAudioPlayback
+        };
+    }
+
     function teardown() {
         const { stream, context, output } = state;
         Object.assign(state, {
@@ -141,6 +162,7 @@
                 video: { frameRate: { max: 1 } },
                 audio: {
                     suppressLocalAudioPlayback: true,
+                    restrictOwnAudio: false,
                     echoCancellation: false,
                     noiseSuppression: false,
                     autoGainControl: false
@@ -157,6 +179,11 @@
                 throw new Error('No tab audio was shared. Enable “Also share tab audio” and try again.');
             }
 
+            const capturePolicy = await applyCapturePolicy(stream, audioTrack);
+            if (capturePolicy.surface && capturePolicy.surface !== 'browser') {
+                stream.getTracks().forEach((track) => track.stop());
+                throw new Error('Choose the EveOS tab—not a window or screen—for Spotify volume control.');
+            }
             stream.getVideoTracks().forEach((track) => { track.enabled = false; });
             const { context, gain } = connectInOutput(win, stream);
             Object.assign(state, {
@@ -171,8 +198,6 @@
             });
             win.addEventListener('pagehide', () => disable('Sound window closed.'), { once: true });
 
-            const settings = audioTrack.getSettings?.() || {};
-            const surface = stream.getVideoTracks()[0]?.getSettings?.().displaySurface;
             await context.resume().catch(() => {});
             if (context.state !== 'running') {
                 state.status = 'needs-click';
@@ -193,10 +218,8 @@
                 state.status = 'on';
                 state.message = '';
             }
-            if (surface && surface !== 'browser') {
-                state.message = 'Share the EveOS browser tab for Spotify volume control.';
-            } else if (settings.suppressLocalAudioPlayback === false) {
-                state.message = 'Chrome is still playing the tab directly; volume may stack.';
+            if (capturePolicy.suppression === false) {
+                state.message = 'Chrome did not suppress the original tab audio; stop control and select the EveOS tab again.';
             }
             applyGain();
         } catch (error) {
@@ -276,8 +299,10 @@
     });
 
     document.addEventListener('input', (event) => {
-        const slider = event.target?.closest?.('[data-af-spv="slider"]');
+        const slider = event.target?.closest?.('[data-af-spv="slider"], .audioflix-volume-slider');
         if (!slider) return;
+        const isCardSlider = slider.matches('.audioflix-volume-slider');
+        if (isCardSlider && !state.spotifyActive) return;
         const level = clamp(slider.value);
         const audio = window.EveAudioflixAudio;
         const activeId = audio?.getPlaybackState?.()?.item?.id;
@@ -293,6 +318,9 @@
             const label = card.parentElement?.querySelector('.audioflix-volume-label');
             if (label) label.textContent = `${Math.round(level * 100)}%`;
         });
+        // A volume-slider gesture is sufficient to open Chrome's mandatory picker. This lets the
+        // ordinary Audioflix control establish localhost gain without a separate setup click.
+        if (!snapshot().active && state.status !== 'starting') void enable();
     });
 
     window.EveAudioflixSpotifyVolume = {
@@ -300,6 +328,7 @@
         disable,
         setSpotifyVolume,
         clearSpotify,
+        applyCapturePolicy,
         mount,
         snapshot,
         subscribe(listener) {
