@@ -33,14 +33,16 @@ function makeContext({ managed = true } = {}) {
     };
     const fetch = async (url, options = {}) => {
         calls.push({ url, options });
-        if (String(url).endsWith('/status')) {
+        if (String(url).endsWith('/session-status')) {
+            const body = JSON.parse(options.body || '{}');
             return {
                 ok: true,
                 status: 200,
                 json: async () => ({
                     ok: true,
                     helperReachable: managed,
-                    sessionId: session,
+                    sessionPresent: managed,
+                    sessionMatch: managed && body.sessionId === session,
                     authState: 'signed-in'
                 })
             };
@@ -75,10 +77,15 @@ function makeContext({ managed = true } = {}) {
 
 (async () => {
     const managed = makeContext({ managed: true });
-    await sleep(10); // allow startup status probe
+    await sleep(10); // allow startup session challenge
     let snap = managed.window.EveAudioflixSpotifyVolume.snapshot();
     assert.equal(snap.directControl, true, 'managed browser exposes volume control capability');
     assert.equal(snap.authState, 'signed-in');
+    assert.equal(Object.prototype.hasOwnProperty.call(snap, 'managedSessionId'), false,
+        'public volume snapshot never echoes the managed session id');
+    const proofCall = managed.calls.find((entry) => String(entry.url).endsWith('/session-status'));
+    assert.ok(proofCall, 'managed browser proves its injected session before claiming control');
+    assert.equal(JSON.parse(proofCall.options.body).sessionId, 'managed-session-smoke');
 
     const effective = managed.window.EveAudioflixSpotifyVolume.setSpotifyVolume(0.5, {
         direct: false,
@@ -118,6 +125,8 @@ function makeContext({ managed = true } = {}) {
     await sleep(5);
     snap = ordinary.window.EveAudioflixSpotifyVolume.snapshot();
     assert.equal(snap.directControl, false, 'ordinary browser cannot impersonate managed Spotify volume control');
+    assert.equal(ordinary.calls.filter((entry) => String(entry.url).endsWith('/session-status')).length, 0,
+        'ordinary browser has no session proof to submit');
     ordinary.window.EveAudioflixSpotifyVolume.setSpotifyVolume(0.2, { direct: false });
     await sleep(5);
     assert.equal(ordinary.calls.filter((entry) => String(entry.url).endsWith('/volume')).length, 0,
