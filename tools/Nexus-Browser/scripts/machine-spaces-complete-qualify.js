@@ -26,10 +26,43 @@ function aggregateStatus(sections) {
   return 'PASS';
 }
 
+function forwardedArgs(argv, valueNames = [], flagNames = []) {
+  const forwarded = [];
+  for (const name of valueNames) {
+    const index = argv.indexOf(name);
+    if (index < 0) continue;
+    const value = argv[index + 1];
+    if (value == null || String(value).startsWith('--')) {
+      throw Object.assign(new Error(`${name} requires a value.`), { code: 'QUALIFY_BAD_ARGUMENT' });
+    }
+    forwarded.push(name, value);
+  }
+  for (const name of flagNames) {
+    if (argv.includes(name)) forwarded.push(name);
+  }
+  return forwarded;
+}
+
+function childArgs(argv = process.argv.slice(2)) {
+  const shared = forwardedArgs(argv, ['--timeout-ms']);
+  const allLive = [
+    '--chatgpt-live',
+    '--external-live',
+    ...shared,
+    ...forwardedArgs(argv, ['--warm-tab-id'])
+  ];
+  const providers = [
+    ...shared,
+    ...forwardedArgs(argv, ['--source-target-id', '--hark-tab-id'], ['--skip-quorum'])
+  ];
+  return { allLive, providers };
+}
+
 function main() {
-  const allLive = runNode(path.join(__dirname, 'machine-spaces-all-qualify.js'), ['--chatgpt-live', '--external-live']);
+  const args = childArgs();
+  const allLive = runNode(path.join(__dirname, 'machine-spaces-all-qualify.js'), args.allLive);
   const providers = allLive.status === 'PASS'
-    ? runNode(path.join(__dirname, 'provider-provenance-qualify.js'))
+    ? runNode(path.join(__dirname, 'provider-provenance-qualify.js'), args.providers)
     : {
         status: 'BLOCKED', exitCode: 2, stdout: '', stderr: '',
         reason: 'Provider provenance qualification was not started because the deterministic/live Machine Spaces gate did not pass. No provider mutation was attempted.'
@@ -40,6 +73,12 @@ function main() {
     at: new Date().toISOString(),
     status,
     headNote: 'Run from a clean, freshly pulled eve/nexus-machine-spaces worktree. The report does not claim qualification for a different Git HEAD.',
+    arguments: {
+      warmTabPinned: args.allLive.includes('--warm-tab-id'),
+      harkTabPinned: args.providers.includes('--hark-tab-id'),
+      sourceTargetPinned: args.providers.includes('--source-target-id'),
+      quorumSkipped: args.providers.includes('--skip-quorum')
+    },
     allLive,
     providers,
     safety: {
@@ -55,6 +94,15 @@ function main() {
   process.exitCode = status === 'PASS' ? 0 : status === 'BLOCKED' ? 2 : 1;
 }
 
-if (require.main === module) main();
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    process.stdout.write('MACHINE_SPACES_COMPLETE_QUALIFICATION_BEGIN\n');
+    process.stdout.write(JSON.stringify({ status: 'FAIL', code: error.code || error.name, reason: error.message }, null, 2) + '\n');
+    process.stdout.write('MACHINE_SPACES_COMPLETE_QUALIFICATION_END\n');
+    process.exitCode = 1;
+  }
+}
 
-module.exports = { statusForExit, aggregateStatus, runNode, main };
+module.exports = { statusForExit, aggregateStatus, forwardedArgs, childArgs, runNode, main };
