@@ -6,22 +6,27 @@ window.EveAudioflixAudioSource = window.EveAudioflixAudioSource || {};
     const ns = window.EveAudioflixAudioSource;
     if (ns.ready) return;
 
-    const DIRECT_AUDIO_RE = /\.(mp3|mp4|wav|ogg|oga|flac|aac|m4a|webm|opus)(?:$|[?#])/i;
     const PLATFORM_RE = /^https?:\/\/(?:www\.|music\.)?(?:youtube\.com|youtu\.be|soundcloud\.com|bandcamp\.com|vimeo\.com|open\.spotify\.com|instagram\.com)\b/i;
     const PROVIDER_NATIVE_RE = /^https?:\/\/open\.spotify\.com\/track\/[A-Za-z0-9]+(?:[/?#]|$)/i;
+
+    function proxiedTarget(value) {
+        const raw = String(value || '').trim();
+        if (!raw.includes('/api/proxy?') || !raw.includes('url=')) return '';
+        try {
+            const parsed = new URL(raw, location.href);
+            return String(parsed.searchParams.get('url') || '').trim();
+        } catch {
+            return '';
+        }
+    }
 
     function getOriginalPlatformUrl(item) {
         if (item?.sourceUrl && PLATFORM_RE.test(item.sourceUrl)) return item.sourceUrl;
         if (item?.originalUrl && PLATFORM_RE.test(item.originalUrl)) return item.originalUrl;
         const raw = String(item?.url || '').trim();
         if (PLATFORM_RE.test(raw)) return raw;
-        if (raw.includes('/api/proxy?') && raw.includes('url=')) {
-            try {
-                const parsed = new URL(raw);
-                const inner = parsed.searchParams.get('url');
-                if (inner && PLATFORM_RE.test(inner)) return inner;
-            } catch {}
-        }
+        const inner = proxiedTarget(raw);
+        if (inner && PLATFORM_RE.test(inner)) return inner;
         return raw;
     }
 
@@ -29,13 +34,37 @@ window.EveAudioflixAudioSource = window.EveAudioflixAudioSource || {};
         const value = String(url || '').trim();
         if (PROVIDER_NATIVE_RE.test(value)) return false;
         if (value.includes('/api/proxy?') || value.includes('googlevideo.com')) return true;
-        return PLATFORM_RE.test(value) || (/^https?:\/\//i.test(value) && !DIRECT_AUDIO_RE.test(value));
+        // Ordinary HTTP media belongs to EveOS's localhost URL port. Only actual provider/page URLs
+        // enter yt-dlp-style resolution; signed or extensionless media URLs must not be guessed into
+        // a completely different recording/provider simply because their path lacks ".mp3".
+        return PLATFORM_RE.test(value);
+    }
+
+    function keepRemoteMediaDirect(item) {
+        const raw = String(item?.url || '').trim();
+        if (!/^https?:\/\//i.test(raw) || PLATFORM_RE.test(raw) || raw.includes('googlevideo.com')) return item;
+        // These fields are playback-copy metadata only. Clearing them prevents playDirect's legacy
+        // "stream expired -> resolve original URL" retry from pulling an ordinary URL into yt-dlp.
+        delete item.rawAudioUrl;
+        item.originalUrl = '';
+        item.eveOwnedRemoteUrl = true;
+        return item;
     }
 
     async function resolveItem(item) {
         const safeItem = item && typeof item === 'object' ? { ...item } : {};
+        const currentUrl = String(safeItem.url || '').trim();
+        const inner = proxiedTarget(currentUrl);
+
+        // Old builds persisted /api/proxy wrappers even for ordinary direct media. Peel those off so
+        // the new /api/audioflix/port/url path can own the bytes and the normal <audio> volume again.
+        if (inner && /^https?:\/\//i.test(inner) && !PLATFORM_RE.test(inner) && !inner.includes('googlevideo.com')) {
+            safeItem.url = inner;
+            return keepRemoteMediaDirect(safeItem);
+        }
+
         const targetUrl = getOriginalPlatformUrl(safeItem);
-        if (!targetUrl || !needsResolution(targetUrl)) return safeItem;
+        if (!targetUrl || !needsResolution(targetUrl)) return keepRemoteMediaDirect(safeItem);
 
         // Instagram uses its dedicated media resolver (and cache) instead of generic yt-dlp
         if (window.EveAudioflixUrlProviders?.providerFor?.(targetUrl) === 'instagram') {
