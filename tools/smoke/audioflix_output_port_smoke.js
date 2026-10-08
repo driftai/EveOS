@@ -78,9 +78,12 @@ assert(overlay.includes('EveAudioflixOutputPort?.handleChange?.(t)'),
 assert(spotifyNative.includes("PLAYBACK_RESOLVER_REVISION = 'strict-v4-embedded-first'"),
     'Spotify source handoff requires the same strict resolver revision as the localhost backend');
 assert(spotifyNative.includes("action: 'resolve-playback-source'")
+    && spotifyNative.includes("spotifyPlaybackMode: 'localhost-resolved'")
     && spotifyNative.includes('eveOwnedPlaybackSource: true')
     && spotifyNative.includes('preferEveDirectAudio: true'),
     'verified Spotify matches are handed to EveOS-owned playback instead of staying iframe-owned');
+assert(audioSource.includes('item?.eveOwnedPlaybackSource === true && PLATFORM_RE.test(ownedUrl)'),
+    'Eve-owned matched provider URL wins over the preserved Spotify provenance URL during media resolution');
 assert(audioSource.includes('safeItem.url = window.EveAudioflixNative?.getProxyUrl?.(resolved.audioUrl) || resolved.audioUrl'),
     'resolved platform audio is wrapped by the EveOS localhost media proxy');
 assert(nativeFacade.includes('/api/proxy?media=1&url='),
