@@ -3,8 +3,7 @@ The helper owns the same persistent Spotify profile used by playlist import. It 
 profile contents or its control token. Browser control is limited to a small localhost protocol.
 """
 from __future__ import annotations
-import hmac
-import json
+import hmac, json
 import os
 import secrets
 import shutil
