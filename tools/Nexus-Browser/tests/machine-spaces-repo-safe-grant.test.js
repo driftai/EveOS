@@ -90,6 +90,7 @@ test('persistent per-space grant auto-runs safe Dex work, audits actor+digest, a
   await controller.handle(ws, { type: 'request_machine_targets', ownerId: 'machine-owner-12345678' });
   await controller.handle(ws, { type: 'machine_create_target', targetType: 'powershell', cwd: process.cwd() });
   const target = broker.listTargets()[0];
+  await controller.handle(ws, { type: 'machine_set_human_input', enabled: true });
   await controller.handle(ws, { type: 'machine_create_space', roomId: 'room-one', name: 'Build' });
   const space = snapshot.rooms[0].machineSpaces.spaces[0];
   await controller.handle(ws, { type: 'machine_attach_target', roomId: 'room-one', spaceId: space.id, targetId: target.id });
