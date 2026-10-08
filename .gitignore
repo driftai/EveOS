@@ -177,6 +177,7 @@ tmp_comick_out.txt
 
 # Nexus Machine Spaces qualification reports are local evidence, never source.
 tools/Nexus-Browser/machine-spaces-complete-*.txt
+tools/Nexus-Browser/machine-spaces-provider-*.txt
 
 # Lightpanda binary
 bin/lightpanda
