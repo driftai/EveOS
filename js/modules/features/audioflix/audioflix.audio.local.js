@@ -17,12 +17,23 @@ window.EveAudioflixLocalPlayback = window.EveAudioflixLocalPlayback || {};
     }
 
     function bridgeBase() {
-        const saved = text(window.EveAudioflixState?.ensure?.()?.nativeBridgeBase);
-        if (saved) return saved.replace('localhost', '127.0.0.1').replace(/\/$/, '');
-        if (/^https?:$/.test(location.protocol)) {
-            return location.origin.replace('localhost', '127.0.0.1').replace(/\/$/, '');
+        const saved = text(window.EveAudioflixState?.ensure?.()?.nativeBridgeBase).replace(/\/$/, '');
+        const pageBase = /^https?:$/.test(location.protocol) ? location.origin.replace(/\/$/, '') : '';
+        if (saved && pageBase) {
+            try {
+                const savedUrl = new URL(saved);
+                const pageUrl = new URL(pageBase);
+                const bothLoopback = LOOPBACK_HOSTS.has(savedUrl.hostname.toLowerCase())
+                    && LOOPBACK_HOSTS.has(pageUrl.hostname.toLowerCase());
+                // 127.0.0.1 and localhost are different browser origins. When both URLs point at
+                // the same EveOS listener, keep the media request on the page's exact origin so
+                // waveform/WebAudio access is not needlessly turned into a CORS request.
+                if (bothLoopback && savedUrl.port === pageUrl.port && savedUrl.protocol === pageUrl.protocol) {
+                    return pageBase;
+                }
+            } catch {}
         }
-        return '';
+        return saved || pageBase;
     }
 
     function getRemoteMediaPortUrl(url) {
