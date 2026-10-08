@@ -246,14 +246,13 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                             if (started && !lastPaused && lastDurationMs > 0) scheduleCompletionWatchdog(positionMs, lastDurationMs);
                             return pending;
                         },
-                        // Preserve the controller-owned volume path that works for the localhost
-                        // Spotify embed. Tab-audio gain remains a fallback only when this runtime
-                        // does not expose setVolume.
+                        // Normal Spotify playback deliberately never trusts an iframe volume method.
+                        // The official embed remains the source; localhost tab capture + GainNode is
+                        // the one authoritative volume path, even if an undocumented method appears.
                         setVolume: (volume) => {
                             const safe = Math.max(0, Math.min(1, Number(volume) || 0));
-                            const direct = typeof controller.setVolume === 'function';
-                            window.EveAudioflixSpotifyVolume?.setSpotifyVolume?.(safe, { direct });
-                            return direct ? controller.setVolume(safe) : undefined;
+                            window.EveAudioflixSpotifyVolume?.setSpotifyVolume?.(safe, { direct: false });
+                            return undefined;
                         },
                         destroy: () => {
                             clearStartTimer();
