@@ -73,9 +73,9 @@ assert(overlay.includes('EveAudioflixOutputPort?.handleInput?.(t)'),
 assert(overlay.includes('EveAudioflixOutputPort?.handleChange?.(t)'),
     'the routing slider persists once on its change event');
 
-// Normal Spotify playback must stay on Spotify. Alternate-source lookup may remain available for
-// explicit compatibility tooling, but preparePlaybackSource itself must restore the canonical
-// Spotify URL and keep generic direct-media/yt-dlp routing disabled.
+// Spotify URL playback must stay on Spotify. The frontend playback module intentionally exposes no
+// alternate recording lookup, while preparePlaybackSource restores the canonical Spotify URL and
+// keeps generic direct-media/yt-dlp routing disabled.
 const spotifyPrepare = spotifyNative.slice(
     spotifyNative.indexOf('async function preparePlaybackSource'),
     spotifyNative.indexOf('function installPlaybackSourceDecorator')
@@ -86,9 +86,9 @@ assert(spotifyPrepare.includes("spotifyPlaybackMode: 'official-embed-localhost-v
     && spotifyPrepare.includes('eveOwnedPlaybackSource: false')
     && spotifyPrepare.includes('preferEveDirectAudio: false'),
     'Spotify preparation keeps the official Spotify provider authoritative');
-assert(!spotifyPrepare.includes('resolveSpotifyPlaybackSource')
-    && !spotifyPrepare.includes("action: 'resolve-playback-source'"),
-    'normal Spotify preparation never invokes alternate recording matching');
+assert(!spotifyNative.includes('resolveSpotifyPlaybackSource')
+    && !spotifyNative.includes("action: 'resolve-playback-source'"),
+    'the frontend Spotify playback module cannot invoke alternate recording matching');
 assert(spotifyVolume.includes('navigator.mediaDevices.getDisplayMedia')
     && spotifyVolume.includes('suppressLocalAudioPlayback')
     && spotifyVolume.includes('restrictOwnAudio: false')
