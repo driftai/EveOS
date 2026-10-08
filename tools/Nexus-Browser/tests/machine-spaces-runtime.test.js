@@ -113,6 +113,7 @@ test('Base and Dex commands never execute before local approval and settle into 
   await controller.handle(ws, { type: 'machine_output_page', outputId: baseDone.outputId });
   assert.equal(events.find((entry) => entry.type === 'machine_output_page').text, 'RUN-1\n');
 
+  await controller.handle(ws, { type: 'machine_set_human_input', enabled: true });
   await controller.handle(ws, { type: 'machine_create_space', roomId: 'room-one', name: 'Build' });
   const space = snapshot.rooms[0].machineSpaces.spaces[0];
   await controller.handle(ws, { type: 'machine_attach_target', roomId: 'room-one',
