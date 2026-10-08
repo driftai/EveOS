@@ -2,7 +2,7 @@
 // Shared, fail-closed source check for ALL localhost provider-control actions.
 const identity = require('../public/dex-members');
 const controlReceipt = require('./provider-control-receipt');
-const UNBOUND_ACTIONS = new Set(['help', 'create_room']);
+const UNBOUND_ACTIONS = new Set(['help']);
 const ONLINE_ORIGIN_MUTATING_ACTIONS = new Set([
   'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
   'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
@@ -14,8 +14,6 @@ const isOnlineOrigin = (source = {}) => String(source.targetClassId || '').trim(
 function onlineOriginMutationGate(snapshot, source = {}, command = {}) {
   const action = String(command.action || '').trim().toLowerCase();
   if (!isOnlineOrigin(source) || !ONLINE_ORIGIN_MUTATING_ACTIONS.has(action)) return null;
-  if (!snapshot || !Array.isArray(snapshot.rooms))
-    return fail('DEX_ENTRY_STATE_UNAVAILABLE', 'Durable room state unavailable; no command executed.');
   if (controlReceipt.findIntent(snapshot, source, command)) return null;
   // A command emitted by the currently active source turn may arrive just before
   // response_final records its exact durable intent. Let routing settle that turn,
@@ -28,8 +26,6 @@ function authorize(snapshot, source = {}, command = {}) {
   const action = String(command.action || '').trim().toLowerCase();
   if (!source.targetClassId || !source.providerId)
     return fail('DEX_CONTROL_BAD_SOURCE', 'Exact authenticated provider identity required.');
-  const originGate = onlineOriginMutationGate(snapshot, source, command);
-  if (originGate) return originGate;
   if (UNBOUND_ACTIONS.has(action)) return { ok: true, scope: 'unbound-action' };
   if (!snapshot || !Array.isArray(snapshot.rooms))
     return fail('DEX_ENTRY_STATE_UNAVAILABLE', 'Durable room state unavailable; no command executed.');
@@ -46,8 +42,12 @@ function authorize(snapshot, source = {}, command = {}) {
       ? fail('DEX_ROOM_STALE_BINDING', 'Selected room has an outdated chat or tab binding; no command executed.')
       : fail('DEX_ROOM_NOT_BOUND', 'No exact authorized room matches this reference.');
     if (selected.length !== 1) return fail('DEX_ROOM_AMBIGUOUS', 'Specify one unique authorized room ID.');
+    const originGate = onlineOriginMutationGate(snapshot, source, command);
+    if (originGate) return originGate;
     return { ok: true, scope: 'exact-room', roomId: selected[0].id };
   }
+  const originGate = onlineOriginMutationGate(snapshot, source, command);
+  if (originGate) return originGate;
   return exact.length === 1 ? { ok: true, scope: 'unique-room', roomId: exact[0].id }
     : { ok: true, scope: 'multiple-exact-rooms' };
 }
