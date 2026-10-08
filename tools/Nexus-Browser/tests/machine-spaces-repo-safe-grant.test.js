@@ -134,7 +134,7 @@ test('Machine Spaces panel exposes local enable/revoke controls and documents un
   const source = fs.readFileSync(path.join(__dirname, '../public/machine-spaces-ui.js'), 'utf8');
   assert.match(source, /machine_enable_repo_grant/);
   assert.match(source, /machine_revoke_repo_grant/);
-  assert.match(source, /Enable repo-safe grant/);
+  assert.match(source, /Terminal repo-safe/);
   assert.match(source, /Revoke grant/);
   assert.match(source, /30 second runtime and 1 MiB output caps remain in force/);
   assert.match(source, /restart\/kill commands/);
