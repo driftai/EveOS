@@ -10,14 +10,6 @@
  */
 
 const crypto = require('node:crypto');
-const {
-    mergePlaylistRows,
-    scanValue,
-    playlistCount,
-    requestMentionsPlaylist,
-    assessPlaylistCompleteness,
-    collectDomRows
-} = require('./audioflix_spotify_scrape.js');
 
 const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
 const trackId = (value) => clean(value).match(/(?:spotify:track:|\/track\/)([A-Za-z0-9]{10,})/)?.[1] || '';
@@ -65,6 +57,16 @@ async function playlistHeader(page) {
 }
 
 async function scrapeManagedPlaylist(context, playlistUrl) {
+    // Import lazily so contract/unit smokes can load the helper without loading Playwright.
+    const {
+        mergePlaylistRows,
+        scanValue,
+        playlistCount,
+        requestMentionsPlaylist,
+        assessPlaylistCompleteness,
+        collectDomRows
+    } = require('./audioflix_spotify_scrape.js');
+
     return withManagedPlaylistPage(context, playlistUrl, async (page, target) => {
         page.setDefaultTimeout(15000);
         const targetPlaylistId = playlistIdFromUrl(target);
