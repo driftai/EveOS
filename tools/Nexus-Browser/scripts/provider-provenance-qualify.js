@@ -2,12 +2,26 @@
 'use strict';
 
 const { randomUUID } = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const { WebSocket } = require('ws');
 const dexctl = require('./dexctl');
 const { urls } = require('../runtime-config');
 
 const WS_URL = process.env.NEXUS_BROWSER_WS || process.env.BROWSER_AI_BRIDGE_WS || urls().websocket;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const PROGRESS_FILE = process.env.DEX_QUALIFY_PROGRESS_FILE
+  || path.join(__dirname, '..', 'machine-spaces-provider-progress.txt');
+
+// A caller (Codex tool timeout, Stop-Process) can hard-kill this process, which
+// skips both report writers. Persist evidence after every step so the exact
+// room/control IDs survive an uncatchable termination.
+function writeProgress(evidence, phase, file = PROGRESS_FILE) {
+  const record = { phase, at: new Date().toISOString(), pid: process.pid, evidence };
+  try { fs.writeFileSync(file, JSON.stringify(record, null, 2) + '\n'); } catch {}
+  return record;
+}
 
 function marker(command) { return `[[DEX:CMD ${JSON.stringify(command)}]]`; }
 function shortId(prefix) { return `${prefix}-${randomUUID().slice(0, 8)}`; }
@@ -131,6 +145,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     chatgptUrl: value('--chatgpt-url') || process.env.DEX_QUALIFY_CHATGPT_URL || null,
     harkTabId: value('--hark-tab-id') || process.env.DEX_QUALIFY_HARK_TAB_ID || null,
     skipQuorum: argv.includes('--skip-quorum'),
+    allowRoomDelete: argv.includes('--allow-room-delete'),
     timeoutMs: Math.max(30000, Math.min(5 * 60 * 1000, Number(value('--timeout-ms') || 180000)))
   };
 }
@@ -160,17 +175,25 @@ async function main() {
     roomName,
     sourceTarget: { id: sourceTarget.id, providerId: sourceTarget.providerId },
     chatgptTarget: { id: chatgptTarget.id, providerId: chatgptTarget.providerId, url: chatgptTarget.url || null },
-    harkTarget: harkTarget ? { id: harkTarget.id, providerId: harkTarget.providerId, url: harkTarget.url || null } : null
+    harkTarget: harkTarget ? { id: harkTarget.id, providerId: harkTarget.providerId, url: harkTarget.url || null } : null,
+    controls: []
   };
+  const progress = (phase) => writeProgress(evidence, phase);
+  progress('started');
 
   async function control(command) {
     const requestId = `qualify-control-${randomUUID()}`;
+    const entry = command.action === 'status' || command.action === 'quorum_status'
+      ? null : { requestId, action: command.action, room: command.room || null, at: new Date().toISOString(), outcome: 'pending' };
+    if (entry) { evidence.controls.push(entry); progress(`control:${command.action}`); }
     try {
       const result = await dexctl.run({ source: { ...source }, command, requestId });
+      if (entry) { entry.outcome = result?.ok ? 'ok' : 'error'; entry.code = result?.code || null; progress(`control:${command.action}:${entry.outcome}`); }
       if (!result?.ok) throw Object.assign(new Error(result?.message || 'Dex control failed.'), { code: result?.code || 'DEX_CONTROL_FAILED', result });
       return result;
     } catch (error) {
       if (error?.code === 'DEX_CONTROL_OUTCOME_UNKNOWN') ambiguous = true;
+      if (entry && entry.outcome === 'pending') { entry.outcome = error?.code === 'DEX_CONTROL_OUTCOME_UNKNOWN' ? 'unknown' : 'error'; entry.code = error?.code || null; progress(`control:${command.action}:${entry.outcome}`); }
       throw error;
     }
   }
@@ -187,6 +210,7 @@ async function main() {
     throw Object.assign(new Error(`Timed out waiting for ${label}.`), { code: 'QUALIFY_PROVIDER_TIMEOUT', latest });
   }
   async function sendOne(text, expected = null) {
+    if (expected?.action) progress(`awaiting-receipt:${expected.action}`);
     await control({ action: 'send', room: roomId, text, contextMessages: 6, relay: true });
     const settled = (state) => state.relayActive === false && !state.waitingFor && !state.recoveryPending;
     if (!expected?.action || !expected?.executorName) {
@@ -219,6 +243,7 @@ async function main() {
     roomId = created.data?.id;
     if (!roomId) throw new Error('Disposable qualification room did not return an ID.');
     evidence.roomId = roomId;
+    progress('room-created');
     await control({ action: 'configure_room', room: roomId, maxTurns: 1, contextDefaultMessages: 6, autoRelay: true });
     await control({ action: 'set_self_relay', room: roomId, enabled: false });
 
@@ -316,6 +341,7 @@ async function main() {
     evidence.error = { code: error.code || error.name, message: error.message };
     if (error.providerControlRequestId) evidence.error.providerControlRequestId = error.providerControlRequestId;
     if (error.latest) evidence.latest = error.latest;
+    progress('failed');
   } finally {
     if (roomId && !ambiguous) {
       const cleanup = [];
@@ -327,18 +353,25 @@ async function main() {
         const child = (current.memberDetails || []).find((entry) => entry.name === childName);
         if (child) cleanup.push(await control({ action: 'despawn_agent', room: roomId, member: child.memberId }));
       } catch (error) { cleanup.push({ ok: false, step: 'child-cleanup', code: error.code, message: error.message }); }
-      try { if (harkMemberId) cleanup.push(await control({ action: 'remove_agent', room: roomId, member: harkMemberId })); }
-      catch (error) { cleanup.push({ ok: false, step: 'hark-cleanup', code: error.code, message: error.message }); }
-      try { if (parentMemberId) cleanup.push(await control({ action: 'remove_agent', room: roomId, member: parentMemberId })); }
-      catch (error) { cleanup.push({ ok: false, step: 'parent-cleanup', code: error.code, message: error.message }); }
-      try { cleanup.push(await control({ action: 'delete_room', room: roomId })); }
-      catch (error) { cleanup.push({ ok: false, step: 'room-cleanup', code: error.code, message: error.message }); }
+      // Room transcripts are evidence: members and the room are preserved
+      // unless the operator explicitly opts in with --allow-room-delete.
+      if (options.allowRoomDelete) {
+        try { if (harkMemberId) cleanup.push(await control({ action: 'remove_agent', room: roomId, member: harkMemberId })); }
+        catch (error) { cleanup.push({ ok: false, step: 'hark-cleanup', code: error.code, message: error.message }); }
+        try { if (parentMemberId) cleanup.push(await control({ action: 'remove_agent', room: roomId, member: parentMemberId })); }
+        catch (error) { cleanup.push({ ok: false, step: 'parent-cleanup', code: error.code, message: error.message }); }
+        try { cleanup.push(await control({ action: 'delete_room', room: roomId })); }
+        catch (error) { cleanup.push({ ok: false, step: 'room-cleanup', code: error.code, message: error.message }); }
+      } else {
+        cleanup.push({ ok: true, step: 'room-preserved', message: `Room ${roomId} and its members preserved as evidence.` });
+      }
       evidence.cleanup = cleanup.map((entry) => ({ ok: entry.ok !== false, action: entry.action || entry.step || null, code: entry.code || null, message: entry.message || null }));
     } else if (ambiguous) {
       evidence.cleanup = [{ ok: false, action: 'preserved', code: 'OUTCOME_UNKNOWN', message: 'Qualification room intentionally preserved because a control outcome became uncertain; do not retry blindly.' }];
     }
   }
 
+  progress('finished');
   process.stdout.write('PROVIDER_PROVENANCE_QUALIFICATION_BEGIN\n');
   process.stdout.write(JSON.stringify(evidence, null, 2) + '\n');
   process.stdout.write('PROVIDER_PROVENANCE_QUALIFICATION_END\n');
@@ -365,5 +398,6 @@ module.exports = {
   exactOriginPresence,
   controlReceiptFromStatus,
   parseArgs,
+  writeProgress,
   main
 };
