@@ -36,12 +36,22 @@ test('complete qualifier forwards warm target and provider pins to the right chi
   assert.deepEqual(args.providers, [
     '--timeout-ms', '240000',
     '--source-target-id', 'local-2',
-    '--hark-tab-id', '44'
+    '--hark-tab-id', '44',
+    '--chatgpt-tab-id', '116817255'
   ]);
+});
+
+test('explicit provider ChatGPT pin overrides the warm recovery target', () => {
+  const args = childArgs([
+    '--warm-tab-id', '9',
+    '--chatgpt-tab-id', '77'
+  ]);
+  assert.deepEqual(args.allLive, ['--chatgpt-live', '--external-live', '--warm-tab-id', '9']);
+  assert.deepEqual(args.providers, ['--chatgpt-tab-id', '77']);
 });
 
 test('complete qualifier can skip quorum without weakening the warm ChatGPT lane', () => {
   const args = childArgs(['--warm-tab-id', '9', '--skip-quorum']);
   assert.deepEqual(args.allLive, ['--chatgpt-live', '--external-live', '--warm-tab-id', '9']);
-  assert.deepEqual(args.providers, ['--skip-quorum']);
+  assert.deepEqual(args.providers, ['--skip-quorum', '--chatgpt-tab-id', '9']);
 });
