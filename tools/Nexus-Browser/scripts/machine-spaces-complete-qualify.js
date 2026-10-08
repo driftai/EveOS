@@ -43,8 +43,20 @@ function forwardedArgs(argv, valueNames = [], flagNames = []) {
   return forwarded;
 }
 
+function argumentValue(argv, name) {
+  const index = argv.indexOf(name);
+  if (index < 0) return null;
+  const value = argv[index + 1];
+  if (value == null || String(value).startsWith('--')) {
+    throw Object.assign(new Error(`${name} requires a value.`), { code: 'QUALIFY_BAD_ARGUMENT' });
+  }
+  return value;
+}
+
 function childArgs(argv = process.argv.slice(2)) {
   const shared = forwardedArgs(argv, ['--timeout-ms']);
+  const warmTabId = argumentValue(argv, '--warm-tab-id');
+  const providerChatgptTabId = argumentValue(argv, '--chatgpt-tab-id') || warmTabId;
   const allLive = [
     '--chatgpt-live',
     '--external-live',
@@ -55,6 +67,7 @@ function childArgs(argv = process.argv.slice(2)) {
     ...shared,
     ...forwardedArgs(argv, ['--source-target-id', '--hark-tab-id'], ['--skip-quorum'])
   ];
+  if (providerChatgptTabId != null) providers.push('--chatgpt-tab-id', providerChatgptTabId);
   return { allLive, providers };
 }
 
@@ -75,6 +88,7 @@ function main() {
     headNote: 'Run from a clean, freshly pulled eve/nexus-machine-spaces worktree. The report does not claim qualification for a different Git HEAD.',
     arguments: {
       warmTabPinned: args.allLive.includes('--warm-tab-id'),
+      providerChatgptTabPinned: args.providers.includes('--chatgpt-tab-id'),
       harkTabPinned: args.providers.includes('--hark-tab-id'),
       sourceTargetPinned: args.providers.includes('--source-target-id'),
       quorumSkipped: args.providers.includes('--skip-quorum')
@@ -105,4 +119,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { statusForExit, aggregateStatus, forwardedArgs, childArgs, runNode, main };
+module.exports = { statusForExit, aggregateStatus, forwardedArgs, argumentValue, childArgs, runNode, main };
