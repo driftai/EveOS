@@ -39,6 +39,7 @@ const assert = (condition, message) => {
         'audioflix.audio.url.loaders.js',
         'audioflix.audio.url.widgets.js',
         'audioflix.audio.url.providers.js',
+        'audioflix.spotify.volume.js',
         'audioflix.spotify.completion.js',
         'audioflix.audio.url.spotify.js',
         'audioflix.audio.url.js'
@@ -92,6 +93,8 @@ const assert = (condition, message) => {
                 volume: 0.7
             };
             await player.play(item);
+            const volumeBar = document.querySelector('.audioflix-provider-stage .af-spotify-volume')?.textContent || '';
+            const volumeWhilePlaying = window.EveAudioflixSpotifyVolume.snapshot();
             const stage = document.querySelector('.audioflix-provider-stage');
             const mainCardTransportOnly = stage?.classList.contains('is-transport-only') === true
                 && stage.hidden === false
@@ -177,6 +180,7 @@ const assert = (condition, message) => {
             await player.play(item);
             const resumedFromMainCard = window.__spotifyCalls.play >= 3;
             await player.stop();
+            const volumeAfterStop = window.EveAudioflixSpotifyVolume.snapshot();
             const firstCalls = {
                 ...window.__spotifyCalls,
                 seek: [...window.__spotifyCalls.seek]
@@ -196,6 +200,9 @@ const assert = (condition, message) => {
                 - stalledErrorsBefore;
             await player.stop();
             return {
+                volumeBar,
+                volumeWhilePlaying,
+                volumeAfterStop,
                 calls: firstCalls,
                 stateAt42: progress.find((entry) => entry.currentTime === 42),
                 endedCount: events.filter((status) => status === 'Ended').length,
@@ -241,6 +248,11 @@ const assert = (condition, message) => {
         assert(result.stalledTransportVisible, 'blocked autoplay reveals the official Spotify control for recovery');
         assert(result.stalledState.paused === true, 'ready-but-stalled playback returns to paused state');
         assert(result.stalledErrorCount === 1, 'startup watchdog emits one error without retrying or advancing');
+        assert(result.volumeBar.includes('localhost'), 'file mode explains that Spotify volume control is available on localhost');
+        assert(result.volumeWhilePlaying.spotifyActive && result.volumeWhilePlaying.volume === 0.7,
+            'the active official Spotify embed hands its saved volume to the localhost gain path');
+        assert(result.volumeAfterStop.spotifyActive === false && result.volumeAfterStop.gain === 1,
+            'stopping Spotify returns the shared tab gain to unity');
         assert(result.spotifyNeedsResolution === false, 'Spotify track URLs bypass raw-audio resolution');
         console.log('AUDIOFLIX_SPOTIFY_PLAYBACK_SMOKE_OK');
     } finally {

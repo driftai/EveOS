@@ -67,6 +67,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
             const mount = document.createElement('div');
             mount.className = 'audioflix-spotify-player';
             host.appendChild(mount);
+            window.EveAudioflixSpotifyVolume?.mount?.(host);
             const api = await loadApi();
 
             await new Promise((resolve, reject) => {
@@ -245,12 +246,14 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                             if (started && !lastPaused && lastDurationMs > 0) scheduleCompletionWatchdog(positionMs, lastDurationMs);
                             return pending;
                         },
-                        // Spotify Embed intentionally has no documented volume API. Keep the optional
-                        // call for forward compatibility, but normal EveOS playback is resolved to an
-                        // independent provider where the universal 0..1 volume contract is owned here.
-                        setVolume: (volume) => controller.setVolume?.(Math.max(0, Math.min(1, Number(volume) || 0))),
+                        // Spotify's iframe has no volume API. On localhost the optional page-owned
+                        // tab-audio gain applies the normal Audioflix 0..1 volume to the real embed.
+                        setVolume: (volume) => window.EveAudioflixSpotifyVolume?.setSpotifyVolume?.(
+                            Math.max(0, Math.min(1, Number(volume) || 0))
+                        ),
                         destroy: () => {
                             clearStartTimer();
+                            window.EveAudioflixSpotifyVolume?.clearSpotify?.();
                             destroyCompletionScheduler();
                             return controller.destroy?.();
                         },
