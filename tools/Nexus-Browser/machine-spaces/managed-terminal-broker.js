@@ -9,6 +9,7 @@ const MAX_SESSIONS = 8;
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_OUTPUT_BYTES = 1024 * 1024;
 const DEFAULT_SUPERVISED_TIMEOUT_MS = 8 * 60 * 60 * 1000;
+const DEFAULT_EXIT_GRACE_MS = 750;
 const SUPPORTED_TYPES = Object.freeze(['powershell', 'cmd', 'pwsh', 'wsl']);
 
 function machineError(code, message) {
@@ -48,13 +49,27 @@ function createManagedTerminalBroker({
   idFactory = () => randomUUID(),
   executableCheck = null,
   processKill = (pid, signal) => process.kill(pid, signal),
+  windowsTreeKill = null,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   maxOutputBytes = DEFAULT_OUTPUT_BYTES,
-  supervisedTimeoutMs = DEFAULT_SUPERVISED_TIMEOUT_MS
+  supervisedTimeoutMs = DEFAULT_SUPERVISED_TIMEOUT_MS,
+  exitGraceMs = DEFAULT_EXIT_GRACE_MS
 } = {}) {
   const sessions = new Map();
   const active = new Map();
   const realpath = fsImpl.realpathSync?.native || fsImpl.realpathSync;
+  const killWindowsTree = typeof windowsTreeKill === 'function' ? windowsTreeKill : (pid) => {
+    try {
+      const killer = spawn('taskkill.exe', ['/pid', String(pid), '/t', '/f'], {
+        shell: false, windowsHide: true, detached: false, stdio: 'ignore'
+      });
+      killer.once?.('error', () => {});
+      killer.unref?.();
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   function executableAvailable(file) {
     if (typeof executableCheck === 'function') return executableCheck(file) === true;
@@ -65,14 +80,16 @@ function createManagedTerminalBroker({
     });
   }
 
-  // POSIX: children run in their own process group so an interrupt/timeout reaches
-  // native grandchildren too (e.g. `sleep` resolves to /usr/bin/sleep under pwsh on
-  // Linux). Killing only the shell orphans the grandchild, which keeps stdio open, so
-  // 'close' never fires and the terminal stays busy forever. Windows keeps child.kill()
-  // until a Job Object/tree-kill adapter exists.
+  // POSIX children get their own process group. Windows uses taskkill /T so native
+  // descendants are terminated with the shell instead of inheriting its pipes and
+  // pinning the managed terminal busy after an interrupt/timeout.
   function killTree(child) {
-    if (platform !== 'win32' && Number.isInteger(child?.pid) && child.pid > 0) {
-      try { processKill(-child.pid, 'SIGTERM'); return true; } catch {}
+    if (Number.isInteger(child?.pid) && child.pid > 0) {
+      if (platform !== 'win32') {
+        try { processKill(-child.pid, 'SIGTERM'); return true; } catch {}
+      } else {
+        try { if (killWindowsTree(child.pid) === true) return true; } catch {}
+      }
     }
     try { return child.kill(); } catch { return false; }
   }
@@ -191,7 +208,7 @@ function createManagedTerminalBroker({
     const { child, startedAt } = state;
     return new Promise((resolve, reject) => {
       const stdout = [], stderr = [];
-      let bytes = 0, finished = false;
+      let bytes = 0, finished = false, exitTimer = null, exitCode = null, exitSignal = null;
       const timer = setTimeout(() => {
         state.timedOut = true;
         killTree(child);
@@ -207,19 +224,10 @@ function createManagedTerminalBroker({
         }
         bucket.push(buffer);
       };
-      child.stdout?.on?.('data', collect(stdout));
-      child.stderr?.on?.('data', collect(stderr));
-      child.once?.('error', (error) => {
+      const finish = (code, signal) => {
         if (finished) return;
         finished = true;
-        clearTimeout(timer);
-        active.delete(session.targetId);
-        reject(machineError('MACHINE_SPAWN_FAILED', error.message));
-      });
-      child.once?.('close', (code, signal) => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timer);
+        clearTimeout(timer); if (exitTimer) clearTimeout(exitTimer);
         active.delete(session.targetId);
         const uncertain = state.timedOut || state.exceeded || state.interrupted;
         resolve({
@@ -236,7 +244,22 @@ function createManagedTerminalBroker({
           startedAt,
           finishedAt: new Date(now()).toISOString()
         });
+      };
+      child.stdout?.on?.('data', collect(stdout));
+      child.stderr?.on?.('data', collect(stderr));
+      child.once?.('error', (error) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer); if (exitTimer) clearTimeout(exitTimer);
+        active.delete(session.targetId);
+        reject(machineError('MACHINE_SPAWN_FAILED', error.message));
       });
+      child.once?.('exit', (code, signal) => {
+        if (finished) return;
+        exitCode = Number.isInteger(code) ? code : null; exitSignal = signal || null;
+        exitTimer = setTimeout(() => finish(exitCode, exitSignal), Math.max(0, Number(exitGraceMs) || 0));
+      });
+      child.once?.('close', (code, signal) => finish(Number.isInteger(code) ? code : exitCode, signal || exitSignal));
     });
   }
 
@@ -250,6 +273,7 @@ function createManagedTerminalBroker({
     return new Promise((resolve, reject) => {
       const stdout = [], stderr = [];
       let storedBytes = 0, totalBytes = 0, finished = false, outputTruncated = false;
+      let exitTimer = null, exitCode = null, exitSignal = null;
       const timer = setTimeout(() => {
         state.timedOut = true;
         killTree(child);
@@ -267,19 +291,10 @@ function createManagedTerminalBroker({
         onData?.({ targetId: session.targetId, requestId: state.requestId, stream,
           text: buffer.toString('utf8'), totalBytes, storedBytes, outputTruncated });
       };
-      child.stdout?.on?.('data', collect('stdout', stdout));
-      child.stderr?.on?.('data', collect('stderr', stderr));
-      child.once?.('error', (error) => {
+      const finish = (code, signal) => {
         if (finished) return;
         finished = true;
-        clearTimeout(timer);
-        active.delete(session.targetId);
-        reject(machineError('MACHINE_SPAWN_FAILED', error.message));
-      });
-      child.once?.('close', (code, signal) => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timer);
+        clearTimeout(timer); if (exitTimer) clearTimeout(exitTimer);
         active.delete(session.targetId);
         const uncertain = state.timedOut || state.interrupted;
         resolve({
@@ -299,7 +314,22 @@ function createManagedTerminalBroker({
           startedAt,
           finishedAt: new Date(now()).toISOString()
         });
+      };
+      child.stdout?.on?.('data', collect('stdout', stdout));
+      child.stderr?.on?.('data', collect('stderr', stderr));
+      child.once?.('error', (error) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer); if (exitTimer) clearTimeout(exitTimer);
+        active.delete(session.targetId);
+        reject(machineError('MACHINE_SPAWN_FAILED', error.message));
       });
+      child.once?.('exit', (code, signal) => {
+        if (finished) return;
+        exitCode = Number.isInteger(code) ? code : null; exitSignal = signal || null;
+        exitTimer = setTimeout(() => finish(exitCode, exitSignal), Math.max(0, Number(exitGraceMs) || 0));
+      });
+      child.once?.('close', (code, signal) => finish(Number.isInteger(code) ? code : exitCode, signal || exitSignal));
     });
   }
 
@@ -355,6 +385,7 @@ module.exports = {
   DEFAULT_TIMEOUT_MS,
   DEFAULT_OUTPUT_BYTES,
   DEFAULT_SUPERVISED_TIMEOUT_MS,
+  DEFAULT_EXIT_GRACE_MS,
   SUPPORTED_TYPES,
   shellInvocation,
   createManagedTerminalBroker
