@@ -11,6 +11,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function marker(command) { return `[[DEX:CMD ${JSON.stringify(command)}]]`; }
 function shortId(prefix) { return `${prefix}-${randomUUID().slice(0, 8)}`; }
+function scopedQuorumCommand(action, roomId, extra = {}) {
+  return { action, room: roomId, ...extra };
+}
 
 async function discoverTargets(timeoutMs = 12000) {
   const ws = new WebSocket(WS_URL);
@@ -226,7 +229,7 @@ async function main() {
     evidence.parent = { memberId: parentMemberId, name: parentName, targetId: chatgptTarget.id, targetUrl: chatgptTarget.url || null, managed: false };
     await setRelay(parentMemberId, true);
 
-    const originCommand = { action: 'quorum_presence' };
+    const originCommand = scopedQuorumCommand('quorum_presence', roomId);
     const originDelivery = await sendOne(
       `Automated Nexus exact-origin proof. Reply briefly, then make your FINAL line exactly this one command and emit no other Dex command:\n${marker(originCommand)}`,
       { action: 'quorum_presence', executorName: parentName }
@@ -264,7 +267,13 @@ async function main() {
       await setRelay(harkMemberId, false);
       await setRelay(parentMemberId, true);
 
-      const openCommand = { action: 'quorum_open', workflowId, topic: 'Machine Spaces live provider provenance', expectedAgents: ['Eve', 'Vera'], requiredAgents: ['Eve', 'Vera'], minVotes: 2 };
+      const openCommand = scopedQuorumCommand('quorum_open', roomId, {
+        workflowId,
+        topic: 'Machine Spaces live provider provenance',
+        expectedAgents: ['Eve', 'Vera'],
+        requiredAgents: ['Eve', 'Vera'],
+        minVotes: 2
+      });
       await sendOne(
         `Automated Machine Spaces quorum proof. You are Eve. Reply briefly and end with exactly this command, no other Dex command:\n${marker(openCommand)}`,
         { action: 'quorum_open', executorName: parentName }
@@ -272,7 +281,7 @@ async function main() {
       let workflow = await quorumStatus();
       if (workflow.workflowId !== workflowId) throw new Error('Eve did not open the expected quorum workflow.');
 
-      const eveVote = { action: 'quorum_vote', workflowId, decision: 'approve' };
+      const eveVote = scopedQuorumCommand('quorum_vote', roomId, { workflowId, decision: 'approve' });
       await sendOne(
         `Continue the automated quorum proof as Eve. Reply briefly and end with exactly this command, no other Dex command:\n${marker(eveVote)}`,
         { action: 'quorum_vote', executorName: parentName }
@@ -282,7 +291,7 @@ async function main() {
 
       await setRelay(parentMemberId, false);
       await setRelay(harkMemberId, true);
-      const veraVote = { action: 'quorum_vote', workflowId, decision: 'approve' };
+      const veraVote = scopedQuorumCommand('quorum_vote', roomId, { workflowId, decision: 'approve' });
       await sendOne(
         `Automated Machine Spaces quorum proof. You are Vera. Reply briefly and end with exactly this command, no other Dex command:\n${marker(veraVote)}`,
         { action: 'quorum_vote', executorName: veraName }
@@ -347,6 +356,7 @@ if (require.main === module) {
 
 module.exports = {
   marker,
+  scopedQuorumCommand,
   discoverTargets,
   sourceFromTarget,
   normalizedTargetUrl,
