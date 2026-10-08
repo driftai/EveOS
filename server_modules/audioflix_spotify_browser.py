@@ -14,13 +14,16 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlsplit
+from server_modules.audioflix_spotify_browser_utils import (
+    clamp_volume,
+    normalize_track_id,
+    validate_loopback_page_url,
+)
 _DEFAULT_EVEOS_URL = "http://127.0.0.1:8765/EveOS.html"
 _ENV_CACHE_TTL_S = 10.0
 _STATUS_TIMEOUT_S = 2.5
 _START_TIMEOUT_S = 18.0
 _STOP_TIMEOUT_S = 6.0
-_TRACK_ID_RE = __import__("re").compile(r"^[A-Za-z0-9]{22}$")
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 def _helper_path() -> Path:
@@ -33,28 +36,6 @@ def _runtime_dir() -> Path:
     target = _profile_dir().parent
     target.mkdir(parents=True, exist_ok=True)
     return target
-def clamp_volume(value, fallback: float = 1.0) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        number = float(fallback)
-    if number != number or number in (float("inf"), float("-inf")):
-        number = float(fallback)
-    return max(0.0, min(1.0, number))
-def normalize_track_id(value) -> str:
-    raw = str(value or "").strip()
-    if _TRACK_ID_RE.fullmatch(raw):
-        return raw
-    import re
-    match = re.search(r"(?:spotify:track:|open\.spotify\.com/(?:embed/)?track/)([A-Za-z0-9]{22})(?:[?/#]|$)", raw, re.I)
-    return match.group(1) if match else ""
-def validate_loopback_page_url(value: str) -> bool:
-    try:
-        parsed = urlsplit(str(value or "").strip())
-    except ValueError:
-        return False
-    host = (parsed.hostname or "").lower()
-    return parsed.scheme in {"http", "https"} and host in {"127.0.0.1", "localhost", "::1"}
 def _allocate_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -163,6 +144,7 @@ class SpotifyBrowserManager:
         try:
             payload = self._request("GET", "/status")
             if payload.get("ok"):
+                self._last_error = ""
                 return payload
             self._last_error = str(payload.get("reason") or "Spotify helper returned an unhealthy status.")[:300]
         except Exception as exc:
