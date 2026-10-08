@@ -22,7 +22,7 @@ machine state only in the ignored runtime checkpoint:
 | Field | Value |
 |---|---|
 | Branch | `eve/nexus-machine-spaces` |
-| Source HEAD immediately before this ledger update | `0fe2123471deeabc0e59cd59375e3b20d7c32c45` |
+| Source HEAD immediately before this ledger update | `6c4c4e6ee1765f5d8a774ea6f1d72e90677b4b83` |
 | Last independently qualified Machine Spaces source HEAD | `667fb612a66aecd9c45ffa85707e22872a570720` — Vera, Linux ARM64 / pwsh 7.6.6 / headless Chromium |
 | Latest Drift Windows lower/live qualification | `728d3c28bd6a2e95e2a4e157488ee6cf0f3e1f14` — all-live gate PASS; provider-provenance lane continued separately |
 | Source roadmap | `MS-P0` through `MS-08` all have implementation paths; no planned stage is intentionally left source-unimplemented |
@@ -38,7 +38,7 @@ machine state only in the ignored runtime checkpoint:
 | `MS-02` | source-implemented | tree/stat/bounded reads/line counts/search |
 | `MS-03` | source-implemented | SHA-guarded create/write/patch/move/delete + atomic replacement |
 | `MS-04` | source-implemented | capability-specific persistent/once grants, expiry and revocation |
-| `MS-05` | source-implemented / live quorum pending | Eve/Nova/Vera identity, presence and exact-origin voting; terminal provider qualifier drives real Eve/ChatGPT + Vera/Hark and now waits for exact durable provider-control receipts |
+| `MS-05` | source-implemented / live quorum pending | Eve/Nova/Vera identity, presence and exact-origin voting; terminal provider qualifier drives real Eve/ChatGPT + Vera/Hark and now waits for exact durable provider-control receipts; presence evidence is exact-once by committed evidence ID |
 | `MS-06` | source-implemented / live accepted | supervised start/defer/rebound/interrupt/paging, busy preflight, monotonic leases, process-tree termination, trusted external PID observe/interrupt transport; external adapter passed live on Windows and Vera's host |
 | `MS-07` | source-implemented / deterministic bundle accepted | primary unified terminal/filesystem/supervised request list uses server-side filters/provenance/cursor paging with legacy fallback and CSP-clean external styling; request-view regressions are in the Windows all-live bundle |
 | `MS-08` | source-implemented / lower live bundle accepted | destructive/exact-once matrix and native-shell probes exist; current Windows lower/live bundle passed at `728d3c28` |
@@ -110,7 +110,8 @@ The source now preserves the quorum provenance guard and fixes the race one laye
 - the qualifier waits for the exact randomized executor's durable `[DEX CONTROL RECEIPT]` before checking presence/spawn/quorum effects or touching room membership;
 - a failed receipt is surfaced with its exact control request ID and code;
 - cleanup waits for the room to become structurally idle before removing attached parents/peers or deleting the disposable room;
-- focused regressions cover late durable intent success, no-intent fail-closed behavior, all quorum mutation classifications, exact URL selection, exact room-scoped quorum commands, and durable success/failure receipt parsing.
+- duplicate delivery of the same agent + evidence ID + room/member/source presence proof is idempotent and emits no second presence event; conflicting provenance reuse of that evidence ID fails `MACHINE_AGENT_PRESENCE_EVIDENCE_CONFLICT`;
+- focused regressions cover late durable intent success, no-intent fail-closed behavior, all quorum mutation classifications, exact URL selection, exact room-scoped quorum commands, durable success/failure receipt parsing and exact-once presence evidence.
 
 Qualification report files (`machine-spaces-complete-*.txt` and `machine-spaces-provider-*.txt`) are ignored as local evidence; they are not source and should not dirty the worktree.
 
@@ -240,6 +241,7 @@ Rules:
 
 - Eve must originate from ChatGPT, Nova from Codex, Vera from Hark;
 - mutating quorum actions require exact committed Dex room/member/message provenance;
+- provider presence evidence IDs are exact-once: exact duplicate provenance is idempotent; conflicting reuse fails closed;
 - availability evidence expires;
 - duplicate control IDs are idempotent only for the exact same vote;
 - conflicting reuse rejected;
