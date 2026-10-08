@@ -1,9 +1,9 @@
 /* Audioflix: official Spotify embed volume on the localhost EveOS surface.
  *
- * Spotify's cross-origin iframe exposes no volume method. On a secure localhost page Chrome can
- * let EveOS capture its own tab audio, suppress the original output, and replay that same Spotify
- * audio through a Web Audio GainNode. This remains page-owned and does not use the EveOS extension
- * or replace Spotify with another provider.
+ * Spotify's cross-origin iframe exposes no documented volume method. On a secure localhost page
+ * Chrome/Edge can let EveOS capture its own tab audio, suppress the original local playback, and
+ * replay that same Spotify audio through a Web Audio GainNode. This stays Spotify-sourced and does
+ * not use YouTube, yt-dlp, or the EveOS extension.
  */
 (function () {
     'use strict';
@@ -90,25 +90,36 @@
         return { context, gain };
     }
 
+    // Capture-only constraints such as suppressLocalAudioPlayback belong on getDisplayMedia().
+    // Re-applying them afterward with MediaStreamTrack.applyConstraints() is unreliable in Chromium
+    // and can tear down an otherwise valid capture. This helper deliberately INSPECTS only.
     async function applyCapturePolicy(stream, audioTrack) {
-        const supportedConstraints = navigator.mediaDevices.getSupportedConstraints?.() || {};
-        const constraints = {};
-        if (supportedConstraints.suppressLocalAudioPlayback) {
-            constraints.suppressLocalAudioPlayback = { exact: true };
-        }
-        // Chromium may otherwise filter sound produced by the capturing tab out of its own
-        // captured stream. Spotify is inside that tab, so the gain path needs this explicitly off.
-        if (supportedConstraints.restrictOwnAudio) constraints.restrictOwnAudio = { exact: false };
-        if (Object.keys(constraints).length && typeof audioTrack.applyConstraints === 'function') {
-            await audioTrack.applyConstraints(constraints);
-        }
         const audioSettings = audioTrack.getSettings?.() || {};
         const videoSettings = stream.getVideoTracks()[0]?.getSettings?.() || {};
         return {
             surface: videoSettings.displaySurface || '',
             suppression: audioSettings.suppressLocalAudioPlayback
-                ?? videoSettings.suppressLocalAudioPlayback
+                ?? videoSettings.suppressLocalAudioPlayback,
+            restrictOwnAudio: audioSettings.restrictOwnAudio
         };
+    }
+
+    function captureAudioConstraints() {
+        const supportedConstraints = navigator.mediaDevices.getSupportedConstraints?.() || {};
+        const audio = {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+        };
+        if (supportedConstraints.suppressLocalAudioPlayback) {
+            audio.suppressLocalAudioPlayback = true;
+        }
+        // EveOS is capturing the SAME tab that contains the Spotify iframe. If Chromium's own-audio
+        // filter is supported, explicitly disable it so Spotify remains present in the captured track.
+        if (supportedConstraints.restrictOwnAudio) {
+            audio.restrictOwnAudio = false;
+        }
+        return audio;
     }
 
     function teardown() {
@@ -149,11 +160,12 @@
         state.message = 'Choose “This tab” and keep “Also share tab audio” enabled.';
         notify();
 
-        // Open synchronously inside the click before awaiting the browser picker.
+        // This must execute directly inside the trusted slider/click event. Both window.open() and
+        // getDisplayMedia() are user-activation gated in Chromium.
         const win = window.open('', OUTPUT_WINDOW, 'width=360,height=150');
         if (!win) {
             state.status = 'error';
-            state.message = 'Allow the AudioFlix sound-output window and try again.';
+            state.message = 'Allow the AudioFlix sound-output window and move the volume slider again.';
             notify();
             return snapshot();
         }
@@ -162,13 +174,7 @@
             writeOutputWindow(win);
             const stream = await navigator.mediaDevices.getDisplayMedia({
                 video: { frameRate: { max: 1 } },
-                audio: {
-                    suppressLocalAudioPlayback: true,
-                    restrictOwnAudio: false,
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false
-                },
+                audio: captureAudioConstraints(),
                 preferCurrentTab: true,
                 selfBrowserSurface: 'include',
                 surfaceSwitching: 'exclude',
@@ -186,6 +192,15 @@
                 stream.getTracks().forEach((track) => track.stop());
                 throw new Error('Choose the EveOS tab—not a window or screen—for Spotify volume control.');
             }
+            if (capturePolicy.restrictOwnAudio === true) {
+                stream.getTracks().forEach((track) => track.stop());
+                throw new Error('Chrome filtered EveOS tab audio from the capture. Re-select This Tab with tab audio enabled.');
+            }
+            if (capturePolicy.suppression === false) {
+                stream.getTracks().forEach((track) => track.stop());
+                throw new Error('Chrome did not suppress the original Spotify output, so EveOS cannot own its volume. Re-select This Tab with tab audio enabled.');
+            }
+
             stream.getVideoTracks().forEach((track) => { track.enabled = false; });
             const { context, gain } = connectInOutput(win, stream);
             Object.assign(state, {
@@ -213,15 +228,13 @@
                         button.hidden = true;
                         state.status = 'on';
                         state.message = '';
+                        applyGain();
                         notify();
                     });
                 }
             } else {
                 state.status = 'on';
                 state.message = '';
-            }
-            if (capturePolicy.suppression === false) {
-                state.message = 'Chrome did not suppress the original tab audio; stop control and select the EveOS tab again.';
             }
             applyGain();
         } catch (error) {
@@ -299,7 +312,7 @@
         const button = event.target?.closest?.('[data-af-spv="toggle"]');
         if (!button) return;
         if (snapshot().active) disable();
-        else enable();
+        else void enable();
     });
 
     document.addEventListener('input', (event) => {
@@ -307,13 +320,12 @@
             '[data-af-spv="slider"], .audioflix-volume-slider, .audioflix-provider-volume'
         );
         if (!slider) return;
-        const isSharedTransportSlider = slider.matches(
-            '.audioflix-volume-slider, .audioflix-provider-volume'
-        );
         const level = clamp(slider.value);
         const audio = window.EveAudioflixAudio;
         const activeId = audio?.getPlaybackState?.()?.item?.id;
         if (activeId != null && typeof audio?.updateItemVolume === 'function') {
+            // updateItemVolume -> UrlPlayback.setVolume -> Spotify player.setVolume ->
+            // EveAudioflixSpotifyVolume.setSpotifyVolume all run synchronously in this event.
             audio.updateItemVolume(activeId, level);
         } else {
             setSpotifyVolume(level);
@@ -325,14 +337,11 @@
             const label = card.parentElement?.querySelector('.audioflix-volume-label');
             if (label) label.textContent = `${Math.round(level * 100)}%`;
         });
-        // The shared slider's normal Audioflix handler runs later in the same input event and calls
-        // the Spotify controller. Defer fallback selection to a microtask so that direct controller
-        // ownership wins without opening an unnecessary capture picker.
-        queueMicrotask(() => {
-            if (!state.spotifyActive || state.directControl || snapshot().active
-                || state.status === 'starting') return;
+        // Do not defer this: getDisplayMedia/window.open need the trusted slider input activation.
+        if (state.spotifyActive && !state.directControl && !snapshot().active
+            && state.status !== 'starting') {
             void enable();
-        });
+        }
     });
 
     window.EveAudioflixSpotifyVolume = {
@@ -341,6 +350,7 @@
         setSpotifyVolume,
         clearSpotify,
         applyCapturePolicy,
+        captureAudioConstraints,
         mount,
         snapshot,
         subscribe(listener) {
