@@ -16,6 +16,8 @@
     "qualify:machine-spaces:chatgpt": "node scripts/machine-spaces-all-qualify.js --chatgpt-live",
     "qualify:machine-spaces:external": "node scripts/machine-spaces-all-qualify.js --external-live",
     "qualify:machine-spaces:all-live": "node scripts/machine-spaces-all-qualify.js --chatgpt-live --external-live",
+    "qualify:machine-spaces:providers": "node scripts/provider-provenance-qualify.js",
+    "qualify:machine-spaces:complete": "node scripts/machine-spaces-all-qualify.js --chatgpt-live --external-live && node scripts/provider-provenance-qualify.js",
     "stabilize": "node scripts/qualify.js --area resilience --verify",
     "handoff": "node scripts/handoff.js",
     "handoff:verify": "node scripts/handoff.js --verify",
