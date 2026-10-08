@@ -1,7 +1,11 @@
 import json
 import os
 import threading
+import urllib.error
+import urllib.request
 from http import HTTPStatus
+
+from server_modules.outbound_http import build_public_opener, validate_public_http_target
 
 AUDIO_EXTENSIONS = {".mp3", ".mp4", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".webm"}
 
@@ -56,6 +60,7 @@ def authorize_dir(path: str) -> None:
         _ALLOWED_DIRS.add(canon)
         _save_registry()
 
+
 _CONTENT_TYPES = {
     ".mp3": "audio/mpeg",
     ".wav": "audio/wav",
@@ -67,8 +72,22 @@ _CONTENT_TYPES = {
     ".webm": "audio/webm",
 }
 
-
 _CHUNK = 256 * 1024
+_REMOTE_TIMEOUT_SECONDS = 20
+_REMOTE_MEDIA_EXACT_TYPES = {
+    "application/octet-stream",
+    "application/ogg",
+    "application/vnd.apple.mpegurl",
+    "application/x-mpegurl",
+}
+_REMOTE_FORWARD_HEADERS = (
+    "Content-Type",
+    "Content-Length",
+    "Content-Range",
+    "Accept-Ranges",
+    "ETag",
+    "Last-Modified",
+)
 
 
 def _parse_range(range_header: str, size: int):
@@ -141,6 +160,77 @@ def _serve_file_ranged(handler, real_path: str, content_type: str) -> None:
             except (BrokenPipeError, ConnectionResetError):
                 return          # the player closed the stream (seek/stop) — not an error
             remaining -= len(block)
+
+
+def _remote_media_type_allowed(content_type: str) -> bool:
+    """Keep the URL port a media transport, not a localhost-authenticated arbitrary web proxy."""
+    mime = str(content_type or "").split(";", 1)[0].strip().lower()
+    return mime.startswith("audio/") or mime.startswith("video/") or mime in _REMOTE_MEDIA_EXACT_TYPES
+
+
+def _serve_remote_media(handler, target_url: str) -> None:
+    """Stream public remote media through EveOS while preserving upstream byte-range semantics."""
+    allowed, reason = validate_public_http_target(target_url)
+    if not allowed:
+        handler.send_error(HTTPStatus.FORBIDDEN, reason or "Remote media target is not allowed.")
+        return
+
+    headers = {
+        "User-Agent": "EveOS-Audioflix-MediaPort/1.0",
+        "Accept": "audio/*,video/*;q=0.9,application/octet-stream;q=0.8,*/*;q=0.1",
+        "Accept-Encoding": "identity",
+    }
+    requested_range = str(handler.headers.get("Range") or "").strip()
+    if requested_range:
+        # Forward exactly one browser-supplied range. The upstream server remains authoritative for
+        # whether the range is satisfiable and for Content-Range/Content-Length values.
+        headers["Range"] = requested_range
+
+    request = urllib.request.Request(target_url, headers=headers, method="GET")
+    try:
+        with build_public_opener().open(request, timeout=_REMOTE_TIMEOUT_SECONDS) as upstream:
+            status = int(getattr(upstream, "status", None) or upstream.getcode() or HTTPStatus.OK)
+            if status not in (HTTPStatus.OK, HTTPStatus.PARTIAL_CONTENT):
+                handler.send_error(status, "Remote media request failed.")
+                return
+
+            content_type = str(upstream.headers.get("Content-Type") or "")
+            if not _remote_media_type_allowed(content_type):
+                handler.send_error(
+                    HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                    "Remote URL did not return audio/video media.",
+                )
+                return
+
+            handler.send_response(status)
+            for header_name in _REMOTE_FORWARD_HEADERS:
+                value = upstream.headers.get(header_name)
+                if value:
+                    handler.send_header(header_name, value)
+            handler.send_header("Cache-Control", "no-store")
+            handler.end_headers()
+
+            while True:
+                block = upstream.read(_CHUNK)
+                if not block:
+                    break
+                try:
+                    handler.wfile.write(block)
+                except (BrokenPipeError, ConnectionResetError):
+                    return          # media seek/stop closes the old request by design
+    except urllib.error.HTTPError as exc:
+        status = int(getattr(exc, "code", 0) or HTTPStatus.BAD_GATEWAY)
+        if status == HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE:
+            handler.send_response(status)
+            content_range = exc.headers.get("Content-Range") if exc.headers else None
+            if content_range:
+                handler.send_header("Content-Range", content_range)
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return
+        handler.send_error(status if 400 <= status <= 599 else HTTPStatus.BAD_GATEWAY, "Remote media request failed.")
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        handler.send_error(HTTPStatus.BAD_GATEWAY, f"Remote media unavailable: {exc}")
 
 
 def _canon(p: str) -> str:
@@ -235,6 +325,14 @@ def handle_port_get_request(handler, path: str, query, send_json_fn) -> bool:
             _serve_file_ranged(handler, real, _CONTENT_TYPES.get(ext, "application/octet-stream"))
         except Exception as e:
             handler.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(e))
+        return True
+
+    elif path == "/api/audioflix/port/url":
+        target_url = str((query.get("url") or [""])[0]).strip()
+        if not target_url:
+            handler.send_error(HTTPStatus.BAD_REQUEST, "Missing url parameter.")
+            return True
+        _serve_remote_media(handler, target_url)
         return True
 
     return False
