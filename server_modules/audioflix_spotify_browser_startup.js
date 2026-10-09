@@ -32,7 +32,16 @@ async function launchManagedContext(chromium, profileDir, launchOptions, headles
     return context;
 }
 
-async function prepareManagedPage(context, pageUrl, runtime, note = () => {}) {
+async function prepareManagedPage(context, pageUrl, runtimeOrNote = {}, noteArg) {
+    let runtime = runtimeOrNote;
+    let note = noteArg;
+    // Preserve the original prepareManagedPage(context, url, note) contract used by offline smokes.
+    if (typeof runtimeOrNote === 'function') {
+        note = runtimeOrNote;
+        runtime = {};
+    }
+    if (!runtime || typeof runtime !== 'object') runtime = {};
+    if (typeof note !== 'function') note = () => {};
     setPhase(runtime, note, 'navigate');
     const existing = context.pages();
     const page = existing[0] || await context.newPage();
