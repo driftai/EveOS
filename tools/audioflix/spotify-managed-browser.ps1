@@ -3,7 +3,7 @@ param(
     [string]$Action = 'status',
     [string]$BaseUrl = 'http://127.0.0.1:8765',
     [string]$PageUrl = 'http://127.0.0.1:8765/audioflix-spotify-engine.html',
-    [ValidateSet('background','window')]
+    [ValidateSet('background','window','headless')]
     [string]$Presentation = 'background',
     [switch]$RequireSignedIn
 )
@@ -18,6 +18,30 @@ function Invoke-EveGet([string]$Path) {
 function Invoke-EvePost([string]$Path, [hashtable]$Body = @{}) {
     $json = $Body | ConvertTo-Json -Depth 8 -Compress
     Invoke-RestMethod -Method Post -Uri "$base$Path" -ContentType 'application/json; charset=utf-8' -Body $json -TimeoutSec 30
+}
+
+function Get-EnginePageUrl([string]$Url, [string]$Mode) {
+    $clean = $Url -replace '([?&])playwright=headless(&|$)', '$1'
+    $clean = $clean.TrimEnd('?','&')
+    if ($Mode -ne 'headless') { return $clean }
+    $separator = if ($clean.Contains('?')) { '&' } else { '?' }
+    return "${clean}${separator}playwright=headless"
+}
+
+function Get-CurrentStatus {
+    try { return Invoke-EveGet '/api/audioflix/spotify-browser/status' }
+    catch { return $null }
+}
+
+function Ensure-EngineRuntimeMode([string]$Mode) {
+    $current = Get-CurrentStatus
+    if (-not $current -or -not $current.browserRunning) { return }
+    $wantHeadless = $Mode -eq 'headless'
+    $haveHeadless = [string]$current.browserChannel -like '*-headless'
+    if ($wantHeadless -ne $haveHeadless) {
+        [void](Invoke-EvePost '/api/audioflix/spotify-browser/stop')
+        Start-Sleep -Milliseconds 250
+    }
 }
 
 function Ensure-WindowApi {
@@ -36,7 +60,7 @@ namespace EveOS.Audioflix {
 }
 
 function Set-SpotifyEnginePresentation([string]$Mode) {
-    if ($env:OS -ne 'Windows_NT') { return }
+    if ($env:OS -ne 'Windows_NT' -or $Mode -eq 'headless') { return $true }
     Ensure-WindowApi
     $deadline = (Get-Date).AddSeconds(5)
     do {
@@ -48,10 +72,12 @@ function Set-SpotifyEnginePresentation([string]$Mode) {
             foreach ($process in $windows) {
                 [void][EveOS.Audioflix.WindowApi]::ShowWindowAsync($process.MainWindowHandle, $command)
             }
-            return
+            return $true
         }
         Start-Sleep -Milliseconds 150
     } while ((Get-Date) -lt $deadline)
+    Write-Warning 'Could not find the EveOS Spotify Engine window. Playback can still be healthy; use -Action status to inspect it.'
+    return $false
 }
 
 function Show-Status($Status) {
@@ -78,16 +104,25 @@ function Show-Status($Status) {
     [pscustomobject]$summary | Format-List
 }
 
+function Start-ManagedEngine([string]$Mode) {
+    Ensure-EngineRuntimeMode $Mode
+    $effectivePageUrl = Get-EnginePageUrl $PageUrl $Mode
+    return Invoke-EvePost '/api/audioflix/spotify-browser/start' @{ pageUrl = $effectivePageUrl }
+}
+
 switch ($Action) {
     'start' {
-        $result = Invoke-EvePost '/api/audioflix/spotify-browser/start' @{ pageUrl = $PageUrl }
+        $result = Start-ManagedEngine $Presentation
         Show-Status $result
         if (-not $result.ok -or -not $result.helperReachable) { throw 'Managed Spotify browser did not become ready.' }
         if (-not $result.sessionPresent) { throw 'Managed Spotify browser started without a private server-side helper identity.' }
-        Set-SpotifyEnginePresentation $Presentation
+        [void](Set-SpotifyEnginePresentation $Presentation)
         Write-Host 'Managed Spotify engine is ready.'
         if ($Presentation -eq 'background') {
             Write-Host 'The managed Edge engine was minimized. Use Audioflix Internal View to mirror it inside EveOS.'
+        } elseif ($Presentation -eq 'headless') {
+            Write-Host 'The managed Spotify engine is running headless with no browser window.'
+            Write-Host 'Audible output in true headless mode is browser/OS dependent; use background mode if Windows does not expose audio.'
         } else {
             Write-Host 'The managed Edge engine is visible in its own window.'
         }
@@ -104,13 +139,19 @@ switch ($Action) {
         $result | ConvertTo-Json -Depth 8
     }
     'auth' {
-        Set-SpotifyEnginePresentation 'window'
+        $current = Get-CurrentStatus
+        if ($current -and ([string]$current.browserChannel -like '*-headless')) {
+            [void](Invoke-EvePost '/api/audioflix/spotify-browser/stop')
+            Start-Sleep -Milliseconds 250
+            [void](Invoke-EvePost '/api/audioflix/spotify-browser/start' @{ pageUrl = (Get-EnginePageUrl $PageUrl 'window') })
+        }
+        [void](Set-SpotifyEnginePresentation 'window')
         $result = Invoke-EvePost '/api/audioflix/spotify-browser/auth' @{ openLogin = $true }
         $result | ConvertTo-Json -Depth 8
         Write-Host 'The managed Edge window was restored for Spotify sign-in. The persistent Audioflix profile will retain the session.'
     }
     'qualify' {
-        $result = Invoke-EvePost '/api/audioflix/spotify-browser/start' @{ pageUrl = $PageUrl }
+        $result = Start-ManagedEngine $Presentation
         Show-Status $result
         if (-not $result.ok) { throw 'Could not start managed Spotify browser.' }
         if (-not $result.nodeAvailable) { throw 'Node.js readiness check failed.' }
@@ -122,7 +163,7 @@ switch ($Action) {
         if ($RequireSignedIn -and $result.authState -ne 'signed-in') {
             throw "Spotify signed-in state is '$($result.authState)'. Run -Action auth, sign in, then qualify again."
         }
-        Set-SpotifyEnginePresentation $Presentation
+        [void](Set-SpotifyEnginePresentation $Presentation)
         Write-Host 'QUALIFIER PRECHECK PASS'
         Write-Host 'Now open Audioflix in an ordinary EveOS tab and play a Spotify track.'
         Write-Host 'For file:// EveOS, approve the matching six-digit code in the trusted localhost approval window.'
