@@ -9,6 +9,7 @@
  */
 const crypto = require('node:crypto');
 const http = require('node:http');
+const https = require('node:https');
 const path = require('node:path');
 const { URL } = require('node:url');
 
@@ -16,6 +17,8 @@ const SERVICE = 'eveos-audioflix-spotify-browser';
 const PROTOCOL_VERSION = 2;
 const MAX_DIAGNOSTICS = 32;
 const TOKEN_HEADER = 'x-eveos-spotify-token';
+const SERVER_LIVENESS_INTERVAL_MS = 5000;
+const SERVER_LIVENESS_TIMEOUT_MS = 30000;
 const { MAX_MEDIA_REFS, browserInit } = require('./audioflix_spotify_browser_hook.js');
 const { scrapeManagedPlaylist } = require('./audioflix_spotify_managed_import.js');
 const { engineSnapshot } = require('./audioflix_spotify_browser_transport.js');
@@ -68,6 +71,20 @@ function parseArgs(argv) {
         else out[rawKey] = '1';
     }
     return out;
+}
+function probeServer(url, timeoutMs = 2000) {
+    return new Promise((resolve) => {
+        let parsed;
+        try { parsed = new URL(String(url || '')); } catch { resolve(false); return; }
+        const transport = parsed.protocol === 'https:' ? https : http;
+        const req = transport.request(parsed, { method: 'GET' }, (res) => {
+            res.resume();
+            resolve(true);
+        });
+        req.setTimeout(Math.max(250, Number(timeoutMs || 2000)), () => req.destroy(new Error('timeout')));
+        req.on('error', () => resolve(false));
+        req.end();
+    });
 }
 
 async function main() {
@@ -141,6 +158,29 @@ async function main() {
     let page = await context.newPage();
     await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     runtime.state = 'ready';
+    const livenessUrl = new URL('/EveOS.html', pageUrl).href;
+    let serverOfflineSince = 0;
+    let livenessTimer = 0;
+
+    async function checkServerLiveness() {
+        if (runtime.closing) return;
+        if (await probeServer(livenessUrl)) {
+            if (serverOfflineSince) note('server-liveness-restored', livenessUrl);
+            serverOfflineSince = 0;
+            return;
+        }
+        if (!serverOfflineSince) {
+            serverOfflineSince = Date.now();
+            note('server-liveness-lost', livenessUrl);
+            return;
+        }
+        if (Date.now() - serverOfflineSince >= SERVER_LIVENESS_TIMEOUT_MS) {
+            note('server-liveness-timeout', `EveOS unreachable for ${SERVER_LIVENESS_TIMEOUT_MS}ms`);
+            await shutdown(0);
+        }
+    }
+    livenessTimer = setInterval(() => { checkServerLiveness().catch((error) => note('server-liveness-error', error.message)); }, SERVER_LIVENESS_INTERVAL_MS);
+    livenessTimer.unref?.();
 
     async function authState() {
         try {
@@ -199,6 +239,7 @@ async function main() {
             authState: runtime.authState, browserChannel: runtime.browserChannel, playwrightVersion,
             headless: runtime.headless, playbackKickCount: runtime.playbackKickCount,
             lastPlaybackKickAt: runtime.lastPlaybackKickAt,
+            serverOfflineForMs: serverOfflineSince ? Date.now() - serverOfflineSince : 0,
             profileOpen: true, importing: runtime.importing, transport,
             diagnostics: diagnostics.slice(-8)
         };
@@ -313,6 +354,8 @@ async function main() {
         if (runtime.closing) return;
         runtime.closing = true;
         runtime.state = 'stopping';
+        if (livenessTimer) clearInterval(livenessTimer);
+        livenessTimer = 0;
         try { server?.close(); } catch {}
         try { await context.close(); } catch {}
         process.exitCode = code;
@@ -363,7 +406,8 @@ async function main() {
 module.exports = {
     SERVICE, PROTOCOL_VERSION, MAX_MEDIA_REFS, clampVolume, normalizeTrackId,
     validateLoopbackPageUrl, headlessRequestedFromPageUrl, isLikelyPlayControl,
-    isSpotifyEmbedUrl, spotifyFrameTrackId, browserInit, parseArgs
+    isSpotifyEmbedUrl, spotifyFrameTrackId, browserInit, parseArgs, probeServer,
+    SERVER_LIVENESS_INTERVAL_MS, SERVER_LIVENESS_TIMEOUT_MS
 };
 
 if (require.main === module) {

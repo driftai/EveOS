@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const http = require('node:http');
 const vm = require('node:vm');
 const path = require('node:path');
 
@@ -22,6 +23,8 @@ assert.equal(helper.isSpotifyEmbedUrl('https://open.spotify.com/embed/track/4cOd
 assert.equal(helper.isSpotifyEmbedUrl('https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT'), false);
 assert.equal(helper.spotifyFrameTrackId('https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT'), '4cOdK2wGLETKBW3PvgPWqT');
 assert.equal(helper.normalizeTrackId('spotify:track:4cOdK2wGLETKBW3PvgPWqT'), '4cOdK2wGLETKBW3PvgPWqT');
+assert.equal(helper.SERVER_LIVENESS_INTERVAL_MS, 5000);
+assert.equal(helper.SERVER_LIVENESS_TIMEOUT_MS, 30000);
 
 function makeBrowserContext(url) {
     class FakeMedia {
@@ -71,6 +74,14 @@ function makeBrowserContext(url) {
 }
 
 (async () => {
+    const livenessServer = http.createServer((_req, res) => { res.writeHead(200); res.end('ok'); });
+    await new Promise((resolve) => livenessServer.listen(0, '127.0.0.1', resolve));
+    const port = livenessServer.address().port;
+    const livenessUrl = `http://127.0.0.1:${port}/EveOS.html`;
+    assert.equal(await helper.probeServer(livenessUrl, 500), true, 'watchdog sees a live EveOS endpoint');
+    await new Promise((resolve) => livenessServer.close(resolve));
+    assert.equal(await helper.probeServer(livenessUrl, 250), false, 'watchdog sees the EveOS endpoint disappear');
+
     const embed = makeBrowserContext('https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT');
     assert.ok(embed.window.__eveSpotifyManagedControl, 'Spotify embed receives bounded managed media control');
     assert.equal(Object.prototype.hasOwnProperty.call(embed.window.__eveSpotifyManagedControl, 'sessionId'), false,
