@@ -119,11 +119,15 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         }
     }
     async function preferredLocalItem(nextItem) {
-        const prepare = window.EveAudioflixLocalPlayback?.prepare;
+        const localPlayback = window.EveAudioflixLocalPlayback;
+        const prepare = localPlayback?.prepare;
         if (typeof prepare !== 'function') return null;
         try {
             const prepared = await prepare(nextItem);
-            return prepared?.localPath ? (prepared.item || nextItem) : null;
+            if (!prepared?.localPath) return null;
+            const localItem = prepared.item || nextItem;
+            localPlayback?.handoffPrepared?.(localItem, prepared.localPath);
+            return localItem;
         } catch {
             return null;
         }
