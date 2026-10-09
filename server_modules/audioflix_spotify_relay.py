@@ -15,7 +15,7 @@ def relay_html(server_origin: str) -> str:
   'use strict';
   const RELAY_ORIGIN = {origin_json};
   const PROTOCOL = 1;
-  const INDEPENDENT_ACTIONS = new Set(['status', 'import', 'auth']);
+  const INDEPENDENT_ACTIONS = new Set(['status', 'status-watch', 'import', 'auth']);
   let port = null;
   let pairId = '';
   let clientToken = '';
@@ -141,8 +141,8 @@ def relay_html(server_origin: str) -> str:
       if (message.type !== 'command') return;
       const action = String(message.command?.action || '').toLowerCase();
       if (INDEPENDENT_ACTIONS.has(action)) {{
-        // Status and long auth/import jobs have separate broker ordering. Dispatch them immediately
-        // so a playlist scrape never stalls the owner's pause/seek/volume command stream.
+        // Reads and long auth/import jobs have separate broker ordering. In particular,
+        // status-watch must never make Pause/Seek/Stop/Play wait behind its bounded read.
         void forwardCommand(message);
         return;
       }}
