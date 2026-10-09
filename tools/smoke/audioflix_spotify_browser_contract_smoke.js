@@ -110,6 +110,7 @@ assert(ignore.includes('/.spotify-probe-profile/') && ignore.includes('/spotify-
 
 runNode('tools/smoke/audioflix_spotify_relay_security_smoke.js');
 runPython('tools/smoke/audioflix_spotify_broker_smoke.py');
+runNode('tools/smoke/audioflix_spotify_entrypoints_smoke.js');
 runNode('tools/smoke/audioflix_spotify_any_browser_smoke.js');
 require('./audioflix_spotify_managed_import_smoke.js');
 console.log('AUDIOFLIX_SPOTIFY_BROWSER_CONTRACT_SMOKE_OK');
