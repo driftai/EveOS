@@ -48,5 +48,33 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
         return { trackAt, entries };
     }
 
-    Object.assign(ns, { ready: true, create, createBridge });
+    function createRuntime({ state, queue, playIndex, getRun, setRun, snapshot }) {
+        const bridge = createBridge({ state, queue, playIndex });
+        const invalidateRun = () => {
+            const next = Number(getRun() || 0) + 1;
+            setRun(next);
+            return next;
+        };
+        const restart = async () => {
+            const active = queue();
+            const track = bridge.trackAt(active.currentIndex) || window.EveAudioflixAudio?.getPlaybackState?.()?.item;
+            if (!track) return false;
+            const run = invalidateRun();
+            await window.EveAudioflixAudio?.seek?.(0);
+            if (run !== getRun()) return false;
+            if (window.EveAudioflixAudio?.isInternalViewOpen?.()) await window.EveAudioflixAudio?.openInternalView?.(track);
+            else await window.EveAudioflixAudio?.playItem?.(track);
+            if (run !== getRun()) return false;
+            window.EveAudioflixAudio?.syncQueueView?.();
+            return true;
+        };
+        const complete = create({
+            snapshot,
+            advance: () => playIndex(queue().currentIndex + 1),
+            restart
+        });
+        return { ...bridge, invalidateRun, restart, complete };
+    }
+
+    Object.assign(ns, { ready: true, create, createBridge, createRuntime });
 })();
