@@ -21,8 +21,16 @@ async function main() {
             let worldRunning = false;
             let notesRunning = false;
             let saved = '';
+            let writeRequests = 0;
             const requests = [];
-            window.__smoke = { requests, get worldRunning() { return worldRunning; }, get notesRunning() { return notesRunning; }, get saved() { return saved; }, confirm: true };
+            window.__smoke = {
+                requests,
+                get worldRunning() { return worldRunning; },
+                get notesRunning() { return notesRunning; },
+                get saved() { return saved; },
+                get writeRequests() { return writeRequests; },
+                confirm: true
+            };
             window.config = { bridges: { worldBookPort: 8766, notesPort: 8767, localControlPort: 9082 } };
             window.showConfirm = async () => window.__smoke.confirm;
             window.showPrompt = async (_message, value) => value || '';
@@ -63,7 +71,10 @@ async function main() {
                     const spatial = body.rootId === 'spatial';
                     return reply({ ok: true, entry: { name: spatial ? 'world.md' : 'test.txt', path: body.path, kind: 'file', extension: spatial ? '.md' : '.txt', size: 5, revision: 'r1', favorite: false, noteRef: `${body.rootId}:${body.path}` }, content: spatial ? 'world lore' : 'hello' });
                 }
-                if (url.endsWith('/api/notes/write')) { saved = JSON.parse(options.body).content; return reply({ ok: true, entry: { name: 'test.txt', path: 'test.txt', extension: '.txt', size: saved.length, revision: 'r2', noteRef: 'files:test.txt' }, message: 'Saved.' }); }
+                if (url.endsWith('/api/notes/write')) {
+                    const body = JSON.parse(options.body); writeRequests += 1; saved = body.content;
+                    return reply({ ok: true, entry: { name: body.path.split('/').pop(), path: body.path, extension: body.path.endsWith('.md') ? '.md' : '.txt', size: saved.length, revision: `r${writeRequests + 1}`, noteRef: `${body.rootId}:${body.path}` }, message: 'Saved.' });
+                }
                 if (url.endsWith('/api/notes/related')) return reply({ ok: true, entries: [{ rootId: 'spatial', name: 'world.md', path: 'Ideas/world.md', kind: 'file', noteRef: 'spatial:Ideas/world.md' }] });
                 throw new Error(`Unexpected request: ${url}`);
             };
@@ -82,15 +93,16 @@ async function main() {
         expect(!await page.evaluate(() => window.__smoke.worldRunning), 'Visible Stop World Book button did not stop World Book');
 
         await page.locator('[data-world-book-view="notes"]').click();
+        // The two file-backed Notes tabs are user-initiated workspaces. They should start their
+        // independent Notes service themselves instead of looking dead until another button is found.
         await page.locator('[data-eve-notes-mode="files"]').click();
-        await page.waitForFunction(() => document.querySelector('[data-eve-notes-status]')?.textContent.includes('Start Notes'));
-        expect(!await page.evaluate(() => window.__smoke.notesRunning), 'Opening Notepad files auto-started Notes');
-        await page.locator('[data-eve-notes-mode="spatial"]').click();
-        await page.waitForFunction(() => document.querySelector('[data-eve-notes-status]')?.textContent.includes('Start Notes'));
-        expect(!await page.evaluate(() => window.__smoke.notesRunning), 'Opening Spatial Notes auto-started Notes');
-        await page.locator('[data-eve-notes-mode="files"]').click();
-        await page.locator('[data-notes-service-toggle]').click();
         await page.waitForFunction(() => window.__smoke.notesRunning && document.querySelector('[data-eve-notes-list] [data-path="test.txt"]'));
+        expect(await page.locator('button[data-eve-notes-mode="files"]').getAttribute('aria-selected') === 'true', 'Notepad files tab did not activate');
+        await page.locator('[data-eve-notes-mode="spatial"]').click();
+        await page.waitForFunction(() => document.querySelector('[data-eve-notes-list] [data-path="Ideas/world.md"]'));
+        expect(await page.locator('button[data-eve-notes-mode="spatial"]').getAttribute('aria-selected') === 'true', 'Spatial Notes tab did not activate');
+        await page.locator('[data-eve-notes-mode="files"]').click();
+        await page.waitForFunction(() => document.querySelector('[data-eve-notes-list] [data-path="test.txt"]'));
         await page.locator('[data-eve-notes-list] [data-path="test.txt"]').click();
         await page.waitForFunction(() => !document.querySelector('[data-eve-notes-editor]')?.disabled, null, { timeout: 3000 }).catch(async () => {
             const detail = await page.locator('.notes-world-book-overlay').evaluate(node => ({
@@ -102,9 +114,18 @@ async function main() {
             throw new Error(`Note did not open: ${JSON.stringify(detail)} errors=${JSON.stringify(pageErrors)}`);
         });
         expect(await page.evaluate(() => window.__smoke.notesRunning && !window.__smoke.worldRunning), 'Notes did not run independently with World Book stopped');
+
+        const longDraft = `long note\n${'0123456789abcdef'.repeat(32768)}`;
+        await page.locator('[data-eve-notes-editor]').fill(longDraft);
+        await page.locator('[data-eve-notes-save]').click();
+        await page.waitForFunction(expected => window.__smoke.saved === expected, longDraft, { timeout: 3000 });
+        expect(await page.evaluate(() => window.__smoke.writeRequests) === 1, 'Save button sent a duplicate write request');
+        expect(await page.locator('[data-eve-notes-status]').textContent().then(text => /Saved|item/.test(text)), 'Successful disk write was not reflected in Notes UI');
+
         await page.locator('[data-eve-notes-editor]').fill('saved independently');
         await page.locator('[data-eve-notes-editor]').press('Control+s');
         await page.waitForFunction(() => window.__smoke.saved === 'saved independently');
+        expect(await page.evaluate(() => window.__smoke.writeRequests) === 2, 'Ctrl+S did not perform exactly one write');
         await page.locator('[data-eve-notes-related]').click();
         await page.locator('[data-eve-notes-related-panel] button').nth(1).click();
         await page.waitForFunction(() => document.querySelector('[data-eve-notes-title]')?.textContent === 'world.md');
@@ -126,6 +147,7 @@ async function main() {
         await page.evaluate(() => { window.__smoke.confirm = false; });
         await page.locator('[data-world-book-close]').click();
         expect(await page.locator('.notes-world-book-overlay').evaluate(node => node.classList.contains('is-open')), 'Dirty note closed without confirmation');
+        expect(pageErrors.length === 0, `Notes browser emitted page errors: ${pageErrors.join(' | ')}`);
         console.log('NOTES_WORLDBOOK_BROWSER_SMOKE_OK');
     } finally {
         await page.close();
