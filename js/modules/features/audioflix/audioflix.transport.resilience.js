@@ -107,7 +107,7 @@ window.EveAudioflixTransportResilience = window.EveAudioflixTransportResilience 
         return true;
     }
 
-    function scheduleQueueAdvance(itemId, source) {
+    function scheduleQueueAdvance(itemId, source, settle) {
         const bridge = queue();
         const snapshot = bridge?.snapshot?.();
         if (!snapshot?.isPlaying || !snapshot.entries?.length) return false;
@@ -120,21 +120,22 @@ window.EveAudioflixTransportResilience = window.EveAudioflixTransportResilience 
         if (itemId !== undefined && itemId !== null && expectedId && !sameId(itemId, expectedId)) return false;
 
         const repeatOne = snapshot.repeatOne === true;
-        const key = `${expectedId}:${expectedIndex}:${repeatOne ? 'repeat' : 'next'}`;
+        const expectedRunId = snapshot.playbackRunId;
+        const key = `${expectedId}:${expectedRunId}:${repeatOne ? 'repeat' : 'next'}`;
         if (pendingAdvance === key) return false;
         pendingAdvance = key;
 
-        // The primary Audioflix Ended handler gets the first turn. Afterwards, compare normalized
-        // queue identity and recover only if it is still on the same item. This makes the fallback
+        // Wait for capture/provider settlement, then let the primary Ended handler go first.
+        // Recover only for the same playback run and item, using the latest reordered queue.
         // provider-independent and exact-once across direct, localized, YouTube, Spotify fallback,
         // SoundCloud, Vimeo, Instagram, and future adapters that emit the common Ended event.
-        setTimeout(() => {
+        Promise.resolve(settle).catch(() => false).then(() => setTimeout(() => {
             try {
                 const latestBridge = queue();
                 const latest = latestBridge?.snapshot?.();
                 const latestItem = latest?.entries?.[latest.currentIndex];
                 if (!latest?.isPlaying
-                    || Number(latest.currentIndex) !== expectedIndex
+                    || latest.playbackRunId !== expectedRunId
                     || String(latestItem?.id ?? '') !== expectedId) return;
                 if (repeatOne && latest.repeatOne === true) latestBridge.action?.('restart');
                 else if (!latest.repeatOne) latestBridge.step?.(1);
@@ -142,7 +143,7 @@ window.EveAudioflixTransportResilience = window.EveAudioflixTransportResilience 
             } finally {
                 if (pendingAdvance === key) pendingAdvance = '';
             }
-        }, 0);
+        }, 0));
         return true;
     }
 
@@ -165,7 +166,7 @@ window.EveAudioflixTransportResilience = window.EveAudioflixTransportResilience 
     window.addEventListener('eve:audioflix-playback', (event) => {
         const detail = event.detail || {};
         if (detail.status !== 'Ended') return;
-        scheduleQueueAdvance(detail.item?.id, 'playback event');
+        scheduleQueueAdvance(detail.item?.id, 'playback event', detail.settle);
     });
 
     window.addEventListener('eve:audioflix-output-volume', () => {

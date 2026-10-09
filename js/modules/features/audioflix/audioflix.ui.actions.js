@@ -261,7 +261,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
             if (action === 'shuffle-music-group') {
                 // Shuffle Order: the playing track becomes #1 and the rest is randomized.
                 const q = ctx.activeMusicQueue || {};
-                ctx.invalidateQueueRun?.();
+                // Reordering keeps the same playback run, including any pending completion.
                 if (!q.items?.length) { ctx.activeMusicQueue = { ...q, shuffle: !q.shuffle }; ctx.rerender(); return; }
                 const currentId = q.items[q.currentIndex] || q.items[0];
                 const rest = ctx.shuffleQueue(q.items.filter(id => id !== currentId));

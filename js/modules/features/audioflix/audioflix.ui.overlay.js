@@ -39,8 +39,9 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
             if (!Number.isInteger(expectedIndex) || expectedIndex < 0 || !expectedItem) return;
             const eventId = String(detail.item?.id ?? '');
             const expectedId = String(expectedItem.id ?? '');
+            const expectedRunId = snapshot.playbackRunId;
             if (eventId && eventId !== expectedId) return;
-            const key = `${expectedId}:${expectedIndex}`;
+            const key = `${expectedId}:${expectedRunId}`;
             if (providerAdvancePending === key) return;
             providerAdvancePending = key;
             Promise.resolve(detail.settle).catch(() => false).then(() => {
@@ -48,7 +49,7 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                 const latest = latestBridge?.snapshot?.();
                 const latestItem = latest?.entries?.[latest.currentIndex];
                 if (!latest?.isPlaying || latest.repeatOne
-                    || Number(latest.currentIndex) !== expectedIndex
+                    || latest.playbackRunId !== expectedRunId
                     || String(latestItem?.id ?? '') !== expectedId) return false;
                 return latestBridge.step?.(1);
             }).finally(() => {
