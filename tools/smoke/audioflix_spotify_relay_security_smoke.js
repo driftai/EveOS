@@ -38,7 +38,9 @@ assert(relay.includes("window.addEventListener('pagehide', releaseAndClose)")
 assert(relay.includes('let commandChain = Promise.resolve()')
     && relay.includes('commandChain = commandChain.then(() => forwardCommand(message)'),
     'ordered playback requests are serialized so clientCommandSeq cannot be reordered by concurrent HTTP requests');
-assert(relay.includes("new Set(['status', 'import', 'auth'])") && relay.includes('void forwardCommand(message)'),
+const independent = relay.match(/INDEPENDENT_ACTIONS = new Set\(\[([^\]]*)\]\)/)?.[1] || '';
+assert(['status', 'status-watch', 'import', 'auth'].every((action) => independent.includes(`'${action}'`))
+    && relay.includes('INDEPENDENT_ACTIONS.has(action)') && relay.includes('void forwardCommand(message)'),
     'status and long import/auth jobs use the broker independent lane so playback controls stay responsive');
 assert(broker.includes('\"jobSeq\": 0') && broker.includes('seq_key = \"jobSeq\" if action in {\"import\", \"auth\"} else \"seq\"'),
     'broker keeps long jobs on a separate replay/order high-water boundary');
