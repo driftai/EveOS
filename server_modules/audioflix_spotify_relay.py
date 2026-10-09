@@ -15,6 +15,7 @@ def relay_html(server_origin: str) -> str:
   'use strict';
   const RELAY_ORIGIN = {origin_json};
   const PROTOCOL = 1;
+  const INDEPENDENT_ACTIONS = new Set(['status', 'import', 'auth']);
   let port = null;
   let pairId = '';
   let clientToken = '';
@@ -125,8 +126,15 @@ def relay_html(server_origin: str) -> str:
         return;
       }}
       if (message.type !== 'command') return;
-      // MessagePort preserves message order, but independent fetch() calls can finish out of order.
-      // Serialize relay->broker requests so clientCommandSeq remains a real transport ordering fence.
+      const action = String(message.command?.action || '').toLowerCase();
+      if (INDEPENDENT_ACTIONS.has(action)) {{
+        // Status and long auth/import jobs have separate broker ordering. Dispatch them immediately
+        // so a playlist scrape never stalls the owner's pause/seek/volume command stream.
+        void forwardCommand(message);
+        return;
+      }}
+      // Ordered playback commands stay serialized. This keeps clientCommandSeq meaningful and
+      // ensures Stop/Seek/Play cannot be overtaken by rapid volume traffic.
       commandChain = commandChain.then(() => forwardCommand(message), () => forwardCommand(message));
     }};
     port.start?.();
