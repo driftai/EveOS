@@ -126,6 +126,7 @@ def test_search_monitor_local_moe_refresh_is_open_only_and_single_flight():
 
 def test_search_monitor_restores_explicit_loading_targeted_reload_and_passive_edges():
     ai_home = _read_root("js/modules/gemini/search_monitor/searchMonitorAiHome.js")
+    ai_home_markup = _read_root("js/modules/gemini/search_monitor/searchMonitorAiHome.markup.js")
     control_plane = _read_root("js/modules/gemini/server_control/eveosControlPlane.js")
     service_bridge = _read_root("js/modules/gemini/search_monitor/nexusServiceChatBridge.js")
     passive_boot = _read_root("js/modules/gemini/server_control/geminiPassiveBoot.js")
@@ -133,7 +134,7 @@ def test_search_monitor_restores_explicit_loading_targeted_reload_and_passive_ed
     gemini_control = _read_root("js/modules/gemini/server_control/geminiServerControl.js")
     manifest = _read_root("js/config/manifest/scripts.parts/13-gemini.js")
 
-    assert "Load the Gemini workspace" in ai_home
+    assert "Load the Gemini workspace" in ai_home_markup
     assert "let geminiWorkspaceLoaded = false;" in ai_home
     assert "if (active && gemini?.open && geminiWorkspaceLoaded) onGeminiOpen?.();" in ai_home
     assert "data-search-monitor-reload-ui" in ai_home
