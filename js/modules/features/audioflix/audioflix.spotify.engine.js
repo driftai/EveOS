@@ -238,8 +238,10 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
         state.ended = false;
         return setStatus('stopped', { paused: true, providerPaused: false });
     }
-    async function restart() {
+    async function restart(payload = {}) {
         if (!controller) throw new Error('No Spotify track is loaded.');
+        state.generation = Math.max(1, Number(payload.generation || state.generation + 1));
+        state.completionId = '';
         await Promise.resolve(controller.seek?.(0));
         state.currentTime = 0;
         state.started = false;
@@ -255,7 +257,7 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
         if (name === 'pause') return pause();
         if (name === 'seek') return seek(payload);
         if (name === 'stop') return stop();
-        if (name === 'restart') return restart();
+        if (name === 'restart') return restart(payload);
         throw new Error(`Unsupported Spotify engine action: ${name || '(empty)'}`);
     }
 
