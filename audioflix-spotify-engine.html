@@ -11,14 +11,70 @@
         h1 { margin: 0 0 8px; font-size: 1.2rem; }
         p { margin: 0 0 18px; opacity: .75; }
         #spotify-engine-player { min-height: 152px; }
+        .engine-mirror { min-height: 120px; display: grid; align-content: center; gap: 12px; padding: 16px; border-radius: 12px; background: #0d5268; }
+        .engine-mirror strong { font-size: 1rem; }
+        .engine-mirror-meta { display: flex; justify-content: space-between; gap: 16px; font-size: .82rem; opacity: .84; }
+        .engine-mirror progress { width: 100%; height: 6px; accent-color: #fff; }
+        .engine-mirror small { opacity: .72; }
     </style>
 </head>
 <body>
     <main>
         <h1>EveOS Spotify Engine</h1>
-        <p>This managed window supplies Spotify playback to ordinary EveOS tabs. Control it from Audioflix.</p>
+        <p id="spotify-engine-copy">This managed window supplies Spotify playback to ordinary EveOS tabs. Control it from Audioflix.</p>
         <div id="spotify-engine-player" aria-label="Managed Spotify player"></div>
     </main>
-    <script src="js/modules/features/audioflix/audioflix.spotify.engine.js"></script>
+    <script>
+        (() => {
+            const params = new URLSearchParams(location.search);
+            const mirror = params.get('surface') === 'mirror';
+            if (!mirror) {
+                const script = document.createElement('script');
+                script.src = 'js/modules/features/audioflix/audioflix.spotify.engine.js';
+                document.body.appendChild(script);
+                return;
+            }
+
+            document.documentElement.dataset.spotifyEngineSurface = 'mirror';
+            const copy = document.getElementById('spotify-engine-copy');
+            const mount = document.getElementById('spotify-engine-player');
+            copy.textContent = 'Embedded view of the managed Spotify engine. Audio stays on the single managed engine while EveOS owns the controls.';
+            mount.innerHTML = `
+                <section class="engine-mirror" aria-live="polite">
+                    <strong data-engine-mirror-title>Waiting for Spotify...</strong>
+                    <div class="engine-mirror-meta">
+                        <span data-engine-mirror-status>Idle</span>
+                        <span data-engine-mirror-time>0:00 / 0:00</span>
+                    </div>
+                    <progress data-engine-mirror-progress max="1" value="0"></progress>
+                    <small>Managed Spotify engine · mirrored inside EveOS</small>
+                </section>`;
+
+            const title = mount.querySelector('[data-engine-mirror-title]');
+            const status = mount.querySelector('[data-engine-mirror-status]');
+            const time = mount.querySelector('[data-engine-mirror-time]');
+            const progress = mount.querySelector('[data-engine-mirror-progress]');
+            const formatTime = (value) => {
+                const seconds = Math.max(0, Number(value) || 0);
+                return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+            };
+            const render = (state = {}) => {
+                const current = Math.max(0, Number(state.currentTime) || 0);
+                const duration = Math.max(0, Number(state.duration) || 0);
+                title.textContent = String(state.title || 'Spotify');
+                status.textContent = String(state.status || (state.paused === false ? 'Playing' : 'Paused'));
+                time.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
+                progress.max = String(duration || 1);
+                progress.value = String(Math.min(current, duration || current));
+            };
+            window.addEventListener('message', (event) => {
+                if (event.source !== parent) return;
+                const message = event.data || {};
+                if (message.type !== 'eveos:spotify-engine-mirror-state' || Number(message.version) !== 1) return;
+                render(message.state || {});
+            });
+            parent.postMessage({ type: 'eveos:spotify-engine-mirror-ready', version: 1 }, '*');
+        })();
+    </script>
 </body>
 </html>
