@@ -20,6 +20,7 @@ const runPython = (relative) => {
 };
 
 const helper = read('server_modules/audioflix_spotify_browser.js');
+const activation = read('server_modules/audioflix_spotify_playback_activation.js');
 const hook = read('server_modules/audioflix_spotify_browser_hook.js');
 const manager = read('server_modules/audioflix_spotify_browser.py');
 const transport = read('server_modules/audioflix_spotify_browser_transport.js');
@@ -32,6 +33,7 @@ const remote = read('js/modules/features/audioflix/audioflix.spotify.remote.js')
 const anyBrowser = read('js/modules/features/audioflix/audioflix.spotify.any-browser.js');
 const engine = read('js/modules/features/audioflix/audioflix.spotify.engine.js');
 const enginePage = read('audioflix-spotify-engine.html');
+const launcher = read('tools/audioflix/spotify-managed-browser.ps1');
 const manifest = read('js/config/manifest/scripts.parts/03-feature-modules.js');
 const ignore = read('.gitignore');
 
@@ -39,6 +41,17 @@ assert(helper.includes("require('playwright')") && helper.indexOf("require('play
     'Playwright remains lazy so offline readiness checks do not require a browser install');
 assert(helper.includes("server.listen(port, '127.0.0.1'") && helper.includes('x-eveos-spotify-token'),
     'private managed helper remains loopback-only and token authenticated');
+assert(helper.includes('--autoplay-policy=no-user-gesture-required')
+    && helper.includes('--disable-background-timer-throttling')
+    && helper.includes('--disable-renderer-backgrounding'),
+    'managed browser explicitly permits remote playback and resists minimized-window throttling');
+assert(activation.includes('handleTransportWithActivation') && activation.includes('candidate.click')
+    && activation.includes('playbackActivated') && activation.includes('isLikelyPlayControl'),
+    'remote Play/Resume has a bounded Playwright click fallback when controller autoplay stalls');
+assert(activation.includes("![/" ) === false,
+    'activation module contains no placeholder assertion syntax');
+assert(!activation.includes('eval(') && !activation.includes('new Function('),
+    'playback activation adds no arbitrary evaluation surface');
 assert(hook.includes("host !== 'open.spotify.com'") && hook.includes("startsWith('/embed/')"),
     'media instrumentation is scoped to Spotify embed frames');
 assert(hook.includes('HTMLMediaElement.prototype.play')
@@ -104,6 +117,9 @@ assert(anyBrowser.includes('EveAudioflixAudio.playItem') || anyBrowser.includes(
 assert(anyBrowser.includes('fallback: !relayWasReached()'),
     'local embed fallback is allowed only when no trusted relay handshake was reached');
 
+assert(launcher.includes("ValidateSet('background','window','headless')")
+    && launcher.includes('playwright=headless') && launcher.includes('*-headless'),
+    'launcher exposes explicit background/window/headless engine presentation modes');
 assert(manifest.includes('audioflix.spotify.remote.js') && manifest.includes('audioflix.spotify.any-browser.js'),
     'any-browser Spotify client is reachable from the feature manifest');
 assert(bridge.includes('audioflix_spotify_http.handle_get_request') && bridge.includes('audioflix_spotify_http.handle_post_request'),
