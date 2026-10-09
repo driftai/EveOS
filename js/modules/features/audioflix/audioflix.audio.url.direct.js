@@ -54,9 +54,15 @@ window.EveAudioflixUrlDirect = window.EveAudioflixUrlDirect || {};
             player.addEventListener('play', () => { if (deps.active() !== session) return; update(); emitPlayback(`Playing ${item.title || 'linked audio'} directly from the browser${routedLabel ? ` -> ${routedLabel}` : ''}`); });
             player.addEventListener('pause', () => { update(); emitPlayback('Paused'); });
             player.addEventListener('ended', () => {
+                // A replaced transport must never report Ended for the track that superseded it.
+                if (deps.active() !== session) { window.EveAudioflixLocalPlayback?.clearMediaSource?.(player); return; }
                 update();
-                if (capturing) window.EveAudioflixAudio?.getMusicCapture?.()?.stop?.({ drain: true });
-                emitPlayback('Ended');
+                // Same contract as the local player: the queue completion owner waits on `settle`
+                // so the next track cannot flush or overlap the drained native-capture tail.
+                const settle = capturing
+                    ? Promise.resolve(window.EveAudioflixAudio?.getMusicCapture?.()?.stop?.({ drain: true })).catch(() => false)
+                    : undefined;
+                emitPlayback('Ended', false, { item, settle });
                 window.EveAudioflixLocalPlayback?.clearMediaSource?.(player);
             });
             player.addEventListener('error', async () => {
