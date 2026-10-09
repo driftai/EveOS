@@ -10,6 +10,10 @@ const source = fs.readFileSync(
     path.join(ROOT, 'js/modules/features/audioflix/audioflix.audio.local.js'),
     'utf8'
 );
+const anyBrowserSource = fs.readFileSync(
+    path.join(ROOT, 'js/modules/features/audioflix/audioflix.spotify.any-browser.js'),
+    'utf8'
+);
 
 let fileUrlCalls = 0;
 const localPath = 'C:\\Audioflix\\localized.mp3';
@@ -72,19 +76,22 @@ vm.runInContext(source, context, { filename: 'audioflix.audio.local.js' });
     assert.equal(first.localPath, localPath);
     assert.equal(first.item.url, 'blob:localized-1');
 
+    resolver.handoffPrepared(first.item, first.localPath);
     const replay = await resolver.prepare(first.item);
     assert.equal(fileUrlCalls, 1,
-        'passing the validated item into the normal Audioflix playback pipeline reuses its URL instead of minting a second blob');
+        'Spotify preflight hands the validated item into normal Audioflix playback without minting a second blob');
     assert.equal(replay.localPath, localPath);
     assert.equal(replay.item.url, 'blob:localized-1');
     assert.notEqual(replay.item, first.item, 'handoff still returns the normal defensive playback copy');
 
     const independent = await resolver.prepare(replay.item);
     assert.equal(fileUrlCalls, 2,
-        'the handoff is one-shot; a later independent playback may validate and mint a fresh URL');
+        'the handoff is one-shot; a later independent playback validates and mints a fresh URL');
     assert.equal(independent.item.url, 'blob:localized-2');
 
     assert.match(source, /preparedLocalHandoffs = new WeakMap\(\)/);
     assert.match(source, /preparedLocalHandoffs\.delete\(item\)/);
+    assert.match(anyBrowserSource, /localPlayback\?\.handoffPrepared\?\.\(localItem, prepared\.localPath\)/,
+        'managed Spotify explicitly transfers the one prepared local source to the normal Audioflix pipeline');
     console.log('AUDIOFLIX_LOCAL_PREPARE_HANDOFF_SMOKE_OK');
 })().catch((error) => { console.error(error); process.exit(1); });
