@@ -85,6 +85,7 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
             state.approvalUrl = String(message.approvalUrl || '');
             state.status = 'approval-needed';
             notify();
+            settleReady(true, snapshot());
             return;
         }
         if (message.type === 'connection-error') {
@@ -108,7 +109,7 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
         }
     }
     async function connect() {
-        if (state.connected) return snapshot();
+        if (state.connected || state.approvalRequired) return snapshot();
         if (connectPromise) return connectPromise;
         state.connecting = true;
         state.status = 'connecting';
@@ -218,6 +219,7 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
         iframe = null;
         state.connected = false;
         state.connecting = false;
+        state.approvalRequired = false;
         state.status = 'idle';
         notify();
     }
