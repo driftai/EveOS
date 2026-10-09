@@ -101,6 +101,18 @@ class SpotifyClientBroker:
         self._tokens[token] = client_id
         return client
 
+    def _matching_file_client_locked(self, document_id: str, library_scope_id: str) -> dict | None:
+        if not document_id or not library_scope_id:
+            return None
+        for client in self._clients.values():
+            if client.get("mode") != "file":
+                continue
+            if client.get("documentId") == document_id and client.get("libraryScopeId") == library_scope_id:
+                client["lastSeen"] = _now()
+                client["expiresAt"] = client["lastSeen"] + _CLIENT_TTL_S
+                return client
+        return None
+
     def connect(self, payload: dict, context: dict) -> dict:
         payload = payload if isinstance(payload, dict) else {}
         context = context if isinstance(context, dict) else {}
@@ -119,6 +131,9 @@ class SpotifyClientBroker:
                 return self._client_grant(self._new_client_locked(mode, parent_origin, document_id, library_scope_id))
             if mode != "file" or parent_origin != "null":
                 return {"ok": False, "reason": "Unsupported Spotify relay parent origin."}
+            existing = self._matching_file_client_locked(document_id, library_scope_id)
+            if existing:
+                return self._client_grant(existing)
             pair_id = secrets.token_urlsafe(18)
             code = f"{secrets.randbelow(1000000):06d}"
             now = _now()
@@ -226,6 +241,7 @@ class SpotifyClientBroker:
                     "helperReachable": bool(managed.get("helperReachable")),
                     "authState": managed.get("authState") or "unknown",
                     "state": managed.get("state") or "stopped",
+                    "presentation": managed.get("presentation") or "hidden",
                     "lastError": managed.get("lastError") or "",
                     "importing": bool(managed.get("importing")),
                 },
@@ -323,6 +339,22 @@ class SpotifyClientBroker:
                     return {"ok": False, "reason": "Spotify client expired."}
                 self._acquire_locked(client)
             return self._state(client_id)
+        if action == "engine-presentation":
+            mode = _safe(args.get("mode"), 20).lower()
+            result = engine.set_presentation(mode, f"{server_origin}/audioflix-spotify-engine.html")
+            return {**self._state(client_id), "presentationResult": result, "ok": bool(result.get("ok"))}
+        if action == "engine-stop":
+            with self._lock:
+                owner = self._owner_client_id
+            if owner and owner != client_id:
+                state = self._state(client_id)
+                return {**state, "ok": False, "observer": True,
+                        "reason": "Another EveOS tab owns Spotify playback. Take control before stopping the engine."}
+            stopped = engine.stop_engine()
+            with self._lock:
+                self._owner_client_id = ""
+                self._owner_epoch += 1
+            return {**self._state(client_id), "engineStopResult": stopped, "ok": bool(stopped.get("ok"))}
         if action == "play":
             spotify_id = _spotify_id(args.get("spotifyId") or args.get("url"))
             if not spotify_id:
@@ -351,11 +383,19 @@ class SpotifyClientBroker:
             return self._state(client_id, played.get("state")) if played.get("ok") else played
 
         with self._lock:
-            observer = self._owner_client_id != client_id
-        if observer:
+            owner = self._owner_client_id
+            client = self._clients.get(client_id)
+            if not owner and action in {"resume", "volume", "seek", "restart"} and client:
+                self._acquire_locked(client)
+                owner = client_id
+        if owner and owner != client_id:
             state = self._state(client_id)
             return {**state, "ok": False, "observer": True,
                     "reason": "Another EveOS tab owns Spotify playback. Use Take control or Play to transfer it."}
+        if not owner and action in {"pause", "stop", "release"}:
+            state = self._state(client_id)
+            return {**state, "ok": True, "idle": True,
+                    "reason": "Spotify engine has no active owner. Press Play to begin playback."}
         if action == "volume":
             gain = max(0.0, min(1.0, float(args.get("effectiveVolume") if args.get("effectiveVolume") is not None else 1)))
             volume = engine.set_effective_volume(gain, _spotify_id(args.get("spotifyId") or ""))
