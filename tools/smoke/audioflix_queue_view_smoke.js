@@ -413,7 +413,7 @@ async function main() {
     await page.fill('.audioflix-nexus-quick input[type="search"]', 'Beta');
     await page.click('.audioflix-nexus-quick [data-quick-action="open-nexus"]');
     await page.waitForSelector('.audioflix-nexus-panel [data-af-nexus-search][data-af-type="music"]', { timeout: 5000 });
-    assert(await page.inputValue('.audioflix-nexus-panel [data-af-nexus-search][data-af-type="music"]') === 'Beta',
+    assert(await page.waitForFunction((selector) => document.querySelector(selector)?.value === 'Beta', '.audioflix-nexus-panel [data-af-nexus-search][data-af-type="music"]', { timeout: 5000 }).then(() => true, () => false),
         'Fast Track transfers the current query into the main Nexus Audio Link panel');
     await page.waitForSelector('.audioflix-nexus-panel [data-af-action="nexus-jump-card"][data-af-type="music"]');
     const nexusLayer = await page.evaluate(() => ({
