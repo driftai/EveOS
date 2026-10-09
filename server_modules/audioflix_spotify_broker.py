@@ -428,23 +428,8 @@ class SpotifyClientBroker:
 
 
 _broker = SpotifyClientBroker()
-
-
-def connect(payload: dict, context: dict) -> dict:
-    return _broker.connect(payload, context)
-
-
-def pairing_view(pair_id: str) -> dict:
-    return _broker.pairing_view(pair_id)
-
-
-def approve(payload: dict) -> dict:
-    return _broker.approve(payload)
-
-
-def pair_status(payload: dict) -> dict:
-    return _broker.pair_status(payload)
-
-
-def command(payload: dict, context: dict) -> dict:
-    return _broker.command(payload, context)
+def connect(payload: dict, context: dict) -> dict: return _broker.connect(payload, context)
+def pairing_view(pair_id: str) -> dict: return _broker.pairing_view(pair_id)
+def approve(payload: dict) -> dict: return _broker.approve(payload)
+def pair_status(payload: dict) -> dict: return _broker.pair_status(payload)
+def command(payload: dict, context: dict) -> dict: return _broker.command(payload, context)
