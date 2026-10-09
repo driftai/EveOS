@@ -20,6 +20,7 @@ def relay_html(server_origin: str) -> str:
   let clientToken = '';
   let clientId = '';
   let pollTimer = 0;
+  let commandChain = Promise.resolve();
   const postJson = async (path, body) => {{
     const response = await fetch(path, {{
       method: 'POST', cache: 'no-store', credentials: 'same-origin',
@@ -85,6 +86,26 @@ def relay_html(server_origin: str) -> str:
     }}
     acceptGrant(result);
   }};
+  const forwardCommand = async (message) => {{
+    if (!clientToken) {{
+      send({{ type: 'result', requestId: message.requestId, result: {{ ok: false, approvalRequired: Boolean(pairId), reason: 'Spotify relay is not authorized yet.' }} }});
+      return;
+    }}
+    try {{
+      const result = await postJson('/api/audioflix/spotify-client/command', {{ clientToken, command: message.command || {{}} }});
+      send({{ type: 'result', requestId: message.requestId, result }});
+    }} catch (error) {{
+      send({{ type: 'result', requestId: message.requestId, result: {{ ok: false, reason: String(error?.message || error).slice(0, 240) }} }});
+    }}
+  }};
+  const releaseAndClose = async (message) => {{
+    if (clientToken) {{
+      try {{ await postJson('/api/audioflix/spotify-client/command', {{
+        clientToken, command: {{ action: 'release', commandId: String(message.commandId || crypto.randomUUID()), clientCommandSeq: Number(message.clientCommandSeq || 1), payload: {{}} }}
+      }}); }} catch {{}}
+    }}
+    try {{ port?.close?.(); }} catch {{}}
+  }};
   window.addEventListener('message', (event) => {{
     if (event.source !== parent || port) return;
     const hello = event.data || {{}};
@@ -97,28 +118,16 @@ def relay_html(server_origin: str) -> str:
       return;
     }}
     port = transferred;
-    port.onmessage = async (messageEvent) => {{
+    port.onmessage = (messageEvent) => {{
       const message = messageEvent.data || {{}};
       if (message.type === 'disconnect') {{
-        if (clientToken) {{
-          try {{ await postJson('/api/audioflix/spotify-client/command', {{
-            clientToken, command: {{ action: 'release', commandId: String(message.commandId || crypto.randomUUID()), clientCommandSeq: Number(message.clientCommandSeq || 1), payload: {{}} }}
-          }}); }} catch {{}}
-        }}
-        try {{ port.close(); }} catch {{}}
+        commandChain = commandChain.then(() => releaseAndClose(message), () => releaseAndClose(message));
         return;
       }}
       if (message.type !== 'command') return;
-      if (!clientToken) {{
-        send({{ type: 'result', requestId: message.requestId, result: {{ ok: false, approvalRequired: Boolean(pairId), reason: 'Spotify relay is not authorized yet.' }} }});
-        return;
-      }}
-      try {{
-        const result = await postJson('/api/audioflix/spotify-client/command', {{ clientToken, command: message.command || {{}} }});
-        send({{ type: 'result', requestId: message.requestId, result }});
-      }} catch (error) {{
-        send({{ type: 'result', requestId: message.requestId, result: {{ ok: false, reason: String(error?.message || error).slice(0, 240) }} }});
-      }}
+      // MessagePort preserves message order, but independent fetch() calls can finish out of order.
+      // Serialize relay->broker requests so clientCommandSeq remains a real transport ordering fence.
+      commandChain = commandChain.then(() => forwardCommand(message), () => forwardCommand(message));
     }};
     port.start?.();
     connect(event, hello).catch((error) => send({{ type: 'connection-error', message: String(error?.message || error).slice(0, 240) }}));
