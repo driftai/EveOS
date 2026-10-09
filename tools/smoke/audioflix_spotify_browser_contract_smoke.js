@@ -136,6 +136,8 @@ assert(remote.includes('MessageChannel') && remote.includes("location.protocol =
 assert(anyBrowser.includes('EveAudioflixAudio.playItem') || anyBrowser.includes('audio.playItem = async function')
     && anyBrowser.includes('effectiveGain') && anyBrowser.includes("emitPlayback('Ended')"),
     'ordinary EveOS client routes Spotify through managed transport and preserves public queue events');
+assert(anyBrowser.includes('preferredLocalItem') && anyBrowser.includes('EveAudioflixLocalPlayback?.prepare'),
+    'Spotify provider interception gives a validated localized copy first refusal before remote playback');
 assert(anyBrowser.includes('fallback: !relayWasReached()'),
     'local embed fallback is allowed only when no trusted relay handshake was reached');
 assert(anyBrowser.includes('Spotify engine restarted or became idle. Press Play to resume control.'),
@@ -146,6 +148,11 @@ assert(surface.includes('audioflix-spotify-engine.html?surface=mirror')
     && surface.includes("remote().send('engine-stop'")
     && surface.includes('Hidden (default)') && surface.includes('True headless (silent)'),
     'Internal Player mirrors the single engine and exposes explicit presentation/subsystem controls');
+assert(surface.includes('queueConnection()?.snapshot?.()')
+    && surface.includes('view?.setQueue?.(entries, index)')
+    && surface.includes('onStep:') && surface.includes('onJump:')
+    && surface.includes('eve:audioflix-queue-changed'),
+    'managed Spotify Internal Player mirrors the Audioflix-owned queue and routes navigation back through it');
 assert(launcher.includes("ValidateSet('background','hidden','window','headless')")
     && launcher.includes("[string]$Presentation = 'hidden'")
     && launcher.includes('playwright=headless') && launcher.includes('*-headless')
@@ -167,6 +174,7 @@ runNode('tools/smoke/audioflix_spotify_relay_security_smoke.js');
 runPython('tools/smoke/audioflix_spotify_broker_smoke.py');
 runNode('tools/smoke/audioflix_spotify_entrypoints_smoke.js');
 runNode('tools/smoke/audioflix_spotify_any_browser_smoke.js');
+runNode('tools/smoke/audioflix_spotify_queue_surface_smoke.js');
 runNode('tools/smoke/audioflix_spotify_engine_smoke.js');
 require('./audioflix_spotify_managed_import_smoke.js');
 console.log('AUDIOFLIX_SPOTIFY_BROWSER_CONTRACT_SMOKE_OK');
