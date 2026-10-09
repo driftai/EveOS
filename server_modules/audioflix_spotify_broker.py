@@ -92,17 +92,10 @@ class SpotifyClientBroker:
         token = secrets.token_urlsafe(32)
         now = _now()
         client = {
-            "clientId": client_id,
-            "token": token,
-            "mode": mode,
-            "parentOrigin": parent_origin,
-            "documentId": _safe(document_id, 120),
-            "libraryScopeId": _safe(library_scope_id, 160),
-            "createdAt": now,
-            "lastSeen": now,
-            "expiresAt": now + _CLIENT_TTL_S,
-            "seq": 0,
-            "receipts": OrderedDict(),
+            "clientId": client_id, "token": token, "mode": mode, "parentOrigin": parent_origin,
+            "documentId": _safe(document_id, 120), "libraryScopeId": _safe(library_scope_id, 160),
+            "createdAt": now, "lastSeen": now, "expiresAt": now + _CLIENT_TTL_S,
+            "seq": 0, "jobSeq": 0, "receipts": OrderedDict(),
         }
         self._clients[client_id] = client
         self._tokens[token] = client_id
@@ -123,32 +116,21 @@ class SpotifyClientBroker:
             if mode == "localhost":
                 if _origin(parent_origin) != server_origin:
                     return {"ok": False, "reason": "The parent EveOS origin does not match this relay origin."}
-                return self._client_grant(self._new_client_locked(
-                    mode, parent_origin, document_id, library_scope_id
-                ))
+                return self._client_grant(self._new_client_locked(mode, parent_origin, document_id, library_scope_id))
             if mode != "file" or parent_origin != "null":
                 return {"ok": False, "reason": "Unsupported Spotify relay parent origin."}
             pair_id = secrets.token_urlsafe(18)
             code = f"{secrets.randbelow(1000000):06d}"
             now = _now()
             self._pairings[pair_id] = {
-                "pairId": pair_id,
-                "code": code,
-                "csrf": secrets.token_urlsafe(24),
-                "documentId": document_id,
-                "libraryScopeId": library_scope_id,
-                "parentOrigin": parent_origin,
-                "serverOrigin": server_origin,
-                "approved": False,
-                "clientId": "",
-                "createdAt": now,
+                "pairId": pair_id, "code": code, "csrf": secrets.token_urlsafe(24),
+                "documentId": document_id, "libraryScopeId": library_scope_id,
+                "parentOrigin": parent_origin, "serverOrigin": server_origin,
+                "approved": False, "clientId": "", "createdAt": now,
                 "expiresAt": now + _PAIR_TTL_S,
             }
             return {
-                "ok": True,
-                "pairingRequired": True,
-                "pairId": pair_id,
-                "code": code,
+                "ok": True, "pairingRequired": True, "pairId": pair_id, "code": code,
                 "approvalUrl": f"{server_origin}/api/audioflix/spotify-approval?pair={pair_id}",
                 "expiresIn": int(_PAIR_TTL_S),
             }
@@ -160,12 +142,8 @@ class SpotifyClientBroker:
             if not pair:
                 return {"ok": False, "reason": "Pairing request expired or was not found."}
             return {
-                "ok": True,
-                "pairId": pair["pairId"],
-                "code": pair["code"],
-                "csrf": pair["csrf"],
-                "approved": pair["approved"],
-                "expiresIn": max(0, int(pair["expiresAt"] - _now())),
+                "ok": True, "pairId": pair["pairId"], "code": pair["code"], "csrf": pair["csrf"],
+                "approved": pair["approved"], "expiresIn": max(0, int(pair["expiresAt"] - _now())),
             }
 
     def approve(self, payload: dict) -> dict:
@@ -200,12 +178,8 @@ class SpotifyClientBroker:
 
     def _client_grant(self, client: dict) -> dict:
         return {
-            "ok": True,
-            "connected": True,
-            "protocolVersion": _PROTOCOL_VERSION,
-            "clientId": client["clientId"],
-            "clientToken": client["token"],
-            "mode": client["mode"],
+            "ok": True, "connected": True, "protocolVersion": _PROTOCOL_VERSION,
+            "clientId": client["clientId"], "clientToken": client["token"], "mode": client["mode"],
             "expiresIn": max(0, int(client["expiresAt"] - _now())),
         }
 
@@ -239,16 +213,14 @@ class SpotifyClientBroker:
             state = response.get("state") if response.get("ok") else None
         with self._lock:
             self._sync_engine_epoch_locked(managed)
+            engine_generation = max(0, int((state or {}).get("generation") or 0))
+            if engine_generation > self._track_generation:
+                self._track_generation = engine_generation
             return {
-                "ok": True,
-                "connected": True,
-                "clientId": client_id,
-                "isOwner": self._owner_client_id == client_id,
-                "ownerClientId": self._owner_client_id,
-                "ownerEpoch": self._owner_epoch,
-                "engineEpoch": self._engine_epoch,
-                "trackGeneration": self._track_generation,
-                "engine": state or {},
+                "ok": True, "connected": True, "clientId": client_id,
+                "isOwner": self._owner_client_id == client_id, "ownerClientId": self._owner_client_id,
+                "ownerEpoch": self._owner_epoch, "engineEpoch": self._engine_epoch,
+                "trackGeneration": self._track_generation, "engine": state or {},
                 "managed": {
                     "browserRunning": bool(managed.get("browserRunning")),
                     "helperReachable": bool(managed.get("helperReachable")),
@@ -293,9 +265,11 @@ class SpotifyClientBroker:
                     return prior["result"]
                 wait_event = prior["event"]
             else:
-                if seq <= client["seq"]:
+                seq_key = "jobSeq" if action in {"import", "auth"} else "seq"
+                if action != "status" and seq <= client[seq_key]:
                     return {"ok": False, "resyncRequired": True, "reason": "Stale Spotify client command sequence."}
-                client["seq"] = seq
+                if action != "status":
+                    client[seq_key] = seq
                 client["receipts"][command_id] = {
                     "fingerprint": fp, "result": None, "event": threading.Event()
                 }
@@ -377,10 +351,7 @@ class SpotifyClientBroker:
             return self._state(client_id, played.get("state")) if played.get("ok") else played
 
         with self._lock:
-            if self._owner_client_id != client_id:
-                observer = True
-            else:
-                observer = False
+            observer = self._owner_client_id != client_id
         if observer:
             state = self._state(client_id)
             return {**state, "ok": False, "observer": True,
@@ -391,7 +362,12 @@ class SpotifyClientBroker:
             return {**self._state(client_id), "volumeResult": volume, "ok": bool(volume.get("ok"))}
         if action in {"pause", "resume", "stop", "restart"}:
             mapped = "play" if action == "resume" else action
-            response = engine.transport({"action": mapped})
+            command = {"action": mapped}
+            if action == "restart":
+                with self._lock:
+                    self._track_generation += 1
+                    command["generation"] = self._track_generation
+            response = engine.transport(command)
             if action == "stop" and response.get("ok"):
                 with self._lock:
                     if self._owner_client_id == client_id:
