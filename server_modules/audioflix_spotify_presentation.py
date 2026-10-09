@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import subprocess
 import threading
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -33,13 +34,44 @@ def _is_headless(status: dict) -> bool:
     return str(status.get("browserChannel") or "").endswith("-headless")
 
 
+def _managed_profile_process(pid: int, profile_path: str) -> bool:
+    if os.name != "nt" or pid <= 0 or not profile_path:
+        return False
+    command = [
+        "powershell", "-NoProfile", "-NonInteractive", "-Command",
+        f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' -ErrorAction SilentlyContinue; if($p){{$p.CommandLine}}",
+    ]
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    line = (completed.stdout or "").lower().replace("/", "\\")
+    profile = os.path.normcase(os.path.normpath(profile_path)).lower().replace("/", "\\")
+    return bool(profile and profile in line and "--user-data-dir" in line)
+
+
+def _window_pid(user32, hwnd) -> int:
+    pid = ctypes.c_ulong(0)
+    user32.GetWindowThreadProcessId(ctypes.c_void_p(hwnd), ctypes.byref(pid))
+    return int(pid.value)
+
+
 def _find_engine_window() -> int:
     global _window_handle
     if os.name != "nt":
         return 0
+    status = browser.status()
+    profile_path = str(status.get("profilePath") or "")
+    if not profile_path:
+        return 0
     user32 = ctypes.windll.user32
     if _window_handle and user32.IsWindow(ctypes.c_void_p(_window_handle)):
-        return _window_handle
+        if _managed_profile_process(_window_pid(user32, _window_handle), profile_path):
+            return _window_handle
+        _window_handle = 0
 
     found = []
     EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -50,7 +82,10 @@ def _find_engine_window() -> int:
             return True
         buffer = ctypes.create_unicode_buffer(length + 1)
         user32.GetWindowTextW(hwnd, buffer, length + 1)
-        if "EveOS Spotify Engine" in buffer.value:
+        if "EveOS Spotify Engine" not in buffer.value:
+            return True
+        pid = _window_pid(user32, hwnd)
+        if _managed_profile_process(pid, profile_path):
             found.append(int(hwnd))
             return False
         return True
@@ -69,7 +104,7 @@ def _apply_window_mode(mode: str) -> dict:
             "ok": True,
             "presentation": mode,
             "windowFound": False,
-            "warning": "Managed Spotify engine window was not found yet.",
+            "warning": "Managed Spotify engine window for the dedicated profile was not found yet.",
         }
     command = {"hidden": 0, "background": 6, "window": 9}[mode]
     ctypes.windll.user32.ShowWindowAsync(ctypes.c_void_p(hwnd), command)

@@ -39,10 +39,29 @@ namespace EveOS.Audioflix {
         public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
         [DllImport("user32.dll")]
         public static extern bool IsWindow(IntPtr hWnd);
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
     }
 }
 "@
     }
+}
+
+function Test-SpotifyEngineProcess([UInt32]$ProcessId, [string]$ProfilePath) {
+    if (-not $ProcessId -or [string]::IsNullOrWhiteSpace($ProfilePath)) { return $false }
+    try {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction SilentlyContinue
+        $cmd = [string]$proc.CommandLine
+        return $cmd.IndexOf($ProfilePath, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+            $cmd.IndexOf('--user-data-dir', [StringComparison]::OrdinalIgnoreCase) -ge 0
+    } catch { return $false }
+}
+
+function Test-SpotifyEngineWindowHandle([IntPtr]$Handle, [string]$ProfilePath) {
+    if ($Handle -eq [IntPtr]::Zero -or -not [EveOS.Audioflix.WindowApi]::IsWindow($Handle)) { return $false }
+    [UInt32]$pid = 0
+    [void][EveOS.Audioflix.WindowApi]::GetWindowThreadProcessId($Handle, [ref]$pid)
+    return Test-SpotifyEngineProcess $pid $ProfilePath
 }
 
 function Save-SpotifyEngineWindowHandle([IntPtr]$Handle) {
@@ -52,27 +71,31 @@ function Save-SpotifyEngineWindowHandle([IntPtr]$Handle) {
     } catch {}
 }
 
-function Get-SavedSpotifyEngineWindowHandle {
+function Get-SavedSpotifyEngineWindowHandle([string]$ProfilePath) {
     if (-not (Test-Path -LiteralPath $windowStatePath)) { return [IntPtr]::Zero }
     try {
         $raw = [Int64](Get-Content -LiteralPath $windowStatePath -Raw)
         $handle = [IntPtr]$raw
-        if ($handle -ne [IntPtr]::Zero -and [EveOS.Audioflix.WindowApi]::IsWindow($handle)) { return $handle }
+        if (Test-SpotifyEngineWindowHandle $handle $ProfilePath) { return $handle }
     } catch {}
     Remove-Item -LiteralPath $windowStatePath -Force -ErrorAction SilentlyContinue
     return [IntPtr]::Zero
 }
 
-function Set-SpotifyEnginePresentation([string]$Mode) {
+function Set-SpotifyEnginePresentation([string]$Mode, [string]$ProfilePath = '') {
     if ($env:OS -ne 'Windows_NT' -or $Mode -eq 'headless') { return $true }
     Ensure-WindowApi
+    if ([string]::IsNullOrWhiteSpace($ProfilePath)) {
+        $status = Get-CurrentStatus
+        $ProfilePath = [string]$status.profilePath
+    }
     $command = switch ($Mode) {
         'hidden' { 0 }
         'background' { 6 }
         default { 9 }
     }
 
-    $saved = Get-SavedSpotifyEngineWindowHandle
+    $saved = Get-SavedSpotifyEngineWindowHandle $ProfilePath
     if ($saved -ne [IntPtr]::Zero) {
         [void][EveOS.Audioflix.WindowApi]::ShowWindowAsync($saved, $command)
         return $true
@@ -81,7 +104,8 @@ function Set-SpotifyEnginePresentation([string]$Mode) {
     $deadline = (Get-Date).AddSeconds(5)
     do {
         $windows = @(Get-Process msedge -ErrorAction SilentlyContinue | Where-Object {
-            $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '*EveOS Spotify Engine*'
+            $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '*EveOS Spotify Engine*' -and
+            (Test-SpotifyEngineProcess ([UInt32]$_.Id) $ProfilePath)
         })
         if ($windows.Count -gt 0) {
             foreach ($process in $windows) {
@@ -92,7 +116,7 @@ function Set-SpotifyEnginePresentation([string]$Mode) {
         }
         Start-Sleep -Milliseconds 150
     } while ((Get-Date) -lt $deadline)
-    Write-Warning 'Could not find the EveOS Spotify Engine window. Playback can still be healthy; use -Action status to inspect it.'
+    Write-Warning 'Could not find the EveOS Spotify Engine window for the dedicated managed profile. Playback can still be healthy; use -Action status to inspect it.'
     return $false
 }
 
@@ -131,7 +155,7 @@ function Start-ManagedEngine([string]$Mode) {
 function Apply-LocalPresentationFallback($Result, [string]$Mode) {
     if ($Mode -eq 'headless' -or $env:OS -ne 'Windows_NT') { return }
     if ($Result.windowFound -eq $true) { return }
-    [void](Set-SpotifyEnginePresentation $Mode)
+    [void](Set-SpotifyEnginePresentation $Mode ([string]$Result.profilePath))
 }
 
 switch ($Action) {
