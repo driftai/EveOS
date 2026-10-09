@@ -36,6 +36,7 @@ const tests = {
         ['python', 'tools/smoke/audioflix_spotify_browser_python_smoke.py'],
         ['python', 'tools/smoke/audioflix_spotify_session_smoke.py'],
         ['node', 'tools/smoke/audioflix_spotify_browser_smoke.js'],
+        ['node', 'tools/smoke/audioflix_spotify_engine_smoke.js'],
         ['node', 'tools/smoke/audioflix_spotify_playback_smoke.js'],
         ['node', 'tools/smoke/audioflix_spotify_scraper_smoke.js']
     ],
