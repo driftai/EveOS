@@ -106,6 +106,7 @@ window.EveAudioflixLocalPlayback = window.EveAudioflixLocalPlayback || {};
             } catch { /* Try the localhost bridge next. */ }
             if (blobUrl) {
                 playable.url = blobUrl;
+                handoffPrepared(playable, localPath);
                 return { item: playable, localPath, status: '' };
             }
 
@@ -115,6 +116,7 @@ window.EveAudioflixLocalPlayback = window.EveAudioflixLocalPlayback || {};
             try {
                 if (await native.probeLocalFile(localUrl)) {
                     playable.url = localUrl;
+                    handoffPrepared(playable, localPath);
                     return { item: playable, localPath, status: '' };
                 }
             } catch { /* Continue through the remaining local candidates. */ }
