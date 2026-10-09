@@ -10,6 +10,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const enginePath = path.join(ROOT, 'js/modules/features/audioflix/audioflix.spotify.engine.js');
 const engineHtmlPath = path.join(ROOT, 'audioflix-spotify-engine.html');
 const surfacePath = path.join(ROOT, 'js/modules/features/audioflix/audioflix.spotify.engine-surface.js');
+const presentationPath = path.join(ROOT, 'server_modules/audioflix_spotify_presentation.py');
 const launcherPath = path.join(ROOT, 'tools/audioflix/spotify-managed-browser.ps1');
 const fixture = path.join(os.tmpdir(), `eveos-spotify-engine-${process.pid}.html`);
 const engineUrl = `file:///${enginePath.replace(/\\/g, '/')}`;
@@ -124,14 +125,23 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             && surface.includes('Window')
             && surface.includes('True headless (silent)'),
         'Internal Player exposes presentation and subsystem lifecycle controls without a second engine');
+        const presentation = fs.readFileSync(presentationPath, 'utf8');
+        assert(presentation.includes('_managed_profile_process')
+            && presentation.includes('GetWindowThreadProcessId')
+            && presentation.includes('--user-data-dir')
+            && presentation.includes('profilePath'),
+        'server presentation only accepts engine-title windows owned by the dedicated managed profile');
         const launcher = fs.readFileSync(launcherPath, 'utf8');
         assert(launcher.includes("[ValidateSet('background','hidden','window','headless')]")
             && launcher.includes("[string]$Presentation = 'hidden'")
             && launcher.includes('ShowWindowAsync')
             && launcher.includes("'hidden' { 0 }")
             && launcher.includes('spotify-engine-window-handle.txt')
+            && launcher.includes('GetWindowThreadProcessId')
+            && launcher.includes('Test-SpotifyEngineProcess')
+            && launcher.includes('$Result.profilePath')
             && launcher.includes("/api/audioflix/spotify-browser/presentation"),
-        'managed Spotify launcher defaults to hidden audio and keeps CLI presentation synchronized through EveOS');
+        'managed Spotify launcher scopes HWND fallback to the dedicated profile and stays synchronized through EveOS');
 
         console.log('AUDIOFLIX_SPOTIFY_ENGINE_SMOKE_OK');
     } finally {
