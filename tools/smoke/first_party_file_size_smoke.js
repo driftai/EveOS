@@ -3,46 +3,20 @@ const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const MAX_LINES = 450;
+const HEADROOM_LINES = 400;
 const CODE_EXTENSIONS = new Set([
-    '.js',
-    '.mjs',
-    '.cjs',
-    '.css',
-    '.html',
-    '.py',
-    '.ps1',
-    '.bat'
+    '.js', '.mjs', '.cjs', '.css', '.html', '.py', '.ps1', '.bat'
 ]);
 const EXCLUDED_DIRECTORIES = new Set([
-    '.git',
-    '.venv',
-    'venv',
-    'env',
-    '.youtube-piano-venv',
-    '.piano-hifi-venv',
-    'bin',
-    'build',
-    'coverage',
-    'data',
-    'dist',
-    'node_modules',
-    'output',
-    'playwright-report',
-    'test-results',
-    'third-party',
-    'third_party',
-    'vendor'
+    '.git', '.venv', 'venv', 'env', '.youtube-piano-venv', '.piano-hifi-venv',
+    'bin', 'build', 'coverage', 'data', 'dist', 'node_modules', 'output',
+    'playwright-report', 'test-results', 'third-party', 'third_party', 'vendor'
 ]);
 const EXCLUDED_PATH_PREFIXES = [
-    // Bookmark Intel is an independently maintained Side-Builds tool embedded as a knowledge base.
     'tools/Bookmark-Intel/',
-    // Local MoE Harness is an independently maintained Side-Builds inference runtime.
     'tools/Local-MoE-Harness/',
-    // World Portal bundles the independently maintained GPL Orogen application.
     'tools/World-Book/tools/World-Portal/outer/orogen/',
-    // WatchFusion bundles the independently maintained VoxelVision engine.
     'tools/WatchFusion/voxelvision/',
-    // WatchFusion downloads the external Nuvio smart TV client on demand.
     'tools/WatchFusion/nuvio/'
 ];
 
@@ -68,9 +42,7 @@ function collectCodeFiles(directory, files = []) {
             }
             return;
         }
-        if (CODE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
-            files.push(filePath);
-        }
+        if (CODE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) files.push(filePath);
     });
     return files;
 }
@@ -86,10 +58,19 @@ const measured = collectCodeFiles(REPO_ROOT)
 const oversized = measured.filter((entry) => entry.lines > MAX_LINES);
 
 if (oversized.length) {
-    const details = oversized
-        .map((entry) => `${entry.lines} ${entry.relativePath}`)
-        .join('\n');
+    const details = oversized.map((entry) => `${entry.lines} ${entry.relativePath}`).join('\n');
     throw new Error(`First-party code files exceed ${MAX_LINES} lines:\n${details}`);
+}
+
+// This is intentionally non-blocking. It gives Eve/Vera an early cleanup queue before a module
+// crosses the hard 450-line boundary and starts blocking unrelated handoffs.
+const nearLimit = measured.filter((entry) => entry.lines >= HEADROOM_LINES && entry.lines <= MAX_LINES);
+if (nearLimit.length) {
+    console.warn('FIRST_PARTY_FILE_SIZE_HEADROOM', JSON.stringify({
+        threshold: HEADROOM_LINES,
+        maxLines: MAX_LINES,
+        files: nearLimit.map(({ relativePath, lines }) => ({ relativePath, lines, remaining: MAX_LINES - lines }))
+    }));
 }
 
 const byExtension = {};
@@ -107,6 +88,8 @@ const orderedByExtension = Object.fromEntries(
 
 console.log('FIRST_PARTY_FILE_SIZE_SMOKE_OK', JSON.stringify({
     maxLines: MAX_LINES,
+    headroomLines: HEADROOM_LINES,
+    nearLimitCount: nearLimit.length,
     measuredFiles: measured.length,
     totalLines,
     averageLines: measured.length ? Math.round((totalLines / measured.length) * 10) / 10 : 0,
