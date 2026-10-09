@@ -232,6 +232,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             pause: audio.pause.bind(audio),
             seek: audio.seek.bind(audio),
             stopAll: audio.stopAll.bind(audio),
+            stopItemLayers: audio.stopItemLayers.bind(audio),
             updateItemVolume: audio.updateItemVolume.bind(audio),
             getPlaybackState: audio.getPlaybackState.bind(audio),
             getStatus: audio.getStatus?.bind(audio)
@@ -288,6 +289,12 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             if (!active) return original.stopAll();
             await stopRemote();
             return true;
+        };
+        audio.stopItemLayers = async function anyBrowserStopItem(itemId, preserveProvider = false) {
+            if (active && String(item?.id || item?.url || '') === String(itemId || '') && !preserveProvider) {
+                await stopRemote();
+            }
+            return original.stopItemLayers(itemId, preserveProvider);
         };
         audio.updateItemVolume = function anyBrowserVolume(itemId, rawVolume) {
             if (!active || String(item?.id || '') !== String(itemId || '')) {
