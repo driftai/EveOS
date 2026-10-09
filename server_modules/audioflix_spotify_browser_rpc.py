@@ -6,20 +6,33 @@ port, token, or private session id.
 from __future__ import annotations
 
 from server_modules import audioflix_spotify_browser as browser
+from server_modules import audioflix_spotify_presentation as presentation
 from server_modules.audioflix_spotify_browser_utils import clamp_volume, normalize_track_id
 
 
-def ensure_engine(page_url: str) -> dict:
-    result = browser.start({"pageUrl": str(page_url or "").strip()})
+def _with_epoch(result: dict) -> dict:
     if isinstance(result, dict):
         result["engineStartedAt"] = int(browser._manager._started_at * 1000) if browser._manager._started_at else 0
     return result
 
 
+def ensure_engine(page_url: str) -> dict:
+    return _with_epoch(presentation.ensure_engine(str(page_url or "").strip()))
+
+
 def status() -> dict:
-    result = browser.status()
-    result["engineStartedAt"] = int(browser._manager._started_at * 1000) if browser._manager._started_at else 0
-    return result
+    return _with_epoch(presentation.status())
+
+
+def set_presentation(mode: str, page_url: str = "") -> dict:
+    return _with_epoch(presentation.set_presentation({
+        "mode": str(mode or ""),
+        "pageUrl": str(page_url or "").strip(),
+    }))
+
+
+def stop_engine() -> dict:
+    return _with_epoch(presentation.stop_engine({}))
 
 
 def transport(payload: dict | None = None) -> dict:
@@ -55,4 +68,6 @@ def import_playlist(url: str) -> dict:
 
 
 def auth(open_login: bool = False, url: str = "") -> dict:
+    if open_login:
+        presentation.restore_for_auth()
     return browser.auth({"openLogin": bool(open_login), "url": str(url or "")})
