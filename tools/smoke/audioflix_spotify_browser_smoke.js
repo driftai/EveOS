@@ -16,6 +16,7 @@ const assert = (condition, message) => {
         try { localStorage.clear(); } catch {}
         window.__eveSmokeNoAutoGemini = true;
         window.__EveAudioflixSpotifyStartTimeoutMs = 1000;
+        window.__EveAudioflixSpotifyRelayReadyTimeoutMs = 250;
     });
     await page.route('https://open.spotify.com/embed/iframe-api/v1', (route) => route.fulfill({
         contentType: 'application/javascript',
@@ -123,11 +124,14 @@ const assert = (condition, message) => {
             rows.push([`Playlist Track ${position}`, `Artist ${position}`, `Album ${position}`, position]);
         }
         rows.forEach(([title, artist, album, position], index) => {
+            // Spotify track identifiers are 22 alphanumeric characters. Keep the fixture shaped
+            // like the real provider contract so the managed path's stricter ID validation is tested.
+            const spotifyTrackId = `BROWSER${String(index).padStart(15, '0')}`;
             const track = S.addItem('music', {
                 title,
                 artist,
                 album,
-                url: `https://open.spotify.com/track/browserTrack${index}`,
+                url: `https://open.spotify.com/track/${spotifyTrackId}`,
                 sourceProvider: 'spotify',
                 folder: 'Spotify Playlists',
                 duration: 180 + index,
@@ -137,7 +141,7 @@ const assert = (condition, message) => {
             S.updateItem('music', track.id, {
                 playlistId: connectionId,
                 playlistPosition: position,
-                sourceId: `browserTrack${index}`
+                sourceId: spotifyTrackId
             });
             S.toggleMusicGroup(track.id, 'Gilded age Music', true);
         });
