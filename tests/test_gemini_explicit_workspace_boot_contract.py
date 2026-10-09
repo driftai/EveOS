@@ -12,12 +12,13 @@ def read(relative_path):
 def test_gemini_heavy_workspace_boot_requires_explicit_load():
     init = read("js/modules/gemini/gemini-init.js")
     ai_home = read("js/modules/gemini/search_monitor/searchMonitorAiHome.js")
+    ai_home_markup = read("js/modules/gemini/search_monitor/searchMonitorAiHome.markup.js")
 
     assert "requestGeminiBoot('gemini-provider-explicit-load')" in init
     assert "requestGeminiBoot('gemini-provider-open')" not in init
     assert "let geminiWorkspaceLoaded = false;" in ai_home
     assert "if (active && gemini?.open && geminiWorkspaceLoaded) onGeminiOpen?.();" in ai_home
-    assert "Load the Gemini workspace" in ai_home
+    assert "Load the Gemini workspace" in ai_home_markup
 
     view_start = init.index("function updateMonitorViewState")
     view_end = init.index("function bindMonitorViewControls", view_start)
