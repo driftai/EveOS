@@ -9,8 +9,8 @@ const helper = require(path.resolve(__dirname, '..', '..', 'server_modules', 'au
 assert.equal(helper.clampVolume(2), 1);
 assert.equal(helper.clampVolume(-1), 0);
 assert.equal(helper.clampVolume(0.25), 0.25);
-assert.equal(helper.validateLoopbackPageUrl('http://127.0.0.1:8765/EveOS.html'), true);
-assert.equal(helper.validateLoopbackPageUrl('https://localhost:8765/EveOS.html'), true);
+assert.equal(helper.validateLoopbackPageUrl('http://127.0.0.1:8765/audioflix-spotify-engine.html'), true);
+assert.equal(helper.validateLoopbackPageUrl('https://localhost:8765/audioflix-spotify-engine.html'), true);
 assert.equal(helper.validateLoopbackPageUrl('https://example.com/EveOS.html'), false);
 assert.equal(helper.isSpotifyEmbedUrl('https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT'), true);
 assert.equal(helper.isSpotifyEmbedUrl('https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT'), false);
@@ -60,19 +60,24 @@ function makeBrowserContext(url) {
         clearTimeout
     };
     vm.createContext(context);
-    vm.runInContext(`(${helper.browserInit.toString()})(${JSON.stringify({ sessionId: 'session-runtime-123', maxRefs: 32 })})`, context);
+    vm.runInContext(`(${helper.browserInit.toString()})(${JSON.stringify({ maxRefs: 32, initialVolume: 0.4 })})`, context);
     return context;
 }
 
 (async () => {
     const embed = makeBrowserContext('https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT');
-    assert.ok(embed.window.__eveSpotifyManagedControl, 'Spotify embed receives managed media control');
+    assert.ok(embed.window.__eveSpotifyManagedControl, 'Spotify embed receives bounded managed media control');
+    assert.equal(Object.prototype.hasOwnProperty.call(embed.window.__eveSpotifyManagedControl, 'sessionId'), false,
+        'Spotify frame control exposes no private helper session id');
     const detached = embed.document.createElement('video');
     await detached.play();
+    assert.equal(detached.volume, 0.4, 'new detached media inherits staged gain before audible playback');
     let snap = embed.window.__eveSpotifyManagedControl.setVolume(0.25);
     assert.equal(detached.volume, 0.25, 'detached playing video receives requested volume');
     assert.equal(snap.playingCount, 1);
     assert.ok(snap.reached >= 1);
+    assert.equal(Object.prototype.hasOwnProperty.call(snap, 'sessionId'), false,
+        'media snapshot never serializes helper session material');
 
     for (let i = 0; i < 80; i += 1) embed.document.createElement(i % 2 ? 'audio' : 'video');
     snap = embed.window.__eveSpotifyManagedControl.snapshot();
@@ -83,8 +88,8 @@ function makeBrowserContext(url) {
         'ordinary Spotify pages are not instrumented as playback embeds');
 
     const loopback = makeBrowserContext('http://127.0.0.1:8765/EveOS.html');
-    assert.equal(loopback.window.__EveAudioflixManagedBrowserSession, 'session-runtime-123',
-        'managed EveOS page receives exact session marker');
+    assert.equal(loopback.window.__EveAudioflixManagedBrowserSession, undefined,
+        'ordinary/engine loopback documents receive no injected helper session marker');
     assert.equal(loopback.window.__eveSpotifyManagedControl, undefined,
         'EveOS top page does not receive Spotify media hooks');
 
