@@ -96,3 +96,7 @@ console.log('FIRST_PARTY_FILE_SIZE_SMOKE_OK', JSON.stringify({
     byExtension: orderedByExtension,
     largest: measured[0] || null
 }));
+
+// Keep the decomposition contracts reachable from the existing guardrail chain so these helpers
+// cannot silently drift out of wiring after the oversized-file cleanup lands.
+require('./structural_module_split_smoke.js');
