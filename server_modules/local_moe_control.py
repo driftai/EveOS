@@ -265,12 +265,12 @@ def _start_runtime_for_explicit_request(status: dict) -> dict:
     )
 
 
-def start_server() -> dict:
+def start_server(*, start_runtime: bool = True) -> dict:
     global _PROCESS
     with _LOCK:
         current = _status()
         if current["running"]:
-            return _start_runtime_for_explicit_request(current)
+            return _start_runtime_for_explicit_request(current) if start_runtime else current
         if current["state"] == "blocked":
             return {**current, "ok": False}
         if not current["setupReady"]:
@@ -315,7 +315,7 @@ def start_server() -> dict:
         current = _status(health=health, harness_pid=_PROCESS.pid)
         _STATUS_GRACE.remember(current)
 
-    return _start_runtime_for_explicit_request(current)
+    return _start_runtime_for_explicit_request(current) if start_runtime else current
 
 
 def _terminate_owned(pid: int) -> bool:

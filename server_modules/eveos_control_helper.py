@@ -17,12 +17,11 @@ from . import bookmark_intel_control, eveos_console_prefs, eveos_ports, eveos_we
 from . import gemini_control, gemini_credentials, local_moe_control, matrix_window_control, nexus_browser_control
 from . import notes_control, piano_player_control, watchfusion_control, watchfusion_modes, world_book_control
 from .eveos_http_cors import eveos_cors_origin
-from . import eveos_control_requests
+from . import eveos_control_requests, eveos_service_reload
 
 DEFAULT_PORT = eveos_ports.service_port("GEMINI_CONTROL_PORT")
 MAIN_LAUNCHER_PORT = 3000
 _SERVER = None
-_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 def _shutdown_plane_after_response(delay: float = 0.4) -> bool:
@@ -302,7 +301,7 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             "/api/bookmark-intel/start", "/api/bookmark-intel/stop",
             "/api/local-moe/start", "/api/local-moe/stop", "/api/local-moe/launch", "/api/local-moe/setup",
             "/api/nexus-browser/start", "/api/nexus-browser/stop", "/api/nexus-browser/setup", "/api/nexus-browser/extension",
-            "/api/gemini-credentials", "/api/control-plane/consoles", "/api/matrix-window/control",
+            "/api/gemini-credentials", "/api/control-plane/consoles", "/api/matrix-window/control", "/api/services/restart",
         }
         if path in controlled_paths and not (gemini_control.request_can_control(self)
                 or eveos_control_requests.can_start_bridge_service(self, path)):
@@ -316,6 +315,8 @@ class EveOSControlHandler(http.server.BaseHTTPRequestHandler):
             return
 
         actions = {
+            "/api/services/restart": lambda: eveos_service_reload.restart_service(
+                (gemini_credentials.read_json_body(self) or {}).get("service"), web_port=_request_web_port(self)),
             "/api/eveos-server/start": lambda: eveos_web_control.start_server(port=_request_web_port(self)),
             "/api/eveos-server/stop": lambda: _stop_everything(_request_web_port(self)),
             "/api/eveos-server/stop-web": lambda: _stop_tool(

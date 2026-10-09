@@ -235,6 +235,25 @@ vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' 
     const coldSnapshot = window.EveAudioflixSpotifyAnyBrowser.snapshot();
     assert.equal(coldSnapshot.active, true, 'adopted cold-start playback is the active managed route');
     assert.equal(coldSnapshot.item.id, 'song-cold');
+    // Slow status must never accumulate overlapping requests or relabel an old terminal
+    // snapshot as the next queue item. The managed browser is a separate async runtime.
+    const normalStatus = remote.status;
+    let releaseStatus, statusCalls = 0;
+    const oldSnapshot = { ok: true, isOwner: true, engine: {
+        ...engineState, status: 'ended', ended: true, completionId: 'stale-poll:1'
+    }};
+    remote.status = () => { statusCalls += 1; return new Promise(resolve => { releaseStatus = resolve; }); };
+    await Promise.resolve();
+    pollRemote(); pollRemote();
+    assert.equal(statusCalls, 1, 'slow managed status remains single-flight, not a growing timer backlog');
+    const oldCompletions = dispatched.filter(event => event.detail?.status === 'Ended').length;
+    remote.status = normalStatus;
+    await window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-new-run' });
+    releaseStatus(oldSnapshot);
+    await Promise.resolve(); await Promise.resolve();
+    assert.equal(dispatched.filter(event => event.detail?.status === 'Ended').length, oldCompletions,
+        'late old-track status cannot consume completion for the replacement track');
+    await window.EveAudioflixAudio.playItem(coldItem);
     engineState = { ...engineState, status: 'ended', paused: true, completionId: 'cold:1' };
     await remote.status();
     const endedBefore = dispatched.filter((event) => event.detail?.status === 'Ended').length;

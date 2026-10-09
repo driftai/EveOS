@@ -8,6 +8,7 @@
     const ACTION_PATHS = Object.freeze({
         start: '/api/nexus-browser/start',
         stop: '/api/nexus-browser/stop',
+        restart: '/api/services/restart',
         setup: '/api/nexus-browser/setup',
         extension: '/api/nexus-browser/extension'
     });
@@ -43,6 +44,7 @@
                 <button type="button" data-nexus-browser-action="setup">Install runtime</button>
                 <button type="button" data-nexus-browser-action="start">Start</button>
                 <button type="button" data-nexus-browser-action="stop">Stop</button>
+                <button type="button" data-nexus-browser-action="restart" title="Restart only the running Nexus Browser runtime">Restart</button>
                 <button type="button" data-nexus-browser-action="refresh">Refresh</button>
                 <button type="button" data-nexus-browser-action="extension">Extension folder</button>
                 <button type="button" data-nexus-browser-action="detached">Open detached</button>
@@ -220,7 +222,7 @@
             const action = button.dataset.nexusBrowserAction;
             button.disabled = busy
                 || (action === 'start' && (running || snapshot?.dependenciesReady !== true))
-                || (action === 'stop' && !running)
+                || (['stop', 'restart'].includes(action) && !running)
                 || (action === 'setup' && (running || snapshot?.setupAvailable !== true))
                 || (action === 'extension' && snapshot?.extensionReady !== true)
                 || (action === 'detached' && !running);
@@ -269,9 +271,11 @@
         busy = true;
         render(status || { state: 'stopped', running: false }, `${action === 'setup' ? 'Installing' : `${action}ing`} Nexus Browser…`);
         try {
-            await window.EveOSLocalControl?.ensure?.({ timeoutMs: 45000, userInitiated: true });
+            if (action !== 'restart') await window.EveOSLocalControl?.ensure?.({ timeoutMs: 45000, userInitiated: true });
             const timeout = action === 'setup' ? 10 * 60 * 1000 : action === 'stop' ? 30000 : 15000;
-            const snapshot = await controlRequest(ACTION_PATHS[action], { method: 'POST' }, timeout);
+            const snapshot = action === 'restart'
+                ? await window.EveOSServiceReload.restart('nexusBrowser')
+                : await controlRequest(ACTION_PATHS[action], { method: 'POST' }, timeout);
             render(snapshot);
             if (action === 'stop' && snapshot?.running !== true) closeDetached();
             return snapshot;

@@ -30,6 +30,8 @@
     let livePreviewOpen = false;
     let startupBusy = false;
     let startupMessage = '';
+    let reloadBusy = '';
+    let reloadMessage = '';
 
     function control() {
         return window.EveOSLocalControl || null;
@@ -259,6 +261,24 @@
         return row;
     }
 
+    async function restartService(service) {
+        if (reloadBusy) return;
+        reloadBusy = service.key;
+        reloadMessage = `Restarting ${service.label || service.key}...`;
+        render(lastPayload);
+        try {
+            const result = await window.EveOSServiceReload.restart(service.key, { port: service.ports?.[0] });
+            reloadMessage = result.message || `${service.label || service.key} restarted.`;
+        } catch (error) {
+            reloadMessage = error?.message || `${service.label || service.key} restart failed.`;
+        } finally {
+            reloadBusy = '';
+            const payload = await request();
+            if (payload) lastPayload = payload;
+            render(payload || disconnectedPayload(), !payload);
+        }
+    }
+
     function serviceRow(service, envForced, disconnected) {
         const unavailable = disconnected || service.available === false;
         const row = document.createElement('div');
@@ -282,6 +302,15 @@
         row.append(statusDot(!unavailable && service.running), name, state, ports);
         row.appendChild(toggle(service.headless, envForced || unavailable,
             (checked) => setConsole(service.key, checked)));
+        const restart = document.createElement('button');
+        restart.type = 'button';
+        restart.className = 'settings-panel-link';
+        restart.dataset.eveosServiceRestart = service.key;
+        restart.textContent = reloadBusy === service.key ? 'Restarting...' : 'Restart';
+        restart.title = `Restart only the running ${service.label || service.key} service`;
+        restart.disabled = unavailable || !service.running || Boolean(reloadBusy) || !window.EveOSServiceReload;
+        restart.addEventListener('click', () => restartService(service));
+        row.appendChild(restart);
         if (service.overridden && !envForced) {
             const badge = document.createElement('span');
             badge.style.cssText = 'font-size:0.68rem; opacity:0.7;';
@@ -354,6 +383,7 @@
         host.appendChild(header);
 
         (payload.services || []).forEach((service) => host.appendChild(serviceRow(service, envForced, offline)));
+        if (reloadMessage) host.appendChild(note(reloadMessage));
 
         if (offline) {
             host.appendChild(note('Saved values load when Local Control reconnects. Controls are disabled while offline.'));

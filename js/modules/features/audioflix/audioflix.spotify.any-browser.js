@@ -25,6 +25,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     let lastEngineStatus = '';
     let lastCompletionId = '';
     let ended = false;
+    let playbackRun = 0, pollFlight = null, engineGeneration = 0;
     const SLOW_START_ADOPT_MS = 45000;
     const SLOW_START_POLL_MS = 750;
     let approvalPrompt = null;
@@ -137,6 +138,9 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     function applyEngineState(result) {
         if (!result?.ok || !active) return;
         const engine = result.engine || {};
+        if (engine.spotifyId && engine.spotifyId !== spotifyId(item)) return;
+        if (Number(engine.generation || 0) < engineGeneration) return;
+        engineGeneration = Math.max(engineGeneration, Number(engine.generation || 0));
         playback.currentTime = Math.max(0, Number(engine.currentTime || 0));
         playback.duration = Math.max(0, Number(engine.duration || playback.duration || item?.duration || 0));
         playback.paused = engine.paused !== false;
@@ -180,9 +184,16 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         notify();
     }
     async function pollOnce() {
-        if (!active || !remote()?.snapshot?.().connected) return;
-        const result = await remote().status();
-        applyEngineState(result);
+        if (!active || pollFlight || !remote()?.snapshot?.().connected) return;
+        const run = playbackRun;
+        const finish = window.EveAudioflixDiagnostics?.span?.('spotify:status');
+        pollFlight = remote().status();
+        try {
+            const result = await pollFlight;
+            if (run === playbackRun) applyEngineState(result);
+            finish?.(!result?.ok);
+        } catch (error) { finish?.(true); throw error; }
+        finally { pollFlight = null; }
     }
     function startPoll() {
         clearPoll();
@@ -211,7 +222,10 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         return { ok: false, reason: 'Spotify took too long to start in the managed engine.' };
     }
     async function remotePlay(nextItem) {
+        const run = ++playbackRun;
+        const finish = window.EveAudioflixDiagnostics?.span?.('spotify:start');
         const connection = await ensureRemote();
+        if (run !== playbackRun) return false;
         if (!connection.ok) {
             const error = new Error(connection.reason || 'Managed Spotify is unavailable.');
             error.eveSpotifyFallback = connection.fallback === true;
@@ -228,6 +242,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         lastEngineStatus = '';
         lastCompletionId = '';
         ended = false;
+        engineGeneration = 0;
         let result = await remote().send('play', {
             spotifyId: id,
             title: item.title || '',
@@ -237,6 +252,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             type: String(item.type || 'music')
         }, { timeout: 20000 });
         if (!result?.ok && result?.timeout) result = await adoptSlowStart(id, nextItem);
+        if (run !== playbackRun) return false;
+        finish?.(!result?.ok);
         if (!result?.ok) throw new Error(result?.reason || 'Managed Spotify playback failed.');
         active = true;
         applyEngineState(result);
@@ -245,10 +262,12 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         return true;
     }
     async function stopRemote() {
+        const run = ++playbackRun;
         clearPoll();
-        if (active && remote()?.snapshot?.().connected) {
+        if (item && remote()?.snapshot?.().connected) {
             try { await remote().send('stop', {}, { timeout: 5000 }); } catch {}
         }
+        if (run !== playbackRun) return;
         const stopped = item;
         active = false;
         item = null;
