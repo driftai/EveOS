@@ -127,11 +127,11 @@ window.EveAudioflix = window.EveAudioflix || {};
     });
     const ensureOverlay = () => uiOverlay();
     let playQueueIndex;
-    const queueBridge = window.EveAudioflixQueueCompletion.createBridge({
-        state, queue: () => activeMusicQueue, playIndex: (index) => playQueueIndex(index)
+    const queueRuntime = window.EveAudioflixQueueCompletion.createRuntime({
+        state, queue: () => activeMusicQueue, playIndex: (index) => playQueueIndex(index),
+        getRun: () => queueRunId, setRun: (value) => { queueRunId = value; }, snapshot: () => ns.queueConnection?.snapshot?.()
     });
-    const queueTrackAt = queueBridge.trackAt;
-    const invalidateQueueRun = () => { queueRunId += 1; };
+    const { trackAt: queueTrackAt, invalidateRun: invalidateQueueRun, restart: restartQueueCurrent, complete: completeQueue } = queueRuntime;
     playQueueIndex = async (index) => {
         if (!activeMusicQueue.items?.length) return;
         let targetIndex = Number(index);
@@ -185,11 +185,6 @@ window.EveAudioflix = window.EveAudioflix || {};
         });
         return queueTransition;
     };
-    const restartQueueCurrent = async () => { const track = queueTrackAt(activeMusicQueue.currentIndex) || window.EveAudioflixAudio?.getPlaybackState?.()?.item; if (!track) return false; invalidateQueueRun(); const runId = queueRunId; await window.EveAudioflixAudio?.seek?.(0); if (runId !== queueRunId) return false; if (window.EveAudioflixAudio?.isInternalViewOpen?.()) await window.EveAudioflixAudio?.openInternalView?.(track); else await window.EveAudioflixAudio?.playItem?.(track); if (runId !== queueRunId) return false; window.EveAudioflixAudio?.syncQueueView?.(); return true; };
-    const completeQueue = window.EveAudioflixQueueCompletion.create({
-        snapshot: () => ns.queueConnection?.snapshot?.(),
-        advance: () => playQueueIndex(activeMusicQueue.currentIndex + 1), restart: restartQueueCurrent
-    });
     const openQueueDetails = () => { const track = queueTrackAt(activeMusicQueue.currentIndex) || window.EveAudioflixAudio?.getPlaybackState?.()?.item; if (!track?.id) return false; activeTab = 'music'; activeInfoItem = findItem('music', track.id) || track; activeInfoType = 'music'; deleteConfirmId = ''; open(); overlay?.classList.add('audioflix-info-over-internal'); rerenderModal(); return true; };
     window.EveAudioflixUiPicker.instance = window.EveAudioflixUiPicker.create({
         rerender: () => rerender(),
@@ -198,7 +193,6 @@ window.EveAudioflix = window.EveAudioflix || {};
             get playbackStatus() { return playbackStatus; }, set playbackStatus(v) { playbackStatus = v; }
         }
     });
-
     const allGroups = (type = 'sound') => (type === 'music' ? state().musicGroups : state().soundboardGroups) || [];
     const groupsOf = (id, type = 'sound') => {
         const map = type === 'music' ? state().musicGroupMap : state().soundGroupMap;
