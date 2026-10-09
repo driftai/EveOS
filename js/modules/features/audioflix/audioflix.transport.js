@@ -76,9 +76,14 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
         if ((type || item?.type) !== 'music') return false;
         const directControl = window.EveAudioflixSpotifyVolume?.snapshot?.()?.directControl === true;
         if (directControl) return false;
+        const remote = window.EveAudioflixSpotifyRemote?.snapshot?.() || {};
+        const remotePlayback = window.EveAudioflixSpotifyAnyBrowser?.snapshot?.() || {};
+        if (remote.connected === true || (remotePlayback.active === true
+            && String(remotePlayback.item?.id || '') === String(item?.id || ''))) return false;
 
         const playback = window.EveAudioflixAudio?.getPlaybackState?.() || {};
         const sameActiveItem = String(playback.item?.id ?? '') === String(item?.id ?? '');
+        if (sameActiveItem && playback.provider === 'spotify' && playback.remoteManaged === true) return false;
         if (sameActiveItem && playback.provider === 'spotify' && playback.browserOnly === true) return true;
 
         const effectiveLocal = item?.missingLocal === true
@@ -98,7 +103,7 @@ window.EveAudioflixTransport = window.EveAudioflixTransport || {};
         const knownDuration = Math.max(0, Number(item?.duration || 0) || 0);
         const providerOwnedVolume = spotifyProviderOwned(item, type);
         const volumeTitle = providerOwnedVolume
-            ? `Spotify's official embed owns playback volume. EveOS saved ${Math.round(volume * 100)}% for a local/direct copy, but the current Spotify stream cannot be attenuated by this slider.`
+            ? `Spotify's local official embed owns playback volume. Connect the managed Spotify engine to enable this slider; EveOS still saves ${Math.round(volume * 100)}%.`
             : 'Volume';
         const volumeAttrs = providerOwnedVolume
             ? ' disabled aria-disabled="true" data-af-volume-provider-owned="spotify"'
