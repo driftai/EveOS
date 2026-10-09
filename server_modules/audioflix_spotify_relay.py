@@ -192,7 +192,13 @@ def approval_html(view: dict) -> str:
       }});
       const payload = await response.json();
       if (!response.ok || !payload.ok) throw new Error(payload.reason || 'Approval failed.');
-      result.textContent = 'Approved. Return to the EveOS file tab.';
+      result.textContent = 'Approved. Returning to EveOS…';
+      try {{ window.opener?.postMessage({{ type: 'eveos:spotify-approval-complete', pairId }}, '*'); }} catch {{}}
+      try {{ window.opener?.focus?.(); }} catch {{}}
+      setTimeout(() => {{
+        try {{ window.close(); }} catch {{}}
+        result.textContent = 'Approved. You can close this window and return to EveOS.';
+      }}, 450);
     }} catch (error) {{ result.textContent = String(error?.message || error); button.disabled = false; }}
   }});
 }})();
