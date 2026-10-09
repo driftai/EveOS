@@ -51,6 +51,12 @@ class FakeEngine:
             self.state["currentTime"] = payload.get("seconds", 0)
         elif action == "stop":
             self.state.update({"status": "stopped", "paused": True, "currentTime": 0})
+        elif action == "restart":
+            self.state.update({
+                "status": "playing", "paused": False, "currentTime": 0,
+                "generation": payload.get("generation", self.state["generation"] + 1),
+                "completionId": "",
+            })
         return {"ok": True, "state": dict(self.state)}
 
     def set_effective_volume(self, volume, track_id=""):
@@ -140,6 +146,26 @@ assert file_play["ok"] and file_play["isOwner"]
 local_status = command(local, "status")
 assert local_status["ok"] and not local_status["isOwner"]
 
+# Read-only status has no transport high-water side effect: a later-arriving low transport sequence
+# cannot be poisoned by an earlier high sequence status poll.
+future_status = broker.command({
+    "clientToken": file_grant["clientToken"],
+    "command": {"action": "status", "payload": {}, "commandId": "future-status", "clientCommandSeq": 5000},
+}, context)
+assert future_status["ok"]
+seq += 1
+post_status_seek = broker.command({
+    "clientToken": file_grant["clientToken"],
+    "command": {"action": "seek", "payload": {"seconds": 12}, "commandId": "after-future-status", "clientCommandSeq": seq},
+}, context)
+assert post_status_seek["ok"] and post_status_seek["engine"]["currentTime"] == 12
+
+# Restart is a fresh playback generation, so old completion identity can never advance this run.
+before_restart = post_status_seek["trackGeneration"]
+restart = command(file_grant, "restart")
+assert restart["ok"] and restart["trackGeneration"] == before_restart + 1
+assert restart["engine"]["generation"] == restart["trackGeneration"]
+
 # commandId is an idempotency key; same input returns same receipt, changed input is rejected.
 seq += 1
 idempotent_payload = {
@@ -192,6 +218,6 @@ assert import_result.get("ok") and import_result.get("count") == 163
 public = command(file_grant, "status")
 public_repr = repr(public).lower()
 assert "clienttoken" not in public_repr and "sessionid" not in public_repr and "profilepath" not in public_repr
-assert public["engineEpoch"] >= 1 and public["ownerEpoch"] >= 1 and public["trackGeneration"] >= 2
+assert public["engineEpoch"] >= 1 and public["ownerEpoch"] >= 1 and public["trackGeneration"] >= 3
 
 print("AUDIOFLIX_SPOTIFY_BROKER_SMOKE_OK")
