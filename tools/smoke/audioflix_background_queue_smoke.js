@@ -193,6 +193,7 @@ function realQueueFixture(count = 20, options = {}) {
         vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
     }
     load('audioflix.audio.url.providers.js');
+    load('audioflix.audio.url.direct.js');
     load('audioflix.audio.url.js');
     controller = window.EveAudioflixUrlPlayback.createController({
         onPlayback: detail => window.dispatchEvent({ type: 'eve:audioflix-playback', detail })
