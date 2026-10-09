@@ -119,11 +119,13 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             && surface.includes('managedActive()'),
         'ordinary EveOS Internal View mirrors the managed engine only when managed playback owns Spotify');
         const launcher = fs.readFileSync(launcherPath, 'utf8');
-        assert(launcher.includes("[ValidateSet('background','window','headless')]")
+        assert(launcher.includes("[ValidateSet('background','hidden','window','headless')]")
             && launcher.includes('ShowWindowAsync')
+            && launcher.includes("'hidden' { 0 }")
+            && launcher.includes('spotify-engine-window-handle.txt')
             && launcher.includes("Set-SpotifyEnginePresentation $Presentation")
             && launcher.includes('playwright=headless'),
-        'managed Spotify launcher exposes background, visible-window and true-headless presentation modes');
+        'managed Spotify launcher exposes minimized, hidden-headed, visible-window and true-headless modes');
 
         console.log('AUDIOFLIX_SPOTIFY_ENGINE_SMOKE_OK');
     } finally {
