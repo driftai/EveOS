@@ -4,6 +4,7 @@ const { URL } = require('node:url');
 const { engineSnapshot, engineCommand } = require('./audioflix_spotify_browser_transport.js');
 
 const PLAY_WAKE_INITIAL_MS = 900;
+const PLAY_CONTROL_WAIT_MS = 2800;
 const PLAY_WAKE_SETTLE_MS = 3200;
 
 function headlessRequestedFromPageUrl(value) {
@@ -38,7 +39,7 @@ async function waitForPlaying(page, spotifySnapshots, timeoutMs) {
     return observed;
 }
 
-async function activateSpotifyPlayback(page, isSpotifyEmbedUrl, note, runtime) {
+async function clickVisiblePlayControl(page, isSpotifyEmbedUrl, note, runtime) {
     if (!page || page.isClosed()) return { clicked: false, reason: 'engine page closed' };
     for (const frame of page.frames()) {
         if (!isSpotifyEmbedUrl(frame.url())) continue;
@@ -66,8 +67,18 @@ async function activateSpotifyPlayback(page, isSpotifyEmbedUrl, note, runtime) {
             }
         }
     }
-    note('playback-kick-miss', 'No visible Spotify Play control was found.');
     return { clicked: false, reason: 'No visible Spotify Play control was found.' };
+}
+
+async function activateSpotifyPlayback(page, isSpotifyEmbedUrl, note, runtime) {
+    const deadline = Date.now() + PLAY_CONTROL_WAIT_MS;
+    let result = await clickVisiblePlayControl(page, isSpotifyEmbedUrl, note, runtime);
+    while (!result.clicked && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 140));
+        result = await clickVisiblePlayControl(page, isSpotifyEmbedUrl, note, runtime);
+    }
+    if (!result.clicked) note('playback-kick-miss', result.reason);
+    return result;
 }
 
 async function handleTransportWithActivation(options, body) {
