@@ -28,11 +28,17 @@ assert(relay.includes('clientToken = String(result.clientToken)')
     && !relay.includes("clientToken: clientToken")
     && !relay.includes("type: 'ready', clientToken"),
     'relay-scoped credential remains in iframe memory and is never posted to the parent');
+assert(relay.includes('let commandChain = Promise.resolve()')
+    && relay.includes('commandChain = commandChain.then(() => forwardCommand(message)'),
+    'relay serializes broker fetches so clientCommandSeq cannot be reordered by concurrent HTTP requests');
 assert(broker.includes('secrets.compare_digest') && broker.includes('csrf') && broker.includes('pairingRequired'),
     'file pairing requires single-use trusted approval evidence');
 assert(remote.includes('MessageChannel') && remote.includes('eveos:spotify-relay-connect')
     && remote.includes("location.protocol === 'file:'"),
     'ordinary localhost and file clients share the typed relay client');
+assert(remote.includes("setTimeout(() => finish(false, new Error('Spotify relay approval timed out.'))")
+    && remote.includes('clearTimeout(timer)'),
+    'file approval wait is bounded even when no later relay notification arrives');
 assert(!remote.includes('clientToken'),
     'parent-side Spotify client source never handles the scoped broker token');
 assert(!hook.includes('__EveAudioflixManagedBrowserSession') && !hook.includes('sessionId'),
