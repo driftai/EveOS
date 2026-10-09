@@ -90,8 +90,8 @@ def handle_get_request(handler, path: str, query) -> bool:
         if not _can_control(handler):
             _send_json(handler, {"ok": False, "message": "Forbidden."}, HTTPStatus.FORBIDDEN)
             return True
-        from server_modules import audioflix_spotify_browser
-        _send_json(handler, audioflix_spotify_browser.status())
+        from server_modules import audioflix_spotify_presentation
+        _send_json(handler, audioflix_spotify_presentation.status())
     elif path == "/api/audioflix/resolve-url":
         if not _can_control(handler):
             _send_json(handler, {"ok": False, "message": "Forbidden."}, HTTPStatus.FORBIDDEN)
@@ -192,7 +192,7 @@ def spotify_session(payload: dict) -> dict:
         return audioflix_spotify.session_action(payload)
     managed = audioflix_spotify_browser.status()
     if managed.get("helperReachable"):
-        return audioflix_spotify_browser.auth({
+        return spotify_browser_auth({
             "openLogin": True,
             "url": str(payload.get("url") or payload.get("embed") or "https://open.spotify.com/"),
         })
@@ -200,13 +200,19 @@ def spotify_session(payload: dict) -> dict:
 
 
 def spotify_browser_start(payload: dict) -> dict:
-    from server_modules import audioflix_spotify_browser
-    return audioflix_spotify_browser.start(payload)
+    from server_modules import audioflix_spotify_presentation
+    page_url = str(payload.get("pageUrl") or "http://127.0.0.1:8765/audioflix-spotify-engine.html")
+    return audioflix_spotify_presentation.ensure_engine(page_url)
+
+
+def spotify_browser_presentation(payload: dict) -> dict:
+    from server_modules import audioflix_spotify_presentation
+    return audioflix_spotify_presentation.set_presentation(payload)
 
 
 def spotify_browser_stop(payload: dict) -> dict:
-    from server_modules import audioflix_spotify_browser
-    return audioflix_spotify_browser.stop(payload)
+    from server_modules import audioflix_spotify_presentation
+    return audioflix_spotify_presentation.stop_engine(payload)
 
 
 def spotify_browser_session_status(payload: dict) -> dict:
@@ -226,6 +232,9 @@ def spotify_browser_qualify_volume(payload: dict) -> dict:
 
 def spotify_browser_auth(payload: dict) -> dict:
     from server_modules import audioflix_spotify_browser
+    from server_modules import audioflix_spotify_presentation
+    if bool(payload.get("openLogin", True)):
+        audioflix_spotify_presentation.restore_for_auth(str(payload.get("pageUrl") or ""))
     return audioflix_spotify_browser.auth(payload)
 
 
@@ -296,6 +305,7 @@ def handle_post_request(handler, path: str) -> bool:
         "/api/audioflix/wpl-read": wpl_read,
         "/api/audioflix/spotify-session": spotify_session,
         "/api/audioflix/spotify-browser/start": spotify_browser_start,
+        "/api/audioflix/spotify-browser/presentation": spotify_browser_presentation,
         "/api/audioflix/spotify-browser/stop": spotify_browser_stop,
         "/api/audioflix/spotify-browser/session-status": spotify_browser_session_status,
         "/api/audioflix/spotify-browser/volume": spotify_browser_volume,
