@@ -14,6 +14,7 @@ const {
 
 const WRITE = process.argv.includes('--write');
 const VERSIONED_EXTENSIONS = new Set(['.js', '.mjs', '.css']);
+const MAX_WRITE_PASSES = 8;
 const semanticSourceCache = new Map();
 
 function fingerprint(source) {
@@ -161,7 +162,10 @@ function transform(relativePath, versions) {
     return source;
 }
 
-function main() {
+function calculate() {
+    // --write can rewrite a manifest that is itself fingerprinted by a parent entry point.
+    // Never carry semantic source from the previous pass into the next dependency calculation.
+    semanticSourceCache.clear();
     const { graph, reachable } = buildReachabilityGraph();
     const versions = buildVersions(graph, reachable);
     const transformed = new Map([...graph.keys()].sort().map((relativePath) => [
@@ -171,15 +175,39 @@ function main() {
     const stale = [...transformed.entries()]
         .filter(([relativePath, source]) => source !== read(relativePath))
         .map(([relativePath]) => relativePath);
+    return { transformed, stale };
+}
 
+function main() {
     if (WRITE) {
-        for (const relativePath of stale) {
-            fs.writeFileSync(absolute(relativePath), transformed.get(relativePath), 'utf8');
+        const touched = new Set();
+        let writes = 0;
+        let checked = 0;
+        for (let pass = 0; pass < MAX_WRITE_PASSES; pass += 1) {
+            const { transformed, stale } = calculate();
+            checked = transformed.size;
+            if (!stale.length) {
+                console.log(`runtime asset versions: synchronized ${touched.size} file(s) in ${writes} pass(es); stable across ${checked} assets`);
+                return 0;
+            }
+            for (const relativePath of stale) {
+                fs.writeFileSync(absolute(relativePath), transformed.get(relativePath), 'utf8');
+                touched.add(relativePath);
+            }
+            writes += 1;
         }
-        console.log(`runtime asset versions: synchronized ${stale.length} file(s)`);
+
+        const finalState = calculate();
+        if (finalState.stale.length) {
+            console.error(`Runtime asset versions did not converge after ${MAX_WRITE_PASSES} passes:`);
+            finalState.stale.forEach((relativePath) => console.error(`- ${relativePath}`));
+            return 1;
+        }
+        console.log(`runtime asset versions: synchronized ${touched.size} file(s) in ${writes} pass(es); stable across ${finalState.transformed.size} assets`);
         return 0;
     }
 
+    const { transformed, stale } = calculate();
     if (stale.length) {
         console.error('Runtime asset versions are stale:');
         stale.forEach((relativePath) => console.error(`- ${relativePath}`));
