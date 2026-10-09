@@ -116,11 +116,11 @@ async function main() {
         await page.locator('[data-world-book-view="notes"]').click();
         // The two file-backed Notes tabs are user-initiated workspaces. They should start their
         // independent Notes service themselves instead of looking dead until another button is found.
-        await page.locator('[data-eve-notes-mode="files"]').click();
+        await page.locator('button[data-eve-notes-mode="files"]').click();
         await page.waitForFunction(() => window.__smoke.notesRunning && document.querySelector('[data-eve-notes-list] [data-path="test.txt"]'));
         expect(await page.locator('button[data-eve-notes-mode="files"]').getAttribute('aria-selected') === 'true', 'Notepad files tab did not activate');
 
-        await page.locator('[data-eve-notes-mode="spatial"]').click();
+        await page.locator('button[data-eve-notes-mode="spatial"]').click();
         expect(await page.locator('button[data-eve-notes-mode="spatial"]').getAttribute('aria-selected') === 'true', 'Spatial Notes tab did not activate');
         await page.evaluate(() => { window.__smoke.prompt = 'Ideas'; });
         await page.locator('[data-eve-notes-create="folder"]').click();
@@ -134,12 +134,12 @@ async function main() {
         await page.locator('[data-eve-notes-list] [data-path="Ideas/world.md"]').click();
         await page.waitForFunction(() => document.querySelector('[data-eve-notes-title]')?.textContent === 'world.md');
         expect(await page.evaluate(() => window.EveWorldBook.notesWorkspace.context().path) === 'Ideas', 'Opening a nested Spatial Note lost its folder path');
-        await page.locator('[data-eve-notes-mode="spatial"]').click();
+        await page.locator('button[data-eve-notes-mode="spatial"]').click();
         await page.waitForFunction(() => window.EveWorldBook.notesWorkspace.context().path === 'Ideas');
         expect(await page.locator('[data-eve-notes-title]').textContent() === 'world.md', 'Re-entering active Spatial Notes kicked the user out of the open note');
         expect(await page.locator('[data-eve-notes-path]').textContent() === 'Ideas', 'Re-entering active Spatial Notes reset the folder to root');
 
-        await page.locator('[data-eve-notes-mode="files"]').click();
+        await page.locator('button[data-eve-notes-mode="files"]').click();
         await page.waitForFunction(() => document.querySelector('[data-eve-notes-list] [data-path="test.txt"]'));
         await page.locator('[data-eve-notes-list] [data-path="test.txt"]').click();
         await page.waitForFunction(() => !document.querySelector('[data-eve-notes-editor]')?.disabled, null, { timeout: 3000 }).catch(async () => {
