@@ -16,6 +16,12 @@
         .engine-mirror-meta { display: flex; justify-content: space-between; gap: 16px; font-size: .82rem; opacity: .84; }
         .engine-mirror progress { width: 100%; height: 6px; accent-color: #fff; }
         .engine-mirror small { opacity: .72; }
+        html[data-spotify-engine-surface="mirror"] body { min-height: 0; display: block; background: transparent; }
+        html[data-spotify-engine-surface="mirror"] main { width: auto; padding: 0; border: 0; border-radius: 0; background: transparent; }
+        html[data-spotify-engine-surface="mirror"] h1,
+        html[data-spotify-engine-surface="mirror"] #spotify-engine-copy { display: none; }
+        html[data-spotify-engine-surface="mirror"] #spotify-engine-player { min-height: 0; }
+        html[data-spotify-engine-surface="mirror"] .engine-mirror { min-height: 0; gap: 6px; padding: 10px 12px; border-radius: 10px; }
     </style>
 </head>
 <body>
@@ -30,7 +36,7 @@
             const mirror = params.get('surface') === 'mirror';
             if (!mirror) {
                 const script = document.createElement('script');
-                script.src = 'js/modules/features/audioflix/audioflix.spotify.engine.js?v=417e944ddbf2';
+                script.src = 'js/modules/features/audioflix/audioflix.spotify.engine.js?v=931e42064712';
                 document.body.appendChild(script);
                 return;
             }

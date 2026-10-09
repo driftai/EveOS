@@ -4,14 +4,20 @@ window.EveAudioflixQueueReorder = window.EveAudioflixQueueReorder || {};
     const ns = window.EveAudioflixQueueReorder;
     if (ns.ready) return;
     let dragIndex = -1;
+    let dragList = null;
 
-    function rows() {
-        return [...document.querySelectorAll('.audioflix-provider-queue-list > li')];
+    // Every internal-player stage (linked audio, managed Spotify engine, ...) renders the same
+    // queue list, so each one gets the same row controls. Indexes are scoped to the row's own list.
+    function rows(from) {
+        const list = from?.closest?.('.audioflix-provider-queue-list');
+        return list ? [...list.children] : [];
     }
 
     function enhance() {
-        const list = document.querySelector('.audioflix-provider-queue-list');
-        if (!list) return;
+        document.querySelectorAll('.audioflix-provider-queue-list').forEach(enhanceList);
+    }
+
+    function enhanceList(list) {
         const all = [...list.children];
         all.forEach((row, index) => {
             if (!(row instanceof HTMLElement)) return;
@@ -45,7 +51,7 @@ window.EveAudioflixQueueReorder = window.EveAudioflixQueueReorder || {};
         if (!button) return;
         event.preventDefault(); event.stopPropagation();
         const row = button.closest('.audioflix-provider-queue-list > li');
-        const index = rows().indexOf(row);
+        const index = rows(row).indexOf(row);
         const delta = Number(button.dataset.queueMove) || 0;
         if (index >= 0 && delta) window.EveAudioflix?.queueConnection?.move?.(index, index + delta);
     }, true);
@@ -54,7 +60,8 @@ window.EveAudioflixQueueReorder = window.EveAudioflixQueueReorder || {};
         const row = event.target.closest?.('.audioflix-provider-queue-list > li');
         if (!row) return;
         if (!event.target.closest?.('.audioflix-queue-drag-handle')) return;
-        dragIndex = rows().indexOf(row);
+        dragIndex = rows(row).indexOf(row);
+        dragList = row.parentElement;
         row.classList.add('is-dragging');
         event.dataTransfer.effectAllowed = 'move';
         try { event.dataTransfer.setData('text/plain', String(dragIndex)); } catch {}
@@ -62,26 +69,28 @@ window.EveAudioflixQueueReorder = window.EveAudioflixQueueReorder || {};
 
     document.addEventListener('dragover', event => {
         const row = event.target.closest?.('.audioflix-provider-queue-list > li');
-        if (!row || dragIndex < 0) return;
+        if (!row || dragIndex < 0 || row.parentElement !== dragList) return;
         event.preventDefault();
-        rows().forEach(item => item.classList.toggle('is-drop-target', item === row));
+        rows(row).forEach(item => item.classList.toggle('is-drop-target', item === row));
         event.dataTransfer.dropEffect = 'move';
     });
 
     document.addEventListener('drop', event => {
         const row = event.target.closest?.('.audioflix-provider-queue-list > li');
-        if (!row || dragIndex < 0) return;
+        if (!row || dragIndex < 0 || row.parentElement !== dragList) return;
         event.preventDefault();
-        const target = rows().indexOf(row);
+        const target = rows(row).indexOf(row);
         if (target >= 0) window.EveAudioflix?.queueConnection?.move?.(dragIndex, target);
-        dragIndex = -1;
-        rows().forEach(item => item.classList.remove('is-dragging', 'is-drop-target'));
+        clearDrag();
     });
 
-    document.addEventListener('dragend', () => {
+    function clearDrag() {
         dragIndex = -1;
-        rows().forEach(item => item.classList.remove('is-dragging', 'is-drop-target'));
-    });
+        document.querySelectorAll('.audioflix-provider-queue-list > li').forEach(item => item.classList.remove('is-dragging', 'is-drop-target'));
+        dragList = null;
+    }
+
+    document.addEventListener('dragend', clearDrag);
 
     const observer = new MutationObserver(() => enhance());
     const start = () => { observer.observe(document.body, { childList: true, subtree: true }); enhance(); };

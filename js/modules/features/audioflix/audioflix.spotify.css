@@ -171,3 +171,26 @@
         display: none;
     }
 }
+
+/* Managed Spotify engine inside the shared internal player: the visual slot only carries the
+   engine controls and a compact now-playing mirror, so the queue and transport keep the same
+   room and layout they have for local, URL, and YouTube tracks. */
+.audioflix-provider-stage.is-internal-view .audioflix-provider-frame.is-spotify-engine-mirror,
+.audioflix-provider-frame.is-spotify-engine-mirror {
+    aspect-ratio: auto;
+    min-height: 0;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    background: transparent;
+}
+
+.audioflix-provider-frame.is-spotify-engine-mirror [data-spotify-engine-controls] {
+    padding: 8px 12px;
+    gap: 6px;
+}
+
+.audioflix-provider-frame.is-spotify-engine-mirror iframe {
+    height: 96px;
+    flex: 0 0 auto;
+}

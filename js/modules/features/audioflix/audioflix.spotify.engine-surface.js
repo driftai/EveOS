@@ -168,6 +168,7 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
         controller.setVisualVisible(true);
         syncQueue();
         host.replaceChildren();
+        host.classList?.add?.('is-spotify-engine-mirror');
         host.appendChild(createPresentationControls());
 
         const iframe = document.createElement('iframe');
@@ -185,6 +186,7 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
     }
 
     function hide() {
+        try { frame?.parentElement?.classList?.remove?.('is-spotify-engine-mirror'); } catch {}
         try { frame?.remove?.(); } catch {}
         frame = null;
         frameOrigin = '';

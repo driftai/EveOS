@@ -178,6 +178,7 @@ runNode('tools/smoke/audioflix_spotify_entrypoints_smoke.js');
 runNode('tools/smoke/audioflix_spotify_any_browser_smoke.js');
 runNode('tools/smoke/audioflix_local_prepare_handoff_smoke.js');
 runNode('tools/smoke/audioflix_spotify_queue_surface_smoke.js');
+runNode('tools/smoke/audioflix_queue_reorder_multi_stage_smoke.js');
 runNode('tools/smoke/audioflix_spotify_engine_smoke.js');
 require('./audioflix_spotify_managed_import_smoke.js');
 console.log('AUDIOFLIX_SPOTIFY_BROWSER_CONTRACT_SMOKE_OK');

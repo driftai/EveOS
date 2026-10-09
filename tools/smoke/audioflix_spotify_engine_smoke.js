@@ -77,10 +77,27 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             const endedTwice = engine.snapshot();
             await engine.command('restart', { generation: 8 });
             const afterRestart = engine.snapshot();
+            // Live Spotify embeds report the last frame as position === duration while still
+            // isPaused:false and then go silent; that alone must complete the track.
+            const update = (position, isPaused = false) => window.__engineController.emit('playback_update', {
+                playingURI: 'spotify:track:4cOdK2wGLETKBW3PvgPWqT', position, duration: 180000, isPaused
+            });
+            window.__engineController.emit('playback_started', {});
+            update(120000);
+            update(180000);
+            const unpausedEnd = engine.snapshot();
+            update(180000);
+            const unpausedEndRepeat = engine.snapshot();
+            await engine.command('restart', { generation: 9 });
+            window.__engineController.emit('playback_started', {});
+            update(179000);
+            const nearEnd = engine.snapshot();
+            await new Promise((resolve) => setTimeout(resolve, 2800));
+            const stalledEnd = engine.snapshot();
             await engine.command('seek', { seconds: 33 });
             return {
                 afterLoad, providerPaused, noAutoResume, deliberateResume,
-                endedOnce, endedTwice, afterRestart,
+                endedOnce, endedTwice, afterRestart, unpausedEnd, unpausedEndRepeat, nearEnd, stalledEnd,
                 calls: { ...window.__engineCalls }, afterSeek: engine.snapshot()
             };
         });
@@ -96,6 +113,13 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             'duplicate provider end evidence is deduplicated for the same generation');
         assert.equal(result.afterRestart.generation, 8, 'restart starts a fresh playback generation');
         assert.equal(result.afterRestart.completionId, '', 'restart clears the prior generation completion identity');
+        assert.equal(result.unpausedEnd.status, 'ended', 'an unpaused final frame at position === duration completes the track');
+        assert.ok(result.unpausedEnd.completionId.startsWith('8:'), 'unpaused completion belongs to the current generation');
+        assert.equal(result.unpausedEndRepeat.status, 'ended', 'a duplicate final frame does not reopen the ended track');
+        assert.equal(result.unpausedEndRepeat.completionId, result.unpausedEnd.completionId, 'duplicate final frames keep one completion');
+        assert.equal(result.nearEnd.status, 'playing', 'a frame inside the tolerance window does not end early');
+        assert.equal(result.stalledEnd.status, 'ended', 'a provider that goes silent at the end still completes the track');
+        assert.ok(result.stalledEnd.completionId.startsWith('9:'), 'stalled completion belongs to the restarted generation');
         assert.equal(result.afterSeek.currentTime, 33);
         assert.ok(result.calls.load.includes('spotify:track:4cOdK2wGLETKBW3PvgPWqT'));
 

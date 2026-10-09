@@ -20,7 +20,7 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/features/audioflix/audioflix.transport.resilience.js?v=0f13b56d548e",
     "js/modules/features/audioflix/audioflix.spotify.remote.js?v=7a901272794a",
     "js/modules/features/audioflix/audioflix.spotify.any-browser.js?v=6f1ee8517fa1",
-    "js/modules/features/audioflix/audioflix.spotify.engine-surface.js?v=ca4aaac11731",
+    "js/modules/features/audioflix/audioflix.spotify.engine-surface.js?v=9284fce86127",
     "js/modules/features/watchfusion/watchfusion.bootstrap.js?v=276b11f79777",
     "js/modules/features/watchfusion/watchfusion.runtime-sensing.js?v=06bb78645e6e",
     "js/modules/features/watchfusion/watchfusion.js?v=a457ebe2a0e2",

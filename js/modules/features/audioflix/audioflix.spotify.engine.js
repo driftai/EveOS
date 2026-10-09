@@ -9,6 +9,11 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     const READY_TIMEOUT_MS = 12000;
     const END_TOLERANCE_MS = 1500;
     const END_RESET_MAX_MS = 500;
+    // Spotify's embed reports the final frame as position === duration with isPaused:false and
+    // then goes silent (verified against the live iframe API), so a paused update never arrives.
+    const END_REACHED_MS = 250;
+    const END_STALL_MS = 2500;
+    let endStallTimer = 0;
     const mount = document.getElementById('spotify-engine-player');
     const state = {
         version: 1,
@@ -127,13 +132,27 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
             const resetAfterEnd = state.started && paused && wasPlaying
                 && previousNearEnd && positionMs <= END_RESET_MAX_MS;
 
+            clearTimeout(endStallTimer);
+            endStallTimer = 0;
+            if (state.ended && !paused && atEnd) return;
             state.currentTime = positionMs / 1000;
             state.duration = effectiveDurationMs / 1000;
             state.paused = paused;
             if (durationMs > 0) lastDurationMs = durationMs;
             if (positionMs > 0) lastPlayingPositionMs = positionMs;
 
+            if (!paused && effectiveDurationMs > 0 && positionMs >= effectiveDurationMs - END_REACHED_MS) {
+                markEnded(effectiveDurationMs);
+                return;
+            }
             if (!paused) {
+                if (atEnd) {
+                    const generation = state.generation;
+                    endStallTimer = setTimeout(() => {
+                        endStallTimer = 0;
+                        if (state.generation === generation && state.paused === false) markEnded(effectiveDurationMs);
+                    }, END_STALL_MS);
+                }
                 state.started = true;
                 state.ended = false;
                 state.providerPaused = false;
