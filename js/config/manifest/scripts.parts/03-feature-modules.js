@@ -19,6 +19,7 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/core/eveos-port-registry.js?v=9590438f786e",
     "js/modules/features/audioflix/audioflix.transport.resilience.js?v=afd6d6f3dd9e",
     "js/modules/features/audioflix/audioflix.spotify.remote.js?v=7a901272794a",
+    "js/modules/features/audioflix/audioflix.spotify.status-watch.js",
     "js/modules/features/audioflix/audioflix.spotify.any-browser.js?v=161faf5ca1e8",
     "js/modules/features/audioflix/audioflix.spotify.repeat-rearm.js?v=70e844de7bf5",
     "js/modules/features/audioflix/audioflix.spotify.engine-surface.js?v=9284fce86127",
