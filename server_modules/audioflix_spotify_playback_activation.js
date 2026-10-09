@@ -148,17 +148,30 @@ async function recordControlDiagnostics(page, isSpotifyEmbedUrl, note) {
 }
 
 async function activateSpotifyPlayback(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime) {
+    let observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
+    if (observed.playing) {
+        note('playback-kick-skip', observed.providerShowsPlaying
+            ? 'Spotify already exposes Pause before activation scan.'
+            : 'Playback started before activation scan.');
+        return { clicked: false, alreadyPlaying: true, reason: 'playback already started' };
+    }
     await hoverSpotifySurfaces(page, isSpotifyEmbedUrl, note);
     const deadline = Date.now() + PLAY_CONTROL_WAIT_MS;
-    let result = await clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime);
-    while (!result.clicked && !result.alreadyPlaying && Date.now() < deadline) {
+    while (Date.now() < deadline) {
+        observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
+        if (observed.playing) {
+            note('playback-kick-skip', observed.providerShowsPlaying
+                ? 'Spotify exposed Pause during activation scan.'
+                : 'Playback started during activation scan.');
+            return { clicked: false, alreadyPlaying: true, reason: 'playback already started' };
+        }
+        const result = await clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime);
+        if (result.clicked || result.alreadyPlaying) return result;
         await new Promise((resolve) => setTimeout(resolve, 140));
-        result = await clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime);
     }
-    if (!result.clicked && !result.alreadyPlaying) {
-        await recordControlDiagnostics(page, isSpotifyEmbedUrl, note);
-        note('playback-kick-miss', result.reason);
-    }
+    const result = { clicked: false, reason: 'No Spotify Play control could be activated.' };
+    await recordControlDiagnostics(page, isSpotifyEmbedUrl, note);
+    note('playback-kick-miss', result.reason);
     return result;
 }
 
