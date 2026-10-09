@@ -19,13 +19,13 @@ const MAX_DIAGNOSTICS = 32;
 const TOKEN_HEADER = 'x-eveos-spotify-token';
 const SERVER_LIVENESS_INTERVAL_MS = 5000;
 const SERVER_LIVENESS_TIMEOUT_MS = 30000;
-const STARTUP = require('./audioflix_spotify_browser_startup.json');
-const EDGE_LAUNCH_TIMEOUT_MS = Number(STARTUP.edgeLaunchTimeoutMs || 45000);
-const CHROMIUM_LAUNCH_TIMEOUT_MS = Number(STARTUP.chromiumLaunchTimeoutMs || 45000);
-const NAVIGATION_TIMEOUT_MS = Number(STARTUP.navigationTimeoutMs || 30000);
 const { MAX_MEDIA_REFS, browserInit } = require('./audioflix_spotify_browser_hook.js');
 const { scrapeManagedPlaylist } = require('./audioflix_spotify_managed_import.js');
 const { engineSnapshot } = require('./audioflix_spotify_browser_transport.js');
+const {
+    EDGE_LAUNCH_TIMEOUT_MS, CHROMIUM_LAUNCH_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS,
+    launchManagedContext, prepareManagedPage
+} = require('./audioflix_spotify_browser_startup.js');
 const {
     headlessRequestedFromPageUrl, isLikelyPlayControl, handleTransportWithActivation
 } = require('./audioflix_spotify_playback_activation.js');
@@ -90,21 +90,6 @@ function probeServer(url, timeoutMs = 2000) {
         req.end();
     });
 }
-async function prepareManagedPage(context, pageUrl, note = () => {}) {
-    const existing = context.pages();
-    const page = existing[0] || await context.newPage();
-    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
-    // Persistent Edge can restore tabs from an unclean prior helper shutdown. Give restoration a
-    // brief chance to settle, then enforce the one-engine-page invariant before accepting commands.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    let closed = 0;
-    for (const extra of context.pages()) {
-        if (extra === page) continue;
-        try { await extra.close(); closed += 1; } catch {}
-    }
-    if (closed) note('page-prune', `closed ${closed} restored/blank managed tabs`);
-    return page;
-}
 
 async function main() {
     const args = parseArgs(process.argv.slice(2));
@@ -156,42 +141,16 @@ async function main() {
         ]
     };
 
-    let context;
-    if (process.platform === 'win32') {
-        try {
-            runtime.phase = 'launch-edge';
-            note('startup-phase', runtime.phase);
-            context = await chromium.launchPersistentContext(profileDir, {
-                ...launchOptions, channel: 'msedge', timeout: EDGE_LAUNCH_TIMEOUT_MS
-            });
-            runtime.browserChannel = headlessRequested ? 'msedge-headless' : 'msedge';
-        } catch (edgeError) {
-            note('launch-error', `Edge unavailable: ${edgeError.message}`);
-            runtime.phase = 'launch-chromium';
-            note('startup-phase', runtime.phase);
-            context = await chromium.launchPersistentContext(profileDir, {
-                ...launchOptions, timeout: CHROMIUM_LAUNCH_TIMEOUT_MS
-            });
-            runtime.browserChannel = headlessRequested ? 'playwright-chromium-headless' : 'playwright-chromium';
-        }
-    } else {
-        runtime.phase = 'launch-chromium';
-        note('startup-phase', runtime.phase);
-        context = await chromium.launchPersistentContext(profileDir, {
-            ...launchOptions, timeout: CHROMIUM_LAUNCH_TIMEOUT_MS
-        });
-        runtime.browserChannel = headlessRequested ? 'playwright-chromium-headless' : 'playwright-chromium';
-    }
-
+    const context = await launchManagedContext(
+        chromium, profileDir, launchOptions, headlessRequested, runtime, note
+    );
     await context.addInitScript(browserInit, { maxRefs: MAX_MEDIA_REFS, initialVolume: 1 });
     context.on('page', (p) => {
         p.on('crash', () => note('page-crash', p.url()));
         p.on('close', () => note('page-close', p.url()));
     });
 
-    runtime.phase = 'navigate';
-    note('startup-phase', runtime.phase);
-    let page = await prepareManagedPage(context, pageUrl, note);
+    let page = await prepareManagedPage(context, pageUrl, runtime, note);
     runtime.state = 'ready';
     runtime.phase = 'ready';
     const livenessUrl = new URL('/EveOS.html', pageUrl).href;
