@@ -11,16 +11,20 @@ from pathlib import Path
 from server_modules import audioflix_localize as localize
 from server_modules import audioflix_spotify_match as spotify_match
 from server_modules.audioflix_spotify_fallback_match import (
-    STRATEGY, SEARCH_RESULTS_PER_QUERY, PRIMARY_CONFIRM_QUERY_COUNT, FALLBACK_HYDRATE_LIMIT,
-    SOUNDCLOUD_RESULTS_PER_QUERY, SOUNDCLOUD_HYDRATE_LIMIT, MIN_TOLERANCE_SECONDS,
-    MAX_DOWNLOAD_CANDIDATES, AUTH_REQUIRED_MARKERS, tokens, overlap, tolerance,
+    STRATEGY, SEARCH_RESULTS_PER_QUERY, MAX_QUERY_VARIANTS, FAST_QUERY_COUNT,
+    PRIMARY_CONFIRM_QUERY_COUNT, FALLBACK_HYDRATE_LIMIT,
+    SOUNDCLOUD_RESULTS_PER_QUERY, SOUNDCLOUD_MAX_QUERY_VARIANTS, SOUNDCLOUD_HYDRATE_LIMIT,
+    MIN_TOLERANCE_SECONDS, MAX_DOWNLOAD_CANDIDATES, AUTH_REQUIRED_MARKERS,
+    tokens, artist_tokens, overlap, tolerance, title_query_aliases,
     query_variants, soundcloud_query_variants, stored_track_metadata, candidate_url, rank_candidates,
 )
 
 # Keep the historical private names available to existing focused smokes/importers.
 _tokens = tokens
+_artist_tokens = artist_tokens
 _overlap = overlap
 _tolerance = tolerance
+_title_query_aliases = title_query_aliases
 _candidate_url = candidate_url
 _AUTH_REQUIRED_MARKERS = AUTH_REQUIRED_MARKERS
 
