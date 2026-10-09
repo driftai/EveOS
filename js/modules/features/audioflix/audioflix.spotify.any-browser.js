@@ -164,14 +164,17 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         pollOnce().catch(() => {});
     }
     async function remotePlay(nextItem) {
-        const id = spotifyId(nextItem);
-        if (!id) throw new Error('This Spotify item has no valid track ID.');
+        // Establish whether a trusted managed relay actually exists before insisting on the
+        // managed-engine track-ID contract. Legacy/file-only fallback can still hand malformed
+        // historical/mock Spotify URLs to the original official embed path when no relay exists.
         const connection = await ensureRemote();
         if (!connection.ok) {
             const error = new Error(connection.reason || 'Managed Spotify is unavailable.');
             error.eveSpotifyFallback = connection.fallback === true;
             throw error;
         }
+        const id = spotifyId(nextItem);
+        if (!id) throw new Error('This Spotify item has no valid track ID.');
         item = nextItem;
         playback = {
             item, currentTime: 0, duration: Number(item.duration || item.resolvedDuration || 0) || 0,
@@ -258,7 +261,15 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         };
         audio.openInternalView = async function anyBrowserInternal(nextItem) {
             if (!isSpotify(nextItem)) return original.openInternalView(nextItem);
-            return audio.playItem(nextItem);
+            // A managed Spotify engine does not need a second audible local iframe. But when no
+            // trusted relay exists, preserve the original expanded official-embed experience.
+            if (active) return audio.playItem(nextItem);
+            await original.stopAll().catch(() => {});
+            try { return await remotePlay(nextItem); }
+            catch (error) {
+                if (error?.eveSpotifyFallback) return original.openInternalView(nextItem);
+                throw error;
+            }
         };
         audio.pause = async function anyBrowserPause() {
             if (!active) return original.pause();
