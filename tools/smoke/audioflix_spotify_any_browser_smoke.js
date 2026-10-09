@@ -48,13 +48,39 @@ const remote = {
     }
 };
 
+const localizedIds = new Set();
+const unavailableLocalIds = new Set();
+const localPrepareCalls = [];
+const localPlayback = {
+    async prepare(nextItem) {
+        localPrepareCalls.push(String(nextItem?.id || ''));
+        if (localizedIds.has(nextItem?.id)) {
+            const localPath = `C:\\Audioflix\\${nextItem.id}.mp3`;
+            return { item: { ...nextItem, url: `blob:local-${nextItem.id}` }, localPath, status: '' };
+        }
+        if (unavailableLocalIds.has(nextItem?.id)) {
+            return { item: { ...nextItem }, localPath: '', status: 'Local copy unavailable - streaming instead.' };
+        }
+        return { item: { ...nextItem }, localPath: '', status: '' };
+    }
+};
+
 let originalPlayCount = 0;
 let originalStopCount = 0;
+const originalPlayCalls = [];
 const stopItemCalls = [];
 const audio = {
     ready: true,
-    async playItem() { originalPlayCount += 1; return true; },
-    async openInternalView() { originalPlayCount += 1; return true; },
+    async playItem(nextItem) {
+        originalPlayCount += 1;
+        originalPlayCalls.push({ kind: 'play', item: { ...nextItem } });
+        return true;
+    },
+    async openInternalView(nextItem) {
+        originalPlayCount += 1;
+        originalPlayCalls.push({ kind: 'internal', item: { ...nextItem } });
+        return true;
+    },
     async pause() { return true; },
     async seek() { return true; },
     async stopAll() { originalStopCount += 1; return true; },
@@ -70,6 +96,7 @@ const audio = {
 const window = {
     EveAudioflixSpotifyRemote: remote,
     EveAudioflixAudio: audio,
+    EveAudioflixLocalPlayback: localPlayback,
     EveAudioflixOutputPort: { effective: (value) => Number(value) * 0.5 },
     addEventListener(name, fn) { windowListeners.set(name, fn); },
     dispatchEvent(event) { dispatched.push(event); }
@@ -147,8 +174,53 @@ vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' 
     assert.deepEqual(stopItemCalls.at(-1), { itemId: 'song-1', preserveProvider: true },
         'preserve-provider cleanup still delegates to the original layer stop');
 
+    // A Spotify identity is not a command to use Spotify if the item has a reachable local copy.
+    // The local resolver is authoritative because it validates the saved path/handle before routing.
+    localizedIds.add('song-1');
+    const remotePlaysBeforeLocal = calls.filter((entry) => entry.action === 'play').length;
+    const remoteStopsBeforeLocal = calls.filter((entry) => entry.action === 'stop').length;
+    const originalBeforeLocal = originalPlayCount;
+    await window.EveAudioflixAudio.playItem({ ...spotify, localPath: 'C:\\Audioflix\\song-1.mp3' });
+    assert.equal(originalPlayCount, originalBeforeLocal + 1,
+        'reachable localized Spotify item delegates to the ordinary local playback path');
+    assert.equal(calls.filter((entry) => entry.action === 'play').length, remotePlaysBeforeLocal,
+        'localized Spotify item does not send a managed Spotify play command');
+    assert.equal(calls.filter((entry) => entry.action === 'stop').length, remoteStopsBeforeLocal + 1,
+        'switching an active Spotify engine to its local copy stops only managed Spotify playback first');
+    assert.equal(originalPlayCalls.at(-1).kind, 'play');
+    assert.equal(originalPlayCalls.at(-1).item.url, 'blob:local-song-1',
+        'validated local media source reaches the existing Audioflix local playback pipeline');
+    assert.equal(window.EveAudioflixSpotifyAnyBrowser.snapshot().active, false,
+        'localized playback leaves the managed Spotify route inactive');
+    localizedIds.delete('song-1');
+
+    localizedIds.add('song-local-view');
+    const internalBefore = originalPlayCount;
+    const managedPlaysBeforeInternal = calls.filter((entry) => entry.action === 'play').length;
+    await window.EveAudioflixAudio.openInternalView({ ...spotify, id: 'song-local-view', localPath: 'C:\\Audioflix\\song-local-view.mp3' });
+    assert.equal(originalPlayCount, internalBefore + 1);
+    assert.equal(originalPlayCalls.at(-1).kind, 'internal',
+        'Internal View also keeps a localized Spotify-linked item on the local path');
+    assert.equal(calls.filter((entry) => entry.action === 'play').length, managedPlaysBeforeInternal,
+        'localized Internal View does not wake the managed Spotify engine');
+    localizedIds.delete('song-local-view');
+
+    unavailableLocalIds.add('song-missing-local');
+    const originalBeforeMissing = originalPlayCount;
+    const remoteBeforeMissing = calls.filter((entry) => entry.action === 'play').length;
+    await window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-missing-local', localPath: 'C:\\Audioflix\\missing.mp3' });
+    assert.equal(originalPlayCount, originalBeforeMissing,
+        'an unreachable saved local path does not force a broken local playback attempt');
+    assert.equal(calls.filter((entry) => entry.action === 'play').length, remoteBeforeMissing + 1,
+        'unreachable local copy safely falls back to managed Spotify');
+    unavailableLocalIds.delete('song-missing-local');
+    assert.ok(localPrepareCalls.includes('song-1') && localPrepareCalls.includes('song-missing-local'),
+        'Spotify routing asks the normal local resolver before choosing the provider path');
+
     assert.match(source, /completionId/);
     assert.match(source, /emitPlayback\('Ended'\)/);
+    assert.match(source, /preferredLocalItem/,
+        'managed Spotify wrapper explicitly gives validated local playback first refusal');
     assert.match(source, /fallback:\s*!relayWasReached\(\)/,
         'fallback is permitted only before a trusted relay handshake has been reached');
     assert.doesNotMatch(source, /__EveAudioflixManagedBrowserSession/,
