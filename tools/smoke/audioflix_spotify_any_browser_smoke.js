@@ -23,8 +23,8 @@ let lastState = null;
 
 const remote = {
     ready: true,
-    snapshot: () => ({ connected: true, status: 'ready', approvalRequired: false, lastState }),
-    connect: async () => ({ connected: true, status: 'ready' }),
+    snapshot: () => ({ connected: true, status: 'ready', approvalRequired: false, relayReady: true, lastState }),
+    connect: async () => ({ connected: true, status: 'ready', relayReady: true }),
     waitUntilReady: async () => ({ connected: true }),
     openApproval: () => true,
     async status() {
@@ -129,15 +129,36 @@ vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' 
 
     assert.match(source, /completionId/);
     assert.match(source, /emitPlayback\('Ended'\)/);
-    assert.match(source, /fallback: false/,
-        'relay failure is fail-closed so an uncertain managed engine cannot be doubled by a local embed');
+    assert.match(source, /fallback:\s*!relayWasReached\(\)/,
+        'fallback is permitted only before a trusted relay handshake has been reached');
     assert.doesNotMatch(source, /__EveAudioflixManagedBrowserSession/,
         'ordinary-tab client does not depend on the old injected managed-session marker');
 
-    const local = { id: 'local-1', url: 'https://example.com/audio.mp3', sourceProvider: 'direct' };
+    // Stop the managed route, then prove option (b): if no relay/server ever answers, the legacy
+    // official embed remains available. Once a relay has answered, an ambiguous failure stays
+    // fail-closed so EveOS cannot create a second audible Spotify source.
     await window.EveAudioflixAudio.stopAll();
+    remote.connect = async () => { throw new Error('relay offline'); };
+    remote.snapshot = () => ({ connected: false, status: 'unavailable', approvalRequired: false, relayReady: false, lastState: null });
+    const fallbackBefore = originalPlayCount;
+    await window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-fallback' });
+    assert.equal(originalPlayCount, fallbackBefore + 1,
+        'an absent/unreachable relay falls back to the existing official Spotify embed');
+
+    remote.connect = async () => { throw new Error('relay answered, command failed'); };
+    remote.snapshot = () => ({ connected: false, status: 'unavailable', approvalRequired: false, relayReady: true, lastState: null });
+    const failClosedBefore = originalPlayCount;
+    await assert.rejects(
+        () => window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-fail-closed' }),
+        /relay answered, command failed/
+    );
+    assert.equal(originalPlayCount, failClosedBefore,
+        'after a trusted relay handshake an ambiguous failure does not start a second local embed');
+
+    const local = { id: 'local-1', url: 'https://example.com/audio.mp3', sourceProvider: 'direct' };
+    const localBefore = originalPlayCount;
     await window.EveAudioflixAudio.playItem(local);
-    assert.equal(originalPlayCount, 1, 'non-Spotify playback remains on the existing local/browser path');
+    assert.equal(originalPlayCount, localBefore + 1, 'non-Spotify playback remains on the existing local/browser path');
 
     assert.ok(dispatched.some((event) => event.type === 'eve:audioflix-progress'),
         'remote Spotify state feeds the existing public Audioflix progress channel');
