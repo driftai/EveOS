@@ -51,25 +51,68 @@ function assert(condition, message) {
     if (!condition) throw new Error(`ASSERT FAILED: ${message}`);
 }
 
-async function waitForTrackReady(page, index) {
-    await page.waitForFunction((wanted) => {
+async function pollNode(check, timeout = transitionTimeout, interval = 120) {
+    const deadline = Date.now() + timeout;
+    let last;
+    while (Date.now() < deadline) {
+        last = await check();
+        if (last?.ok) return last.value;
+        await sleep(interval);
+    }
+    throw new Error(last?.reason || `Timed out after ${timeout}ms.`);
+}
+
+async function queueSnapshot(page) {
+    return page.evaluate(() => {
         const q = window.EveAudioflix?.queueConnection?.snapshot?.();
         const managed = window.EveAudioflixSpotifyAnyBrowser?.snapshot?.();
-        return q?.isPlaying === true && q.currentIndex === wanted
-            && managed?.active === true && managed.playback?.paused === false
-            && Number(managed.playback?.duration || 0) > 5;
-    }, index, { timeout: transitionTimeout });
-    return page.evaluate(() => {
-        const q = window.EveAudioflix.queueConnection.snapshot();
-        const managed = window.EveAudioflixSpotifyAnyBrowser.snapshot();
         return {
-            currentIndex: q.currentIndex,
-            itemId: q.entries?.[q.currentIndex]?.id || '',
-            title: q.entries?.[q.currentIndex]?.title || '',
-            duration: Number(managed.playback?.duration || 0),
-            currentTime: Number(managed.playback?.currentTime || 0)
+            queue: q ? JSON.parse(JSON.stringify(q)) : null,
+            managed: managed ? {
+                active: managed.active === true,
+                ended: managed.ended === true,
+                playback: managed.playback ? {
+                    paused: managed.playback.paused === true,
+                    duration: Number(managed.playback.duration || 0),
+                    currentTime: Number(managed.playback.currentTime || 0)
+                } : null
+            } : null,
+            visibility: document.visibilityState
         };
     });
+}
+
+async function waitForTrackReady(page, index) {
+    const snapshot = await pollNode(async () => {
+        const value = await queueSnapshot(page);
+        const ready = value.queue?.isPlaying === true && value.queue.currentIndex === index
+            && value.managed?.active === true && value.managed.playback?.paused === false
+            && Number(value.managed.playback?.duration || 0) > 5;
+        return {
+            ok: ready,
+            value,
+            reason: `track ${index + 1} did not become ready; last=${JSON.stringify(value)}`
+        };
+    });
+    return {
+        currentIndex: snapshot.queue.currentIndex,
+        itemId: snapshot.queue.entries?.[snapshot.queue.currentIndex]?.id || '',
+        title: snapshot.queue.entries?.[snapshot.queue.currentIndex]?.title || '',
+        duration: snapshot.managed.playback.duration,
+        currentTime: snapshot.managed.playback.currentTime
+    };
+}
+
+async function waitForManagedPlayback() {
+    return pollNode(async () => {
+        const status = await jsonRequest('/api/audioflix/spotify-browser/status').catch((error) => ({ ok: false, reason: error.message }));
+        const ready = status.ok && status.helperReachable && status.sessionPresent && Number(status.playingCount || 0) >= 1;
+        return {
+            ok: ready,
+            value: status,
+            reason: `managed Spotify helper never reached playing state; last=${JSON.stringify(status)}`
+        };
+    }, transitionTimeout, 250);
 }
 
 async function main() {
@@ -92,18 +135,19 @@ async function main() {
             && window.EveAudioflixSpotifyAnyBrowser?.ready
             && window.EveAudioflixDiagnostics?.ready, undefined, { timeout: 120000 });
 
-        // This is a disposable Playwright controller context. Keep the fixture in-memory so the
-        // live proof cannot persist its temporary tracks into the user's normal EveOS library.
+        // This is a disposable Playwright controller context. Keep fixture saves inside the
+        // controller process so temporary tracks never persist into the user's normal EveOS data.
         await page.evaluate(() => {
             window.__eveLongQueueOriginalSaveConfig = window.saveConfig;
             window.saveConfig = async () => true;
         });
 
-        await page.evaluate(({ tracks, group }) => {
+        await page.evaluate(({ tracks, group, nonce }) => {
             const S = window.EveAudioflixState;
             S.addMusicGroup(group);
             tracks.forEach((url, index) => {
                 const added = S.addItem('music', {
+                    id: `live-queue-${nonce}-${index}`,
                     title: `Live Queue ${String(index + 1).padStart(2, '0')}`,
                     url,
                     spotifyUrl: url,
@@ -120,7 +164,7 @@ async function main() {
                 activeFrontendMusicClassifier: '',
                 activeMusicFolderScope: ''
             }, 'audioflix-live-long-queue-fixture');
-        }, { tracks: urls, group: groupName });
+        }, { tracks: urls, group: groupName, nonce: Date.now().toString(36) });
 
         await page.click('.topbar-audioflix-btn');
         await page.waitForSelector('#audioflix-overlay:not([hidden]) .audioflix-panel', { timeout: 15000 });
@@ -129,11 +173,7 @@ async function main() {
         await page.click('[data-af-action="play-music-group"]');
 
         await waitForTrackReady(page, 0);
-        const managedStatus = await jsonRequest('/api/audioflix/spotify-browser/status');
-        assert(managedStatus.ok && managedStatus.helperReachable && managedStatus.sessionPresent,
-            'managed browser/helper/session are not healthy during live queue playback');
-        assert(Number(managedStatus.playingCount || 0) >= 1,
-            'managed Spotify browser has no playing media element after queue start');
+        await waitForManagedPlayback();
 
         const transitions = [];
         let hiddenObserved = false;
@@ -147,7 +187,10 @@ async function main() {
                 await foreground.setContent('<title>EveOS long queue foreground guard</title><p>Controller intentionally backgrounded.</p>');
                 await foreground.bringToFront();
                 try {
-                    await page.waitForFunction(() => document.visibilityState === 'hidden', undefined, { timeout: 5000 });
+                    await pollNode(async () => {
+                        const visibility = await page.evaluate(() => document.visibilityState);
+                        return { ok: visibility === 'hidden', value: visibility, reason: `controller visibility remained ${visibility}` };
+                    }, 5000, 100);
                     hiddenObserved = true;
                 } catch {
                     if (!allowVisible) {
@@ -162,17 +205,20 @@ async function main() {
             }, { duration: track.duration, tail: tailSeconds });
 
             if (index < count - 1) {
-                await page.waitForFunction((next) => {
-                    const q = window.EveAudioflix?.queueConnection?.snapshot?.();
-                    return q?.isPlaying === true && q.currentIndex === next;
-                }, index + 1, { timeout: transitionTimeout });
+                await pollNode(async () => {
+                    const value = await queueSnapshot(page);
+                    const ok = value.queue?.isPlaying === true && value.queue.currentIndex === index + 1;
+                    return { ok, value, reason: `queue did not advance from ${index} to ${index + 1}; last=${JSON.stringify(value)}` };
+                });
                 // A duplicate/stale completion must not skip the immediate successor.
                 await sleep(250);
-                const current = await page.evaluate(() => window.EveAudioflix.queueConnection.snapshot().currentIndex);
+                const current = (await queueSnapshot(page)).queue?.currentIndex;
                 assert(current === index + 1, `completion ${index + 1} skipped past queue index ${index + 1} to ${current}`);
             } else {
-                await page.waitForFunction(() => window.EveAudioflix?.queueConnection?.snapshot?.().isPlaying === false,
-                    undefined, { timeout: transitionTimeout });
+                await pollNode(async () => {
+                    const value = await queueSnapshot(page);
+                    return { ok: value.queue?.isPlaying === false, value, reason: `final queue item never completed; last=${JSON.stringify(value)}` };
+                });
             }
 
             const elapsedMs = Date.now() - startedAt;
@@ -194,12 +240,13 @@ async function main() {
         if (!allowVisible && !headless) assert(hiddenObserved, 'headed proof never observed a hidden controller tab');
         assert(pageErrors.length === 0, `controller page emitted errors: ${pageErrors.join(' | ')}`);
 
+        const sorted = [...transitions].sort((a, b) => a.elapsedMs - b.elapsedMs);
         console.log(JSON.stringify({
             ok: true,
             tracks: count,
             hiddenControllerProved: hiddenObserved,
             maxTransitionMs: Math.max(...transitions.map((entry) => entry.elapsedMs)),
-            p50TransitionMs: [...transitions].sort((a, b) => a.elapsedMs - b.elapsedMs)[Math.floor(transitions.length / 2)].elapsedMs,
+            p50TransitionMs: sorted[Math.floor(sorted.length / 2)].elapsedMs,
             diagnostics: result.diagnostics.summary
         }, null, 2));
         console.log(`AUDIOFLIX_SPOTIFY_LONG_QUEUE_LIVE_OK ${count}/${count}`);
