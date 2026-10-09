@@ -6,9 +6,11 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
     if (ns.ready) return;
 
     const PROTOCOL = 1;
+    const RELAY_READY_TIMEOUT_MS = 2500;
     const state = {
         status: 'idle', connected: false, connecting: false, approvalRequired: false,
-        code: '', approvalUrl: '', clientId: '', mode: '', base: '', lastError: '', lastState: null
+        relayReady: false, code: '', approvalUrl: '', clientId: '', mode: '', base: '',
+        lastError: '', lastState: null
     };
     const listeners = new Set();
     const pending = new Map();
@@ -21,6 +23,8 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
     let commandSeq = 0;
 
     const uuid = () => crypto.randomUUID?.() || `af-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const relayReadyTimeoutMs = () => Math.max(250,
+        Number(window.__EveAudioflixSpotifyRelayReadyTimeoutMs || RELAY_READY_TIMEOUT_MS));
     const loopbackBase = (value) => {
         try {
             const url = new URL(String(value || ''));
@@ -47,7 +51,8 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
     function snapshot() {
         return {
             status: state.status, connected: state.connected, connecting: state.connecting,
-            approvalRequired: state.approvalRequired, code: state.code, approvalUrl: state.approvalUrl,
+            approvalRequired: state.approvalRequired, relayReady: state.relayReady,
+            code: state.code, approvalUrl: state.approvalUrl,
             clientId: state.clientId, mode: state.mode, base: state.base,
             lastError: state.lastError, lastState: state.lastState
         };
@@ -112,6 +117,7 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
         if (state.connected || state.approvalRequired) return snapshot();
         if (connectPromise) return connectPromise;
         state.connecting = true;
+        state.relayReady = false;
         state.status = 'connecting';
         state.lastError = '';
         state.base = candidateBase();
@@ -125,7 +131,29 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
             iframe.tabIndex = -1;
             iframe.setAttribute('aria-hidden', 'true');
             iframe.src = `${state.base}/api/audioflix/spotify-relay`;
-            iframe.addEventListener('load', () => {
+
+            let handshakeDone = false;
+            let handshakeTimer = 0;
+            const cleanupHandshake = () => {
+                if (handshakeTimer) clearTimeout(handshakeTimer);
+                handshakeTimer = 0;
+                window.removeEventListener('message', onRelayReady);
+            };
+            const failBeforeRelay = (error) => {
+                if (handshakeDone) return;
+                handshakeDone = true;
+                cleanupHandshake();
+                state.connected = false;
+                state.connecting = false;
+                state.relayReady = false;
+                state.status = 'unavailable';
+                state.lastError = String(error?.message || error || 'Spotify relay unavailable.').slice(0, 240);
+                try { iframe?.remove?.(); } catch {}
+                iframe = null;
+                notify();
+                settleReady(false, error instanceof Error ? error : new Error(state.lastError));
+            };
+            const startChannel = () => {
                 const channel = new MessageChannel();
                 port = channel.port1;
                 port.onmessage = onPortMessage;
@@ -143,15 +171,25 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
                     notify();
                     settleReady(false, error);
                 }
-            }, { once: true });
-            iframe.addEventListener('error', () => {
-                const error = new Error(`Could not load the EveOS Spotify relay at ${state.base}.`);
-                state.connecting = false;
-                state.status = 'unavailable';
-                state.lastError = error.message;
+            };
+            const onRelayReady = (event) => {
+                if (handshakeDone || event.source !== iframe?.contentWindow || event.origin !== relayOrigin) return;
+                const message = event.data || {};
+                if (message.type !== 'eveos:spotify-relay-ready' || Number(message.protocolVersion) !== PROTOCOL) return;
+                handshakeDone = true;
+                cleanupHandshake();
+                state.relayReady = true;
+                state.lastError = '';
                 notify();
-                settleReady(false, error);
+                startChannel();
+            };
+            window.addEventListener('message', onRelayReady);
+            iframe.addEventListener('error', () => {
+                failBeforeRelay(new Error(`Could not load the EveOS Spotify relay at ${state.base}.`));
             }, { once: true });
+            handshakeTimer = setTimeout(() => {
+                failBeforeRelay(new Error(`No EveOS Spotify relay answered at ${state.base}.`));
+            }, relayReadyTimeoutMs());
             document.documentElement.appendChild(iframe);
         }).finally(() => { connectPromise = null; });
         return connectPromise;
@@ -183,16 +221,18 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
     }
     async function send(action, payload = {}, options = {}) {
         if (!state.connected) {
-            try { await connect(); } catch (error) { return { ok: false, unavailable: true, reason: error.message }; }
+            try { await connect(); } catch (error) {
+                return { ok: false, unavailable: true, relayReady: state.relayReady, reason: error.message };
+            }
         }
         if (!state.connected) {
             return {
-                ok: false, approvalRequired: state.approvalRequired,
+                ok: false, approvalRequired: state.approvalRequired, relayReady: state.relayReady,
                 code: state.code, approvalUrl: state.approvalUrl,
                 reason: state.approvalRequired ? 'Approve this EveOS file tab to control Spotify.' : (state.lastError || 'Spotify relay unavailable.')
             };
         }
-        if (!port) return { ok: false, unavailable: true, reason: 'Spotify relay channel is unavailable.' };
+        if (!port) return { ok: false, unavailable: true, relayReady: state.relayReady, reason: 'Spotify relay channel is unavailable.' };
         requestSeq += 1;
         commandSeq += 1;
         const requestId = `r${requestSeq}-${uuid()}`;
@@ -234,6 +274,7 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
         state.connected = false;
         state.connecting = false;
         state.approvalRequired = false;
+        state.relayReady = false;
         state.status = 'idle';
         notify();
     }
