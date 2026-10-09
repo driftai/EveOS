@@ -3,10 +3,9 @@ const { createAgentExtensionReload } = require('./agent-extension-reload');
 const directSend = require('./provider-control-direct-send');
 const { directRoomSend } = require('./direct-room-send-policy');
 const roomTools = require('./room-tools'), entryCheck = require('./provider-control-entry-check');
+const { routeDoneWatch } = require('./provider-control-done-watch');
 const POST_IDLE_ACTIONS = new Set(['arm_post_idle','post_idle_status','cancel_post_idle','report_post_idle']);
 const { runPostIdleCommand } = require('./post-idle-control');
-const doneWatchApi = require('../public/dex-done-watch');
-const { randomUUID } = require('node:crypto');
 const MUTATING_ACTIONS = new Set([
   'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
   'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
@@ -127,10 +126,6 @@ function createProviderControlRouting({
         message: 'Dex found more than one active relay turn for this provider-control source; refusing to execute without a unique origin.'
       } };
     }
-    // A provider-control packet can beat response_final by a few milliseconds.
-    // If the authenticated Online-Origin is already bound to one exact room,
-    // give that room a short bounded grace to persist the matching durable
-    // command intent. Nothing executes unless the exact command intent appears.
     if (!active && onlineMutation && roomIdHint) {
       const graceDeadline = now() + Math.min(timeoutMs, LATE_ORIGIN_GRACE_MS);
       while (now() < graceDeadline) {
@@ -195,9 +190,6 @@ function createProviderControlRouting({
     try { entryGate = entryCheck.authorize(getState?.(), source, command); }
     catch { entryGate = { ok: false, code: 'DEX_ENTRY_STATE_UNAVAILABLE', message: 'Room state unavailable; no command executed.' }; }
     if (!entryGate.ok) { fail(ws, requestId, source, entryGate.code, entryGate.message); return true; }
-    // New authenticated Local-Origin room sends are admitted directly. Online-Origin
-    // sends first settle their exact durable control origin, then enter the same
-    // request-ID deduped mailbox exactly once.
     if (directRoomSend(command) && getState && saveState) {
       let origin = null;
       if (String(source.targetClassId || '').trim().toLowerCase() === 'online-origin') {
@@ -250,51 +242,10 @@ function createProviderControlRouting({
       return true;
     }
     if (action === 'watch_done' || action === 'unwatch_done') {
-      const snapshot = typeof getState === 'function' ? getState() : null;
-      if (!snapshot || typeof saveState !== 'function') {
-        fail(ws, requestId, source, 'DEX_DONE_WATCH_UNAVAILABLE', 'Durable DONE watch storage is unavailable.', origin);
-        return true;
-      }
-      const eligible = (snapshot.rooms || []).filter((room) => (room.members || [])
-        .some((member) => controlReceiptApi.bindingMatchesSource(member.binding, source)));
-      const reference = String(command.room || '').trim();
-      const chosen = reference
-        ? eligible.filter((room) => room.id === reference
-          || String(room.name || '').toLowerCase() === reference.toLowerCase())
-        : eligible;
-      if (chosen.length !== 1) {
-        fail(ws, requestId, source, 'DEX_DONE_WATCH_ROOM_REQUIRED', 'Specify one exact authorized room for this DONE watch.', origin);
-        return true;
-      }
-      const room = chosen[0];
-      const watcher = room.members.find((member) => controlReceiptApi.bindingMatchesSource(member.binding, source));
-      if (action === 'unwatch_done') {
-        const removed = doneWatchApi.disarm(room, watcher.id);
-        const saved = saveState(snapshot); broadcastState?.(saved);
-        sendResult({ sourceSocket: ws, requestId, source }, { ok: true, action, message: 'DONE notifications disarmed for this participant.', data: { roomId: room.id, removed: removed.removed } });
-        return true;
-      }
-      const ref = String(command.member || '').trim();
-      const targets = ref ? (room.members || []).filter((member) =>
-        member.id === ref || String(member.name || '').toLowerCase() === ref.toLowerCase()) : [];
-      if (ref && targets.length !== 1) {
-        fail(ws, requestId, source, 'DEX_DONE_WATCH_BAD_TARGET', 'Specify a unique other room participant to watch.', origin);
-        return true;
-      }
-      const armed = doneWatchApi.arm(room, {
-        watcherMemberId: watcher.id, targetMemberId: targets[0]?.id || null,
-        id: `done-watch-${randomUUID()}`
-      });
-      if (!armed.ok) {
-        fail(ws, requestId, source, armed.code, armed.message, origin);
-        return true;
-      }
-      const saved = saveState(snapshot); broadcastState?.(saved);
-      sendResult({ sourceSocket: ws, requestId, source }, {
-        ok: true, action, message: 'Armed one-shot DONE notification; no extra Dex relay turn will run.',
-        data: { roomId: room.id, watchId: armed.watch.id, targetMemberId: armed.watch.targetMemberId, expiresAt: armed.watch.expiresAt }
-      });
-      return true;
+      return routeDoneWatch(
+        { action, source, command, requestId, ws, origin },
+        { getState, saveState, broadcastState, sendResult, fail }
+      );
     }
     if (action === 'reload_extension') {
       const outcome = await agentExtensionReload.run({ source, command, requestId, transportRole: ws.role });
@@ -412,7 +363,6 @@ function createProviderControlRouting({
     } else if (action === 'despawn_agent') {
       routedCommand = { ...command, room: authorization.roomId, member: authorization.memberId };
     }
-
     if (!safeSend(dex, { type: 'provider_control_request', requestId, source, command: routedCommand })) {
       if (entry.spawnedTarget && typeof closeTarget === 'function') {
         await closeTarget({ requestId: `${requestId}-route-cleanup`, targetId: entry.spawnedTarget.id, providerId: entry.spawnedTarget.providerId }).catch(() => {});
@@ -428,32 +378,21 @@ function createProviderControlRouting({
     const entry = pending.get(requestId);
     if (!entry) return false;
     let result = msg.result || { ok: false, code: 'DEX_CONTROL_FAILED', message: 'Dex provider-control returned no result.' };
-
     if (entry.action === 'spawn_agent' && entry.spawnedTarget && !result.ok && typeof closeTarget === 'function') {
       try {
-        await closeTarget({
-          requestId: `${requestId}-rollback`,
-          targetId: entry.spawnedTarget.id,
-          providerId: entry.spawnedTarget.providerId
-        });
+        await closeTarget({ requestId: `${requestId}-rollback`, targetId: entry.spawnedTarget.id, providerId: entry.spawnedTarget.providerId });
       } catch (error) {
         result = { ...result, data: { ...(result.data || {}), cleanupWarning: error.message } };
       }
     }
-
     if (entry.action === 'despawn_agent' && result.ok && entry.managedTarget && typeof closeTarget === 'function') {
       try {
-        const cleanup = await closeTarget({
-          requestId,
-          targetId: entry.managedTarget.targetId,
-          providerId: entry.managedTarget.providerId
-        });
+        const cleanup = await closeTarget({ requestId, targetId: entry.managedTarget.targetId, providerId: entry.managedTarget.providerId });
         result = { ...result, data: { ...(result.data || {}), targetClosed: true, alreadyClosed: !!cleanup?.alreadyClosed } };
       } catch (error) {
         result = { ...result, data: { ...(result.data || {}), targetClosed: false, cleanupWarning: error.message } };
       }
     }
-
     finish(requestId, { ...msg, result });
     return true;
   }
@@ -471,10 +410,7 @@ function createProviderControlRouting({
     for (const [requestId, entry] of pending) {
       entry.waiters = entry.waiters.filter((waiter) => waiter.sourceSocket !== ws);
       if (entry.sourceSocket !== ws) continue;
-      if (entry.key) {
-        entry.sourceSocket = null;
-        continue;
-      }
+      if (entry.key) { entry.sourceSocket = null; continue; }
       clearTimer(entry.timer);
       pending.delete(requestId);
     }
