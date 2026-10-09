@@ -174,7 +174,10 @@ assert file_play["ok"] and file_play["isOwner"]
 local_status = command(local, "status")
 assert local_status["ok"] and not local_status["isOwner"]
 
-# Presentation is a server-owned subsystem state and can change without spawning a second engine.
+# Only the owner may switch presentation while playback has an owner.
+blocked_presentation = command(local, "engine-presentation", {"mode": "headless"})
+assert blocked_presentation["ok"] is False and blocked_presentation["observer"] is True
+assert fake.presentation == "hidden"
 presentation = command(file_grant, "engine-presentation", {"mode": "window"})
 assert presentation["ok"] and presentation["managed"]["presentation"] == "window"
 assert any(call[0] == "presentation" and call[1] == "window" for call in fake.calls)
@@ -183,6 +186,8 @@ assert any(call[0] == "presentation" and call[1] == "window" for call in fake.ca
 # resume/volume/seek may reclaim the same valid client after an engine epoch or stop transition.
 stopped = command(file_grant, "stop")
 assert stopped["ok"] and stopped["ownerClientId"] == ""
+ownerless_presentation = command(local, "engine-presentation", {"mode": "background"})
+assert ownerless_presentation["ok"] and ownerless_presentation["managed"]["presentation"] == "background"
 idle_pause = command(file_grant, "pause")
 assert idle_pause["ok"] and idle_pause.get("idle") and not idle_pause.get("observer")
 resumed = command(file_grant, "resume")
