@@ -120,9 +120,10 @@ assert(anyBrowser.includes('EveAudioflixAudio.playItem') || anyBrowser.includes(
 assert(anyBrowser.includes('fallback: !relayWasReached()'),
     'local embed fallback is allowed only when no trusted relay handshake was reached');
 
-assert(launcher.includes("ValidateSet('background','window','headless')")
-    && launcher.includes('playwright=headless') && launcher.includes('*-headless'),
-    'launcher exposes explicit background/window/headless engine presentation modes');
+assert(launcher.includes("ValidateSet('background','hidden','window','headless')")
+    && launcher.includes('playwright=headless') && launcher.includes('*-headless')
+    && launcher.includes("'hidden' { 0 }") && launcher.includes('spotify-engine-window-handle.txt'),
+    'launcher exposes minimized, hidden-headed, visible-window and true-headless engine presentation modes');
 assert(manifest.includes('audioflix.spotify.remote.js') && manifest.includes('audioflix.spotify.any-browser.js'),
     'any-browser Spotify client is reachable from the feature manifest');
 assert(bridge.includes('audioflix_spotify_http.handle_get_request') && bridge.includes('audioflix_spotify_http.handle_post_request'),
