@@ -186,8 +186,6 @@ window.EveWorldBook = window.EveWorldBook || {};
             const payload = await fetchJson(`${service}${path}`, body === undefined ? undefined : {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
             }, timeoutMs);
-            // A successful Notes API response itself proves the service is healthy. Do not issue
-            // another /api/health probe before the next workspace/list/read request.
             lastHealthyAt = Date.now();
             if (!state.running) {
                 markHealthy(payload);
@@ -210,7 +208,9 @@ window.EveWorldBook = window.EveWorldBook || {};
         untrack: (rootId) => request('/api/notes/untrack', { rootId }),
         list: (rootId, path, includeMarkdown) => request('/api/notes/list', { rootId, path, includeMarkdown }),
         read: (rootId, path) => request('/api/notes/read', { rootId, path }),
-        write: (rootId, path, content, revision) => request('/api/notes/write', { rootId, path, content, revision }),
+        // Large local notes are allowed up to 2 MiB server-side. Give atomic disk writes and
+        // antivirus/indexing on Windows enough time to finish instead of falsely timing out at 6s.
+        write: (rootId, path, content, revision) => request('/api/notes/write', { rootId, path, content, revision }, 20000),
         create: (rootId, path, name, kind) => request('/api/notes/create', { rootId, path, name, kind }),
         favorite: (rootId, path) => request('/api/notes/favorite', { rootId, path }),
         link: (source, target) => request('/api/notes/link', { source, target }),
