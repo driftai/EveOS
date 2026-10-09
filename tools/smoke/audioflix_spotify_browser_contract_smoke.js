@@ -25,6 +25,7 @@ const hook = read('server_modules/audioflix_spotify_browser_hook.js');
 const manager = read('server_modules/audioflix_spotify_browser.py');
 const transport = read('server_modules/audioflix_spotify_browser_transport.js');
 const rpc = read('server_modules/audioflix_spotify_browser_rpc.py');
+const presentation = read('server_modules/audioflix_spotify_presentation.py');
 const broker = read('server_modules/audioflix_spotify_broker.py');
 const http = read('server_modules/audioflix_spotify_http.py');
 const relay = read('server_modules/audioflix_spotify_relay.py');
@@ -32,8 +33,10 @@ const bridge = read('server_modules/audioflix_bridge.py');
 const remote = read('js/modules/features/audioflix/audioflix.spotify.remote.js');
 const anyBrowser = read('js/modules/features/audioflix/audioflix.spotify.any-browser.js');
 const engine = read('js/modules/features/audioflix/audioflix.spotify.engine.js');
+const surface = read('js/modules/features/audioflix/audioflix.spotify.engine-surface.js');
 const enginePage = read('audioflix-spotify-engine.html');
 const launcher = read('tools/audioflix/spotify-managed-browser.ps1');
+const serverLaunch = read('server/eveos-server-launch.py');
 const manifest = read('js/config/manifest/scripts.parts/03-feature-modules.js');
 const ignore = read('.gitignore');
 
@@ -51,8 +54,8 @@ assert(activation.includes('handleTransportWithActivation') && activation.includ
     'remote Play/Resume has a bounded Spotify-control activation fallback');
 assert(activation.includes("body.hover") && activation.includes('force: true')
     && activation.includes("dispatchEvent('click')") && activation.includes("note('playback-controls'")
-    && activation.includes("note('playback-kick-skip'"),
-    'activation fallback hovers hidden controls, can force a provider Play control, diagnoses misses, and avoids late-start toggle races');
+    && activation.includes("note('playback-kick-skip'") && activation.includes('if (observed.playing)'),
+    'activation fallback diagnoses hidden controls and exits promptly when provider playback is already active');
 assert(!activation.includes('eval(') && !activation.includes('new Function('),
     'playback activation adds no arbitrary evaluation surface');
 assert(hook.includes("host !== 'open.spotify.com'") && hook.includes("startsWith('/embed/')"),
@@ -91,8 +94,14 @@ assert(manager.includes('audioflix_spotify._profile_dir()')
 assert(manager.includes('hmac.compare_digest(candidate, expected)')
     && !manager.includes('"sessionId": helper.get("sessionId")'),
     'server-private helper session remains constant-time checked and absent from public manager status');
-assert(rpc.includes('Browser clients never receive the helper') && rpc.includes('def set_effective_volume'),
-    'browser clients are separated from helper port/token/session by server-side RPC');
+assert(rpc.includes('Browser clients never receive the helper') && rpc.includes('def set_effective_volume')
+    && rpc.includes('presentation.ensure_engine') && rpc.includes('def set_presentation')
+    && rpc.includes('def stop_engine'),
+    'browser clients stay behind server-owned playback and presentation RPC');
+assert(presentation.includes('_DEFAULT = "hidden"') && presentation.includes('ShowWindowAsync')
+    && presentation.includes('EnumWindows') && presentation.includes('def set_presentation')
+    && presentation.includes('def stop_engine'),
+    'server presentation policy defaults to audible hidden-headed mode and owns window lifecycle');
 
 assert(broker.includes('ownerEpoch') && broker.includes('trackGeneration') && broker.includes('clientCommandSeq')
     && broker.includes('commandId') && broker.includes('resyncRequired'),
@@ -101,6 +110,13 @@ assert(broker.includes('_transport_lock') && broker.indexOf('if action == "impor
     'long playlist import stays outside serialized playback transport operations');
 assert(broker.includes('effectiveVolume') && broker.includes('engine.set_effective_volume'),
     'broker accepts an already-effective gain rather than multiplying master volume again');
+assert(broker.includes('if not owner and action in {"resume", "volume", "seek", "restart"}')
+    && broker.includes('if owner and owner != client_id')
+    && broker.includes('if not owner and action in {"pause", "stop", "release"}'),
+    'ownerless playback is distinct from another live EveOS tab and can recover without a false observer error');
+assert(broker.includes('engine-presentation') && broker.includes('engine-stop')
+    && broker.includes('_matching_file_client_locked'),
+    'broker exposes bounded engine controls and reuses approved file-document sessions within TTL');
 
 assert(http.includes('origin == _server_origin(handler).lower()') && !http.includes('Access-Control-Allow-Origin", "null"'),
     'new Spotify broker endpoints trust only their exact localhost relay origin, never a raw null-origin request');
@@ -110,20 +126,36 @@ assert(relay.includes('MessageChannel') === false && relay.includes('event.ports
     'relay accepts an explicitly transferred MessageChannel and does not manufacture parent authority');
 assert(relay.includes('clientToken = String(result.clientToken)') && !relay.includes("type: 'ready', clientToken"),
     'scoped broker credential remains inside relay memory and is not returned to the parent');
+assert(relay.includes('Approved. Returning to EveOS') && relay.includes('window.opener?.focus') && relay.includes('window.close'),
+    'file approval returns focus to EveOS and closes its trusted popup after success');
 assert(remote.includes('MessageChannel') && remote.includes("location.protocol === 'file:'")
     && remote.includes('eveos:spotify-relay-ready') && remote.includes('relayReady')
+    && remote.includes('sessionStorage') && remote.includes('eveos:audioflix:spotify-document')
     && !remote.includes('clientToken'),
-    'ordinary localhost/file clients require a real relay handshake without handling broker credentials');
+    'ordinary localhost/file clients use the relay and retain only a stable non-secret document id for reconnect');
 assert(anyBrowser.includes('EveAudioflixAudio.playItem') || anyBrowser.includes('audio.playItem = async function')
     && anyBrowser.includes('effectiveGain') && anyBrowser.includes("emitPlayback('Ended')"),
     'ordinary EveOS client routes Spotify through managed transport and preserves public queue events');
 assert(anyBrowser.includes('fallback: !relayWasReached()'),
     'local embed fallback is allowed only when no trusted relay handshake was reached');
+assert(anyBrowser.includes('Spotify engine restarted or became idle. Press Play to resume control.'),
+    'ordinary EveOS distinguishes an ownerless engine restart from a different-tab ownership conflict');
 
+assert(surface.includes('audioflix-spotify-engine.html?surface=mirror')
+    && surface.includes("remote().send('engine-presentation'")
+    && surface.includes("remote().send('engine-stop'")
+    && surface.includes('Hidden (default)') && surface.includes('True headless (silent)'),
+    'Internal Player mirrors the single engine and exposes explicit presentation/subsystem controls');
 assert(launcher.includes("ValidateSet('background','hidden','window','headless')")
+    && launcher.includes("[string]$Presentation = 'hidden'")
     && launcher.includes('playwright=headless') && launcher.includes('*-headless')
-    && launcher.includes("'hidden' { 0 }") && launcher.includes('spotify-engine-window-handle.txt'),
-    'launcher exposes minimized, hidden-headed, visible-window and true-headless engine presentation modes');
+    && launcher.includes("'hidden' { 0 }") && launcher.includes('spotify-engine-window-handle.txt')
+    && launcher.indexOf('Get-SavedSpotifyEngineWindowHandle') < launcher.indexOf("Get-Process msedge"),
+    'CLI defaults to hidden headed audio and consults the saved HWND before title scanning');
+assert(serverLaunch.includes('shutdown_managed_subsystems')
+    && serverLaunch.includes('audioflix_spotify_presentation.stop_engine')
+    && serverLaunch.includes('finally:'),
+    'canonical EveOS server shutdown tears down the managed Spotify subsystem');
 assert(manifest.includes('audioflix.spotify.remote.js') && manifest.includes('audioflix.spotify.any-browser.js'),
     'any-browser Spotify client is reachable from the feature manifest');
 assert(bridge.includes('audioflix_spotify_http.handle_get_request') && bridge.includes('audioflix_spotify_http.handle_post_request'),
