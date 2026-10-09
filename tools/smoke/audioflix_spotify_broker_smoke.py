@@ -15,6 +15,8 @@ class FakeEngine:
     def __init__(self):
         self.calls = []
         self.started = 1000
+        self.presentation = "hidden"
+        self.running = True
         self.state = {
             "status": "paused", "spotifyId": "", "generation": 0,
             "currentTime": 0, "duration": 0, "paused": True,
@@ -25,12 +27,27 @@ class FakeEngine:
 
     def ensure_engine(self, page_url):
         self.calls.append(("ensure", page_url))
+        self.running = True
         return {"ok": True, "helperReachable": True, "engineStartedAt": self.started,
-                "authState": "signed-in", "browserRunning": True}
+                "authState": "signed-in", "browserRunning": True, "presentation": self.presentation}
 
     def status(self):
-        return {"ok": True, "helperReachable": True, "engineStartedAt": self.started,
-                "authState": "signed-in", "browserRunning": True, "state": self.state["status"]}
+        return {"ok": True, "helperReachable": self.running, "engineStartedAt": self.started,
+                "authState": "signed-in", "browserRunning": self.running,
+                "state": self.state["status"], "presentation": self.presentation}
+
+    def set_presentation(self, mode, page_url=""):
+        self.calls.append(("presentation", mode, page_url))
+        self.presentation = mode
+        self.running = True
+        return {"ok": True, "presentation": mode, "browserRunning": True, "helperReachable": True,
+                "engineStartedAt": self.started}
+
+    def stop_engine(self):
+        self.calls.append(("engine-stop",))
+        self.running = False
+        self.state.update({"status": "stopped", "paused": True, "currentTime": 0})
+        return {"ok": True, "state": "stopped", "presentation": self.presentation}
 
     def transport(self, payload=None):
         payload = dict(payload or {})
@@ -77,6 +94,8 @@ class FakeEngine:
 fake = FakeEngine()
 mod.engine.ensure_engine = fake.ensure_engine
 mod.engine.status = fake.status
+mod.engine.set_presentation = fake.set_presentation
+mod.engine.stop_engine = fake.stop_engine
 mod.engine.transport = fake.transport
 mod.engine.set_effective_volume = fake.set_effective_volume
 mod.engine.import_playlist = fake.import_playlist
@@ -97,10 +116,11 @@ assert not broker.connect({
 assert not broker.connect({"mode": "file", "parentOrigin": "https://evil.example"}, context)["ok"]
 
 # A file/null-origin document receives no authority until the trusted approval page approves it.
-file_pending = broker.connect({
+file_connect = {
     "mode": "file", "parentOrigin": "null", "documentId": "file-doc",
     "libraryScopeId": "file:/c:/eveos/eveos.html",
-}, context)
+}
+file_pending = broker.connect(file_connect, context)
 assert file_pending["ok"] and file_pending["pairingRequired"]
 assert "clientToken" not in file_pending
 view = broker.pairing_view(file_pending["pairId"])
@@ -110,6 +130,13 @@ assert not broker.approve({"pairId": file_pending["pairId"], "csrf": "wrong"})["
 assert broker.approve({"pairId": file_pending["pairId"], "csrf": view["csrf"]})["ok"]
 file_grant = broker.pair_status({"pairId": file_pending["pairId"]})
 assert file_grant["ok"] and file_grant["approved"] and file_grant["clientToken"]
+
+# A reload of the same approved file document reuses its scoped server-side capability within TTL.
+file_reconnect = broker.connect(file_connect, context)
+assert file_reconnect["ok"] and file_reconnect["connected"]
+assert not file_reconnect.get("pairingRequired")
+assert file_reconnect["clientId"] == file_grant["clientId"]
+assert file_reconnect["clientToken"] == file_grant["clientToken"]
 
 seq = 0
 def command(grant, action, payload=None, command_id=None):
@@ -130,6 +157,7 @@ play = command(local, "play", {
     "duration": 180, "effectiveVolume": 0.25,
 })
 assert play["ok"] and play["isOwner"] and play["engine"]["status"] == "playing"
+assert play["managed"]["presentation"] == "hidden"
 load_index = next(i for i, call in enumerate(fake.calls) if call[0] == "transport" and call[1].get("action") == "load")
 volume_index = next(i for i, call in enumerate(fake.calls) if call[0] == "volume")
 play_index = next(i for i, call in enumerate(fake.calls) if call[0] == "transport" and call[1].get("action") == "play")
@@ -145,6 +173,22 @@ file_play = command(file_grant, "play", {
 assert file_play["ok"] and file_play["isOwner"]
 local_status = command(local, "status")
 assert local_status["ok"] and not local_status["isOwner"]
+
+# Presentation is a server-owned subsystem state and can change without spawning a second engine.
+presentation = command(file_grant, "engine-presentation", {"mode": "window"})
+assert presentation["ok"] and presentation["managed"]["presentation"] == "window"
+assert any(call[0] == "presentation" and call[1] == "window" for call in fake.calls)
+
+# Stop releases ownership. With no owner, pause is idle rather than falsely blaming another tab;
+# resume/volume/seek may reclaim the same valid client after an engine epoch or stop transition.
+stopped = command(file_grant, "stop")
+assert stopped["ok"] and stopped["ownerClientId"] == ""
+idle_pause = command(file_grant, "pause")
+assert idle_pause["ok"] and idle_pause.get("idle") and not idle_pause.get("observer")
+resumed = command(file_grant, "resume")
+assert resumed["ok"] and resumed["isOwner"] and not resumed.get("observer")
+seek_after_orphan = command(file_grant, "seek", {"seconds": 9})
+assert seek_after_orphan["ok"] and seek_after_orphan["engine"]["currentTime"] == 9
 
 # Read-only status has no transport high-water side effect: a later-arriving low transport sequence
 # cannot be poisoned by an earlier high sequence status poll.
