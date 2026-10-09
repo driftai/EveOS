@@ -27,9 +27,33 @@ from server_modules.audioflix_spotify_browser_utils import (
 _DEFAULT_EVEOS_URL = "http://127.0.0.1:8765/EveOS.html"
 _ENV_CACHE_TTL_S = 10.0
 _STATUS_TIMEOUT_S = 2.5
-_START_TIMEOUT_S = 18.0
 _STOP_TIMEOUT_S = 6.0
 _PLAYLIST_TIMEOUT_S = 175.0
+_STARTUP_CONTRACT_PATH = Path(__file__).with_name("audioflix_spotify_browser_startup.json")
+
+
+def _load_startup_contract() -> dict:
+    defaults = {
+        "edgeLaunchTimeoutMs": 45000,
+        "chromiumLaunchTimeoutMs": 45000,
+        "navigationTimeoutMs": 30000,
+        "outerGraceMs": 15000,
+    }
+    try:
+        raw = json.loads(_STARTUP_CONTRACT_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        raw = {}
+    contract = {}
+    for key, fallback in defaults.items():
+        try:
+            contract[key] = max(1000, int(raw.get(key, fallback)))
+        except (TypeError, ValueError):
+            contract[key] = fallback
+    return contract
+
+
+_STARTUP_CONTRACT = _load_startup_contract()
+_START_TIMEOUT_S = sum(_STARTUP_CONTRACT.values()) / 1000.0
 
 
 def _project_root() -> Path:
@@ -55,6 +79,27 @@ def _allocate_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def _startup_log_reason(log_path: Path, fallback: str) -> str:
+    try:
+        lines = [line.strip() for line in log_path.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()[-120:] if line.strip()]
+    except OSError:
+        lines = []
+    if not lines:
+        return fallback
+    error_markers = ("Error:", "browserType.launch", "Target page, context or browser")
+    for line in reversed(lines):
+        if line.startswith("at ") or line.startswith("at async "):
+            continue
+        if any(marker in line for marker in error_markers):
+            return line[:500]
+    for line in reversed(lines):
+        if "startup-phase" in line or "launch-error" in line:
+            return f"{fallback} Last helper event: {line[:360]}"
+    return fallback
 
 
 def _node_playwright_probe() -> dict:
@@ -187,6 +232,7 @@ class SpotifyBrowserManager:
                 "profileBusy": running,
                 "managed": bool(helper),
                 "state": helper.get("state") if helper else ("starting" if running else "stopped"),
+                "phase": (helper or {}).get("phase") or ("launching" if running else ""),
                 "sessionPresent": bool(self._session_id if running else ""),
                 "pageUrl": helper.get("pageUrl") if helper else self._page_url,
                 "pageAttached": bool(helper and helper.get("pageAttached")),
@@ -199,6 +245,7 @@ class SpotifyBrowserManager:
                 "lastAppliedAt": (helper or {}).get("lastAppliedAt") or 0,
                 "lastError": (helper or {}).get("lastError") or self._last_error,
                 "importing": bool((helper or {}).get("importing")),
+                "startupBudgetMs": int(_START_TIMEOUT_S * 1000),
             }
             if helper and helper.get("diagnostics"):
                 result["diagnostics"] = helper.get("diagnostics")
@@ -267,23 +314,23 @@ class SpotifyBrowserManager:
                 self._cleanup_process_locked()
                 return {"ok": False, **env, "reason": f"Could not launch managed Spotify browser: {exc}"}
 
-            deadline = time.monotonic() + _START_TIMEOUT_S
+            started = time.monotonic()
+            deadline = started + _START_TIMEOUT_S
             while time.monotonic() < deadline:
                 if not self._process_running():
                     break
-                if self._helper_status():
+                helper = self._helper_status()
+                if helper and helper.get("state") != "starting":
                     return self.status()
                 time.sleep(0.15)
-            reason = self._last_error or "Managed Spotify browser did not become ready in time."
-            if not self._process_running():
-                try:
-                    detail = log_path.read_text(encoding="utf-8", errors="replace")[-1200:].strip()
-                except OSError:
-                    detail = ""
-                if detail:
-                    reason = detail.splitlines()[-1][:500]
+            elapsed = time.monotonic() - started
+            fallback = (
+                f"Managed Spotify browser did not become ready within "
+                f"{_START_TIMEOUT_S:.0f}s (elapsed {elapsed:.1f}s)."
+            )
+            reason = _startup_log_reason(log_path, fallback)
             self._stop_locked(force=True)
-            return {"ok": False, **env, "reason": reason}
+            return {"ok": False, **env, "reason": reason, "startupElapsedMs": int(elapsed * 1000)}
 
     def _cleanup_process_locked(self) -> None:
         if self._process and self._process.poll() is not None:
