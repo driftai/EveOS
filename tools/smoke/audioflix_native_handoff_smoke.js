@@ -6,6 +6,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const CAPTURE = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.audio.capture.js');
 const AUDIO = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.audio.js');
 const UI = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.ui.js');
+const COMPLETION = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.queue.completion.js');
 const assert = (condition, message) => { if (!condition) throw new Error(`ASSERT FAILED: ${message}`); };
 
 let frameTap = null;
@@ -61,9 +62,12 @@ function frames(count = 450) {
     const directRoute = audioSource.indexOf('await routeBrowserStream');
     const captureFallback = audioSource.indexOf('await musicCapture?.start');
     assert(directRoute >= 0 && captureFallback > directRoute, 'direct browser sink is attempted before main-thread PCM capture');
+    // Queue completion has one owner (audioflix.queue.completion.js); ui.js only routes Ended to it.
     const uiSource = fs.readFileSync(UI, 'utf8');
-    assert(uiSource.includes('Promise.resolve(e.detail?.settle)'), 'queue advancement waits for the native tail handoff');
-    assert(uiSource.includes('queueAdvanceKey'), 'duplicate ended events are serialized');
+    const completionSource = fs.readFileSync(COMPLETION, 'utf8');
+    assert(uiSource.includes('EveAudioflixQueueCompletion'), 'UI routes Ended through the canonical queue completion owner');
+    assert(completionSource.includes('Promise.resolve(detail.settle)'), 'queue advancement waits for the native tail handoff');
+    assert(/if \(consumed === key\) return false;/.test(completionSource), 'duplicate ended events are serialized');
 
     console.log('AUDIOFLIX_NATIVE_HANDOFF_SMOKE_OK');
 })().catch((error) => { console.error(error); process.exit(1); });
