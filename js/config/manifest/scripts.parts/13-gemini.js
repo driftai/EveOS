@@ -8,6 +8,7 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/gemini/search_monitor/nexusBrowser.js?v=a446ffc4a3cd",
     "js/modules/gemini/search_monitor/nexusServiceChatBridge.js?v=b8c985e4a8fa",
     "js/modules/gemini/search_monitor/agentNexus.js?v=cf39e3b0fba6",
+    "js/modules/gemini/search_monitor/searchMonitorAiHome.markup.js?v=000000000000",
     "js/modules/gemini/search_monitor/searchMonitorAiHome.js?v=e8777263eac9",
     "js/modules/gemini/gemini-init.js?v=ce931f88e3d0",
     "js/modules/gemini/server_control/geminiServerNetwork.js?v=9edb7c790707",
