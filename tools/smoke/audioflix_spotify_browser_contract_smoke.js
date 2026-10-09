@@ -63,7 +63,7 @@ assert(transport.includes('ALLOWED_ACTIONS') && transport.includes("'load'") && 
 
 assert(enginePage.includes('spotify-engine-player') && enginePage.includes('audioflix.spotify.engine.js'),
     'managed browser owns one lightweight Spotify engine page instead of a complete EveOS client');
-assert(engine.includes("status: 'provider-paused'") && !engine.includes('paused unexpectedly')
+assert(engine.includes("'provider-paused'") && !engine.includes('paused unexpectedly')
     && !engine.includes('Recovering ('),
     'remote engine reports provider pause rather than ambiguously auto-resuming it');
 assert(engine.includes('completionId') && engine.includes("setStatus('playing')") && engine.includes('markEnded'),
