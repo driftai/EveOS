@@ -14,10 +14,11 @@ const hook = read('server_modules/audioflix_spotify_browser_hook.js');
 const helper = read('server_modules/audioflix_spotify_browser.js');
 
 assert(http.includes('origin == _server_origin(handler).lower()')
-    && !http.includes('Access-Control-Allow-Origin", "null"'),
+    && !http.includes('Access-Control-Allow-Origin\", \"null\"'),
     'Spotify broker POSTs require the exact localhost relay origin and never CORS-whitelist null origin');
-assert(http.includes('X-Frame-Options", "DENY"') && http.includes("frame-ancestors 'none'"),
-    'trusted file approval page is not frameable');
+assert(http.includes("frame-ancestors * file:") && http.includes('X-Frame-Options\", \"DENY\"')
+    && http.includes("frame-ancestors 'none'"),
+    'relay is frameable from network/file EveOS while the trusted approval page remains non-frameable');
 assert(relay.includes("event.source !== parent") && relay.includes("event.origin !== 'null' && event.origin !== RELAY_ORIGIN"),
     'relay verifies the source window and exact ordinary origin before accepting a MessageChannel');
 assert(relay.includes('new MessageChannel') === false,
@@ -33,7 +34,7 @@ assert(relay.includes('let commandChain = Promise.resolve()')
     'ordered playback requests are serialized so clientCommandSeq cannot be reordered by concurrent HTTP requests');
 assert(relay.includes("new Set(['status', 'import', 'auth'])") && relay.includes('void forwardCommand(message)'),
     'status and long import/auth jobs use the broker independent lane so playback controls stay responsive');
-assert(broker.includes('"jobSeq": 0') && broker.includes('seq_key = "jobSeq" if action in {"import", "auth"} else "seq"'),
+assert(broker.includes('\"jobSeq\": 0') && broker.includes('seq_key = \"jobSeq\" if action in {\"import\", \"auth\"} else \"seq\"'),
     'broker keeps long jobs on a separate replay/order high-water boundary');
 assert(broker.includes('secrets.compare_digest') && broker.includes('csrf') && broker.includes('pairingRequired'),
     'file pairing requires single-use trusted approval evidence');
