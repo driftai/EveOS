@@ -22,9 +22,12 @@ async function main() {
             let notesRunning = false;
             let saved = '';
             let writeRequests = 0;
+            let spatialFolderCreated = false;
+            let spatialNoteCreated = false;
             const requests = [];
             window.__smoke = {
                 requests,
+                prompt: '',
                 get worldRunning() { return worldRunning; },
                 get notesRunning() { return notesRunning; },
                 get saved() { return saved; },
@@ -33,7 +36,11 @@ async function main() {
             };
             window.config = { bridges: { worldBookPort: 8766, notesPort: 8767, localControlPort: 9082 } };
             window.showConfirm = async () => window.__smoke.confirm;
-            window.showPrompt = async (_message, value) => value || '';
+            window.showPrompt = async (_message, value) => {
+                const answer = window.__smoke.prompt;
+                window.__smoke.prompt = '';
+                return answer || value || '';
+            };
             window.EveOSLocalControl = {
                 baseUrl: () => 'http://127.0.0.1:9082',
                 ensure: async () => ({ baseUrl: 'http://127.0.0.1:9082' })
@@ -63,8 +70,22 @@ async function main() {
                 }
                 if (url.endsWith('/api/notes/list')) {
                     const body = JSON.parse(options.body);
-                    const spatial = body.rootId === 'spatial';
-                    return reply({ ok: true, path: body.path || '', entries: [{ name: spatial ? 'world.md' : 'test.txt', path: spatial ? 'Ideas/world.md' : 'test.txt', kind: 'file', extension: spatial ? '.md' : '.txt', size: 5, revision: 'r1', favorite: false, linkCount: 1, noteRef: spatial ? 'spatial:Ideas/world.md' : 'files:test.txt' }] });
+                    if (body.rootId === 'spatial') {
+                        const inIdeas = body.path === 'Ideas';
+                        const entries = inIdeas
+                            ? (spatialNoteCreated && body.includeMarkdown ? [{ name: 'world.md', path: 'Ideas/world.md', kind: 'file', extension: '.md', size: 5, revision: 'r1', favorite: false, linkCount: 1, noteRef: 'spatial:Ideas/world.md' }] : [])
+                            : (spatialFolderCreated ? [{ name: 'Ideas', path: 'Ideas', kind: 'folder', extension: '', size: null, revision: 'r-folder', favorite: false, linkCount: 0, noteRef: '' }] : []);
+                        return reply({ ok: true, path: body.path || '', entries });
+                    }
+                    return reply({ ok: true, path: body.path || '', entries: [{ name: 'test.txt', path: 'test.txt', kind: 'file', extension: '.txt', size: 5, revision: 'r1', favorite: false, linkCount: 1, noteRef: 'files:test.txt' }] });
+                }
+                if (url.endsWith('/api/notes/create')) {
+                    const body = JSON.parse(options.body);
+                    if (body.rootId !== 'spatial') throw new Error('Smoke create expected Spatial Notes');
+                    if (body.kind === 'folder' && !body.path && body.name === 'Ideas') spatialFolderCreated = true;
+                    else if (body.kind === 'file' && body.path === 'Ideas' && body.name === 'world.md') spatialNoteCreated = true;
+                    else throw new Error(`Unexpected create: ${JSON.stringify(body)}`);
+                    return reply({ ok: true, message: body.kind === 'folder' ? 'Folder created.' : 'Note created.' });
                 }
                 if (url.endsWith('/api/notes/read')) {
                     const body = JSON.parse(options.body);
@@ -98,9 +119,26 @@ async function main() {
         await page.locator('[data-eve-notes-mode="files"]').click();
         await page.waitForFunction(() => window.__smoke.notesRunning && document.querySelector('[data-eve-notes-list] [data-path="test.txt"]'));
         expect(await page.locator('button[data-eve-notes-mode="files"]').getAttribute('aria-selected') === 'true', 'Notepad files tab did not activate');
+
         await page.locator('[data-eve-notes-mode="spatial"]').click();
-        await page.waitForFunction(() => document.querySelector('[data-eve-notes-list] [data-path="Ideas/world.md"]'));
         expect(await page.locator('button[data-eve-notes-mode="spatial"]').getAttribute('aria-selected') === 'true', 'Spatial Notes tab did not activate');
+        await page.evaluate(() => { window.__smoke.prompt = 'Ideas'; });
+        await page.locator('[data-eve-notes-create="folder"]').click();
+        await page.waitForFunction(() => document.querySelector('[data-eve-notes-list] [data-path="Ideas"][data-kind="folder"]'));
+        await page.locator('[data-eve-notes-list] [data-path="Ideas"]').click();
+        await page.waitForFunction(() => window.EveWorldBook.notesWorkspace.context().path === 'Ideas');
+        await page.evaluate(() => { window.__smoke.prompt = 'world.md'; });
+        await page.locator('[data-eve-notes-create="file"]').click();
+        await page.waitForFunction(() => document.querySelector('[data-eve-notes-list] [data-path="Ideas/world.md"]'));
+        expect(await page.locator('[data-eve-notes-markdown]').isChecked(), 'Creating a Markdown note left it hidden behind the Markdown filter');
+        await page.locator('[data-eve-notes-list] [data-path="Ideas/world.md"]').click();
+        await page.waitForFunction(() => document.querySelector('[data-eve-notes-title]')?.textContent === 'world.md');
+        expect(await page.evaluate(() => window.EveWorldBook.notesWorkspace.context().path) === 'Ideas', 'Opening a nested Spatial Note lost its folder path');
+        await page.locator('[data-eve-notes-mode="spatial"]').click();
+        await page.waitForFunction(() => window.EveWorldBook.notesWorkspace.context().path === 'Ideas');
+        expect(await page.locator('[data-eve-notes-title]').textContent() === 'world.md', 'Re-entering active Spatial Notes kicked the user out of the open note');
+        expect(await page.locator('[data-eve-notes-path]').textContent() === 'Ideas', 'Re-entering active Spatial Notes reset the folder to root');
+
         await page.locator('[data-eve-notes-mode="files"]').click();
         await page.waitForFunction(() => document.querySelector('[data-eve-notes-list] [data-path="test.txt"]'));
         await page.locator('[data-eve-notes-list] [data-path="test.txt"]').click();
@@ -130,6 +168,7 @@ async function main() {
         await page.locator('[data-eve-notes-related-panel] button').nth(1).click();
         await page.waitForFunction(() => document.querySelector('[data-eve-notes-title]')?.textContent === 'world.md');
         expect(await page.locator('button[data-eve-notes-mode="spatial"]').getAttribute('aria-selected') === 'true', 'Cross-root note link did not switch to Spatial Notes');
+        expect(await page.evaluate(() => window.EveWorldBook.notesWorkspace.context().path) === 'Ideas', 'Cross-root note link lost its containing Spatial Notes folder');
 
         for (const size of [{ width: 1920, height: 1080 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 725, height: 720 }]) {
             await page.setViewportSize(size);

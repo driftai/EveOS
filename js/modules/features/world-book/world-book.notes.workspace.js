@@ -19,7 +19,9 @@ window.EveWorldBook = window.EveWorldBook || {};
     let originalContent = '';
     let loading = false;
     let saveBusy = false;
-    let requestGeneration = 0;
+    let listGeneration = 0;
+    let openGeneration = 0;
+    let modeGeneration = 0;
     let workspaceGeneration = 0;
     let workspaceRefreshPromise = null;
     let lastWorkspaceAt = 0;
@@ -83,6 +85,7 @@ window.EveWorldBook = window.EveWorldBook || {};
 
     function setEditorButtons(disabled) { overlay?.querySelectorAll('.eve-notes-editor-actions button').forEach(button => { button.disabled = disabled; }); }
     function clearEditor(message = 'Choose a note from the left.') {
+        openGeneration += 1;
         opened = null; originalContent = '';
         const editor = one('[data-eve-notes-editor]');
         if (editor) { editor.value = ''; editor.disabled = true; }
@@ -140,16 +143,16 @@ window.EveWorldBook = window.EveWorldBook || {};
 
     async function loadList(path = currentPath) {
         if (!currentRoot) { entries = []; renderEntries(); status(mode === 'files' ? 'Track a .txt, .md, or folder path to begin.' : 'Spatial Notes is unavailable.', mode === 'files' ? '' : 'error'); return; }
-        const generation = ++requestGeneration, requestedRoot = currentRoot; loading = true; status('Loading note files…');
+        const generation = ++listGeneration, requestedRoot = currentRoot; loading = true; status('Loading note files…');
         try {
             const payload = await ns.notesClient.list(currentRoot, path, one('[data-eve-notes-markdown]')?.checked === true);
-            if (generation !== requestGeneration || requestedRoot !== currentRoot) return;
+            if (generation !== listGeneration || requestedRoot !== currentRoot) return;
             currentPath = payload.path || ''; entries = payload.entries || [];
             if (one('[data-eve-notes-path]')) one('[data-eve-notes-path]').textContent = currentPath ? currentPath.split('/').join(' › ') : 'Workspace root';
             if (one('[data-eve-notes-up]')) one('[data-eve-notes-up]').disabled = !currentPath;
             renderEntries(); status(`${entries.length} item${entries.length === 1 ? '' : 's'} · changes save to the real file.`);
         } catch (error) { entries = []; renderEntries(); status(error.message, 'error'); }
-        finally { if (generation === requestGeneration) loading = false; }
+        finally { if (generation === listGeneration) loading = false; }
     }
 
     async function runWorkspaceRefresh(options = {}) {
@@ -174,19 +177,33 @@ window.EveWorldBook = window.EveWorldBook || {};
 
     async function setMode(next) {
         if (!['scratchpad', 'files', 'spatial'].includes(next) || (next !== mode && !(await allowDiscard()))) return;
+        const sameMode = next === mode;
+        const generation = ++modeGeneration;
+        if (sameMode) {
+            if (next === 'scratchpad') return;
+            try {
+                await ensureWorkspaceService({ userInitiated: true });
+                if (generation !== modeGeneration || mode !== next) return;
+                await refreshWorkspace({ preserve: true });
+            } catch (error) { status(error.message, 'error'); }
+            return;
+        }
         mode = next; write(MODE_KEY, mode); applyMode();
         if (mode === 'scratchpad') return;
         clearEditor(); currentPath = '';
-        try { await ensureWorkspaceService({ userInitiated: true }); await refreshWorkspace({ force: true }); }
-        catch (error) { status(error.message, 'error'); }
+        try {
+            await ensureWorkspaceService({ userInitiated: true });
+            if (generation !== modeGeneration || mode !== next) return;
+            await refreshWorkspace({ force: true });
+        } catch (error) { status(error.message, 'error'); }
     }
 
     async function openEntry(path, kind) {
         if (kind === 'folder') { if (!(await allowDiscard())) return; clearEditor(); await loadList(path); return; }
         if (!(await allowDiscard())) return;
-        const generation = ++requestGeneration, requestedRoot = currentRoot; status('Opening note…');
+        const generation = ++openGeneration, requestedRoot = currentRoot; status('Opening note…');
         try {
-            const payload = await ns.notesClient.read(currentRoot, path); if (generation !== requestGeneration || requestedRoot !== currentRoot) return;
+            const payload = await ns.notesClient.read(currentRoot, path); if (generation !== openGeneration || requestedRoot !== currentRoot) return;
             opened = { ...payload.entry, rootId: currentRoot }; originalContent = payload.content || '';
             const editor = one('[data-eve-notes-editor]'); if (!editor) return;
             editor.disabled = false; editor.value = originalContent;
@@ -200,6 +217,7 @@ window.EveWorldBook = window.EveWorldBook || {};
 
     async function openReference(rootId, path) {
         if (!(await allowDiscard())) return;
+        modeGeneration += 1;
         mode = rootId === 'spatial' ? 'spatial' : 'files'; write(MODE_KEY, mode); applyMode(); renderRoots(rootId);
         currentPath = String(path || '').split('/').slice(0, -1).join('/'); await loadList(currentPath); await openEntry(path, 'file');
     }
@@ -242,7 +260,7 @@ window.EveWorldBook = window.EveWorldBook || {};
         try {
             await ensureWorkspaceService({ userInitiated: true });
             const payload = await ns.notesClient.track(path), rootId = String(payload.root?.id || ''); if (!rootId) throw new Error('Notes did not return the tracked location.');
-            if (input) input.value = ''; mode = 'files'; write(MODE_KEY, mode); write(ROOT_KEYS.files, rootId); currentRoot = rootId; currentPath = ''; clearEditor(); lastWorkspaceAt = 0;
+            if (input) input.value = ''; modeGeneration += 1; mode = 'files'; write(MODE_KEY, mode); write(ROOT_KEYS.files, rootId); currentRoot = rootId; currentPath = ''; clearEditor(); lastWorkspaceAt = 0;
             await refreshWorkspace({ force: true, preferredRootId: rootId, preserve: true }); status(payload.message || 'Path tracked.', 'success');
         } catch (error) { status(error.message, 'error'); }
         finally { trackBusy = false; if (button) button.disabled = false; }
@@ -261,8 +279,14 @@ window.EveWorldBook = window.EveWorldBook || {};
         const requested = await promptValue(kind === 'folder' ? 'Folder name' : 'Note name (.txt or .md)'); const name = String(requested ?? '').trim(); if (!name) return;
         createBusy = true; const buttons = Array.from(overlay?.querySelectorAll('[data-eve-notes-create]') || []); buttons.forEach(button => { button.disabled = true; });
         status(kind === 'folder' ? 'Creating folder…' : 'Creating note…');
-        try { const payload = await ns.notesClient.create(currentRoot, currentPath, name, kind); await loadList(currentPath); status(payload.message || (kind === 'folder' ? 'Folder created.' : 'Note created.'), 'success'); }
-        catch (error) { status(error.message, 'error'); }
+        try {
+            const payload = await ns.notesClient.create(currentRoot, currentPath, name, kind);
+            if (kind === 'file' && name.toLowerCase().endsWith('.md')) {
+                const markdown = one('[data-eve-notes-markdown]');
+                if (markdown && !markdown.checked) { markdown.checked = true; write(MARKDOWN_KEY, '1'); }
+            }
+            await loadList(currentPath); status(payload.message || (kind === 'folder' ? 'Folder created.' : 'Note created.'), 'success');
+        } catch (error) { status(error.message, 'error'); }
         finally { createBusy = false; buttons.forEach(button => { button.disabled = false; }); }
     }
 
@@ -311,7 +335,7 @@ window.EveWorldBook = window.EveWorldBook || {};
             else if (event.target.closest?.('[data-eve-notes-export]')) void exportBackup();
             else if (event.target.closest?.('[data-eve-notes-import]')) one('[data-eve-notes-import-file]')?.click();
         });
-        one('[data-eve-notes-root]').addEventListener('change', async event => { if (!(await allowDiscard())) return renderRoots(currentRoot); currentRoot = event.target.value; write(ROOT_KEYS[mode], currentRoot); currentPath = ''; clearEditor(); void loadList(''); });
+        one('[data-eve-notes-root]').addEventListener('change', async event => { if (!(await allowDiscard())) return renderRoots(currentRoot); modeGeneration += 1; currentRoot = event.target.value; write(ROOT_KEYS[mode], currentRoot); currentPath = ''; clearEditor(); void loadList(''); });
         one('[data-eve-notes-markdown]').addEventListener('change', event => { write(MARKDOWN_KEY, event.target.checked ? '1' : '0'); void loadList(currentPath); });
         one('[data-eve-notes-filter]').addEventListener('input', renderEntries);
         one('[data-eve-notes-track-path]')?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); void trackPath(); } });
