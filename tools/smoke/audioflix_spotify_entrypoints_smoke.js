@@ -14,13 +14,14 @@ const source = fs.readFileSync(
 function boot(href) {
     const parsed = new URL(href);
     const appended = [];
-    const listeners = new Map();
+    const iframeListeners = new Map();
+    const windowListeners = new Map();
     const makeIframe = () => ({
         hidden: false,
         tabIndex: 0,
         src: '',
         setAttribute() {},
-        addEventListener(name, fn) { listeners.set(name, fn); },
+        addEventListener(name, fn) { iframeListeners.set(name, fn); },
         remove() {},
         contentWindow: { postMessage() {} }
     });
@@ -35,7 +36,10 @@ function boot(href) {
     };
     const window = {
         EveAudioflixState: { ensure: () => ({}) },
-        addEventListener() {},
+        addEventListener(name, fn) { windowListeners.set(name, fn); },
+        removeEventListener(name, fn) {
+            if (windowListeners.get(name) === fn) windowListeners.delete(name);
+        },
         open: () => ({}),
         location
     };
@@ -68,7 +72,19 @@ function boot(href) {
     const pending = window.EveAudioflixSpotifyRemote.connect();
     assert.ok(pending && typeof pending.then === 'function');
     assert.equal(appended.length, 1, 'connect creates one hidden relay iframe');
-    return { iframe: appended[0], remote: window.EveAudioflixSpotifyRemote };
+
+    const iframe = appended[0];
+    const relayOrigin = new URL(iframe.src).origin;
+    const handshake = windowListeners.get('message');
+    assert.equal(typeof handshake, 'function', 'client waits for an authenticated relay-ready handshake');
+    handshake({
+        source: iframe.contentWindow,
+        origin: relayOrigin,
+        data: { type: 'eveos:spotify-relay-ready', protocolVersion: 1 }
+    });
+    assert.equal(window.EveAudioflixSpotifyRemote.snapshot().relayReady, true,
+        'exact source+origin relay-ready handshake marks the relay reachable');
+    return { iframe, remote: window.EveAudioflixSpotifyRemote };
 }
 
 const localhost = boot('http://127.0.0.1:8765/EveOS.html');
