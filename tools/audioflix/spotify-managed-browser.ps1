@@ -3,13 +3,15 @@ param(
     [string]$Action = 'status',
     [string]$BaseUrl = 'http://127.0.0.1:8765',
     [string]$PageUrl = 'http://127.0.0.1:8765/audioflix-spotify-engine.html',
-    [ValidateSet('background','window','headless')]
+    [ValidateSet('background','hidden','window','headless')]
     [string]$Presentation = 'background',
     [switch]$RequireSignedIn
 )
 
 $ErrorActionPreference = 'Stop'
 $base = $BaseUrl.TrimEnd('/')
+$windowStateDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'EveOS'
+$windowStatePath = Join-Path $windowStateDir 'spotify-engine-window-handle.txt'
 
 function Invoke-EveGet([string]$Path) {
     Invoke-RestMethod -Method Get -Uri "$base$Path" -TimeoutSec 15
@@ -40,6 +42,7 @@ function Ensure-EngineRuntimeMode([string]$Mode) {
     $haveHeadless = [string]$current.browserChannel -like '*-headless'
     if ($wantHeadless -ne $haveHeadless) {
         [void](Invoke-EvePost '/api/audioflix/spotify-browser/stop')
+        Remove-Item -LiteralPath $windowStatePath -Force -ErrorAction SilentlyContinue
         Start-Sleep -Milliseconds 250
     }
 }
@@ -53,23 +56,57 @@ namespace EveOS.Audioflix {
     public static class WindowApi {
         [DllImport("user32.dll")]
         public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")]
+        public static extern bool IsWindow(IntPtr hWnd);
     }
 }
 "@
     }
 }
 
+function Save-SpotifyEngineWindowHandle([IntPtr]$Handle) {
+    try {
+        New-Item -ItemType Directory -Path $windowStateDir -Force | Out-Null
+        [Int64]$Handle | Set-Content -LiteralPath $windowStatePath -Encoding ascii -NoNewline
+    } catch {}
+}
+
+function Get-SavedSpotifyEngineWindowHandle {
+    if (-not (Test-Path -LiteralPath $windowStatePath)) { return [IntPtr]::Zero }
+    try {
+        $raw = [Int64](Get-Content -LiteralPath $windowStatePath -Raw)
+        $handle = [IntPtr]$raw
+        if ($handle -ne [IntPtr]::Zero -and [EveOS.Audioflix.WindowApi]::IsWindow($handle)) { return $handle }
+    } catch {}
+    Remove-Item -LiteralPath $windowStatePath -Force -ErrorAction SilentlyContinue
+    return [IntPtr]::Zero
+}
+
 function Set-SpotifyEnginePresentation([string]$Mode) {
     if ($env:OS -ne 'Windows_NT' -or $Mode -eq 'headless') { return $true }
     Ensure-WindowApi
+
+    if ($Mode -eq 'window') {
+        $saved = Get-SavedSpotifyEngineWindowHandle
+        if ($saved -ne [IntPtr]::Zero) {
+            [void][EveOS.Audioflix.WindowApi]::ShowWindowAsync($saved, 9)
+            return $true
+        }
+    }
+
     $deadline = (Get-Date).AddSeconds(5)
     do {
         $windows = @(Get-Process msedge -ErrorAction SilentlyContinue | Where-Object {
             $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '*EveOS Spotify Engine*'
         })
         if ($windows.Count -gt 0) {
-            $command = if ($Mode -eq 'background') { 6 } else { 9 }
+            $command = switch ($Mode) {
+                'hidden' { 0 }
+                'background' { 6 }
+                default { 9 }
+            }
             foreach ($process in $windows) {
+                Save-SpotifyEngineWindowHandle ([IntPtr]$process.MainWindowHandle)
                 [void][EveOS.Audioflix.WindowApi]::ShowWindowAsync($process.MainWindowHandle, $command)
             }
             return $true
@@ -120,9 +157,12 @@ switch ($Action) {
         Write-Host 'Managed Spotify engine is ready.'
         if ($Presentation -eq 'background') {
             Write-Host 'The managed Edge engine was minimized. Use Audioflix Internal View to mirror it inside EveOS.'
+        } elseif ($Presentation -eq 'hidden') {
+            Write-Host 'The managed Edge engine is headed but hidden from the desktop so Windows audio can remain available.'
+            Write-Host 'Use Audioflix Internal View to mirror playback state inside EveOS.'
         } elseif ($Presentation -eq 'headless') {
             Write-Host 'The managed Spotify engine is running headless with no browser window.'
-            Write-Host 'Audible output in true headless mode is browser/OS dependent; use background mode if Windows does not expose audio.'
+            Write-Host 'True headless mode carries control/state only on systems where the browser exposes no audible output.'
         } else {
             Write-Host 'The managed Edge engine is visible in its own window.'
         }
@@ -136,12 +176,14 @@ switch ($Action) {
     }
     'stop' {
         $result = Invoke-EvePost '/api/audioflix/spotify-browser/stop'
+        Remove-Item -LiteralPath $windowStatePath -Force -ErrorAction SilentlyContinue
         $result | ConvertTo-Json -Depth 8
     }
     'auth' {
         $current = Get-CurrentStatus
         if ($current -and ([string]$current.browserChannel -like '*-headless')) {
             [void](Invoke-EvePost '/api/audioflix/spotify-browser/stop')
+            Remove-Item -LiteralPath $windowStatePath -Force -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 250
             [void](Invoke-EvePost '/api/audioflix/spotify-browser/start' @{ pageUrl = (Get-EnginePageUrl $PageUrl 'window') })
         }
