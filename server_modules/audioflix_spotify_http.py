@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 from server_modules import audioflix_spotify_broker as broker
 from server_modules import audioflix_spotify_relay as relay
+from server_modules import audioflix_spotify_status_watch as status_watch
 
 
 def _client_is_loopback(handler) -> bool:
@@ -92,6 +93,7 @@ def handle_post_request(handler, path: str) -> bool:
         "/api/audioflix/spotify-client/pair-status",
         "/api/audioflix/spotify-client/approve",
         "/api/audioflix/spotify-client/command",
+        "/api/audioflix/spotify-client/status-watch",
     }
     if path not in routes:
         return False
@@ -106,6 +108,10 @@ def handle_post_request(handler, path: str) -> bool:
         result = broker.pair_status(payload)
     elif path.endswith("/approve"):
         result = broker.approve(payload)
+    elif path.endswith("/status-watch"):
+        # Deliberately bypass broker.command(): a bounded read watch must never occupy the
+        # serialized playback transport lock or its exact-once mutation receipt queue.
+        result = status_watch.watch(broker._broker, payload)
     else:
         result = broker.command(payload, context)
     _send_json(handler, result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
