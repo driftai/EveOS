@@ -84,16 +84,26 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     async function ensureRemote() {
         const R = remote();
         if (!R?.ready) return { ok: false, fallback: true, reason: 'Managed Spotify relay client is unavailable.' };
+        const relayWasReached = () => R.snapshot?.().relayReady === true;
         let connection;
         try { connection = await R.connect(); }
         catch (error) {
-            // Once the any-browser transport is loaded, a relay/network failure is ambiguous: a
-            // managed engine may still be audible. Fail closed instead of creating a second player.
-            return { ok: false, fallback: false, reason: String(error?.message || error) };
+            // No relay handshake means there is no reachable local engine, so preserve the existing
+            // official-embed fallback. Once the trusted relay has answered, failures are ambiguous:
+            // an engine may already be audible, so fail closed instead of creating a second player.
+            return {
+                ok: false,
+                fallback: !relayWasReached(),
+                reason: String(error?.message || error)
+            };
         }
         if (connection?.connected) { hideApprovalPrompt(); return { ok: true }; }
         if (!connection?.approvalRequired) {
-            return { ok: false, fallback: false, reason: connection?.lastError || 'Managed Spotify relay is unavailable.' };
+            return {
+                ok: false,
+                fallback: !relayWasReached(),
+                reason: connection?.lastError || 'Managed Spotify relay is unavailable.'
+            };
         }
         showApprovalPrompt(connection);
         try {
