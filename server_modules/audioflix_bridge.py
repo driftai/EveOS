@@ -68,6 +68,9 @@ def _can_cli_control(handler) -> bool:
 
 def handle_get_request(handler, path: str, query) -> bool:
     logger.info(f"[Bridge] handle_get_request: path={path}")
+    from server_modules import audioflix_spotify_http
+    if audioflix_spotify_http.handle_get_request(handler, path, query):
+        return True
     if path == "/api/audioflix/status":
         _send_json(handler, {**list_devices(), "devices": []})
     elif path == "/api/audioflix/devices":
@@ -116,10 +119,6 @@ def handle_get_request(handler, path: str, query) -> bool:
             _send_json(handler, normalized, HTTPStatus.BAD_REQUEST)
             return True
 
-        # Never stop the managed browser from a request that originated inside that same browser.
-        # When it is healthy, scrape the playlist in a temporary page in its existing Playwright
-        # context so the EveOS page, playback session, and signed-in profile stay alive. Only use the
-        # legacy one-shot persistent-context scraper when no managed browser owns the profile.
         managed = audioflix_spotify_browser.status()
         if managed.get("helperReachable"):
             payload = audioflix_spotify_browser.list_playlist({"url": normalized.get("url") or raw_url})
@@ -165,9 +164,6 @@ def localize_track(payload: dict) -> dict:
 
 
 def localize_spotify_fallback(payload: dict) -> dict:
-    # Deliberately separate from /localize so the alternate Spotify resolver can never silently
-    # activate when the normal localizer fails. The browser only calls this endpoint after an
-    # explicit fallback action.
     from server_modules import audioflix_spotify_fallback
     return audioflix_spotify_fallback.localize_one(payload)
 
@@ -194,8 +190,6 @@ def spotify_session(payload: dict) -> dict:
     action = str(payload.get("action") or "").strip().lower()
     if action == "resolve-playback-source":
         return audioflix_spotify.session_action(payload)
-    # If the managed browser already owns the shared profile, open the Spotify login/playlist in
-    # that exact context instead of launching a second persistent context that would profile-lock.
     managed = audioflix_spotify_browser.status()
     if managed.get("helperReachable"):
         return audioflix_spotify_browser.auth({
@@ -261,8 +255,6 @@ def instagram_collection(payload: dict) -> dict:
 
 
 def instagram_video(payload: dict) -> dict:
-    # Playback/recovery is media-only. Rich Instagram metadata is intentionally deferred and is
-    # never invoked from the normal playback endpoint.
     from server_modules import audioflix_instagram_playback
     return audioflix_instagram_playback.resolve_video(payload)
 
@@ -273,6 +265,9 @@ def save_soundlab_recording(payload: dict) -> dict:
 
 
 def handle_post_request(handler, path: str) -> bool:
+    from server_modules import audioflix_spotify_http
+    if audioflix_spotify_http.handle_post_request(handler, path):
+        return True
     if path == "/api/audioflix/spotify-browser/qualify-volume":
         if not _can_cli_control(handler):
             _send_json(handler, {"ok": False, "message": "CLI localhost access required."}, HTTPStatus.FORBIDDEN)
