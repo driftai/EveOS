@@ -8,6 +8,8 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
     const PROTOCOL = 1;
     const RELAY_READY_TIMEOUT_MS = 2500;
     const RELAY_UNAVAILABLE_COOLDOWN_MS = 30000;
+    const DOCUMENT_HEARTBEAT_MS = 2000;
+    const DOCUMENT_STALE_MS = 6500;
     const state = {
         status: 'idle', connected: false, connecting: false, approvalRequired: false,
         relayReady: false, relayEverReached: false, unavailableUntil: 0,
@@ -23,6 +25,8 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
     let readyReject = null;
     let requestSeq = 0;
     let commandSeq = 0;
+    let documentIdentityPromise = null;
+    let identityClaim = null;
 
     const uuid = () => crypto.randomUUID?.() || `af-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     const relayReadyTimeoutMs = () => Math.max(250,
@@ -52,18 +56,92 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
         if (location.protocol === 'file:') return `file:${String(location.pathname || '').toLowerCase()}`.slice(0, 160);
         return `origin:${location.origin}`.slice(0, 160);
     }
-    function stableDocumentId() {
-        const scope = libraryScopeId();
-        const key = `eveos:audioflix:spotify-document:${scope}`;
+    function documentStorageKey(scope) {
+        return `eveos:audioflix:spotify-document:${scope}`;
+    }
+    function storedDocumentId(scope) {
+        const key = documentStorageKey(scope);
         try {
             const existing = String(sessionStorage.getItem(key) || '').trim();
             if (existing) return existing.slice(0, 120);
             const created = uuid().slice(0, 120);
             sessionStorage.setItem(key, created);
             return created;
-        } catch {
-            return uuid().slice(0, 120);
-        }
+        } catch { return uuid().slice(0, 120); }
+    }
+    function saveDocumentId(scope, value) {
+        try { sessionStorage.setItem(documentStorageKey(scope), String(value).slice(0, 120)); } catch {}
+    }
+    function readHeartbeat(key) {
+        try {
+            const value = JSON.parse(localStorage.getItem(key) || 'null');
+            return value && typeof value === 'object' ? value : null;
+        } catch { return null; }
+    }
+    function writeHeartbeat(key, nonce) {
+        try { localStorage.setItem(key, JSON.stringify({ nonce, at: Date.now() })); } catch {}
+    }
+    function releaseDocumentIdentity() {
+        const claim = identityClaim;
+        identityClaim = null;
+        if (!claim) return;
+        if (claim.timer) clearInterval(claim.timer);
+        try { claim.channel?.close?.(); } catch {}
+        try {
+            const current = readHeartbeat(claim.heartbeatKey);
+            if (current?.nonce === claim.nonce) localStorage.removeItem(claim.heartbeatKey);
+        } catch {}
+    }
+    function claimedDocumentId() {
+        if (documentIdentityPromise) return documentIdentityPromise;
+        documentIdentityPromise = (async () => {
+            const scope = libraryScopeId();
+            let current = storedDocumentId(scope);
+            if (location.protocol !== 'file:') return current;
+            const nonce = uuid();
+            const heartbeatKeyFor = (id) => `eveos:audioflix:spotify-claim:${scope}:${id}`;
+            const isRecentOther = (claim) => claim?.nonce && claim.nonce !== nonce
+                && Date.now() - Number(claim.at || 0) < DOCUMENT_STALE_MS;
+            if (isRecentOther(readHeartbeat(heartbeatKeyFor(current)))) {
+                current = uuid().slice(0, 120);
+                saveDocumentId(scope, current);
+            }
+            let collision = false;
+            let channel = null;
+            if (typeof BroadcastChannel === 'function') {
+                try {
+                    channel = new BroadcastChannel(`eveos:audioflix:spotify-document:${scope}`);
+                    channel.onmessage = (event) => {
+                        const message = event.data || {};
+                        if (message.nonce === nonce || message.documentId !== current) return;
+                        if (message.type === 'probe') {
+                            collision = true;
+                            channel.postMessage({ type: 'claimed', documentId: current, nonce });
+                        } else if (message.type === 'claimed') collision = true;
+                    };
+                    channel.postMessage({ type: 'probe', documentId: current, nonce });
+                } catch { channel = null; }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 90));
+            if (collision) {
+                current = uuid().slice(0, 120);
+                saveDocumentId(scope, current);
+            }
+            const heartbeatKey = heartbeatKeyFor(current);
+            writeHeartbeat(heartbeatKey, nonce);
+            if (channel) {
+                channel.onmessage = (event) => {
+                    const message = event.data || {};
+                    if (message.type === 'probe' && message.documentId === current && message.nonce !== nonce) {
+                        channel.postMessage({ type: 'claimed', documentId: current, nonce });
+                    }
+                };
+            }
+            const timer = setInterval(() => writeHeartbeat(heartbeatKey, nonce), DOCUMENT_HEARTBEAT_MS);
+            identityClaim = { id: current, nonce, heartbeatKey, channel, timer };
+            return current;
+        })();
+        return documentIdentityPromise;
     }
     function snapshot() {
         return {
@@ -191,14 +269,14 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
                 notify();
                 settleReady(false, error instanceof Error ? error : new Error(state.lastError));
             };
-            const startChannel = () => {
+            const startChannel = async () => {
                 const channel = new MessageChannel();
                 port = channel.port1;
                 port.onmessage = onPortMessage;
                 port.start?.();
                 const hello = {
                     type: 'eveos:spotify-relay-connect', protocolVersion: PROTOCOL,
-                    documentId: stableDocumentId(), libraryScopeId: libraryScopeId()
+                    documentId: await claimedDocumentId(), libraryScopeId: libraryScopeId()
                 };
                 try {
                     iframe.contentWindow.postMessage(hello, relayOrigin, [channel.port2]);
@@ -221,7 +299,7 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
                 state.unavailableUntil = 0;
                 state.lastError = '';
                 notify();
-                startChannel();
+                startChannel().catch((error) => settleReady(false, error));
             };
             window.addEventListener('message', onRelayReady);
             iframe.addEventListener('error', () => {
@@ -345,5 +423,5 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
         clearUnavailableCache();
         notify();
     });
-    window.addEventListener('pagehide', disconnect, { once: true });
+    window.addEventListener('pagehide', () => { releaseDocumentIdentity(); disconnect(); }, { once: true });
 })();
