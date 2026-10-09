@@ -3,74 +3,57 @@
 /*
  * EveOS managed Spotify browser helper.
  *
- * Security/ownership boundaries:
- * - listens on 127.0.0.1 only;
- * - requires an unguessable token supplied by the parent process;
- * - exposes a fixed command set (never arbitrary evaluate/javascript);
- * - instruments HTMLMediaElement only inside open.spotify.com/embed/* frames;
- * - never returns cookies or profile contents;
- * - keeps a bounded media registry and bounded diagnostics.
- *
- * Playwright is loaded lazily so offline contract/unit smokes can import this file even when the
- * browser dependency is intentionally absent from the current machine.
+ * This process owns one persistent Spotify browser profile and one helper-owned engine page.
+ * Browser clients never receive its port, token, or private session id. The helper exposes only
+ * fixed commands; there is no arbitrary evaluate endpoint.
  */
-
 const crypto = require('node:crypto');
 const http = require('node:http');
 const path = require('node:path');
 const { URL } = require('node:url');
 
 const SERVICE = 'eveos-audioflix-spotify-browser';
-const PROTOCOL_VERSION = 1;
-const { MAX_MEDIA_REFS, browserInit } = require('./audioflix_spotify_browser_hook.js');
-const { scrapeManagedPlaylist } = require('./audioflix_spotify_managed_import.js');
+const PROTOCOL_VERSION = 2;
 const MAX_DIAGNOSTICS = 32;
 const TOKEN_HEADER = 'x-eveos-spotify-token';
+const { MAX_MEDIA_REFS, browserInit } = require('./audioflix_spotify_browser_hook.js');
+const { scrapeManagedPlaylist } = require('./audioflix_spotify_managed_import.js');
+const { engineSnapshot, engineCommand } = require('./audioflix_spotify_browser_transport.js');
 
 function clampVolume(value, fallback = 1) {
     const n = Number(value);
     if (!Number.isFinite(n)) return Math.max(0, Math.min(1, Number(fallback) || 0));
     return Math.max(0, Math.min(1, n));
 }
-
 function normalizeTrackId(value) {
     const raw = String(value || '').trim();
     const match = raw.match(/(?:spotify:track:|open\.spotify\.com\/(?:embed\/)?track\/)?([A-Za-z0-9]{22})(?:[?/#]|$)?/i);
     return match ? match[1] : '';
 }
-
 function isLoopbackHostname(hostname) {
     const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
     return host === '127.0.0.1' || host === 'localhost' || host === '::1';
 }
-
 function validateLoopbackPageUrl(value) {
     let parsed;
     try { parsed = new URL(String(value || '')); } catch { return false; }
     return /^https?:$/.test(parsed.protocol) && isLoopbackHostname(parsed.hostname);
 }
-
 function isSpotifyEmbedUrl(value) {
     try {
         const parsed = new URL(String(value || ''));
         return parsed.protocol === 'https:'
             && parsed.hostname.toLowerCase() === 'open.spotify.com'
             && parsed.pathname.startsWith('/embed/');
-    } catch {
-        return false;
-    }
+    } catch { return false; }
 }
-
 function spotifyFrameTrackId(value) {
     try {
         const parsed = new URL(String(value || ''));
         if (parsed.hostname.toLowerCase() !== 'open.spotify.com') return '';
         return parsed.pathname.match(/^\/embed\/track\/([A-Za-z0-9]{22})(?:\/|$)/i)?.[1] || '';
-    } catch {
-        return '';
-    }
+    } catch { return ''; }
 }
-
 function parseArgs(argv) {
     const out = {};
     for (let i = 0; i < argv.length; i += 1) {
@@ -88,13 +71,13 @@ async function main() {
     const args = parseArgs(process.argv.slice(2));
     const port = Number(args.port || 0);
     const profileDir = path.resolve(String(args.profile || ''));
-    const pageUrl = String(args.page || 'http://127.0.0.1:8765/EveOS.html');
+    const pageUrl = String(args.page || 'http://127.0.0.1:8765/audioflix-spotify-engine.html');
     const sessionId = String(args.session || '');
     const token = String(process.env.EVEOS_SPOTIFY_BROWSER_TOKEN || '');
     if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('A valid helper --port is required.');
     if (!profileDir || profileDir === path.parse(profileDir).root) throw new Error('A dedicated Spotify --profile directory is required.');
-    if (!validateLoopbackPageUrl(pageUrl)) throw new Error('The managed EveOS page must use a loopback http(s) URL.');
-    if (!sessionId || sessionId.length < 8) throw new Error('A managed browser --session id is required.');
+    if (!validateLoopbackPageUrl(pageUrl)) throw new Error('The managed Spotify engine page must use a loopback http(s) URL.');
+    if (!sessionId || sessionId.length < 8) throw new Error('A private helper session id is required.');
     if (!token || token.length < 20) throw new Error('EVEOS_SPOTIFY_BROWSER_TOKEN is required.');
 
     let chromium;
@@ -111,31 +94,19 @@ async function main() {
         diagnostics.push({ at: Date.now(), kind: String(kind), message: String(message || '').slice(0, 240) });
         if (diagnostics.length > MAX_DIAGNOSTICS) diagnostics.splice(0, diagnostics.length - MAX_DIAGNOSTICS);
     };
-
     const runtime = {
-        startedAt: Date.now(),
-        state: 'starting',
-        pageUrl,
-        desiredVolume: 1,
-        lastAppliedAt: 0,
-        lastError: '',
-        browserChannel: '',
-        authState: 'unknown',
-        closing: false,
-        importing: false
+        startedAt: Date.now(), state: 'starting', pageUrl, desiredVolume: 1,
+        lastAppliedAt: 0, lastError: '', browserChannel: '', authState: 'unknown',
+        closing: false, importing: false
     };
-
     const launchOptions = {
         headless: false,
         viewport: { width: 1280, height: 900 },
         locale: 'en-US',
         ignoreDefaultArgs: ['--disable-component-update', '--enable-automation'],
         args: [
-            '--disable-blink-features=AutomationControlled',
-            '--disable-dev-shm-usage',
-            '--lang=en-US',
-            '--window-position=80,80',
-            '--window-size=1280,900'
+            '--disable-blink-features=AutomationControlled', '--disable-dev-shm-usage', '--lang=en-US',
+            '--window-position=80,80', '--window-size=1280,900'
         ]
     };
 
@@ -154,7 +125,7 @@ async function main() {
         runtime.browserChannel = 'playwright-chromium';
     }
 
-    await context.addInitScript(browserInit, { sessionId, maxRefs: MAX_MEDIA_REFS });
+    await context.addInitScript(browserInit, { maxRefs: MAX_MEDIA_REFS, initialVolume: 1 });
     context.on('page', (p) => {
         p.on('crash', () => note('page-crash', p.url()));
         p.on('close', () => note('page-close', p.url()));
@@ -167,8 +138,8 @@ async function main() {
     async function authState() {
         try {
             const cookies = await context.cookies('https://open.spotify.com');
-            const hasSignedInCookie = cookies.some((cookie) => /^(sp_dc|sp_key)$/i.test(cookie.name));
-            runtime.authState = hasSignedInCookie ? 'signed-in' : 'unknown';
+            const signedIn = cookies.some((cookie) => /^(sp_dc|sp_key)$/i.test(cookie.name));
+            runtime.authState = signedIn ? 'signed-in' : 'unknown';
         } catch (error) {
             runtime.lastError = String(error?.message || error).slice(0, 240);
             runtime.authState = 'unknown';
@@ -203,32 +174,23 @@ async function main() {
         const snapshots = await spotifySnapshots(null, '');
         const mediaCount = snapshots.reduce((sum, item) => sum + Number(item.mediaCount || 0), 0);
         const playingCount = snapshots.reduce((sum, item) => sum + Number(item.playingCount || 0), 0);
+        let transport = null;
+        try { transport = await engineSnapshot(page); } catch {}
         if (runtime.importing) runtime.state = 'importing';
         else if (!page || page.isClosed()) runtime.state = 'page-closed';
         else if (playingCount > 0) runtime.state = 'controlling';
-        else if (snapshots.length > 0) runtime.state = 'spotify-ready';
+        else if (transport?.status) runtime.state = transport.status;
         else runtime.state = 'ready';
         await authState();
         return {
-            ok: true,
-            service: SERVICE,
-            protocolVersion: PROTOCOL_VERSION,
-            sessionId,
-            state: runtime.state,
-            startedAt: runtime.startedAt,
+            ok: true, service: SERVICE, protocolVersion: PROTOCOL_VERSION,
+            sessionId, state: runtime.state, startedAt: runtime.startedAt,
             pageUrl: page && !page.isClosed() ? page.url() : runtime.pageUrl,
-            pageAttached: Boolean(page && !page.isClosed()),
-            spotifyFrameCount: snapshots.length,
-            mediaCount,
-            playingCount,
-            desiredVolume: runtime.desiredVolume,
-            lastAppliedAt: runtime.lastAppliedAt,
-            lastError: runtime.lastError,
-            authState: runtime.authState,
-            browserChannel: runtime.browserChannel,
-            playwrightVersion,
-            profileOpen: true,
-            importing: runtime.importing,
+            pageAttached: Boolean(page && !page.isClosed()), spotifyFrameCount: snapshots.length,
+            mediaCount, playingCount, desiredVolume: runtime.desiredVolume,
+            lastAppliedAt: runtime.lastAppliedAt, lastError: runtime.lastError,
+            authState: runtime.authState, browserChannel: runtime.browserChannel, playwrightVersion,
+            profileOpen: true, importing: runtime.importing, transport,
             diagnostics: diagnostics.slice(-8)
         };
     }
@@ -258,17 +220,8 @@ async function main() {
         runtime.lastAppliedAt = Date.now();
         runtime.state = playingCount > 0 ? 'controlling' : snapshots.length ? 'spotify-ready' : 'ready';
         return {
-            ok: true,
-            sessionMatch: true,
-            volume,
-            trackId,
-            spotifyFrameCount: snapshots.length,
-            mediaCount,
-            playingCount,
-            reached,
-            held,
-            playingVolumes,
-            lastAppliedAt: runtime.lastAppliedAt
+            ok: true, sessionMatch: true, volume, trackId, spotifyFrameCount: snapshots.length,
+            mediaCount, playingCount, reached, held, playingVolumes, lastAppliedAt: runtime.lastAppliedAt
         };
     }
 
@@ -287,9 +240,7 @@ async function main() {
             runtime.lastError = String(error?.message || error).slice(0, 240);
             note('playlist-import-error', runtime.lastError);
             return { ok: false, reason: runtime.lastError };
-        } finally {
-            runtime.importing = false;
-        }
+        } finally { runtime.importing = false; }
     }
 
     async function openManagedPage(body) {
@@ -323,28 +274,21 @@ async function main() {
         try { return crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(token)); }
         catch { return false; }
     }
-
     function send(res, code, body) {
         const data = Buffer.from(JSON.stringify(body));
         res.writeHead(code, {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Content-Length': data.length,
+            'Content-Type': 'application/json; charset=utf-8', 'Content-Length': data.length,
             'Cache-Control': 'no-store'
         });
         res.end(data);
     }
-
     async function readBody(req) {
-        return await new Promise((resolve, reject) => {
+        return new Promise((resolve, reject) => {
             const chunks = [];
             let size = 0;
             req.on('data', (chunk) => {
                 size += chunk.length;
-                if (size > 64 * 1024) {
-                    reject(new Error('Request body too large.'));
-                    req.destroy();
-                    return;
-                }
+                if (size > 64 * 1024) { reject(new Error('Request body too large.')); req.destroy(); return; }
                 chunks.push(chunk);
             });
             req.on('end', () => {
@@ -374,6 +318,7 @@ async function main() {
             if (req.method !== 'POST') return send(res, 404, { ok: false, reason: 'Not found.' });
             const body = await readBody(req);
             if (requestUrl.pathname === '/volume') return send(res, 200, await applyVolume(body));
+            if (requestUrl.pathname === '/transport') return send(res, 200, await engineCommand(page, body));
             if (requestUrl.pathname === '/playlist') return send(res, 200, await importPlaylist(body));
             if (requestUrl.pathname === '/open') return send(res, 200, await openManagedPage(body));
             if (requestUrl.pathname === '/auth') return send(res, 200, await openAuth(body));
@@ -405,16 +350,8 @@ async function main() {
 }
 
 module.exports = {
-    SERVICE,
-    PROTOCOL_VERSION,
-    MAX_MEDIA_REFS,
-    clampVolume,
-    normalizeTrackId,
-    validateLoopbackPageUrl,
-    isSpotifyEmbedUrl,
-    spotifyFrameTrackId,
-    browserInit,
-    parseArgs
+    SERVICE, PROTOCOL_VERSION, MAX_MEDIA_REFS, clampVolume, normalizeTrackId,
+    validateLoopbackPageUrl, isSpotifyEmbedUrl, spotifyFrameTrackId, browserInit, parseArgs
 };
 
 if (require.main === module) {
