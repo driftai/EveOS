@@ -26,6 +26,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     let lastCompletionId = '';
     let ended = false;
     let approvalPrompt = null;
+    let stopLocalPlayback = null;
     const listeners = new Set();
 
     function dispatch(name, detail) {
@@ -84,7 +85,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     async function ensureRemote() {
         const R = remote();
         if (!R?.ready) return { ok: false, fallback: true, reason: 'Managed Spotify relay client is unavailable.' };
-        const relayWasReached = () => R.snapshot?.().relayReady === true;
+        const relayWasReached = () => R.snapshot?.().relayEverReached === true || R.snapshot?.().relayReady === true;
         let connection;
         try { connection = await R.connect(); }
         catch (error) {
@@ -175,6 +176,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         }
         const id = spotifyId(nextItem);
         if (!id) throw new Error('This Spotify item has no valid track ID.');
+        if (!active) await stopLocalPlayback?.().catch?.(() => {});
         item = nextItem;
         playback = {
             item, currentTime: 0, duration: Number(item.duration || item.resolvedDuration || 0) || 0,
@@ -230,6 +232,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             getPlaybackState: audio.getPlaybackState.bind(audio),
             getStatus: audio.getStatus?.bind(audio)
         };
+        stopLocalPlayback = () => original.stopAll();
 
         audio.playItem = async function anyBrowserPlay(nextItem) {
             if (!isSpotify(nextItem)) {
@@ -252,7 +255,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
                 }
                 return true;
             }
-            if (!active) await original.stopAll().catch(() => {});
             try { return await remotePlay(nextItem); }
             catch (error) {
                 if (error?.eveSpotifyFallback) return original.playItem(nextItem);
@@ -264,7 +266,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             // A managed Spotify engine does not need a second audible local iframe. But when no
             // trusted relay exists, preserve the original expanded official-embed experience.
             if (active) return audio.playItem(nextItem);
-            await original.stopAll().catch(() => {});
             try { return await remotePlay(nextItem); }
             catch (error) {
                 if (error?.eveSpotifyFallback) return original.openInternalView(nextItem);
