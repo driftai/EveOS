@@ -28,11 +28,6 @@ const supplied = String(value('--tracks', process.env.EVE_AUDIOFLIX_SPOTIFY_LIVE
     .split(/[;,\n]+/).map(normalizeSpotify).filter(Boolean);
 const single = normalizeSpotify(value('--track', process.env.EVE_AUDIOFLIX_SPOTIFY_LIVE_TRACK || ''));
 if (!supplied.length && single) supplied.push(single);
-if (!supplied.length) {
-    console.error('Provide --track=<Spotify track URL/ID>, --tracks=<a;b;c>, or EVE_AUDIOFLIX_SPOTIFY_LIVE_TRACK.');
-    process.exit(2);
-}
-const urls = Array.from({ length: count }, (_, index) => supplied[index % supplied.length]);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function jsonRequest(path, method = 'GET', body = null) {
@@ -134,6 +129,19 @@ async function main() {
             && window.EveAudioflixState?.ready
             && window.EveAudioflixSpotifyAnyBrowser?.ready
             && window.EveAudioflixDiagnostics?.ready, undefined, { timeout: 120000 });
+
+        let sourceTracks = [...supplied];
+        if (!sourceTracks.length) {
+            sourceTracks = await page.evaluate(() => (window.EveAudioflixState?.ensure?.().music || [])
+                .map((item) => String(item.spotifyUrl || item.url || item.originalUrl || ''))
+                .filter((url) => /(?:spotify:track:|open\.spotify\.com\/(?:embed\/)?track\/)[A-Za-z0-9]{22}/i.test(url))
+                .slice(0, 8));
+            sourceTracks = sourceTracks.map(normalizeSpotify).filter(Boolean);
+        }
+        if (!sourceTracks.length) {
+            throw new Error('No Spotify-linked track exists in this EveOS controller state. Pass --track=<Spotify URL/ID> or --tracks=<a;b;c>.');
+        }
+        const urls = Array.from({ length: count }, (_, index) => sourceTracks[index % sourceTracks.length]);
 
         // This is a disposable Playwright controller context. Keep fixture saves inside the
         // controller process so temporary tracks never persist into the user's normal EveOS data.
@@ -244,6 +252,7 @@ async function main() {
         console.log(JSON.stringify({
             ok: true,
             tracks: count,
+            sourceTrackCount: sourceTracks.length,
             hiddenControllerProved: hiddenObserved,
             maxTransitionMs: Math.max(...transitions.map((entry) => entry.elapsedMs)),
             p50TransitionMs: sorted[Math.floor(sorted.length / 2)].elapsedMs,
