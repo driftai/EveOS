@@ -45,11 +45,14 @@ assert(helper.includes('--autoplay-policy=no-user-gesture-required')
     && helper.includes('--disable-background-timer-throttling')
     && helper.includes('--disable-renderer-backgrounding'),
     'managed browser explicitly permits remote playback and resists minimized-window throttling');
-assert(activation.includes('handleTransportWithActivation') && activation.includes('candidate.click')
-    && activation.includes('playbackActivated') && activation.includes('isLikelyPlayControl'),
-    'remote Play/Resume has a bounded Playwright click fallback when controller autoplay stalls');
-assert(activation.includes("![/" ) === false,
-    'activation module contains no placeholder assertion syntax');
+assert(activation.includes('handleTransportWithActivation') && activation.includes('playbackActivated')
+    && activation.includes('isLikelyPlayControl') && activation.includes("data-testid")
+    && activation.includes('play-pause-button'),
+    'remote Play/Resume has a bounded Spotify-control activation fallback');
+assert(activation.includes("body.hover") && activation.includes('force: true')
+    && activation.includes("dispatchEvent('click')") && activation.includes("note('playback-controls'")
+    && activation.includes("note('playback-kick-skip'"),
+    'activation fallback hovers hidden controls, can force a provider Play control, diagnoses misses, and avoids late-start toggle races');
 assert(!activation.includes('eval(') && !activation.includes('new Function('),
     'playback activation adds no arbitrary evaluation surface');
 assert(hook.includes("host !== 'open.spotify.com'") && hook.includes("startsWith('/embed/')"),
