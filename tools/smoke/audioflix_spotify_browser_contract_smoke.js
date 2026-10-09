@@ -136,8 +136,10 @@ assert(remote.includes('MessageChannel') && remote.includes("location.protocol =
 assert(anyBrowser.includes('EveAudioflixAudio.playItem') || anyBrowser.includes('audio.playItem = async function')
     && anyBrowser.includes('effectiveGain') && anyBrowser.includes("emitPlayback('Ended')"),
     'ordinary EveOS client routes Spotify through managed transport and preserves public queue events');
-assert(anyBrowser.includes('preferredLocalItem') && anyBrowser.includes('EveAudioflixLocalPlayback?.prepare'),
-    'Spotify provider interception gives a validated localized copy first refusal before remote playback');
+assert(anyBrowser.includes('preferredLocalItem')
+    && anyBrowser.includes('const localPlayback = window.EveAudioflixLocalPlayback')
+    && anyBrowser.includes('localPlayback?.handoffPrepared?.(localItem, prepared.localPath)'),
+    'Spotify provider interception gives a validated localized copy first refusal and hands it to normal playback once');
 assert(anyBrowser.includes('fallback: !relayWasReached()'),
     'local embed fallback is allowed only when no trusted relay handshake was reached');
 assert(anyBrowser.includes('Spotify engine restarted or became idle. Press Play to resume control.'),
