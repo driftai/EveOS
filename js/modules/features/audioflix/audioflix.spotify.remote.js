@@ -164,11 +164,20 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
     function waitUntilReady(timeoutMs = 300000) {
         if (state.connected) return Promise.resolve(snapshot());
         return new Promise((resolve, reject) => {
-            const started = Date.now();
-            const unsubscribe = ns.subscribe((value) => {
-                if (value.connected) { unsubscribe(); resolve(value); }
-                else if (value.status === 'unavailable') { unsubscribe(); reject(new Error(value.lastError || 'Spotify relay unavailable.')); }
-                else if (Date.now() - started > timeoutMs) { unsubscribe(); reject(new Error('Spotify relay approval timed out.')); }
+            const bounded = Math.max(1000, Number(timeoutMs || 300000));
+            let settled = false;
+            let unsubscribe = () => {};
+            const finish = (ok, value) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                unsubscribe();
+                if (ok) resolve(value); else reject(value instanceof Error ? value : new Error(String(value || 'Spotify relay unavailable.')));
+            };
+            const timer = setTimeout(() => finish(false, new Error('Spotify relay approval timed out.')), bounded);
+            unsubscribe = ns.subscribe((value) => {
+                if (value.connected) finish(true, value);
+                else if (value.status === 'unavailable') finish(false, new Error(value.lastError || 'Spotify relay unavailable.'));
             });
         });
     }
@@ -211,9 +220,14 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
             if (port) {
                 commandSeq += 1;
                 port.postMessage({ type: 'disconnect', commandId: uuid(), clientCommandSeq: commandSeq });
-                port.close();
             }
         } catch {}
+        for (const entry of pending.values()) {
+            clearTimeout(entry.timer);
+            entry.resolve({ ok: false, disconnected: true, reason: 'Spotify relay disconnected.' });
+        }
+        pending.clear();
+        try { port?.close?.(); } catch {}
         port = null;
         try { iframe?.remove?.(); } catch {}
         iframe = null;
