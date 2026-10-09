@@ -160,7 +160,7 @@ body.eve-notes-detached-window .notes-world-book-shell { border: 0; border-radiu
 
 .eve-notes-list-pane {
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
     gap: 7px;
     padding: 10px;
     border-right: 1px solid rgba(78, 203, 213, .18);
