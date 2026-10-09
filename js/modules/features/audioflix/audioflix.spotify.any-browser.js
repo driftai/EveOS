@@ -76,7 +76,13 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         button.type = 'button';
         button.textContent = 'Open approval window';
         button.addEventListener('click', () => {
-            if (!remote()?.openApproval?.()) button.textContent = 'Popup blocked — allow popups and retry';
+            const opened = remote()?.openApproval?.();
+            if (!opened) {
+                button.textContent = 'Popup blocked — allow popups and retry';
+                return;
+            }
+            button.textContent = 'Approval window opened — waiting…';
+            button.disabled = true;
         });
         box.append(title, copy, button);
         document.body.appendChild(box);
@@ -89,9 +95,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         let connection;
         try { connection = await R.connect(); }
         catch (error) {
-            // No relay handshake means there is no reachable local engine, so preserve the existing
-            // official-embed fallback. Once the trusted relay has answered, failures are ambiguous:
-            // an engine may already be audible, so fail closed instead of creating a second player.
             return {
                 ok: false,
                 fallback: !relayWasReached(),
@@ -123,9 +126,13 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         playback.paused = engine.paused !== false;
         const status = String(engine.status || '');
         if (!result.isOwner) {
-            if (lastEngineStatus !== 'observer') {
-                lastEngineStatus = 'observer';
-                emitPlayback('Spotify controlled by another EveOS tab');
+            const ownerClientId = String(result.ownerClientId || '');
+            const marker = ownerClientId ? 'observer' : 'ownerless';
+            if (lastEngineStatus !== marker) {
+                lastEngineStatus = marker;
+                emitPlayback(ownerClientId
+                    ? 'Spotify controlled by another EveOS tab'
+                    : 'Spotify engine restarted or became idle. Press Play to resume control.');
                 refreshControls();
             }
             emitProgress();
@@ -165,9 +172,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         pollOnce().catch(() => {});
     }
     async function remotePlay(nextItem) {
-        // Establish whether a trusted managed relay actually exists before insisting on the
-        // managed-engine track-ID contract. Legacy/file-only fallback can still hand malformed
-        // historical/mock Spotify URLs to the original official embed path when no relay exists.
         const connection = await ensureRemote();
         if (!connection.ok) {
             const error = new Error(connection.reason || 'Managed Spotify is unavailable.');
@@ -243,11 +247,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
                 item = nextItem;
                 playback.item = item;
                 const ownsEngine = remote()?.snapshot?.().lastState?.isOwner === true;
-                if (!ownsEngine) {
-                    // Clicking Play is an explicit ownership transfer even when both clients point
-                    // at the same library item. Re-issuing play creates a fresh track generation.
-                    return remotePlay(nextItem);
-                }
+                if (!ownsEngine) return remotePlay(nextItem);
                 if (playback.paused) {
                     const resumed = await remote().send('resume');
                     if (!resumed?.ok) throw new Error(resumed?.reason || 'Spotify could not resume.');
@@ -263,8 +263,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         };
         audio.openInternalView = async function anyBrowserInternal(nextItem) {
             if (!isSpotify(nextItem)) return original.openInternalView(nextItem);
-            // A managed Spotify engine does not need a second audible local iframe. But when no
-            // trusted relay exists, preserve the original expanded official-embed experience.
             if (active) return audio.playItem(nextItem);
             try { return await remotePlay(nextItem); }
             catch (error) {
