@@ -11,6 +11,7 @@ window.EveAudioflixLocalPlayback = window.EveAudioflixLocalPlayback || {};
     const text = (value) => String(value ?? '').trim();
     const PROVIDER_PAGE_RE = /^https?:\/\/(?:www\.|music\.)?(?:youtube\.com|youtu\.be|soundcloud\.com|bandcamp\.com|vimeo\.com|open\.spotify\.com|instagram\.com)\b/i;
     const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+    const preparedLocalHandoffs = new WeakMap();
 
     function mediaSource(player) {
         return text(player?.getAttribute?.('src') || player?.src);
@@ -75,7 +76,19 @@ window.EveAudioflixLocalPlayback = window.EveAudioflixLocalPlayback || {};
         return true;
     }
 
+    function handoffPrepared(item, localPath) {
+        const path = text(localPath);
+        if (item && typeof item === 'object' && path) preparedLocalHandoffs.set(item, path);
+        return item;
+    }
+
     async function prepare(item) {
+        const handedOffPath = item && typeof item === 'object' ? text(preparedLocalHandoffs.get(item)) : '';
+        if (handedOffPath) {
+            preparedLocalHandoffs.delete(item);
+            return { item: { ...item }, localPath: handedOffPath, status: '' };
+        }
+
         const playable = item && typeof item === 'object' ? { ...item } : {};
         const paths = window.EveAudioflixPaths;
         const originalUrl = text(playable.url);
@@ -132,6 +145,7 @@ window.EveAudioflixLocalPlayback = window.EveAudioflixLocalPlayback || {};
     Object.assign(ns, {
         ready: true,
         prepare,
+        handoffPrepared,
         setMediaSource,
         clearMediaSource,
         getRemoteMediaPortUrl
