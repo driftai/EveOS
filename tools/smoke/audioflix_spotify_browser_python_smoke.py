@@ -57,6 +57,12 @@ with tempfile.TemporaryDirectory() as tmp:
     reason = mod._startup_log_reason(log_path, "fallback")
     assert "browserType.launchPersistentContext" in reason
     assert not reason.lstrip().startswith("at ")
+    # The log is appended across runs: a stale error from an earlier launch must not be blamed.
+    offset = log_path.stat().st_size
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write("[eveos-audioflix-spotify-browser] startup-phase: navigate\n")
+    reason = mod._startup_log_reason(log_path, "fallback", offset)
+    assert "profile busy" not in reason and "navigate" in reason, reason
 
 # A recovered helper must clear an earlier refused-connection diagnostic instead of leaving status red.
 health = mod.SpotifyBrowserManager()

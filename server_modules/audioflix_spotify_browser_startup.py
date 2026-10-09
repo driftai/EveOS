@@ -31,11 +31,13 @@ STARTUP_CONTRACT = load_startup_contract()
 START_TIMEOUT_S = sum(STARTUP_CONTRACT.values()) / 1000.0
 
 
-def startup_log_reason(log_path: Path, fallback: str) -> str:
+def startup_log_reason(log_path: Path, fallback: str, start_offset: int = 0) -> str:
+    # The log is appended across helper runs; only read what this launch wrote.
     try:
-        lines = [line.strip() for line in log_path.read_text(
-            encoding="utf-8", errors="replace"
-        ).splitlines()[-120:] if line.strip()]
+        with log_path.open("rb") as handle:
+            handle.seek(max(0, int(start_offset or 0)))
+            text = handle.read().decode("utf-8", errors="replace")
+        lines = [line.strip() for line in text.splitlines()[-120:] if line.strip()]
     except OSError:
         lines = []
     if not lines:

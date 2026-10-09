@@ -253,6 +253,7 @@ class SpotifyBrowserManager:
             profile = _profile_dir()
             profile.mkdir(parents=True, exist_ok=True)
             log_path = _runtime_dir() / "spotify-managed-browser.log"
+            log_offset = log_path.stat().st_size if log_path.exists() else 0
             command = [
                 env.get("nodePath") or "node", str(_helper_path()),
                 "--port", str(self._port), "--profile", str(profile),
@@ -287,7 +288,7 @@ class SpotifyBrowserManager:
                 f"Managed Spotify browser did not become ready within "
                 f"{_START_TIMEOUT_S:.0f}s (elapsed {elapsed:.1f}s)."
             )
-            reason = _startup_log_reason(log_path, fallback)
+            reason = _startup_log_reason(log_path, fallback, log_offset)
             self._stop_locked(force=True)
             return {"ok": False, **env, "reason": reason, "startupElapsedMs": int(elapsed * 1000)}
 
