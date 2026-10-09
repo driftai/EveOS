@@ -18,6 +18,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from server_modules.audioflix_spotify_browser_startup import (
+    STARTUP_CONTRACT as _STARTUP_CONTRACT,
+    START_TIMEOUT_S as _START_TIMEOUT_S,
+    startup_log_reason as _startup_log_reason,
+)
 from server_modules.audioflix_spotify_browser_utils import (
     clamp_volume,
     normalize_track_id,
@@ -29,31 +34,6 @@ _ENV_CACHE_TTL_S = 10.0
 _STATUS_TIMEOUT_S = 2.5
 _STOP_TIMEOUT_S = 6.0
 _PLAYLIST_TIMEOUT_S = 175.0
-_STARTUP_CONTRACT_PATH = Path(__file__).with_name("audioflix_spotify_browser_startup.json")
-
-
-def _load_startup_contract() -> dict:
-    defaults = {
-        "edgeLaunchTimeoutMs": 45000,
-        "chromiumLaunchTimeoutMs": 45000,
-        "navigationTimeoutMs": 30000,
-        "outerGraceMs": 15000,
-    }
-    try:
-        raw = json.loads(_STARTUP_CONTRACT_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
-        raw = {}
-    contract = {}
-    for key, fallback in defaults.items():
-        try:
-            contract[key] = max(1000, int(raw.get(key, fallback)))
-        except (TypeError, ValueError):
-            contract[key] = fallback
-    return contract
-
-
-_STARTUP_CONTRACT = _load_startup_contract()
-_START_TIMEOUT_S = sum(_STARTUP_CONTRACT.values()) / 1000.0
 
 
 def _project_root() -> Path:
@@ -79,27 +59,6 @@ def _allocate_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
-
-
-def _startup_log_reason(log_path: Path, fallback: str) -> str:
-    try:
-        lines = [line.strip() for line in log_path.read_text(
-            encoding="utf-8", errors="replace"
-        ).splitlines()[-120:] if line.strip()]
-    except OSError:
-        lines = []
-    if not lines:
-        return fallback
-    error_markers = ("Error:", "browserType.launch", "Target page, context or browser")
-    for line in reversed(lines):
-        if line.startswith("at ") or line.startswith("at async "):
-            continue
-        if any(marker in line for marker in error_markers):
-            return line[:500]
-    for line in reversed(lines):
-        if "startup-phase" in line or "launch-error" in line:
-            return f"{fallback} Last helper event: {line[:360]}"
-    return fallback
 
 
 def _node_playwright_probe() -> dict:
