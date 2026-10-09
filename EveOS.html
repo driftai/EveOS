@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -46,9 +46,9 @@
         // fully local; the connection errors that follow just mean the OPTIONAL servers are off.
         if (location.protocol === 'file:') {
             console.info(
-                '%cEveOS â€” local file mode',
+                '%cEveOS — local file mode',
                 'font-weight:bold;color:#7ee2a8;font-size:1.05em;',
-                '\nRunning from file:// with no server â€” browser-side features work fully offline.' +
+                '\nRunning from file:// with no server — browser-side features work fully offline.' +
                 '\nAny "ERR_CONNECTION_REFUSED" lines below are just optional servers being off (they are retried gently in the background).' +
                 '\nFor the Gemini backend, CABLE bridge, global hotkeys, and path ports: run start-server.bat and open http://127.0.0.1:8765/EveOS.html'
             );
@@ -111,14 +111,14 @@
             <div class="info-row">
                 <div id="weather-span" onclick="fetchWeather()"
                     style="display:none; cursor:pointer; align-items:center; gap:8px;">
-                    <span id="weather-icon">â˜ï¸</span>
+                    <span id="weather-icon">☁️</span>
                     <span id="weather-text">Weather</span>
                 </div>
                 <div id="timer-area">
                     <span id="timer-display" onclick="editTimer()" style="cursor:pointer;"
                         title="Click to Edit Time">25:00</span>
-                    <button class="timer-btn" id="timer-toggle-btn" onclick="toggleTimer()">â–¶</button>
-                    <button class="timer-btn" onclick="resetTimer()">â†º</button>
+                    <button class="timer-btn" id="timer-toggle-btn" onclick="toggleTimer()">▶</button>
+                    <button class="timer-btn" onclick="resetTimer()">↺</button>
                 </div>
             </div>
 
@@ -128,15 +128,15 @@
                         autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
                         data-lpignore="true" data-1p-ignore="true" autofocus
                         onkeypress="handleOmniboxKey(event)">
-                    <button class="search-icon-btn" onclick="performWebSearch()" title="Web Search (/)">ðŸ”</button>
-                    <button class="search-advanced-btn" onclick="openExpandedSearchFromMain(false)" title="Expanded Search">âš™</button>
+                    <button class="search-icon-btn" onclick="performWebSearch()" title="Web Search (/)">🔍</button>
+                    <button class="search-advanced-btn" onclick="openExpandedSearchFromMain(false)" title="Expanded Search">⚙</button>
                 </div>
             </div>
 
             <div class="action-row">
                 <button class="big-btn btn-add" onclick="openAddModal()" title="Add Link (N)">+ Add Link</button>
-                <button class="big-btn btn-sec" onclick="sweepDone()">ðŸ§¹ Sweep</button>
-                <button class="big-btn btn-sec" onclick="openBulkModal()">ðŸ“š Bulk</button>
+                <button class="big-btn btn-sec" onclick="sweepDone()">🧹 Sweep</button>
+                <button class="big-btn btn-sec" onclick="openBulkModal()">📚 Bulk</button>
             </div>
         </div>
 
@@ -158,12 +158,12 @@
             <div class="popup-header">
                 <div class="popup-nav">
                     <button class="popup-nav-btn" id="popupBackBtn" onclick="PopupManager.navigatePopupBack()"
-                        title="Go back" disabled>â†</button>
+                        title="Go back" disabled>←</button>
                     <button class="popup-nav-btn" id="popupForwardBtn" onclick="PopupManager.navigatePopupForward()"
-                        title="Go forward" disabled>â†’</button>
+                        title="Go forward" disabled>→</button>
                 </div>
                 <h3 class="popup-title" id="wikiPopupTitle">Wiki Preview</h3>
-                <button class="popup-close" onclick="PopupManager.closePopup()">Ã—</button>
+                <button class="popup-close" onclick="PopupManager.closePopup()">×</button>
             </div>
             <div class="popup-iframe-container">
                 <iframe id="wikiPopupFrame" class="popup-iframe" title="Web content viewer"
@@ -174,8 +174,8 @@
 
     <!-- Enhanced Loading Indicator (Search Monitor) -->
     <div id="loadingIndicator" class="loading-indicator compact visible">
-        <button class="monitor-fullscreen-toggle" title="Toggle full screen" aria-label="Toggle full screen">â›¶</button>
-        <button class="monitor-wide-toggle" title="Toggle wide view" aria-label="Toggle wide view">â‡”</button>
+        <button class="monitor-fullscreen-toggle" title="Toggle full screen" aria-label="Toggle full screen">⛶</button>
+        <button class="monitor-wide-toggle" title="Toggle wide view" aria-label="Toggle wide view">⇔</button>
         <div class="dot"></div>
         <div class="indicator-content">
             <div class="indicator-title">Search Monitor</div>
@@ -185,7 +185,7 @@
                 <div class="wave-container">
                     <div class="wave"></div>
                 </div>
-                <span class="monitor-details-collapse-arrow">â–¼</span>
+                <span class="monitor-details-collapse-arrow">▼</span>
             </div>
             <div class="expanded-content">
                 <div class="stats-row">
