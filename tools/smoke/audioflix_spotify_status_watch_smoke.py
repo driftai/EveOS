@@ -23,6 +23,8 @@ def run():
     http_source = (ROOT / "server_modules" / "audioflix_spotify_http.py").read_text(encoding="utf-8")
     relay_source = (ROOT / "server_modules" / "audioflix_spotify_relay.py").read_text(encoding="utf-8")
     client_source = (ROOT / "js/modules/features/audioflix/audioflix.spotify.any-browser.js").read_text(encoding="utf-8")
+    watcher_source = (ROOT / "js/modules/features/audioflix/audioflix.spotify.status-watch.js").read_text(encoding="utf-8")
+    manifest_source = (ROOT / "js/config/manifest/scripts.parts/03-feature-modules.js").read_text(encoding="utf-8")
     check('"/api/audioflix/spotify-client/status-watch"' in http_source,
           "HTTP status-watch route is not registered")
     check("status_watch.watch(broker._broker, payload)" in http_source,
@@ -31,10 +33,16 @@ def run():
           "ordinary relay command path does not alias status-watch")
     check("'status-watch'" in relay_source.split("INDEPENDENT_ACTIONS", 1)[1].split(";", 1)[0],
           "relay status-watch is serialized behind playback commands")
-    check("remote().send('status-watch'" in client_source,
-          "managed Spotify client does not own completion through status-watch")
-    check("PROGRESS_POLL_MS = 1000" in client_source and "}, 400);" not in client_source,
+    check("remote().send('status-watch'" in watcher_source,
+          "split managed Spotify watcher does not own completion through status-watch")
+    check("EveAudioflixSpotifyStatusWatch?.create" in client_source,
+          "managed Spotify route does not delegate state observation to the split watcher")
+    check("PROGRESS_POLL_MS = 1000" in watcher_source and "}, 400);" not in watcher_source,
           "legacy 400ms tab-owned Spotify polling is still active")
+    watcher_path = "js/modules/features/audioflix/audioflix.spotify.status-watch.js"
+    client_path = "js/modules/features/audioflix/audioflix.spotify.any-browser.js"
+    check(watcher_path in manifest_source and manifest_source.index(watcher_path) < manifest_source.index(client_path),
+          "Spotify status watcher is not loaded before the managed browser route")
 
     marker = {"eventCursor": 4, "ownerEpoch": 2, "engineEpoch": 3, "trackGeneration": 9}
     client = {"clientId": "client-1", "token": "token-1"}
@@ -122,4 +130,4 @@ def run():
 
 if __name__ == "__main__":
     run()
-    print("AUDIOFLIX_SPOTIFY_STATUS_WATCH_OK (browser ownership, bounded wait, wake, lock isolation, authorization)")
+    print("AUDIOFLIX_SPOTIFY_STATUS_WATCH_OK (split browser ownership, bounded wait, wake, lock isolation, authorization)")
