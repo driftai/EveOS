@@ -70,10 +70,13 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
                 playingURI: 'spotify:track:4cOdK2wGLETKBW3PvgPWqT', position: 0, duration: 180000, isPaused: true
             });
             const endedTwice = engine.snapshot();
+            await engine.command('restart', { generation: 8 });
+            const afterRestart = engine.snapshot();
             await engine.command('seek', { seconds: 33 });
             return {
                 afterLoad, providerPaused, noAutoResume, deliberateResume,
-                endedOnce, endedTwice, calls: { ...window.__engineCalls }, afterSeek: engine.snapshot()
+                endedOnce, endedTwice, afterRestart,
+                calls: { ...window.__engineCalls }, afterSeek: engine.snapshot()
             };
         });
 
@@ -86,6 +89,8 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
         assert.ok(result.endedOnce.completionId, 'real provider end evidence receives a completion identity');
         assert.equal(result.endedTwice.completionId, result.endedOnce.completionId,
             'duplicate provider end evidence is deduplicated for the same generation');
+        assert.equal(result.afterRestart.generation, 8, 'restart starts a fresh playback generation');
+        assert.equal(result.afterRestart.completionId, '', 'restart clears the prior generation completion identity');
         assert.equal(result.afterSeek.currentTime, 33);
         assert.ok(result.calls.load.includes('spotify:track:4cOdK2wGLETKBW3PvgPWqT'));
         console.log('AUDIOFLIX_SPOTIFY_ENGINE_SMOKE_OK');
