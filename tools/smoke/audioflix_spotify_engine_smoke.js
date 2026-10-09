@@ -31,7 +31,17 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
                         play: function () { calls.play += 1; },
                         resume: function () { calls.resume += 1; },
                         pause: function () { calls.pause += 1; },
-                        seek: function (seconds) { calls.seek.push(seconds); },
+                        seek: function (seconds) {
+                            calls.seek.push(seconds);
+                            if (!window.__engineCompleteDuringSeek) return;
+                            return new Promise(function (resolve) {
+                                controller.emit('playback_update', {
+                                    playingURI: calls.uri, position: seconds * 1000, duration: 180000, isPaused: false
+                                });
+                                window.__engineCompletionDuringSeek = window.EveAudioflixSpotifyEngine.snapshot();
+                                resolve();
+                            });
+                        },
                         loadUri: function (uri) { calls.load.push(uri); },
                         destroy: function () {},
                         emit: function (name, data) { if (listeners[name]) listeners[name]({ data: data }); }
@@ -62,6 +72,8 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             });
             const providerPaused = engine.snapshot();
             const noAutoResume = window.__engineCalls.resume === resumeBeforeProviderPause;
+            await engine.command('pause');
+            const explicitPaused = engine.snapshot();
             await engine.command('play');
             const deliberateResume = window.__engineCalls.resume === resumeBeforeProviderPause + 1;
             window.__engineController.emit('playback_update', {
@@ -75,6 +87,12 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
                 playingURI: 'spotify:track:4cOdK2wGLETKBW3PvgPWqT', position: 0, duration: 180000, isPaused: true
             });
             const endedTwice = engine.snapshot();
+            await engine.command('play');
+            window.__engineController.emit('playback_started', {});
+            window.__engineController.emit('playback_update', {
+                playingURI: 'spotify:track:4cOdK2wGLETKBW3PvgPWqT', position: 1000, duration: 180000, isPaused: false
+            });
+            const afterTerminalPlay = engine.snapshot();
             await engine.command('restart', { generation: 8 });
             const afterRestart = engine.snapshot();
             // Live Spotify embeds report the last frame as position === duration while still
@@ -88,6 +106,9 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             const unpausedEnd = engine.snapshot();
             update(180000);
             const unpausedEndRepeat = engine.snapshot();
+            // A final frame and provider reset can both arrive before the next relay status poll.
+            update(0, true);
+            const resetAfterUnpausedEnd = engine.snapshot();
             await engine.command('restart', { generation: 9 });
             window.__engineController.emit('playback_started', {});
             update(179000);
@@ -95,32 +116,76 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             await new Promise((resolve) => setTimeout(resolve, 2800));
             const stalledEnd = engine.snapshot();
             await engine.command('seek', { seconds: 33 });
+            const afterSeek = engine.snapshot();
+            await engine.command('restart', { generation: 10 });
+            window.__engineController.emit('playback_started', {});
+            update(90000);
+            const beforeSeekCompletion = engine.snapshot();
+            window.__engineCompleteDuringSeek = true;
+            const completedSeek = await engine.command('seek', { seconds: 180 });
+            window.__engineCompleteDuringSeek = false;
+            const completionDuringSeek = window.__engineCompletionDuringSeek;
+            update(0, true);
+            const resetAfterCompletedSeek = engine.snapshot();
             return {
-                afterLoad, providerPaused, noAutoResume, deliberateResume,
-                endedOnce, endedTwice, afterRestart, unpausedEnd, unpausedEndRepeat, nearEnd, stalledEnd,
-                calls: { ...window.__engineCalls }, afterSeek: engine.snapshot()
+                afterLoad, providerPaused, noAutoResume, explicitPaused, deliberateResume,
+                endedOnce, endedTwice, afterTerminalPlay, afterRestart, unpausedEnd, unpausedEndRepeat,
+                resetAfterUnpausedEnd, nearEnd, stalledEnd, afterSeek,
+                beforeSeekCompletion, completionDuringSeek, completedSeek, resetAfterCompletedSeek,
+                calls: { ...window.__engineCalls }
             };
         });
 
         assert.equal(result.afterLoad.generation, 7);
         assert.equal(result.afterLoad.spotifyId, '4cOdK2wGLETKBW3PvgPWqT');
         assert.equal(result.providerPaused.status, 'provider-paused');
+        assert.equal(result.providerPaused.ended, false, 'an ordinary mid-track provider pause is not completion');
+        assert.equal(result.providerPaused.completionId, '', 'an ordinary pause creates no completion identity');
         assert.equal(result.noAutoResume, true, 'engine never steals an ambiguous provider-origin pause');
+        assert.equal(result.explicitPaused.status, 'paused', 'explicit mid-track pause remains paused');
+        assert.equal(result.explicitPaused.ended, false, 'explicit mid-track pause never completes the track');
+        assert.equal(result.explicitPaused.completionId, '', 'explicit pause creates no completion identity');
         assert.equal(result.deliberateResume, true, 'explicit engine play resumes paused playback');
         assert.equal(result.endedOnce.status, 'ended');
         assert.ok(result.endedOnce.completionId, 'real provider end evidence receives a completion identity');
         assert.equal(result.endedTwice.completionId, result.endedOnce.completionId,
             'duplicate provider end evidence is deduplicated for the same generation');
+        assert.equal(result.endedTwice.status, 'ended', 'repeated paused-zero resets retain pollable terminal status');
+        assert.equal(result.endedTwice.currentTime, result.endedOnce.duration,
+            'repeated paused-zero resets retain terminal progress instead of returning to zero');
+        assert.equal(result.endedTwice.generation, 7, 'provider resets do not change playback generation');
+        assert.equal(result.afterTerminalPlay.status, 'playing', 'explicit play can reopen a completed track');
+        assert.equal(result.afterTerminalPlay.ended, false, 'explicit playback clears the terminal latch');
+        assert.equal(result.afterTerminalPlay.currentTime, 1, 'explicit replay accepts fresh provider progress');
         assert.equal(result.afterRestart.generation, 8, 'restart starts a fresh playback generation');
         assert.equal(result.afterRestart.completionId, '', 'restart clears the prior generation completion identity');
+        assert.equal(result.afterRestart.ended, false, 'restart clears the terminal latch');
         assert.equal(result.unpausedEnd.status, 'ended', 'an unpaused final frame at position === duration completes the track');
         assert.ok(result.unpausedEnd.completionId.startsWith('8:'), 'unpaused completion belongs to the current generation');
         assert.equal(result.unpausedEndRepeat.status, 'ended', 'a duplicate final frame does not reopen the ended track');
         assert.equal(result.unpausedEndRepeat.completionId, result.unpausedEnd.completionId, 'duplicate final frames keep one completion');
+        assert.equal(result.resetAfterUnpausedEnd.status, 'ended', 'a reset before the next poll retains final-frame completion');
+        assert.equal(result.resetAfterUnpausedEnd.currentTime, result.unpausedEnd.duration,
+            'a reset before the next poll preserves completed progress');
+        assert.equal(result.resetAfterUnpausedEnd.completionId, result.unpausedEnd.completionId,
+            'a reset before the next poll preserves the same completion identity');
         assert.equal(result.nearEnd.status, 'playing', 'a frame inside the tolerance window does not end early');
         assert.equal(result.stalledEnd.status, 'ended', 'a provider that goes silent at the end still completes the track');
         assert.ok(result.stalledEnd.completionId.startsWith('9:'), 'stalled completion belongs to the restarted generation');
         assert.equal(result.afterSeek.currentTime, 33);
+        assert.equal(result.beforeSeekCompletion.completionId, '', 'seek-to-end starts without an older completion');
+        assert.equal(result.completionDuringSeek.ended, true, 'full-duration provider update completes playback before seek resolves');
+        assert.ok(result.completionDuringSeek.completionId.startsWith('10:'), 'completion during seek belongs to the fresh playback generation');
+        assert.equal(result.completedSeek.status, 'ended', 'seek preserves a new natural completion raised before its provider promise resolves');
+        assert.equal(result.completedSeek.paused, true);
+        assert.equal(result.completedSeek.ended, true, 'seek preserves completion raised while awaiting the provider');
+        assert.equal(result.completedSeek.currentTime, 180, 'seek completion reports the full track duration');
+        assert.equal(result.completedSeek.completionId, result.completionDuringSeek.completionId,
+            'seek preserves the fresh completion identity');
+        assert.equal(result.resetAfterCompletedSeek.ended, true, 'later provider reset preserves seek-triggered completion');
+        assert.equal(result.resetAfterCompletedSeek.currentTime, 180, 'later reset does not zero completed seek progress');
+        assert.equal(result.resetAfterCompletedSeek.completionId, result.completedSeek.completionId,
+            'later provider reset cannot duplicate seek-triggered completion');
         assert.ok(result.calls.load.includes('spotify:track:4cOdK2wGLETKBW3PvgPWqT'));
 
         const mirrorPage = await browser.newPage();

@@ -134,7 +134,9 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
 
             clearTimeout(endStallTimer);
             endStallTimer = 0;
-            if (state.ended && !paused && atEnd) return;
+            // Completion is durable until playback_started, load, or restart starts playback
+            // again. Spotify can send paused/zero resets before the client gets to poll us.
+            if (state.ended) return;
             state.currentTime = positionMs / 1000;
             state.duration = effectiveDurationMs / 1000;
             state.paused = paused;
@@ -245,7 +247,10 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     async function seek(payload = {}) {
         if (!controller) throw new Error('No Spotify track is loaded.');
         const seconds = Math.max(0, Number(payload.seconds || 0));
+        const previousCompletionId = state.completionId;
         await Promise.resolve(controller.seek?.(seconds));
+        // A seek-to-end can complete before its acknowledgement; do not overwrite that result.
+        if (state.ended && state.completionId !== previousCompletionId) return snapshot();
         state.currentTime = seconds;
         return setStatus(state.paused ? 'paused' : 'playing');
     }

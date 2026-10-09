@@ -167,7 +167,9 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             emitPlayback(String(engine.error || 'Spotify playback needs attention in the managed engine.'), true);
         }
         const completionId = String(engine.completionId || '');
-        if (status === 'ended' && completionId && completionId !== lastCompletionId) {
+        // Older running engines may report paused after completion. The durable ended flag
+        // and fresh completion identity remain authoritative, not the transient status label.
+        if ((status === 'ended' || engine.ended === true) && completionId && completionId !== lastCompletionId) {
             lastCompletionId = completionId;
             lastEngineStatus = 'ended';
             ended = true;

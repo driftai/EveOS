@@ -20,6 +20,7 @@ let engineState = {
     currentTime: 4, duration: 180, paused: false, completionId: '', eventCursor: 1
 };
 let lastState = null;
+let pollRemote = null;
 
 const remote = {
     ready: true,
@@ -115,7 +116,7 @@ const context = {
     Promise,
     setTimeout,
     clearTimeout,
-    setInterval: () => 1,
+    setInterval: (callback) => { pollRemote = callback; return 1; },
     clearInterval: () => {},
     CustomEvent: class CustomEvent { constructor(type, options = {}) { this.type = type; this.detail = options.detail; } },
     document: {
@@ -240,6 +241,30 @@ vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' 
     await window.EveAudioflixAudio.seek(1);
     assert.ok(dispatched.filter((event) => event.detail?.status === 'Ended' && event.detail?.item?.id === 'song-cold').length > endedBefore,
         'the adopted first track reports Ended so the existing queue can advance');
+
+    // An already-running engine can retain completion while its status says paused after a reset.
+    await window.EveAudioflixAudio.stopAll();
+    await window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-terminal' });
+    const countCompletions = () => dispatched.filter((event) => event.detail?.status === 'Ended').length;
+    const poll = async () => { pollRemote(); await Promise.resolve(); await Promise.resolve(); };
+    const completionsBeforeReset = countCompletions();
+    const resumesBeforeReset = calls.filter((entry) => entry.action === 'resume').length;
+    engineState = { ...engineState, status: 'paused', paused: true, ended: false,
+        currentTime: 46, completionId: 'terminal:1' };
+    await poll();
+    assert.equal(countCompletions(), completionsBeforeReset,
+        'paused state without a terminal latch does not consume a completion ID alone');
+    assert.equal(calls.filter((entry) => entry.action === 'resume').length, resumesBeforeReset,
+        'polling a mid-track pause never automatically resumes Spotify');
+    engineState = { ...engineState, ended: true, currentTime: 0 };
+    await poll();
+    assert.equal(countCompletions(), completionsBeforeReset + 1,
+        'paused state with a durable terminal latch reports completion once');
+    assert.equal(dispatched.filter((event) => event.detail?.status === 'Ended').at(-1).detail.item.id, 'song-terminal',
+        'durable completion keeps the active track identity');
+    await poll();
+    assert.equal(countCompletions(), completionsBeforeReset + 1,
+        'duplicate paused terminal snapshots cannot emit another Ended event');
 
     assert.match(source, /completionId/);
     assert.match(source, /emitPlayback\('Ended'\)/);
