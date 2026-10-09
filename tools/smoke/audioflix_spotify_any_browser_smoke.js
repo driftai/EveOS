@@ -19,14 +19,18 @@ let engineState = {
     status: 'playing', spotifyId: '4cOdK2wGLETKBW3PvgPWqT', generation: 1,
     currentTime: 4, duration: 180, paused: false, completionId: '', eventCursor: 1
 };
+let lastState = null;
 
 const remote = {
     ready: true,
-    snapshot: () => ({ connected: true, status: 'ready', approvalRequired: false }),
+    snapshot: () => ({ connected: true, status: 'ready', approvalRequired: false, lastState }),
     connect: async () => ({ connected: true, status: 'ready' }),
     waitUntilReady: async () => ({ connected: true }),
     openApproval: () => true,
-    async status() { return { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true } }; },
+    async status() {
+        lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true } };
+        return lastState;
+    },
     async send(action, payload = {}) {
         calls.push({ action, payload: { ...payload } });
         if (action === 'play') {
@@ -39,7 +43,8 @@ const remote = {
         else if (action === 'resume') engineState = { ...engineState, status: 'playing', paused: false };
         else if (action === 'seek') engineState = { ...engineState, currentTime: payload.seconds };
         else if (action === 'stop') engineState = { ...engineState, status: 'stopped', paused: true, currentTime: 0 };
-        return { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true } };
+        lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true } };
+        return lastState;
     }
 };
 
@@ -114,8 +119,18 @@ vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' 
     assert.equal(calls.at(-1).action, 'seek');
     assert.equal(calls.at(-1).payload.seconds, 42);
 
+    // If another tab took ownership of the same item, clicking Play here must deliberately transfer
+    // ownership rather than silently returning or trying an observer-only resume.
+    lastState = { ok: true, isOwner: false, engine: { ...engineState }, managed: { helperReachable: true } };
+    const playsBeforeTransfer = calls.filter((entry) => entry.action === 'play').length;
+    await window.EveAudioflixAudio.playItem(spotify);
+    assert.equal(calls.filter((entry) => entry.action === 'play').length, playsBeforeTransfer + 1,
+        'explicit Play on an observed same item transfers ownership through a fresh play command');
+
     assert.match(source, /completionId/);
     assert.match(source, /emitPlayback\('Ended'\)/);
+    assert.match(source, /fallback: false/,
+        'relay failure is fail-closed so an uncertain managed engine cannot be doubled by a local embed');
     assert.doesNotMatch(source, /__EveAudioflixManagedBrowserSession/,
         'ordinary-tab client does not depend on the old injected managed-session marker');
 
