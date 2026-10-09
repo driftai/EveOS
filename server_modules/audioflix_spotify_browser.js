@@ -86,6 +86,21 @@ function probeServer(url, timeoutMs = 2000) {
         req.end();
     });
 }
+async function prepareManagedPage(context, pageUrl, note = () => {}) {
+    const existing = context.pages();
+    const page = existing[0] || await context.newPage();
+    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Persistent Edge can restore tabs from an unclean prior helper shutdown. Give restoration a
+    // brief chance to settle, then enforce the one-engine-page invariant before accepting commands.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    let closed = 0;
+    for (const extra of context.pages()) {
+        if (extra === page) continue;
+        try { await extra.close(); closed += 1; } catch {}
+    }
+    if (closed) note('page-prune', `closed ${closed} restored/blank managed tabs`);
+    return page;
+}
 
 async function main() {
     const args = parseArgs(process.argv.slice(2));
@@ -130,6 +145,7 @@ async function main() {
             '--disable-blink-features=AutomationControlled', '--disable-dev-shm-usage', '--lang=en-US',
             '--autoplay-policy=no-user-gesture-required', '--disable-background-timer-throttling',
             '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding',
+            '--hide-crash-restore-bubble',
             '--disable-features=CalculateNativeWinOcclusion', '--window-position=80,80', '--window-size=1280,900'
         ]
     };
@@ -155,8 +171,7 @@ async function main() {
         p.on('close', () => note('page-close', p.url()));
     });
 
-    let page = await context.newPage();
-    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    let page = await prepareManagedPage(context, pageUrl, note);
     runtime.state = 'ready';
     const livenessUrl = new URL('/EveOS.html', pageUrl).href;
     let serverOfflineSince = 0;
@@ -406,7 +421,7 @@ async function main() {
 module.exports = {
     SERVICE, PROTOCOL_VERSION, MAX_MEDIA_REFS, clampVolume, normalizeTrackId,
     validateLoopbackPageUrl, headlessRequestedFromPageUrl, isLikelyPlayControl,
-    isSpotifyEmbedUrl, spotifyFrameTrackId, browserInit, parseArgs, probeServer,
+    isSpotifyEmbedUrl, spotifyFrameTrackId, browserInit, parseArgs, probeServer, prepareManagedPage,
     SERVER_LIVENESS_INTERVAL_MS, SERVER_LIVENESS_TIMEOUT_MS
 };
 
