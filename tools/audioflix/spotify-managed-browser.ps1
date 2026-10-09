@@ -22,7 +22,7 @@ function Invoke-EvePost([string]$Path, [hashtable]$Body = @{}) {
 
 function Get-EnginePageUrl([string]$Url, [string]$Mode) {
     $clean = $Url -replace '([?&])playwright=headless(&|$)', '$1'
-    $clean = $clean.TrimEnd('?','&')
+    $clean = $clean.TrimEnd([char[]]'?&')
     if ($Mode -ne 'headless') { return $clean }
     $separator = if ($clean.Contains('?')) { '&' } else { '?' }
     return "${clean}${separator}playwright=headless"
