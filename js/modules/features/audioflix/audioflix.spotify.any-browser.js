@@ -13,7 +13,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         .match(/(?:spotify:track:|open\.spotify\.com\/(?:embed\/)?track\/)?([A-Za-z0-9]{22})(?:[?/#]|$)?/i)?.[1] || '';
     const effectiveGain = (raw) => {
         const safe = Math.max(0, Math.min(1, Number(raw ?? 1)));
-        return Math.max(0, Math.min(1, Number(window.EveAudioflixOutputPort?.effective?.(safe) ?? safe));
+        return Math.max(0, Math.min(1, Number(window.EveAudioflixOutputPort?.effective?.(safe) ?? safe)));
     };
     const sameItem = (left, right) => String(left?.id || left?.url || '') === String(right?.id || right?.url || '');
 
