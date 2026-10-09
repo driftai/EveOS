@@ -147,7 +147,7 @@ assert(surface.includes('audioflix-spotify-engine.html?surface=mirror')
     && surface.includes("remote().send('engine-presentation'")
     && surface.includes("remote().send('engine-stop'")
     && surface.includes('Hidden (default)') && surface.includes('True headless (silent)'),
-    'Internal Player mirrors the single engine and exposes explicit presentation/subsystem controls');
+    'Internal Player mirrors the single engine and exposes explicit presentation/subsystem lifecycle controls');
 assert(surface.includes('queueConnection()?.snapshot?.()')
     && surface.includes('view?.setQueue?.(entries, index)')
     && surface.includes('onStep:') && surface.includes('onJump:')
@@ -174,6 +174,7 @@ runNode('tools/smoke/audioflix_spotify_relay_security_smoke.js');
 runPython('tools/smoke/audioflix_spotify_broker_smoke.py');
 runNode('tools/smoke/audioflix_spotify_entrypoints_smoke.js');
 runNode('tools/smoke/audioflix_spotify_any_browser_smoke.js');
+runNode('tools/smoke/audioflix_local_prepare_handoff_smoke.js');
 runNode('tools/smoke/audioflix_spotify_queue_surface_smoke.js');
 runNode('tools/smoke/audioflix_spotify_engine_smoke.js');
 require('./audioflix_spotify_managed_import_smoke.js');
