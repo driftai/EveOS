@@ -50,6 +50,7 @@ const remote = {
 
 let originalPlayCount = 0;
 let originalStopCount = 0;
+const stopItemCalls = [];
 const audio = {
     ready: true,
     async playItem() { originalPlayCount += 1; return true; },
@@ -57,6 +58,10 @@ const audio = {
     async pause() { return true; },
     async seek() { return true; },
     async stopAll() { originalStopCount += 1; return true; },
+    async stopItemLayers(itemId, preserveProvider = false) {
+        stopItemCalls.push({ itemId: String(itemId || ''), preserveProvider: !!preserveProvider });
+        return true;
+    },
     updateItemVolume() {},
     getPlaybackState: () => ({ item: null, paused: true }),
     getStatus: () => ({ status: 'Idle', playback: { paused: true } })
@@ -126,6 +131,21 @@ vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' 
     await window.EveAudioflixAudio.playItem(spotify);
     assert.equal(calls.filter((entry) => entry.action === 'play').length, playsBeforeTransfer + 1,
         'explicit Play on an observed same item transfers ownership through a fresh play command');
+
+    const stopsBeforeCard = calls.filter((entry) => entry.action === 'stop').length;
+    await window.EveAudioflixAudio.stopItemLayers('song-1', false);
+    assert.equal(calls.filter((entry) => entry.action === 'stop').length, stopsBeforeCard + 1,
+        'card Stop for the active managed Spotify item sends broker stop');
+    assert.deepEqual(stopItemCalls.at(-1), { itemId: 'song-1', preserveProvider: false },
+        'card Stop still runs the original item-layer cleanup');
+
+    await window.EveAudioflixAudio.playItem(spotify);
+    const stopsBeforePreserve = calls.filter((entry) => entry.action === 'stop').length;
+    await window.EveAudioflixAudio.stopItemLayers('song-1', true);
+    assert.equal(calls.filter((entry) => entry.action === 'stop').length, stopsBeforePreserve,
+        'preserveProvider=true does not stop the managed Spotify engine during provider replay');
+    assert.deepEqual(stopItemCalls.at(-1), { itemId: 'song-1', preserveProvider: true },
+        'preserve-provider cleanup still delegates to the original layer stop');
 
     assert.match(source, /completionId/);
     assert.match(source, /emitPlayback\('Ended'\)/);
