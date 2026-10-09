@@ -94,7 +94,7 @@
                     aria-controls="audioflix-overlay" aria-expanded="false"
                     title="Audioflix">&#127925; Audioflix</button>
                 <button class="topbar-primary-btn topbar-notes-world-book-btn" type="button"
-                    onclick="window.EveOSResume?.open ? window.EveOSResume.open('worldBook') : (window.EveWorldBook?.open ? window.EveWorldBook.open() : (window.__eveWorldBookOpenPending = true))"
+                    onclick="window.EveOSResume?.open ? window.EveOSResume.open('worldBook') : (window.EveWorldBook?.open ? window.EveWorldBook.openCurrentView ? window.EveWorldBook.openCurrentView() : (window.__eveWorldBookOpenPending = true) : (window.__eveWorldBookOpenPending = true))"
                     aria-haspopup="dialog" aria-controls="notes-world-book-overlay" aria-expanded="false"
                     title="Notes &amp; World Books">&#128221; Notes &amp; World Books</button>
                 <button class="topbar-primary-btn" onclick="openSettings()" title="Settings">&#9881; Settings</button>
@@ -255,7 +255,7 @@
     <script src="js/modules/features/audioflix/audioflix.fsports.ui.js?v=ee29c8fe88a2"></script>
     <script src="js/modules/features/audioflix/audioflix.fsports.js?v=01ca3aaf8766"></script>
     <script src="js/modules/features/audioflix/audioflix.native.localize.js?v=d5a148931b1a"></script>
-    <script src="js/modules/features/audioflix/audioflix.native.spotify.js?v=fc9f19bc8416"></script>
+    <script src="js/modules/features/audioflix/audioflix.native.spotify.js?v=1ec742f034b2"></script>
     <script src="js/modules/features/audioflix/audioflix.native.instagram.js?v=c5a91c8a197c"></script>
     <script src="js/modules/features/audioflix/audioflix.native.identity.js?v=859f13a8d24d"></script>
     <script src="js/modules/features/audioflix/audioflix.native.backoff.js?v=779511928336"></script>
@@ -265,9 +265,9 @@
     <script src="js/modules/features/audioflix/audioflix.audio.internal.js?v=db39fd3e2451"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.url.loaders.js?v=254f26c98818"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.url.widgets.js?v=592218c4e137"></script>
-    <script src="js/modules/features/audioflix/audioflix.spotify.volume.js?v=7711ef2af15c"></script>
+    <script src="js/modules/features/audioflix/audioflix.spotify.volume.js?v=bc2497cb6489"></script>
     <script src="js/modules/features/audioflix/audioflix.spotify.completion.js?v=e35c77e6255b"></script>
-    <script src="js/modules/features/audioflix/audioflix.audio.url.spotify.js?v=4c987d328de6"></script>
+    <script src="js/modules/features/audioflix/audioflix.audio.url.spotify.js?v=2b1bf62b1172"></script>
     <script src="js/modules/features/audioflix/audioflix.instagram.cache.js?v=eaf549a809f4"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.url.instagram.js?v=d1fe6bd7a917"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.url.providers.js?v=2141c0e8b005"></script>
@@ -284,7 +284,7 @@
     <script src="js/modules/features/audioflix/audioflix.audio.native.js?v=102ba4b83986"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.local.js?v=797fa3433ecf"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.js?v=47a4819d45d2"></script>
-    <script src="js/modules/features/audioflix/audioflix.transport.js?v=d845574e8253"></script>
+    <script src="js/modules/features/audioflix/audioflix.transport.js?v=992092e72b0d"></script>
     <script src="js/modules/features/audioflix/audioflix.gemini.js?v=f0d5a19a3504"></script>
     <script src="js/modules/gemini/client/connection_management/socket_core/geminiApiFailure.js?v=d5949aeaf49e"></script>
     <script src="js/modules/features/audioflix/audioflix.soundlab.codec.js?v=4705d60d13e8"></script>
@@ -358,7 +358,7 @@
     <script src="js/config/manifest/scripts.parts/00-core.js?v=b823802a15b1"></script>
     <script src="js/config/manifest/scripts.parts/01-ui.js?v=f841c1250078"></script>
     <script src="js/config/manifest/scripts.parts/02-dashboard-categories.js?v=c70aad8dd6ff"></script>
-    <script src="js/config/manifest/scripts.parts/03-feature-modules.js?v=3e060aa3e58f"></script>
+    <script src="js/config/manifest/scripts.parts/03-feature-modules.js?v=2618b2fcb2b6"></script>
     <script src="js/config/manifest/scripts.parts/04-chartjs.js?v=a138d82646ba"></script>
     <script src="js/config/manifest/scripts.parts/05-library-feature.js?v=465345c88b7a"></script>
     <script src="js/config/manifest/scripts.parts/06-library-stats.js?v=2bb373618170"></script>
