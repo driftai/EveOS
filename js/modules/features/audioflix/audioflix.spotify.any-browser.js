@@ -118,6 +118,16 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             return { ok: false, fallback: false, reason: String(error?.message || error) };
         }
     }
+    async function preferredLocalItem(nextItem) {
+        const prepare = window.EveAudioflixLocalPlayback?.prepare;
+        if (typeof prepare !== 'function') return null;
+        try {
+            const prepared = await prepare(nextItem);
+            return prepared?.localPath ? (prepared.item || nextItem) : null;
+        } catch {
+            return null;
+        }
+    }
     function applyEngineState(result) {
         if (!result?.ok || !active) return;
         const engine = result.engine || {};
@@ -244,6 +254,11 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
                 if (active) await stopRemote();
                 return original.playItem(nextItem);
             }
+            const localItem = await preferredLocalItem(nextItem);
+            if (localItem) {
+                if (active) await stopRemote();
+                return original.playItem(localItem);
+            }
             if (active && sameItem(item, nextItem) && !ended) {
                 item = nextItem;
                 playback.item = item;
@@ -264,6 +279,11 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         };
         audio.openInternalView = async function anyBrowserInternal(nextItem) {
             if (!isSpotify(nextItem)) return original.openInternalView(nextItem);
+            const localItem = await preferredLocalItem(nextItem);
+            if (localItem) {
+                if (active) await stopRemote();
+                return original.openInternalView(localItem);
+            }
             if (active) return audio.playItem(nextItem);
             try { return await remotePlay(nextItem); }
             catch (error) {
