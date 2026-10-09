@@ -86,10 +86,14 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         if (!R?.ready) return { ok: false, fallback: true, reason: 'Managed Spotify relay client is unavailable.' };
         let connection;
         try { connection = await R.connect(); }
-        catch (error) { return { ok: false, fallback: true, reason: String(error?.message || error) }; }
+        catch (error) {
+            // Once the any-browser transport is loaded, a relay/network failure is ambiguous: a
+            // managed engine may still be audible. Fail closed instead of creating a second player.
+            return { ok: false, fallback: false, reason: String(error?.message || error) };
+        }
         if (connection?.connected) { hideApprovalPrompt(); return { ok: true }; }
         if (!connection?.approvalRequired) {
-            return { ok: false, fallback: true, reason: connection?.lastError || 'Managed Spotify relay is unavailable.' };
+            return { ok: false, fallback: false, reason: connection?.lastError || 'Managed Spotify relay is unavailable.' };
         }
         showApprovalPrompt(connection);
         try {
@@ -222,6 +226,12 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             if (active && sameItem(item, nextItem) && !ended) {
                 item = nextItem;
                 playback.item = item;
+                const ownsEngine = remote()?.snapshot?.().lastState?.isOwner === true;
+                if (!ownsEngine) {
+                    // Clicking Play is an explicit ownership transfer even when both clients point
+                    // at the same library item. Re-issuing play creates a fresh track generation.
+                    return remotePlay(nextItem);
+                }
                 if (playback.paused) {
                     const resumed = await remote().send('resume');
                     if (!resumed?.ok) throw new Error(resumed?.reason || 'Spotify could not resume.');
