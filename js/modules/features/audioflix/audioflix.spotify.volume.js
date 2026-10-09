@@ -1,77 +1,64 @@
-/* Audioflix: Spotify volume capability coordinator.
+/* Audioflix Spotify volume capability coordinator.
  *
- * Two legitimate volume paths are supported:
- *  1) a future/native Spotify iframe controller setVolume() method, when present;
- *  2) the EveOS managed Playwright browser, which applies volume to Spotify's detached media
- *     element inside the protected embed frame.
- *
- * An ordinary/unmanaged browser tab never claims managed control. The managed helper injects a
- * per-process session marker before EveOS loads, and every volume write must round-trip with that
- * exact session id. No screen/tab capture is used.
+ * The shared URL transport passes an ALREADY EFFECTIVE gain to provider adapters. This module must
+ * never multiply the master/output gain again. Any-browser managed playback is handled by the
+ * authorized relay client; the local official-embed fallback remains provider-owned unless Spotify
+ * someday exposes a real controller.setVolume() method.
  */
 (function () {
     'use strict';
 
-    const managedSessionId = String(window.__EveAudioflixManagedBrowserSession || '');
     const state = {
         spotifyActive: false,
         controllerDirect: false,
-        managedControl: Boolean(managedSessionId),
-        helperReachable: Boolean(managedSessionId),
-        managedSessionId,
-        directControl: Boolean(managedSessionId),
-        itemVolume: 1,
+        managedControl: false,
+        helperReachable: false,
+        directControl: false,
         spotifyVolume: 1,
-        status: managedSessionId ? 'managed-starting' : 'off',
-        message: managedSessionId ? 'Checking managed Spotify browser volume control…' : '',
+        status: 'off',
+        message: '',
         authState: 'unknown',
         lastAck: 0,
         lastError: ''
     };
     const listeners = new Set();
-    let pendingManagedWrite = null;
-    let managedWriteActive = false;
-
     const clamp = (value) => Math.max(0, Math.min(1,
         Number.isFinite(Number(value)) ? Number(value) : 1));
     const spotifyTrack = (item) => String(item?.sourceProvider || '').toLowerCase() === 'spotify'
         || !!item?.spotifyUrl
         || /(?:spotify:track:|open\.spotify\.com\/(?:embed\/)?track\/)/i.test(String(item?.url || item?.originalUrl || ''));
-    const spotifyTrackId = (item) => String(item?.spotifyTrackId || item?.spotifyUrl || item?.url || item?.originalUrl || '')
-        .match(/(?:spotify:track:|open\.spotify\.com\/(?:embed\/)?track\/)?([A-Za-z0-9]{22})(?:[?/#]|$)?/i)?.[1] || '';
 
     function activeSpotifyPlayback() {
         const playback = window.EveAudioflixAudio?.getPlaybackState?.() || {};
         return playback.provider === 'spotify' || spotifyTrack(playback.item) ? playback : null;
     }
-
-    function effectiveVolume(itemVolume) {
-        const safe = clamp(itemVolume);
-        return clamp(window.EveAudioflixOutputPort?.effective?.(safe) ?? safe);
+    function remoteSnapshot() {
+        return window.EveAudioflixSpotifyRemote?.snapshot?.() || {};
     }
-
     function refreshCapability() {
+        const remote = remoteSnapshot();
+        state.managedControl = remote.connected === true;
+        state.helperReachable = remote.connected === true;
         state.directControl = Boolean(state.controllerDirect || state.managedControl);
         if (state.controllerDirect) {
             state.status = 'direct';
             state.message = '';
         } else if (state.managedControl) {
-            state.status = state.lastAck ? 'managed' : 'managed-starting';
-            state.message = state.lastAck
-                ? `Managed Spotify volume is active at ${Math.round(state.spotifyVolume * 100)}%.`
-                : 'Managed Spotify browser is connecting to the embedded player…';
+            state.status = 'managed-ready';
+            state.message = 'Managed Spotify volume is available through the local engine.';
+        } else if (remote.approvalRequired) {
+            state.status = 'approval-needed';
+            state.message = `Approve this EveOS file tab to control Spotify${remote.code ? ` (code ${remote.code})` : ''}.`;
         } else if (state.spotifyActive) {
-            state.status = state.managedSessionId ? 'managed-unavailable' : 'provider-owned';
-            state.message = state.managedSessionId
-                ? `Managed Spotify volume is unavailable${state.lastError ? `: ${state.lastError}` : '.'}`
-                : 'Spotify volume needs the EveOS managed browser. Start it from the local Audioflix Spotify browser helper.';
+            state.status = 'provider-owned';
+            state.message = 'This local Spotify embed owns its playback volume. Connect the managed Spotify engine for EveOS gain control.';
         } else {
-            state.status = state.managedControl ? 'managed-ready' : 'off';
+            state.status = 'off';
             state.message = '';
         }
     }
-
     function snapshot() {
+        refreshCapability();
         return {
             supported: state.directControl,
             status: state.status,
@@ -83,177 +70,86 @@
             managedControl: state.managedControl,
             helperReachable: state.helperReachable,
             authState: state.authState,
-            itemVolume: state.itemVolume,
             volume: state.spotifyVolume,
             lastAck: state.lastAck,
             lastError: state.lastError
         };
     }
-
     function notify() {
-        refreshCapability();
         const value = snapshot();
-        listeners.forEach((listener) => {
-            try { listener(value); } catch { /* A view subscriber must not break audio. */ }
-        });
+        listeners.forEach((listener) => { try { listener(value); } catch {} });
     }
 
-    async function api(path, options = {}) {
-        const response = await fetch(`/api/audioflix/spotify-browser${path}`, {
-            cache: 'no-store',
-            credentials: 'same-origin',
-            ...options,
-            headers: {
-                'Content-Type': 'application/json; charset=utf-8',
-                ...(options.headers || {})
-            }
-        });
-        let payload = null;
-        try { payload = await response.json(); } catch {}
-        if (!response.ok) throw new Error(payload?.reason || payload?.message || `HTTP ${response.status}`);
-        return payload || {};
-    }
-
-    function managedRequestBody(volume, item) {
-        return {
-            sessionId: state.managedSessionId,
-            volume: clamp(volume),
-            trackId: spotifyTrackId(item || activeSpotifyPlayback()?.item)
-        };
-    }
-
-    function queueManagedVolume(volume, item) {
-        if (!state.managedSessionId) return false;
-        pendingManagedWrite = managedRequestBody(volume, item);
-        if (!managedWriteActive) Promise.resolve().then(pumpManagedVolume);
-        return true;
-    }
-
-    async function pumpManagedVolume() {
-        if (managedWriteActive || !state.managedSessionId) return;
-        managedWriteActive = true;
-        try {
-            while (pendingManagedWrite) {
-                const body = pendingManagedWrite;
-                pendingManagedWrite = null;
-                try {
-                    const result = await api('/volume', {
-                        method: 'POST',
-                        body: JSON.stringify(body)
-                    });
-                    const valid = result?.ok === true && result?.sessionMatch === true;
-                    state.helperReachable = valid;
-                    state.managedControl = valid;
-                    state.lastError = valid ? '' : String(result?.reason || 'Managed browser did not acknowledge this EveOS session.');
-                    if (valid) {
-                        state.lastAck = Number(result.lastAppliedAt || Date.now());
-                        state.spotifyVolume = clamp(result.volume ?? body.volume);
-                    }
-                } catch (error) {
-                    state.helperReachable = false;
-                    state.managedControl = false;
-                    state.lastError = String(error?.message || error || 'Managed Spotify browser is unreachable.').slice(0, 240);
-                }
-                notify();
-            }
-        } finally {
-            managedWriteActive = false;
-            if (pendingManagedWrite) Promise.resolve().then(pumpManagedVolume);
-        }
-    }
-
+    // IMPORTANT: `volume` is already trackGain x masterGain when invoked by the URL transport.
     function setSpotifyVolume(volume, options = {}) {
         state.spotifyActive = true;
         state.controllerDirect = options.direct === true;
-        state.itemVolume = clamp(volume);
-        state.spotifyVolume = effectiveVolume(state.itemVolume);
-        if (state.managedSessionId) queueManagedVolume(state.spotifyVolume, options.item);
+        state.spotifyVolume = clamp(volume);
         notify();
-        // Return the effective value so a future official controller.setVolume() path observes the
-        // same track x master/output gain as the Playwright path instead of bypassing master volume.
         return state.spotifyVolume;
     }
-
     function clearSpotify() {
         state.spotifyActive = false;
         state.controllerDirect = false;
-        state.itemVolume = 1;
         state.spotifyVolume = 1;
         state.lastError = '';
-        // A healthy managed browser remains a capability between tracks. Do not disable the next
-        // card's slider merely because the previous Spotify controller was destroyed.
-        state.managedControl = Boolean(state.managedSessionId && state.helperReachable);
         notify();
     }
-
-    function syncSpotifyFromPlayback(explicitItemVolume) {
+    function syncSpotifyFromPlayback(explicitRawVolume) {
         const playback = activeSpotifyPlayback();
-        if (!playback) return null;
-        const itemVolume = explicitItemVolume == null
-            ? clamp(playback.item?.volume ?? 1)
-            : clamp(explicitItemVolume);
-        setSpotifyVolume(itemVolume, { direct: state.controllerDirect, item: playback.item });
+        if (!playback?.item) return null;
+        const raw = clamp(explicitRawVolume == null ? playback.item.volume ?? 1 : explicitRawVolume);
+        const effective = clamp(window.EveAudioflixOutputPort?.effective?.(raw) ?? raw);
+        setSpotifyVolume(effective, { direct: state.controllerDirect });
         return playback;
     }
-
     async function refreshManagedStatus() {
-        if (!state.managedSessionId) {
+        const remote = window.EveAudioflixSpotifyRemote;
+        if (!remote?.ready) {
             state.managedControl = false;
             state.helperReachable = false;
             notify();
             return snapshot();
         }
         try {
-            const result = await api('/session-status', {
-                method: 'POST',
-                body: JSON.stringify({ sessionId: state.managedSessionId })
-            });
-            const match = result?.helperReachable === true && result?.sessionMatch === true;
-            state.helperReachable = match;
-            state.managedControl = match;
-            state.authState = String(result?.authState || 'unknown');
-            state.lastError = match ? '' : String(result?.lastError || 'Managed Spotify browser session is unavailable.');
+            const result = await remote.status();
+            state.managedControl = result?.connected === true || remote.snapshot?.().connected === true;
+            state.helperReachable = Boolean(result?.managed?.helperReachable ?? state.managedControl);
+            state.authState = String(result?.managed?.authState || 'unknown');
+            state.lastError = result?.ok === false ? String(result.reason || '') : '';
+            if (result?.ok) state.lastAck = Date.now();
         } catch (error) {
-            state.helperReachable = false;
             state.managedControl = false;
+            state.helperReachable = false;
             state.lastError = String(error?.message || error).slice(0, 240);
         }
         notify();
         return snapshot();
     }
-
-    async function startManagedBrowser(pageUrl = '') {
-        const body = pageUrl ? { pageUrl } : {};
-        return api('/start', { method: 'POST', body: JSON.stringify(body) });
+    async function startManagedBrowser() {
+        const remote = window.EveAudioflixSpotifyRemote;
+        if (!remote?.ready) return { ok: false, reason: 'Spotify relay client is not loaded.' };
+        const connection = await remote.connect();
+        notify();
+        return { ok: connection?.connected === true, ...connection };
     }
-
     async function stopManagedBrowser() {
-        const result = await api('/stop', { method: 'POST', body: '{}' });
-        if (state.managedSessionId) {
-            state.helperReachable = false;
-            state.managedControl = false;
-            state.lastError = 'Managed Spotify browser was stopped.';
-            notify();
-        }
-        return result;
+        return {
+            ok: false,
+            reason: 'Playback clients do not shut down the shared Spotify engine. Use the local managed-browser tool for process shutdown.'
+        };
     }
-
     async function probeAuth(openLogin = false) {
-        const result = await api('/auth', {
-            method: 'POST',
-            body: JSON.stringify({ openLogin: openLogin === true })
-        });
-        state.authState = String(result?.authState || 'unknown');
+        const remote = window.EveAudioflixSpotifyRemote;
+        if (!remote?.ready) return { ok: false, reason: 'Spotify relay client is not loaded.' };
+        const connection = await remote.connect();
+        if (!connection?.connected) return { ok: false, approvalRequired: connection?.approvalRequired === true, ...connection };
+        const result = await remote.send('auth', { openLogin: openLogin === true }, { timeout: 12000 });
+        state.authState = String(result?.authState || result?.managed?.authState || 'unknown');
         notify();
         return result;
     }
-
     function enable() {
-        if (state.managedSessionId) return refreshManagedStatus();
-        state.status = state.controllerDirect ? 'direct' : 'provider-owned';
-        state.message = state.controllerDirect
-            ? ''
-            : 'Spotify volume needs the EveOS managed browser.';
         notify();
         return Promise.resolve(snapshot());
     }
@@ -262,18 +158,16 @@
         return snapshot();
     }
     function armFromTrustedGesture() { return false; }
-
     function mount(host) {
-        // Remove markup left behind by a hot-reloaded pre-port build. No replacement controls are
-        // mounted: the ordinary Audioflix card/master controls remain the single volume UI.
         try { host?.querySelector?.(':scope > .af-spotify-volume')?.remove?.(); } catch {}
         return null;
     }
 
     window.addEventListener?.('eve:audioflix-output-volume', () => {
         const playback = activeSpotifyPlayback();
-        if (playback?.item) syncSpotifyFromPlayback(playback.item.volume ?? 1);
+        if (playback?.item && playback.remoteManaged !== true) syncSpotifyFromPlayback(playback.item.volume ?? 1);
     });
+    window.addEventListener?.('eve:audioflix-spotify-capability', notify);
 
     window.EveAudioflixSpotifyVolume = {
         enable,
@@ -294,6 +188,4 @@
             return () => listeners.delete(listener);
         }
     };
-
-    if (state.managedSessionId) Promise.resolve().then(refreshManagedStatus);
 })();
