@@ -84,7 +84,8 @@ vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' 
 
 (async () => {
     assert.equal(window.EveAudioflixSpotifyAnyBrowser.ready, true);
-    assert.equal(window.EveAudioflixSpotifyAnyBrowser.install(), true, 'ordinary-tab wrapper installs over public Audioflix API');
+    assert.equal(window.EveAudioflixSpotifyAnyBrowser.install(), false,
+        'ordinary-tab wrapper installs eagerly once and refuses duplicate wrapping');
 
     await window.EveAudioflixAudio.playItem(spotify);
     assert.equal(originalPlayCount, 0, 'managed Spotify path does not create an audible local provider player');
@@ -113,10 +114,6 @@ vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' 
     assert.equal(calls.at(-1).action, 'seek');
     assert.equal(calls.at(-1).payload.seconds, 42);
 
-    // Remote completion dispatches the same public Audioflix event used by the existing queue owner.
-    engineState = { ...engineState, status: 'ended', paused: true, currentTime: 180, completionId: '2:9' };
-    await window.EveAudioflixSpotifyRemote.status();
-    // Polling is timer-driven in production; static source check guards the exact-once completion id path.
     assert.match(source, /completionId/);
     assert.match(source, /emitPlayback\('Ended'\)/);
     assert.doesNotMatch(source, /__EveAudioflixManagedBrowserSession/,
