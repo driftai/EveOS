@@ -118,14 +118,20 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             && surface.includes('originalOpenInternalView')
             && surface.includes('managedActive()'),
         'ordinary EveOS Internal View mirrors the managed engine only when managed playback owns Spotify');
+        assert(surface.includes("remote().send('engine-presentation'")
+            && surface.includes("remote().send('engine-stop'")
+            && surface.includes('Hidden (default)')
+            && surface.includes('Window')
+            && surface.includes('True headless (silent)'),
+        'Internal Player exposes presentation and subsystem lifecycle controls without a second engine');
         const launcher = fs.readFileSync(launcherPath, 'utf8');
         assert(launcher.includes("[ValidateSet('background','hidden','window','headless')]")
+            && launcher.includes("[string]$Presentation = 'hidden'")
             && launcher.includes('ShowWindowAsync')
             && launcher.includes("'hidden' { 0 }")
             && launcher.includes('spotify-engine-window-handle.txt')
-            && launcher.includes("Set-SpotifyEnginePresentation $Presentation")
-            && launcher.includes('playwright=headless'),
-        'managed Spotify launcher exposes minimized, hidden-headed, visible-window and true-headless modes');
+            && launcher.includes("/api/audioflix/spotify-browser/presentation"),
+        'managed Spotify launcher defaults to hidden audio and keeps CLI presentation synchronized through EveOS');
 
         console.log('AUDIOFLIX_SPOTIFY_ENGINE_SMOKE_OK');
     } finally {
