@@ -1,0 +1,6 @@
+{
+  "edgeLaunchTimeoutMs": 45000,
+  "chromiumLaunchTimeoutMs": 45000,
+  "navigationTimeoutMs": 30000,
+  "outerGraceMs": 15000
+}
