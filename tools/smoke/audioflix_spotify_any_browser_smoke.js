@@ -33,6 +33,13 @@ const remote = {
     },
     async send(action, payload = {}) {
         calls.push({ action, payload: { ...payload } });
+        if (action === 'play' && remote.coldStartTimeouts > 0) {
+            // Cold engine start: the broker keeps loading/playing after the reply window closes.
+            remote.coldStartTimeouts -= 1;
+            engineState = { ...engineState, status: 'playing', paused: false, spotifyId: payload.spotifyId,
+                generation: engineState.generation + 1, completionId: '' };
+            return { ok: false, timeout: true, reason: 'Spotify play timed out.' };
+        }
         if (action === 'play') {
             engineState = {
                 ...engineState, status: 'playing', paused: false,
@@ -216,6 +223,23 @@ vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' 
     unavailableLocalIds.delete('song-missing-local');
     assert.ok(localPrepareCalls.includes('song-1') && localPrepareCalls.includes('song-missing-local'),
         'Spotify routing asks the normal local resolver before choosing the provider path');
+
+    // First queue track on a cold engine: the play reply times out while the engine is still
+    // starting. The client must adopt that playback (active + polled) or #1 never reports Ended.
+    await window.EveAudioflixAudio.stopAll();
+    remote.coldStartTimeouts = 1;
+    const coldItem = { ...spotify, id: 'song-cold', url: 'https://open.spotify.com/track/1AbCdEfGhIjKlMnOpQrStU' };
+    assert.equal(await window.EveAudioflixAudio.playItem(coldItem), true,
+        'a timed-out cold-start play is adopted once the engine reports it playing for this client');
+    const coldSnapshot = window.EveAudioflixSpotifyAnyBrowser.snapshot();
+    assert.equal(coldSnapshot.active, true, 'adopted cold-start playback is the active managed route');
+    assert.equal(coldSnapshot.item.id, 'song-cold');
+    engineState = { ...engineState, status: 'ended', paused: true, completionId: 'cold:1' };
+    await remote.status();
+    const endedBefore = dispatched.filter((event) => event.detail?.status === 'Ended').length;
+    await window.EveAudioflixAudio.seek(1);
+    assert.ok(dispatched.filter((event) => event.detail?.status === 'Ended' && event.detail?.item?.id === 'song-cold').length > endedBefore,
+        'the adopted first track reports Ended so the existing queue can advance');
 
     assert.match(source, /completionId/);
     assert.match(source, /emitPlayback\('Ended'\)/);

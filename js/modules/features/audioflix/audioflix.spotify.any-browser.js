@@ -25,6 +25,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     let lastEngineStatus = '';
     let lastCompletionId = '';
     let ended = false;
+    const SLOW_START_ADOPT_MS = 45000;
+    const SLOW_START_POLL_MS = 750;
     let approvalPrompt = null;
     let stopLocalPlayback = null;
     const listeners = new Set();
@@ -185,6 +187,27 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         pollTimer = setInterval(() => { pollOnce().catch(() => {}); }, 400);
         pollOnce().catch(() => {});
     }
+    // A cold engine start (launching the managed browser and Spotify's iframe API) can outlast the
+    // play reply window while the broker still finishes load+play. Adopt that playback instead of
+    // leaving it unpolled: an unpolled first track can never report Ended, so the queue stalled on #1.
+    async function adoptSlowStart(id, requested) {
+        const deadline = Date.now() + SLOW_START_ADOPT_MS;
+        let last = null;
+        while (Date.now() < deadline && item === requested) {
+            const state = await remote().status().catch(() => null);
+            const engine = state?.engine || {};
+            if (state?.ok && state.isOwner === true && engine.spotifyId === id) {
+                last = state;
+                if (['playing', 'starting', 'ended'].includes(String(engine.status || ''))) return state;
+            }
+            await new Promise((resolve) => setTimeout(resolve, SLOW_START_POLL_MS));
+        }
+        if (last && item === requested) {
+            const resumed = await remote().send('resume', {}, { timeout: 12000 });
+            if (resumed?.ok) return resumed;
+        }
+        return { ok: false, reason: 'Spotify took too long to start in the managed engine.' };
+    }
     async function remotePlay(nextItem) {
         const connection = await ensureRemote();
         if (!connection.ok) {
@@ -203,7 +226,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         lastEngineStatus = '';
         lastCompletionId = '';
         ended = false;
-        const result = await remote().send('play', {
+        let result = await remote().send('play', {
             spotifyId: id,
             title: item.title || '',
             duration: playback.duration,
@@ -211,6 +234,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             itemId: String(item.id || ''),
             type: String(item.type || 'music')
         }, { timeout: 20000 });
+        if (!result?.ok && result?.timeout) result = await adoptSlowStart(id, nextItem);
         if (!result?.ok) throw new Error(result?.reason || 'Managed Spotify playback failed.');
         active = true;
         applyEngineState(result);
