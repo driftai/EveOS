@@ -81,6 +81,20 @@ def run() -> None:
             )
             assert status == 409 and conflict["conflict"]
 
+            # A long note is the persistence path that regressed in the UI. Keep this well below the
+            # 2 MiB product limit while large enough to catch truncation, request-size and atomic-write gaps.
+            long_note = "Long spatial note\n" + ("0123456789abcdef" * 65536)
+            notes.create_entry("spatial", "", "long-note.md", "file")
+            long_opened = notes.read_note("spatial", "long-note.md")
+            long_saved, status = notes.write_note(
+                "spatial", "long-note.md", long_note, long_opened["entry"]["revision"]
+            )
+            assert status == 200 and long_saved["ok"]
+            long_round_trip = notes.read_note("spatial", "long-note.md")
+            assert long_round_trip["content"] == long_note
+            assert (spatial / "long-note.md").read_bytes() == long_note.encode("utf-8")
+            assert not (spatial / "long-note.md.eve-notes-tmp").exists()
+
             notes.create_entry("spatial", "", "Ideas", "folder")
             notes.create_entry("spatial", "Ideas", "launch.md", "file")
             spatial_note = notes.read_note("spatial", "Ideas/launch.md")
@@ -123,8 +137,9 @@ def run() -> None:
             backup = notes.export_spatial()
             (spatial / "Ideas" / "launch.md").unlink()
             imported = notes.import_spatial(backup["base64"])
-            assert imported["imported"] == 1
+            assert imported["imported"] == 2
             assert (spatial / "Ideas" / "launch.md").read_text(encoding="utf-8") == "linked thought"
+            assert (spatial / "long-note.md").read_text(encoding="utf-8") == long_note
 
             removed = notes.untrack(tracked["id"])
             assert removed["ok"] and external.is_dir() and (external / "Archive").is_dir()
