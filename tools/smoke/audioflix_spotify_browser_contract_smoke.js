@@ -95,11 +95,14 @@ assert(relay.includes('MessageChannel') === false && relay.includes('event.ports
 assert(relay.includes('clientToken = String(result.clientToken)') && !relay.includes("type: 'ready', clientToken"),
     'scoped broker credential remains inside relay memory and is not returned to the parent');
 assert(remote.includes('MessageChannel') && remote.includes("location.protocol === 'file:'")
+    && remote.includes('eveos:spotify-relay-ready') && remote.includes('relayReady')
     && !remote.includes('clientToken'),
-    'ordinary localhost/file clients share the relay without handling broker credentials');
+    'ordinary localhost/file clients require a real relay handshake without handling broker credentials');
 assert(anyBrowser.includes('EveAudioflixAudio.playItem') || anyBrowser.includes('audio.playItem = async function')
     && anyBrowser.includes('effectiveGain') && anyBrowser.includes("emitPlayback('Ended')"),
     'ordinary EveOS client routes Spotify through managed transport and preserves public queue events');
+assert(anyBrowser.includes('fallback: !relayWasReached()'),
+    'local embed fallback is allowed only when no trusted relay handshake was reached');
 
 assert(manifest.includes('audioflix.spotify.remote.js') && manifest.includes('audioflix.spotify.any-browser.js'),
     'any-browser Spotify client is reachable from the feature manifest');
@@ -112,5 +115,6 @@ runNode('tools/smoke/audioflix_spotify_relay_security_smoke.js');
 runPython('tools/smoke/audioflix_spotify_broker_smoke.py');
 runNode('tools/smoke/audioflix_spotify_entrypoints_smoke.js');
 runNode('tools/smoke/audioflix_spotify_any_browser_smoke.js');
+runNode('tools/smoke/audioflix_spotify_engine_smoke.js');
 require('./audioflix_spotify_managed_import_smoke.js');
 console.log('AUDIOFLIX_SPOTIFY_BROWSER_CONTRACT_SMOKE_OK');
