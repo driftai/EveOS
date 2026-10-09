@@ -12,6 +12,7 @@ const profile = profileArg ? profileArg.slice('--profile='.length) : (process.ar
 
 const tests = {
     audio: [
+        ['node', 'tools/smoke/audioflix_playback_diagnostics_smoke.js'],
         ['node', 'tools/smoke/audioflix_decode_cache_smoke.js'],
         ['node', 'tools/smoke/audioflix_layer_stop_smoke.js'],
         ['node', 'tools/smoke/audioflix_native_handoff_smoke.js'],
