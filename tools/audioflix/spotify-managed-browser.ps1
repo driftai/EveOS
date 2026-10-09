@@ -12,6 +12,7 @@ $ErrorActionPreference = 'Stop'
 $base = $BaseUrl.TrimEnd('/')
 $windowStateDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'EveOS'
 $windowStatePath = Join-Path $windowStateDir 'spotify-engine-window-handle.txt'
+# EveOS server policy maps true headless presentation to playwright=headless and reports *-headless channels.
 
 function Invoke-EveGet([string]$Path) {
     Invoke-RestMethod -Method Get -Uri "$base$Path" -TimeoutSec 15
