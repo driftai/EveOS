@@ -126,13 +126,13 @@ window.EveAudioflix = window.EveAudioflix || {};
         }
     });
     const ensureOverlay = () => uiOverlay();
-    const queueTrackAt = (index) => (state().music || []).find((m) => m.id === activeMusicQueue.items[index]);
+    let playQueueIndex;
+    const queueBridge = window.EveAudioflixQueueCompletion.createBridge({
+        state, queue: () => activeMusicQueue, playIndex: (index) => playQueueIndex(index)
+    });
+    const queueTrackAt = queueBridge.trackAt;
     const invalidateQueueRun = () => { queueRunId += 1; };
-    const queueEntries = () => {
-        const tracks = new Map((state().music || []).map(track => [track.id, track]));
-        return activeMusicQueue.items.map(id => ({ id, title: tracks.get(id)?.title || 'Untitled' }));
-    };
-    const playQueueIndex = async (index) => {
+    playQueueIndex = async (index) => {
         if (!activeMusicQueue.items?.length) return;
         let targetIndex = Number(index);
         if (isNaN(targetIndex)) targetIndex = 0;
@@ -185,12 +185,6 @@ window.EveAudioflix = window.EveAudioflix || {};
         });
         return queueTransition;
     };
-    window.EveAudioflixAudio?.setQueueBridge?.({
-        list: queueEntries,
-        index: () => activeMusicQueue.currentIndex,
-        step: (delta) => playQueueIndex(activeMusicQueue.currentIndex + (Number(delta) || 0)),
-        jump: (index) => playQueueIndex(Number(index) || 0)
-    });
     const restartQueueCurrent = async () => { const track = queueTrackAt(activeMusicQueue.currentIndex) || window.EveAudioflixAudio?.getPlaybackState?.()?.item; if (!track) return false; invalidateQueueRun(); const runId = queueRunId; await window.EveAudioflixAudio?.seek?.(0); if (runId !== queueRunId) return false; if (window.EveAudioflixAudio?.isInternalViewOpen?.()) await window.EveAudioflixAudio?.openInternalView?.(track); else await window.EveAudioflixAudio?.playItem?.(track); if (runId !== queueRunId) return false; window.EveAudioflixAudio?.syncQueueView?.(); return true; };
     const completeQueue = window.EveAudioflixQueueCompletion.create({
         snapshot: () => ns.queueConnection?.snapshot?.(),
@@ -291,7 +285,6 @@ window.EveAudioflix = window.EveAudioflix || {};
     const renderRoutingDrawer = (snapshot) => { const routeLabel = snapshot.nativeBridgeEnabled && snapshot.nativeOutputLabel ? snapshot.nativeOutputLabel : (snapshot.preferredSinkLabel || 'Default browser output'), stateLabel = snapshot.nativeBridgeEnabled ? 'Native route active' : (snapshot.geminiVoicePortEnabled ? 'Voice Port armed' : 'Local playback'); return `<section class="audioflix-routing-drawer ${routingOpen ? 'is-open' : ''}"><button type="button" class="audioflix-routing-summary" data-af-action="toggle-routing-drawer"><span>Audio Output / Voice Port</span><strong>${esc(stateLabel)}</strong><em>${esc(routeLabel)}</em><b>${routingOpen ? 'Collapse' : 'Open routing'}</b></button>${routingOpen ? `<div class="audioflix-routing-body">${window.EveAudioflixRouting?.renderStatusCards?.(snapshot, playbackStatus) || ''}${window.EveWorldBookNarrationCompanion?.renderAudioflixSummary?.() || ''}<section class="audioflix-player"><div><strong>Waveform</strong><span>${esc(playbackStatus)}</span></div><canvas id="audioflix-waveform" height="90"></canvas><button type="button" data-af-action="pause">Pause</button></section></div>` : ''}</section>`; };
 
     const tabButton = (tab, label) => `<button type="button" class="${activeTab === tab ? 'active' : ''}" data-af-action="tab" data-af-tab="${tab}">${label}</button>`;
-
     const renderModalHost = () => (activeInfoItem ? renderInfoModal(activeInfoItem, activeInfoType) : '');
 
     // Opening a song's settings panel used to go through the full rerender below, rebuilding EVERY
@@ -413,7 +406,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         playbackStatus = e.detail?.status || playbackStatus;
         const status = String(e.detail?.status || '');
         if (status === 'Ended') completeQueue(e.detail);
-            updateStatusDOM();
+        updateStatusDOM();
         window.EveAudioflixTransport?.sync?.(overlay);
         if (nexusState?.open) rerender();
     });
