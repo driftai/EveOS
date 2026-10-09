@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -22,6 +23,38 @@ assert mod.clamp_volume(2) == 1
 assert mod.clamp_volume(-2) == 0
 assert mod.normalize_track_id("spotify:track:4cOdK2wGLETKBW3PvgPWqT") == "4cOdK2wGLETKBW3PvgPWqT"
 assert mod.normalize_track_id("bad") == ""
+
+# Wrapper and JS helper share one deterministic startup budget. Never regress to an outer timeout
+# that can kill a still-valid Edge -> Chromium fallback -> navigation sequence.
+contract = mod._STARTUP_CONTRACT
+expected_start_ms = sum(contract.values())
+assert int(mod._START_TIMEOUT_S * 1000) == expected_start_ms
+assert expected_start_ms >= (
+    contract["edgeLaunchTimeoutMs"]
+    + contract["chromiumLaunchTimeoutMs"]
+    + contract["navigationTimeoutMs"]
+)
+assert contract["outerGraceMs"] >= 5000
+helper_source = (ROOT / "server_modules" / "audioflix_spotify_browser.js").read_text(encoding="utf-8")
+assert "audioflix_spotify_browser_startup.json" in helper_source
+assert "timeout: EDGE_LAUNCH_TIMEOUT_MS" in helper_source
+assert "timeout: CHROMIUM_LAUNCH_TIMEOUT_MS" in helper_source
+assert "timeout: NAVIGATION_TIMEOUT_MS" in helper_source
+assert "startup-phase" in helper_source and "console.log" in helper_source
+
+# Startup failure reporting must surface the useful error rather than the final `at async ...`
+# stack frame or a transient socket timeout.
+with tempfile.TemporaryDirectory() as tmp:
+    log_path = pathlib.Path(tmp) / "startup.log"
+    log_path.write_text(
+        "[eveos-audioflix-spotify-browser] 2026-10-09T00:00:00.000Z startup-phase: launch-edge\n"
+        "[eveos-audioflix-spotify-browser] Error: browserType.launchPersistentContext: profile busy\n"
+        "    at async main (audioflix_spotify_browser.js:170:19)\n",
+        encoding="utf-8",
+    )
+    reason = mod._startup_log_reason(log_path, "fallback")
+    assert "browserType.launchPersistentContext" in reason
+    assert not reason.lstrip().startswith("at ")
 
 # A recovered helper must clear an earlier refused-connection diagnostic instead of leaving status red.
 health = mod.SpotifyBrowserManager()
@@ -52,6 +85,7 @@ manager._helper_status = lambda: {
     "ok": True,
     "sessionId": "expected-session",
     "state": "controlling",
+    "phase": "ready",
     "pageUrl": "http://127.0.0.1:8765/EveOS.html",
     "pageAttached": True,
     "spotifyFrameCount": 1,
@@ -68,6 +102,8 @@ public = manager.status()
 assert public["helperReachable"] is True
 assert public["authState"] == "signed-in"
 assert public["playingCount"] == 1
+assert public["phase"] == "ready"
+assert public["startupBudgetMs"] == expected_start_ms
 assert public["sessionPresent"] is True
 assert public["importing"] is False
 assert "sessionId" not in public
