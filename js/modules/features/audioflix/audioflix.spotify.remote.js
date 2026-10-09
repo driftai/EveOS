@@ -52,6 +52,19 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
         if (location.protocol === 'file:') return `file:${String(location.pathname || '').toLowerCase()}`.slice(0, 160);
         return `origin:${location.origin}`.slice(0, 160);
     }
+    function stableDocumentId() {
+        const scope = libraryScopeId();
+        const key = `eveos:audioflix:spotify-document:${scope}`;
+        try {
+            const existing = String(sessionStorage.getItem(key) || '').trim();
+            if (existing) return existing.slice(0, 120);
+            const created = uuid().slice(0, 120);
+            sessionStorage.setItem(key, created);
+            return created;
+        } catch {
+            return uuid().slice(0, 120);
+        }
+    }
     function snapshot() {
         return {
             status: state.status, connected: state.connected, connecting: state.connecting,
@@ -185,7 +198,7 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
                 port.start?.();
                 const hello = {
                     type: 'eveos:spotify-relay-connect', protocolVersion: PROTOCOL,
-                    documentId: uuid(), libraryScopeId: libraryScopeId()
+                    documentId: stableDocumentId(), libraryScopeId: libraryScopeId()
                 };
                 try {
                     iframe.contentWindow.postMessage(hello, relayOrigin, [channel.port2]);
