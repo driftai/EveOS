@@ -18,40 +18,59 @@ function isLikelyPlayControl(value) {
     return /^play(?:\b|$)/.test(label) && !/\bspotify\b/.test(label);
 }
 
-async function playbackObservation(page, spotifySnapshots) {
+async function providerPauseButtonShowsPlaying(page, isSpotifyEmbedUrl) {
+    if (!page || page.isClosed()) return false;
+    for (const frame of page.frames()) {
+        if (!isSpotifyEmbedUrl(frame.url())) continue;
+        const button = frame.locator('[data-testid="play-pause-button"]').first();
+        try {
+            if (!await button.count()) continue;
+            const aria = String(await button.getAttribute('aria-label') || '').trim();
+            const title = String(await button.getAttribute('title') || '').trim();
+            if (/\bpause\b/i.test(`${aria} ${title}`)) return true;
+        } catch {}
+    }
+    return false;
+}
+
+async function playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl) {
     let transport = null;
     try { transport = await engineSnapshot(page); } catch {}
     const snapshots = await spotifySnapshots(null, '');
     const playingCount = snapshots.reduce((sum, item) => sum + Number(item.playingCount || 0), 0);
+    const providerShowsPlaying = await providerPauseButtonShowsPlaying(page, isSpotifyEmbedUrl);
     return {
-        playing: transport?.status === 'playing' || playingCount > 0,
+        playing: transport?.status === 'playing' || playingCount > 0 || providerShowsPlaying,
         transport: transport || {},
-        playingCount
+        playingCount,
+        providerShowsPlaying
     };
 }
 
-async function waitForPlaying(page, spotifySnapshots, timeoutMs) {
+async function waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, timeoutMs) {
     const deadline = Date.now() + Math.max(0, Number(timeoutMs || 0));
-    let observed = await playbackObservation(page, spotifySnapshots);
+    let observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
     while (!observed.playing && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 120));
-        observed = await playbackObservation(page, spotifySnapshots);
+        observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
     }
     return observed;
 }
 
-async function hoverSpotifySurface(frame, note) {
-    try {
-        const body = frame.locator('body');
-        if (!await body.count()) return false;
-        await body.hover({ timeout: 900 });
-        await new Promise((resolve) => setTimeout(resolve, 90));
-        note('playback-hover', frame.url());
-        return true;
-    } catch (error) {
-        note('playback-hover-miss', error.message);
-        return false;
+async function hoverSpotifySurfaces(page, isSpotifyEmbedUrl, note) {
+    if (!page || page.isClosed()) return;
+    for (const frame of page.frames()) {
+        if (!isSpotifyEmbedUrl(frame.url())) continue;
+        try {
+            const body = frame.locator('body');
+            if (!await body.count()) continue;
+            await body.hover({ timeout: 900 });
+            note('playback-hover', frame.url());
+        } catch (error) {
+            note('playback-hover-miss', error.message);
+        }
     }
+    await new Promise((resolve) => setTimeout(resolve, 90));
 }
 
 async function controlMeta(candidate, index) {
@@ -89,7 +108,6 @@ async function clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl
     if (!page || page.isClosed()) return { clicked: false, reason: 'engine page closed' };
     for (const frame of page.frames()) {
         if (!isSpotifyEmbedUrl(frame.url())) continue;
-        await hoverSpotifySurface(frame, note);
         const candidates = frame.locator('button,[role="button"]');
         let count = 0;
         try { count = Math.min(await candidates.count(), 48); } catch { continue; }
@@ -98,9 +116,11 @@ async function clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl
             const meta = await controlMeta(candidate, index);
             const isPlayPause = meta.testId === 'play-pause-button' && !/\bpause\b/i.test(meta.label);
             if (!isPlayPause && !(meta.visible && isLikelyPlayControl(meta.label))) continue;
-            const observed = await playbackObservation(page, spotifySnapshots);
+            const observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
             if (observed.playing) {
-                note('playback-kick-skip', 'Playback started before the Playwright click; leaving the provider control untouched.');
+                note('playback-kick-skip', observed.providerShowsPlaying
+                    ? 'Spotify already exposes Pause; treating provider playback as active.'
+                    : 'Playback started before the Playwright click; leaving the provider control untouched.');
                 return { clicked: false, alreadyPlaying: true, reason: 'playback already started' };
             }
             const result = await clickCandidate(candidate, meta, note, runtime);
@@ -128,6 +148,7 @@ async function recordControlDiagnostics(page, isSpotifyEmbedUrl, note) {
 }
 
 async function activateSpotifyPlayback(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime) {
+    await hoverSpotifySurfaces(page, isSpotifyEmbedUrl, note);
     const deadline = Date.now() + PLAY_CONTROL_WAIT_MS;
     let result = await clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime);
     while (!result.clicked && !result.alreadyPlaying && Date.now() < deadline) {
@@ -149,14 +170,14 @@ async function handleTransportWithActivation(options, body) {
     const result = await engineCommand(page, body);
     if (!result?.ok || !['play', 'resume'].includes(action)) return result;
 
-    let observed = await waitForPlaying(page, spotifySnapshots, PLAY_WAKE_INITIAL_MS);
-    let activationMethod = 'controller';
+    let observed = await waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_INITIAL_MS);
+    let activationMethod = observed.providerShowsPlaying ? 'provider-control' : 'controller';
     if (!observed.playing) {
         const kicked = await activateSpotifyPlayback(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime);
         activationMethod = kicked.alreadyPlaying ? 'controller-late' : (kicked.clicked ? `playwright-${kicked.method || 'click'}` : 'controller-pending');
         observed = kicked.alreadyPlaying
-            ? await playbackObservation(page, spotifySnapshots)
-            : await waitForPlaying(page, spotifySnapshots, PLAY_WAKE_SETTLE_MS);
+            ? await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl)
+            : await waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS);
     }
     if (!observed.playing) {
         const message = 'Spotify loaded but did not begin playback. The managed engine could not establish a playable user activation.';
@@ -183,5 +204,6 @@ async function handleTransportWithActivation(options, body) {
 module.exports = {
     headlessRequestedFromPageUrl,
     isLikelyPlayControl,
+    providerPauseButtonShowsPlaying,
     handleTransportWithActivation
 };
