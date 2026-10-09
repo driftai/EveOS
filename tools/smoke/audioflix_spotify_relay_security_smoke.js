@@ -30,7 +30,11 @@ assert(relay.includes('clientToken = String(result.clientToken)')
     'relay-scoped credential remains in iframe memory and is never posted to the parent');
 assert(relay.includes('let commandChain = Promise.resolve()')
     && relay.includes('commandChain = commandChain.then(() => forwardCommand(message)'),
-    'relay serializes broker fetches so clientCommandSeq cannot be reordered by concurrent HTTP requests');
+    'ordered playback requests are serialized so clientCommandSeq cannot be reordered by concurrent HTTP requests');
+assert(relay.includes("new Set(['status', 'import', 'auth'])") && relay.includes('void forwardCommand(message)'),
+    'status and long import/auth jobs use the broker independent lane so playback controls stay responsive');
+assert(broker.includes('"jobSeq": 0') && broker.includes('seq_key = "jobSeq" if action in {"import", "auth"} else "seq"'),
+    'broker keeps long jobs on a separate replay/order high-water boundary');
 assert(broker.includes('secrets.compare_digest') && broker.includes('csrf') && broker.includes('pairingRequired'),
     'file pairing requires single-use trusted approval evidence');
 assert(remote.includes('MessageChannel') && remote.includes('eveos:spotify-relay-connect')
