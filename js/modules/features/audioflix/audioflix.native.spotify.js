@@ -58,10 +58,6 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
             status: ''
         };
         const playable = base?.item || (item && typeof item === 'object' ? { ...item } : {});
-
-        // User-owned/localized files remain stronger than the provider. Every non-local Spotify item
-        // is restored to its canonical Spotify identity and alternate resolver residue is discarded,
-        // so normal playback cannot silently become a YouTube/googlevideo stream again.
         if (base?.localPath || !isSpotifyTrack(playable)) return base;
         const canonical = canonicalTrack(item);
         const officialUrl = identityUrl(canonical, playable, item);
@@ -90,8 +86,32 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
     }
 
     function create({ fetchJson }) {
+        async function managedRelay() {
+            const R = window.EveAudioflixSpotifyRemote;
+            if (!R?.ready) return null;
+            try {
+                const connection = await R.connect();
+                return connection?.connected ? R : null;
+            } catch { return null; }
+        }
+
         async function listSpotifyPlaylist(playlistUrl, force = false) {
             if (!playlistUrl) return { ok: false, reason: 'Missing Spotify playlist URL' };
+            const relay = await managedRelay();
+            if (relay) {
+                const result = await relay.send('import', { url: playlistUrl, force: force === true }, { timeout: 190000 });
+                if (result?.ok) {
+                    return { ...result, provider: 'spotify', cached: false, managedBrowserImport: true };
+                }
+                if (location.protocol === 'file:' || !result?.unavailable) return result;
+            } else if (location.protocol === 'file:' && window.EveAudioflixSpotifyRemote?.snapshot?.().approvalRequired) {
+                const pending = window.EveAudioflixSpotifyRemote.snapshot();
+                return {
+                    ok: false,
+                    approvalRequired: true,
+                    reason: `Approve this EveOS file tab to import Spotify playlists. Pairing code ${pending.code || '------'}.`
+                };
+            }
             const refresh = force ? '&refresh=1' : '';
             return fetchJson(`/api/audioflix/spotify-playlist?url=${encodeURIComponent(playlistUrl)}${refresh}`, {
                 method: 'GET',
@@ -102,6 +122,10 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
 
         async function openSpotifySession(playlistUrl) {
             if (!playlistUrl) return { ok: false, reason: 'Missing Spotify playlist URL' };
+            const relay = await managedRelay();
+            if (relay) {
+                return relay.send('auth', { openLogin: true, url: playlistUrl }, { timeout: 12000 });
+            }
             return fetchJson('/api/audioflix/spotify-session', {
                 method: 'POST',
                 body: JSON.stringify({ url: playlistUrl }),
