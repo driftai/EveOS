@@ -98,12 +98,23 @@ window.EveWorldBook = window.EveWorldBook || {};
         } catch (error) { workspace().status(error.message, 'error'); }
     }
 
+    async function navigateParent(event) {
+        const { path } = context();
+        if (!path) return false;
+        event?.preventDefault?.();
+        event?.stopImmediatePropagation?.();
+        const parent = String(path).replace(/\\/g, '/').split('/').filter(Boolean).slice(0, -1).join('/');
+        await workspace().openEntry(parent, 'folder');
+        return true;
+    }
+
     function bind(target) {
         overlay = target;
         if (!overlay || overlay.dataset.notesOperationsBound === '1') return;
         overlay.dataset.notesOperationsBound = '1';
         overlay.addEventListener('click', event => {
-            if (event.target.closest?.('[data-eve-notes-search-all]')) void searchAll();
+            if (event.target.closest?.('[data-eve-notes-up]') && context().path) void navigateParent(event);
+            else if (event.target.closest?.('[data-eve-notes-search-all]')) void searchAll();
             else if (event.target.closest?.('[data-eve-notes-collection]')) void showCollection(event.target.closest('[data-eve-notes-collection]').dataset.eveNotesCollection);
             else if (event.target.closest?.('[data-eve-notes-related]')) void showRelated();
             else if (event.target.closest?.('[data-eve-notes-rename]')) void renameEntry();
