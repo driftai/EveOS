@@ -220,6 +220,12 @@ class SpotifyClientBroker:
             self._owner_client_id = client["clientId"]
             self._owner_epoch += 1
 
+    def _owner_block(self, client_id: str, action: str) -> dict | None:
+        with self._lock: owner = self._owner_client_id
+        if not owner or owner == client_id: return None
+        return {**self._state(client_id), "ok": False, "observer": True,
+                "reason": f"Another EveOS tab owns Spotify playback. Take control before {action}."}
+
     def _state(self, client_id: str, transport_state: dict | None = None) -> dict:
         managed = engine.status()
         state = transport_state
@@ -340,16 +346,14 @@ class SpotifyClientBroker:
                 self._acquire_locked(client)
             return self._state(client_id)
         if action == "engine-presentation":
+            blocked = self._owner_block(client_id, "changing the engine mode")
+            if blocked: return blocked
             mode = _safe(args.get("mode"), 20).lower()
             result = engine.set_presentation(mode, f"{server_origin}/audioflix-spotify-engine.html")
             return {**self._state(client_id), "presentationResult": result, "ok": bool(result.get("ok"))}
         if action == "engine-stop":
-            with self._lock:
-                owner = self._owner_client_id
-            if owner and owner != client_id:
-                state = self._state(client_id)
-                return {**state, "ok": False, "observer": True,
-                        "reason": "Another EveOS tab owns Spotify playback. Take control before stopping the engine."}
+            blocked = self._owner_block(client_id, "stopping the engine")
+            if blocked: return blocked
             stopped = engine.stop_engine()
             with self._lock:
                 self._owner_client_id = ""
