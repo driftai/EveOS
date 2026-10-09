@@ -10,11 +10,16 @@ from server_modules.audioflix_spotify_browser_utils import clamp_volume, normali
 
 
 def ensure_engine(page_url: str) -> dict:
-    return browser.start({"pageUrl": str(page_url or "").strip()})
+    result = browser.start({"pageUrl": str(page_url or "").strip()})
+    if isinstance(result, dict):
+        result["engineStartedAt"] = int(browser._manager._started_at * 1000) if browser._manager._started_at else 0
+    return result
 
 
 def status() -> dict:
-    return browser.status()
+    result = browser.status()
+    result["engineStartedAt"] = int(browser._manager._started_at * 1000) if browser._manager._started_at else 0
+    return result
 
 
 def transport(payload: dict | None = None) -> dict:
