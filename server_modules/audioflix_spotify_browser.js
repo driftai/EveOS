@@ -19,6 +19,10 @@ const MAX_DIAGNOSTICS = 32;
 const TOKEN_HEADER = 'x-eveos-spotify-token';
 const SERVER_LIVENESS_INTERVAL_MS = 5000;
 const SERVER_LIVENESS_TIMEOUT_MS = 30000;
+const STARTUP = require('./audioflix_spotify_browser_startup.json');
+const EDGE_LAUNCH_TIMEOUT_MS = Number(STARTUP.edgeLaunchTimeoutMs || 45000);
+const CHROMIUM_LAUNCH_TIMEOUT_MS = Number(STARTUP.chromiumLaunchTimeoutMs || 45000);
+const NAVIGATION_TIMEOUT_MS = Number(STARTUP.navigationTimeoutMs || 30000);
 const { MAX_MEDIA_REFS, browserInit } = require('./audioflix_spotify_browser_hook.js');
 const { scrapeManagedPlaylist } = require('./audioflix_spotify_managed_import.js');
 const { engineSnapshot } = require('./audioflix_spotify_browser_transport.js');
@@ -89,7 +93,7 @@ function probeServer(url, timeoutMs = 2000) {
 async function prepareManagedPage(context, pageUrl, note = () => {}) {
     const existing = context.pages();
     const page = existing[0] || await context.newPage();
-    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
     // Persistent Edge can restore tabs from an unclean prior helper shutdown. Give restoration a
     // brief chance to settle, then enforce the one-engine-page invariant before accepting commands.
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -127,11 +131,13 @@ async function main() {
 
     const diagnostics = [];
     const note = (kind, message) => {
-        diagnostics.push({ at: Date.now(), kind: String(kind), message: String(message || '').slice(0, 240) });
+        const entry = { at: Date.now(), kind: String(kind), message: String(message || '').slice(0, 240) };
+        diagnostics.push(entry);
         if (diagnostics.length > MAX_DIAGNOSTICS) diagnostics.splice(0, diagnostics.length - MAX_DIAGNOSTICS);
+        console.log(`[${SERVICE}] ${new Date(entry.at).toISOString()} ${entry.kind}: ${entry.message}`);
     };
     const runtime = {
-        startedAt: Date.now(), state: 'starting', pageUrl, desiredVolume: 1,
+        startedAt: Date.now(), state: 'starting', phase: 'boot', pageUrl, desiredVolume: 1,
         lastAppliedAt: 0, lastError: '', browserChannel: '', authState: 'unknown',
         closing: false, importing: false, headless: headlessRequested,
         playbackKickCount: 0, lastPlaybackKickAt: 0
@@ -153,15 +159,27 @@ async function main() {
     let context;
     if (process.platform === 'win32') {
         try {
-            context = await chromium.launchPersistentContext(profileDir, { ...launchOptions, channel: 'msedge' });
+            runtime.phase = 'launch-edge';
+            note('startup-phase', runtime.phase);
+            context = await chromium.launchPersistentContext(profileDir, {
+                ...launchOptions, channel: 'msedge', timeout: EDGE_LAUNCH_TIMEOUT_MS
+            });
             runtime.browserChannel = headlessRequested ? 'msedge-headless' : 'msedge';
         } catch (edgeError) {
-            note('launch', `Edge unavailable: ${edgeError.message}`);
-            context = await chromium.launchPersistentContext(profileDir, launchOptions);
+            note('launch-error', `Edge unavailable: ${edgeError.message}`);
+            runtime.phase = 'launch-chromium';
+            note('startup-phase', runtime.phase);
+            context = await chromium.launchPersistentContext(profileDir, {
+                ...launchOptions, timeout: CHROMIUM_LAUNCH_TIMEOUT_MS
+            });
             runtime.browserChannel = headlessRequested ? 'playwright-chromium-headless' : 'playwright-chromium';
         }
     } else {
-        context = await chromium.launchPersistentContext(profileDir, launchOptions);
+        runtime.phase = 'launch-chromium';
+        note('startup-phase', runtime.phase);
+        context = await chromium.launchPersistentContext(profileDir, {
+            ...launchOptions, timeout: CHROMIUM_LAUNCH_TIMEOUT_MS
+        });
         runtime.browserChannel = headlessRequested ? 'playwright-chromium-headless' : 'playwright-chromium';
     }
 
@@ -171,8 +189,11 @@ async function main() {
         p.on('close', () => note('page-close', p.url()));
     });
 
+    runtime.phase = 'navigate';
+    note('startup-phase', runtime.phase);
     let page = await prepareManagedPage(context, pageUrl, note);
     runtime.state = 'ready';
+    runtime.phase = 'ready';
     const livenessUrl = new URL('/EveOS.html', pageUrl).href;
     let serverOfflineSince = 0;
     let livenessTimer = 0;
@@ -246,7 +267,7 @@ async function main() {
         await authState();
         return {
             ok: true, service: SERVICE, protocolVersion: PROTOCOL_VERSION,
-            sessionId, state: runtime.state, startedAt: runtime.startedAt,
+            sessionId, state: runtime.state, phase: runtime.phase, startedAt: runtime.startedAt,
             pageUrl: page && !page.isClosed() ? page.url() : runtime.pageUrl,
             pageAttached: Boolean(page && !page.isClosed()), spotifyFrameCount: snapshots.length,
             mediaCount, playingCount, desiredVolume: runtime.desiredVolume,
@@ -312,9 +333,10 @@ async function main() {
         const next = String(body?.pageUrl || runtime.pageUrl || pageUrl);
         if (!validateLoopbackPageUrl(next)) return { ok: false, reason: 'Managed page must be a loopback URL.' };
         if (!page || page.isClosed()) page = await context.newPage();
-        await page.goto(next, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.goto(next, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
         runtime.pageUrl = next;
         runtime.state = 'ready';
+        runtime.phase = 'ready';
         return status();
     }
 
@@ -327,7 +349,7 @@ async function main() {
         } catch {}
         if (body?.openLogin === true) {
             const authPage = await context.newPage();
-            await authPage.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await authPage.goto(target, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
             await authPage.bringToFront();
         }
         return { ok: true, authState: await authState(), loginWindowOpened: body?.openLogin === true };
@@ -369,6 +391,7 @@ async function main() {
         if (runtime.closing) return;
         runtime.closing = true;
         runtime.state = 'stopping';
+        runtime.phase = 'stopping';
         if (livenessTimer) clearInterval(livenessTimer);
         livenessTimer = 0;
         try { server?.close(); } catch {}
@@ -422,7 +445,8 @@ module.exports = {
     SERVICE, PROTOCOL_VERSION, MAX_MEDIA_REFS, clampVolume, normalizeTrackId,
     validateLoopbackPageUrl, headlessRequestedFromPageUrl, isLikelyPlayControl,
     isSpotifyEmbedUrl, spotifyFrameTrackId, browserInit, parseArgs, probeServer, prepareManagedPage,
-    SERVER_LIVENESS_INTERVAL_MS, SERVER_LIVENESS_TIMEOUT_MS
+    SERVER_LIVENESS_INTERVAL_MS, SERVER_LIVENESS_TIMEOUT_MS,
+    EDGE_LAUNCH_TIMEOUT_MS, CHROMIUM_LAUNCH_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS
 };
 
 if (require.main === module) {
