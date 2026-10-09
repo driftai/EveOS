@@ -29,6 +29,12 @@ assert(relay.includes('clientToken = String(result.clientToken)')
     && !relay.includes("clientToken: clientToken")
     && !relay.includes("type: 'ready', clientToken"),
     'relay-scoped credential remains in iframe memory and is never posted to the parent');
+const publicGrant = relay.slice(relay.indexOf('const publicGrant'), relay.indexOf('const acceptGrant'));
+assert(!publicGrant.includes('connectionId') && !publicGrant.includes('sequenceBase'),
+    'attachment lease and sequence boundary remain relay-private, not parent-controlled');
+assert(relay.includes("window.addEventListener('pagehide', releaseAndClose)")
+    && relay.includes('keepalive: true') && relay.includes("action: 'detach'"),
+    'relay owns navigation cleanup with a keepalive authenticated detach, not a dying parent request');
 assert(relay.includes('let commandChain = Promise.resolve()')
     && relay.includes('commandChain = commandChain.then(() => forwardCommand(message)'),
     'ordered playback requests are serialized so clientCommandSeq cannot be reordered by concurrent HTTP requests');

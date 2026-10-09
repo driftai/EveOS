@@ -110,6 +110,7 @@ local = broker.connect({
     "documentId": "http-doc", "libraryScopeId": "origin:http://127.0.0.1:8765",
 }, context)
 assert local["ok"] and local["connected"] and local["clientToken"]
+assert local.get("connectionId"), "reload cleanup requires a relay-scoped connection lease"
 assert not broker.connect({
     "mode": "localhost", "parentOrigin": "http://127.0.0.1:9999", "documentId": "bad"
 }, context)["ok"]
@@ -137,6 +138,8 @@ assert file_reconnect["ok"] and file_reconnect["connected"]
 assert not file_reconnect.get("pairingRequired")
 assert file_reconnect["clientId"] == file_grant["clientId"]
 assert file_reconnect["clientToken"] == file_grant["clientToken"]
+assert file_reconnect["connectionId"] != file_grant["connectionId"]
+file_grant = file_reconnect
 
 seq = 0
 def command(grant, action, payload=None, command_id=None):
@@ -145,6 +148,7 @@ def command(grant, action, payload=None, command_id=None):
     return broker.command({
         "clientToken": grant["clientToken"],
         "command": {
+            "connectionId": grant["connectionId"],
             "action": action, "payload": dict(payload or {}),
             "commandId": command_id or f"cmd-{seq}", "clientCommandSeq": seq,
         },
@@ -199,13 +203,13 @@ assert seek_after_orphan["ok"] and seek_after_orphan["engine"]["currentTime"] ==
 # cannot be poisoned by an earlier high sequence status poll.
 future_status = broker.command({
     "clientToken": file_grant["clientToken"],
-    "command": {"action": "status", "payload": {}, "commandId": "future-status", "clientCommandSeq": 5000},
+    "command": {"connectionId": file_grant["connectionId"], "action": "status", "payload": {}, "commandId": "future-status", "clientCommandSeq": 5000},
 }, context)
 assert future_status["ok"]
 seq += 1
 post_status_seek = broker.command({
     "clientToken": file_grant["clientToken"],
-    "command": {"action": "seek", "payload": {"seconds": 12}, "commandId": "after-future-status", "clientCommandSeq": seq},
+    "command": {"connectionId": file_grant["connectionId"], "action": "seek", "payload": {"seconds": 12}, "commandId": "after-future-status", "clientCommandSeq": seq},
 }, context)
 assert post_status_seek["ok"] and post_status_seek["engine"]["currentTime"] == 12
 
@@ -221,6 +225,7 @@ idempotent_payload = {
     "clientToken": file_grant["clientToken"],
     "command": {
         "action": "seek", "payload": {"seconds": 42},
+        "connectionId": file_grant["connectionId"],
         "commandId": "same-id", "clientCommandSeq": seq,
     },
 }
@@ -229,7 +234,7 @@ second = broker.command(idempotent_payload, context)
 assert first == second and first["ok"]
 changed = broker.command({
     "clientToken": file_grant["clientToken"],
-    "command": {"action": "seek", "payload": {"seconds": 43},
+    "command": {"connectionId": file_grant["connectionId"], "action": "seek", "payload": {"seconds": 43},
                 "commandId": "same-id", "clientCommandSeq": seq + 1},
 }, context)
 assert not changed["ok"] and "different" in changed["reason"]
@@ -244,6 +249,7 @@ def run_import():
         "clientToken": file_grant["clientToken"],
         "command": {
             "action": "import",
+            "connectionId": file_grant["connectionId"],
             "payload": {"url": "https://open.spotify.com/playlist/1fY2i6tthQptx5Z3nn1g17?pt=private"},
             "commandId": "import-long", "clientCommandSeq": seq,
         },
@@ -268,5 +274,66 @@ public = command(file_grant, "status")
 public_repr = repr(public).lower()
 assert "clienttoken" not in public_repr and "sessionid" not in public_repr and "profilepath" not in public_repr
 assert public["engineEpoch"] >= 1 and public["ownerEpoch"] >= 1 and public["trackGeneration"] >= 3
+
+# Refresh/close resets only the departing attachment. Independent detach is not blocked by
+# the old transport high-water mark and never shuts down the saved-profile browser.
+observer_detach = command(local, "detach")
+assert observer_detach["ok"] and fake.state["status"] == "playing"
+assert not command(local, "play", {"spotifyId": "4cOdK2wGLETKBW3PvgPWqT"})["ok"]
+def detach_request(grant, command_id):
+    return {"clientToken": grant["clientToken"], "command": {
+        "action": "detach", "connectionId": grant["connectionId"],
+        "commandId": command_id, "clientCommandSeq": 1, "payload": {},
+    }}
+
+request = detach_request(file_grant, "reload-owner")
+assert broker.command(request, context)["ok"]
+calls = len(fake.calls)
+assert broker.command(request, context)["ok"] and len(fake.calls) == calls
+assert fake.state["status"] == "stopped" and fake.state["currentTime"] == 0 and fake.running
+assert broker._owner_client_id == "" and not any(call[0] == "engine-stop" for call in fake.calls)
+
+# Reconnect preserves approval, rotates the private lease, and resumes above the previous seq.
+replacement = broker.connect(file_connect, context)
+assert replacement["clientId"] == file_grant["clientId"]
+assert replacement["sequenceBase"] > 0
+assert replacement["sequenceBase"] == max(broker._clients[replacement["clientId"]][key] for key in ("seq", "jobSeq"))
+assert command(replacement, "play", {"spotifyId": "4cOdK2wGLETKBW3PvgPWqT"})["ok"]
+assert not broker.command(detach_request(file_grant, "late-old-page"), context)["ok"]
+assert fake.state["status"] == "playing"
+reloaded_again = broker.connect(file_connect, context)
+assert reloaded_again["connected"] and fake.state["status"] == "stopped"
+
+# An old Play admitted before detach but waiting on transport cannot resurrect playback.
+queued_result = {}
+with broker._transport_lock:
+    queued_seq = seq + 1
+    pending = threading.Thread(target=lambda: queued_result.update(command(
+        reloaded_again, "play", {"spotifyId": "4cOdK2wGLETKBW3PvgPWqT"}, command_id="queued-old-play"
+    )), daemon=True)
+    pending.start()
+    deadline = time.monotonic() + 1
+    while broker._clients[reloaded_again["clientId"]]["seq"] < queued_seq and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert broker._clients[reloaded_again["clientId"]]["seq"] == queued_seq
+    assert broker.command(detach_request(reloaded_again, "detach-before-queued-play"), context)["ok"]
+pending.join(1)
+assert queued_result.get("disconnected") and fake.state["status"] == "stopped"
+
+# A failed provider Stop is not reported as successful reset, nor may reconnect silently
+# replace the failed owner's lease. Retrying reconnect can still finish the reset.
+retry_grant = broker.connect(file_connect, context)
+assert command(retry_grant, "play", {"spotifyId": "4cOdK2wGLETKBW3PvgPWqT"})["ok"]
+transport = mod.engine.transport
+mod.engine.transport = lambda payload: ({"ok": False, "reason": "fixture stop failure"}
+                                       if payload.get("action") == "stop" else transport(payload))
+try:
+    failed_reset = broker.connect(file_connect, context)
+    assert not failed_reset["ok"] and "fixture stop failure" in failed_reset["reason"]
+    assert broker._owner_client_id == retry_grant["clientId"]
+    assert broker._clients[retry_grant["clientId"]]["connectionId"] == retry_grant["connectionId"]
+finally:
+    mod.engine.transport = transport
+assert broker.connect(file_connect, context)["ok"] and fake.state["status"] == "stopped"
 
 print("AUDIOFLIX_SPOTIFY_BROKER_SMOKE_OK")

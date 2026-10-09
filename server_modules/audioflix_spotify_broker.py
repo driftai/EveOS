@@ -11,6 +11,7 @@ from collections import OrderedDict
 from urllib.parse import urlsplit
 
 from server_modules import audioflix_spotify_browser_rpc as engine
+from server_modules import audioflix_spotify_connections as connections
 
 _PROTOCOL_VERSION = 1
 _PAIR_TTL_S = 300.0
@@ -102,21 +103,12 @@ class SpotifyClientBroker:
         return client
 
     def _matching_file_client_locked(self, document_id: str, library_scope_id: str) -> dict | None:
-        if not document_id or not library_scope_id:
-            return None
-        for client in self._clients.values():
-            if client.get("mode") != "file":
-                continue
-            if client.get("documentId") == document_id and client.get("libraryScopeId") == library_scope_id:
-                client["lastSeen"] = _now()
-                client["expiresAt"] = client["lastSeen"] + _CLIENT_TTL_S
-                return client
-        return None
+        return connections.matching_file(self, document_id, library_scope_id, _now, _CLIENT_TTL_S)
 
     def connect(self, payload: dict, context: dict) -> dict:
         payload = payload if isinstance(payload, dict) else {}
         context = context if isinstance(context, dict) else {}
-        with self._lock:
+        with self._transport_lock, self._lock:
             self._expire_locked()
             server_origin = _origin(context.get("serverOrigin"))
             parent_origin = _safe(payload.get("parentOrigin"), 300)
@@ -131,7 +123,10 @@ class SpotifyClientBroker:
                 return self._client_grant(self._new_client_locked(mode, parent_origin, document_id, library_scope_id))
             if mode != "file" or parent_origin != "null":
                 return {"ok": False, "reason": "Unsupported Spotify relay parent origin."}
-            existing = self._matching_file_client_locked(document_id, library_scope_id)
+            try:
+                existing = self._matching_file_client_locked(document_id, library_scope_id)
+            except RuntimeError as exc:
+                return {"ok": False, "reason": _safe(exc)}
             if existing:
                 return self._client_grant(existing)
             pair_id = secrets.token_urlsafe(18)
@@ -196,6 +191,7 @@ class SpotifyClientBroker:
             "ok": True, "connected": True, "protocolVersion": _PROTOCOL_VERSION,
             "clientId": client["clientId"], "clientToken": client["token"], "mode": client["mode"],
             "expiresIn": max(0, int(client["expiresAt"] - _now())),
+            **connections.grant(client),
         }
 
     def _authorized_client_locked(self, token: str) -> dict | None:
@@ -270,6 +266,9 @@ class SpotifyClientBroker:
                 return {"ok": False, "reason": "Spotify client authorization is missing or expired."}
             command = payload.get("command") if isinstance(payload.get("command"), dict) else {}
             action = _safe(command.get("action"), 40).lower()
+            connection_id = _safe(command.get("connectionId"), 120)
+            if not connections.current(client, connection_id, detach=action == "detach"):
+                return connections.rejected()
             args = command.get("payload") if isinstance(command.get("payload"), dict) else {}
             command_id = _safe(command.get("commandId"), 120)
             try:
@@ -288,9 +287,9 @@ class SpotifyClientBroker:
                 wait_event = prior["event"]
             else:
                 seq_key = "jobSeq" if action in {"import", "auth"} else "seq"
-                if action != "status" and seq <= client[seq_key]:
+                if action not in {"status", "detach"} and seq <= client[seq_key]:
                     return {"ok": False, "resyncRequired": True, "reason": "Stale Spotify client command sequence."}
-                if action != "status":
+                if action not in {"status", "detach"}:
                     client[seq_key] = seq
                 client["receipts"][command_id] = {
                     "fingerprint": fp, "result": None, "event": threading.Event()
@@ -318,7 +317,7 @@ class SpotifyClientBroker:
                 )
             else:
                 with self._transport_lock:
-                    result = self._execute_transport(client_id, action, args, server_origin)
+                    result = self._execute_transport(client_id, action, args, server_origin, connection_id)
         except Exception as exc:
             result = {"ok": False, "reason": _safe(exc, 300)}
 
@@ -335,7 +334,12 @@ class SpotifyClientBroker:
                     client["receipts"].pop(first_key, None)
         return result
 
-    def _execute_transport(self, client_id: str, action: str, args: dict, server_origin: str) -> dict:
+    def _execute_transport(self, client_id: str, action: str, args: dict, server_origin: str, connection_id: str) -> dict:
+        if action in {"release", "detach"}:
+            return connections.release(self, client_id, connection_id, reset=action == "detach")
+        with self._lock:
+            if not connections.current(self._clients.get(client_id), connection_id):
+                return connections.rejected()
         if action == "status":
             return self._state(client_id)
         if action == "take-control":
@@ -421,13 +425,6 @@ class SpotifyClientBroker:
         if action == "seek":
             response = engine.transport({"action": "seek", "seconds": max(0.0, float(args.get("seconds") or 0))})
             return self._state(client_id, response.get("state")) if response.get("ok") else response
-        if action == "release":
-            response = engine.transport({"action": "pause"})
-            with self._lock:
-                if self._owner_client_id == client_id:
-                    self._owner_client_id = ""
-                    self._owner_epoch += 1
-            return self._state(client_id, response.get("state") if response.get("ok") else None)
         return {"ok": False, "reason": f"Unsupported Spotify client action: {action or '(empty)'}"}
 
 

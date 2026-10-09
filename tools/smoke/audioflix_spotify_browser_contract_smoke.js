@@ -107,7 +107,8 @@ assert(presentation.includes('_DEFAULT = "hidden"') && presentation.includes('Sh
 assert(broker.includes('ownerEpoch') && broker.includes('trackGeneration') && broker.includes('clientCommandSeq')
     && broker.includes('commandId') && broker.includes('resyncRequired'),
     'broker has ownership, generation, idempotency and stale-replay boundaries');
-assert(broker.includes('_transport_lock') && broker.indexOf('if action == "import"') < broker.indexOf('with self._transport_lock'),
+const commandLane = broker.slice(broker.indexOf('    def command('), broker.indexOf('    def _execute_transport('));
+assert(commandLane.includes('_transport_lock') && commandLane.indexOf('if action == "import"') < commandLane.indexOf('with self._transport_lock'),
     'long playlist import stays outside serialized playback transport operations');
 assert(broker.includes('effectiveVolume') && broker.includes('engine.set_effective_volume'),
     'broker accepts an already-effective gain rather than multiplying master volume again');
@@ -181,6 +182,7 @@ assert(ignore.includes('/.spotify-probe-profile/') && ignore.includes('/spotify-
 runNode('tools/smoke/audioflix_spotify_relay_security_smoke.js');
 runPython('tools/smoke/audioflix_spotify_broker_smoke.py');
 runNode('tools/smoke/audioflix_spotify_entrypoints_smoke.js');
+runNode('tools/smoke/audioflix_spotify_reload_browser_smoke.js');
 runNode('tools/smoke/audioflix_spotify_any_browser_smoke.js');
 runNode('tools/smoke/audioflix_local_prepare_handoff_smoke.js');
 runNode('tools/smoke/audioflix_spotify_queue_surface_smoke.js');

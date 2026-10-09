@@ -20,6 +20,9 @@ def relay_html(server_origin: str) -> str:
   let pairId = '';
   let clientToken = '';
   let clientId = '';
+  let connectionId = '';
+  let sequenceBase = 0;
+  let detachCommand = null;
   let pollTimer = 0;
   let commandChain = Promise.resolve();
   const postJson = async (path, body) => {{
@@ -46,6 +49,8 @@ def relay_html(server_origin: str) -> str:
     if (!result?.connected || !result?.clientToken) throw new Error('Spotify relay did not receive a client capability.');
     clientToken = String(result.clientToken);
     clientId = String(result.clientId || '');
+    connectionId = String(result.connectionId || '');
+    sequenceBase = Number(result.sequenceBase || 0);
     send({{ type: 'ready', ...publicGrant(result) }});
   }};
   const pollPairing = async () => {{
@@ -93,20 +98,28 @@ def relay_html(server_origin: str) -> str:
       return;
     }}
     try {{
-      const result = await postJson('/api/audioflix/spotify-client/command', {{ clientToken, command: message.command || {{}} }});
+      const command = {{ ...message.command, connectionId,
+        clientCommandSeq: sequenceBase + Number(message.command?.clientCommandSeq || 0) }};
+      const result = await postJson('/api/audioflix/spotify-client/command', {{ clientToken, command }});
       send({{ type: 'result', requestId: message.requestId, result }});
     }} catch (error) {{
       send({{ type: 'result', requestId: message.requestId, result: {{ ok: false, reason: String(error?.message || error).slice(0, 240) }} }});
     }}
   }};
-  const releaseAndClose = async (message) => {{
-    if (clientToken) {{
-      try {{ await postJson('/api/audioflix/spotify-client/command', {{
-        clientToken, command: {{ action: 'release', commandId: String(message.commandId || crypto.randomUUID()), clientCommandSeq: Number(message.clientCommandSeq || 1), payload: {{}} }}
-      }}); }} catch {{}}
+  const releaseAndClose = () => {{
+    clearTimeout(pollTimer); pollTimer = 0;
+    if (clientToken && connectionId) {{
+      // A relay-local keepalive survives parent refresh. Do not queue behind a cold Play reply.
+      detachCommand ||= {{ action: 'detach', connectionId, commandId: crypto.randomUUID(), clientCommandSeq: 1, payload: {{}} }};
+      void fetch('/api/audioflix/spotify-client/command', {{
+        method: 'POST', credentials: 'same-origin', keepalive: true,
+        headers: {{ 'Content-Type': 'application/json; charset=utf-8' }},
+        body: JSON.stringify({{ clientToken, command: detachCommand }})
+      }}).catch(() => {{}});
     }}
     try {{ port?.close?.(); }} catch {{}}
   }};
+  window.addEventListener('pagehide', releaseAndClose);
   window.addEventListener('message', (event) => {{
     if (event.source !== parent || port) return;
     const hello = event.data || {{}};
@@ -122,7 +135,7 @@ def relay_html(server_origin: str) -> str:
     port.onmessage = (messageEvent) => {{
       const message = messageEvent.data || {{}};
       if (message.type === 'disconnect') {{
-        commandChain = commandChain.then(() => releaseAndClose(message), () => releaseAndClose(message));
+        releaseAndClose();
         return;
       }}
       if (message.type !== 'command') return;
