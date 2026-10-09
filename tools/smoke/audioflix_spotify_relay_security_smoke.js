@@ -40,6 +40,13 @@ assert(broker.includes('secrets.compare_digest') && broker.includes('csrf') && b
 assert(remote.includes('MessageChannel') && remote.includes('eveos:spotify-relay-connect')
     && remote.includes("location.protocol === 'file:'"),
     'ordinary localhost and file clients share the typed relay client');
+assert(remote.includes("message.type !== 'eveos:spotify-relay-ready'")
+    && remote.includes('event.source !== iframe?.contentWindow')
+    && remote.includes('event.origin !== relayOrigin')
+    && remote.includes('state.relayReady = true'),
+    'parent trusts managed transport only after an exact source+origin relay-ready handshake');
+assert(remote.includes('No EveOS Spotify relay answered') && remote.includes('state.relayReady = false'),
+    'missing relay handshake is distinguishable from a failure after the trusted relay has answered');
 assert(remote.includes("setTimeout(() => finish(false, new Error('Spotify relay approval timed out.'))")
     && remote.includes('clearTimeout(timer)'),
     'file approval wait is bounded even when no later relay notification arrives');
