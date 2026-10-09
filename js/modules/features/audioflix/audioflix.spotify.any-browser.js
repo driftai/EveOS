@@ -21,18 +21,17 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     let active = false;
     let item = null;
     let playback = { item: null, currentTime: 0, duration: 0, paused: true, provider: 'spotify', browserOnly: true, remoteManaged: true };
-    let pollTimer = 0;
     let lastEngineStatus = '';
     let lastCompletionId = '';
     let ended = false;
-    let playbackRun = 0, pollFlight = null, engineGeneration = 0, statusWatchRun = 0;
+    let playbackRun = 0, engineGeneration = 0;
     const SLOW_START_ADOPT_MS = 45000;
     const SLOW_START_POLL_MS = 750;
-    const STATUS_WATCH_MS = 12000;
-    const STATUS_WATCH_TIMEOUT_MS = STATUS_WATCH_MS + 4000;
-    const PROGRESS_POLL_MS = 1000;
     let approvalPrompt = null;
     let stopLocalPlayback = null;
+    let statusObserver = null;
+    let fallbackTimer = 0;
+    let fallbackFlight = null;
     const listeners = new Set();
 
     function dispatch(name, detail) {
@@ -55,13 +54,10 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     function snapshot() {
         return { active, item, playback: { ...playback }, ended, relay: remote()?.snapshot?.() || {} };
     }
-    function stopStatusWatch() {
-        statusWatchRun += 1;
-    }
     function clearPoll() {
-        if (pollTimer) clearInterval(pollTimer);
-        pollTimer = 0;
-        stopStatusWatch();
+        statusObserver?.stop?.();
+        if (fallbackTimer) clearInterval(fallbackTimer);
+        fallbackTimer = 0;
     }
     function hideApprovalPrompt() {
         try { approvalPrompt?.remove?.(); } catch {}
@@ -189,64 +185,38 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         emitProgress();
         notify();
     }
-    function watchCursor(result) {
-        const marker = result?.watchCursor || {};
-        const engine = result?.engine || {};
-        return {
-            afterCursor: Math.max(0, Number(marker.eventCursor ?? engine.eventCursor ?? 0) || 0),
-            afterOwnerEpoch: Math.max(0, Number(marker.ownerEpoch ?? result?.ownerEpoch ?? 0) || 0),
-            afterEngineEpoch: Math.max(0, Number(marker.engineEpoch ?? result?.engineEpoch ?? 0) || 0),
-            afterTrackGeneration: Math.max(0, Number(marker.trackGeneration ?? result?.trackGeneration ?? engine.generation ?? 0) || 0)
-        };
+    function ensureStatusObserver() {
+        if (statusObserver) return statusObserver;
+        statusObserver = window.EveAudioflixSpotifyStatusWatch?.create?.({
+            remote,
+            applyState: applyEngineState,
+            isActive: () => active,
+            currentRun: () => playbackRun,
+            isEnded: () => ended
+        }) || null;
+        return statusObserver;
     }
-    async function statusWatchLoop(run, seed) {
-        const token = ++statusWatchRun;
-        let cursor = watchCursor(seed);
-        while (active && run === playbackRun && token === statusWatchRun && remote()?.snapshot?.().connected) {
-            const finish = window.EveAudioflixDiagnostics?.span?.('spotify:status-watch');
-            let result;
-            try {
-                result = await remote().send('status-watch', { ...cursor, waitMs: STATUS_WATCH_MS },
-                    { timeout: STATUS_WATCH_TIMEOUT_MS });
-                finish?.(!result?.ok && !result?.watchTimedOut);
-            } catch (error) {
-                finish?.(true);
-                return;
-            }
-            if (run !== playbackRun || token !== statusWatchRun || !active) return;
-            if (!result?.ok) return;
-            applyEngineState(result);
-            if (ended || !active || result.watchSupported !== true) return;
-            cursor = watchCursor(result);
-        }
-    }
-    function startStatusWatch(seed) {
-        stopStatusWatch();
+    async function fallbackPollOnce() {
+        if (!active || fallbackFlight || !remote()?.snapshot?.().connected) return;
         const run = playbackRun;
-        void statusWatchLoop(run, seed).catch(() => {});
-    }
-    async function pollOnce() {
-        if (!active || pollFlight || !remote()?.snapshot?.().connected) return;
-        const run = playbackRun;
-        const finish = window.EveAudioflixDiagnostics?.span?.('spotify:progress-status');
-        pollFlight = remote().status();
+        fallbackFlight = remote().status();
         try {
-            const result = await pollFlight;
+            const result = await fallbackFlight;
             if (run === playbackRun) applyEngineState(result);
-            finish?.(!result?.ok);
-        } catch (error) { finish?.(true); throw error; }
-        finally { pollFlight = null; }
+        } finally {
+            fallbackFlight = null;
+        }
     }
     function startPoll(seed) {
         clearPoll();
-        // Queue completion is owned by the outstanding server watch. The timer below is only a
-        // visible-page progress refresh; Chrome may throttle it without delaying Ended/queue step.
-        startStatusWatch(seed);
-        pollTimer = setInterval(() => {
-            if (document.visibilityState === 'hidden') return;
-            pollOnce().catch(() => {});
-        }, PROGRESS_POLL_MS);
-        if (document.visibilityState !== 'hidden') pollOnce().catch(() => {});
+        const observer = ensureStatusObserver();
+        if (observer?.start) {
+            observer.start(seed);
+            return;
+        }
+        // Compatibility fallback for stripped-down test harnesses; production loads status-watch first.
+        fallbackTimer = setInterval(() => { fallbackPollOnce().catch(() => {}); }, 1000);
+        fallbackPollOnce().catch(() => {});
     }
     // A cold engine start (launching the managed browser and Spotify's iframe API) can outlast the
     // play reply window while the broker still finishes load+play. Adopt that playback instead of
