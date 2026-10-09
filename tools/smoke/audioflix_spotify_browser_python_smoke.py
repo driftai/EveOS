@@ -36,11 +36,13 @@ assert expected_start_ms >= (
 )
 assert contract["outerGraceMs"] >= 5000
 helper_source = (ROOT / "server_modules" / "audioflix_spotify_browser.js").read_text(encoding="utf-8")
-assert "audioflix_spotify_browser_startup.json" in helper_source
-assert "timeout: EDGE_LAUNCH_TIMEOUT_MS" in helper_source
-assert "timeout: CHROMIUM_LAUNCH_TIMEOUT_MS" in helper_source
-assert "timeout: NAVIGATION_TIMEOUT_MS" in helper_source
-assert "startup-phase" in helper_source and "console.log" in helper_source
+startup_source = (ROOT / "server_modules" / "audioflix_spotify_browser_startup.js").read_text(encoding="utf-8")
+assert "audioflix_spotify_browser_startup.json" in startup_source
+assert "timeout: EDGE_LAUNCH_TIMEOUT_MS" in startup_source
+assert "timeout: CHROMIUM_LAUNCH_TIMEOUT_MS" in startup_source
+assert "timeout: NAVIGATION_TIMEOUT_MS" in startup_source
+assert "startup-phase" in startup_source and "launchManagedContext" in helper_source
+assert "console.log" in helper_source
 
 # Startup failure reporting must surface the useful error rather than the final `at async ...`
 # stack frame or a transient socket timeout.
