@@ -139,6 +139,16 @@ async function main() {
         expect(await page.locator('[data-eve-notes-title]').textContent() === 'world.md', 'Re-entering active Spatial Notes kicked the user out of the open note');
         expect(await page.locator('[data-eve-notes-path]').textContent() === 'Ideas', 'Re-entering active Spatial Notes reset the folder to root');
 
+        // Parent navigation must use the same guarded folder lifecycle as entering a folder. This
+        // covers the live failure where a saved nested note left the Up arrow stuck in that folder.
+        await page.locator('[data-eve-notes-editor]').fill('saved nested note');
+        await page.locator('[data-eve-notes-save]').click();
+        await page.waitForFunction(() => window.__smoke.saved === 'saved nested note');
+        await page.locator('[data-eve-notes-up]').click();
+        await page.waitForFunction(() => window.EveWorldBook.notesWorkspace.context().path === '');
+        expect(await page.locator('[data-eve-notes-title]').textContent() === 'Select a note', 'Parent navigation did not clear the nested editor');
+        expect(await page.locator('[data-eve-notes-list] [data-path="Ideas"]').count() === 1, 'Parent navigation did not restore the Spatial Notes root');
+
         await page.locator('button[data-eve-notes-mode="files"]').click();
         await page.waitForFunction(() => document.querySelector('[data-eve-notes-list] [data-path="test.txt"]'));
         await page.locator('[data-eve-notes-list] [data-path="test.txt"]').click();
@@ -157,13 +167,13 @@ async function main() {
         await page.locator('[data-eve-notes-editor]').fill(longDraft);
         await page.locator('[data-eve-notes-save]').click();
         await page.waitForFunction(expected => window.__smoke.saved === expected, longDraft, { timeout: 3000 });
-        expect(await page.evaluate(() => window.__smoke.writeRequests) === 1, 'Save button sent a duplicate write request');
+        expect(await page.evaluate(() => window.__smoke.writeRequests) === 2, 'Save button sent a duplicate write request');
         expect(await page.locator('[data-eve-notes-status]').textContent().then(text => /Saved|item/.test(text)), 'Successful disk write was not reflected in Notes UI');
 
         await page.locator('[data-eve-notes-editor]').fill('saved independently');
         await page.locator('[data-eve-notes-editor]').press('Control+s');
         await page.waitForFunction(() => window.__smoke.saved === 'saved independently');
-        expect(await page.evaluate(() => window.__smoke.writeRequests) === 2, 'Ctrl+S did not perform exactly one write');
+        expect(await page.evaluate(() => window.__smoke.writeRequests) === 3, 'Ctrl+S did not perform exactly one write');
         await page.locator('[data-eve-notes-related]').click();
         await page.locator('[data-eve-notes-related-panel] button').nth(1).click();
         await page.waitForFunction(() => document.querySelector('[data-eve-notes-title]')?.textContent === 'world.md');
@@ -176,10 +186,13 @@ async function main() {
                 const overlay = document.querySelector('.notes-world-book-overlay').getBoundingClientRect();
                 const browser = document.querySelector('.eve-notes-browser').getBoundingClientRect();
                 const save = document.querySelector('[data-eve-notes-save]').getBoundingClientRect();
-                return { overlay, browser, save };
+                const search = document.querySelector('[data-eve-notes-search-all]').getBoundingClientRect();
+                const firstEntry = document.querySelector('[data-eve-notes-list] .eve-notes-entry')?.getBoundingClientRect() || null;
+                return { overlay, browser, save, search, firstEntry };
             });
             expect(geometry.browser.width > 250 && geometry.browser.height > 180, `Notes browser collapsed at ${size.width}x${size.height}`);
             expect(geometry.save.right <= geometry.overlay.right && geometry.save.bottom <= geometry.overlay.bottom, `Save button clipped at ${size.width}x${size.height}`);
+            expect(!geometry.firstEntry || geometry.search.bottom <= geometry.firstEntry.top + 0.5, `Search all overlaps note rows at ${size.width}x${size.height}`);
         }
 
         await page.locator('[data-eve-notes-editor]').fill('unsaved draft');
