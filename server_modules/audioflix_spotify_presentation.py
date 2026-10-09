@@ -15,6 +15,8 @@ _DEFAULT = "hidden"
 _lock = threading.RLock()
 _mode = _DEFAULT
 _window_handle = 0
+_window_pid_cache = 0
+_window_profile_cache = ""
 
 
 def _normalize_mode(value) -> str:
@@ -34,6 +36,10 @@ def _is_headless(status: dict) -> bool:
     return str(status.get("browserChannel") or "").endswith("-headless")
 
 
+def _profile_key(profile_path: str) -> str:
+    return os.path.normcase(os.path.normpath(str(profile_path or ""))).lower().replace("/", "\\")
+
+
 def _managed_profile_process(pid: int, profile_path: str) -> bool:
     if os.name != "nt" or pid <= 0 or not profile_path:
         return False
@@ -49,7 +55,7 @@ def _managed_profile_process(pid: int, profile_path: str) -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
     line = (completed.stdout or "").lower().replace("/", "\\")
-    profile = os.path.normcase(os.path.normpath(profile_path)).lower().replace("/", "\\")
+    profile = _profile_key(profile_path)
     return bool(profile and profile in line and "--user-data-dir" in line)
 
 
@@ -59,19 +65,37 @@ def _window_pid(user32, hwnd) -> int:
     return int(pid.value)
 
 
+def _remember_window(hwnd: int, pid: int, profile_path: str) -> int:
+    global _window_handle, _window_pid_cache, _window_profile_cache
+    _window_handle = int(hwnd or 0)
+    _window_pid_cache = int(pid or 0)
+    _window_profile_cache = _profile_key(profile_path)
+    return _window_handle
+
+
+def _forget_window() -> None:
+    global _window_handle, _window_pid_cache, _window_profile_cache
+    _window_handle = 0
+    _window_pid_cache = 0
+    _window_profile_cache = ""
+
+
 def _find_engine_window() -> int:
-    global _window_handle
     if os.name != "nt":
         return 0
     status = browser.status()
     profile_path = str(status.get("profilePath") or "")
-    if not profile_path:
+    profile_key = _profile_key(profile_path)
+    if not profile_key:
         return 0
     user32 = ctypes.windll.user32
     if _window_handle and user32.IsWindow(ctypes.c_void_p(_window_handle)):
-        if _managed_profile_process(_window_pid(user32, _window_handle), profile_path):
+        pid = _window_pid(user32, _window_handle)
+        if pid == _window_pid_cache and profile_key == _window_profile_cache:
             return _window_handle
-        _window_handle = 0
+        if _managed_profile_process(pid, profile_path):
+            return _remember_window(_window_handle, pid, profile_path)
+        _forget_window()
 
     found = []
     EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -86,13 +110,16 @@ def _find_engine_window() -> int:
             return True
         pid = _window_pid(user32, hwnd)
         if _managed_profile_process(pid, profile_path):
-            found.append(int(hwnd))
+            found.append((int(hwnd), pid))
             return False
         return True
 
     user32.EnumWindows(EnumWindowsProc(visit), 0)
-    _window_handle = found[0] if found else 0
-    return _window_handle
+    if not found:
+        _forget_window()
+        return 0
+    hwnd, pid = found[0]
+    return _remember_window(hwnd, pid, profile_path)
 
 
 def _apply_window_mode(mode: str) -> dict:
@@ -126,6 +153,7 @@ def ensure_engine(page_url: str) -> dict:
         have_headless = _is_headless(current)
         if current.get("browserRunning") and want_headless != have_headless:
             browser.stop({})
+            _forget_window()
             current = browser.status()
         result = browser.start({"pageUrl": _page_for_mode(page_url, _mode)})
         applied = _apply_window_mode(_mode) if result.get("helperReachable") else {"presentation": _mode}
@@ -135,7 +163,7 @@ def ensure_engine(page_url: str) -> dict:
 
 
 def set_presentation(payload: dict | None = None) -> dict:
-    global _mode, _window_handle
+    global _mode
     payload = payload if isinstance(payload, dict) else {}
     requested = str(payload.get("mode") or payload.get("presentation") or "").strip().lower()
     if requested not in _ALLOWED:
@@ -149,7 +177,7 @@ def set_presentation(payload: dict | None = None) -> dict:
         have_headless = _is_headless(current)
         if current.get("browserRunning") and want_headless != have_headless:
             browser.stop({})
-            _window_handle = 0
+            _forget_window()
         result = ensure_engine(page_url)
         result["previousPresentation"] = old_mode
         result["presentation"] = _mode
@@ -157,11 +185,10 @@ def set_presentation(payload: dict | None = None) -> dict:
 
 
 def stop_engine(payload: dict | None = None) -> dict:
-    global _window_handle
     del payload
     with _lock:
         result = browser.stop({})
-        _window_handle = 0
+        _forget_window()
         result["presentation"] = _mode
         return result
 
