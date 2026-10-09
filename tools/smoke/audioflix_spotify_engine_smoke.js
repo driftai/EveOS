@@ -8,6 +8,9 @@ const { chromium } = require('playwright');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const enginePath = path.join(ROOT, 'js/modules/features/audioflix/audioflix.spotify.engine.js');
+const engineHtmlPath = path.join(ROOT, 'audioflix-spotify-engine.html');
+const surfacePath = path.join(ROOT, 'js/modules/features/audioflix/audioflix.spotify.engine-surface.js');
+const launcherPath = path.join(ROOT, 'tools/audioflix/spotify-managed-browser.ps1');
 const fixture = path.join(os.tmpdir(), `eveos-spotify-engine-${process.pid}.html`);
 const engineUrl = `file:///${enginePath.replace(/\\/g, '/')}`;
 fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-player"></div><script src="${engineUrl}"></script></body></html>`);
@@ -29,6 +32,7 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
                         pause: function () { calls.pause += 1; },
                         seek: function (seconds) { calls.seek.push(seconds); },
                         loadUri: function (uri) { calls.load.push(uri); },
+                        destroy: function () {},
                         emit: function (name, data) { if (listeners[name]) listeners[name]({ data: data }); }
                     };
                     ready(controller);
@@ -93,6 +97,33 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
         assert.equal(result.afterRestart.completionId, '', 'restart clears the prior generation completion identity');
         assert.equal(result.afterSeek.currentTime, 33);
         assert.ok(result.calls.load.includes('spotify:track:4cOdK2wGLETKBW3PvgPWqT'));
+
+        const mirrorPage = await browser.newPage();
+        const mirrorUrl = `file:///${engineHtmlPath.replace(/\\/g, '/')}?surface=mirror`;
+        await mirrorPage.goto(mirrorUrl, { waitUntil: 'load' });
+        await mirrorPage.waitForFunction(() => document.documentElement.dataset.spotifyEngineSurface === 'mirror');
+        assert.equal(await mirrorPage.evaluate(() => Boolean(window.EveAudioflixSpotifyEngine)), false,
+            'embedded engine mirror never creates a second Spotify playback engine');
+        await mirrorPage.evaluate(() => window.postMessage({
+            type: 'eveos:spotify-engine-mirror-state', version: 1,
+            state: { title: 'Mirror smoke', status: 'playing', currentTime: 30, duration: 120, paused: false }
+        }, '*'));
+        await mirrorPage.waitForFunction(() => document.querySelector('[data-engine-mirror-title]')?.textContent === 'Mirror smoke');
+        assert.equal(await mirrorPage.locator('[data-engine-mirror-status]').textContent(), 'playing');
+        assert.equal(await mirrorPage.locator('[data-engine-mirror-time]').textContent(), '0:30 / 2:00');
+        await mirrorPage.close();
+
+        const surface = fs.readFileSync(surfacePath, 'utf8');
+        assert(surface.includes('audioflix-spotify-engine.html?surface=mirror')
+            && surface.includes('originalOpenInternalView')
+            && surface.includes('managedActive()'),
+        'ordinary EveOS Internal View mirrors the managed engine only when managed playback owns Spotify');
+        const launcher = fs.readFileSync(launcherPath, 'utf8');
+        assert(launcher.includes("[ValidateSet('background','window')]")
+            && launcher.includes('ShowWindowAsync')
+            && launcher.includes("Set-SpotifyEnginePresentation $Presentation"),
+        'managed Spotify launcher exposes background and visible-window presentation modes');
+
         console.log('AUDIOFLIX_SPOTIFY_ENGINE_SMOKE_OK');
     } finally {
         await browser.close();
