@@ -41,6 +41,10 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         const value = snapshot();
         listeners.forEach((listener) => { try { listener(value); } catch {} });
     }
+    function refreshControls() {
+        dispatch('eve:audioflix-spotify-capability', snapshot());
+        try { window.EveAudioflix?.render?.(); } catch {}
+    }
     function snapshot() {
         return { active, item, playback: { ...playback }, ended, relay: remote()?.snapshot?.() || {} };
     }
@@ -107,6 +111,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             if (lastEngineStatus !== 'observer') {
                 lastEngineStatus = 'observer';
                 emitPlayback('Spotify controlled by another EveOS tab');
+                refreshControls();
             }
             emitProgress();
             notify();
@@ -173,12 +178,13 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         active = true;
         applyEngineState(result);
         startPoll();
+        refreshControls();
         return true;
     }
     async function stopRemote() {
         clearPoll();
         if (active && remote()?.snapshot?.().connected) {
-            await remote().send('stop', {}, { timeout: 5000 }).catch?.(() => {});
+            try { await remote().send('stop', {}, { timeout: 5000 }); } catch {}
         }
         const stopped = item;
         active = false;
@@ -190,6 +196,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             emitProgress();
         }
         notify();
+        refreshControls();
     }
 
     function install() {
