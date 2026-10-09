@@ -4,7 +4,7 @@ param(
     [string]$BaseUrl = 'http://127.0.0.1:8765',
     [string]$PageUrl = 'http://127.0.0.1:8765/audioflix-spotify-engine.html',
     [ValidateSet('background','hidden','window','headless')]
-    [string]$Presentation = 'background',
+    [string]$Presentation = 'hidden',
     [switch]$RequireSignedIn
 )
 
@@ -85,13 +85,16 @@ function Get-SavedSpotifyEngineWindowHandle {
 function Set-SpotifyEnginePresentation([string]$Mode) {
     if ($env:OS -ne 'Windows_NT' -or $Mode -eq 'headless') { return $true }
     Ensure-WindowApi
+    $command = switch ($Mode) {
+        'hidden' { 0 }
+        'background' { 6 }
+        default { 9 }
+    }
 
-    if ($Mode -eq 'window') {
-        $saved = Get-SavedSpotifyEngineWindowHandle
-        if ($saved -ne [IntPtr]::Zero) {
-            [void][EveOS.Audioflix.WindowApi]::ShowWindowAsync($saved, 9)
-            return $true
-        }
+    $saved = Get-SavedSpotifyEngineWindowHandle
+    if ($saved -ne [IntPtr]::Zero) {
+        [void][EveOS.Audioflix.WindowApi]::ShowWindowAsync($saved, $command)
+        return $true
     }
 
     $deadline = (Get-Date).AddSeconds(5)
@@ -100,11 +103,6 @@ function Set-SpotifyEnginePresentation([string]$Mode) {
             $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '*EveOS Spotify Engine*'
         })
         if ($windows.Count -gt 0) {
-            $command = switch ($Mode) {
-                'hidden' { 0 }
-                'background' { 6 }
-                default { 9 }
-            }
             foreach ($process in $windows) {
                 Save-SpotifyEngineWindowHandle ([IntPtr]$process.MainWindowHandle)
                 [void][EveOS.Audioflix.WindowApi]::ShowWindowAsync($process.MainWindowHandle, $command)
