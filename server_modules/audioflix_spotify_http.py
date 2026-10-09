@@ -108,9 +108,12 @@ def handle_post_request(handler, path: str) -> bool:
         result = broker.pair_status(payload)
     elif path.endswith("/approve"):
         result = broker.approve(payload)
-    elif path.endswith("/status-watch"):
+    elif path.endswith("/status-watch") or (
+            path.endswith("/command")
+            and str((payload.get("command") or {}).get("action") or "").lower() == "status-watch"):
         # Deliberately bypass broker.command(): a bounded read watch must never occupy the
-        # serialized playback transport lock or its exact-once mutation receipt queue.
+        # serialized playback transport lock or its exact-once mutation receipt queue. The
+        # command-path alias lets the existing relay carry this read without a new browser asset.
         result = status_watch.watch(broker._broker, payload)
     else:
         result = broker.command(payload, context)

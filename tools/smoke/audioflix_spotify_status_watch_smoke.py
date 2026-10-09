@@ -25,6 +25,8 @@ def run():
           "HTTP status-watch route is not registered")
     check("status_watch.watch(broker._broker, payload)" in http_source,
           "HTTP status-watch route does not use the non-transport watcher")
+    check('get("action") or "").lower() == "status-watch"' in http_source,
+          "ordinary relay command path does not alias status-watch")
 
     marker = {"eventCursor": 4, "ownerEpoch": 2, "engineEpoch": 3, "trackGeneration": 9}
     client = {"clientId": "client-1", "token": "token-1"}
