@@ -31,6 +31,17 @@ def normalize_host(value: str) -> str:
     return host
 
 
+def shutdown_managed_subsystems() -> None:
+    """Best-effort cleanup for helpers whose lifetime belongs to this EveOS server."""
+    try:
+        from server_modules import audioflix_spotify_presentation
+        result = audioflix_spotify_presentation.stop_engine({})
+        if result.get("ok") and not result.get("alreadyStopped"):
+            print("[SHUTDOWN] Managed Spotify engine stopped.")
+    except Exception as exc:
+        print(f"[SHUTDOWN] Spotify engine cleanup skipped: {exc}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="EveOS explicit-host web/API launcher")
     parser.add_argument("port", nargs="?", type=int, default=3000)
@@ -52,11 +63,14 @@ def main() -> int:
     module.configure_modular_store(args.modular_root, args.persist_modular_root)
     mode = "LAN" if args.host == "0.0.0.0" else "LOCALHOST"
     print(f"[BOOT] EveOS selective bind: {mode} ({args.host}:{args.port})")
-    return int(module.run_server(
-        args.port,
-        open_browser=not args.no_browser,
-        host=args.host,
-    ) or 0)
+    try:
+        return int(module.run_server(
+            args.port,
+            open_browser=not args.no_browser,
+            host=args.host,
+        ) or 0)
+    finally:
+        shutdown_managed_subsystems()
 
 
 if __name__ == "__main__":
