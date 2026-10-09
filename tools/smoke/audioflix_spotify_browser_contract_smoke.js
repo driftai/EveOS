@@ -32,6 +32,7 @@ const relay = read('server_modules/audioflix_spotify_relay.py');
 const bridge = read('server_modules/audioflix_bridge.py');
 const remote = read('js/modules/features/audioflix/audioflix.spotify.remote.js');
 const anyBrowser = read('js/modules/features/audioflix/audioflix.spotify.any-browser.js');
+const repeatRearm = read('js/modules/features/audioflix/audioflix.spotify.repeat-rearm.js');
 const engine = read('js/modules/features/audioflix/audioflix.spotify.engine.js');
 const surface = read('js/modules/features/audioflix/audioflix.spotify.engine-surface.js');
 const enginePage = read('audioflix-spotify-engine.html');
@@ -144,6 +145,10 @@ assert(anyBrowser.includes('fallback: !relayWasReached()'),
     'local embed fallback is allowed only when no trusted relay handshake was reached');
 assert(anyBrowser.includes('Spotify engine restarted or became idle. Press Play to resume control.'),
     'ordinary EveOS distinguishes an ownerless engine restart from a different-tab ownership conflict');
+assert(repeatRearm.includes("remote().send('restart'")
+    && repeatRearm.includes('snapshot.ended === true')
+    && repeatRearm.includes('originalSeek(0)'),
+    'repeat-one reuses managed Spotify restart only for the ended-to-zero queue transition');
 
 assert(surface.includes('audioflix-spotify-engine.html?surface=mirror')
     && surface.includes("remote().send('engine-presentation'")
@@ -165,8 +170,9 @@ assert(serverLaunch.includes('shutdown_managed_subsystems')
     && serverLaunch.includes('audioflix_spotify_presentation.stop_engine')
     && serverLaunch.includes('finally:'),
     'canonical EveOS server shutdown tears down the managed Spotify subsystem');
-assert(manifest.includes('audioflix.spotify.remote.js') && manifest.includes('audioflix.spotify.any-browser.js'),
-    'any-browser Spotify client is reachable from the feature manifest');
+assert(manifest.includes('audioflix.spotify.remote.js') && manifest.includes('audioflix.spotify.any-browser.js')
+    && manifest.includes('audioflix.spotify.repeat-rearm.js'),
+    'any-browser Spotify client and repeat rearm are reachable from the feature manifest');
 assert(bridge.includes('audioflix_spotify_http.handle_get_request') && bridge.includes('audioflix_spotify_http.handle_post_request'),
     'existing Audioflix HTTP facade owns the new relay/broker surface');
 assert(ignore.includes('/.spotify-probe-profile/') && ignore.includes('/spotify-volume-probe.mjs'),
@@ -180,5 +186,6 @@ runNode('tools/smoke/audioflix_local_prepare_handoff_smoke.js');
 runNode('tools/smoke/audioflix_spotify_queue_surface_smoke.js');
 runNode('tools/smoke/audioflix_queue_reorder_multi_stage_smoke.js');
 runNode('tools/smoke/audioflix_spotify_engine_smoke.js');
+runNode('tools/smoke/audioflix_spotify_repeat_rearm_smoke.js');
 require('./audioflix_spotify_managed_import_smoke.js');
 console.log('AUDIOFLIX_SPOTIFY_BROWSER_CONTRACT_SMOKE_OK');
