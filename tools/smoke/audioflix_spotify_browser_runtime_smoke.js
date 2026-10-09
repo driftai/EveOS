@@ -82,13 +82,43 @@ function makeBrowserContext(url) {
     await new Promise((resolve) => livenessServer.close(resolve));
     assert.equal(await helper.probeServer(livenessUrl, 250), false, 'watchdog sees the EveOS endpoint disappear');
 
+    const primary = {
+        closed: false, navigations: [],
+        async goto(url) { this.navigations.push(url); },
+        async close() { this.closed = true; }
+    };
+    const restoredBlank = { closed: false, async close() { this.closed = true; } };
+    const restoredEngine = { closed: false, async close() { this.closed = true; } };
+    const pages = [primary, restoredBlank, restoredEngine];
+    let newPageCalls = 0;
+    const managedContext = {
+        pages: () => pages.filter((item) => !item.closed),
+        async newPage() { newPageCalls += 1; throw new Error('should reuse the persistent context page'); }
+    };
+    const notes = [];
+    const managedPage = await helper.prepareManagedPage(
+        managedContext,
+        'http://127.0.0.1:8765/audioflix-spotify-engine.html',
+        (kind, message) => notes.push([kind, message])
+    );
+    assert.equal(managedPage, primary, 'helper reuses the persistent context default/restored page');
+    assert.equal(newPageCalls, 0, 'helper does not create an extra about:blank page at startup');
+    assert.deepEqual(primary.navigations, ['http://127.0.0.1:8765/audioflix-spotify-engine.html']);
+    assert.equal(managedContext.pages().length, 1, 'restored/blank tabs are pruned to one managed engine page');
+    assert.equal(restoredBlank.closed, true);
+    assert.equal(restoredEngine.closed, true);
+    assert.ok(notes.some(([kind]) => kind === 'page-prune'), 'startup records restored-tab pruning');
+    await helper.prepareManagedPage(managedContext, 'http://127.0.0.1:8765/audioflix-spotify-engine.html');
+    assert.equal(newPageCalls, 0, 're-preparing a healthy context still reuses the sole page');
+    assert.equal(managedContext.pages().length, 1);
+
     const embed = makeBrowserContext('https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT');
     assert.ok(embed.window.__eveSpotifyManagedControl, 'Spotify embed receives bounded managed media control');
     assert.equal(Object.prototype.hasOwnProperty.call(embed.window.__eveSpotifyManagedControl, 'sessionId'), false,
         'Spotify frame control exposes no private helper session id');
     const detached = embed.document.createElement('video');
     await detached.play();
-    assert.equal(detached.volume, 0.4, 'new detached media inherits staged gain before audible playback');
+    assert.equal(detached.volume, 0.4, 'new detached playing video inherits staged gain before audible playback');
     let snap = embed.window.__eveSpotifyManagedControl.setVolume(0.25);
     assert.equal(detached.volume, 0.25, 'detached playing video receives requested volume');
     assert.equal(snap.playingCount, 1);
