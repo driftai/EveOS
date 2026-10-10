@@ -7,6 +7,9 @@ window.EveAudioflixQueueMembership = window.EveAudioflixQueueMembership || {};
     const MAX_START_TRACE = 10;
     const startTrace = [];
     let queueGeneration = 0;
+    let lastObservedGroup = '';
+    let lastMeta = null;
+    let pendingAction = null;
     const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
     const text = (value) => String(value ?? '').trim();
 
@@ -17,32 +20,56 @@ window.EveAudioflixQueueMembership = window.EveAudioflixQueueMembership || {};
         window.dispatchEvent(new CustomEvent('eve:audioflix-queue-changed'));
     }
 
-    function shortStack() {
-        return text(new Error().stack).split('\n').slice(2, 6).map((line) => line.trim()).join(' <- ');
+    function shortStack(skip = 2) {
+        return text(new Error().stack).split('\n').slice(skip, skip + 4).map((line) => line.trim()).join(' <- ');
     }
 
-    function traceEntry(queue, reason) {
+    function currentFocus() {
+        const state = window.EveAudioflixState?.ensure?.() || {};
         return {
-            generation: Number(queue.queueGeneration || 0),
-            reason: text(reason),
-            groupName: text(queue.groupName),
-            sourceGroup: text(queue.sourceGroup),
-            sourceArtist: text(queue.sourceArtist),
-            sourceClassifier: text(queue.sourceClassifier),
-            itemCount: queue.items?.length || 0,
-            startedAt: Number(queue.startedAt || 0),
-            stack: shortStack()
+            activeFrontendMusicGroup: text(state.activeFrontendMusicGroup),
+            activeFrontendMusicArtist: text(state.activeFrontendMusicArtist),
+            activeFrontendMusicClassifier: text(state.activeFrontendMusicClassifier),
+            activeMusicFolderScope: text(state.activeMusicFolderScope)
         };
     }
 
+    function pushTrace(entry) {
+        startTrace.push(entry);
+        if (startTrace.length > MAX_START_TRACE) startTrace.splice(0, startTrace.length - MAX_START_TRACE);
+        lastMeta = entry;
+        window.dispatchEvent(new CustomEvent('eve:audioflix-queue-started', { detail: { ...entry } }));
+        return entry;
+    }
+
+    function traceFromSnapshot(snapshot, reason, extra = {}) {
+        queueGeneration += 1;
+        return pushTrace({
+            generation: queueGeneration,
+            reason: text(reason) || 'unattributed-queue-replace',
+            groupName: text(snapshot?.groupName),
+            sourceGroup: text(extra.sourceGroup),
+            sourceArtist: text(extra.sourceArtist),
+            sourceClassifier: text(extra.sourceClassifier),
+            itemCount: snapshot?.entries?.length || 0,
+            playbackRunId: Number(snapshot?.playbackRunId || 0),
+            startedAt: Date.now(),
+            renderedGroup: text(extra.renderedGroup),
+            focus: extra.focus || currentFocus(),
+            stack: text(extra.stack) || shortStack(3)
+        });
+    }
+
     function snapshotMeta(queue = {}) {
+        const queueGroup = text(queue.groupName);
+        const meta = queueGroup && lastMeta?.groupName === queueGroup ? lastMeta : null;
         return {
-            queueGeneration: Number(queue.queueGeneration || 0),
-            startReason: text(queue.startReason),
-            sourceGroup: text(queue.sourceGroup),
-            sourceArtist: text(queue.sourceArtist),
-            sourceClassifier: text(queue.sourceClassifier),
-            startedAt: Number(queue.startedAt || 0),
+            queueGeneration: Number(queue.queueGeneration || meta?.generation || 0),
+            startReason: text(queue.startReason || meta?.reason),
+            sourceGroup: text(queue.sourceGroup || meta?.sourceGroup),
+            sourceArtist: text(queue.sourceArtist || meta?.sourceArtist),
+            sourceClassifier: text(queue.sourceClassifier || meta?.sourceClassifier),
+            startedAt: Number(queue.startedAt || meta?.startedAt || 0),
             queueStartTrace: startTrace.map((entry) => ({ ...entry }))
         };
     }
@@ -71,10 +98,21 @@ window.EveAudioflixQueueMembership = window.EveAudioflixQueueMembership || {};
             startedAt: Date.now()
         };
         ctx.activeMusicQueue = next;
-        const entry = traceEntry(next, next.startReason);
-        startTrace.push(entry);
-        if (startTrace.length > MAX_START_TRACE) startTrace.splice(0, startTrace.length - MAX_START_TRACE);
-        window.dispatchEvent(new CustomEvent('eve:audioflix-queue-started', { detail: { ...entry } }));
+        lastObservedGroup = next.groupName;
+        pushTrace({
+            generation: queueGeneration,
+            reason: next.startReason,
+            groupName: next.groupName,
+            sourceGroup: next.sourceGroup,
+            sourceArtist: next.sourceArtist,
+            sourceClassifier: next.sourceClassifier,
+            itemCount: next.items.length,
+            playbackRunId: 0,
+            startedAt: next.startedAt,
+            renderedGroup: next.groupName,
+            focus: currentFocus(),
+            stack: shortStack(3)
+        });
         return next;
     }
 
@@ -82,27 +120,58 @@ window.EveAudioflixQueueMembership = window.EveAudioflixQueueMembership || {};
         const selection = ctx.frontendActiveGroup?.('music');
         if (!selection) return null;
         const data = actionTarget?.dataset || {};
-        if (!Object.prototype.hasOwnProperty.call(data, 'afQueueName')) return selection;
-        const rendered = {
-            name: text(data.afQueueName),
-            activeGroup: text(data.afQueueGroup),
-            activeArtist: text(data.afQueueArtist),
-            activeClassifier: text(data.afQueueClassifier)
-        };
-        const current = {
-            name: text(selection.name),
-            activeGroup: text(selection.activeGroup),
-            activeArtist: text(selection.activeArtist),
-            activeClassifier: text(selection.activeClassifier)
-        };
-        if (Object.keys(rendered).every((key) => rendered[key] === current[key])) return selection;
-        ctx.playbackStatus = `Music selection changed before the action ran (${rendered.name || 'rendered group'} → ${current.name || 'current group'}). Refreshed without replacing the queue.`;
+        const renderedName = text(data.afQueueName)
+            || text(actionTarget?.closest?.('.audioflix-frontend-subhead')?.nextElementSibling?.dataset?.afActiveGroup);
+        if (!renderedName) return selection;
+        const currentName = text(selection.name);
+        if (renderedName === currentName) return selection;
+        ctx.playbackStatus = `Music selection changed before the action ran (${renderedName} → ${currentName || 'current group'}). Refreshed without replacing the queue.`;
         ctx.rerender?.();
         window.dispatchEvent(new CustomEvent('eve:audioflix-queue-stale-action', {
-            detail: { rendered, current, action: text(data.afAction), at: Date.now() }
+            detail: { renderedName, currentName, action: text(data.afAction), at: Date.now() }
         }));
         return null;
     }
+
+    function patchQueueSnapshot() {
+        const bridge = window.EveAudioflix?.queueConnection;
+        if (!bridge?.snapshot || bridge.snapshot.__eveQueueAuthorityTrace) return false;
+        const original = bridge.snapshot.bind(bridge);
+        const wrapped = () => {
+            const snapshot = original();
+            const group = text(snapshot?.groupName);
+            if (group && group !== lastObservedGroup) {
+                const action = pendingAction && Date.now() - pendingAction.at < 1500 ? pendingAction : null;
+                traceFromSnapshot(snapshot, action?.reason || 'unattributed-queue-replace', {
+                    renderedGroup: action?.renderedGroup,
+                    focus: action?.focus,
+                    stack: action?.stack
+                });
+                pendingAction = null;
+            }
+            lastObservedGroup = group;
+            return { ...snapshot, ...snapshotMeta(snapshot) };
+        };
+        wrapped.__eveQueueAuthorityTrace = true;
+        bridge.snapshot = wrapped;
+        return true;
+    }
+
+    document.addEventListener?.('click', (event) => {
+        const target = event.target?.closest?.('[data-af-action]');
+        const reason = text(target?.dataset?.afAction);
+        if (!['play-music-group', 'open-queue-view'].includes(reason)) return;
+        patchQueueSnapshot();
+        const renderedGroup = text(target?.dataset?.afQueueName)
+            || text(target?.closest?.('.audioflix-frontend-subhead')?.nextElementSibling?.dataset?.afActiveGroup);
+        pendingAction = { reason, renderedGroup, focus: currentFocus(), at: Date.now(), stack: shortStack(3) };
+        const token = pendingAction;
+        setTimeout(() => { if (pendingAction === token) pendingAction = null; }, 1500);
+    }, true);
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(patchQueueSnapshot, 0), { once: true });
+    } else setTimeout(patchQueueSnapshot, 0);
 
     function scopedIds(ctx, queue) {
         const current = ctx.frontendActiveGroup?.('music');
@@ -126,13 +195,8 @@ window.EveAudioflixQueueMembership = window.EveAudioflixQueueMembership || {};
             items = [...q.items];
             const at = items.indexOf(trackId);
             if (on === true) {
-                // If the original queue had extra artist/classifier scope and that scope is no
-                // longer selected, do not guess whether a newly-added group member belongs there.
                 if (at < 0 && q.groupName === q.sourceGroup && trackId) items.push(trackId);
-            } else if (at >= 0) {
-                // Removal is always safe: a track outside the source group cannot remain in its queue.
-                items.splice(at, 1);
-            }
+            } else if (at >= 0) items.splice(at, 1);
         }
 
         if (items.length === q.items.length && items.every((id, index) => id === q.items[index])) return false;
@@ -148,12 +212,10 @@ window.EveAudioflixQueueMembership = window.EveAudioflixQueueMembership || {};
         const nextIndex = removedCurrent ? Math.min(Math.max(q.currentIndex, 0), items.length - 1)
             : Math.max(0, items.indexOf(currentId));
         ctx.activeMusicQueue = { ...q, items, currentIndex: nextIndex };
-        if (removedCurrent && q.isPlaying) {
-            void Promise.resolve(ctx.playQueueIndex?.(nextIndex)).catch(() => false);
-        }
+        if (removedCurrent && q.isPlaying) void Promise.resolve(ctx.playQueueIndex?.(nextIndex)).catch(() => false);
         publish(ctx, `${group} queue updated — ${items.length} track${items.length === 1 ? '' : 's'}.`);
         return true;
     }
 
-    Object.assign(ns, { ready: true, start, snapshotMeta, selectionForAction, sync });
+    Object.assign(ns, { ready: true, start, snapshotMeta, selectionForAction, sync, patchQueueSnapshot });
 })();
