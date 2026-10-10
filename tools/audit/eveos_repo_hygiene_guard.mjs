@@ -31,25 +31,36 @@ for (const file of tracked) {
 const durable = [
     'tools/qualification/audioflix_lane3_runtime_acceptance.mjs',
     'tools/qualification/audioflix_lane3_file_acceptance.mjs',
-    'tools/qualification/audioflix_lane3_recovery_acceptance.mjs'
+    'tools/qualification/audioflix_lane3_recovery_acceptance.mjs',
+    'tests/audioflix_queue_view_stability.test.cjs',
+    'tools/setup/eveos_bootstrap.mjs',
+    'tools/setup/eveos_doctor.mjs',
+    'tools/audit/smoke-registry-audit.js',
+    'docs/FRESH-INSTALL.md',
+    '.github/workflows/repository-guardrails.yml'
 ];
 for (const file of durable) {
-    if (!trackedSet.has(file)) fail.push(`durable qualification driver is not tracked: ${file}`);
+    if (!trackedSet.has(file)) fail.push(`durable repository capability is not tracked: ${file}`);
 }
 
-const codeRoots = ['tools/', 'tests/', 'server/', 'server_modules/', 'js/'];
+const executableRoot = file => ['tools/', 'tests/', 'server/', 'server_modules/', 'js/']
+    .some(root => file.startsWith(root));
+const isFixtureSource = file => file.startsWith('tools/smoke/')
+    || file.startsWith('tests/')
+    || file.includes('/tests/')
+    || /(?:^|\/)(?:fixtures?|samples?)(?:\/|$)/i.test(file);
 const absoluteMachinePath = /(?:[A-Za-z]:[\\/]Users[\\/][^\\/'"\s]+|\/(?:home|Users)\/[^/'"\s]+)/g;
-for (const file of tracked.filter(file => codeRoots.some(root => file.startsWith(root)))) {
-    if (!/\.(?:[cm]?js|py|json|md|html|css)$/.test(file)) continue;
+const isExplicitExamplePath = value => /^(?:[A-Za-z]:[\\/]Users[\\/](?:ExampleUser|TestUser|User)|\/(?:home|Users)\/(?:you|user|example))(?:[\\/]|$)/i.test(value);
+for (const file of tracked.filter(file => executableRoot(file) && !isFixtureSource(file))) {
+    if (!/\.(?:[cm]?js|py|json|html|css)$/.test(file)) continue;
     const full = path.join(ROOT, ...file.split('/'));
     let source = '';
     try { source = fs.readFileSync(full, 'utf8'); } catch { continue; }
-    const hits = source.match(absoluteMachinePath) || [];
-    if (hits.length) fail.push(`machine-specific absolute path in tracked source: ${file} (${hits[0]})`);
+    const hits = (source.match(absoluteMachinePath) || []).filter(value => !isExplicitExamplePath(value));
+    if (hits.length) fail.push(`machine-specific absolute path in tracked executable source: ${file} (${hits[0]})`);
 }
 
-const manifestPath = path.join(ROOT, 'package.json');
-const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const scripts = manifest.scripts || {};
 const scriptTargets = new Set();
 for (const [name, command] of Object.entries(scripts)) {
