@@ -11,7 +11,21 @@ node tools/setup/eveos_doctor.mjs
 node tools/setup/eveos_verify.mjs
 ```
 
-`eveos_verify` composes repository hygiene, Queue View pointer stability, and the canonical deterministic guardrail suite. Live provider acceptance remains opt-in and separate.
+`eveos_verify` composes repository hygiene, GitHub Actions security, Queue View pointer stability, recovered structural regression contracts, and the canonical deterministic guardrail suite. Live provider acceptance remains opt-in and separate.
+
+If an older workstation still contains Lane 3 `.mjs`/`.cjs` drivers under `data/runtime/smoke-results/`, audit them with:
+
+```powershell
+node tools/setup/eveos_local_hygiene.mjs
+```
+
+After pulling the tracked replacements, known promoted duplicates can be removed without deleting JSON/screenshots/log evidence:
+
+```powershell
+node tools/setup/eveos_local_hygiene.mjs --prune-promoted
+```
+
+Unknown scripts are only reported; promote or review them before deletion.
 
 ## Audioflix Lane 3 live acceptance
 

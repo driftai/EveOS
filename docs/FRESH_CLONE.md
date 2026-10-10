@@ -41,13 +41,15 @@ Run the doctor whenever a clone is moved, reconstructed, or materially updated:
 node tools/setup/eveos_doctor.mjs
 ```
 
+The doctor also reports local workspace hygiene issues such as reusable-looking scripts stranded under ignored runtime evidence or legacy root-level logs. It does not delete unknown files.
+
 Run the canonical deterministic repository proof before treating a branch as clean:
 
 ```powershell
 node tools/setup/eveos_verify.mjs
 ```
 
-That aggregate runs the repository privacy/runtime hygiene guard, the Queue View pointer-stability regression, and the existing deterministic guardrail suite through the project virtualenv.
+That aggregate closes the repository privacy/runtime boundary, GitHub Actions security policy, Queue View pointer-stability regression, recovered structural regression contracts, and the existing deterministic guardrail suite through the project virtualenv.
 
 Generated asset references are repository state. To verify them:
 
@@ -70,7 +72,7 @@ With the default tracked port configuration, the main HTTP entry is:
 http://127.0.0.1:8765/EveOS.html
 ```
 
-Use `config/eveos-ports.json` as the source of truth if the tracked port map changes.
+Use `config/eveos-ports.json` as the source of truth if the tracked port map changes. EveOS launcher batches prefer the project `.venv` created by the bootstrap before falling back to machine-wide Python.
 
 ## Durable tests versus runtime evidence
 
@@ -85,6 +87,22 @@ Reusable test logic belongs in tracked locations such as:
 Do **not** place a reusable test driver only under `data/runtime/`, `logs/`, `output/`, or `test-results/`. Those locations are intentionally ignored because they hold machine-local/generated state.
 
 Audioflix Lane 3 live qualification entrypoints are tracked under `tools/qualification/`. They may require an already signed-in local browser/provider session. Authentication material is never part of the repository. Their generated evidence belongs under ignored runtime storage such as `data/runtime/smoke-results/`.
+
+To find stale reusable source left behind in ignored runtime evidence:
+
+```powershell
+node tools/setup/eveos_local_hygiene.mjs
+```
+
+Known promoted Lane 3 driver duplicates can be removed safely after pulling the tracked replacements:
+
+```powershell
+node tools/setup/eveos_local_hygiene.mjs --prune-promoted
+```
+
+Unknown scripts are reported but never deleted automatically.
+
+See `docs/REPOSITORY-LAYOUT.md` for the complete tracked-vs-runtime path contract.
 
 ## Privacy and repository hygiene contract
 

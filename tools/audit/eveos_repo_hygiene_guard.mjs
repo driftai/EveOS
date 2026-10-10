@@ -21,6 +21,7 @@ const forbiddenExact = new Set([
 const forbiddenPath = file => forbiddenExact.has(file)
     || forbiddenRoots.some(root => file.startsWith(root))
     || file.split('/').includes('__pycache__')
+    || /\.log$/i.test(file)
     || /(^|\/)\.env\.(?!example$)/.test(file)
     || /^\.claude\/[^/]*\.local\.json$/i.test(file)
     || /(^|\/)(?:cookies?|credentials?|secrets?|tokens?)(?:\.[^/]+)?$/i.test(file);
@@ -52,10 +53,13 @@ const durable = [
     'tools/setup/eveos_doctor.mjs',
     'tools/setup/eveos_verify.mjs',
     'tools/setup/eveos_npm.mjs',
+    'tools/setup/eveos_local_hygiene.mjs',
     'tools/setup/python_runtime.cjs',
     'tools/setup/npm_runtime.cjs',
+    'tools/audit/eveos_repo_hygiene_guard.mjs',
+    'tools/audit/github_actions_security_guard.mjs',
     'tools/audit/smoke-registry-audit.js',
-    'docs/FRESH-INSTALL.md', 'docs/FRESH_CLONE.md',
+    'docs/FRESH-INSTALL.md', 'docs/FRESH_CLONE.md', 'docs/REPOSITORY-LAYOUT.md',
     '.github/workflows/repository-guardrails.yml'
 ];
 for (const file of durable) if (!trackedSet.has(file)) fail.push(`durable repository capability is not tracked: ${file}`);

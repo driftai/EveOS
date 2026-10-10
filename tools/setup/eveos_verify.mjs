@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'));
 const checks = [
     ['Repository privacy/runtime hygiene', process.execPath, ['tools/audit/eveos_repo_hygiene_guard.mjs']],
+    ['GitHub Actions security policy', process.execPath, ['tools/audit/github_actions_security_guard.mjs']],
     ['Queue View pointer stability', process.execPath, ['tests/audioflix_queue_view_stability.test.cjs']],
+    ['Recovered structural regression contracts', process.execPath, ['tools/smoke/recovered_structural_regression_smoke.js']],
     ['Deterministic repository guardrails', process.execPath, ['tools/setup/eveos_npm.mjs', 'run', '--silent', 'test:guardrails']]
 ];
 

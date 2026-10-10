@@ -14,11 +14,15 @@ const exists = relative => fs.existsSync(path.join(ROOT, ...relative.split('/'))
 
 const nodeMajor = Number(process.versions.node.split('.')[0]);
 need(nodeMajor >= 20, `Node.js >=20 required (found ${process.versions.node})`);
+const git = spawnSync('git', ['--version'], { cwd: ROOT, encoding: 'utf8', windowsHide: true });
+need(git.status === 0, `Git is available${git.status === 0 ? ` (${String(git.stdout || '').trim()})` : ''}`);
 for (const file of [
     'package.json', 'package-lock.json', 'requirements.txt', 'requirements-dev.txt', 'EveOS.html', 'start-server.bat',
-    'docs/FRESH_CLONE.md', 'tools/qualification/README.md',
+    'docs/FRESH_CLONE.md', 'docs/REPOSITORY-LAYOUT.md', 'tools/qualification/README.md',
     'config/eveos-ports.json', 'tools/setup/python_runtime.cjs', 'tools/setup/eveos_npm.mjs',
-    'tools/setup/eveos_verify.mjs',
+    'tools/setup/eveos_verify.mjs', 'tools/setup/eveos_local_hygiene.mjs',
+    'tools/audit/eveos_repo_hygiene_guard.mjs', 'tools/audit/github_actions_security_guard.mjs',
+    'tools/batch/eveos-python.bat', 'tools/batch/start-server.instance.bat', 'tools/batch/start-server.stack.bat',
     'tools/qualification/audioflix_lane3_runtime_acceptance.mjs',
     'tools/qualification/audioflix_lane3_file_acceptance.mjs',
     'tools/qualification/audioflix_lane3_recovery_acceptance.mjs',
@@ -70,6 +74,18 @@ if (!skipBrowser && exists('node_modules/playwright/package.json')) {
     need(probe.status === 0, 'Playwright Chromium runtime installed');
 } else if (skipBrowser) {
     warnings.push('Playwright Chromium runtime check skipped by explicit --skip-browser');
+}
+
+const localHygiene = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'setup', 'eveos_local_hygiene.mjs')], {
+    cwd: ROOT, encoding: 'utf8', windowsHide: true
+});
+if (localHygiene.error || localHygiene.status !== 0) {
+    errors.push(`local workspace hygiene probe failed: ${localHygiene.error?.message || (localHygiene.stderr || localHygiene.stdout || '').trim()}`);
+} else {
+    const details = `${localHygiene.stdout || ''}\n${localHygiene.stderr || ''}`.split(/\r?\n/)
+        .map(line => line.trim()).filter(line => line.startsWith('- ')).map(line => line.slice(2));
+    if (details.length) warnings.push(...details.map(message => `local workspace: ${message}`));
+    else pass('local workspace hygiene has no stale reusable runtime drivers');
 }
 
 for (const message of ok) console.log(`OK   ${message}`);

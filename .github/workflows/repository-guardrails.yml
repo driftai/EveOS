@@ -28,6 +28,8 @@ jobs:
           node -e "if (Number(process.versions.node.split('.')[0]) < 20) process.exit(1)"
       - name: Protect private/runtime boundaries
         run: node tools/audit/eveos_repo_hygiene_guard.mjs
+      - name: Protect automation security boundaries
+        run: node tools/audit/github_actions_security_guard.mjs
       - name: Prove smoke registry is closed
         run: node tools/audit/smoke-registry-audit.js
       - name: Enforce generated runtime asset versions

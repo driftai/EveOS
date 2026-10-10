@@ -52,7 +52,9 @@ node tools/setup/eveos_doctor.mjs
 node tools/setup/eveos_verify.mjs
 ```
 
-`eveos_verify` protects repository privacy/runtime boundaries, the Queue View pointer-stability regression, and the existing deterministic guardrail suite in one tracked command.
+`eveos_verify` protects repository privacy/runtime boundaries, GitHub Actions security policy, the Queue View pointer-stability regression, recovered structural regression contracts, and the existing deterministic guardrail suite in one tracked command.
+
+The Windows launchers prefer `.venv\Scripts\python.exe`, so the environment created by bootstrap is also the canonical Python runtime for EveOS launcher batches.
 
 ## Durable tests versus private evidence
 
@@ -62,13 +64,27 @@ Tracked durable tooling includes:
 
 - `tools/smoke/` — deterministic and registered smoke entry points/helpers;
 - `tools/qualification/` — opt-in machine/live acceptance drivers that need a real local environment;
-- `tools/audit/` — structural, privacy, registry, and generated-asset guardrails;
-- `tools/setup/` — fresh-install bootstrap, environment wrapper, Python resolver, doctor, and aggregate verifier;
+- `tools/audit/` — structural, privacy, registry, generated-asset, and automation-security guardrails;
+- `tools/setup/` — fresh-install bootstrap, environment wrapper, Python resolver, doctor, local hygiene, and aggregate verifier;
 - `tests/` — deterministic contract/regression tests.
 
 Machine-generated evidence stays under ignored runtime locations such as `data/runtime/`, `test-results/`, logs, screenshots, traces, browser profiles, caches, and local credentials. A qualification driver may write evidence there, but its source must not live there.
 
 The repository hygiene guard fails if private/runtime roots are tracked, if critical qualification/setup capabilities disappear, if package scripts point at untracked programs, or if tracked executable source acquires a user-specific absolute home path.
+
+The local workspace audit catches the complementary problem: reusable-looking scripts that still exist only as ignored runtime files on a workstation.
+
+```powershell
+node tools/setup/eveos_local_hygiene.mjs
+```
+
+Known promoted Lane 3 duplicates can be pruned without touching generated JSON/screenshots/log evidence:
+
+```powershell
+node tools/setup/eveos_local_hygiene.mjs --prune-promoted
+```
+
+Unknown scripts are never removed automatically. See `docs/REPOSITORY-LAYOUT.md` for the path contract.
 
 ## Audioflix Lane 3 live qualification
 
@@ -77,7 +93,7 @@ These commands are opt-in and are **not CI tests** because they use an already c
 ```powershell
 node tools/qualification/audioflix_lane3_runtime_acceptance.mjs --take-over
 node tools/qualification/audioflix_lane3_recovery_acceptance.mjs --take-over
-node tools/qualification/audioflix_lane3_file_acceptance.mjs --take-over
+node tools/qualification/audioflix_lane3_file_acceptance.mjs
 ```
 
 The drivers read `config/eveos-ports.json`; they do not assume a hard-coded EveOS web port. Their generated evidence, helper state, screenshots, and browser/session data remain in ignored runtime locations.
@@ -92,4 +108,4 @@ Before pushing structural work, run:
 node tools/setup/eveos_verify.mjs
 ```
 
-The GitHub guardrail workflow has repository read permission only, uses pinned action SHAs, supplies no provider secrets, and separates zero-install structural checks from the Windows fresh-install proof.
+The GitHub guardrail workflow has repository read permission only, uses pinned action SHAs, disables persisted checkout credentials, supplies no provider secrets, and separates zero-install structural checks from the Windows fresh-install proof. `tools/audit/github_actions_security_guard.mjs` makes those automation constraints executable policy rather than documentation-only guidance.
