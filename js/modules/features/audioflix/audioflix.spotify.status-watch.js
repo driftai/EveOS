@@ -8,6 +8,7 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
     const STATUS_WATCH_MS = 12000;
     const STATUS_WATCH_TIMEOUT_MS = STATUS_WATCH_MS + 4000;
     const PROGRESS_POLL_MS = 1000;
+    const DEGRADED_RECOVERY_PROBE_MS = 2500;
 
     function watchCursor(result) {
         const marker = result?.watchCursor || {};
@@ -42,6 +43,8 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
         let watchFlight = null;
         let retryTimer = 0;
         let retryResolve = null;
+        let recoveryTimer = 0;
+        let recoveryFlight = null;
         let failures = 0;
         let recovery = 'stopped';
         let latest = null;
@@ -58,10 +61,10 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
             });
         }
 
-        function report(value) {
-            if (recovery === value) return;
+        function report(value, detail = {}) {
+            if (recovery === value && !detail.result) return;
             recovery = value;
-            onRecovery({ state: value, failures });
+            onRecovery({ state: value, failures, ...detail });
         }
 
         function cancelDelay() {
@@ -70,6 +73,52 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
             const resolve = retryResolve;
             retryResolve = null;
             resolve?.();
+        }
+
+        function cancelRecoveryProbe() {
+            if (recoveryTimer) clearTimeout(recoveryTimer);
+            recoveryTimer = 0;
+        }
+
+        function isAuthoritativeIdleRestart(result) {
+            if (!latest || !result?.ok || result?.managed?.helperReachable !== true
+                || result.isOwner === true || String(result.ownerClientId || '')) return false;
+            const before = watchCursor(latest);
+            const marker = watchCursor(result);
+            const engine = result.engine || {};
+            const status = String(engine.status || '').toLowerCase();
+            const generation = Number(engine.generation ?? -1);
+            return marker.afterEngineEpoch > before.afterEngineEpoch
+                && generation === 0
+                && (status === 'stopped' || status === 'idle');
+        }
+
+        function scheduleRecoveryProbe(run, token) {
+            if (recoveryTimer || recoveryFlight || recovery !== 'degraded'
+                || run !== currentRun() || token !== watchToken || !isActive()) return;
+            recoveryTimer = setTimeout(async () => {
+                recoveryTimer = 0;
+                if (recovery !== 'degraded' || run !== currentRun() || token !== watchToken || !isActive()) return;
+                let result = null;
+                try {
+                    recoveryFlight = remote().status();
+                    result = await recoveryFlight;
+                } catch {}
+                finally { recoveryFlight = null; }
+                if (recovery !== 'degraded' || run !== currentRun() || token !== watchToken || !isActive()) return;
+                if (!result?.ok || result?.managed?.helperReachable === false || !isCurrentState(result, latest)) {
+                    scheduleRecoveryProbe(run, token);
+                    return;
+                }
+                if (isAuthoritativeIdleRestart(result)) {
+                    latest = result;
+                    report('reset', { result });
+                    return;
+                }
+                // The same helper recovered without proving playback loss. Re-observe it; never
+                // create a Play/Resume intent from recovery.
+                start(result);
+            }, DEGRADED_RECOVERY_PROBE_MS);
         }
 
         function accept(result, run, token) {
@@ -88,6 +137,7 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
             if (pollTimer) clearInterval(pollTimer);
             pollTimer = 0;
             cancelDelay();
+            cancelRecoveryProbe();
             report('stopped');
         }
 
@@ -137,6 +187,7 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
                         if (pollTimer) clearInterval(pollTimer);
                         pollTimer = 0;
                         report('degraded');
+                        if (!result?.approvalRequired && !result?.disconnected) scheduleRecoveryProbe(run, token);
                         return;
                     }
                     await new Promise((resolve) => {
@@ -210,9 +261,9 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
 
         return { start, stop, suspend, resume, dispose, progressOnce, diagnostics: () => ({
             state: recovery, failures, watchRequests: Number(Boolean(watchFlight)),
-            watchJobs: Number(Boolean(runner)),
-            progressRequests: Number(Boolean(pollFlight)), retryTimers: Number(Boolean(retryTimer)),
-            progressTimers: Number(Boolean(pollTimer))
+            watchJobs: Number(Boolean(runner)), progressRequests: Number(Boolean(pollFlight)),
+            retryTimers: Number(Boolean(retryTimer)), progressTimers: Number(Boolean(pollTimer)),
+            recoveryRequests: Number(Boolean(recoveryFlight)), recoveryTimers: Number(Boolean(recoveryTimer))
         }) };
     }
 
