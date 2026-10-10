@@ -9,6 +9,9 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     const READY_TIMEOUT_MS = 12000;
     const END_TOLERANCE_MS = 1500;
     const END_RESET_MAX_MS = 500;
+    // A successful seek close to the provider's end can be followed only by a paused/zero reset.
+    // Keep this wider than END_TOLERANCE_MS without widening ordinary end/stall detection.
+    const SEEK_END_RESET_TOLERANCE_MS = 4000;
     // Spotify's embed reports the final frame as position === duration with isPaused:false and
     // then goes silent (verified against the live iframe API), so a paused update never arrives.
     const END_REACHED_MS = 250;
@@ -37,6 +40,7 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     let controllerReady = null;
     let lastPlayingPositionMs = 0;
     let lastDurationMs = 0;
+    let seekEndResetGeneration = 0;
 
     const text = (value) => String(value ?? '').trim();
     const trackId = (value) => text(value)
@@ -93,6 +97,7 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     function markEnded(durationMs = 0) {
         if (state.ended) return false;
         const effective = Math.max(Number(durationMs || lastDurationMs || 0), 0);
+        seekEndResetGeneration = 0;
         state.ended = true;
         state.started = false;
         state.paused = true;
@@ -131,6 +136,8 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
                 && positionMs >= Math.max(0, effectiveDurationMs - END_TOLERANCE_MS);
             const resetAfterEnd = state.started && paused && wasPlaying
                 && previousNearEnd && positionMs <= END_RESET_MAX_MS;
+            const resetAfterNearEndSeek = state.started && paused
+                && seekEndResetGeneration === state.generation && positionMs <= END_RESET_MAX_MS;
 
             clearTimeout(endStallTimer);
             endStallTimer = 0;
@@ -148,6 +155,10 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
                 return;
             }
             if (!paused) {
+                if (seekEndResetGeneration === state.generation && effectiveDurationMs > 0
+                    && positionMs < Math.max(0, effectiveDurationMs - SEEK_END_RESET_TOLERANCE_MS)) {
+                    seekEndResetGeneration = 0;
+                }
                 if (atEnd) {
                     const generation = state.generation;
                     endStallTimer = setTimeout(() => {
@@ -163,13 +174,17 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
                 bump();
                 return;
             }
-            if ((atEnd || resetAfterEnd) && markEnded(effectiveDurationMs)) return;
+            if ((atEnd || resetAfterEnd || resetAfterNearEndSeek) && markEnded(effectiveDurationMs)) return;
+            if (seekEndResetGeneration === state.generation && positionMs > END_RESET_MAX_MS && !atEnd) {
+                seekEndResetGeneration = 0;
+            }
             state.providerPaused = state.started && !state.ended;
             state.status = state.providerPaused ? 'provider-paused' : 'paused';
             bump();
         });
         target.addListener?.('playback_error', (event) => {
             const message = text(event?.data?.message || event?.message || 'Spotify playback failed.');
+            seekEndResetGeneration = 0;
             state.error = message;
             state.paused = true;
             state.status = 'blocked';
@@ -218,6 +233,7 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
         state.error = '';
         lastPlayingPositionMs = 0;
         lastDurationMs = state.duration * 1000;
+        seekEndResetGeneration = 0;
         setStatus('loading');
         const player = await ensureController(id);
         if (player && typeof player.loadUri === 'function') {
@@ -229,6 +245,7 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     }
     async function play() {
         if (!controller) throw new Error('No Spotify track is loaded.');
+        seekEndResetGeneration = 0;
         state.providerPaused = false;
         setStatus('starting');
         const pending = typeof controller.resume === 'function' && state.started
@@ -239,6 +256,7 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     }
     async function pause() {
         if (!controller) return snapshot();
+        seekEndResetGeneration = 0;
         await Promise.resolve(controller.pause?.());
         state.paused = true;
         state.providerPaused = false;
@@ -247,14 +265,22 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     async function seek(payload = {}) {
         if (!controller) throw new Error('No Spotify track is loaded.');
         const seconds = Math.max(0, Number(payload.seconds || 0));
+        const targetMs = seconds * 1000;
+        const durationMs = Math.max(lastDurationMs, Number(state.duration || 0) * 1000);
+        const wasPlaying = state.started && state.paused === false && !state.ended;
         const previousCompletionId = state.completionId;
         await Promise.resolve(controller.seek?.(seconds));
         // A seek-to-end can complete before its acknowledgement; do not overwrite that result.
         if (state.ended && state.completionId !== previousCompletionId) return snapshot();
         state.currentTime = seconds;
+        if (wasPlaying && targetMs > 0) lastPlayingPositionMs = targetMs;
+        seekEndResetGeneration = wasPlaying && durationMs > 0
+            && targetMs >= Math.max(0, durationMs - SEEK_END_RESET_TOLERANCE_MS)
+            ? state.generation : 0;
         return setStatus(state.paused ? 'paused' : 'playing');
     }
     async function stop() {
+        seekEndResetGeneration = 0;
         await pause();
         if (controller?.seek) await Promise.resolve(controller.seek(0)).catch(() => {});
         state.currentTime = 0;
@@ -264,6 +290,7 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     }
     async function restart(payload = {}) {
         if (!controller) throw new Error('No Spotify track is loaded.');
+        seekEndResetGeneration = 0;
         state.generation = Math.max(1, Number(payload.generation || state.generation + 1));
         state.completionId = '';
         await Promise.resolve(controller.seek?.(0));
