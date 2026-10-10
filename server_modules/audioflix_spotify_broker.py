@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from server_modules import audioflix_spotify_browser_rpc as engine
 from server_modules import audioflix_spotify_connections as connections
 from server_modules import audioflix_spotify_broker_preemption as preemption
+from server_modules import audioflix_spotify_broker_volume as volume_control
 
 _PROTOCOL_VERSION = 1
 _PAIR_TTL_S = 300.0
@@ -225,7 +226,8 @@ class SpotifyClientBroker:
 
     def _state(self, client_id: str, transport_state: dict | None = None) -> dict:
         managed = engine.status()
-        state = transport_state
+        state = transport_state if transport_state is not None else managed.get("transport")
+        if not isinstance(state, dict): state = None
         if state is None and managed.get("helperReachable"):
             response = engine.transport({"action": "status"})
             state = response.get("state") if response.get("ok") else None
@@ -390,10 +392,11 @@ class SpotifyClientBroker:
             }, gain)
             return self._state(client_id, played.get("state")) if played.get("ok") else played
 
+        if action == "volume": return volume_control.execute(self, client_id, args, _spotify_id)
         with self._lock:
             owner = self._owner_client_id
             client = self._clients.get(client_id)
-            if not owner and action in {"resume", "volume", "seek", "restart"} and client:
+            if not owner and action in {"resume", "seek", "restart"} and client:
                 self._acquire_locked(client)
                 owner = client_id
         if owner and owner != client_id:
@@ -404,10 +407,6 @@ class SpotifyClientBroker:
             state = self._state(client_id)
             return {**state, "ok": True, "idle": True,
                     "reason": "Spotify engine has no active owner. Press Play to begin playback."}
-        if action == "volume":
-            gain = max(0.0, min(1.0, float(args.get("effectiveVolume") if args.get("effectiveVolume") is not None else 1)))
-            volume = engine.set_effective_volume(gain, _spotify_id(args.get("spotifyId") or ""))
-            return {**self._state(client_id), "volumeResult": volume, "ok": bool(volume.get("ok"))}
         if action in {"pause", "resume", "stop", "restart"}:
             mapped = "play" if action == "resume" else action
             command = {"action": mapped}

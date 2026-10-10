@@ -336,4 +336,15 @@ finally:
     mod.engine.transport = transport
 assert broker.connect(file_connect, context)["ok"] and fake.state["status"] == "stopped"
 
+# Run the actual broker/RPC/manager read path in isolation from this file's fake engine.
+import subprocess
+for script in ("audioflix_spotify_status_reads_smoke.py", "audioflix_spotify_volume_fence_smoke.py"):
+    isolated = subprocess.run(
+        [sys.executable, str(ROOT / "tools/smoke" / script)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    if isolated.returncode:
+        context = "\n".join((isolated.stdout + isolated.stderr).splitlines()[-30:])
+        raise AssertionError(f"Spotify regression {script} failed:\n{context}")
+
 print("AUDIOFLIX_SPOTIFY_BROKER_SMOKE_OK")

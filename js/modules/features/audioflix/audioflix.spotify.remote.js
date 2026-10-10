@@ -185,6 +185,7 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
             state.code = '';
             state.approvalUrl = '';
             state.clientId = String(message.clientId || '');
+            state.lastState = null;
             state.mode = String(message.mode || '');
             state.status = 'ready';
             state.lastError = '';
@@ -221,7 +222,10 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
             pending.delete(String(message.requestId || ''));
             clearTimeout(entry.timer);
             const result = message.result || {};
-            if (result?.engine || result?.managed) state.lastState = result;
+            if ((result?.engine || result?.managed)
+                && window.EveAudioflixSpotifyStatusWatch?.isCurrentState?.(result, state.lastState) !== false) {
+                state.lastState = result;
+            }
             entry.resolve(result);
             notify();
         }
@@ -386,7 +390,6 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
     }
     async function status() {
         const result = await send('status', {}, { timeout: 5000 });
-        if (result?.engine || result?.managed) state.lastState = result;
         return result;
     }
     function disconnect() {

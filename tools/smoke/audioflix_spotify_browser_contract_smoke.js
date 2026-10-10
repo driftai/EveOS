@@ -27,6 +27,7 @@ const transport = read('server_modules/audioflix_spotify_browser_transport.js');
 const rpc = read('server_modules/audioflix_spotify_browser_rpc.py');
 const presentation = read('server_modules/audioflix_spotify_presentation.py');
 const broker = read('server_modules/audioflix_spotify_broker.py');
+const brokerVolume = read('server_modules/audioflix_spotify_broker_volume.py');
 const http = read('server_modules/audioflix_spotify_http.py');
 const relay = read('server_modules/audioflix_spotify_relay.py');
 const bridge = read('server_modules/audioflix_bridge.py');
@@ -110,11 +111,13 @@ assert(broker.includes('ownerEpoch') && broker.includes('trackGeneration') && br
 const commandLane = broker.slice(broker.indexOf('    def command('), broker.indexOf('    def _execute_transport('));
 assert(commandLane.includes('_transport_lock') && commandLane.indexOf('if action == "import"') < commandLane.indexOf('with self._transport_lock'),
     'long playlist import stays outside serialized playback transport operations');
-assert(broker.includes('effectiveVolume') && broker.includes('engine.set_effective_volume'),
+assert(broker.includes('volume_control.execute(self, client_id, args, _spotify_id)')
+    && brokerVolume.includes('effectiveVolume') && brokerVolume.includes('engine.set_effective_volume'),
     'broker accepts an already-effective gain rather than multiplying master volume again');
-assert(broker.includes('if not owner and action in {"resume", "volume", "seek", "restart"}')
+assert(broker.includes('if not owner and action in {"resume", "seek", "restart"}')
     && broker.includes('if owner and owner != client_id')
-    && broker.includes('if not owner and action in {"pause", "stop", "release"}'),
+    && broker.includes('if not owner and action in {"pause", "stop", "release"}')
+    && brokerVolume.includes('if not owner and client:') && brokerVolume.includes('if fenced:'),
     'ownerless playback is distinct from another live EveOS tab and can recover without a false observer error');
 assert(broker.includes('engine-presentation') && broker.includes('engine-stop')
     && broker.includes('_matching_file_client_locked'),

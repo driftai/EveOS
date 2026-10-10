@@ -246,3 +246,70 @@ server-side volume generation checks, real-runtime latency/resource evidence, br
 background completion qualification and the subsequent Lane-4 service reload work. Full
 uncached repository verification and final signed-in endurance remain deferred to the agreed
 post-Lane-4 qualification gate; do not merge, deploy or delete rollback branches here.
+
+## Lane 3 continuation after `3c871b034`
+
+The first checkpoint was pushed as `3c871b034c1c614998e2491be5901714d0a323a3`.
+The following changes continue from it; they do not replace Lane-1 lifecycle or Lane-2 queue
+authority, and do not claim final live-provider acceptance.
+
+- Status reads reuse the transport snapshot already included in the helper's status packet.
+  Explicit mutation replies retain precedence. Missing/malformed legacy snapshots keep the
+  existing fallback. There is no TTL cache or new cross-command singleflight cache that could
+  hide a mutation. Thirty synthetic observations fell from 90 helper requests to 30;
+  p50 46.513->15.633ms, p95 47.828->16.099ms, max 47.866->16.286ms. This uses the actual
+  Python broker/RPC/manager path with a fake helper and 2ms artificial request delay; Windows
+  timer granularity dominates, so these are not live Spotify measurements.
+- Marked volume commands require the complete valid owner/engine/track-generation tuple,
+  current ownership, and the fresh helper generation before mutation. They cannot reacquire
+  ownership after Stop. Private RPC rechecks helper identity and generation under its manager
+  lock. Same-URI replay, ownership round trip, Stop, observed/unobserved helper restart, and
+  validation-to-dispatch identity/generation changes reject without volume mutation. Missing
+  or malformed generation fails closed for marked commands. Deliberately unmarked legacy
+  callers retain their old behavior; do not describe those callers as generation-fenced.
+- Observation and relay-cache ordering use durable engine/owner/generation/cursor markers,
+  including direct control replies. A late same-generation Playing/Ended packet cannot undo
+  a newer confirmed Pause/Seek. A new helper epoch may report generation zero without being
+  discarded as an old generation. Broker counters are scoped to the client grant; a new relay
+  grant clears the previous cached state rather than treating counters as globally permanent.
+- Freeze suspends observation and invalidates pending callbacks, preserving the accepted
+  seed/run. Resume reobserves the durable state without a Play/Resume command or helper launch.
+  Public Stop removes resume eligibility. Observer disposal removes its lifecycle listeners.
+
+The isolated native Chromium lifecycle fixture passes for HTTP and file entrypoints: 22
+trusted freeze/resume pairs, no callbacks while frozen, one consumed completion after thaw,
+Pause preserved, Stop preventing reconnect, and settled observer resources at zero after
+disposal. Peak watch/status requests remain one each. This uses fake durable packets and a
+deduping fixture consumer, not the real queue owner or signed-in Spotify endurance. The
+existing Playwright Chromium is launched through raw CDP to avoid Playwright's forced-focus
+capturer masking freeze. The test-only WebSocket fallback reuses Playwright's pinned bundle;
+the forced fallback passed on Node 24, but an actual Node 20 runtime has not been qualified.
+
+Final continuation evidence was captured by `test:handoff` with deliberate branch/divergence
+and dirty-worktree overrides for this uncommitted development batch. Structural guardrails
+passed (13.1s), the full registered Spotify playback/observer lane passed (177.4s), and the
+four-child volume lane passed (2.0s). The broader deterministic deep profile passed its first
+seven entries, then stopped at the known World Book static assertion in
+`world_book_integration_smoke.py:71`: the client no longer contains
+`window.setTimeout(() => { void refresh(); }, 0)`. The assertion and client Git blobs are
+unchanged from sealed base `57487c76`; this batch does not fix that unrelated red. Later deep
+entries were not run, and neither deep nor overall acceptance is all-green. Local full
+evidence: `data/runtime/smoke-results/chat-handoff-2026-10-10T10-57-00-260Z.json` and its log.
+
+Qualification boundaries:
+
+- Status-watch still performs bounded server-side polling; snapshot reuse removes duplicate
+  reads but is not a push/event-only implementation or proof of native CPU/memory targets.
+- In a genuinely frozen page, timers and fetch callbacks cannot run. The canonical queue owner
+  is still the EveOS frontend, so it cannot advance while that page is frozen; observation can
+  drain durable completion after thaw. Hidden/throttled is not the same state as frozen.
+  See [Chrome Page Lifecycle](https://developer.chrome.com/docs/web-platform/page-lifecycle-api).
+  Moving/protecting that owner for uninterrupted frozen-page playback is an architecture
+  decision for Eve, not permission to add a competing queue scheduler.
+- Restart the identity-verified EveOS backend before real-provider qualification of the Python
+  changes; refreshing the browser cannot reload server modules. No user's live services,
+  profile, library or playback were changed by the isolated tests here.
+- Remaining acceptance: signed-in natural-duration/background endurance, repeat-one and
+  shuffle/reorder during playback, Play Group without opening Queue View, reconnect/reload,
+  actual boot/input/transition p50/p95/max and memory/CPU evidence, then Lane-4 scoped reload
+  and the agreed uncached repository gate. Do not merge/deploy/delete rollback branches yet.

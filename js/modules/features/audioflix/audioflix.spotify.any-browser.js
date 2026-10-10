@@ -24,7 +24,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     let lastEngineStatus = '';
     let lastCompletionId = '';
     let ended = false;
-    let playbackRun = 0, engineGeneration = 0;
+    let playbackRun = 0, latestEngineState = null;
     const volumeLane = window.EveAudioflixSpotifyVolume?.createManagedPlaybackLane?.(remote,
         () => ({ active: active && !starting, run: playbackRun, item }), spotifyId);
     // Broker Play is staged (load -> volume -> activation). A single helper RPC is bounded, but the
@@ -150,8 +150,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         if (!result?.ok || !active) return;
         const engine = result.engine || {};
         if (engine.spotifyId && engine.spotifyId !== spotifyId(item)) return;
-        if (Number(engine.generation || 0) < engineGeneration) return;
-        engineGeneration = Math.max(engineGeneration, Number(engine.generation || 0));
+        if (window.EveAudioflixSpotifyStatusWatch?.isCurrentState?.(result, latestEngineState, remote()?.snapshot?.().lastState) === false) return;
+        latestEngineState = result;
         volumeLane?.observe(result);
         playback.currentTime = Math.max(0, Number(engine.currentTime || 0));
         playback.duration = Math.max(0, Number(engine.duration || playback.duration || item?.duration || 0));
@@ -270,7 +270,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             item, currentTime: 0, duration: Number(item.duration || item.resolvedDuration || 0) || 0,
             paused: true, provider: 'spotify', browserOnly: true, remoteManaged: true
         };
-        lastEngineStatus = ''; lastCompletionId = ''; ended = false; engineGeneration = 0;
+        lastEngineStatus = ''; lastCompletionId = ''; ended = false; latestEngineState = null;
         starting = true;
         let result;
         try {

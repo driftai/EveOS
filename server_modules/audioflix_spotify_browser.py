@@ -178,7 +178,6 @@ class SpotifyBrowserManager:
         return None
 
     def status(self, payload: dict | None = None) -> dict:
-        del payload
         with self._lock:
             env = self.environment_status()
             helper = self._helper_status()
@@ -205,6 +204,7 @@ class SpotifyBrowserManager:
                 "lastAppliedAt": (helper or {}).get("lastAppliedAt") or 0,
                 "lastError": (helper or {}).get("lastError") or self._last_error,
                 "importing": bool((helper or {}).get("importing")),
+                "transport": dict(helper["transport"]) if helper and isinstance(helper.get("transport"), dict) else None,
                 "startupBudgetMs": int(_START_TIMEOUT_S * 1000),
             }
             if helper and helper.get("diagnostics"):

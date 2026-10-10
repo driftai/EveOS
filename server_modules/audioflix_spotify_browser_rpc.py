@@ -78,11 +78,23 @@ def interrupt(reason: str) -> dict:
         return {"ok": False, "reason": str(exc)[:200]}
 
 
-def set_effective_volume(volume, track_id: str = "") -> dict:
+def set_effective_volume(volume, track_id: str = "", expected_started_at: int | None = None,
+                         expected_generation: int | None = None) -> dict:
     manager = browser._manager
     with manager._lock:
-        if not manager._helper_status() or not manager._session_id:
+        helper = manager._helper_status()
+        if not helper or not manager._session_id:
             return {"ok": False, "reason": "Managed Spotify engine is not running."}
+        started_at = int(manager._started_at * 1000) if manager._started_at else 0
+        if expected_started_at is not None and started_at != expected_started_at:
+            return {"ok": False, "superseded": True, "lifecycle": "superseded", "resyncRequired": True,
+                    "reason": "Spotify helper identity changed before volume could be applied."}
+        transport = helper.get("transport")
+        generation = transport.get("generation") if isinstance(transport, dict) else None
+        if expected_generation is not None and (not isinstance(generation, int) or isinstance(generation, bool)
+                                                 or generation != expected_generation):
+            return {"ok": False, "superseded": True, "lifecycle": "superseded", "resyncRequired": True,
+                    "reason": "Spotify helper playback generation changed or is unprovable before volume."}
         payload = {
             "volume": clamp_volume(volume, 1),
             "trackId": normalize_track_id(track_id),

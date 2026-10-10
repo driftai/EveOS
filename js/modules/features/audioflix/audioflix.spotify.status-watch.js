@@ -20,6 +20,21 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
         };
     }
 
+    function isCurrentState(result, ...previousStates) {
+        const marker = watchCursor(result);
+        for (const previous of previousStates) {
+            if (!previous) continue;
+            // Broker counters are scoped to its client grant, not a permanent server identity.
+            if (result?.clientId && previous.clientId && result.clientId !== previous.clientId) continue;
+            const before = watchCursor(previous);
+            for (const key of ['afterEngineEpoch', 'afterOwnerEpoch', 'afterTrackGeneration', 'afterCursor']) {
+                if (marker[key] < before[key]) return false;
+                if (marker[key] > before[key]) break;
+            }
+        }
+        return true;
+    }
+
     function create({ remote, applyState, isActive, currentRun, isEnded, onRecovery = () => {} }) {
         let pollTimer = 0;
         let pollFlight = null;
@@ -32,6 +47,7 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
         let latest = null;
         let runner = null;
         let request = null;
+        let suspendedRun = null;
 
         function launchWatch() {
             if (runner || !request) return;
@@ -59,15 +75,8 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
         function accept(result, run, token) {
             if (run !== currentRun() || token !== watchToken || !isActive() || !result?.ok
                 || recovery === 'degraded' || result?.managed?.helperReachable === false) return false;
-            const marker = watchCursor(result);
-            const keys = ['afterEngineEpoch', 'afterOwnerEpoch', 'afterTrackGeneration', 'afterCursor'];
-            if (latest) {
-                for (const key of keys) {
-                    if (marker[key] < latest[key]) return false;
-                    if (marker[key] > latest[key]) break;
-                }
-            }
-            latest = marker;
+            if (!isCurrentState(result, latest)) return false;
+            latest = result;
             applyState(result);
             return true;
         }
@@ -75,6 +84,7 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
         function stop() {
             watchToken += 1;
             request = null;
+            suspendedRun = null;
             if (pollTimer) clearInterval(pollTimer);
             pollTimer = 0;
             cancelDelay();
@@ -152,7 +162,7 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
             const run = currentRun();
             const token = ++watchToken;
             failures = 0;
-            latest = watchCursor(seed);
+            latest = seed;
             report('watching');
             request = { run, seed, token };
             launchWatch();
@@ -165,7 +175,37 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
             if (document.visibilityState !== 'hidden') progressOnce(run).catch(() => {});
         }
 
-        return { start, stop, progressOnce, diagnostics: () => ({
+        function suspend() {
+            if (!request || !isActive() || recovery === 'degraded') return;
+            const run = currentRun();
+            stop();
+            suspendedRun = run;
+            report('suspended');
+        }
+
+        function resume() {
+            const run = suspendedRun;
+            suspendedRun = null;
+            if (run !== null && run === currentRun() && isActive()) start(latest);
+        }
+
+        function visible() {
+            if (document.visibilityState === 'visible' && request && recovery !== 'degraded') {
+                progressOnce().catch(() => {});
+            }
+        }
+
+        document.addEventListener?.('freeze', suspend);
+        document.addEventListener?.('resume', resume);
+        document.addEventListener?.('visibilitychange', visible);
+        function dispose() {
+            stop();
+            document.removeEventListener?.('freeze', suspend);
+            document.removeEventListener?.('resume', resume);
+            document.removeEventListener?.('visibilitychange', visible);
+        }
+
+        return { start, stop, suspend, resume, dispose, progressOnce, diagnostics: () => ({
             state: recovery, failures, watchRequests: Number(Boolean(watchFlight)),
             watchJobs: Number(Boolean(runner)),
             progressRequests: Number(Boolean(pollFlight)), retryTimers: Number(Boolean(retryTimer)),
@@ -173,5 +213,5 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
         }) };
     }
 
-    Object.assign(ns, { ready: true, create, watchCursor });
+    Object.assign(ns, { ready: true, create, watchCursor, isCurrentState });
 })();
