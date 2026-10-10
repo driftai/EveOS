@@ -94,7 +94,7 @@
                     aria-controls="audioflix-overlay" aria-expanded="false"
                     title="Audioflix">&#127925; Audioflix</button>
                 <button class="topbar-primary-btn topbar-notes-world-book-btn" type="button"
-                    onclick="window.EveOSResume?.open ? window.EveOSResume.open('worldBook') : (window.EveWorldBook?.open ? window.EveWorldBook.open() : (window.__eveWorldBookOpenPending = true))"
+                    onclick="window.EveOSResume?.open ? window.EveOSResume.open('worldBook') : (window.EveWorldBook?.open ? window.EveWorldBook.openCurrentView ? window.EveWorldBook.openCurrentView() : (window.__eveWorldBookOpenPending = true) : (window.__eveWorldBookOpenPending = true))"
                     aria-haspopup="dialog" aria-controls="notes-world-book-overlay" aria-expanded="false"
                     title="Notes &amp; World Books">&#128221; Notes &amp; World Books</button>
                 <button class="topbar-primary-btn" onclick="openSettings()" title="Settings">&#9881; Settings</button>
@@ -273,7 +273,7 @@
     <script src="js/modules/features/audioflix/audioflix.audio.url.instagram.js?v=d1fe6bd7a917"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.url.providers.js?v=2141c0e8b005"></script>
     <script src="js/modules/features/audioflix/audioflix.playback.diagnostics.js?v=10fe344663ed"></script>
-    <script src="js/modules/features/audioflix/audioflix.queue.completion.js?v=8d7c73e1a803"></script>
+    <script src="js/modules/features/audioflix/audioflix.queue.completion.js?v=7d7c864b4b8b"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.url.direct.js?v=6031b888ac00"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.url.js?v=a570eb5c8380"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.layers.js?v=c2b9037dfab8"></script>
