@@ -30,5 +30,9 @@ jobs:
         run: node tools/audit/eveos_repo_hygiene_guard.mjs
       - name: Prove smoke registry is closed
         run: node tools/audit/smoke-registry-audit.js
+      - name: Enforce qualification guardrail contract
+        run: node tools/smoke/qualification_guardrails_contract_smoke.js
+      - name: Enforce generated runtime asset versions
+        run: node tools/audit/sync-runtime-asset-versions.js
       - name: Protect Queue View pointer stability
         run: node tests/audioflix_queue_view_stability.test.cjs
