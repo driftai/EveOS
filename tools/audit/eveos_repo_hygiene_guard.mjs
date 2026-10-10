@@ -26,11 +26,15 @@ const forbiddenPath = file => forbiddenExact.has(file)
 
 for (const file of tracked) if (forbiddenPath(file)) fail.push(`private/runtime path is tracked: ${file}`);
 
-const durable = [
-    'requirements-dev.txt',
+const qualificationRoots = [
     'tools/qualification/audioflix_lane3_runtime_acceptance.mjs',
     'tools/qualification/audioflix_lane3_file_acceptance.mjs',
-    'tools/qualification/audioflix_lane3_recovery_acceptance.mjs',
+    'tools/qualification/audioflix_lane3_recovery_acceptance.mjs'
+];
+const durable = [
+    'requirements-dev.txt', ...qualificationRoots,
+    'tools/qualification/lane3-native-controller.cjs',
+    'tools/qualification/lane3-runtime-metrics.cjs',
     'tests/audioflix_queue_view_stability.test.cjs',
     'tools/setup/eveos_bootstrap.mjs',
     'tools/setup/eveos_doctor.mjs',
@@ -38,10 +42,28 @@ const durable = [
     'tools/setup/python_runtime.cjs',
     'tools/setup/npm_runtime.cjs',
     'tools/audit/smoke-registry-audit.js',
-    'docs/FRESH-INSTALL.md',
+    'docs/FRESH-INSTALL.md', 'docs/FRESH_CLONE.md',
     '.github/workflows/repository-guardrails.yml'
 ];
 for (const file of durable) if (!trackedSet.has(file)) fail.push(`durable repository capability is not tracked: ${file}`);
+
+function resolveRelativeDependency(owner, specifier) {
+    const base = posix(path.posix.normalize(path.posix.join(path.posix.dirname(owner), specifier)));
+    return [base, `${base}.js`, `${base}.mjs`, `${base}.cjs`, `${base}/index.js`, `${base}/index.mjs`, `${base}/index.cjs`]
+        .find(candidate => trackedSet.has(candidate)) || base;
+}
+for (const file of qualificationRoots.filter(file => trackedSet.has(file))) {
+    const source = fs.readFileSync(path.join(ROOT, ...file.split('/')), 'utf8');
+    const specs = [
+        ...source.matchAll(/(?:from\s+|import\s*\()['"](\.[^'"]+)['"]/g),
+        ...source.matchAll(/require\(\s*['"](\.[^'"]+)['"]\s*\)/g)
+    ].map(match => match[1]);
+    for (const specifier of specs) {
+        const resolved = resolveRelativeDependency(file, specifier);
+        if (!trackedSet.has(resolved)) fail.push(`qualification dependency is missing/untracked: ${file} -> ${specifier} (${resolved})`);
+        if (resolved.startsWith('data/runtime/')) fail.push(`qualification dependency points into ignored runtime state: ${file} -> ${resolved}`);
+    }
+}
 
 const executableRoot = file => ['tools/', 'tests/', 'server/', 'server_modules/', 'js/'].some(root => file.startsWith(root));
 const isFixtureSource = file => file.startsWith('tools/smoke/') || file.startsWith('tests/')
@@ -74,4 +96,4 @@ if (fail.length) {
     for (const issue of [...new Set(fail)]) console.error(`- ${issue}`);
     process.exit(1);
 }
-console.log(`EVEOS_REPO_HYGIENE_OK tracked=${tracked.length} scriptTargets=${scriptTargets.size} durable=${durable.length}`);
+console.log(`EVEOS_REPO_HYGIENE_OK tracked=${tracked.length} scriptTargets=${scriptTargets.size} durable=${durable.length} qualificationRoots=${qualificationRoots.length}`);
