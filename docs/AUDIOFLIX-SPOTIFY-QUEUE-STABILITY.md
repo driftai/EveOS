@@ -126,6 +126,14 @@ fixtures were corrected without altering production authorization or assertions.
   best-effort while the helper is still launching. Boundary: browser-process launch itself is
   not cancellable, so a cancelled first launch still finishes starting the (silent) engine.
   any-browser clears `starting` per run, and a superseded run's late failure resolves false.
+- Load -> Play handoff (checkpoint 1e): the initial Play's Load -> volume -> Play runs in
+  `load_volume_play()`, which re-checks the accepted intent after Load and after volume, the
+  authoritative fallback when the helper interrupt is unavailable. The helper captures
+  `preemptEpoch` before Load's awaited work and returns it. The broker sends that fixed number
+  as `expectedPreemptEpoch` with the generation on the initial Play only, not on Resume. Before
+  any engine Play, the helper rejects a mismatch with the current preemption reason. So an
+  interrupt landing before Play arrives is caught by the epoch binding, and one landing after
+  it is caught by the existing lease fence.
 - The legacy repeat/restart path and unavailable/provider-restricted media remain
   separate live qualification targets; this patch does not promise full-length Free playback.
 - Uncached repository verification reached pre-existing Dex origin/receipt fixture

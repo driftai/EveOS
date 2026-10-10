@@ -383,15 +383,11 @@ class SpotifyClientBroker:
                 self._acquire_locked(client)
                 self._track_generation += 1
                 generation = self._track_generation
-            loaded = engine.transport({
+            gain = max(0.0, min(1.0, float(args.get("effectiveVolume") if args.get("effectiveVolume") is not None else 1)))
+            played = preemption.load_volume_play(self, {
                 "action": "load", "spotifyId": spotify_id, "title": _safe(args.get("title"), 240),
                 "duration": max(0, float(args.get("duration") or 0)), "generation": generation,
-            })
-            if not loaded.get("ok"): return loaded
-            gain = max(0.0, min(1.0, float(args.get("effectiveVolume") if args.get("effectiveVolume") is not None else 1)))
-            volume = engine.set_effective_volume(gain, spotify_id)
-            if not volume.get("ok"): return volume
-            played = engine.transport({"action": "play"})
+            }, gain)
             return self._state(client_id, played.get("state")) if played.get("ok") else played
 
         with self._lock:

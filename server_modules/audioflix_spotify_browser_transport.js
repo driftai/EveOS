@@ -6,13 +6,22 @@ function safeText(value, max = 240) {
     return String(value ?? '').trim().slice(0, max);
 }
 
+function expectedEpoch(body = {}) {
+    const raw = body?.expectedPreemptEpoch;
+    if (raw === undefined || raw === null || raw === '' || typeof raw === 'boolean') return null;
+    const value = Number(raw);
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
 function sanitizePayload(body = {}) {
     return {
         spotifyId: safeText(body.spotifyId || body.trackId || body.url || body.uri, 512),
         title: safeText(body.title, 240),
         duration: Math.max(0, Number(body.duration || 0) || 0),
         seconds: Math.max(0, Number(body.seconds || 0) || 0),
-        generation: Math.max(0, Number(body.generation || 0) || 0)
+        generation: Math.max(0, Number(body.generation || 0) || 0),
+        // Numeric-only Load->Play epoch binding for broker-created initial Play (see preemption).
+        expectedPreemptEpoch: expectedEpoch(body)
     };
 }
 
@@ -56,4 +65,4 @@ async function engineQuiesce(page, generation) {
     return page.evaluate(gen => window.EveAudioflixSpotifyEngine.quiesce?.({ generation: gen }) || null, target);
 }
 
-module.exports = { ALLOWED_ACTIONS, sanitizePayload, waitForEngine, engineSnapshot, engineCommand, engineQuiesce };
+module.exports = { ALLOWED_ACTIONS, sanitizePayload, expectedEpoch, waitForEngine, engineSnapshot, engineCommand, engineQuiesce };

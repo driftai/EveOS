@@ -36,6 +36,16 @@ class SlowStartEngine:
         self.hold_startup = False
         self.startup_entered = threading.Event()
         self.release_startup = threading.Event()
+        self.hold_stage = ""  # "load" or "volume": hold that stage once
+        self.stage_entered = threading.Event()
+        self.release_stage = threading.Event()
+        self.play_payloads = []
+
+    def _maybe_hold(self, stage):
+        if self.hold_stage == stage:
+            self.hold_stage = ""
+            self.stage_entered.set()
+            self.release_stage.wait(HOLD_S)
 
     def ensure_engine(self, page_url):
         if self.hold_startup:
@@ -53,6 +63,7 @@ class SlowStartEngine:
     def set_effective_volume(self, volume, track_id=""):
         with self.lock:
             self.calls.append(("volume", track_id, time.monotonic()))
+        self._maybe_hold("volume")
         return {"ok": True}
 
     def interrupt(self, reason):
@@ -73,6 +84,12 @@ class SlowStartEngine:
             hold = action == "play" and self.hold_next_play
             if hold:
                 self.hold_next_play = False
+            if action == "play":
+                self.play_payloads.append(payload)
+        if action == "load":
+            self._maybe_hold("load")
+            return {"ok": True, "preemptEpoch": 41,
+                    "state": {"generation": self.generation, "spotifyId": self.spotify_id, "status": "loaded"}}
         state = {"generation": self.generation, "spotifyId": self.spotify_id, "status": "starting"}
         if hold:
             self.play_entered.set()
@@ -94,6 +111,10 @@ class SlowStartEngine:
         self.hold_startup = False
         self.startup_entered.clear()
         self.release_startup.clear()
+        self.hold_stage = ""
+        self.stage_entered.clear()
+        self.release_stage.clear()
+        self.play_payloads = []
 
 
 real_interrupt = rpc.interrupt
@@ -242,6 +263,45 @@ for label, cancel in (("stop", "stop"), ("pause", "pause"), ("play-b", "play")):
         assert playback_work() == [], f"{label}: {playback_work()}"
         assert broker._owner_client_id == "", f"{label}: stale Play acquired ownership"
 
+# Load -> volume -> Play: a newer intent accepted while Load or volume is awaiting stops the old
+# Play at the next broker stage, and Play is bound to the helper epoch its Load ran under.
+for label, stage, cancel in (("load-stop", "load", "stop"), ("volume-pause", "volume", "pause"),
+                             ("volume-stop", "volume", "stop"), ("load-play-b", "load", "play")):
+    fake.reset()
+    fake.hold_next_play = False
+    fake.abort_on_interrupt = False
+    fake.hold_stage = stage
+    broker, grant = new_broker()
+    results = {}
+    t_a = spawn(results, "a", lambda: send(broker, grant, "play", {"spotifyId": A, "duration": 180}))
+    assert fake.stage_entered.wait(3), label
+    assert broker._owner_client_id == grant["clientId"], "A owns its generation before Load"
+    payload = {"spotifyId": B, "duration": 180} if cancel == "play" else {}
+    t_c = spawn(results, "c", lambda: send(broker, grant, cancel, payload))
+    time.sleep(0.2)
+    assert [r for r, _ in fake.interrupts] == [{"stop": "stopped", "pause": "paused", "play": "superseded"}[cancel]], label
+    fake.release_stage.set()
+    t_a.join(HOLD_S + 3)
+    t_c.join(HOLD_S + 3)
+    assert results["a"].get("superseded"), (label, results["a"])
+    a_after = [c[0] for c in fake.calls if c[1] == A and c[0] in {"volume", "play"}]
+    assert a_after == ([] if stage == "load" else ["volume"]), f"{label}: stale A continued: {a_after}"
+    if cancel == "play":
+        assert results["c"].get("ok") and results["c"].get("isOwner"), results["c"]
+        assert [c[1] for c in fake.calls if c[0] == "load"] == [A, B] and fake.spotify_id == B
+        assert fake.generation == broker._track_generation
+    else:
+        assert results["c"].get("ok"), (label, results["c"])
+        assert not [c for c in fake.calls if c[0] == "play"], label
+
+# Happy path: Play carries the Load's helper epoch and its generation.
+fake.reset()
+fake.hold_next_play = False
+broker, grant = new_broker()
+assert send(broker, grant, "play", {"spotifyId": A, "duration": 180}).get("ok")
+assert fake.play_payloads[-1].get("expectedPreemptEpoch") == 41
+assert fake.play_payloads[-1].get("generation") == broker._track_generation
+
 # 6. Interrupt endpoint unavailable: dead and hung helpers stay bounded and harmless.
 manager = browser._manager
 saved = (manager._port, manager._token, manager._process_running)
@@ -282,4 +342,4 @@ t_s.join(HOLD_S + 3)
 assert not t_a.is_alive() and not t_s.is_alive(), "no deadlock when the interrupt fails"
 assert results["s"].get("ok"), results["s"]
 
-print("AUDIOFLIX_SPOTIFY_PREEMPTION_SMOKE_OK (pre-lock interrupt, stale queued fence, A->B, stop, observer, first-launch fence, dead/hung endpoint)")
+print("AUDIOFLIX_SPOTIFY_PREEMPTION_SMOKE_OK (pre-lock interrupt, stale queued fence, A->B, stop, observer, first-launch fence, load/volume->play fence, dead/hung endpoint)")

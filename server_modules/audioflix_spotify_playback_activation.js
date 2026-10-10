@@ -1,7 +1,7 @@
 'use strict';
 
 const { URL } = require('node:url');
-const { engineSnapshot, engineCommand, engineQuiesce } = require('./audioflix_spotify_browser_transport.js');
+const { engineSnapshot, engineCommand, engineQuiesce, expectedEpoch } = require('./audioflix_spotify_browser_transport.js');
 const { captureEpoch, preempted, preemptReason } = require('./audioflix_spotify_playback_preemption.js');
 const { reactivateStartup, RECOVERY_BUDGET_MS } = require('./audioflix_spotify_startup_reactivation.js');
 const { seekManagedMedia, handleManagedSeek } = require('./audioflix_spotify_media_seek.js');
@@ -226,6 +226,15 @@ async function handleTransportWithActivation(options, body) {
     // Capture the preemption epoch before any awaited engine work: an interrupt that lands
     // while the engine Play is still pending (no lease yet) must still invalidate this start.
     const epoch = captureEpoch(runtime);
+    // Load->Play binding: a broker-created initial Play carries the epoch its Load ran under. An
+    // interrupt that landed between that Load and this request's arrival makes it stale, even
+    // though the epoch captured above would otherwise look current.
+    const expected = expectedEpoch(body);
+    if (expected !== null && expected !== epoch) {
+        const reason = preemptReason(runtime);
+        note('playback-lease-abort', `${reason}; load epoch ${expected} != ${epoch}`);
+        return leaseAbortResult(new PlaybackLeaseAbort(reason), action, (await boundedSnapshot(page)) || {});
+    }
     runtime.startsInFlight += 1;
     try {
         const result = await engineCommand(page, body);
@@ -252,11 +261,13 @@ async function handleTransportWithActivation(options, body) {
 }
 
 async function loadOrControl(options, body, action) {
+    const loadEpoch = action === 'load' ? captureEpoch(options.runtime) : null; // before awaited work
     const previous = action === 'load' ? await engineSnapshot(options.page).catch(() => null) : null;
     const result = await engineCommand(options.page, body);
     if (result?.ok && action === 'load' && previous?.spotifyId === result.state?.spotifyId) {
         result.mediaSeek = await seekManagedMedia(options, result.state, 0);
     }
+    if (result?.ok && loadEpoch !== null) result.preemptEpoch = loadEpoch;
     return result;
 }
 

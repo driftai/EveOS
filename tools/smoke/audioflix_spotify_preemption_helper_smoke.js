@@ -114,6 +114,61 @@ async function helperSide() {
         assert.equal(result.lifecycle, 'stopped');
     }
 
+    // Load -> Play epoch binding. 3: an interrupt between Load and the initial Play's arrival makes
+    // that Play stale even though the helper would otherwise capture the new epoch as current.
+    {
+        const eng = fakeEngine({ generation: 40, spotifyId: 'z0' });
+        const button = fakeButton();
+        const opts = options(fakePage(eng, [fakeFrame('l1', button)]));
+        const loaded = await activation.handleTransportWithActivation(opts, { action: 'load', spotifyId: 'l1', generation: 41 });
+        assert.equal(loaded.ok, true);
+        const loadEpoch = loaded.preemptEpoch;
+        assert.equal(typeof loadEpoch, 'number');
+        await interrupt(opts, 'stopped');
+        const before = eng.commands.length;
+        const stale = await activation.handleTransportWithActivation(opts, { action: 'play', generation: 41, expectedPreemptEpoch: loadEpoch });
+        assert.equal(stale.ok, false);
+        assert.equal(stale.lifecycle, 'stopped');
+        assert.deepEqual(eng.commands.slice(before), [], 'zero engine Play/quiesce work for a stale initial Play');
+        assert.equal(button.clicks, 0);
+        assert.equal(opts.runtime.startsInFlight, 0);
+        // Non-numeric expectations are ignored by the sanitizer rather than trusted.
+        const { expectedEpoch } = require(path.join(MODULES, 'audioflix_spotify_browser_transport.js'));
+        for (const bad of ['x', true, -1, 1.5, null, '']) assert.equal(expectedEpoch({ expectedPreemptEpoch: bad }), null);
+        assert.equal(expectedEpoch({ expectedPreemptEpoch: '7' }), 7);
+    }
+    // An interrupt during an awaited Load leaves the Load's returned epoch at its older value.
+    {
+        const eng = fakeEngine({ generation: 42, spotifyId: 'l2' });
+        const opts = options(fakePage(eng, [fakeFrame('l2', fakeButton())]));
+        const command = eng.command;
+        let fired;
+        eng.command = (action, data) => {
+            if (action !== 'load') return command(action, data);
+            fired = interrupt(opts, 'paused');
+            return fired.then(() => command(action, data));
+        };
+        const start = opts.runtime.preemptEpoch || 0;
+        const loaded = await activation.handleTransportWithActivation(opts, { action: 'load', spotifyId: 'l3', generation: 43 });
+        await fired;
+        assert.equal(loaded.preemptEpoch, start, 'Load epoch is captured before its awaited work');
+        assert.equal(opts.runtime.preemptEpoch, start + 1);
+        const stale = await activation.handleTransportWithActivation(opts, { action: 'play', generation: 43, expectedPreemptEpoch: loaded.preemptEpoch });
+        assert.equal(stale.lifecycle, 'paused');
+    }
+    // 5. No interrupt: the Load epoch matches and the ordinary lifecycle is unchanged.
+    {
+        const eng = fakeEngine({ generation: 44, spotifyId: 'z1' });
+        let media = [];
+        const button = fakeButton({ onClick: async () => { eng.st.status = 'playing'; media = [{ paused: false, ended: false, readyState: 4 }]; } });
+        const opts = options(fakePage(eng, [fakeFrame('l4', button)]), { spotifySnapshots: async () => [{ media }] });
+        const loaded = await activation.handleTransportWithActivation(opts, { action: 'load', spotifyId: 'l4', generation: 45 });
+        const played = await activation.handleTransportWithActivation(opts, { action: 'play', generation: 45, expectedPreemptEpoch: loaded.preemptEpoch });
+        assert.equal(played.ok, true, played.reason);
+        assert.equal(played.state.generation, 45);
+        assert.equal(eng.st.playRequested, true);
+    }
+
     // Reasons are fixed; the interrupt never loads, plays or evaluates caller input.
     const opts = options(fakePage(fakeEngine(), []));
     for (const reason of ['load', 'play', 'eval', '']) assert.equal((await interrupt(opts, reason)).ok, false);
@@ -180,7 +235,7 @@ async function authentication() {
 (async () => {
     await helperSide();
     await authentication();
-    console.log('AUDIOFLIX_SPOTIFY_PREEMPTION_HELPER_SMOKE_OK (lease/pre-lease interrupt, A->B, audible stop, real-helper token)');
+    console.log('AUDIOFLIX_SPOTIFY_PREEMPTION_HELPER_SMOKE_OK (lease/pre-lease interrupt, A->B, audible stop, load->play epoch, real-helper token)');
 })().catch((error) => {
     console.error(error);
     process.exit(1);

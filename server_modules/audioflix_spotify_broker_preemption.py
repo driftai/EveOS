@@ -90,3 +90,33 @@ def still_current_locked(broker) -> bool:
     """
     token = getattr(broker, "_running_intent", None)
     return token is None or getattr(broker, "_latest_intent", None) == token
+
+
+def _stale(broker) -> bool:
+    with broker._lock:
+        return not still_current_locked(broker)
+
+
+def load_volume_play(broker, load: dict, gain: float) -> dict:
+    """Initial Play's Load -> volume -> Play with an intent fence between every awaited stage.
+
+    The broker rechecks the accepted intent after Load and after volume (the authoritative
+    fallback when the helper interrupt is unavailable), and binds Play to the helper preemption
+    epoch its Load ran under, so an interrupt delivered between Load and Play's arrival at the
+    helper cannot be mistaken for a current epoch.
+    """
+    loaded = engine.transport(load)
+    if not loaded.get("ok"):
+        return loaded
+    if _stale(broker):
+        return dict(SUPERSEDED_RESULT)
+    volume = engine.set_effective_volume(gain, load.get("spotifyId", ""))
+    if not volume.get("ok"):
+        return volume
+    if _stale(broker):
+        return dict(SUPERSEDED_RESULT)
+    play = {"action": "play", "generation": load.get("generation", 0)}
+    epoch = loaded.get("preemptEpoch")
+    if isinstance(epoch, int) and not isinstance(epoch, bool) and epoch >= 0:
+        play["expectedPreemptEpoch"] = epoch
+    return engine.transport(play)
