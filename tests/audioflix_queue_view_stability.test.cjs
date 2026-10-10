@@ -87,7 +87,7 @@ assert.equal(delegatedQueueJumpDispatches.length, 1,
     'one delegated queue-jump click must dispatch exactly one onJump call');
 assert.match(internalSource, /stage\.addEventListener\('click'/,
     'queue-jump activation must remain delegated from the stable player stage');
-assert.match(internalSource, /data-url-player-action=\\"queue-jump\\"/,
+assert.match(internalSource, /data-url-player-action="queue-jump"/,
     'Up Next rows must remain actionable queue-jump buttons');
 
 console.log('AUDIOFLIX_QUEUE_VIEW_STABILITY_OK renders=6 redundantSyncsSuppressed=true stableNode=true singleJumpDispatch=true');
