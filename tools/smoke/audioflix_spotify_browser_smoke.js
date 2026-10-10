@@ -18,6 +18,12 @@ const assert = (condition, message) => {
         window.__EveAudioflixSpotifyStartTimeoutMs = 1000;
         window.__EveAudioflixSpotifyRelayReadyTimeoutMs = 250;
     });
+    // This smoke qualifies the browser-local Spotify provider. Keep a real
+    // EveOS instance on :8765 from silently switching the test to managed relay.
+    await page.route(
+        /^http:\/\/(?:127\.0\.0\.1|localhost):8765\/api\/audioflix\/spotify-relay(?:[/?].*)?$/,
+        (route) => route.abort()
+    );
     await page.route('https://open.spotify.com/embed/iframe-api/v1', (route) => route.fulfill({
         contentType: 'application/javascript',
         body: `
