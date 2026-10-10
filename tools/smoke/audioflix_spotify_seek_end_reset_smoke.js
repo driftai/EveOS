@@ -54,6 +54,8 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
 
             await start(21);
             const nearSeek = await engine.command('seek', { seconds: 27.53 });
+            update(27530, true);
+            const tailPause = engine.snapshot();
             update(0, true);
             const naturalReset = engine.snapshot();
             const naturalCompletionId = naturalReset.completionId;
@@ -78,13 +80,15 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             const failedSeekReset = engine.snapshot();
 
             return {
-                nearSeek, naturalReset, naturalCompletionId, duplicateReset,
+                nearSeek, tailPause, naturalReset, naturalCompletionId, duplicateReset,
                 midTrackReset, explicitPauseReset, failedSeekReset
             };
         });
 
         assert.equal(result.nearSeek.status, 'playing');
         assert.equal(result.nearSeek.currentTime, 27.53);
+        assert.equal(result.tailPause.ended, false, 'a provider pause inside the requested tail is not completion by itself');
+        assert.equal(result.tailPause.status, 'provider-paused');
         assert.equal(result.naturalReset.status, 'ended', 'same-generation paused/zero reset after a successful near-end seek is completion');
         assert.equal(result.naturalReset.ended, true);
         assert.equal(result.naturalReset.generation, 21);
