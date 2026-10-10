@@ -359,6 +359,13 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     async function restart(payload = {}) {
         if (!controller) throw new Error('No Spotify track is loaded.');
         seekEndResetGeneration = 0;
+        // A restart has the same untagged late-frame race as a same-URI load. Reuse
+        // its fresh-progress fence before seeking so the old tail cannot end this run.
+        awaitingReplayStart = true;
+        playRequestedGeneration = 0;
+        clearTimeout(endStallTimer);
+        endStallTimer = 0;
+        lastPlayingPositionMs = 0;
         state.generation = Math.max(1, Number(payload.generation || state.generation + 1));
         state.completionId = '';
         await Promise.resolve(controller.seek?.(0));

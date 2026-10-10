@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const { chromium } = require('playwright');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -13,12 +14,24 @@ const surfacePath = path.join(ROOT, 'js/modules/features/audioflix/audioflix.spo
 const presentationPath = path.join(ROOT, 'server_modules/audioflix_spotify_presentation.py');
 const launcherPath = path.join(ROOT, 'tools/audioflix/spotify-managed-browser.ps1');
 const fixture = path.join(os.tmpdir(), `eveos-spotify-engine-${process.pid}.html`);
-const engineUrl = `file:///${enginePath.replace(/\\/g, '/')}`;
-fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-player"></div><script src="${engineUrl}"></script></body></html>`);
+const revision = process.argv.find((arg) => arg.startsWith('--revision='))?.slice('--revision='.length);
+if (revision && !/^[0-9a-f]{7,40}$/i.test(revision)) throw new Error('--revision requires a commit SHA');
+const engineSource = revision
+    ? execFileSync('git', ['show', `${revision}:js/modules/features/audioflix/audioflix.spotify.engine.js`], { cwd: ROOT, encoding: 'utf8' })
+    : fs.readFileSync(enginePath, 'utf8');
+const artifact = path.join(ROOT, 'data/runtime/smoke-results/audioflix-spotify-engine-smoke.json');
+const diagnostics = { revision: revision || 'worktree', startedAt: Date.now(), phase: 'fixture', pageErrors: [] };
+function saveDiagnostics(ok, error) {
+    fs.mkdirSync(path.dirname(artifact), { recursive: true });
+    fs.writeFileSync(artifact, JSON.stringify({ ...diagnostics, ok, finishedAt: Date.now(),
+        error: error ? { message: error.message, stack: error.stack, actual: error.actual, expected: error.expected } : null }, null, 2));
+}
+fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-player"></div><script>${engineSource.replace(/<\/script/gi, '<\\/script')}</script></body></html>`);
 
 (async () => {
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
+    page.on('pageerror', (error) => diagnostics.pageErrors.push(error.stack || error.message));
     await page.route('https://open.spotify.com/embed/iframe-api/v1', (route) => route.fulfill({
         contentType: 'application/javascript',
         body: `
@@ -111,7 +124,22 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             const update = (position, isPaused = false) => window.__engineController.emit('playback_update', {
                 playingURI: 'spotify:track:4cOdK2wGLETKBW3PvgPWqT', position, duration: 180000, isPaused
             });
+            // Restart keeps the URI, so provider tail/reset callbacks have no generation token.
+            // Even playback_started is insufficient: only fresh nonpaused near-start progress arms it.
+            update(180000);
+            const restartUnpausedTail = engine.snapshot();
             window.__engineController.emit('playback_started', {});
+            update(180000, true);
+            const restartPausedTail = engine.snapshot();
+            window.__engineController.emit('playback_started', {});
+            update(180000);
+            const restartTailAfterStarted = engine.snapshot();
+            window.__engineController.emit('playback_started', {});
+            update(0, true);
+            const restartPausedReset = engine.snapshot();
+            window.__engineController.emit('playback_started', {});
+            update(1000);
+            const restartFreshProgress = engine.snapshot();
             update(120000);
             update(180000);
             const unpausedEnd = engine.snapshot();
@@ -122,6 +150,7 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             const resetAfterUnpausedEnd = engine.snapshot();
             await engine.command('restart', { generation: 9 });
             window.__engineController.emit('playback_started', {});
+            update(1000);
             update(179000);
             const nearEnd = engine.snapshot();
             await new Promise((resolve) => setTimeout(resolve, 2800));
@@ -130,6 +159,7 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             const afterSeek = engine.snapshot();
             await engine.command('restart', { generation: 10 });
             window.__engineController.emit('playback_started', {});
+            update(1000);
             update(90000);
             const beforeSeekCompletion = engine.snapshot();
             window.__engineCompleteDuringSeek = true;
@@ -176,6 +206,7 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             return {
                 afterLoad, providerPaused, noAutoResume, explicitPaused, latePauseAcknowledged, deliberateResume,
                 endedOnce, endedTwice, afterTerminalPlay, afterRestart, unpausedEnd, unpausedEndRepeat,
+                restartUnpausedTail, restartPausedTail, restartTailAfterStarted, restartPausedReset, restartFreshProgress,
                 resetAfterUnpausedEnd, nearEnd, stalledEnd, afterSeek,
                 beforeSeekCompletion, completionDuringSeek, completedSeek, resetAfterCompletedSeek,
                 firstLoadCalls, repeatedLoad, repeatedNavigations, changedLoad,
@@ -186,6 +217,8 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
                 calls: { ...window.__engineCalls }
             };
         });
+        diagnostics.engine = result;
+        diagnostics.phase = 'existing-engine-contracts';
 
         assert.equal(result.afterLoad.generation, 7);
         assert.equal(result.afterLoad.spotifyId, '4cOdK2wGLETKBW3PvgPWqT');
@@ -232,6 +265,20 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
         assert.equal(result.afterRestart.generation, 8, 'restart starts a fresh playback generation');
         assert.equal(result.afterRestart.completionId, '', 'restart clears the prior generation completion identity');
         assert.equal(result.afterRestart.ended, false, 'restart clears the terminal latch');
+        diagnostics.phase = 'restart-stale-tail';
+        for (const [id, state] of Object.entries({
+            unpaused: result.restartUnpausedTail, paused: result.restartPausedTail,
+            afterStarted: result.restartTailAfterStarted, pausedReset: result.restartPausedReset
+        })) {
+            assert.equal(state.generation, 8, `restart-stale-tail:${id}: restart owns the new generation`);
+            assert.equal(state.ended, false, `restart-stale-tail:${id}: old provider frames cannot complete the new generation`);
+            assert.equal(state.completionId, '', `restart-stale-tail:${id}: no false completion identity before fresh progress`);
+            assert.equal(state.replayPending, true, `restart-stale-tail:${id}: playback_started does not bypass the fresh-progress fence`);
+        }
+        assert.equal(result.restartFreshProgress.status, 'playing', 'fresh nonpaused near-start progress arms restarted playback');
+        assert.equal(result.restartFreshProgress.replayPending, false);
+        assert.equal(result.restartFreshProgress.completionId, '', 'fresh start has no completion from the previous play');
+        diagnostics.phase = 'natural-completion-contracts';
         assert.equal(result.unpausedEnd.status, 'ended', 'an unpaused final frame at position === duration completes the track');
         assert.ok(result.unpausedEnd.completionId.startsWith('8:'), 'unpaused completion belongs to the current generation');
         assert.equal(result.unpausedEndRepeat.status, 'ended', 'a duplicate final frame does not reopen the ended track');
@@ -262,6 +309,8 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             'the initial URI is supplied through createController rather than a duplicate loadUri');
 
         const mirrorPage = await browser.newPage();
+        mirrorPage.on('pageerror', (error) => diagnostics.pageErrors.push(error.stack || error.message));
+        diagnostics.phase = 'mirror-and-presentation';
         const mirrorUrl = `file:///${engineHtmlPath.replace(/\\/g, '/')}?surface=mirror`;
         await mirrorPage.goto(mirrorUrl, { waitUntil: 'load' });
         await mirrorPage.waitForFunction(() => document.documentElement.dataset.spotifyEngineSurface === 'mirror');
@@ -305,9 +354,17 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             && launcher.includes("/api/audioflix/spotify-browser/presentation"),
         'managed Spotify launcher scopes HWND fallback to the dedicated profile and stays synchronized through EveOS');
 
+        assert.deepEqual(diagnostics.pageErrors, [], 'synthetic engine and mirror pages have no page errors');
+        diagnostics.phase = 'complete';
+        saveDiagnostics(true);
         console.log('AUDIOFLIX_SPOTIFY_ENGINE_SMOKE_OK');
     } finally {
         await browser.close();
         fs.rmSync(fixture, { force: true });
     }
-})().catch((error) => { console.error(error); process.exit(1); });
+})().catch((error) => {
+    saveDiagnostics(false, error);
+    console.error(`AUDIOFLIX_SPOTIFY_ENGINE_SMOKE_FAIL ${diagnostics.phase}`);
+    console.error(String(error.stack || error).split('\n').slice(0, 38).join('\n'));
+    process.exitCode = 1;
+});

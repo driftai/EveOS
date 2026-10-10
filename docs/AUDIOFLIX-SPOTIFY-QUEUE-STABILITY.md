@@ -384,3 +384,17 @@ The corrected exact-head native HTTP acceptance and separately approved canonica
 entrypoint matrix remain the closure gate; do not infer acceptance from deterministic
 tests alone. Lane 4, sustained endurance and the final uncached repository gate remain
 deferred. No merge, deployment or branch cleanup is part of this correction.
+
+The stricter subsequent live run found a second race: after a natural Ended, generation
+25 received an unpaused old final frame at 181196/181196ms only 103ms after Restart's
+Play request. That frame manufactured a new completion, producing queue runs 4 and 5
+for one ending. Retaining the watch exposed this engine defect instead of hiding it.
+Restart now arms the existing same-URI fresh-progress fence before seek, clears old
+tail/stall bookkeeping, and accepts completion only after fresh nonpaused progress near
+the start. It does not add a second scheduler or discard legitimate later endings.
+The existing engine smoke reproduces the stale-tail failure on `b08b99882`, including
+`playback_started`, paused/unpaused old tails and a zero reset; fresh progress then
+unlocks the original natural-end, stall and seek-completion assertions. Those original
+assertions remain intact. Focused candidate engine qualification passed. The saved
+live red is `data/runtime/smoke-results/LANE3-REPEAT-DOUBLE-RUN.json`; the combined
+corrected exact-head natural/background/reconnect/file matrix is still required.
