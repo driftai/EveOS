@@ -31,7 +31,11 @@ jobs:
       - name: Prove smoke registry is closed
         run: node tools/audit/smoke-registry-audit.js
       - name: Enforce generated runtime asset versions
-        run: node tools/audit/sync-runtime-asset-versions.js
+        shell: bash
+        run: |
+          node tools/audit/sync-runtime-asset-versions.js --write
+          git diff -- EveOS.html js/config/manifest/scripts.parts/03-feature-modules.js
+          git diff --exit-code -- EveOS.html js/config/manifest/scripts.parts/03-feature-modules.js
       - name: Protect Queue View pointer stability
         run: node tests/audioflix_queue_view_stability.test.cjs
 

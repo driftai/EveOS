@@ -24,9 +24,7 @@ const forbiddenPath = file => forbiddenExact.has(file)
     || /(^|\/)\.env\.(?!example$)/.test(file)
     || /(^|\/)(?:cookies?|credentials?|secrets?|tokens?)(?:\.[^/]+)?$/i.test(file);
 
-for (const file of tracked) {
-    if (forbiddenPath(file)) fail.push(`private/runtime path is tracked: ${file}`);
-}
+for (const file of tracked) if (forbiddenPath(file)) fail.push(`private/runtime path is tracked: ${file}`);
 
 const durable = [
     'requirements-dev.txt',
@@ -38,20 +36,16 @@ const durable = [
     'tools/setup/eveos_doctor.mjs',
     'tools/setup/eveos_npm.mjs',
     'tools/setup/python_runtime.cjs',
+    'tools/setup/npm_runtime.cjs',
     'tools/audit/smoke-registry-audit.js',
     'docs/FRESH-INSTALL.md',
     '.github/workflows/repository-guardrails.yml'
 ];
-for (const file of durable) {
-    if (!trackedSet.has(file)) fail.push(`durable repository capability is not tracked: ${file}`);
-}
+for (const file of durable) if (!trackedSet.has(file)) fail.push(`durable repository capability is not tracked: ${file}`);
 
-const executableRoot = file => ['tools/', 'tests/', 'server/', 'server_modules/', 'js/']
-    .some(root => file.startsWith(root));
-const isFixtureSource = file => file.startsWith('tools/smoke/')
-    || file.startsWith('tests/')
-    || file.includes('/tests/')
-    || /(?:^|\/)(?:fixtures?|samples?)(?:\/|$)/i.test(file);
+const executableRoot = file => ['tools/', 'tests/', 'server/', 'server_modules/', 'js/'].some(root => file.startsWith(root));
+const isFixtureSource = file => file.startsWith('tools/smoke/') || file.startsWith('tests/')
+    || file.includes('/tests/') || /(?:^|\/)(?:fixtures?|samples?)(?:\/|$)/i.test(file);
 const absoluteMachinePath = /(?:[A-Za-z]:[\\/]Users[\\/][^\\/'"\s]+|\/(?:home|Users)\/[^/'"\s]+)/g;
 const isExplicitExamplePath = value => /^(?:[A-Za-z]:[\\/]Users[\\/](?:ExampleUser|TestUser|User)|\/(?:home|Users)\/(?:you|user|example))(?:[\\/]|$)/i.test(value);
 for (const file of tracked.filter(file => executableRoot(file) && !isFixtureSource(file))) {
@@ -64,9 +58,8 @@ for (const file of tracked.filter(file => executableRoot(file) && !isFixtureSour
 }
 
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-const scripts = manifest.scripts || {};
 const scriptTargets = new Set();
-for (const [name, command] of Object.entries(scripts)) {
+for (const [name, command] of Object.entries(manifest.scripts || {})) {
     const matcher = /(?:^|\s)(?:node|python3?|py(?:\s+-3)?)\s+([^\s;&|]+)/g;
     for (const match of String(command).matchAll(matcher)) {
         const target = posix(match[1].replace(/^['"]|['"]$/g, ''));

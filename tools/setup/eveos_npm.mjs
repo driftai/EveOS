@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'));
 const require = createRequire(import.meta.url);
 const { environmentForPython, resolvePython } = require('./python_runtime.cjs');
+const { npmInvocation } = require('./npm_runtime.cjs');
 
 const args = process.argv.slice(2);
 if (!args.length) {
@@ -18,11 +19,8 @@ if (!args.length) {
 try {
     const python = resolvePython(ROOT);
     const env = environmentForPython(python);
-    const npmCli = process.env.npm_execpath;
-    const command = npmCli && fs.existsSync(npmCli)
-        ? { exe: process.execPath, args: [npmCli, ...args] }
-        : { exe: process.platform === 'win32' ? 'npm.cmd' : 'npm', args };
-    const result = spawnSync(command.exe, command.args, {
+    const npm = npmInvocation(args);
+    const result = spawnSync(npm.command, npm.args, {
         cwd: ROOT,
         env,
         stdio: 'inherit',

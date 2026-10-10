@@ -2,9 +2,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'));
+const require = createRequire(import.meta.url);
+const { npmInvocation } = require('./npm_runtime.cjs');
 const skipBrowser = process.argv.includes('--skip-browser');
 const runtimeOnly = process.argv.includes('--runtime-only');
 const run = (command, args, label) => {
@@ -16,9 +19,8 @@ const run = (command, args, label) => {
 const capture = (command, args) => spawnSync(command, args, { cwd: ROOT, encoding: 'utf8', windowsHide: true });
 
 function npmCommand(args, label) {
-    const npmCli = process.env.npm_execpath;
-    if (npmCli && fs.existsSync(npmCli)) return run(process.execPath, [npmCli, ...args], label);
-    return run(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, label);
+    const npm = npmInvocation(args);
+    return run(npm.command, npm.args, label);
 }
 
 function findPython() {
