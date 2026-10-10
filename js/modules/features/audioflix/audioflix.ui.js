@@ -27,6 +27,7 @@ window.EveAudioflix = window.EveAudioflix || {};
     let musicPortFormOpen = false;
     let groupPathsOpen = { open: false, key: '' };
     let groupPathsScopesOpen = {};
+    // Localization UI renderers live in a sibling module, reading this view's flags via getters.
     const uiLoc = window.EveAudioflixUiLocalize.create({
         esc: (v) => esc(v),
         closeSvg,
@@ -37,13 +38,16 @@ window.EveAudioflix = window.EveAudioflix || {};
         getGroupPathsScopesOpen: () => groupPathsScopesOpen,
         getFsPortFolders: () => fsPortFolders
     });
+    // Nexus Audio Link search panel (music + soundboard, backend + frontend).
     let nexusState = { open: false, type: 'music', query: '', facet: '' };
     const uiNexus = window.EveAudioflixNexusUi.create({
         esc: (v) => esc(v),
         getNexusState: () => nexusState,
         getPorted: () => portedSounds,
+        // Late-bound: uiClass is created just below, so reach it lazily.
         renderClassifierChips: (facet) => uiClass.renderNexusChips(facet)
     });
+    // Classifier system (automatic time-filter / group-rank + manual labels).
     let classifierManagerOpen = false;
     let classifierDetailId = '';
     let classifierRowOpen = false;
@@ -55,6 +59,8 @@ window.EveAudioflix = window.EveAudioflix || {};
         getFrontendOpen: () => classifierRowOpen
     });
 
+    // Settings (cog) modal lives in a sibling module. Helpers are late-bound arrows: this factory
+    // runs before the `const` helpers below exist (temporal dead zone otherwise).
     const uiModal = window.EveAudioflixUiModal.create({
         esc, closeSvg, state, uiLoc, uiClass,
         formatDuration: (v) => formatDuration(v),
@@ -100,6 +106,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         else { nativeHotkeysLive = false; window.EveAudioflixNative?.clearHotkeys?.().catch(() => {}); }
     }
 
+    // Overlay construction + delegated event wiring live in a sibling module (late-bound ctx).
     const uiOverlay = window.EveAudioflixUiOverlay.create({
         state, rerender: () => rerender(), close: () => close(),
         handleAction: (t, e) => handleAction(t, e), handleForm: (f) => handleForm(f),
@@ -107,6 +114,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         renderPanel: () => renderPanel(), shuffleQueue: (ids) => shuffleQueue(ids),
         findItem: (t, id) => findItem(t, id), uiNexus, uiClass,
         pushHotkeysToBridge: () => pushHotkeysToBridge(), hotkeyComboIssue: (c) => hotkeyComboIssue(c),
+        // Live accessors over this view's mutable state (the overlay module holds none of its own).
         view: {
             get overlay() { return overlay; }, set overlay(v) { overlay = v; },
             get portedSounds() { return portedSounds; },
@@ -203,6 +211,8 @@ window.EveAudioflix = window.EveAudioflix || {};
     };
     const groupTags = (item, gs = groupsOf(item.id, item?.type || 'music')) => window.EveAudioflixGroupTreeUi?.renderTags?.({ type: item?.type || 'music', groups: gs, state: state(), esc }) || '';
 
+    // Card / grid / frontend renderers live in a sibling module; they reach this view's helpers
+    // and mutable flags through this ctx bag (frontendActiveGroup is also handed to the actions ctx).
     const uiRender = window.EveAudioflixUiRender.create({
         state, esc, itemMeta, groupKey, groupTags, internalViewButton,
         isItemExposed: (it, t) => isItemExposed(it, t),
@@ -247,6 +257,7 @@ window.EveAudioflix = window.EveAudioflix || {};
     });
     const renderGroupsManager = (type) => uiManagers.renderGroupsManager(type);
     const renderFoldersManager = () => uiManagers.renderFoldersManager();
+    // The toolbar row + its expandable panels live in a sibling module (late-bound ctx).
     const renderAddSection = window.EveAudioflixUiToolbar.create({
         esc, state, uiNexus, uiClass,
         renderForm: (t) => renderForm(t),
@@ -272,11 +283,16 @@ window.EveAudioflix = window.EveAudioflix || {};
     }
 
     const renderSettings = (snapshot) => { const combo = snapshot.hotkeyBypassCombo || '', issue = hotkeyComboIssue(combo), summary = combo ? esc(combo) : 'Not set'; return !settingsOpen ? `<section class="audioflix-settings-drawer"><button type="button" class="audioflix-routing-summary" data-af-action="toggle-settings"><span>Hotkey Settings</span><strong>Bypass key</strong><em>${summary}</em><b>Open settings</b></button></section>` : `<section class="audioflix-settings-drawer is-open"><button type="button" class="audioflix-routing-summary" data-af-action="toggle-settings"><span>Hotkey Settings</span><strong>Bypass key</strong><em>${summary}</em><b>Collapse</b></button><div class="audioflix-settings-body"><label class="audioflix-settings-field"><span>Hotkey bypass toggle key</span><input type="text" class="audioflix-bypass-input${issue?.invalid ? ' audioflix-input-invalid' : ''}" placeholder="e.g. ctrl+shift+b" value="${esc(combo)}" title="${issue ? esc(issue.msg) : 'Press this to suspend/resume all sound hotkeys'}"></label><p class="audioflix-settings-hint">Press this key while in-game to <strong>suspend</strong> every sound hotkey so the keys type/act normally — press again to re-arm. Use a modifier combo (e.g. <strong>ctrl+shift+b</strong>) so it never clashes with normal typing. Single plain keys get grabbed globally.</p><div class="audioflix-bypass-status">Sound hotkeys: <span class="audioflix-bypass-state" data-state="unknown">—</span></div></div></section>`; };
-    const renderRoutingDrawer = (snapshot) => { const routeLabel = snapshot.nativeBridgeEnabled && snapshot.nativeOutputLabel ? snapshot.nativeOutputLabel : (snapshot.preferredSinkLabel || 'Default browser output'), stateLabel = snapshot.nativeBridgeEnabled ? 'Native route active' : (snapshot.geminiVoicePortEnabled ? 'Voice Port armed' : 'Local playback'); return `<section class="audioflix-routing-drawer ${routingOpen ? 'is-open' : ''}"><button type="button" class="audioflix-routing-summary" data-af-action="toggle-routing-drawer"><span>Audio Output / Voice Port</span><strong>${esc(stateLabel)}</strong><em>${esc(routeLabel)}</em><b>${routingOpen ? 'Collapse' : 'Open routing'}</b></button>${routingOpen ? `<div class="audioflix-routing-body">${window.EveAudioflixRouting?.renderStatusCards?.(snapshot, playbackStatus) || ''}${window.EveWorldBookNarrationCompanion?.renderAudioflixSummary?.() || ''}<section class="audioflix-player"><div><strong>Waveform</strong><span>${esc(playbackStatus)}</span></div><canvas id="audioflix-waveform" height="90"></canvas><button type="button" data-af-action="pause">Pause</button></section></div>` : ''}</section>`; };
+    const renderRoutingDrawer = (snapshot) => { const routeLabel = snapshot.nativeBridgeEnabled && snapshot.nativeOutputLabel ? snapshot.nativeOutputLabel : (snapshot.preferredSinkLabel || 'Default browser output'), stateLabel = snapshot.nativeBridgeEnabled ? 'Native route active' : (snapshot.geminiVoicePortEnabled ? 'Voice Port armed' : 'Local playback'); return `<section class="audioflix-routing-drawer ${routingOpen ? 'is-open' : ''}"><button type="button" class="audioflix-routing-summary" data-af-action="toggle-routing-drawer"><span>Audio Output / Voice Port</span><strong>${esc(stateLabel)}</strong><em>${esc(routeLabel)}</em><b>${routingOpen ? 'Collapse' : 'Open routing'}</b></button>${routingOpen ? `<div class="audioflix-routing-body">${window.EveAudioflixRouting?.renderStatusCards?.(snapshot) || ''}${window.EveWorldBookNarrationCompanion?.renderAudioflixSummary?.() || ''}<section class="audioflix-player"><div><strong>Waveform</strong><span>${esc(playbackStatus)}</span></div><canvas id="audioflix-waveform" height="90"></canvas><button type="button" data-af-action="pause">Pause</button></section></div>` : ''}</section>`; };
 
     const tabButton = (tab, label) => `<button type="button" class="${activeTab === tab ? 'active' : ''}" data-af-action="tab" data-af-tab="${tab}">${label}</button>`;
     const renderModalHost = () => (activeInfoItem ? renderInfoModal(activeInfoItem, activeInfoType) : '');
 
+    // Opening a song's settings panel used to go through the full rerender below, rebuilding EVERY
+    // card's markup for a change that only affects the modal. On a large library that is a long
+    // synchronous block, and with the ScriptProcessor capture tap (the file:// fallback, which runs
+    // on the main thread) that stall is audible as the song hitching. The modal lives in its own
+    // host so it can be swapped on its own.
     function rerenderModal() {
         if (!overlay || overlay.hidden) return;
         const host = overlay.querySelector('.audioflix-modal-host');
@@ -313,6 +329,8 @@ window.EveAudioflix = window.EveAudioflix || {};
 
     const findItem = (type, itemId) => ((type === 'music' ? state().music : state().soundboard) || []).find(item => item.id === itemId);
 
+    // Handlers live in sibling modules and reach this view's mutable state through `uiCtx`, so the
+    // renderers above keep using the same closure variables unchanged.
     const uiCtx = {
         state, rerender, rerenderModal, pushHotkeysToBridge, loadPortedSounds, findItem, startRepeater, stopRepeater, frontendActiveGroup, frontendGroupEntries, playQueueIndex,
         invalidateQueueRun, waitForQueueTransition: () => queueTransition.catch(() => {}),
