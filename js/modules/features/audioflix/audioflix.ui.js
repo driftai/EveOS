@@ -27,7 +27,6 @@ window.EveAudioflix = window.EveAudioflix || {};
     let musicPortFormOpen = false;
     let groupPathsOpen = { open: false, key: '' };
     let groupPathsScopesOpen = {};
-    // Localization UI renderers live in a sibling module, reading this view's flags via getters.
     const uiLoc = window.EveAudioflixUiLocalize.create({
         esc: (v) => esc(v),
         closeSvg,
@@ -38,16 +37,13 @@ window.EveAudioflix = window.EveAudioflix || {};
         getGroupPathsScopesOpen: () => groupPathsScopesOpen,
         getFsPortFolders: () => fsPortFolders
     });
-    // Nexus Audio Link search panel (music + soundboard, backend + frontend).
     let nexusState = { open: false, type: 'music', query: '', facet: '' };
     const uiNexus = window.EveAudioflixNexusUi.create({
         esc: (v) => esc(v),
         getNexusState: () => nexusState,
         getPorted: () => portedSounds,
-        // Late-bound: uiClass is created just below, so reach it lazily.
         renderClassifierChips: (facet) => uiClass.renderNexusChips(facet)
     });
-    // Classifier system (automatic time-filter / group-rank + manual labels).
     let classifierManagerOpen = false;
     let classifierDetailId = '';
     let classifierRowOpen = false;
@@ -59,8 +55,6 @@ window.EveAudioflix = window.EveAudioflix || {};
         getFrontendOpen: () => classifierRowOpen
     });
 
-    // Settings (cog) modal lives in a sibling module. Helpers are late-bound arrows: this factory
-    // runs before the `const` helpers below exist (temporal dead zone otherwise).
     const uiModal = window.EveAudioflixUiModal.create({
         esc, closeSvg, state, uiLoc, uiClass,
         formatDuration: (v) => formatDuration(v),
@@ -106,7 +100,6 @@ window.EveAudioflix = window.EveAudioflix || {};
         else { nativeHotkeysLive = false; window.EveAudioflixNative?.clearHotkeys?.().catch(() => {}); }
     }
 
-    // Overlay construction + delegated event wiring live in a sibling module (late-bound ctx).
     const uiOverlay = window.EveAudioflixUiOverlay.create({
         state, rerender: () => rerender(), close: () => close(),
         handleAction: (t, e) => handleAction(t, e), handleForm: (f) => handleForm(f),
@@ -114,7 +107,6 @@ window.EveAudioflix = window.EveAudioflix || {};
         renderPanel: () => renderPanel(), shuffleQueue: (ids) => shuffleQueue(ids),
         findItem: (t, id) => findItem(t, id), uiNexus, uiClass,
         pushHotkeysToBridge: () => pushHotkeysToBridge(), hotkeyComboIssue: (c) => hotkeyComboIssue(c),
-        // Live accessors over this view's mutable state (the overlay module holds none of its own).
         view: {
             get overlay() { return overlay; }, set overlay(v) { overlay = v; },
             get portedSounds() { return portedSounds; },
@@ -156,6 +148,7 @@ window.EveAudioflix = window.EveAudioflix || {};
             if (runId !== queueRunId) return;
             const finish = window.EveAudioflixDiagnostics?.span?.('queue:start');
             const attempts = activeMusicQueue.items.length;
+            const startingIndex = activeMusicQueue.currentIndex;
             let didStart = false;
             for (let attempt = 0; attempt < attempts && runId === queueRunId; attempt += 1) {
                 activeMusicQueue.currentIndex = targetIndex;
@@ -165,7 +158,13 @@ window.EveAudioflix = window.EveAudioflix || {};
                     const started = window.EveAudioflixAudio?.isInternalViewOpen?.()
                         ? await window.EveAudioflixAudio.openInternalView(track)
                         : await window.EveAudioflixAudio.playItem(track);
-                    if (started === false) throw new Error('Queue track did not start.');
+                    if (started === false) {
+                        activeMusicQueue.currentIndex = startingIndex;
+                        finish?.(false);
+                        window.EveAudioflixAudio?.syncQueueView?.();
+                        rerender();
+                        return;
+                    }
                     didStart = true; break;
                 } catch (err) {
                     playbackStatus = `Skipped ${track?.title || 'unavailable track'}: ${err?.message || 'Playback failed'}`;
@@ -204,8 +203,6 @@ window.EveAudioflix = window.EveAudioflix || {};
     };
     const groupTags = (item, gs = groupsOf(item.id, item?.type || 'music')) => window.EveAudioflixGroupTreeUi?.renderTags?.({ type: item?.type || 'music', groups: gs, state: state(), esc }) || '';
 
-    // Card / grid / frontend renderers live in a sibling module; they reach this view's helpers
-    // and mutable flags through this ctx bag (frontendActiveGroup is also handed to the actions ctx).
     const uiRender = window.EveAudioflixUiRender.create({
         state, esc, itemMeta, groupKey, groupTags, internalViewButton,
         isItemExposed: (it, t) => isItemExposed(it, t),
@@ -250,7 +247,6 @@ window.EveAudioflix = window.EveAudioflix || {};
     });
     const renderGroupsManager = (type) => uiManagers.renderGroupsManager(type);
     const renderFoldersManager = () => uiManagers.renderFoldersManager();
-    // The toolbar row + its expandable panels live in a sibling module (late-bound ctx).
     const renderAddSection = window.EveAudioflixUiToolbar.create({
         esc, state, uiNexus, uiClass,
         renderForm: (t) => renderForm(t),
@@ -281,11 +277,6 @@ window.EveAudioflix = window.EveAudioflix || {};
     const tabButton = (tab, label) => `<button type="button" class="${activeTab === tab ? 'active' : ''}" data-af-action="tab" data-af-tab="${tab}">${label}</button>`;
     const renderModalHost = () => (activeInfoItem ? renderInfoModal(activeInfoItem, activeInfoType) : '');
 
-    // Opening a song's settings panel used to go through the full rerender below, rebuilding EVERY
-    // card's markup for a change that only affects the modal. On a large library that is a long
-    // synchronous block, and with the ScriptProcessor capture tap (the file:// fallback, which runs
-    // on the main thread) that stall is audible as the song hitching. The modal lives in its own
-    // host so it can be swapped on its own.
     function rerenderModal() {
         if (!overlay || overlay.hidden) return;
         const host = overlay.querySelector('.audioflix-modal-host');
@@ -322,8 +313,6 @@ window.EveAudioflix = window.EveAudioflix || {};
 
     const findItem = (type, itemId) => ((type === 'music' ? state().music : state().soundboard) || []).find(item => item.id === itemId);
 
-    // Handlers live in sibling modules and reach this view's mutable state through `uiCtx`, so the
-    // renderers above keep using the same closure variables unchanged.
     const uiCtx = {
         state, rerender, rerenderModal, pushHotkeysToBridge, loadPortedSounds, findItem, startRepeater, stopRepeater, frontendActiveGroup, frontendGroupEntries, playQueueIndex,
         invalidateQueueRun, waitForQueueTransition: () => queueTransition.catch(() => {}),
