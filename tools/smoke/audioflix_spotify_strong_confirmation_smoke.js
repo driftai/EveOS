@@ -79,6 +79,81 @@ const activation = require(path.resolve(
         transport: { status: 'provider-paused' }
     }), true, 'instrumented media playback alone is strong evidence even if transport lags');
 
+    // Live run 698f589f0 track 19: playback was strongly confirmed after a retoggle, then reverted
+    // to provider-paused at 0s before the controller readiness poll. Do not hand that transient
+    // success back to the queue: verify it once and issue at most one same-generation controller
+    // resume before accepting the activation.
+    const strong19 = {
+        playing: true,
+        providerShowsPlaying: true,
+        playingCount: 1,
+        transport: { status: 'playing', paused: false, currentTime: 0.42, generation: 19 }
+    };
+    const paused19 = {
+        playing: true,
+        providerShowsPlaying: true,
+        playingCount: 0,
+        transport: { status: 'provider-paused', paused: true, currentTime: 0, generation: 19 }
+    };
+    const stable19 = {
+        playing: true,
+        providerShowsPlaying: true,
+        playingCount: 1,
+        transport: { status: 'playing', paused: false, currentTime: 0.61, generation: 19 }
+    };
+    const relapseNotes = [];
+    const observations = [paused19, stable19];
+    let resumeCalls = 0;
+    let relapseWaits = 0;
+    const relapse = await activation.stabilizeConfirmedPlayback({
+        observed: strong19,
+        expectedGeneration: 19,
+        verifyMs: 0,
+        sleep: async () => {},
+        observe: async () => observations.shift() || stable19,
+        resume: async () => { resumeCalls += 1; return { ok: true, state: { ...paused19.transport } }; },
+        waitForConfirmed: async () => { relapseWaits += 1; return stable19; },
+        note: (kind, message) => relapseNotes.push([kind, message])
+    });
+    assert.equal(resumeCalls, 1, 'a confirmed startup relapse receives exactly one bounded controller resume');
+    assert.equal(relapseWaits, 1, 'relapse recovery performs one bounded strong-confirmation wait');
+    assert.equal(relapse.recovered, true);
+    assert.equal(relapse.stable, true);
+    assert.equal(activation.isConfirmedPlaybackObservation(relapse.observed), true,
+        'the queue only receives success after the recovery remains strongly confirmed');
+    assert.ok(relapseNotes.some(([kind]) => kind === 'playback-confirm-lost'));
+    assert.ok(relapseNotes.some(([kind]) => kind === 'playback-confirm-recover'));
+
+    let wrongGenerationResume = 0;
+    const wrongGeneration = await activation.stabilizeConfirmedPlayback({
+        observed: strong19,
+        expectedGeneration: 19,
+        verifyMs: 0,
+        sleep: async () => {},
+        observe: async () => ({
+            ...paused19,
+            transport: { ...paused19.transport, generation: 20 }
+        }),
+        resume: async () => { wrongGenerationResume += 1; return { ok: true }; },
+        waitForConfirmed: async () => stable19
+    });
+    assert.equal(wrongGenerationResume, 0, 'a replaced track generation is never resumed by relapse recovery');
+    assert.equal(wrongGeneration.recovered, false);
+    assert.equal(wrongGeneration.stable, false);
+
+    let stableResume = 0;
+    const stayedStrong = await activation.stabilizeConfirmedPlayback({
+        observed: strong19,
+        expectedGeneration: 19,
+        verifyMs: 0,
+        sleep: async () => {},
+        observe: async () => stable19,
+        resume: async () => { stableResume += 1; return { ok: true }; },
+        waitForConfirmed: async () => stable19
+    });
+    assert.equal(stableResume, 0, 'stable confirmed playback never receives a redundant resume');
+    assert.equal(stayedStrong.stable, true);
+
     console.log('AUDIOFLIX_SPOTIFY_STRONG_CONFIRMATION_SMOKE_OK');
 })().catch((error) => {
     console.error(error);
