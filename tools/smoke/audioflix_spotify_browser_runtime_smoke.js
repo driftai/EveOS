@@ -59,6 +59,14 @@ assert.equal(activation.shouldRetogglePlaybackKick({
     playing: false,
     transport: { status: 'provider-paused', paused: true, currentTime: 3, generation: 3 }
 }, 3), false, 'an established provider pause is not mistaken for startup');
+assert.equal(activation.shouldRetogglePlaybackKick({
+    playing: false,
+    transport: { status: 'provider-paused', paused: true, currentTime: 0, generation: 3 }
+}, 3), false, 'a click-path pause at 0s keeps the original near-start rule');
+assert.equal(activation.shouldRetogglePlaybackKick({
+    playing: false,
+    transport: { status: 'provider-paused', paused: true, currentTime: 0, generation: 3 }
+}, 3, { allowZeroTime: true }), true, 'a late-autoplay Pause flash that reverts at 0s is retried once');
 
 function makeBrowserContext(url) {
     class FakeMedia {
@@ -141,6 +149,24 @@ function makeBrowserContext(url) {
     });
     assert.equal(wrongGenerationRetries, 0, 'a replaced track generation is never retried');
     assert.equal(fenced.retoggled, false);
+
+    // Live run 603e2999 track 18: Pause flashed during the activation scan (kick-skip), then Spotify
+    // reverted to provider-paused at 0s and the queue stalled. The late path must verify and retry once.
+    let lateRetries = 0;
+    const late = await activation.stabilizePlaybackKick({
+        expectedGeneration: 7,
+        verifyMs: 0,
+        allowZeroTime: true,
+        sleep: async () => {},
+        observe: async () => ({
+            playing: false,
+            transport: { status: 'provider-paused', paused: true, currentTime: 0, generation: 7 }
+        }),
+        retoggle: async () => { lateRetries += 1; return { clicked: true, method: 'click' }; },
+        waitForPlaying: async () => ({ playing: true, transport: { status: 'playing', generation: 7 } })
+    });
+    assert.equal(lateRetries, 1, 'late autoplay revert gets exactly one bounded Play retry');
+    assert.equal(late.observed.playing, true);
 
     const livenessServer = http.createServer((_req, res) => { res.writeHead(200); res.end('ok'); });
     await new Promise((resolve) => livenessServer.listen(0, '127.0.0.1', resolve));

@@ -137,7 +137,7 @@ async function clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl
     return { clicked: false, reason: 'No Spotify Play control could be activated.' };
 }
 
-function shouldRetogglePlaybackKick(observed, expectedGeneration = 0) {
+function shouldRetogglePlaybackKick(observed, expectedGeneration = 0, options = {}) {
     const transport = observed?.transport || {};
     const currentGeneration = Math.max(0, Number(transport.generation || 0));
     const wantedGeneration = Math.max(0, Number(expectedGeneration || 0));
@@ -146,7 +146,8 @@ function shouldRetogglePlaybackKick(observed, expectedGeneration = 0) {
     return observed?.playing !== true
         && String(transport.status || '') === 'provider-paused'
         && transport.paused !== false
-        && currentTime > 0
+        // A late-autoplay skip saw Pause flash before Spotify reverted, so 0s is still startup there.
+        && (currentTime > 0 || options.allowZeroTime === true)
         && currentTime < PLAY_KICK_NEAR_START_MAX_S;
 }
 
@@ -157,7 +158,7 @@ async function stabilizePlaybackKick(options = {}) {
     const sleep = options.sleep || delay;
     await sleep(Math.max(0, Number(options.verifyMs ?? PLAY_KICK_VERIFY_MS)));
     let observed = await observe();
-    if (!shouldRetogglePlaybackKick(observed, options.expectedGeneration)) {
+    if (!shouldRetogglePlaybackKick(observed, options.expectedGeneration, options)) {
         return { observed, retoggled: false };
     }
     const retry = await retoggle();
@@ -224,16 +225,16 @@ async function handleTransportWithActivation(options, body) {
     if (!observed.playing) {
         const kicked = await activateSpotifyPlayback(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime);
         activationMethod = kicked.alreadyPlaying ? 'controller-late' : (kicked.clicked ? `playwright-${kicked.method || 'click'}` : 'controller-pending');
-        if (kicked.alreadyPlaying) {
-            observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
-        } else if (kicked.clicked) {
+        if (kicked.alreadyPlaying || kicked.clicked) {
+            // A Pause control seen mid-scan can be Spotify autoplay that reverts to paused; verify it too.
             const stable = await stabilizePlaybackKick({
                 observe: () => playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl),
                 retoggle: () => clickSpotifyPlayControl(
                     page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime, 'playback-kick-retoggle'
                 ),
                 waitForPlaying: () => waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS),
-                expectedGeneration: Number(result.state?.generation || 0)
+                expectedGeneration: Number(result.state?.generation || 0),
+                allowZeroTime: kicked.alreadyPlaying === true
             });
             observed = stable.observed;
             if (stable.retoggled) activationMethod = `${activationMethod}+retoggle`;
