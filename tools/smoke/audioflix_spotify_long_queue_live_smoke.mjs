@@ -48,6 +48,17 @@ async function main() {
     let originalStateCaptured = false;
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(String(error?.message || error)));
+    // Surface silent queue skips: playQueueIndex logs "[Audioflix] Skipped <title>: <reason>" and
+    // advances inside the same run, which otherwise only shows up as an index mismatch.
+    const audioflixWarnings = [];
+    page.on('console', (message) => {
+        const text = message.text();
+        if (!/\[Audioflix\]/.test(text) || !['warning', 'error', 'info'].includes(message.type())) return;
+        const entry = { at: new Date().toISOString(), type: message.type(), text: text.slice(0, 400) };
+        audioflixWarnings.push(entry);
+        if (audioflixWarnings.length > 40) audioflixWarnings.shift();
+        if (/Skipped /.test(text)) console.error('LIVE_QUEUE_SKIPPED_START', JSON.stringify(entry));
+    });
 
     try {
         await page.goto(controllerUrl, { waitUntil: 'load', timeout: 180000 });
@@ -238,6 +249,7 @@ async function main() {
     } catch (error) {
         const diagnostics = await H.controllerDiagnostics(page).catch(() => null);
         if (diagnostics) console.error('LIVE_QUEUE_CONTROLLER_DIAGNOSTICS', JSON.stringify(diagnostics, null, 2));
+        if (audioflixWarnings.length) console.error('LIVE_QUEUE_AUDIOFLIX_CONSOLE', JSON.stringify(audioflixWarnings, null, 2));
         throw error;
     } finally {
         await H.disposeControllerProbe(page).catch(() => {});
