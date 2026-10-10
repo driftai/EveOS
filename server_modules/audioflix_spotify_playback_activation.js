@@ -5,6 +5,9 @@ const { engineSnapshot, engineCommand } = require('./audioflix_spotify_browser_t
 
 const PLAY_WAKE_INITIAL_MS = 1400;
 const PLAY_CONTROL_WAIT_MS = 3200;
+// A slow Spotify embed can navigate several seconds after load. Keep rescanning for controls
+// instead of turning an otherwise recoverable render delay into a queue skip.
+const PLAY_CONTROL_RENDER_GRACE_MS = 5000;
 const PLAY_WAKE_SETTLE_MS = 3200;
 const PLAY_KICK_VERIFY_MS = 700;
 const PLAY_KICK_NEAR_START_MAX_S = 2;
@@ -189,7 +192,7 @@ async function activateSpotifyPlayback(page, spotifySnapshots, isSpotifyEmbedUrl
         return { clicked: false, alreadyPlaying: true, reason: 'playback already started' };
     }
     await hoverSpotifySurfaces(page, isSpotifyEmbedUrl, note);
-    const deadline = Date.now() + PLAY_CONTROL_WAIT_MS;
+    const deadline = Date.now() + Math.max(PLAY_CONTROL_WAIT_MS, PLAY_CONTROL_RENDER_GRACE_MS);
     while (Date.now() < deadline) {
         observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
         if (observed.playing) {
@@ -270,6 +273,8 @@ module.exports = {
     shouldRetogglePlaybackKick,
     stabilizePlaybackKick,
     PLAY_WAKE_INITIAL_MS,
+    PLAY_CONTROL_WAIT_MS,
+    PLAY_CONTROL_RENDER_GRACE_MS,
     PLAY_KICK_VERIFY_MS,
     handleTransportWithActivation
 };
