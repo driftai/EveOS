@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import secrets
 import sys
 import tempfile
 
@@ -87,7 +88,7 @@ manager.environment_status = lambda force=False: {
 }
 manager._session_id = "expected-session"
 manager._port = 31337
-manager._token = "this-token-must-never-be-public"
+manager._token = secrets.token_urlsafe(32)
 manager._process = type("P", (), {"poll": lambda self: None})()
 manager._helper_status = lambda: {
     "ok": True,
@@ -119,7 +120,7 @@ assert public["importing"] is False
 assert "sessionId" not in public
 assert "expected-session" not in repr(public)
 assert "token" not in " ".join(public.keys()).lower()
-assert "this-token-must-never-be-public" not in repr(public)
+assert manager._token not in repr(public)
 
 matched = manager.session_status({"sessionId": "expected-session"})
 assert matched["sessionMatch"] is True

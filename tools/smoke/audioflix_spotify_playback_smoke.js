@@ -8,6 +8,7 @@ const { chromium } = require('playwright');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const UI_MAIN = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.ui.js');
+const QUEUE_COMPLETION = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.queue.completion.js');
 const SPOTIFY_VOLUME = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.spotify.volume.js');
 const SPOTIFY_PLAYBACK = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.audio.url.spotify.js');
 const moduleUrl = (name) => `file:///${path.join(ROOT, 'js', 'modules', 'features', 'audioflix', name).replace(/\\/g, '/')}`;
@@ -24,9 +25,17 @@ function runChild(runtime, relative) {
 
 (async () => {
     const uiMain = fs.readFileSync(UI_MAIN, 'utf8');
+    const queueCompletion = fs.readFileSync(QUEUE_COMPLETION, 'utf8');
     const spotifyVolume = fs.readFileSync(SPOTIFY_VOLUME, 'utf8');
     const spotifyPlayback = fs.readFileSync(SPOTIFY_PLAYBACK, 'utf8');
-    assert(uiMain.includes("status === 'Ended'") && uiMain.includes('playQueueIndex(expectedIndex + 1)'),
+    assert(uiMain.includes("if (status === 'Ended') completeQueue(e.detail)")
+        && uiMain.includes('window.EveAudioflixQueueCompletion.createRuntime({')
+        && uiMain.includes('playIndex: (index) => playQueueIndex(index)')
+        && uiMain.includes('complete: completeQueue } = queueRuntime')
+        && queueCompletion.includes("detail.status !== 'Ended'")
+        && queueCompletion.includes('const complete = create({')
+        && queueCompletion.includes('await (latest.repeatOne ? restart() : advance())')
+        && queueCompletion.includes('advance: () => playIndex(queue().currentIndex + 1)'),
         'frontend queue remains the sole owner that consumes Spotify Ended and advances');
     assert(!spotifyVolume.includes('getDisplayMedia') && !spotifyVolume.includes('createMediaStreamSource'),
         'Spotify volume never regresses to tab/screen capture');
@@ -40,10 +49,11 @@ function runChild(runtime, relative) {
         'audioflix.audio.internal.js',
         'audioflix.audio.url.loaders.js',
         'audioflix.audio.url.widgets.js',
-        'audioflix.audio.url.providers.js',
         'audioflix.spotify.volume.js',
         'audioflix.spotify.completion.js',
         'audioflix.audio.url.spotify.js',
+        'audioflix.audio.url.providers.js',
+        'audioflix.audio.url.direct.js',
         'audioflix.audio.url.js'
     ].map((name) => `<script src="${moduleUrl(name)}"></script>`).join('');
     fs.writeFileSync(fixture, `<!doctype html><html><body><script>window.__EveAudioflixSpotifyStartTimeoutMs=80;</script>${scripts}</body></html>`);

@@ -20,6 +20,9 @@ const shellSource = fs.readFileSync(
 ) + fs.readFileSync(
     path.join(ROOT, 'js', 'modules', 'gemini', 'search_monitor', 'searchMonitorAiHome.js'),
     'utf8'
+) + fs.readFileSync(
+    path.join(ROOT, 'js', 'modules', 'gemini', 'search_monitor', 'searchMonitorAiHome.markup.js'),
+    'utf8'
 );
 
 let webRunning = false;

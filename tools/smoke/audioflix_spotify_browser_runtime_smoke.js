@@ -115,6 +115,62 @@ function makeBrowserContext(url) {
     return context;
 }
 
+async function checkManagedMediaSeek() {
+    const url = 'https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT';
+    const unavailable = makeBrowserContext(url);
+    const unavailableControl = unavailable.window.__eveSpotifyManagedControl;
+    assert.equal(unavailableControl.seek(10).reached, false, 'seek fails when no media exists');
+    const unready = unavailable.document.createElement('video');
+    unready.readyState = 1;
+    const unknownDuration = unavailable.document.createElement('audio');
+    unknownDuration.duration = Infinity;
+    const empty = unavailable.document.createElement('video');
+    empty.duration = 0;
+    assert.equal(unavailableControl.seek(10).reached, false, 'seek requires ready media with an available finite duration');
+    assert.equal(unready.currentTime, 0);
+    assert.equal(unknownDuration.currentTime, 0);
+    assert.equal(empty.currentTime, 0);
+
+    const embed = makeBrowserContext(url);
+    const control = embed.window.__eveSpotifyManagedControl;
+    const old = embed.document.createElement('audio');
+    old.currentTime = 72;
+    const current = embed.document.createElement('video');
+    current.duration = 30;
+    await current.play();
+    const inactive = embed.document.createElement('audio');
+    inactive.currentTime = 5;
+    for (const invalid of [-1, NaN, Infinity, -Infinity, undefined, 'not-a-number']) {
+        assert.equal(control.seek(invalid).reached, false, 'invalid and negative seeks are denied');
+        assert.equal(current.currentTime, 1, 'denied seek leaves the playing media untouched');
+    }
+    const landed = control.seek(12.5);
+    assert.equal(landed.reached, true);
+    assert.equal(landed.currentTime, 12.5);
+    assert.equal(current.currentTime, 12.5, 'seek reaches the current playing detached media');
+    assert.equal(old.currentTime, 72, 'seek leaves old media references untouched');
+    assert.equal(inactive.currentTime, 5, 'newer inactive media does not outrank current playback');
+    assert.equal(current.isConnected, false, 'native seek also reaches detached Spotify media');
+    const clamped = control.seek(180);
+    assert.equal(clamped.reached, true);
+    assert.equal(clamped.currentTime, 30, 'seek clamps to the playable media duration');
+    assert.equal(clamped.duration, 30);
+    assert.equal(current.currentTime, 30);
+    assert.equal(old.currentTime, 72);
+    assert.equal(inactive.currentTime, 5);
+
+    const pausedEmbed = makeBrowserContext(url);
+    const paused = pausedEmbed.document.createElement('video');
+    let playCalls = 0, resumeCalls = 0;
+    paused.play = () => { playCalls += 1; throw new Error('Paused seek must not play'); };
+    paused.resume = () => { resumeCalls += 1; throw new Error('Paused seek must not resume'); };
+    assert.equal(pausedEmbed.window.__eveSpotifyManagedControl.seek(24).reached, true);
+    assert.equal(paused.currentTime, 24);
+    assert.equal(paused.paused, true, 'seeking paused media preserves its pause');
+    assert.equal(playCalls, 0, 'seek never calls play');
+    assert.equal(resumeCalls, 0, 'seek never calls resume');
+}
+
 (async () => {
     let retoggleCalls = 0;
     const recovered = await activation.stabilizePlaybackKick({
@@ -253,6 +309,7 @@ function makeBrowserContext(url) {
     assert.equal(newPageCalls, 0, 're-preparing a healthy context still reuses the sole page');
     assert.equal(managedContext.pages().length, 1);
 
+    await checkManagedMediaSeek();
     const embed = makeBrowserContext('https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT');
     assert.ok(embed.window.__eveSpotifyManagedControl, 'Spotify embed receives bounded managed media control');
     assert.equal(Object.prototype.hasOwnProperty.call(embed.window.__eveSpotifyManagedControl, 'sessionId'), false,

@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createProviderControlRouting } = require('../dex/provider-control-routing.js');
+const controlReceipt = require('../dex/provider-control-receipt');
 
 function socket(role, clientKind) {
   return { role, clientKind, sent: [] };
@@ -34,14 +35,30 @@ test('in-flight spawns consume the managed worker cap before another tab is crea
     providerId: 'chatgpt',
     url: 'https://chatgpt.com/c/parent'
   };
+  const otherSource = { ...source, targetId: 5, url: 'https://chatgpt.com/c/other-parent' };
   const state = {
     rooms: [{
       id: 'room-1',
       name: 'Worker Room',
       relay: { active: false, waitingFor: null },
-      members: [{ id: 'parent', binding: { ...source } }, managed(1), managed(2), managed(3)]
+      members: [{ id: 'parent', binding: { ...source } }, managed(1), managed(2), managed(3)],
+      messages: [{ id: 'source-fourth', senderKind: 'user', text: 'Spawn the fourth worker.' },
+        { id: 'agent-fourth', senderKind: 'agent', senderId: 'parent', text: 'Spawning the fourth worker.' }]
+    }, {
+      id: 'room-2', name: 'Other Worker Room', relay: { active: false, waitingFor: null },
+      members: [{ id: 'other-parent', binding: { ...otherSource } }],
+      messages: [{ id: 'source-fifth', senderKind: 'user', text: 'Spawn another worker.' },
+        { id: 'agent-fifth', senderKind: 'agent', senderId: 'other-parent', text: 'Spawning another worker.' }]
     }]
   };
+  const firstCommand = { action: 'spawn_agent', room: 'room-1', providerId: 'muse', name: 'Fourth Worker' };
+  const secondCommand = { action: 'spawn_agent', room: 'room-2', providerId: 'muse', name: 'Fifth Worker' };
+  // Independent exact origins exercise the global cap without replacing an in-flight room receipt.
+  state.rooms.forEach((room, index) => controlReceipt.rememberIntent(room, {
+    executorMember: room.members[0], sourceMessage: room.messages[0],
+    command: index ? secondCommand : firstCommand, agentMessage: room.messages[1],
+    turnRequestId: `turn-spawn-cap-${index}`
+  }));
   const safeSend = (ws, payload) => { ws.sent.push(payload); return true; };
   let resolveFirst;
   const firstSpawn = new Promise((resolve) => { resolveFirst = resolve; });
@@ -62,7 +79,7 @@ test('in-flight spawns consume the managed worker cap before another tab is crea
     type: 'provider_control_request',
     requestId: 'spawn-cap-a',
     source,
-    command: { action: 'spawn_agent', room: 'room-1', providerId: 'muse', name: 'Fourth Worker' }
+    command: firstCommand
   });
   assert.equal(await waitUntil(() => spawnCalls === 1), true);
   assert.equal(spawnCalls, 1);
@@ -70,8 +87,8 @@ test('in-flight spawns consume the managed worker cap before another tab is crea
   await routing.handle(caller, {
     type: 'provider_control_request',
     requestId: 'spawn-cap-b',
-    source,
-    command: { action: 'spawn_agent', room: 'room-1', providerId: 'muse', name: 'Fifth Worker' }
+    source: otherSource,
+    command: secondCommand
   });
   assert.equal(spawnCalls, 1);
   const rejected = caller.sent.find((entry) => entry.type === 'provider_control_result' && entry.requestId === 'spawn-cap-b');

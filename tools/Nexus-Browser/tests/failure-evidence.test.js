@@ -8,6 +8,7 @@ const { relevantSnippets, latestQualificationLog, terminalSignals } = require('.
 const { failureExcerpt } = require('../scripts/qualify');
 const { createProviderTargetSpawnRouting } = require('../dex/provider-target-spawn-routing');
 const { createProviderControlRouting } = require('../dex/provider-control-routing');
+const controlReceipt = require('../dex/provider-control-receipt');
 const spawnApi = require('../extension/provider-target-spawn');
 
 test('runtime log stays bounded while preserving newest terminal evidence', async () => {
@@ -77,9 +78,15 @@ test('provider-control records managed spawn failure evidence as an incident', a
   const state = {
     rooms: [{
       id: 'room-1', name: 'Worker Room', relay: { active: false, waitingFor: null },
-      members: [{ id: 'parent', binding: { ...source } }]
+      members: [{ id: 'parent', binding: { ...source } }],
+      messages: [{ id: 'source-spawn', senderKind: 'user', text: 'Spawn a managed worker.' },
+        { id: 'agent-spawn', senderKind: 'agent', senderId: 'parent', text: 'Spawning the worker.' }]
     }]
   };
+  const command = { action: 'spawn_agent', room: 'room-1', providerId: 'muse' };
+  const room = state.rooms[0];
+  controlReceipt.rememberIntent(room, { executorMember: room.members[0], sourceMessage: room.messages[0],
+    command, agentMessage: room.messages[1], turnRequestId: 'turn-spawn-evidence' });
   const incidents = [];
   const error = Object.assign(new Error('prime failed'), {
     code: 'PROMPT_DELIVERY_UNCOMMITTED',
@@ -97,7 +104,7 @@ test('provider-control records managed spawn failure evidence as an incident', a
     type: 'provider_control_request',
     requestId: 'ctl-spawn-evidence',
     source,
-    command: { action: 'spawn_agent', room: 'room-1', providerId: 'muse' }
+    command
   });
   assert.equal(incidents.length, 1);
   assert.equal(incidents[0].roomId, 'room-1');

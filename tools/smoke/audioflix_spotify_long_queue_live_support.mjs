@@ -54,8 +54,10 @@ export function createLongQueueHarness({
         const controller = new URL(controllerUrl);
         const engine = new URL(engineUrl);
         const allowedHosts = new Set(['127.0.0.1', 'localhost', '::1']);
-        if (!allowedHosts.has(controller.hostname) || !allowedHosts.has(engine.hostname)) {
-            throw new Error('Live queue proof requires loopback controller and engine URLs.');
+        const localFile = controller.protocol === 'file:' && !controller.hostname;
+        if ((!localFile && (!/^https?:$/.test(controller.protocol) || !allowedHosts.has(controller.hostname)))
+            || !/^https?:$/.test(engine.protocol) || !allowedHosts.has(engine.hostname)) {
+            throw new Error('Live queue proof requires a local controller and loopback HTTP engine.');
         }
         if (!/\/EveOS\.html$/i.test(controller.pathname)) {
             throw new Error(`Controller must be EveOS.html, got ${controllerUrl}`);
@@ -199,6 +201,7 @@ export function createLongQueueHarness({
                 focusTrace: Array.isArray(probe.focusTrace) ? probe.focusTrace.slice(-30) : [],
                 hydrationChanges: Array.isArray(probe.changes) ? probe.changes.slice(-20) : [],
                 queue: window.EveAudioflix?.queueConnection?.snapshot?.() || null,
+                engine: window.EveAudioflixSpotifyAnyBrowser?.snapshot?.()?.relay?.lastState?.engine || null,
                 playback: {
                     status: String(playback.status || ''),
                     browserOnly: playback.browserOnly === true,

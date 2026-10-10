@@ -2,9 +2,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { randomBytes } = require('node:crypto');
 const { calculateProof, createTrustedTerminalAttachmentRegistry } = require('../machine-spaces/trusted-terminal-attachment');
 
-const ADAPTER_SECRET = 'server-side-adapter-secret';
+const ADAPTER_SECRET = randomBytes(24).toString('hex');
 
 function fixture({ trusted = true } = {}) {
   let clock = Date.parse('2026-10-08T13:00:00.000Z');

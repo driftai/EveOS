@@ -25,12 +25,18 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             window.onSpotifyIframeApiReady({
                 createController: function (_mount, options, ready) {
                     var listeners = {};
-                    var calls = window.__engineCalls = { uri: options.uri, play: 0, resume: 0, pause: 0, seek: [], load: [] };
+                    var calls = window.__engineCalls = { uri: options.uri, play: 0, resume: 0, restart: 0, pause: 0, seek: [], load: [] };
                     var controller = window.__engineController = {
                         addListener: function (name, listener) { listeners[name] = listener; },
                         play: function () { calls.play += 1; },
                         resume: function () { calls.resume += 1; },
-                        pause: function () { calls.pause += 1; },
+                        restart: function () { calls.restart += 1; },
+                        pause: function () {
+                            calls.pause += 1;
+                            if (window.__engineLateEndDuringReset) controller.emit('playback_update', {
+                                playingURI: calls.uri, position: 180000, duration: 180000, isPaused: true
+                            });
+                        },
                         seek: function (seconds) {
                             calls.seek.push(seconds);
                             if (!window.__engineCompleteDuringSeek) return;
@@ -61,6 +67,7 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
                 spotifyId: '4cOdK2wGLETKBW3PvgPWqT', title: 'Engine smoke', duration: 180, generation: 7
             });
             const afterLoad = engine.snapshot();
+            const firstLoadCalls = window.__engineCalls.load.length;
             await engine.command('play');
             window.__engineController.emit('playback_started', {});
             window.__engineController.emit('playback_update', {
@@ -74,6 +81,10 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             const noAutoResume = window.__engineCalls.resume === resumeBeforeProviderPause;
             await engine.command('pause');
             const explicitPaused = engine.snapshot();
+            window.__engineController.emit('playback_update', {
+                position: 500, duration: 180000, isPaused: true
+            });
+            const latePauseAcknowledged = engine.snapshot();
             await engine.command('play');
             const deliberateResume = window.__engineCalls.resume === resumeBeforeProviderPause + 1;
             window.__engineController.emit('playback_update', {
@@ -127,22 +138,83 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             const completionDuringSeek = window.__engineCompletionDuringSeek;
             update(0, true);
             const resetAfterCompletedSeek = engine.snapshot();
+            const loadsBeforeReplay = window.__engineCalls.load.length;
+            window.__engineLateEndDuringReset = true;
+            await engine.command('load', {
+                spotifyId: '4cOdK2wGLETKBW3PvgPWqT', generation: 11, duration: 180
+            });
+            const repeatedLoad = engine.snapshot();
+            window.__engineLateEndDuringReset = false;
+            let pendingReplaySeekDenied = false;
+            try { engine.acknowledgeMediaSeek({ generation: 11,
+                spotifyId: '4cOdK2wGLETKBW3PvgPWqT', currentTime: 0, duration: 180 }); }
+            catch { pendingReplaySeekDenied = true; }
+            update(0, false); // Native reset can look like playback while the old provider still plays.
+            update(180000, true);
+            const resetBeforePlay = engine.snapshot();
+            update(180000, true);
+            await engine.command('play');
+            window.__engineController.emit('playback_started', {});
+            update(180000);
+            const replayBeforeFreshProgress = engine.snapshot();
+            const replayRestarts = window.__engineCalls.restart;
+            update(1000);
+            const replayAfterFreshProgress = engine.snapshot();
+            const sdkSeeksBeforeAck = window.__engineCalls.seek.length;
+            const mediaSeekAcknowledged = engine.acknowledgeMediaSeek({
+                spotifyId: '4cOdK2wGLETKBW3PvgPWqT', generation: 11, currentTime: 179, duration: 180
+            });
+            const sdkSeeksAfterAck = window.__engineCalls.seek.length;
+            let supersededSeekDenied = false;
+            try { engine.acknowledgeMediaSeek({ generation: 10, spotifyId: '4cOdK2wGLETKBW3PvgPWqT', currentTime: 0 }); }
+            catch { supersededSeekDenied = true; }
+            update(180000);
+            const replayCompleted = engine.snapshot();
+            const repeatedNavigations = window.__engineCalls.load.length - loadsBeforeReplay;
+            await engine.command('load', { spotifyId: '1WZGaNYzreZrvteuUEfp8X', generation: 12 });
+            const changedLoad = engine.snapshot();
             return {
-                afterLoad, providerPaused, noAutoResume, explicitPaused, deliberateResume,
+                afterLoad, providerPaused, noAutoResume, explicitPaused, latePauseAcknowledged, deliberateResume,
                 endedOnce, endedTwice, afterTerminalPlay, afterRestart, unpausedEnd, unpausedEndRepeat,
                 resetAfterUnpausedEnd, nearEnd, stalledEnd, afterSeek,
                 beforeSeekCompletion, completionDuringSeek, completedSeek, resetAfterCompletedSeek,
+                firstLoadCalls, repeatedLoad, repeatedNavigations, changedLoad,
+                replayBeforeFreshProgress, replayAfterFreshProgress, replayCompleted, replayRestarts,
+                mediaSeekAcknowledged, sdkSeeksBeforeAck, sdkSeeksAfterAck, supersededSeekDenied,
+                pendingReplaySeekDenied,
+                resetBeforePlay,
                 calls: { ...window.__engineCalls }
             };
         });
 
         assert.equal(result.afterLoad.generation, 7);
         assert.equal(result.afterLoad.spotifyId, '4cOdK2wGLETKBW3PvgPWqT');
+        assert.equal(result.firstLoadCalls, 0, 'createController already loads the first URI; do not navigate twice');
+        assert.equal(result.repeatedNavigations, 0, 'same Spotify URI in another queue slot resets without iframe reload');
+        assert.equal(result.repeatedLoad.generation, 11, 'same-URI replay still owns a fresh playback generation');
+        assert.equal(result.repeatedLoad.currentTime, 0);
+        assert.equal(result.repeatedLoad.ended, false);
+        assert.equal(result.repeatedLoad.completionId, '', 'late previous-play tail during reset cannot complete the next slot');
+        assert.equal(result.pendingReplaySeekDenied, true, 'seek cannot unlock replay startup before fresh progress');
+        assert.equal(result.resetBeforePlay.ended, false, 'a zero reset before Play cannot make the previous tail end the next slot');
+        assert.equal(result.resetBeforePlay.replayPending, true, 'only requested new playback can anchor a replay');
+        assert.equal(result.replayBeforeFreshProgress.ended, false, 'late tail after reset/playback_started cannot skip the replay');
+        assert.equal(result.replayRestarts, 1, 'same-URI slot uses the documented restart instead of merely resuming an ended song');
+        assert.equal(result.replayAfterFreshProgress.status, 'playing', 'fresh near-start progress unlocks repeated playback');
+        assert.equal(result.mediaSeekAcknowledged.currentTime, 179);
+        assert.equal(result.sdkSeeksAfterAck, result.sdkSeeksBeforeAck, 'native song seek does not issue a second provider SDK seek');
+        assert.equal(result.supersededSeekDenied, true, 'old-generation acknowledgement cannot alter the next song');
+        assert.equal(result.replayCompleted.ended, true, 'repeated playback still completes after its own start');
+        assert.ok(result.replayCompleted.completionId.startsWith('11:'));
+        assert.equal(result.changedLoad.spotifyId, '1WZGaNYzreZrvteuUEfp8X');
+        assert.ok(result.calls.load.includes('spotify:track:1WZGaNYzreZrvteuUEfp8X'), 'different tracks still use provider loadUri');
         assert.equal(result.providerPaused.status, 'provider-paused');
         assert.equal(result.providerPaused.ended, false, 'an ordinary mid-track provider pause is not completion');
         assert.equal(result.providerPaused.completionId, '', 'an ordinary pause creates no completion identity');
         assert.equal(result.noAutoResume, true, 'engine never steals an ambiguous provider-origin pause');
         assert.equal(result.explicitPaused.status, 'paused', 'explicit mid-track pause remains paused');
+        assert.equal(result.latePauseAcknowledged.playRequested, false,
+            'provider acknowledgement preserves explicit Pause intent for startup recovery');
         assert.equal(result.explicitPaused.ended, false, 'explicit mid-track pause never completes the track');
         assert.equal(result.explicitPaused.completionId, '', 'explicit pause creates no completion identity');
         assert.equal(result.deliberateResume, true, 'explicit engine play resumes paused playback');
@@ -186,7 +258,8 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
         assert.equal(result.resetAfterCompletedSeek.currentTime, 180, 'later reset does not zero completed seek progress');
         assert.equal(result.resetAfterCompletedSeek.completionId, result.completedSeek.completionId,
             'later provider reset cannot duplicate seek-triggered completion');
-        assert.ok(result.calls.load.includes('spotify:track:4cOdK2wGLETKBW3PvgPWqT'));
+        assert.equal(result.calls.uri, 'spotify:track:4cOdK2wGLETKBW3PvgPWqT',
+            'the initial URI is supplied through createController rather than a duplicate loadUri');
 
         const mirrorPage = await browser.newPage();
         const mirrorUrl = `file:///${engineHtmlPath.replace(/\\/g, '/')}?surface=mirror`;

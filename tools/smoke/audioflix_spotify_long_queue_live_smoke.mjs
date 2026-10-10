@@ -3,6 +3,8 @@
 import process from 'node:process';
 import { chromium } from 'playwright';
 import { createLongQueueHarness, normalizeSpotify, spotifyTrackId } from './audioflix_spotify_long_queue_live_support.mjs';
+import { validateBackendUrls, installBackendWriteBarrier, readBackendAudioflixSnapshot,
+    assertBackendAudioflixUnchanged } from './audioflix_spotify_live_isolation.shared.js';
 
 const argv = process.argv.slice(2);
 const has = (flag) => argv.includes(flag);
@@ -32,6 +34,15 @@ const H = createLongQueueHarness({
 
 async function main() {
     H.validateUrls();
+    const backendUrls = [base, engineUrl];
+    if (/^https?:$/.test(new URL(controllerUrl).protocol)) backendUrls.push(controllerUrl);
+    validateBackendUrls(backendUrls);
+    const readBackend = () => readBackendAudioflixSnapshot(async () => {
+        const response = await fetch(`${base}/api/eve-state/modular/load`, { signal: AbortSignal.timeout(10000), cache: 'no-store' });
+        if (!response.ok) throw new Error(`Backend Audioflix snapshot failed: HTTP ${response.status}`);
+        return response.json();
+    });
+    const backendBefore = await readBackend();
     const managedPreflight = await H.ensureManagedEngine();
     console.log('LIVE_QUEUE_ENGINE_READY', JSON.stringify({
         pageUrl: managedPreflight.status.pageUrl,
@@ -41,11 +52,13 @@ async function main() {
     }));
 
     const browser = await chromium.launch({ headless });
-    const context = await browser.newContext({ viewport: { width: 1360, height: 900 } });
+    const context = await browser.newContext({ viewport: { width: 1360, height: 900 }, serviceWorkers: 'block' });
+    const isolation = await installBackendWriteBarrier(context, backendUrls);
     const page = await context.newPage();
     let foreground = null;
     let hiddenMethod = '';
-    let originalStateCaptured = false;
+    let completed = null;
+    let isolationEvidence = null;
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(String(error?.message || error)));
     // Surface silent queue skips: playQueueIndex logs "[Audioflix] Skipped <title>: <reason>" and
@@ -68,6 +81,7 @@ async function main() {
             && window.EveAudioflixDiagnostics?.ready, undefined, { timeout: 120000 });
         const hydration = await H.waitForControllerHydration(page);
         console.log('LIVE_QUEUE_CONTROLLER_STABLE', JSON.stringify(hydration));
+        await isolation.proveBlocked(page);
 
         const initialQueue = await H.queueSnapshot(page);
         if (initialQueue.queue?.isPlaying) {
@@ -92,13 +106,6 @@ async function main() {
         const expectedTrackIds = urls.map(spotifyTrackId);
         H.assert(expectedTrackIds.every(Boolean), `fixture contains an invalid Spotify track: ${JSON.stringify(urls)}`);
         const expectedIds = Array.from({ length: count }, (_, index) => `${fixturePrefix}${index}`);
-
-        await page.evaluate(() => {
-            window.__eveLongQueueOriginalState = JSON.parse(JSON.stringify(window.EveAudioflixState.ensure()));
-            window.__eveLongQueueOriginalSaveConfig = window.saveConfig;
-            window.saveConfig = async () => true;
-        });
-        originalStateCaptured = true;
 
         await page.evaluate(({ tracks, group, nonce }) => {
             const S = window.EveAudioflixState;
@@ -232,7 +239,7 @@ async function main() {
         H.assert(pageErrors.length === 0, `controller page emitted errors: ${pageErrors.join(' | ')}`);
 
         const sorted = [...transitions].sort((a, b) => a.elapsedMs - b.elapsedMs);
-        console.log(JSON.stringify({
+        completed = {
             ok: true,
             tracks: count,
             sourceTrackCount: sourceTracks.length,
@@ -244,9 +251,13 @@ async function main() {
             maxTransitionMs: Math.max(...transitions.map((entry) => entry.elapsedMs)),
             p50TransitionMs: sorted[Math.floor(sorted.length / 2)].elapsedMs,
             diagnostics: result.diagnostics.summary
-        }, null, 2));
-        console.log(`AUDIOFLIX_SPOTIFY_LONG_QUEUE_LIVE_OK ${count}/${count}`);
+        };
     } catch (error) {
+        const helper = await H.jsonRequest('/api/audioflix/spotify-browser/status').catch(() => null);
+        if (helper) console.error('LIVE_QUEUE_HELPER_DIAGNOSTICS', JSON.stringify({
+            state: helper.state, playingCount: helper.playingCount, mediaCount: helper.mediaCount,
+            diagnostics: helper.diagnostics, transport: helper.transport
+        }));
         const diagnostics = await H.controllerDiagnostics(page).catch(() => null);
         if (diagnostics) console.error('LIVE_QUEUE_CONTROLLER_DIAGNOSTICS', JSON.stringify(diagnostics, null, 2));
         if (audioflixWarnings.length) console.error('LIVE_QUEUE_AUDIOFLIX_CONSOLE', JSON.stringify(audioflixWarnings, null, 2));
@@ -254,32 +265,27 @@ async function main() {
     } finally {
         await H.disposeControllerProbe(page).catch(() => {});
         try {
-            await page.evaluate(async ({ restore }) => {
+            await page.evaluate(async () => {
                 const stopButton = document.querySelector('[data-af-action="stop-music-group"]');
                 if (stopButton) {
                     stopButton.click();
                     await new Promise((resolve) => setTimeout(resolve, 200));
                 }
                 try { await window.EveAudioflixAudio?.stopAll?.(); } catch {}
-                if (restore && window.__eveLongQueueOriginalState) {
-                    window.EveAudioflixState?.replaceState?.(
-                        window.__eveLongQueueOriginalState,
-                        'audioflix-live-long-queue-restore'
-                    );
-                }
-                if (window.__eveLongQueueOriginalSaveConfig !== undefined) {
-                    window.saveConfig = window.__eveLongQueueOriginalSaveConfig;
-                }
-                delete window.__eveLongQueueOriginalState;
-                delete window.__eveLongQueueOriginalSaveConfig;
-                try { window.EveAudioflix?.render?.(); } catch {}
-            }, { restore: originalStateCaptured });
+            });
         } catch {}
         if (managedPreflight.startedBySmoke) {
             await H.jsonRequest('/api/audioflix/spotify-browser/stop', 'POST', {}).catch(() => {});
         }
-        await browser.close().catch(() => {});
+        let closeError = null;
+        await browser.close().catch((error) => { closeError = error; });
+        const backendAfter = await readBackend();
+        assertBackendAudioflixUnchanged(backendBefore, backendAfter);
+        isolationEvidence = { before: backendBefore, after: backendAfter, ...isolation.summary() };
+        if (closeError) throw closeError;
     }
+    console.log(JSON.stringify({ ...completed, isolation: isolationEvidence }, null, 2));
+    console.log(`AUDIOFLIX_SPOTIFY_LONG_QUEUE_LIVE_OK ${count}/${count} backend=unchanged blocked=${isolationEvidence.blockedCount}`);
 }
 
 main().catch((error) => {

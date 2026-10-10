@@ -2,6 +2,8 @@
 
 const { URL } = require('node:url');
 const { engineSnapshot, engineCommand } = require('./audioflix_spotify_browser_transport.js');
+const { reactivateStartup } = require('./audioflix_spotify_startup_reactivation.js');
+const { seekManagedMedia, handleManagedSeek } = require('./audioflix_spotify_media_seek.js');
 
 const PLAY_WAKE_INITIAL_MS = 1400;
 const PLAY_CONTROL_WAIT_MS = 3200;
@@ -10,7 +12,8 @@ const PLAY_CONTROL_WAIT_MS = 3200;
 const PLAY_CONTROL_RENDER_GRACE_MS = 5000;
 const PLAY_WAKE_SETTLE_MS = 3200;
 const PLAY_KICK_VERIFY_MS = 700;
-const PLAY_CONFIRM_VERIFY_MS = 700;
+// Live embeds can briefly start, then reset to paused/zero after more than 700ms.
+const PLAY_CONFIRM_VERIFY_MS = 2200;
 const PLAY_KICK_NEAR_START_MAX_S = 2;
 const MAX_CONTROL_DIAGNOSTICS = 20;
 
@@ -44,20 +47,28 @@ async function providerPauseButtonShowsPlaying(page, isSpotifyEmbedUrl) {
 async function playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl) {
     let transport = null;
     try { transport = await engineSnapshot(page); } catch {}
-    const snapshots = await spotifySnapshots(null, '');
-    const playingCount = snapshots.reduce((sum, item) => sum + Number(item.playingCount || 0), 0);
+    const snapshots = await spotifySnapshots(null, transport?.spotifyId || '');
+    const mediaObserved = snapshots.some(item => Array.isArray(item.media));
+    const playingCount = mediaObserved
+        ? snapshots.flatMap(item => item.media || []).filter(media => !media.paused && !media.ended && media.readyState >= 2).length
+        : snapshots.reduce((sum, item) => sum + Number(item.playingCount || 0), 0);
     const providerShowsPlaying = await providerPauseButtonShowsPlaying(page, isSpotifyEmbedUrl);
     return {
         playing: transport?.status === 'playing' || playingCount > 0 || providerShowsPlaying,
         transport: transport || {},
-        playingCount,
+        playingCount, mediaObserved,
         providerShowsPlaying
     };
 }
 
 function isConfirmedPlaybackObservation(observed) {
-    return String(observed?.transport?.status || '') === 'playing'
-        || Number(observed?.playingCount || 0) > 0;
+    return Number(observed?.playingCount || 0) > 0
+        || (observed?.mediaObserved !== true && String(observed?.transport?.status || '') === 'playing');
+}
+
+function confirmedForGeneration(observed, generation) {
+    return isConfirmedPlaybackObservation(observed)
+        && (!Number(generation) || Number(observed?.transport?.generation) === Number(generation));
 }
 
 async function waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, timeoutMs) {
@@ -91,26 +102,41 @@ function shouldRecoverLostConfirmation(observed, expectedGeneration = 0) {
     const transport = observed?.transport || {};
     const currentGeneration = Math.max(0, Number(transport.generation || 0));
     const wantedGeneration = Math.max(0, Number(expectedGeneration || 0));
-    if (wantedGeneration && currentGeneration && currentGeneration !== wantedGeneration) return false;
+    if (wantedGeneration && currentGeneration !== wantedGeneration) return false;
     const currentTime = Math.max(0, Number(transport.currentTime || 0));
-    return String(transport.status || '') === 'provider-paused'
+    const pendingReplay = transport.status === 'starting' && transport.replayPending === true;
+    return (String(transport.status || '') === 'provider-paused' || pendingReplay)
+        && transport.playRequested !== false
         && transport.paused !== false
         && currentTime < PLAY_KICK_NEAR_START_MAX_S;
 }
 
 async function stabilizeConfirmedPlayback(options = {}) {
     let observed = options.observed;
-    if (!isConfirmedPlaybackObservation(observed)) return { observed, recovered: false, stable: false };
+    const confirmed = value => confirmedForGeneration(value, options.expectedGeneration);
     const observe = options.observe;
     const resume = options.resume;
     const waitForConfirmed = options.waitForConfirmed;
     const sleep = options.sleep || delay;
     const note = options.note || (() => {});
     const verifyMs = Math.max(0, Number(options.verifyMs ?? PLAY_CONFIRM_VERIFY_MS));
+    if (!confirmed(observed)) {
+        if (!shouldRecoverLostConfirmation(observed, options.expectedGeneration) || !options.reactivate) {
+            return { observed, recovered: false, stable: false };
+        }
+        const activation = await options.reactivate();
+        if (!activation?.clicked) return { observed, recovered: false, stable: false };
+        observed = await waitForConfirmed();
+        if (confirmed(observed)) {
+            await sleep(verifyMs);
+            observed = await observe();
+        }
+        return { observed, recovered: true, reactivated: true, stable: confirmed(observed) };
+    }
 
     await sleep(verifyMs);
     observed = await observe();
-    if (isConfirmedPlaybackObservation(observed)) return { observed, recovered: false, stable: true };
+    if (confirmed(observed)) return { observed, recovered: false, stable: true };
 
     const transport = observed?.transport || {};
     note('playback-confirm-lost', `${transport.status || 'unknown'} at ${Math.max(0, Number(transport.currentTime || 0)).toFixed(3)}s after strong confirmation.`);
@@ -122,15 +148,27 @@ async function stabilizeConfirmedPlayback(options = {}) {
     const retry = await resume();
     if (!retry?.ok) return { observed, recovered: false, stable: false, retry };
     observed = await waitForConfirmed();
-    if (!isConfirmedPlaybackObservation(observed)) return { observed, recovered: true, stable: false, retry };
-
-    await sleep(verifyMs);
-    observed = await observe();
-    if (!isConfirmedPlaybackObservation(observed)) {
+    if (confirmed(observed)) {
+        await sleep(verifyMs);
+        observed = await observe();
+    }
+    if (!confirmed(observed)) {
         const finalTransport = observed?.transport || {};
         note('playback-confirm-lost', `${finalTransport.status || 'unknown'} at ${Math.max(0, Number(finalTransport.currentTime || 0)).toFixed(3)}s after bounded resume recovery.`);
+        if (shouldRecoverLostConfirmation(observed, options.expectedGeneration) && options.reactivate) {
+            const activation = await options.reactivate();
+            if (activation?.clicked) {
+                observed = await waitForConfirmed();
+                if (confirmed(observed)) {
+                    await sleep(verifyMs);
+                    observed = await observe();
+                }
+                return { observed, recovered: true, reactivated: true,
+                    stable: confirmed(observed), retry };
+            }
+        }
     }
-    return { observed, recovered: true, stable: isConfirmedPlaybackObservation(observed), retry };
+    return { observed, recovered: true, stable: confirmed(observed), retry };
 }
 
 async function hoverSpotifySurfaces(page, isSpotifyEmbedUrl, note) {
@@ -297,7 +335,14 @@ async function handleTransportWithActivation(options, body) {
         page, spotifySnapshots, isSpotifyEmbedUrl, normalizeTrackId, note, runtime
     } = options;
     const action = String(body?.action || '').trim().toLowerCase();
+    // SDK seek is for podcasts. Do not issue a competing SDK seek for managed songs.
+    if (action === 'seek') return handleManagedSeek(options, body);
+    const previous = action === 'load' ? await engineSnapshot(page).catch(() => null) : null;
     const result = await engineCommand(page, body);
+    if (result?.ok && action === 'load' && previous?.spotifyId === result.state?.spotifyId) {
+        const mediaSeek = await seekManagedMedia(options, result.state, 0);
+        result.mediaSeek = mediaSeek;
+    }
     if (!result?.ok || !['play', 'resume'].includes(action)) return result;
 
     let observed = await waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_INITIAL_MS);
@@ -335,13 +380,18 @@ async function handleTransportWithActivation(options, body) {
         observed,
         observe: () => playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl),
         resume: () => engineCommand(page, { action: 'play' }),
+        reactivate: () => reactivateStartup({
+            page, observe: () => playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl),
+            expectedGeneration: Number(result.state?.generation || 0), isSpotifyEmbedUrl, note, runtime
+        }),
         waitForConfirmed: () => waitForConfirmedPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS),
         expectedGeneration: Number(result.state?.generation || 0),
         note
     });
     observed = confirmation.observed;
     if (confirmation.recovered) activationMethod = `${activationMethod}+resume-recover`;
-    if (!isConfirmedPlaybackObservation(observed)) {
+    if (confirmation.reactivated) activationMethod = `${activationMethod}+trusted-reactivate`;
+    if (!confirmation.stable) {
         const message = 'Spotify loaded but did not begin playback. The managed engine could not establish a playable user activation.';
         runtime.lastError = message;
         runtime.state = observed.transport?.status || 'starting';
@@ -360,6 +410,10 @@ async function handleTransportWithActivation(options, body) {
     }
     let finalState = observed.transport || result.state || {};
     try { finalState = await engineSnapshot(page); } catch {}
+    if (Number(finalState.generation) !== Number(result.state?.generation)) {
+        return { ok: false, action, state: finalState, playbackActivated: false,
+            reason: 'Spotify playback was superseded during startup confirmation.' };
+    }
     return { ...result, state: finalState, playbackActivated: true, activationMethod };
 }
 

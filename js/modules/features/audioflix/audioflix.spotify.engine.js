@@ -41,6 +41,16 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     let lastPlayingPositionMs = 0;
     let lastDurationMs = 0;
     let seekEndResetGeneration = 0;
+    let resetting = false;
+    let awaitingReplayStart = false;
+    let replayRequested = false;
+    let playRequestedGeneration = 0;
+    const recentEvents = [];
+    const trace = (kind, data = {}) => {
+        recentEvents.push({ at: Date.now(), generation: state.generation, kind, status: state.status,
+            position: data.position, duration: data.duration, paused: data.isPaused, buffering: data.isBuffering });
+        if (recentEvents.length > 32) recentEvents.shift();
+    };
 
     const text = (value) => String(value ?? '').trim();
     const trackId = (value) => text(value)
@@ -55,6 +65,9 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
             currentTime: Number(state.currentTime || 0),
             duration: Number(state.duration || 0),
             ready: Boolean(controller),
+            playRequested: playRequestedGeneration === state.generation && state.generation > 0,
+            replayPending: awaitingReplayStart,
+            recentEvents: recentEvents.slice(),
             spotifyUri: state.spotifyId ? `spotify:track:${state.spotifyId}` : ''
         };
     }
@@ -114,6 +127,9 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
     function attachListeners(target) {
         target.addListener?.('ready', () => setStatus('loaded', { paused: true, error: '' }));
         target.addListener?.('playback_started', () => {
+            trace('provider-started');
+            if (resetting) return;
+            if (awaitingReplayStart) { setStatus('starting'); return; }
             state.started = true;
             state.ended = false;
             state.paused = false;
@@ -122,6 +138,8 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
             setStatus('playing');
         });
         target.addListener?.('playback_update', (event) => {
+            trace('provider-update', event?.data || event || {});
+            if (resetting) return;
             const data = event?.data || event || {};
             const playingId = trackId(data.playingURI);
             if (playingId && state.spotifyId && playingId !== state.spotifyId) return;
@@ -129,6 +147,13 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
             const durationMs = Math.max(0, Number(data.duration || 0));
             const paused = data.isPaused !== false;
             const effectiveDurationMs = durationMs || lastDurationMs;
+            // Same-URI events carry no play-generation token. Old final frames may arrive
+            // after pause/seek reset or even playback_started; require fresh start progress
+            // before letting those frames complete the new queue slot.
+            if (awaitingReplayStart) {
+                if (playRequestedGeneration !== state.generation || paused || positionMs > 2000) return;
+                awaitingReplayStart = false;
+            }
             const wasPlaying = state.paused === false;
             const previousNearEnd = lastDurationMs > 0
                 && lastPlayingPositionMs >= Math.max(0, lastDurationMs - END_TOLERANCE_MS);
@@ -219,9 +244,18 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
         return controllerReady;
     }
     async function load(payload = {}) {
+        trace('load');
         const id = trackId(payload.spotifyId || payload.url || payload.uri);
         if (!id) throw new Error('A valid Spotify track ID is required.');
+        const hadController = Boolean(controller);
+        const sameUri = hadController && state.spotifyId === id;
         const nextGeneration = Math.max(1, Number(payload.generation || state.generation + 1));
+        resetting = true;
+        awaitingReplayStart = sameUri;
+        replayRequested = sameUri;
+        playRequestedGeneration = 0;
+        clearTimeout(endStallTimer);
+        endStallTimer = 0;
         state.spotifyId = id;
         state.title = text(payload.title);
         state.generation = nextGeneration;
@@ -237,27 +271,36 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
         lastDurationMs = state.duration * 1000;
         seekEndResetGeneration = 0;
         setStatus('loading');
-        const player = await ensureController(id);
-        if (player && typeof player.loadUri === 'function') {
-            await Promise.resolve(player.loadUri(`spotify:track:${id}`));
-        } else if (player && typeof player.loadEntity === 'function') {
-            await Promise.resolve(player.loadEntity(`spotify:track:${id}`));
-        }
+        try {
+            const player = await ensureController(id);
+            if (sameUri) {
+                // Repeated slots reset the provider without another iframe navigation.
+                await Promise.resolve(player.pause?.());
+            } else if (hadController && player && typeof player.loadUri === 'function') {
+                await Promise.resolve(player.loadUri(`spotify:track:${id}`));
+            } else if (hadController && player && typeof player.loadEntity === 'function') {
+                await Promise.resolve(player.loadEntity(`spotify:track:${id}`));
+            }
+        } finally { resetting = false; }
         return setStatus('loaded', { paused: true });
     }
     async function play() {
+        trace('play');
         if (!controller) throw new Error('No Spotify track is loaded.');
+        playRequestedGeneration = state.generation;
         seekEndResetGeneration = 0;
         state.providerPaused = false;
         setStatus('starting');
-        const pending = typeof controller.resume === 'function' && state.started
-            ? controller.resume()
-            : controller.play?.();
+        const replay = replayRequested;
+        replayRequested = false;
+        const pending = replay && typeof controller.restart === 'function' ? controller.restart()
+            : typeof controller.resume === 'function' && state.started ? controller.resume() : controller.play?.();
         await Promise.resolve(pending);
         return snapshot();
     }
     async function pause() {
         if (!controller) return snapshot();
+        playRequestedGeneration = 0;
         seekEndResetGeneration = 0;
         await Promise.resolve(controller.pause?.());
         state.paused = true;
@@ -290,6 +333,23 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
         state.ended = false;
         return setStatus('stopped', { paused: true, providerPaused: false });
     }
+    function acknowledgeMediaSeek(payload = {}) {
+        if (Number(payload.generation) !== state.generation || payload.spotifyId !== state.spotifyId) {
+            throw new Error('Spotify playback changed before seek acknowledgement.');
+        }
+        if (awaitingReplayStart) throw new Error('Spotify replay start is not confirmed yet.');
+        if (state.ended) return snapshot();
+        const seconds = Math.max(0, Number(payload.currentTime || 0));
+        const durationMs = Math.max(0, Number(payload.duration || 0) * 1000);
+        const wasPlaying = state.started && !state.paused;
+        trace('media-seek', { position: seconds * 1000, duration: durationMs });
+        state.currentTime = seconds;
+        if (durationMs > 0) { state.duration = durationMs / 1000; lastDurationMs = durationMs; }
+        if (wasPlaying && seconds > 0) lastPlayingPositionMs = seconds * 1000;
+        seekEndResetGeneration = wasPlaying && durationMs > 0
+            && seconds * 1000 >= Math.max(0, durationMs - SEEK_END_RESET_TOLERANCE_MS) ? state.generation : 0;
+        return setStatus(state.paused ? 'paused' : 'playing');
+    }
     async function restart(payload = {}) {
         if (!controller) throw new Error('No Spotify track is loaded.');
         seekEndResetGeneration = 0;
@@ -314,6 +374,6 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
         throw new Error(`Unsupported Spotify engine action: ${name || '(empty)'}`);
     }
 
-    Object.assign(ns, { ready: true, snapshot, command, trackId });
+    Object.assign(ns, { ready: true, snapshot, command, trackId, acknowledgeMediaSeek });
     document.documentElement.dataset.spotifyEngineReady = 'true';
 })();

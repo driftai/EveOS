@@ -225,6 +225,17 @@ async function main() {
         const trackIds = playingTrackIds(snapshots);
         let transport = null;
         try { transport = await engineSnapshot(page); } catch {}
+        if (transport?.status === 'playing' && !playingCount
+            && runtime.mediaMismatchGeneration !== transport.generation) {
+            runtime.mediaMismatchGeneration = transport.generation;
+            note('playback-media-mismatch', JSON.stringify({ generation: transport.generation,
+                position: transport.currentTime, duration: transport.duration,
+                media: snapshots.flatMap(item => item.media || []).map(media => ({
+                    id: media.id, paused: media.paused, ended: media.ended,
+                    time: media.currentTime, duration: media.duration, ready: media.readyState
+                }))
+            }));
+        }
         if (runtime.importing) runtime.state = 'importing';
         else if (!page || page.isClosed()) runtime.state = 'page-closed';
         else if (playingCount > 0) runtime.state = 'controlling';

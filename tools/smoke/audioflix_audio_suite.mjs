@@ -32,6 +32,7 @@ const tests = {
         ['node', 'tools/smoke/audioflix_soundlab_underrun_smoke.js']
     ],
     spotify: [
+        ['node', 'tools/smoke/audioflix_spotify_live_isolation_smoke.js'],
         ['node', 'tools/smoke/audioflix_spotify_browser_contract_smoke.js'],
         ['node', 'tools/smoke/audioflix_spotify_browser_runtime_smoke.js'],
         ['python', 'tools/smoke/audioflix_spotify_browser_python_smoke.py'],

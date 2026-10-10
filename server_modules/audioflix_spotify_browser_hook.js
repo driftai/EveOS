@@ -96,6 +96,22 @@ function browserInit(payload) {
 
     window.__eveSpotifyManagedControl = {
         version: 2,
+        seek(seconds) {
+            const value = Number(seconds);
+            if (!Number.isFinite(value) || value < 0) return { reached: false };
+            discoverDom();
+            const candidates = state.media.filter(entry => entry.el?.readyState >= 2
+                && Number.isFinite(entry.el.duration) && entry.el.duration > 0);
+            candidates.sort((a, b) => Number(!b.el.paused && !b.el.ended) - Number(!a.el.paused && !a.el.ended)
+                || b.id - a.id);
+            const element = candidates[0]?.el;
+            if (!element) return { reached: false };
+            try {
+                const target = Math.min(value, element.duration);
+                element.currentTime = target;
+                return { reached: true, currentTime: Number(element.currentTime), duration: Number(element.duration) };
+            } catch (error) { state.lastError = safeError(error); return { reached: false }; }
+        },
         setVolume(value) {
             const n = Number(value);
             if (!Number.isFinite(n)) return this.snapshot();

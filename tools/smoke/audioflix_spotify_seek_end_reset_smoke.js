@@ -49,6 +49,7 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
                 await engine.command('load', { spotifyId: id, title: 'Seek reset', duration: 30.03, generation });
                 await engine.command('play');
                 window.__engineController.emit('playback_started', {});
+                update(1000, false);
                 update(5000, false);
             };
 
