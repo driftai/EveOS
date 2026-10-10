@@ -313,3 +313,47 @@ Qualification boundaries:
   shuffle/reorder during playback, Play Group without opening Queue View, reconnect/reload,
   actual boot/input/transition p50/p95/max and memory/CPU evidence, then Lane-4 scoped reload
   and the agreed uncached repository gate. Do not merge/deploy/delete rollback branches yet.
+
+## Lane 3 Windows closure and Queue View volume binding
+
+Windows acceptance continued from `8518e155f7418568650c87688c28d4cb6dd2f819`.
+The identity-verified web backend was restarted through Local Control, not by killing a port.
+Replacement PID 205848 started at 2026-10-10T07:08:09.238619-04:00; Local Control stayed up.
+An isolated controller, blocked library writes and retained signed-in managed Edge profile
+proved Play Group without Queue View and one full 92.636-second, no-seek natural transition.
+The Ended-to-confirmed-playing interval was 4160ms. Twelve real status calls measured
+p50 36.8ms, p95/max 50ms; these are warm short-session samples, not baseline comparisons.
+Thirty-seven resource samples found one watch flight/job and one progress timer/request
+at most. Sampling includes test overhead and summed working sets can double-count shared
+pages; neither these samples nor a seek-assisted test establishes long-run leak freedom.
+
+A subsequent human report exposed a separate, reproduced mirror binding defect: title and
+progress followed the next managed item, but Queue View's volume and resume callbacks still
+captured the item that originally opened the mirror. Song #2 slider input never reached the
+managed volume lane. The correction resolves current managed playback on every input,
+refreshes mirror item/volume presentation and persists volume through the shared state path.
+It does not weaken broker generation fencing, add a queue scheduler or reopen provider frames.
+The existing registered queue-surface smoke now pins this regression, including an input
+before the next progress/render delivery and resume targeting the new item.
+Checkpoint gates passed: structural guardrails, the registered Spotify playback/watch lane
+(181.1s), the four-child volume lane (2.0s), and the strengthened VM/real-pointer queue-surface
+smoke (2/2). Assets were synchronized explicitly before verification. Full verify was not run.
+
+Real signed-in Windows pointer testing passed volume on three distinct songs with the same
+Queue View left open through two seek-assisted transitions: helper-applied levels were
+0.08, 0.14 and 0.09, with fresh application timestamps and matching current track identities.
+Library and structural digests were unchanged. Ignored evidence is under
+`data/runtime/smoke-results/LAST-LANE3-VOLUME-TRANSITION.json`; the red reproduction is
+`LANE3-VOLUME-TRANSITION-BEFORE-FIX.json`. First-run timing/resources are recorded separately
+in `LAST-LANE3-RUNTIME-ACCEPTANCE.json`, so later focused runs cannot erase that evidence.
+
+Still not sealed: genuine-hidden full-duration handoff, repeat ON/OFF natural endings,
+shuffle/reorder, helper/relay reconnect, reload and the file entrypoint live matrix.
+Playwright's forced-focus capture kept the first minimized controller `visible`; this is
+not a background pass or an Audioflix failure. The isolated headed raw-CDP adapter proved
+hidden/visible transitions in a scratch fixture, but the remaining provider matrix has not
+yet passed with it. Take exclusive playback control only with the user's authorization.
+Resume the ignored `lane3-runtime-acceptance.mjs --native --continue-native` harness (add
+`--take-over` only when authorized), then proceed to Lane 4. Final endurance and uncached
+full-repository verify remain deferred to the agreed post-Lane-4 gate. No merge/deployment
+or rollback-branch deletion is authorized by this checkpoint.

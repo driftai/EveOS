@@ -25,6 +25,13 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
         return snapshot.active === true && remote()?.snapshot?.().connected === true;
     }
 
+    // The mirror is a view of live playback, not a controller locked to its opening item.
+    // Resolve again on input: a queue advance may precede its next progress/render event.
+    function playbackItem() {
+        const snapshot = managed()?.snapshot?.() || {};
+        return snapshot.active === true ? snapshot.playback?.item || snapshot.item || null : null;
+    }
+
     function mirrorBase() {
         const value = String(remote()?.snapshot?.().base || '').trim();
         try {
@@ -49,8 +56,10 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
         const snapshot = managed()?.snapshot?.() || {};
         const playback = snapshot.playback || {};
         const engine = remote()?.snapshot?.().lastState?.engine || {};
+        if (frame && playbackItem()) currentItem = playbackItem();
         syncQueue();
         view?.sync?.(playback);
+        if (currentItem) view?.setVolume?.(currentItem.volume ?? 1);
         if (!frame?.contentWindow || !frameOrigin) return;
         frame.contentWindow.postMessage({
             type: 'eveos:spotify-engine-mirror-state',
@@ -74,14 +83,17 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
             onToggle: async () => {
                 const playback = managed()?.snapshot?.().playback || {};
                 if (playback.paused === false) return window.EveAudioflixAudio?.pause?.();
-                if (currentItem) return window.EveAudioflixAudio?.playItem?.(currentItem);
+                const item = playbackItem();
+                if (item) return window.EveAudioflixAudio?.playItem?.(item);
             },
             onSeek: (value) => window.EveAudioflixAudio?.seek?.(value),
             onStep: (delta) => queueConnection()?.step?.(Number(delta) || 0),
             onJump: (index) => queueConnection()?.jump?.(Number(index) || 0),
             onVolume: (value) => {
-                if (!currentItem?.id) return;
-                window.EveAudioflixAudio?.updateItemVolume?.(currentItem.id, value);
+                const item = playbackItem();
+                if (!item?.id) return;
+                window.EveAudioflixState?.setItemVolume?.(item.type || 'music', item.id, value);
+                window.EveAudioflixAudio?.updateItemVolume?.(item.id, value);
             }
         });
         return view;
@@ -162,7 +174,7 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
     function show(item) {
         const controller = ensureView();
         if (!controller || !managedActive()) return false;
-        currentItem = item || managed()?.snapshot?.().item || currentItem;
+        currentItem = playbackItem() || item || currentItem;
         const host = controller.open(currentItem || {}, 'Spotify Engine', { expanded: true, visible: true });
         controller.setStatus('Managed Spotify engine is running in the background. This view mirrors it inside EveOS.');
         controller.setVisualVisible(true);
