@@ -12,7 +12,7 @@ const tracked = runGit(['ls-files', '-z']).split('\0').filter(Boolean).map(posix
 const trackedSet = new Set(tracked);
 
 const forbiddenRoots = [
-    'data/runtime/', 'data/modular-state/', 'logs/', 'test-results/', 'playwright-report/',
+    'data/runtime/', 'data/modular-state/', 'logs/', 'output/', 'test-results/', 'playwright-report/',
     'node_modules/', '.venv/', 'venv/', '.pytest_cache/', '.spotify-probe-profile/'
 ];
 const forbiddenExact = new Set([
@@ -22,6 +22,7 @@ const forbiddenPath = file => forbiddenExact.has(file)
     || forbiddenRoots.some(root => file.startsWith(root))
     || file.split('/').includes('__pycache__')
     || /(^|\/)\.env\.(?!example$)/.test(file)
+    || /^\.claude\/[^/]*\.local\.json$/i.test(file)
     || /(^|\/)(?:cookies?|credentials?|secrets?|tokens?)(?:\.[^/]+)?$/i.test(file);
 
 for (const file of tracked) if (forbiddenPath(file)) fail.push(`private/runtime path is tracked: ${file}`);
