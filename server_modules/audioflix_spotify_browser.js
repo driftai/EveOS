@@ -22,6 +22,7 @@ const SERVER_LIVENESS_TIMEOUT_MS = 30000;
 const { MAX_MEDIA_REFS, browserInit } = require('./audioflix_spotify_browser_hook.js');
 const { scrapeManagedPlaylist } = require('./audioflix_spotify_managed_import.js');
 const { engineSnapshot } = require('./audioflix_spotify_browser_transport.js');
+const { cancelLeases } = require('./audioflix_spotify_playback_lease.js');
 const {
     EDGE_LAUNCH_TIMEOUT_MS, CHROMIUM_LAUNCH_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS,
     launchManagedContext, prepareManagedPage
@@ -309,6 +310,7 @@ async function main() {
     async function openManagedPage(body) {
         const next = String(body?.pageUrl || runtime.pageUrl || pageUrl);
         if (!validateLoopbackPageUrl(next)) return { ok: false, reason: 'Managed page must be a loopback URL.' };
+        cancelLeases(runtime, 'page-reset');
         if (!page || page.isClosed()) page = await context.newPage();
         await page.goto(next, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
         runtime.pageUrl = next;
@@ -367,6 +369,7 @@ async function main() {
     async function shutdown(code = 0) {
         if (runtime.closing) return;
         runtime.closing = true;
+        cancelLeases(runtime, 'stopped');
         runtime.state = 'stopping';
         runtime.phase = 'stopping';
         if (livenessTimer) clearInterval(livenessTimer);

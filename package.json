@@ -76,7 +76,7 @@
     "smoke:audioflix-piano": "python tools/smoke/audioflix_piano_integration_smoke.py",
     "smoke:piano-queue": "node tools/smoke/piano_player_queue_smoke.js",
     "smoke:piano-metadata": "node tools/smoke/piano_metadata_planner_smoke.js",
-    "smoke:audioflix-spotify-managed": "node tools/smoke/audioflix_spotify_browser_contract_smoke.js && node tools/smoke/audioflix_spotify_browser_runtime_smoke.js && python tools/smoke/audioflix_spotify_browser_python_smoke.py && node tools/smoke/audioflix_spotify_browser_smoke.js",
+    "smoke:audioflix-spotify-managed": "node tools/smoke/audioflix_spotify_browser_contract_smoke.js && node tools/smoke/audioflix_spotify_browser_runtime_smoke.js && node tools/smoke/audioflix_spotify_playback_lease_smoke.js && python tools/smoke/audioflix_spotify_browser_python_smoke.py && node tools/smoke/audioflix_spotify_browser_smoke.js",
     "smoke:audioflix-spotify-isolation": "node tools/smoke/audioflix_spotify_live_isolation_smoke.js",
     "smoke:audioflix-spotify": "npm run smoke:audioflix-spotify-match && npm run smoke:audioflix-spotify-managed && npm run smoke:audioflix-spotify-playback && npm run smoke:audioflix-spotify-isolation && node tools/smoke/audioflix_spotify_scraper_smoke.js",
     "smoke:audioflix-spotify-live": "node tools/smoke/audioflix_spotify_browser_live_smoke.mjs --require-playing --volume-sweep",

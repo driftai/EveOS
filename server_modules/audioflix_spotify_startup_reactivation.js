@@ -44,9 +44,15 @@ async function reactivateStartup(options) {
     const fence = async () => {
         try {
             if (page.isClosed()) return false;
+            // The caller's lifecycle lease rechecks generation, track and play intent; its
+            // cancellation propagates rather than being reported as an ordinary miss.
+            if (options.guard) await options.guard();
             const observed = await boundedObserve(observe, deadline);
             return Date.now() < deadline && !page.isClosed() && samePausedStartup(observed, expectedGeneration);
-        } catch (error) { note('playback-startup-reactivate-miss', error.message); return false; }
+        } catch (error) {
+            if (error?.lifecycle) throw error;
+            note('playback-startup-reactivate-miss', error.message); return false;
+        }
     };
     if (!await fence()) return { clicked: false, reason: 'Startup recovery no longer applies.' };
 
@@ -60,6 +66,7 @@ async function reactivateStartup(options) {
             if (/\bpause\b/i.test(label)) {
                 // The live failure has a stale Pause label despite paused media at zero. Reset
                 // that provider toggle once, then click only when it advertises Play.
+                if (options.guard) await options.guard();
                 await button.click({ force: true, timeout: Math.min(CLICK_TIMEOUT_MS, remaining(deadline)) });
                 note('playback-startup-reset', 'Trusted Pause reset for a same-generation paused startup.');
                 while (Date.now() < deadline) {
@@ -74,12 +81,14 @@ async function reactivateStartup(options) {
             }
             // A Playwright mouse click supplies real browser input. A dispatched DOM click is
             // not a substitute for user activation, so failure stays failure here.
+            if (options.guard) await options.guard();
             await button.click({ force: true, timeout: Math.min(CLICK_TIMEOUT_MS, remaining(deadline)) });
             runtime.playbackKickCount += 1;
             runtime.lastPlaybackKickAt = Date.now();
             note('playback-startup-reactivate', 'Trusted Play click after controller startup recovery failed.');
             return { clicked: true, method: 'trusted-click' };
         } catch (error) {
+            if (error?.lifecycle) throw error;
             note('playback-startup-reactivate-miss', error.message);
             return { clicked: false, reason: 'Provider startup control could not be clicked.' };
         }

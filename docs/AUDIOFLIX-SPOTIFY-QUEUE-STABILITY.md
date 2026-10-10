@@ -75,9 +75,19 @@ fixtures were corrected without altering production authorization or assertions.
 - Collect current live results and exact commit SHA in the operator handoff. Do not
   promote this branch into Machine Spaces/main or delete the qualified rollback branch
   merely because deterministic smokes pass.
-- Longest composed startup recovery can exceed the private RPC's 18-second deadline.
-  A follow-up should unify the end-to-end deadline/cancellation contract and exercise
-  the complete slow path; do not simply weaken playback confirmation to reduce latency.
+- Resolved (lifecycle lease): every Play/Resume start and managed media seek in the helper
+  runs under one `audioflix_spotify_playback_lease.js` lease (15.5s start budget inside the
+  18s private RPC, 6s seek budget). Observation polls, hovers, scans, retoggles, the bounded
+  resume, trusted reactivation, volume reapply and seek acknowledgement are all bounded by it.
+  Pause/Stop/load/play/resume/restart transport requests, `/open` page resets and helper
+  shutdown cancel outstanding leases. Generation, track and play intent are rechecked
+  immediately before each delayed click/resume/acknowledgement. Aborts return structured
+  `lifecycle` (`deadline|superseded|paused|stopped|page-reset`) with `deadlineExpired` or
+  `superseded`, never the RPC socket `timeout` bit, so the client does not adopt a settled
+  start. An expired start withdraws only its own still-requested generation with a bounded
+  engine pause. Strong media-based confirmation is unchanged.
+  `audioflix_spotify_playback_lease_smoke.js` covers deadline, supersession between control
+  read and click, explicit Pause, happy path, hung/stale seek and reactivation cancellation.
 - The legacy repeat/restart path and unavailable/provider-restricted media remain
   separate live qualification targets; this patch does not promise full-length Free playback.
 - Uncached repository verification reached pre-existing Dex origin/receipt fixture
