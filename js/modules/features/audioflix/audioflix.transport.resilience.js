@@ -107,10 +107,12 @@ window.EveAudioflixTransportResilience = window.EveAudioflixTransportResilience 
         return true;
     }
 
-    function scheduleQueueAdvance(itemId, source, settle) {
+    function scheduleQueueAdvance(itemId, source, settle, detail) {
         const bridge = queue();
         const snapshot = bridge?.snapshot?.();
         if (!snapshot?.isPlaying || !snapshot.entries?.length) return false;
+        // A callback the coordinator already consumed for an earlier run is stale, not a fallback.
+        if (window.EveAudioflixQueueCompletion?.isStaleDelivery?.(detail, snapshot.playbackRunId)) return false;
 
         const expectedIndex = Number(snapshot.currentIndex);
         const expectedItem = snapshot.entries[expectedIndex];
@@ -166,7 +168,7 @@ window.EveAudioflixTransportResilience = window.EveAudioflixTransportResilience 
     window.addEventListener('eve:audioflix-playback', (event) => {
         const detail = event.detail || {};
         if (detail.status !== 'Ended') return;
-        scheduleQueueAdvance(detail.item?.id, 'playback event', detail.settle);
+        scheduleQueueAdvance(detail.item?.id, 'playback event', detail.settle, detail);
     });
 
     window.addEventListener('eve:audioflix-output-volume', () => {

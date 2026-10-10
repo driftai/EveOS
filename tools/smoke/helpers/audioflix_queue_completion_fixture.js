@@ -62,7 +62,7 @@ async function select(page, index) {
     return snapshot(page);
 }
 
-async function createFixture(browser, root) {
+async function createFixture(browser, root, { queueView = true } = {}) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
     const page = await context.newPage();
     const diagnostics = { console: [], pageErrors: [], pageErrorCount: 0, requests: [] };
@@ -94,6 +94,8 @@ async function createFixture(browser, root) {
             const original = window.EveAudioflixAudio[name].bind(window.EveAudioflixAudio);
             window.EveAudioflixAudio[name] = async item => {
                 probe.starts.push({ id: item.id, title: item.title, method: name });
+                // Lane-2 contract: an entry can be marked unavailable so its start throws.
+                if (probe.fail?.has(item.id)) throw new Error('Mocked unavailable entry.');
                 return original(item);
             };
         }
@@ -115,7 +117,8 @@ async function createFixture(browser, root) {
     await pointerClick(page, '[data-af-action="tab"][data-af-tab="music"]');
     await pointerClick(page, '[data-af-action="toggle-view-mode"][data-af-type="music"]');
     await pointerClick(page, '.audioflix-group-pill[data-af-action="select-frontend-group"][data-af-type="music"][data-af-group="Queue completion fixture"]');
-    await pointerClick(page, '[data-af-action="open-queue-view"]');
+    // queueView:false starts the group through Play Group without opening the Queue View/internal player.
+    await pointerClick(page, `[data-af-action="${queueView ? 'open-queue-view' : 'play-music-group'}"]`);
     await page.waitForFunction(() => window.EveAudioflix.queueConnection.snapshot().entries.length === 4
         && window.EveAudioflixAudio.getPlaybackState()?.paused === false, undefined, { timeout: 5000 });
     return { context, page, diagnostics };

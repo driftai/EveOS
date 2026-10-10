@@ -150,3 +150,34 @@ fixtures were corrected without altering production authorization or assertions.
   distinguishes full playback from previews and encrypted-media availability.
 - [Playwright locator clicks](https://playwright.dev/docs/api/class-locator#locator-click)
   describe real browser input/actionability, rather than dispatched DOM events.
+
+## Lane 2: shared queue/completion contract
+
+`EveAudioflix.queueConnection.playbackRunId` (`queueRunId` in `audioflix.ui.js`) is the only
+queue-run authority. Ownership trace:
+
+- Run bumps: `playQueueIndex` (Play Group, Queue View/internal-player step and jump, WatchFusion
+  step/jump, completion advance); `invalidateRun` (Queue View opening a new queue, Stop Group,
+  completion/explicit Restart). Reorder (`move`, `playNext`, Shuffle Order) keeps the run, so a
+  pending completion advances from the latest order.
+- Ended listeners, all keyed on (entry, playbackRunId) and all rechecking the run after `settle`:
+  the canonical coordinator (`audioflix.queue.completion.js`, which owns repeat-one vs advance),
+  the Spotify fast path in `audioflix.ui.overlay.js` (advance only, never repeat) and the 0ms
+  fallback in `audioflix.transport.resilience.js`. The first to act bumps the run; the others
+  then see a different run and do nothing. WatchFusion and the internal player only call
+  `queueConnection` step/jump/move/action and have no completion owner of their own.
+- Stale-delivery fence: the coordinator claims each Ended callback object for the run it
+  completed (`WeakMap`, no new token). Repeat-one keeps the same entry across runs, so a late
+  re-delivery of an already consumed callback used to look like a fresh completion of the
+  restarted run. The coordinator and both fallbacks now drop it (`isStaleDelivery`).
+- Repeat-one restart for managed Spotify: `restart()` bumps the run, then `seek(0)`. The
+  repeat-rearm wrapper maps ended->0 to the broker `restart` and waits for the client to rearm,
+  and `playItem` then sees the same active, non-ended item and does no second Load. One owner,
+  so nothing was consolidated.
+- Live-only boundary: providers mint a fresh Ended object per emission and dedupe their own
+  completions (managed `completionId`, embed `ended` flag). A provider that emits a *new* Ended
+  object for an old repeat-one playback after restart is fenced only by that provider dedupe.
+  Nova should check repeat-one on live signed-in Spotify.
+
+Deterministic coverage: `tools/smoke/audioflix_queue_completion_contract_smoke.js` (run by the
+managed lane through the browser contract smoke).

@@ -4,6 +4,13 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
     const ns = window.EveAudioflixQueueCompletion;
     if (ns.ready) return;
 
+    // Each Ended callback object is claimed by the playbackRunId it completed. Repeat-one keeps the
+    // same entry across runs, so the (entry, run) key alone would accept a late re-delivery of an
+    // already consumed callback as a fresh completion of the restarted run.
+    const claims = new WeakMap();
+    const isStaleDelivery = (detail, run) => !!detail && typeof detail === 'object'
+        && claims.has(detail) && claims.get(detail) !== run;
+
     function create({ snapshot, advance, restart }) {
         let consumed = '';
         return function complete(detail = {}) {
@@ -14,8 +21,9 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
             if (detail.item?.id != null && String(detail.item.id) !== id) return false;
             const run = queue.playbackRunId;
             const key = `${id}:${run}`;
-            if (consumed === key) return false;
+            if (consumed === key || isStaleDelivery(detail, run)) return false;
             consumed = key;
+            if (typeof detail === 'object') claims.set(detail, run);
             Promise.resolve(detail.settle).catch(() => false).then(async () => {
                 const latest = snapshot();
                 if (!latest?.isPlaying || latest.playbackRunId !== run
@@ -76,5 +84,5 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
         return { ...bridge, invalidateRun, restart, complete };
     }
 
-    Object.assign(ns, { ready: true, create, createBridge, createRuntime });
+    Object.assign(ns, { ready: true, create, createBridge, createRuntime, isStaleDelivery });
 })();

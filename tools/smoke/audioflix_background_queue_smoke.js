@@ -115,6 +115,17 @@ async function completionCoverage() {
     await flush();
     assert(stepCalls === 1 && restartCalls === 1, 'provider completion preserves repeat-one without advancing');
 
+    // A late re-delivery of the callback repeat-one already consumed is stale for the restarted run.
+    const repeated = { status: 'Ended', browserOnly: true, provider: 'spotify', item: { id: 202 } };
+    onPlayback({ detail: repeated });
+    await flush();
+    assert(restartCalls === 2, 'a fresh repeat-one Ended restarts once');
+    onPlayback({ detail: repeated });
+    await flush();
+    assert(restartCalls === 2 && stepCalls === 1, 'a re-delivered consumed Ended neither repeats nor advances');
+    assert(window.EveAudioflixQueueCompletion.isStaleDelivery(repeated, queueState.playbackRunId) === true,
+        'shared stale-delivery fence is exposed to the fallback listeners');
+
 }
 
 // Presentation factories are inert, but group actions, queue transitions, every completion

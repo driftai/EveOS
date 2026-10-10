@@ -34,6 +34,7 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
             const bridge = window.EveAudioflix?.queueConnection;
             const snapshot = bridge?.snapshot?.();
             if (!snapshot?.isPlaying || snapshot.repeatOne || !snapshot.entries?.length) return;
+            if (window.EveAudioflixQueueCompletion?.isStaleDelivery?.(detail, snapshot.playbackRunId)) return;
             const expectedIndex = Number(snapshot.currentIndex);
             const expectedItem = snapshot.entries[expectedIndex];
             if (!Number.isInteger(expectedIndex) || expectedIndex < 0 || !expectedItem) return;
