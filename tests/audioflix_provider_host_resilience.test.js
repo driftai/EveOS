@@ -130,40 +130,30 @@ test('a non-active card cannot change the live provider volume', () => {
     assert.equal(h.sent.length, 0);
 });
 
-test('raw provider-host ended state advances a stuck queue after normal handlers get first chance', () => {
+test('raw provider-host ended state is never a queue completion source', () => {
     const h = harness();
-    h.windowListeners.get('message')({
-        source: h.frameWindow,
-        origin: 'http://127.0.0.1:8765',
-        data: {
-            type: 'eve-audioflix-provider',
-            token: 'af-test',
-            event: 'state',
-            state: 'ended'
-        }
-    });
+    // Queue completion comes only from canonical Audioflix Ended. A raw host `state=ended`
+    // reuses one iframe/token across loads and repeat restarts and carries no run identity.
+    assert.equal(h.windowListeners.has('message'), false, 'no raw provider-host listener');
+    h.runTimers();
+    assert.equal(h.stepCalls, 0);
+    assert.equal(h.queue.currentIndex, 0);
+});
 
-    assert.equal(h.stepCalls, 0, 'fallback must wait until normal Ended handlers run');
+test('canonical Ended fallback still advances once, and not after the normal handler moved', async () => {
+    const h = harness();
+    const ended = (detail) => h.windowListeners.get('eve:audioflix-playback')({ detail });
+    ended({ status: 'Ended', item: { id: 'track-1' }, settle: Promise.resolve(true) });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(h.stepCalls, 0, 'fallback waits until normal Ended handlers run');
     h.runTimers();
     assert.equal(h.stepCalls, 1);
     assert.equal(h.queue.currentIndex, 1);
-});
 
-test('provider-host ended recovery does not double-advance after the normal queue handler moved first', () => {
-    const h = harness();
-    h.windowListeners.get('message')({
-        source: h.frameWindow,
-        origin: 'http://127.0.0.1:8765',
-        data: {
-            type: 'eve-audioflix-provider',
-            token: 'af-test',
-            event: 'state',
-            state: 'ended'
-        }
-    });
-
-    h.queue.currentIndex = 1;
-    h.runTimers();
-    assert.equal(h.stepCalls, 0);
-    assert.equal(h.queue.currentIndex, 1);
+    const moved = harness();
+    moved.windowListeners.get('eve:audioflix-playback')({ detail: { status: 'Ended', item: { id: 'track-1' }, settle: Promise.resolve(true) } });
+    moved.queue.currentIndex = 1;
+    await new Promise((resolve) => setImmediate(resolve));
+    moved.runTimers();
+    assert.equal(moved.stepCalls, 0);
 });

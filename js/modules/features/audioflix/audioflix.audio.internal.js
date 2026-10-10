@@ -310,6 +310,11 @@ window.EveAudioflixInternalPlayer = window.EveAudioflixInternalPlayer || {};
             const bridgeState = { currentTime: 0, duration: 0, paused: true };
             let settled = false;
             let readyTimer = 0;
+            // One iframe/token serves every loadVideoById and repeat restart, and a raw `ended`
+            // carries no video identity. Only a `playing` report arms the next `ended`, and each
+            // `ended` or load consumes it, so a late `ended` from a finished era is dropped here
+            // instead of being reported as the canonical Ended of whatever is current now.
+            let endedArmed = false;
 
             const command = (action, value) => iframe.contentWindow?.postMessage({
                 type: 'eve-audioflix-provider-command', token, action, value
@@ -329,6 +334,7 @@ window.EveAudioflixInternalPlayer = window.EveAudioflixInternalPlayer || {};
                     bridgeState.currentTime = 0;
                     bridgeState.duration = 0;
                     bridgeState.paused = true;
+                    endedArmed = false;
                     command('load', nextId);
                     return true;
                 },
@@ -347,6 +353,11 @@ window.EveAudioflixInternalPlayer = window.EveAudioflixInternalPlayer || {};
                     callbacks.onProgress?.({ ...bridgeState });
                 }
                 if (detail.event === 'state') {
+                    if (detail.state === 'playing') endedArmed = true;
+                    else if (detail.state === 'ended') {
+                        if (!endedArmed) return;
+                        endedArmed = false;
+                    }
                     bridgeState.paused = detail.state !== 'playing';
                     callbacks.onState?.(detail.state);
                 }
