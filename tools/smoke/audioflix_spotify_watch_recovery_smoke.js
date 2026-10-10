@@ -19,7 +19,7 @@ const evidence = { sourceRevision: sourceRevision || 'working-tree', phase: 'rec
     scenarios: [], repeatTrace: [] };
 
 async function run() {
-    const intervals = new Map(), timers = new Map(), reads = [], applied = [], states = [];
+    const intervals = new Map(), timers = new Map(), reads = [], applied = [], states = [], recoveryEvents = [];
     let timerId = 0, runId = 1;
     const progress = [];
     const remote = {
@@ -36,17 +36,17 @@ async function run() {
     vm.runInContext(source, context);
     const watch = window.EveAudioflixSpotifyStatusWatch.create({
         remote: () => remote, isActive: () => true, currentRun: () => runId, isEnded: () => false,
-        applyState: result => applied.push(result), onRecovery: result => states.push(result.state)
+        applyState: result => applied.push(result), onRecovery: result => { states.push(result.state); recoveryEvents.push(result); }
     });
     const state = cursor => ({ ok: true, watchSupported: true, isOwner: true,
         engine: { eventCursor: cursor }, ownerEpoch: 1, engineEpoch: 1, trackGeneration: 1 });
-    const fireRetry = async () => {
-        assert.equal(timers.size, 1, 'one bounded retry must survive a transient failure');
+    const fireTimer = async () => {
+        assert.equal(timers.size, 1, 'exactly one bounded retry/recovery timer may be armed');
         const [id, job] = [...timers][0]; timers.delete(id); job.fn(); await flush();
     };
     watch.start(state(1));
     reads[0].resolve({ ok: false, timeout: true }); await flush();
-    await fireRetry();
+    await fireTimer();
     assert.equal(reads.length, 2, 'watch must recover rather than exit forever');
     reads[1].resolve(state(2)); await flush();
     assert.equal(applied.at(-1).engine.eventCursor, 2);
@@ -63,22 +63,44 @@ async function run() {
     reads.at(-1).resolve(state(5)); await flush();
     progress[0].resolve(state(4)); await poll;
     assert.equal(applied.at(-1).engine.eventCursor, 5, 'late progress must not regress watch state');
-    // Exhaustion is finite and disables even the presentation polling timer.
+    // Exhaustion is finite: high-rate presentation polling stops, leaving only one low-rate
+    // recovery sentinel. Degradation by itself must not repaint or retire playback.
     const terminalPoll = watch.progressOnce();
     for (let i = 0; i < 5; i++) {
         reads.at(-1).resolve({ ok: false, unavailable: true }); await flush();
-        if (i < 4) await fireRetry();
+        if (i < 4) await fireTimer();
     }
     assert.equal(watch.diagnostics().state, 'degraded');
-    assert.equal(intervals.size, 0); assert.equal(timers.size, 0);
+    assert.equal(intervals.size, 0);
+    assert.equal(watch.diagnostics().recoveryTimers, 1);
+    assert.equal(timers.size, 1);
     const acceptedBefore = applied.length;
     progress[1].resolve(state(99)); await terminalPoll;
     assert.equal(applied.length, acceptedBefore, 'late poll cannot resurrect degraded observation');
+    assert.equal(states.filter(value => value === 'reset').length, 0, 'degradation alone is never a reset');
+
+    // A new helper epoch that is ownerless, idle and generation zero is authoritative playback-loss
+    // evidence. It produces one reset signal and does not create a Play/Resume intent.
+    await fireTimer();
+    assert.equal(progress.length, 3, 'degraded recovery uses one status probe, not the normal watch/poll loop');
+    const resetState = {
+        ok: true, watchSupported: true, isOwner: false, ownerClientId: '',
+        ownerEpoch: 2, engineEpoch: 2, trackGeneration: 0,
+        managed: { helperReachable: true },
+        engine: { status: 'stopped', paused: true, generation: 0, eventCursor: 0 }
+    };
+    progress[2].resolve(resetState); await flush();
+    assert.equal(states.filter(value => value === 'reset').length, 1, 'fresh idle helper epoch signals exactly one reset');
+    assert.equal(recoveryEvents.find(event => event.state === 'reset')?.result, resetState);
+    assert.equal(watch.diagnostics().recoveryRequests, 0);
+    assert.equal(watch.diagnostics().recoveryTimers, 0);
+    assert.equal(applied.length, acceptedBefore, 'reset is retired by lifecycle; it does not repaint stale playback first');
+
     watch.stop(); await flush();
     assert.equal(watch.diagnostics().watchJobs, 0);
     assert.equal(watch.diagnostics().watchRequests, 0);
-    assert(states.includes('reconnecting') && states.includes('degraded'));
-    evidence.scenarios.push('retry-stale-reads-rapid-start-stop-exhaustion');
+    assert(states.includes('reconnecting') && states.includes('degraded') && states.includes('reset'));
+    evidence.scenarios.push('retry-stale-reads-rapid-start-stop-degraded-helper-reset');
     await sameTrackRepeatAfterEnded();
 }
 
@@ -127,7 +149,8 @@ async function sameTrackRepeatAfterEnded() {
         const counts = watch.diagnostics();
         assert.equal(counts.watchJobs, 1); assert.equal(counts.watchRequests, 1);
         assert.equal(counts.progressRequests, 0); assert.equal(counts.retryTimers, 0);
-        assert.equal(counts.progressTimers, 1); assert.equal(intervals.size, 1);
+        assert.equal(counts.progressTimers, 1); assert.equal(counts.recoveryRequests, 0); assert.equal(counts.recoveryTimers, 0);
+        assert.equal(intervals.size, 1);
         assert.equal(timers.size, 0); assert.equal(peakFlights, 1); assert.equal(statusReads, 0);
     };
     try {
@@ -153,13 +176,13 @@ async function sameTrackRepeatAfterEnded() {
         for (const read of reads) read.resolve(packet('playing', 99, 3));
         await flush(); watch.dispose(); trace('stopped-and-settled');
         const counts = watch.diagnostics();
-        for (const key of ['watchJobs', 'watchRequests', 'progressRequests', 'retryTimers', 'progressTimers']) assert.equal(counts[key], 0);
+        for (const key of ['watchJobs', 'watchRequests', 'progressRequests', 'retryTimers', 'progressTimers', 'recoveryRequests', 'recoveryTimers']) assert.equal(counts[key], 0);
         assert.equal(intervals.size, 0); assert.equal(timers.size, 0); assert.equal(listeners.size, 0); assert.equal(flights, 0);
         assert.equal(counts.state, 'stopped');
     }
 }
 
-run().then(() => console.log('AUDIOFLIX_SPOTIFY_WATCH_RECOVERY_OK (retry, stale reads, 50 cycles, bounded exhaustion, hidden same-uri repeat)'))
+run().then(() => console.log('AUDIOFLIX_SPOTIFY_WATCH_RECOVERY_OK (retry, stale reads, bounded degraded recovery, helper reset, hidden same-uri repeat)'))
     .catch(error => {
         fs.mkdirSync(path.dirname(artifact), { recursive: true });
         fs.writeFileSync(artifact, JSON.stringify({ ...evidence, ok: false, node: process.version,
