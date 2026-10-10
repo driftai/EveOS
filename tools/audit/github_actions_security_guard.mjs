@@ -57,6 +57,23 @@ function blockAfter(lines, index, indent) {
     return block;
 }
 
+function directChildren(lines, index, indent) {
+    const children = [];
+    let childIndent = null;
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+        const raw = lines[cursor];
+        const clean = stripYamlComment(raw);
+        if (!clean.trim()) continue;
+        const currentIndent = raw.match(/^\s*/)?.[0].length ?? 0;
+        if (currentIndent <= indent) break;
+        const pair = parseKeyValue(raw);
+        if (!pair) continue;
+        if (childIndent === null) childIndent = pair.indent;
+        if (pair.indent === childIndent) children.push({ index: cursor, pair });
+    }
+    return children;
+}
+
 function flowMapEntries(value) {
     const text = unquote(value);
     if (!text.startsWith('{') || !text.endsWith('}')) return [];
@@ -87,6 +104,7 @@ function hasPullRequestTargetEvent(lines) {
         if (!pair || pair.indent !== 0 || pair.key.toLowerCase() !== 'on') continue;
         if (pair.value) {
             if (pair.value.trim().startsWith('*')) return true;
+            if (flowMapEntries(pair.value).some((entry) => entry.key.toLowerCase() === 'pull_request_target')) return true;
             return scalarContainsToken(pair.value, 'pull_request_target');
         }
         for (const raw of blockAfter(lines, index, pair.indent)) {
@@ -101,33 +119,73 @@ function hasPullRequestTargetEvent(lines) {
     return false;
 }
 
-function inspectPermissions(lines, file, failures) {
+function inspectPermissionDeclaration(lines, index, pair, file, failures) {
     let hasContentsRead = false;
+    const inspectEntry = (key, rawValue, lineNumber) => {
+        const value = unquote(rawValue).toLowerCase();
+        if (value === 'write') failures.push(`${file}:${lineNumber}: write permission is forbidden by the repository automation baseline`);
+        if (String(key).toLowerCase() === 'contents' && value === 'read') hasContentsRead = true;
+    };
+
+    const direct = unquote(pair.value).toLowerCase();
+    if (direct === 'write-all') {
+        failures.push(`${file}:${index + 1}: permissions: write-all is forbidden`);
+        return { hasContentsRead: false };
+    }
+    if (direct === 'read-all') return { hasContentsRead: true };
+
+    if (pair.value) {
+        for (const entry of flowMapEntries(pair.value)) inspectEntry(entry.key, entry.value, index + 1);
+        return { hasContentsRead };
+    }
+
+    for (const child of directChildren(lines, index, pair.indent)) {
+        inspectEntry(child.pair.key, child.pair.value, child.index + 1);
+    }
+    return { hasContentsRead };
+}
+
+function inspectPermissions(lines, file, failures) {
+    let rootPermission = null;
+    let jobsEntry = null;
+
     for (let index = 0; index < lines.length; index += 1) {
         const pair = parseKeyValue(lines[index]);
-        if (!pair || pair.key.toLowerCase() !== 'permissions') continue;
-        const inspectEntry = (key, rawValue, lineNumber) => {
-            const value = unquote(rawValue).toLowerCase();
-            if (value === 'write') failures.push(`${file}:${lineNumber}: write permission is forbidden by the repository automation baseline`);
-            if (String(key).toLowerCase() === 'contents' && value === 'read') hasContentsRead = true;
-        };
-        const direct = unquote(pair.value).toLowerCase();
-        if (direct === 'write-all') {
-            failures.push(`${file}:${index + 1}: permissions: write-all is forbidden`);
-            continue;
-        }
-        if (pair.value) {
-            for (const entry of flowMapEntries(pair.value)) inspectEntry(entry.key, entry.value, index + 1);
-            continue;
-        }
-        const block = blockAfter(lines, index, pair.indent);
-        for (let offset = 0; offset < block.length; offset += 1) {
-            const child = parseKeyValue(block[offset]);
-            if (!child) continue;
-            inspectEntry(child.key, child.value, index + 2 + offset);
+        if (!pair || pair.indent !== 0) continue;
+        const key = pair.key.toLowerCase();
+        if (key === 'permissions' && rootPermission === null) {
+            rootPermission = {
+                index,
+                state: inspectPermissionDeclaration(lines, index, pair, file, failures)
+            };
+        } else if (key === 'jobs' && jobsEntry === null) {
+            jobsEntry = { index, pair };
         }
     }
-    if (!hasContentsRead) failures.push(`${file}: an explicit contents: read permission baseline is required`);
+
+    const rootHasContentsRead = rootPermission?.state.hasContentsRead === true;
+    const jobs = jobsEntry ? directChildren(lines, jobsEntry.index, jobsEntry.pair.indent) : [];
+
+    if (!jobs.length) {
+        if (!rootHasContentsRead) failures.push(`${file}: an explicit contents: read permission baseline is required`);
+        return;
+    }
+
+    for (const job of jobs) {
+        const jobName = job.pair.key;
+        const children = directChildren(lines, job.index, job.pair.indent);
+        const jobPermission = children.find((child) => child.pair.key.toLowerCase() === 'permissions');
+        let effectiveContentsRead = rootHasContentsRead;
+
+        if (jobPermission) {
+            const state = inspectPermissionDeclaration(lines, jobPermission.index, jobPermission.pair, file, failures);
+            effectiveContentsRead = state.hasContentsRead;
+        }
+
+        if (!effectiveContentsRead) {
+            failures.push(`${file}: job ${jobName} requires effective contents: read permission (declare it on the job or inherit it from workflow permissions)`);
+        }
+    }
 }
 
 function stripComment(value) {
