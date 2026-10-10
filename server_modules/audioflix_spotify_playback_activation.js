@@ -1,7 +1,8 @@
 'use strict';
 
 const { URL } = require('node:url');
-const { engineSnapshot, engineCommand } = require('./audioflix_spotify_browser_transport.js');
+const { engineSnapshot, engineCommand, engineQuiesce } = require('./audioflix_spotify_browser_transport.js');
+const { captureEpoch, preempted, preemptReason } = require('./audioflix_spotify_playback_preemption.js');
 const { reactivateStartup, RECOVERY_BUDGET_MS } = require('./audioflix_spotify_startup_reactivation.js');
 const { seekManagedMedia, handleManagedSeek } = require('./audioflix_spotify_media_seek.js');
 const {
@@ -221,29 +222,42 @@ async function handleTransportWithActivation(options, body) {
     if (cancelReason && cancelLeases(runtime, cancelReason)) note('playback-lease-cancel', `${cancelReason} by ${action}`);
     // SDK seek is for podcasts. Do not issue a competing SDK seek for managed songs.
     if (action === 'seek') return handleManagedSeek(options, body);
-    const previous = action === 'load' ? await engineSnapshot(page).catch(() => null) : null;
-    const result = await engineCommand(page, body);
-    if (result?.ok && action === 'load' && previous?.spotifyId === result.state?.spotifyId) {
-        const mediaSeek = await seekManagedMedia(options, result.state, 0);
-        result.mediaSeek = mediaSeek;
-    }
-    if (!result?.ok || !['play', 'resume'].includes(action)) return result;
-
-    const generation = Number(result.state?.generation || 0);
-    const lease = createPlaybackLease({
-        runtime, page, generation, spotifyId: String(result.state?.spotifyId || ''),
-        readState: () => engineSnapshot(page), budgetMs: options.startBudgetMs
-    });
+    if (!['play', 'resume'].includes(action)) return loadOrControl(options, body, action);
+    // Capture the preemption epoch before any awaited engine work: an interrupt that lands
+    // while the engine Play is still pending (no lease yet) must still invalidate this start.
+    const epoch = captureEpoch(runtime);
+    runtime.startsInFlight += 1;
     try {
-        return await startWithLease(options, body, action, result, lease);
-    } catch (error) {
-        if (!(error instanceof PlaybackLeaseAbort)) throw error;
-        note('playback-lease-abort', `${error.lifecycle}; generation ${generation}`);
-        const state = await settleAbortedStart(options, error, generation, result.state || {});
-        return leaseAbortResult(error, action, state);
+        const result = await engineCommand(page, body);
+        if (!result?.ok) return result;
+        const generation = Number(result.state?.generation || 0);
+        const lease = createPlaybackLease({
+            runtime, page, generation, spotifyId: String(result.state?.spotifyId || ''),
+            readState: () => engineSnapshot(page), budgetMs: options.startBudgetMs,
+            preempted: () => (preempted(runtime, epoch) ? preemptReason(runtime) : '')
+        });
+        try {
+            return await startWithLease(options, body, action, result, lease);
+        } catch (error) {
+            if (!(error instanceof PlaybackLeaseAbort)) throw error;
+            note('playback-lease-abort', `${error.lifecycle}; generation ${generation}`);
+            const state = await settleAbortedStart(options, error, generation, result.state || {});
+            return leaseAbortResult(error, action, state);
+        } finally {
+            lease.release();
+        }
     } finally {
-        lease.release();
+        runtime.startsInFlight -= 1;
     }
+}
+
+async function loadOrControl(options, body, action) {
+    const previous = action === 'load' ? await engineSnapshot(options.page).catch(() => null) : null;
+    const result = await engineCommand(options.page, body);
+    if (result?.ok && action === 'load' && previous?.spotifyId === result.state?.spotifyId) {
+        result.mediaSeek = await seekManagedMedia(options, result.state, 0);
+    }
+    return result;
 }
 
 async function boundedSnapshot(page, ms = 1200) {
@@ -254,21 +268,18 @@ async function boundedSnapshot(page, ms = 1200) {
     } catch { return null; } finally { clearTimeout(timer); }
 }
 
-// A start that missed its deadline must not keep requesting play: a late provider autoplay
-// would otherwise sound with no caller observing it. Cancellation by Pause/Stop/newer work
-// already changed the engine, so only the expired same generation is withdrawn here.
+// Any abandoned start (deadline, preemption, Pause/Stop, supersession) must not keep sounding or
+// requesting play. engineQuiesce pauses only if this request's generation is still current, so
+// an aborted old start can never pause a newer generation.
 async function settleAbortedStart(options, error, generation, fallback) {
     const { page, runtime, note } = options;
-    if (error.lifecycle === 'deadline') {
-        runtime.lastError = error.message;
-        const latest = await boundedSnapshot(page);
-        if (latest && Number(latest.generation) === generation && latest.playRequested !== false) {
-            let timer;
-            await Promise.race([engineCommand(page, { action: 'pause' }).catch(() => null),
-                new Promise((resolve) => { timer = setTimeout(resolve, 1200); })]);
-            clearTimeout(timer);
-            note('playback-start-withdrawn', `generation ${generation} paused after start deadline`);
-        }
+    if (error.lifecycle === 'deadline') runtime.lastError = error.message;
+    if (error.lifecycle !== 'page-reset') {
+        let timer;
+        const quiet = await Promise.race([engineQuiesce(page, generation).catch(() => null),
+            new Promise((resolve) => { timer = setTimeout(() => resolve(null), 1200); })]);
+        clearTimeout(timer);
+        if (quiet?.quiesced) note('playback-start-withdrawn', `generation ${generation} quiesced after ${error.lifecycle}`);
     }
     return (await boundedSnapshot(page)) || fallback;
 }

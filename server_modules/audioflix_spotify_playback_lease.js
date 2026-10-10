@@ -52,6 +52,8 @@ function createPlaybackLease(options = {}) {
     const generation = Math.max(0, Number(options.generation || 0));
     const spotifyId = String(options.spotifyId || '');
     const deadline = now() + Math.max(1, Number(options.budgetMs ?? PLAYBACK_START_BUDGET_MS));
+    // Optional helper preemption fence: the request's captured epoch must still be current.
+    const preemption = typeof options.preempted === 'function' ? options.preempted : () => '';
     if (!runtime.playbackLeases) runtime.playbackLeases = new Set();
     let abortReason = '';
     const waiters = new Set();
@@ -69,6 +71,7 @@ function createPlaybackLease(options = {}) {
         release() { runtime.playbackLeases.delete(lease); for (const wake of [...waiters]) wake(); },
         ensureLive() {
             if (!abortReason && page && typeof page.isClosed === 'function' && page.isClosed()) abortReason = 'page-reset';
+            if (!abortReason) abortReason = preemption() || '';
             if (!abortReason && now() >= deadline) abortReason = 'deadline';
             if (abortReason) throw new PlaybackLeaseAbort(abortReason);
         },

@@ -307,6 +307,12 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
         state.providerPaused = false;
         return setStatus('paused');
     }
+    // Generation-safe silence for an abandoned helper start: the check and the intent clear run
+    // synchronously, so a newer load can never be paused by an older request. Not a transport action.
+    async function quiesce(payload = {}) {
+        if (!controller || Number(payload.generation) !== state.generation) return { ...snapshot(), quiesced: false };
+        return { ...(await pause()), quiesced: true };
+    }
     async function seek(payload = {}) {
         if (!controller) throw new Error('No Spotify track is loaded.');
         const seconds = Math.max(0, Number(payload.seconds || 0));
@@ -374,6 +380,6 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
         throw new Error(`Unsupported Spotify engine action: ${name || '(empty)'}`);
     }
 
-    Object.assign(ns, { ready: true, snapshot, command, trackId, acknowledgeMediaSeek });
+    Object.assign(ns, { ready: true, snapshot, command, trackId, acknowledgeMediaSeek, quiesce });
     document.documentElement.dataset.spotifyEngineReady = 'true';
 })();

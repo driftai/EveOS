@@ -49,4 +49,11 @@ async function engineCommand(page, body = {}) {
     }
 }
 
-module.exports = { ALLOWED_ACTIONS, sanitizePayload, waitForEngine, engineSnapshot, engineCommand };
+// Pause only if `generation` is still the engine's current one (fixed, numeric input only).
+async function engineQuiesce(page, generation) {
+    await waitForEngine(page, 2000);
+    const target = Math.max(0, Number(generation) || 0);
+    return page.evaluate(gen => window.EveAudioflixSpotifyEngine.quiesce?.({ generation: gen }) || null, target);
+}
+
+module.exports = { ALLOWED_ACTIONS, sanitizePayload, waitForEngine, engineSnapshot, engineCommand, engineQuiesce };

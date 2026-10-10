@@ -59,6 +59,25 @@ def transport(payload: dict | None = None) -> dict:
             return {"ok": False, "reason": manager._last_error}
 
 
+# The interrupt must not take manager._lock: the in-flight transport holds it for up to 18s.
+# It reads the private endpoint/token as they stand and fails closed if the helper changed.
+INTERRUPT_TIMEOUT_S = 2.5
+_INTERRUPT_REASONS = {"superseded", "paused", "stopped"}
+
+
+def interrupt(reason: str) -> dict:
+    reason = str(reason or "").strip().lower()
+    if reason not in _INTERRUPT_REASONS:
+        return {"ok": False, "reason": "Unsupported interrupt reason."}
+    manager = browser._manager
+    if not manager._port or not manager._token or not manager._process_running():
+        return {"ok": False, "skipped": True, "reason": "Managed Spotify engine is not running."}
+    try:
+        return manager._request("POST", "/transport-interrupt", {"reason": reason}, timeout=INTERRUPT_TIMEOUT_S)
+    except Exception as exc:
+        return {"ok": False, "reason": str(exc)[:200]}
+
+
 def set_effective_volume(volume, track_id: str = "") -> dict:
     manager = browser._manager
     with manager._lock:

@@ -95,15 +95,27 @@ fixtures were corrected without altering production authorization or assertions.
   so no click can land after the deadline or a cancellation. The lease smoke reproduces the
   late visible click, late `dispatchEvent` and parent-expired reactivation; all three fail on
   `d9f6cdab` and pass now.
-- Queue run versus engine generation (boundary, not yet closed): `EveAudioflix.queueConnection`
-  `playbackRunId` stays the only queue-run authority; any-browser drops a stale run's reply and
-  the completion coordinator keys and rechecks `id:playbackRunId`. A new run does not change
-  the helper's engine generation until its `load` reaches the helper, and the Python manager
-  lock serializes that behind an in-flight start. A superseded run's start can therefore still
-  confirm (or click Play for the old track) for the rest of its lease (<= 15.5s) before the new
-  load replaces it. The same lock bounds Pause/Stop latency. Closing either needs a broker
-  decision (for example a lock-free, cancellation-only notice that carries the broker's
-  existing `_track_generation`), not a second queue token.
+- Queue run versus engine generation (closed by control-plane preemption): `playbackRunId`
+  stays Audioflix's queue authority, `_track_generation` the engine-track identity and
+  `clientCommandSeq` broker command order. After a playback intent (play/resume/restart ->
+  superseded, pause -> paused, stop -> stopped) passes authentication, connection, `commandId`
+  and sequence acceptance, and only when the owner rules allow it, the broker records it as the
+  newest accepted intent `(clientId, clientCommandSeq)`. If transport work is already holding
+  `_transport_lock`, it sends one bounded (2.5s) interrupt to the helper's fixed, token-protected
+  `/transport-interrupt` *before* waiting on `_transport_lock`, without taking `manager._lock`.
+  When a queued intent finally gets the lock, it does no browser work unless it is still the
+  newest accepted intent, and returns a structural `superseded` result. The helper's interrupt
+  bumps an internal preemption epoch (captured by every play/resume before its first awaited
+  engine call, and checked by its lease), so a start invalidated before its lease existed cannot
+  continue. Pause/Stop with a start in flight quiesce the current generation immediately.
+  Every abandoned start quiesces only its own still-current generation (an engine-side
+  synchronous generation check), so it never pauses a newer one. Ordinary transport stays
+  serialized. any-browser now sends Pause/Stop/switch-away while a remote start is in flight,
+  and treats a preempted start as superseded (no queue skip). Coverage:
+  `audioflix_spotify_preemption_smoke.py` (stale queued fence, A->B, Stop, observer cannot
+  interrupt, dead or hung helper) and `audioflix_spotify_preemption_helper_smoke.js` (lease
+  and pre-lease interrupt, A->B, audible Stop, real helper token check). Pause/Stop latency
+  during a slow start is now bounded by the interrupt instead of the 15.5s lease.
 - The legacy repeat/restart path and unavailable/provider-restricted media remain
   separate live qualification targets; this patch does not promise full-length Free playback.
 - Uncached repository verification reached pre-existing Dex origin/receipt fixture

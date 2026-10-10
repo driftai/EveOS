@@ -19,6 +19,9 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
 
     let installed = false;
     let active = false;
+    // A remote start in flight is not `active` yet, but Pause/Stop/switch-away must still reach
+    // the broker so it can preempt that start instead of letting it sound after we moved on.
+    let starting = false;
     let item = null;
     let playback = { item: null, currentTime: 0, duration: 0, paused: true, provider: 'spotify', browserOnly: true, remoteManaged: true };
     let lastEngineStatus = '';
@@ -266,6 +269,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         lastCompletionId = '';
         ended = false;
         engineGeneration = 0;
+        starting = true;
         let result = await remote().send('play', {
             spotifyId: id,
             title: item.title || '',
@@ -276,6 +280,12 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         }, { timeout: PLAY_REPLY_TIMEOUT_MS });
         if (!result?.ok && result?.timeout) result = await adoptSlowStart(id, nextItem);
         if (run !== playbackRun) return false;
+        starting = false;
+        // Preempted by a newer accepted intent: cancellation, not a broken track (no queue skip).
+        if (!result?.ok && ['superseded', 'paused', 'stopped', 'page-reset'].includes(result?.lifecycle)) {
+            finish?.(true);
+            return false;
+        }
         finish?.(!result?.ok);
         if (!result?.ok) throw new Error(result?.reason || 'Managed Spotify playback failed.');
         active = true;
@@ -286,6 +296,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     }
     async function stopRemote() {
         const run = ++playbackRun;
+        starting = false;
         clearPoll();
         if (item && remote()?.snapshot?.().connected) {
             try { await remote().send('stop', {}, { timeout: 5000 }); } catch {}
@@ -323,12 +334,12 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
 
         audio.playItem = async function anyBrowserPlay(nextItem) {
             if (!isSpotify(nextItem)) {
-                if (active) await stopRemote();
+                if (active || starting) await stopRemote();
                 return original.playItem(nextItem);
             }
             const localItem = await preferredLocalItem(nextItem);
             if (localItem) {
-                if (active) await stopRemote();
+                if (active || starting) await stopRemote();
                 return original.playItem(localItem);
             }
             if (active && sameItem(item, nextItem) && !ended) {
@@ -353,7 +364,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             if (!isSpotify(nextItem)) return original.openInternalView(nextItem);
             const localItem = await preferredLocalItem(nextItem);
             if (localItem) {
-                if (active) await stopRemote();
+                if (active || starting) await stopRemote();
                 return original.openInternalView(localItem);
             }
             if (active) return audio.playItem(nextItem);
@@ -364,8 +375,9 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             }
         };
         audio.pause = async function anyBrowserPause() {
-            if (!active) return original.pause();
+            if (!active && !starting) return original.pause();
             const result = await remote().send('pause');
+            if (result?.superseded) return false;
             if (!result?.ok) throw new Error(result?.reason || 'Spotify could not pause.');
             applyEngineState(result);
             return true;
@@ -378,12 +390,12 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             return true;
         };
         audio.stopAll = async function anyBrowserStopAll() {
-            if (!active) return original.stopAll();
+            if (!active && !starting) return original.stopAll();
             await stopRemote();
             return true;
         };
         audio.stopItemLayers = async function anyBrowserStopItem(itemId, preserveProvider = false) {
-            if (active && String(item?.id || item?.url || '') === String(itemId || '') && !preserveProvider) {
+            if ((active || starting) && String(item?.id || item?.url || '') === String(itemId || '') && !preserveProvider) {
                 await stopRemote();
             }
             return original.stopItemLayers(itemId, preserveProvider);

@@ -23,6 +23,7 @@ const { MAX_MEDIA_REFS, browserInit } = require('./audioflix_spotify_browser_hoo
 const { scrapeManagedPlaylist } = require('./audioflix_spotify_managed_import.js');
 const { engineSnapshot } = require('./audioflix_spotify_browser_transport.js');
 const { cancelLeases } = require('./audioflix_spotify_playback_lease.js');
+const { handleInterrupt } = require('./audioflix_spotify_playback_preemption.js');
 const {
     EDGE_LAUNCH_TIMEOUT_MS, CHROMIUM_LAUNCH_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS,
     launchManagedContext, prepareManagedPage
@@ -388,9 +389,9 @@ async function main() {
             if (req.method !== 'POST') return send(res, 404, { ok: false, reason: 'Not found.' });
             const body = await readBody(req);
             if (requestUrl.pathname === '/volume') return send(res, 200, await applyVolume(body));
-            if (requestUrl.pathname === '/transport') return send(res, 200, await handleTransportWithActivation({
-                page, spotifySnapshots, isSpotifyEmbedUrl, normalizeTrackId, note, runtime
-            }, body));
+            const playback = { page, spotifySnapshots, isSpotifyEmbedUrl, normalizeTrackId, note, runtime };
+            if (requestUrl.pathname === '/transport') return send(res, 200, await handleTransportWithActivation(playback, body));
+            if (requestUrl.pathname === '/transport-interrupt') return send(res, 200, await handleInterrupt(playback, body));
             if (requestUrl.pathname === '/playlist') return send(res, 200, await importPlaylist(body));
             if (requestUrl.pathname === '/open') return send(res, 200, await openManagedPage(body));
             if (requestUrl.pathname === '/auth') return send(res, 200, await openAuth(body));

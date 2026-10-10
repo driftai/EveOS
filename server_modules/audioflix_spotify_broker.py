@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from server_modules import audioflix_spotify_browser_rpc as engine
 from server_modules import audioflix_spotify_connections as connections
+from server_modules import audioflix_spotify_broker_preemption as preemption
 
 _PROTOCOL_VERSION = 1
 _PAIR_TTL_S = 300.0
@@ -258,7 +259,7 @@ class SpotifyClientBroker:
     def command(self, payload: dict, context: dict) -> dict:
         payload = payload if isinstance(payload, dict) else {}
         context = context if isinstance(context, dict) else {}
-        wait_event = None
+        wait_event, interrupt, fence = None, "", None
         with self._lock:
             self._expire_locked()
             client = self._authorized_client_locked(payload.get("clientToken"))
@@ -291,6 +292,7 @@ class SpotifyClientBroker:
                     return {"ok": False, "resyncRequired": True, "reason": "Stale Spotify client command sequence."}
                 if action not in {"status", "detach"}:
                     client[seq_key] = seq
+                    interrupt, fence = preemption.accept_locked(self, client, action, seq)
                 client["receipts"][command_id] = {
                     "fingerprint": fp, "result": None, "event": threading.Event()
                 }
@@ -316,8 +318,10 @@ class SpotifyClientBroker:
                     bool(args.get("openLogin", True)), _safe(args.get("url"), 2400)
                 )
             else:
+                preemption.send_interrupt(interrupt)  # before _transport_lock: never trapped behind it
                 with self._transport_lock:
-                    result = self._execute_transport(client_id, action, args, server_origin, connection_id)
+                    result = preemption.run_fenced(self, fence, lambda: self._execute_transport(
+                        client_id, action, args, server_origin, connection_id))
         except Exception as exc:
             result = {"ok": False, "reason": _safe(exc, 300)}
 
