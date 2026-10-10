@@ -44,6 +44,7 @@ async function main() {
     const context = await browser.newContext({ viewport: { width: 1360, height: 900 } });
     const page = await context.newPage();
     let foreground = null;
+    let hiddenMethod = '';
     let originalStateCaptured = false;
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(String(error?.message || error)));
@@ -143,12 +144,23 @@ async function main() {
                 foreground = await context.newPage();
                 await foreground.setContent('<title>EveOS long queue foreground guard</title><p>Controller intentionally backgrounded.</p>');
                 await foreground.bringToFront();
+                const waitHidden = (ms) => H.pollNode(async () => {
+                    const visibility = await page.evaluate(() => document.visibilityState);
+                    return { ok: visibility === 'hidden', value: visibility, reason: `controller visibility remained ${visibility}` };
+                }, ms, 100);
                 try {
-                    await H.pollNode(async () => {
-                        const visibility = await page.evaluate(() => document.visibilityState);
-                        return { ok: visibility === 'hidden', value: visibility, reason: `controller visibility remained ${visibility}` };
-                    }, 5000, 100);
+                    try { await waitHidden(2000); hiddenMethod = 'background-tab'; }
+                    catch {
+                        // Playwright tabs can stay "visible" behind a sibling tab (focus emulation),
+                        // so fall back to a real OS-level minimize of the controller window via CDP.
+                        const cdp = await context.newCDPSession(page);
+                        const { windowId } = await cdp.send('Browser.getWindowForTarget');
+                        await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
+                        await waitHidden(5000);
+                        hiddenMethod = 'minimized-window';
+                    }
                     hiddenObserved = true;
+                    console.log('LIVE_QUEUE_CONTROLLER_HIDDEN', JSON.stringify({ method: hiddenMethod, atIndex: index }));
                 } catch {
                     if (!allowVisible) {
                         throw new Error('Controller tab did not become hidden. Re-run headed, or pass --allow-visible-controller for environments without real tab visibility.');
@@ -217,6 +229,7 @@ async function main() {
             engineUrl,
             ownerEpoch,
             hiddenControllerProved: hiddenObserved,
+            hiddenMethod,
             maxTransitionMs: Math.max(...transitions.map((entry) => entry.elapsedMs)),
             p50TransitionMs: sorted[Math.floor(sorted.length / 2)].elapsedMs,
             diagnostics: result.diagnostics.summary
