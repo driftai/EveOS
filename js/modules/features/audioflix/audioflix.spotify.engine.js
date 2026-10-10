@@ -175,7 +175,9 @@ window.EveAudioflixSpotifyEngine = window.EveAudioflixSpotifyEngine || {};
                 return;
             }
             if ((atEnd || resetAfterEnd || resetAfterNearEndSeek) && markEnded(effectiveDurationMs)) return;
-            if (seekEndResetGeneration === state.generation && positionMs > END_RESET_MAX_MS && !atEnd) {
+            const pausedOutsideSeekTail = effectiveDurationMs > 0
+                && positionMs < Math.max(0, effectiveDurationMs - SEEK_END_RESET_TOLERANCE_MS);
+            if (seekEndResetGeneration === state.generation && positionMs > END_RESET_MAX_MS && pausedOutsideSeekTail) {
                 seekEndResetGeneration = 0;
             }
             state.providerPaused = state.started && !state.ended;
