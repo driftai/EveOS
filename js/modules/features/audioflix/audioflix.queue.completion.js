@@ -11,6 +11,45 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
     const isStaleDelivery = (detail, run) => !!detail && typeof detail === 'object'
         && claims.has(detail) && claims.get(detail) !== run;
 
+    // The internal queue used to rebuild its whole <ol> on every sync, including progress-driven
+    // no-op syncs. Replacing the hovered button between pointerdown/pointerup caused visible flicker
+    // and lost queue-jump clicks. This wrapper is installed before Audioflix URL playback creates
+    // its controller and lets semantic queue changes through while preserving DOM nodes on no-ops.
+    function queueViewSignature(entries, currentIndex) {
+        const list = Array.isArray(entries) ? entries : [];
+        const repeatOne = window.EveAudioflix?.queueConnection?.snapshot?.()?.repeatOne === true;
+        return JSON.stringify([
+            Number(currentIndex) || 0,
+            repeatOne,
+            list.map((entry) => [String(entry?.id ?? ''), String(entry?.title || 'Untitled')])
+        ]);
+    }
+
+    function installStableQueueView() {
+        const player = window.EveAudioflixInternalPlayer;
+        if (!player?.createController) return false;
+        if (player.__eveStableQueueViewInstalled) return true;
+        const originalCreate = player.createController;
+        player.createController = function createStableQueueController(options) {
+            const controller = originalCreate.call(player, options);
+            if (!controller?.setQueue) return controller;
+            const renderQueue = controller.setQueue.bind(controller);
+            let lastSignature = null;
+            controller.setQueue = (entries, currentIndex) => {
+                const signature = queueViewSignature(entries, currentIndex);
+                if (signature === lastSignature) return false;
+                lastSignature = signature;
+                renderQueue(entries, currentIndex);
+                return true;
+            };
+            return controller;
+        };
+        player.__eveStableQueueViewInstalled = true;
+        return true;
+    }
+
+    installStableQueueView();
+
     function create({ snapshot, advance, restart }) {
         let consumed = '';
         return function complete(detail = {}) {
@@ -93,5 +132,8 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
         return { ...bridge, invalidateRun, restart, complete, release };
     }
 
-    Object.assign(ns, { ready: true, create, createBridge, createRuntime, isStaleDelivery });
+    Object.assign(ns, {
+        ready: true, create, createBridge, createRuntime, isStaleDelivery,
+        installStableQueueView, queueViewSignature
+    });
 })();
