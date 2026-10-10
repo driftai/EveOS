@@ -64,6 +64,12 @@ function spotifyFrameTrackId(value) {
         return parsed.pathname.match(/^\/embed\/track\/([A-Za-z0-9]{22})(?:\/|$)/i)?.[1] || '';
     } catch { return ''; }
 }
+function playingTrackIds(snapshots) {
+    return [...new Set((Array.isArray(snapshots) ? snapshots : [])
+        .filter((item) => Number(item?.playingCount || 0) > 0)
+        .map((item) => String(item?.trackId || ''))
+        .filter(Boolean))];
+}
 function parseArgs(argv) {
     const out = {};
     for (let i = 0; i < argv.length; i += 1) {
@@ -216,6 +222,7 @@ async function main() {
         const snapshots = await spotifySnapshots(null, '');
         const mediaCount = snapshots.reduce((sum, item) => sum + Number(item.mediaCount || 0), 0);
         const playingCount = snapshots.reduce((sum, item) => sum + Number(item.playingCount || 0), 0);
+        const trackIds = playingTrackIds(snapshots);
         let transport = null;
         try { transport = await engineSnapshot(page); } catch {}
         if (runtime.importing) runtime.state = 'importing';
@@ -229,7 +236,7 @@ async function main() {
             sessionId, state: runtime.state, phase: runtime.phase, startedAt: runtime.startedAt,
             pageUrl: page && !page.isClosed() ? page.url() : runtime.pageUrl,
             pageAttached: Boolean(page && !page.isClosed()), spotifyFrameCount: snapshots.length,
-            mediaCount, playingCount, desiredVolume: runtime.desiredVolume,
+            mediaCount, playingCount, trackIds, desiredVolume: runtime.desiredVolume,
             lastAppliedAt: runtime.lastAppliedAt, lastError: runtime.lastError,
             authState: runtime.authState, browserChannel: runtime.browserChannel, playwrightVersion,
             headless: runtime.headless, playbackKickCount: runtime.playbackKickCount,
@@ -403,7 +410,7 @@ async function main() {
 module.exports = {
     SERVICE, PROTOCOL_VERSION, MAX_MEDIA_REFS, clampVolume, normalizeTrackId,
     validateLoopbackPageUrl, headlessRequestedFromPageUrl, isLikelyPlayControl,
-    isSpotifyEmbedUrl, spotifyFrameTrackId, browserInit, parseArgs, probeServer, prepareManagedPage,
+    isSpotifyEmbedUrl, spotifyFrameTrackId, playingTrackIds, browserInit, parseArgs, probeServer, prepareManagedPage,
     SERVER_LIVENESS_INTERVAL_MS, SERVER_LIVENESS_TIMEOUT_MS,
     EDGE_LAUNCH_TIMEOUT_MS, CHROMIUM_LAUNCH_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS
 };
