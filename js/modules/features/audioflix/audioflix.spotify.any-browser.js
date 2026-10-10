@@ -11,10 +11,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         || /(?:spotify:track:|open\.spotify\.com\/(?:embed\/)?track\/)/i.test(String(item?.url || item?.originalUrl || ''));
     const spotifyId = (item) => String(item?.spotifyTrackId || item?.spotifyUrl || item?.url || item?.originalUrl || '')
         .match(/(?:spotify:track:|open\.spotify\.com\/(?:embed\/)?track\/)?([A-Za-z0-9]{22})(?:[?/#]|$)?/i)?.[1] || '';
-    const effectiveGain = (raw) => {
-        const safe = Math.max(0, Math.min(1, Number(raw ?? 1)));
-        return Math.max(0, Math.min(1, Number(window.EveAudioflixOutputPort?.effective?.(safe) ?? safe)));
-    };
+    const effectiveGain = (raw) => window.EveAudioflixSpotifyVolume.effectiveGain(raw);
     const sameItem = (left, right) => String(left?.id || left?.url || '') === String(right?.id || right?.url || '');
 
     let installed = false;
@@ -28,6 +25,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     let lastCompletionId = '';
     let ended = false;
     let playbackRun = 0, engineGeneration = 0;
+    const volumeLane = window.EveAudioflixSpotifyVolume?.createManagedPlaybackLane?.(remote,
+        () => ({ active: active && !starting, run: playbackRun, item }), spotifyId);
     // Broker Play is staged (load -> volume -> activation). A single helper RPC is bounded, but the
     // whole broker command can legitimately outlive the old 20s browser timer while Spotify is
     // still activating. Keep the reply budget above that staged path so the client does not abandon
@@ -60,7 +59,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         try { window.EveAudioflix?.render?.(); } catch {}
     }
     function snapshot() {
-        return { active, item, playback: { ...playback }, ended, relay: remote()?.snapshot?.() || {} };
+        return { active, item, playback: { ...playback }, ended, relay: remote()?.snapshot?.() || {},
+            observation: statusObserver?.diagnostics?.() || {} };
     }
     function clearPoll() {
         statusObserver?.stop?.();
@@ -152,6 +152,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         if (engine.spotifyId && engine.spotifyId !== spotifyId(item)) return;
         if (Number(engine.generation || 0) < engineGeneration) return;
         engineGeneration = Math.max(engineGeneration, Number(engine.generation || 0));
+        volumeLane?.observe(result);
         playback.currentTime = Math.max(0, Number(engine.currentTime || 0));
         playback.duration = Math.max(0, Number(engine.duration || playback.duration || item?.duration || 0));
         playback.paused = engine.paused !== false;
@@ -200,7 +201,11 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             applyState: applyEngineState,
             isActive: () => active,
             currentRun: () => playbackRun,
-            isEnded: () => ended
+            isEnded: () => ended,
+            onRecovery: ({ state }) => {
+                if (state === 'degraded' && active) emitPlayback('Spotify status disconnected. Press Play to reconnect.', true);
+                notify();
+            }
         }) || null;
         return statusObserver;
     }
@@ -408,9 +413,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             const safe = Math.max(0, Math.min(1, Number(rawVolume) || 0));
             item.volume = safe;
             playback.item = item;
-            remote().send('volume', { effectiveVolume: effectiveGain(safe), spotifyId: spotifyId(item) }, { timeout: 5000 })
-                .then((result) => { if (!result?.ok) console.warn('[Audioflix] Managed Spotify volume:', result?.reason || 'failed'); })
-                .catch(() => {});
+            volumeLane?.request(effectiveGain(safe));
         };
         audio.getPlaybackState = function anyBrowserState() {
             return active ? { ...playback } : original.getPlaybackState();
@@ -423,16 +426,14 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         }
         window.addEventListener('eve:audioflix-output-volume', () => {
             if (!active || !item) return;
-            remote().send('volume', {
-                effectiveVolume: effectiveGain(item.volume ?? 1), spotifyId: spotifyId(item)
-            }, { timeout: 5000 }).catch?.(() => {});
+            volumeLane?.request(effectiveGain(item.volume ?? 1));
         });
         notify();
         return true;
     }
 
     Object.assign(ns, {
-        ready: true, install, snapshot,
+        ready: true, install, snapshot, volumeDiagnostics: () => volumeLane?.diagnostics(),
         subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); }
     });
     if (!install()) window.addEventListener('load', install, { once: true });

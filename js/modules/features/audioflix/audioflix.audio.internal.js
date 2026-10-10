@@ -157,9 +157,19 @@ window.EveAudioflixInternalPlayer = window.EveAudioflixInternalPlayer || {};
             return stage;
         }
 
+        function syncItemPresentation(item) {
+            currentItem = item;
+            const heading = stage.querySelector('header strong');
+            const title = item?.title || 'Linked audio';
+            if (heading.textContent !== title) heading.textContent = title;
+            const source = stage.querySelector('header a');
+            const href = item?.sourceUrl || item?.url || '#';
+            if (source.getAttribute('href') !== href) source.href = href;
+        }
+
         function open(item, provider, settings = {}) {
             const element = ensureStage();
-            currentItem = item;
+            syncItemPresentation(item);
             const transportOnly = settings.visible === false;
             // Provider SDKs need a rendered iframe. Normal card playback keeps it mounted
             // off-screen unless this track explicitly opts into the compact provider panel.
@@ -174,9 +184,7 @@ window.EveAudioflixInternalPlayer = window.EveAudioflixInternalPlayer || {};
             if (settings.expanded) element.classList.remove('is-collapsed');
             element.dataset.provider = String(provider || '').toLowerCase();
             element.querySelector('header span').textContent = 'Internal player';
-            element.querySelector('header strong').textContent = item?.title || 'Linked audio';
             const source = element.querySelector('header a');
-            source.href = item?.sourceUrl || item?.url || '#';
             source.textContent = provider === 'YouTube' ? 'Play on YouTube' : 'Open source';
             const volume = element.querySelector('.audioflix-provider-volume');
             const level = clamp(item?.volume ?? 1, 0, 1);
@@ -271,6 +279,8 @@ window.EveAudioflixInternalPlayer = window.EveAudioflixInternalPlayer || {};
 
         function sync(playback = {}) {
             if (!stage || stage.hidden) return;
+            // Reused provider controllers switch the canonical item without reopening their frame.
+            if (playback.item) syncItemPresentation(playback.item);
             const current = Math.max(0, Number(playback.currentTime) || 0);
             const duration = Math.max(0, Number(playback.duration) || 0);
             const seek = stage.querySelector('.audioflix-provider-seek');

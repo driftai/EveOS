@@ -31,8 +31,13 @@ async function pointerClick(page, selector) {
     try {
         const target = page.locator(selector);
         await target.waitFor({ state: 'visible', timeout: 10000 });
-        const rect = await target.boundingBox();
-        assert(rect?.width > 0 && rect.height > 0, `pointer target has geometry: ${selector}`);
+        // UI rerenders replace nodes between protocol hops. Sample geometry on the connected
+        // current node, then let the locator reacquire it for real pointer/actionability input.
+        await page.waitForFunction(selector => {
+            const element = document.querySelector(selector);
+            const rect = element?.getBoundingClientRect();
+            return element?.isConnected && rect?.width > 0 && rect.height > 0;
+        }, selector, { timeout: 10000 });
         // locator.click uses real mouse input and reacquires a row if a normal render detaches it.
         await target.click({ timeout: 10000 });
     } catch (error) {

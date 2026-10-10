@@ -20,24 +20,75 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
         };
     }
 
-    function create({ remote, applyState, isActive, currentRun, isEnded }) {
+    function create({ remote, applyState, isActive, currentRun, isEnded, onRecovery = () => {} }) {
         let pollTimer = 0;
         let pollFlight = null;
         let watchToken = 0;
+        let watchFlight = null;
+        let retryTimer = 0;
+        let retryResolve = null;
+        let failures = 0;
+        let recovery = 'stopped';
+        let latest = null;
+        let runner = null;
+        let request = null;
+
+        function launchWatch() {
+            if (runner || !request) return;
+            const next = request;
+            runner = watchLoop(next.run, next.seed, next.token).finally(() => {
+                runner = null;
+                if (request && request !== next) launchWatch();
+            });
+        }
+
+        function report(value) {
+            if (recovery === value) return;
+            recovery = value;
+            onRecovery({ state: value, failures });
+        }
+
+        function cancelDelay() {
+            if (retryTimer) clearTimeout(retryTimer);
+            retryTimer = 0;
+            const resolve = retryResolve;
+            retryResolve = null;
+            resolve?.();
+        }
+
+        function accept(result, run, token) {
+            if (run !== currentRun() || token !== watchToken || !isActive() || !result?.ok
+                || recovery === 'degraded' || result?.managed?.helperReachable === false) return false;
+            const marker = watchCursor(result);
+            const keys = ['afterEngineEpoch', 'afterOwnerEpoch', 'afterTrackGeneration', 'afterCursor'];
+            if (latest) {
+                for (const key of keys) {
+                    if (marker[key] < latest[key]) return false;
+                    if (marker[key] > latest[key]) break;
+                }
+            }
+            latest = marker;
+            applyState(result);
+            return true;
+        }
 
         function stop() {
             watchToken += 1;
+            request = null;
             if (pollTimer) clearInterval(pollTimer);
             pollTimer = 0;
+            cancelDelay();
+            report('stopped');
         }
 
         async function progressOnce(run = currentRun()) {
             if (!isActive() || pollFlight || !remote()?.snapshot?.().connected) return;
+            const token = watchToken;
             const finish = window.EveAudioflixDiagnostics?.span?.('spotify:progress-status');
             pollFlight = remote().status();
             try {
                 const result = await pollFlight;
-                if (run === currentRun()) applyState(result);
+                accept(result, run, token);
                 finish?.(!result?.ok);
             } catch (error) {
                 finish?.(true);
@@ -49,20 +100,48 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
 
         async function watchLoop(run, seed, token) {
             let cursor = watchCursor(seed);
-            while (isActive() && run === currentRun() && token === watchToken && remote()?.snapshot?.().connected) {
+            while (isActive() && run === currentRun() && token === watchToken) {
+                // A restarted observer waits out the previous bounded request; it never overlaps it.
+                if (watchFlight) {
+                    await watchFlight.catch(() => {});
+                    continue;
+                }
                 const finish = window.EveAudioflixDiagnostics?.span?.('spotify:status-watch');
                 let result;
                 try {
-                    result = await remote().send('status-watch', { ...cursor, waitMs: STATUS_WATCH_MS },
+                    watchFlight = remote().send('status-watch', { ...cursor, waitMs: STATUS_WATCH_MS },
                         { timeout: STATUS_WATCH_TIMEOUT_MS });
+                    result = await watchFlight;
                     finish?.(!result?.ok && !result?.watchTimedOut);
                 } catch (error) {
                     finish?.(true);
-                    return;
+                    result = { ok: false };
+                } finally {
+                    watchFlight = null;
                 }
                 if (run !== currentRun() || token !== watchToken || !isActive()) return;
-                if (!result?.ok) return;
-                applyState(result);
+                if (!result?.ok || result?.managed?.helperReachable === false) {
+                    failures += 1;
+                    report(failures >= 5 ? 'degraded' : 'reconnecting');
+                    if (failures >= 5 || result?.approvalRequired || result?.disconnected) {
+                        if (pollTimer) clearInterval(pollTimer);
+                        pollTimer = 0;
+                        report('degraded');
+                        return;
+                    }
+                    await new Promise((resolve) => {
+                        retryResolve = resolve;
+                        retryTimer = setTimeout(() => {
+                            retryTimer = 0;
+                            retryResolve = null;
+                            resolve();
+                        }, Math.min(4000, 250 * 2 ** (failures - 1)));
+                    });
+                    continue;
+                }
+                failures = 0;
+                report('watching');
+                if (!accept(result, run, token)) continue;
                 if (isEnded() || !isActive() || result.watchSupported !== true) return;
                 cursor = watchCursor(result);
             }
@@ -72,9 +151,13 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
             stop();
             const run = currentRun();
             const token = ++watchToken;
-            void watchLoop(run, seed, token).catch(() => {});
-            // This timer is presentation-only. Queue completion remains owned by the server watch,
-            // so hidden-tab throttling can reduce progress refreshes without delaying Ended.
+            failures = 0;
+            latest = watchCursor(seed);
+            report('watching');
+            request = { run, seed, token };
+            launchWatch();
+            // This timer is presentation-only. The watch delivers completion to the canonical
+            // frontend queue owner; a frozen page must resume before its callbacks can run.
             pollTimer = setInterval(() => {
                 if (document.visibilityState === 'hidden') return;
                 progressOnce(run).catch(() => {});
@@ -82,7 +165,12 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
             if (document.visibilityState !== 'hidden') progressOnce(run).catch(() => {});
         }
 
-        return { start, stop, progressOnce };
+        return { start, stop, progressOnce, diagnostics: () => ({
+            state: recovery, failures, watchRequests: Number(Boolean(watchFlight)),
+            watchJobs: Number(Boolean(runner)),
+            progressRequests: Number(Boolean(pollFlight)), retryTimers: Number(Boolean(retryTimer)),
+            progressTimers: Number(Boolean(pollTimer))
+        }) };
     }
 
     Object.assign(ns, { ready: true, create, watchCursor });

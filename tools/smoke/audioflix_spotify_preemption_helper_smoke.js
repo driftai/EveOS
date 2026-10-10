@@ -209,6 +209,14 @@ async function authentication() {
         '--port', String(helperPort), '--profile', profile, '--session', 'preempt-smoke',
         '--page', `http://127.0.0.1:${pagePort}/audioflix-spotify-engine.html?playwright=headless`],
     { env: { ...process.env, EVEOS_SPOTIFY_BROWSER_TOKEN: token }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const closed = new Promise(resolve => child.once('close', resolve));
+    async function waitClosed(timeout) {
+        let timer;
+        const done = await Promise.race([closed.then(() => true),
+            new Promise(resolve => { timer = setTimeout(() => resolve(false), timeout); })]);
+        clearTimeout(timer);
+        return done;
+    }
     let log = '';
     child.stdout.on('data', chunk => { log += chunk; });
     child.stderr.on('data', chunk => { log += chunk; });
@@ -224,11 +232,18 @@ async function authentication() {
         assert.equal(ok.status, 200);
         assert.equal(ok.body.interrupted, true);
         assert.equal(ok.body.inFlight, false, 'no start in flight, so nothing is quiesced');
-        await request(helperPort, '/shutdown', token).catch(() => null);
     } finally {
-        if (child.exitCode == null) child.kill('SIGTERM');
-        page.close();
-        fs.rmSync(profile, { recursive: true, force: true });
+        if (child.exitCode == null && child.signalCode == null) {
+            await request(helperPort, '/shutdown', token).catch(() => null);
+        }
+        if (!await waitClosed(8000)) child.kill('SIGTERM');
+        const exited = await waitClosed(3000);
+        await new Promise(resolve => page.close(resolve));
+        assert.ok(exited, `session-owned helper did not exit; profile preserved: ${profile}`);
+        const target = path.resolve(profile);
+        assert.equal(path.dirname(target), path.resolve(os.tmpdir()), 'cleanup stays in the task temp root');
+        assert.ok(path.basename(target).startsWith('eve-spotify-preempt-'), 'cleanup targets only this fixture');
+        fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
 }
 

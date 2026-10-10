@@ -15,8 +15,8 @@
  *
  * Provider-host playback also has a resilience layer now: if higher-level adapter identity drops a
  * live card-volume command, the active localhost provider iframe receives the same 0..100 YouTube
- * command directly. The same layer observes raw provider Ended state and advances only if the normal
- * queue handlers have not already moved the queue by the next task.
+ * command directly. Completion recovery consumes canonical Audioflix Ended, not unversioned raw
+ * provider state, and advances only if normal queue handlers have not already changed the run.
  *
  * Pinned as source contracts. Exercising these for real needs a provider SDK, an iframe and a live
  * track, so the wiring would otherwise never be tested at all.
@@ -97,22 +97,31 @@ function main() {
         'the provider-host safety net applies the shared EveOS output gain');
     assert(providerVolume.includes("sendProviderCommand('volume', Math.round(audible * 100))"),
         'provider-host live volume uses effective YouTube integer 0..100 units');
-    assert(resilience.includes("detail.event !== 'state'") && resilience.includes("detail.state !== 'ended'"),
-        'raw provider-host Ended state is observed even if an adapter drops the higher-level event');
+    assert(resilience.includes("if (detail.status !== 'Ended') return;")
+        && resilience.includes("scheduleQueueAdvance(detail.item?.id, 'playback event', detail.settle, detail)"),
+        'completion recovery consumes canonical Audioflix Ended with settlement and callback identity');
+    assert(!resilience.includes("detail.state !== 'ended'") && !resilience.includes("addEventListener('message'"),
+        'unversioned raw provider messages cannot bypass the canonical completion owner');
+    assert(resilience.includes('isStaleDelivery?.(detail, snapshot.playbackRunId)')
+        && resilience.includes('latest.playbackRunId !== expectedRunId'),
+        'completion recovery rejects consumed callbacks and replacement playback runs');
     assert(resilience.includes('setTimeout(() => {') && resilience.includes('latestBridge.step?.(1)'),
         'the Ended fallback waits for normal handlers and advances only if the queue is still stuck');
-
-    console.log('audioflix volume views OK — panel persists/mirrors and provider-host resilience is armed');
-    console.log('AUDIOFLIX_VOLUME_VIEWS_SMOKE_OK');
 
     const backgroundQueue = spawnSync(
         process.execPath,
         [path.join(__dirname, 'audioflix_background_queue_smoke.js')],
-        { cwd: ROOT, encoding: 'utf8', windowsHide: true, stdio: 'inherit' }
+        { cwd: ROOT, encoding: 'utf8', windowsHide: true }
     );
-    if (backgroundQueue.status !== 0) {
-        throw new Error(`background queue smoke failed with exit code ${backgroundQueue.status}`);
+    const artifact = path.join(ROOT, 'data/runtime/smoke-results/audioflix-volume-views.json');
+    fs.mkdirSync(path.dirname(artifact), { recursive: true });
+    fs.writeFileSync(artifact, JSON.stringify({ status: backgroundQueue.status,
+        stdout: backgroundQueue.stdout, stderr: backgroundQueue.stderr, error: backgroundQueue.error?.message }, null, 2));
+    if (backgroundQueue.error || backgroundQueue.status !== 0) {
+        const context = String(backgroundQueue.stderr || backgroundQueue.stdout || backgroundQueue.error).split('\n').slice(-35).join('\n');
+        throw new Error(`background queue smoke failed with exit code ${backgroundQueue.status}\n${context}\nArtifact: ${artifact}`);
     }
+    console.log('AUDIOFLIX_VOLUME_VIEWS_SMOKE_OK');
 }
 
 main();

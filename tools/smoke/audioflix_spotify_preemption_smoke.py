@@ -303,6 +303,7 @@ assert fake.play_payloads[-1].get("expectedPreemptEpoch") == 41
 assert fake.play_payloads[-1].get("generation") == broker._track_generation
 
 # 6. Interrupt endpoint unavailable: dead and hung helpers stay bounded and harmless.
+assert 0 < rpc.INTERRUPT_TIMEOUT_S <= 2.5, "interrupt must retain its bounded control budget"
 manager = browser._manager
 saved = (manager._port, manager._token, manager._process_running)
 try:
@@ -313,7 +314,10 @@ try:
         manager._port = probe.getsockname()[1]
     started = time.monotonic()
     dead = real_interrupt("paused")
-    assert dead.get("ok") is False and time.monotonic() - started < 1.0, dead
+    dead_elapsed = time.monotonic() - started
+    assert dead.get("ok") is False, dead
+    # Windows TCP refusal can take ~2s; both failure paths obey the actual RPC budget.
+    assert dead_elapsed < rpc.INTERRUPT_TIMEOUT_S + 1.0, (dead_elapsed, dead)
     hung = socket.socket()
     hung.bind(("127.0.0.1", 0))
     hung.listen(1)
@@ -321,7 +325,7 @@ try:
     started = time.monotonic()
     stalled = real_interrupt("stopped")
     assert stalled.get("ok") is False, stalled
-    assert time.monotonic() - started < rpc.INTERRUPT_TIMEOUT_S + 1.0
+    assert time.monotonic() - started < rpc.INTERRUPT_TIMEOUT_S + 1.0, stalled
     hung.close()
     assert real_interrupt("load").get("ok") is False, "only fixed interrupt reasons are accepted"
 finally:

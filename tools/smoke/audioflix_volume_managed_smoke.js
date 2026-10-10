@@ -82,11 +82,13 @@ function makeContext() {
     snap = volume.snapshot();
     assert.equal(snap.volume, 0.25, 'raw track 50% x output/master 50% = 25% exactly once');
 
-    const child = spawnSync(process.execPath, [path.join(ROOT, 'tools/smoke/audioflix_spotify_any_browser_smoke.js')], {
-        cwd: ROOT, stdio: 'inherit', env: process.env
-    });
-    if (child.error) throw child.error;
-    assert.equal(child.status, 0, 'any-browser gain/transport smoke passes');
+    for (const script of ['audioflix_spotify_any_browser_smoke.js', 'audioflix_spotify_volume_coalescing_smoke.js']) {
+        const child = spawnSync(process.execPath, [path.join(ROOT, 'tools/smoke', script)], {
+            cwd: ROOT, encoding: 'utf8', env: process.env
+        });
+        if (child.error) throw child.error;
+        assert.equal(child.status, 0, `${script}: ${String(child.stderr || child.stdout).split('\n').slice(-35).join('\n')}`);
+    }
 
     console.log('AUDIOFLIX_VOLUME_MANAGED_SMOKE_OK');
 })().catch((error) => { console.error(error); process.exit(1); });

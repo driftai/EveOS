@@ -181,3 +181,68 @@ queue-run authority. Ownership trace:
 
 Deterministic coverage: `tools/smoke/audioflix_queue_completion_contract_smoke.js` (run by the
 managed lane through the browser contract smoke).
+
+## Lane 3, first local checkpoint (base `57487c76`)
+
+This is a focused checkpoint, not a sealed Lane 3 or final Windows/provider qualification.
+
+- Managed volume retains one relay flight and one replaceable latest intent. Burst inputs
+  coalesce, the final value is delivered after failures, and old run/owner results cannot
+  repaint the replacement playback. Commands carry the accepted ownership/engine/generation
+  markers, but the existing broker does not yet enforce those markers on volume mutations;
+  same-URI old-generation mutation protection remains a server-side follow-up.
+- Status-watch retries transient failures with bounded exponential delay, stops after five
+  unsuccessful attempts with explicit degraded status, and serializes observer restarts behind
+  the preceding bounded read. Late run/token/cursor results and post-exhaustion progress reads
+  cannot repaint state. Fifty rapid observer restarts retain one job, one request and one
+  presentation timer; settled stop leaves zero jobs/requests/timers. In-flight relay reads are
+  invalidated rather than aborted; their existing transport deadlines remain authoritative.
+- The reused Internal Player updates title/source/current-item presentation from canonical
+  playback metadata without reopening its provider frame or changing queue ownership.
+  A real-pointer isolated Playwright regression reproduced Young Girl A versus 16 before the
+  fix and proves consistent headings through queue selection, steps, collapse and reopen.
+
+The new watch recovery regression fails on the sealed base (no retry after a transient failure)
+and passes on this correction. Volume burst regression likewise reproduced unbounded outbound
+requests before the fix. Its ignored before/candidate artifacts live under
+`data/runtime/smoke-results/audioflix-spotify-volume/` and explicitly use a serialized relay
+stub with synthetic delay. They are not Spotify, browser-process or network latency evidence.
+In the measured 50/100-input trials, helper mutations fell from 50/100 to two and peak outbound
+requests from 50/100 to one. Existing saved libraries/profiles/services were not mutated.
+The synthetic final-value latency baseline was p50 777.85ms, p95/max 1556.46ms; the latest
+candidate was p50 29.47ms, p95/max 30.47ms (six trials, Windows timer granularity applies).
+
+The volume profile exposed an unchanged Lane-2 fixture mismatch in
+`audioflix_volume_views_smoke.js`: its raw-provider Ended fallback assertion contradicted the
+sealed removal of that fallback. The fixture now requires canonical Ended, settlement and stale
+callback/run fences, and forbids unversioned raw-message completion. Production completion code
+was not changed; all four volume-profile children pass.
+
+The Windows managed lane also reproduced the pointer watch item during fixture setup: a
+visible Frontend toggle was replaced between visibility and bounding-box protocol calls.
+The captured DOM/screenshot showed a normal visible button, no page errors, and no failed
+file requests; no queue assertion had run. The fixture now waits for connected positive
+geometry on the current node before the existing real-pointer/actionability click. Hidden or
+zero-sized targets still fail. The focused queue completion contract subsequently passed.
+
+Windows also exposed a fixture-only deadline mismatch: three refused localhost interrupt
+connections took 2.047-2.063s, returning the expected failure within the authoritative 2.5s
+private RPC deadline. The old smoke's undocumented subsecond assumption was invalid on this
+host. Its refused/hung checks now use that existing deadline plus the existing one-second
+scheduler allowance, and pin the production deadline at no more than 2.5s; subsecond
+preemption/control-path assertions and all production timing remain unchanged.
+The private-helper fixture also waits for its own child to finish graceful browser shutdown
+before removing its validated task-specific temporary profile, with bounded lock retries.
+
+Checkpoint gates: structural guardrails, four-child volume profile, Spotify playback/status
+watch lane, heading-only real-pointer fixture, and every managed-lane child passed locally.
+The managed lane is composite evidence: its contract/runtime/lease children passed in the
+parent invocation, and the corrected preemption plus remaining manager/browser children
+passed separately after that parent stopped. It is not a claim of a fresh all-in-one master
+pass, a real Spotify endurance pass, or uncached full repository acceptance.
+
+Still open: suspension/resume and helper-restart integration, cheap snapshot/read coalescing,
+server-side volume generation checks, real-runtime latency/resource evidence, broader
+background completion qualification and the subsequent Lane-4 service reload work. Full
+uncached repository verification and final signed-in endurance remain deferred to the agreed
+post-Lane-4 qualification gate; do not merge, deploy or delete rollback branches here.

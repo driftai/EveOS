@@ -68,7 +68,7 @@
     "smoke:server-security": "python tools/smoke/server_proxy_security_smoke.py",
     "smoke:runtime-cache": "node tools/smoke/runtime_asset_cache_smoke.js && node tools/smoke/runtime_asset_recovery_smoke.js",
     "smoke:audioflix-audio": "node tools/smoke/audioflix_audio_suite.mjs --profile=audio",
-    "smoke:audioflix-spotify-playback": "node tools/smoke/audioflix_spotify_playback_smoke.js && python tools/smoke/audioflix_spotify_status_watch_smoke.py",
+    "smoke:audioflix-spotify-playback": "node tools/smoke/audioflix_spotify_playback_smoke.js && python tools/smoke/audioflix_spotify_status_watch_smoke.py && node tools/smoke/audioflix_spotify_watch_recovery_smoke.js",
     "smoke:audioflix-volume": "node tools/smoke/audioflix_volume_managed_smoke.js && node tools/smoke/audioflix_volume_views_smoke.js && node tools/smoke/audioflix_output_port_smoke.js && node tools/smoke/audioflix_url_port_smoke.js",
     "smoke:audioflix-sounds": "node tools/smoke/audioflix_soundboard_params_backup_smoke.js && node tools/smoke/audioflix_soundlab_playback_smoke.js && node tools/smoke/audioflix_soundlab_smoke.js && node tools/smoke/audioflix_soundlab_underrun_smoke.js",
     "smoke:audioflix-state": "node tools/smoke/audioflix_state_recovery_smoke.js && node tools/smoke/audioflix_backup_guard_smoke.js && node tools/smoke/audioflix_settings_backup_smoke.js && node tools/smoke/audioflix_duplicates_smoke.js && node tools/smoke/audioflix_library_next_smoke.js && node tools/smoke/audioflix_group_hierarchy_smoke.js",

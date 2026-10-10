@@ -24,6 +24,7 @@
     const listeners = new Set();
     const clamp = (value) => Math.max(0, Math.min(1,
         Number.isFinite(Number(value)) ? Number(value) : 1));
+    const effectiveGain = (raw) => clamp(window.EveAudioflixOutputPort?.effective?.(clamp(raw ?? 1)) ?? clamp(raw ?? 1));
     const spotifyTrack = (item) => String(item?.sourceProvider || '').toLowerCase() === 'spotify'
         || !!item?.spotifyUrl
         || /(?:spotify:track:|open\.spotify\.com\/(?:embed\/)?track\/)/i.test(String(item?.url || item?.originalUrl || ''));
@@ -99,7 +100,7 @@
         const playback = activeSpotifyPlayback();
         if (!playback?.item) return null;
         const raw = clamp(explicitRawVolume == null ? playback.item.volume ?? 1 : explicitRawVolume);
-        const effective = clamp(window.EveAudioflixOutputPort?.effective?.(raw) ?? raw);
+        const effective = effectiveGain(raw);
         setSpotifyVolume(effective, { direct: state.controllerDirect });
         return playback;
     }
@@ -163,6 +164,86 @@
         return null;
     }
 
+    // One relay flight plus one replaceable intent. Slider events never allocate waiter queues.
+    function createManagedLane({ remote, currentContext, onResult }) {
+        let flight = null, pending = null, acknowledged = null;
+        const counts = { requested: 0, sent: 0, completed: 0, coalesced: 0, discarded: 0 };
+        const key = (context) => context && JSON.stringify([
+            context.run, context.itemId, context.spotifyId,
+            context.ownerEpoch, context.engineEpoch, context.trackGeneration
+        ]);
+        function current() {
+            const context = currentContext();
+            return context?.active && context.isOwner === true && remote()?.snapshot?.().connected
+                ? { ...context, key: key(context) } : null;
+        }
+        function drain() {
+            if (flight || !pending) return;
+            const intent = pending;
+            pending = null;
+            if (current()?.key !== intent.context.key) { counts.discarded++; return; }
+            if (acknowledged?.context.key === intent.context.key && acknowledged.volume === intent.volume) {
+                counts.coalesced++; return;
+            }
+            flight = intent;
+            counts.sent++;
+            Promise.resolve().then(() => {
+                // A play/stop/owner change can happen before this microtask reaches the relay.
+                if (current()?.key !== intent.context.key) return { skipped: true };
+                return remote().send('volume', {
+                    effectiveVolume: intent.volume, spotifyId: intent.context.spotifyId,
+                    ownerEpoch: intent.context.ownerEpoch, engineEpoch: intent.context.engineEpoch,
+                    trackGeneration: intent.context.trackGeneration
+                }, { timeout: 5000 });
+            }).then(result => {
+                if (current()?.key !== intent.context.key || result?.skipped) { counts.discarded++; return; }
+                if (result?.ok) acknowledged = intent;
+                onResult?.(result);
+            }, error => {
+                if (current()?.key === intent.context.key) onResult?.({ ok: false, reason: String(error?.message || error) });
+            }).finally(() => { flight = null; counts.completed++; drain(); });
+        }
+        function request(volume) {
+            counts.requested++;
+            const context = current();
+            if (!context) { pending = null; counts.discarded++; return false; }
+            const value = clamp(volume);
+            if (pending?.context.key === context.key && pending.volume === value) { counts.coalesced++; return true; }
+            if (!flight && acknowledged?.context.key === context.key && acknowledged.volume === value) {
+                pending = null; counts.coalesced++; return true;
+            }
+            if (pending) counts.coalesced++;
+            pending = { context, volume: value };
+            drain();
+            return true;
+        }
+        return { request, invalidate() { pending = null; acknowledged = null; },
+            diagnostics: () => ({ ...counts, inFlight: flight ? 1 : 0, pending: pending ? 1 : 0 }) };
+    }
+
+    function createManagedPlaybackLane(remote, currentPlayback, trackId) {
+        let accepted = null;
+        const lane = createManagedLane({
+            remote,
+            currentContext() {
+                const playback = currentPlayback();
+                const observed = remote()?.snapshot?.().lastState;
+                if (!accepted || !playback.active || !playback.item) return null;
+                if (observed && Number(observed.ownerEpoch || 0) >= accepted.ownerEpoch
+                    && (observed.isOwner === false || Number(observed.ownerEpoch || 0) > accepted.ownerEpoch)) return null;
+                return { ...accepted, ...playback,
+                    itemId: String(playback.item.id || ''), spotifyId: trackId(playback.item) };
+            },
+            onResult(result) {
+                if (!result?.ok) console.warn('[Audioflix] Managed Spotify volume:', result?.reason || 'failed');
+            }
+        });
+        return { ...lane, observe(result) {
+            accepted = { isOwner: result.isOwner === true, ownerEpoch: Number(result.ownerEpoch || 0),
+                engineEpoch: Number(result.engineEpoch || 0), trackGeneration: Number(result.engine?.generation || 0) };
+        } };
+    }
+
     window.addEventListener?.('eve:audioflix-output-volume', () => {
         const playback = activeSpotifyPlayback();
         if (playback?.item && playback.remoteManaged !== true) syncSpotifyFromPlayback(playback.item.volume ?? 1);
@@ -182,6 +263,9 @@
         probeAuth,
         armFromTrustedGesture,
         mount,
+        createManagedLane,
+        createManagedPlaybackLane,
+        effectiveGain,
         snapshot,
         subscribe(listener) {
             listeners.add(listener);
