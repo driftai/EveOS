@@ -5,9 +5,17 @@ port, token, or private session id.
 """
 from __future__ import annotations
 
+import socket
+
 from server_modules import audioflix_spotify_browser as browser
 from server_modules import audioflix_spotify_presentation as presentation
 from server_modules.audioflix_spotify_browser_utils import clamp_volume, normalize_track_id
+
+
+# Keep the private helper request inside the ordinary browser client's 20s command window while
+# giving slow Spotify embed renders more room than the old 12s ceiling. If this still expires, the
+# structured timeout bit lets the client adopt playback that the helper may finish asynchronously.
+TRANSPORT_TIMEOUT_S = 18
 
 
 def _with_epoch(result: dict) -> dict:
@@ -42,7 +50,10 @@ def transport(payload: dict | None = None) -> dict:
         if not manager._helper_status():
             return {"ok": False, "reason": "Managed Spotify engine is not running."}
         try:
-            return manager._request("POST", "/transport", payload, timeout=12)
+            return manager._request("POST", "/transport", payload, timeout=TRANSPORT_TIMEOUT_S)
+        except (socket.timeout, TimeoutError):
+            manager._last_error = f"Managed Spotify helper did not answer within {TRANSPORT_TIMEOUT_S}s."
+            return {"ok": False, "timeout": True, "reason": manager._last_error}
         except Exception as exc:
             manager._last_error = str(exc)[:300]
             return {"ok": False, "reason": manager._last_error}
