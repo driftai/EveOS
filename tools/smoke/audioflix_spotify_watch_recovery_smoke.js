@@ -101,7 +101,108 @@ async function run() {
     assert.equal(watch.diagnostics().watchRequests, 0);
     assert(states.includes('reconnecting') && states.includes('degraded') && states.includes('reset'));
     evidence.scenarios.push('retry-stale-reads-rapid-start-stop-degraded-helper-reset');
+    await degradedRecoveryBoundaryCases();
     await sameTrackRepeatAfterEnded();
+}
+
+async function degradedRecoveryBoundaryCases() {
+    evidence.phase = 'degraded-recovery-boundaries';
+    const seed = {
+        ok: true, watchSupported: true, isOwner: true, ownerClientId: 'self',
+        ownerEpoch: 7, engineEpoch: 7, trackGeneration: 4,
+        managed: { helperReachable: true },
+        engine: { status: 'playing', paused: false, generation: 4, eventCursor: 10 }
+    };
+    const cases = [
+        {
+            label: 'continued-unavailability',
+            result: { ok: false, unavailable: true, managed: { helperReachable: false } },
+            expect: 'degraded'
+        },
+        {
+            label: 'same-helper-recovery',
+            result: { ...seed, engine: { ...seed.engine, eventCursor: 11 } },
+            expect: 'watching'
+        },
+        {
+            label: 'another-active-owner',
+            result: {
+                ok: true, watchSupported: true, isOwner: false, ownerClientId: 'other-client',
+                ownerEpoch: 8, engineEpoch: 8, trackGeneration: 0,
+                managed: { helperReachable: true },
+                engine: { status: 'playing', paused: false, generation: 0, eventCursor: 1 }
+            },
+            expect: 'watching'
+        }
+    ];
+
+    for (const scenario of cases) {
+        const timers = new Map(), intervals = new Map(), reads = [], progress = [], events = [];
+        let timerId = 0, active = true;
+        const remote = {
+            snapshot: () => ({ connected: true }),
+            send() { const read = defer(); reads.push(read); return read.promise; },
+            status() { const read = defer(); progress.push(read); return read.promise; }
+        };
+        const window = {};
+        vm.runInContext(source, vm.createContext({ window, document: { visibilityState: 'hidden' }, console,
+            setInterval: fn => { intervals.set(++timerId, fn); return timerId; },
+            clearInterval: id => intervals.delete(id),
+            setTimeout: (fn, ms) => { timers.set(++timerId, { fn, ms }); return timerId; },
+            clearTimeout: id => timers.delete(id) }));
+        const watch = window.EveAudioflixSpotifyStatusWatch.create({
+            remote: () => remote, isActive: () => active, currentRun: () => 1,
+            applyState: () => {}, onRecovery: event => events.push(event)
+        });
+        const fireTimer = async () => {
+            assert.equal(timers.size, 1, `${scenario.label}: exactly one timer is allowed`);
+            const [id, job] = [...timers][0]; timers.delete(id); job.fn(); await flush();
+        };
+        try {
+            watch.start(seed); await flush();
+            for (let i = 0; i < 5; i++) {
+                reads.at(-1).resolve({ ok: false, unavailable: true }); await flush();
+                if (i < 4) await fireTimer();
+            }
+            assert.equal(watch.diagnostics().state, 'degraded', `${scenario.label}: reaches degraded`);
+            assert.equal(watch.diagnostics().recoveryTimers, 1, `${scenario.label}: one sentinel is armed`);
+            assert.equal(events.filter(event => event.state === 'reset').length, 0,
+                `${scenario.label}: degradation alone cannot reset`);
+
+            await fireTimer();
+            assert.equal(progress.length, 1, `${scenario.label}: one recovery status request`);
+            progress[0].resolve(scenario.result); await flush();
+            assert.equal(events.filter(event => event.state === 'reset').length, 0,
+                `${scenario.label}: must not emit helper-reset release`);
+            assert.equal(watch.diagnostics().state, scenario.expect, `${scenario.label}: expected recovery state`);
+
+            if (scenario.expect === 'degraded') {
+                assert.equal(watch.diagnostics().recoveryTimers, 1,
+                    `${scenario.label}: continued outage retains exactly one sentinel`);
+                assert.equal(watch.diagnostics().watchJobs, 0,
+                    `${scenario.label}: continued outage does not restart normal watch`);
+            } else {
+                assert.equal(watch.diagnostics().recoveryTimers, 0,
+                    `${scenario.label}: healthy observation cancels sentinel`);
+                assert.equal(watch.diagnostics().watchJobs, 1,
+                    `${scenario.label}: healthy state restarts exactly one watch`);
+                assert.equal(reads.length, 6,
+                    `${scenario.label}: exactly one fresh watch request is created`);
+            }
+            evidence.scenarios.push(`degraded-${scenario.label}-no-reset`);
+        } finally {
+            active = false;
+            watch.stop();
+            for (const read of reads) read.resolve(seed);
+            for (const read of progress) read.resolve(seed);
+            await flush();
+            const counts = watch.diagnostics();
+            for (const key of ['watchJobs', 'watchRequests', 'progressRequests', 'retryTimers',
+                'progressTimers', 'recoveryRequests', 'recoveryTimers']) assert.equal(counts[key], 0, `${scenario.label}: ${key} settles`);
+            assert.equal(intervals.size, 0, `${scenario.label}: intervals settle`);
+            assert.equal(timers.size, 0, `${scenario.label}: timers settle`);
+        }
+    }
 }
 
 async function sameTrackRepeatAfterEnded() {
@@ -182,7 +283,7 @@ async function sameTrackRepeatAfterEnded() {
     }
 }
 
-run().then(() => console.log('AUDIOFLIX_SPOTIFY_WATCH_RECOVERY_OK (retry, stale reads, bounded degraded recovery, helper reset, hidden same-uri repeat)'))
+run().then(() => console.log('AUDIOFLIX_SPOTIFY_WATCH_RECOVERY_OK (retry, stale reads, bounded degraded recovery boundaries, helper reset, hidden same-uri repeat)'))
     .catch(error => {
         fs.mkdirSync(path.dirname(artifact), { recursive: true });
         fs.writeFileSync(artifact, JSON.stringify({ ...evidence, ok: false, node: process.version,
