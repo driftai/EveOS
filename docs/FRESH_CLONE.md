@@ -38,7 +38,7 @@ node tools/setup/eveos_bootstrap.mjs --skip-browser
 Run the doctor whenever a clone is moved, reconstructed, or materially updated:
 
 ```powershell
-node tools/setup/eveos_doctor.mjs --mode=development
+node tools/setup/eveos_doctor.mjs
 ```
 
 Run the deterministic repository gates before treating a branch as clean:
@@ -106,7 +106,7 @@ Normal code updates should flow through Git instead of downloaded replacement fi
 
 ```powershell
 git pull --ff-only
-node tools/setup/eveos_doctor.mjs --mode=development
+node tools/setup/eveos_doctor.mjs
 ```
 
 If dependency lockfiles, Python requirements, browser tooling, or setup contracts changed, rerun the bootstrap:

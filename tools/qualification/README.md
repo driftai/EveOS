@@ -7,7 +7,7 @@ This directory contains **durable, tracked acceptance drivers**. Generated evide
 Run these on every development installation before live provider qualification:
 
 ```powershell
-node tools/setup/eveos_doctor.mjs --mode=development
+node tools/setup/eveos_doctor.mjs
 node tools/audit/eveos_repo_hygiene_guard.mjs
 node tools/audit/smoke-registry-audit.js
 node tests/audioflix_queue_view_stability.test.cjs
