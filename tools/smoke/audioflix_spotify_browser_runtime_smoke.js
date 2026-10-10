@@ -288,6 +288,7 @@ function makeBrowserContext(url) {
     runChild('python', 'tools/smoke/audioflix_spotify_rpc_timeout_smoke.py');
     runChild('node', 'tools/smoke/audioflix_queue_superseded_start_smoke.js');
     runChild('node', 'tools/smoke/audioflix_spotify_strong_confirmation_smoke.js');
+    runChild('node', 'tools/smoke/audioflix_spotify_seek_end_reset_smoke.js');
 
     console.log('AUDIOFLIX_SPOTIFY_BROWSER_RUNTIME_SMOKE_OK');
 })().catch((error) => { console.error(error); process.exit(1); });
