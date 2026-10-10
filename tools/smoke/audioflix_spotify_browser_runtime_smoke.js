@@ -4,9 +4,20 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const vm = require('node:vm');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
-const helper = require(path.resolve(__dirname, '..', '..', 'server_modules', 'audioflix_spotify_browser.js'));
-const activation = require(path.resolve(__dirname, '..', '..', 'server_modules', 'audioflix_spotify_playback_activation.js'));
+const ROOT = path.resolve(__dirname, '..', '..');
+const helper = require(path.join(ROOT, 'server_modules', 'audioflix_spotify_browser.js'));
+const activation = require(path.join(ROOT, 'server_modules', 'audioflix_spotify_playback_activation.js'));
+
+function runChild(runtime, relative) {
+    const command = runtime === 'python'
+        ? (process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3'))
+        : process.execPath;
+    const result = spawnSync(command, [path.join(ROOT, relative)], { cwd: ROOT, stdio: 'inherit', env: process.env });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(`${relative} failed with exit ${result.status}`);
+}
 
 assert.equal(helper.clampVolume(2), 1);
 assert.equal(helper.clampVolume(-1), 0);
@@ -32,6 +43,9 @@ assert.equal(helper.normalizeTrackId('spotify:track:4cOdK2wGLETKBW3PvgPWqT'), '4
 assert.equal(helper.SERVER_LIVENESS_INTERVAL_MS, 5000);
 assert.equal(helper.SERVER_LIVENESS_TIMEOUT_MS, 30000);
 assert.equal(activation.PLAY_WAKE_INITIAL_MS, 1400, 'Spotify autoplay gets a grace period before Playwright kicks');
+assert.equal(activation.PLAY_CONTROL_WAIT_MS, 3200, 'ordinary Spotify control scan stays bounded');
+assert.equal(activation.PLAY_CONTROL_RENDER_GRACE_MS, 5000,
+    'slow Spotify embeds get extra bounded render time before activation is declared unavailable');
 assert.equal(activation.PLAY_KICK_VERIFY_MS, 700, 'Playwright kick is verified after the autoplay race window');
 assert.equal(activation.shouldRetogglePlaybackKick({
     playing: false,
@@ -197,6 +211,9 @@ function makeBrowserContext(url) {
     const other = makeBrowserContext('https://example.com/embed/track/4cOdK2wGLETKBW3PvgPWqT');
     assert.equal(other.window.__eveSpotifyManagedControl, undefined,
         'non-Spotify origins never receive media hooks');
+
+    runChild('python', 'tools/smoke/audioflix_spotify_rpc_timeout_smoke.py');
+    runChild('node', 'tools/smoke/audioflix_queue_superseded_start_smoke.js');
 
     console.log('AUDIOFLIX_SPOTIFY_BROWSER_RUNTIME_SMOKE_OK');
 })().catch((error) => { console.error(error); process.exit(1); });
