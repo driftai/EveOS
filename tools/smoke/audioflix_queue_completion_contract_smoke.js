@@ -2,7 +2,7 @@
 // Lane 2: shared queue/completion contract. One accepted Ended for the current
 // (entry, playbackRunId) causes exactly one repeat or advance; stale callbacks cause neither.
 // Every entry point drives the real EveOS queue (EveAudioflix.queueConnection) with real WAV
-// playback. Only the provider Ended/settle signal is mocked, so this is not live Spotify proof.
+// playback. Provider Ended/settle and explicit-release signals are mocked: no live Spotify proof.
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -44,6 +44,25 @@ async function endDirect(page, copies = 2) {
 // Re-deliver the exact Ended detail a provider already reported (late duplicate callback).
 const redeliver = page => page.evaluate(() =>
     window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail: window.__queueSmoke.detail })));
+
+// Match managed-client retirement: stop only the real WAV transport, then emit the provider signal.
+// Never call Stop Group here: that would update the queue directly and hide the missing consumer.
+async function stoppedSignal(page, itemId, { released = true, stopTransport = true } = {}) {
+    await page.evaluate(async ({ itemId, released, stopTransport }) => {
+        const item = itemId == null ? null : window.EveAudioflixState.getSnapshot().music.find(track => track.id === itemId);
+        if (stopTransport) await window.EveAudioflixAudio.stopAll();
+        window.dispatchEvent(new CustomEvent('eve:audioflix-playback', { detail: {
+            status: 'Stopped', item, provider: 'spotify', browserOnly: true, remoteManaged: true, released
+        } }));
+    }, { itemId, released, stopTransport });
+}
+
+async function replayFromGroupPointer(page) {
+    assert.strictEqual(await page.evaluate(() => window.EveAudioflixAudio.isInternalViewOpen()), false, 'Queue View remains closed');
+    await libraryAction(page, 'play-music-group');
+    await playingAt(page, 0);
+    assert.strictEqual(await page.evaluate(() => window.EveAudioflixAudio.isInternalViewOpen()), false, 'pointer replay never opens Queue View');
+}
 
 // Let every listener (coordinator, Spotify fast path, 0ms resilience fallback) and any start settle.
 async function settled(page) {
@@ -104,6 +123,50 @@ async function main() {
             await end(page, false, alpha);
             const stale = await settled(page);
             assert.deepStrictEqual(stale.starts.map(start => start.id), [beta, gamma], 'stale Ended after a skip does nothing');
+        });
+        await run('explicit-release-no-queue-view-pointer-replay', async page => {
+            const before = await jump(page, 0), current = before.queue.entries[0].id;
+            await stoppedSignal(page, current);
+            const released = await settled(page);
+            assert.strictEqual(released.queue.isPlaying, false, 'explicit release retires canonical queue ownership');
+            assert.strictEqual(released.queue.playbackRunId, before.queue.playbackRunId + 1, 'release invalidates exactly one queue run');
+            assert.strictEqual(released.queue.groupName, before.queue.groupName, 'release preserves the queue source');
+            assert.deepStrictEqual(released.queue.entries, before.queue.entries, 'release preserves the queue order');
+            assert.strictEqual(released.playback.paused, true, 'real WAV transport is stopped before provider release');
+            expectOutcome('explicit-release-no-queue-view', released, { starts: [], index: 0 });
+            await replayFromGroupPointer(page);
+            const replayed = await settled(page);
+            assert(replayed.queue.playbackRunId > released.queue.playbackRunId, 'explicit pointer replay owns a fresh run');
+            expectOutcome('explicit-release-pointer-replay', replayed, { starts: [current], index: 0, method: 'playItem' });
+        });
+        await run('generic-and-stale-entry-stops-ignore-release', async page => {
+            const before = await jump(page, 1), current = before.queue.entries[1].id;
+            await stoppedSignal(page, current, { released: false, stopTransport: false });
+            await stoppedSignal(page, before.queue.entries[0].id, { stopTransport: false });
+            await stoppedSignal(page, null, { stopTransport: false });
+            const ignored = await settled(page);
+            assert.strictEqual(ignored.queue.isPlaying, true, 'ordinary, stale-entry, and identityless stops cannot retire this queue');
+            assert.strictEqual(ignored.queue.playbackRunId, before.queue.playbackRunId, 'ignored stop does not invalidate a run');
+            assert.strictEqual(ignored.playback.id, current, 'unrelated stop preserves actual current WAV playback');
+            assert.strictEqual(ignored.playback.paused, false);
+            expectOutcome('generic-and-stale-entry-stops-ignore-release', ignored, { starts: [], index: 1 });
+        });
+        await run('explicit-release-invalidates-pending-ended', async page => {
+            const before = await jump(page, 0), current = before.queue.entries[0].id;
+            await end(page, true);
+            await stoppedSignal(page, current);
+            const released = await snapshot(page);
+            assert.strictEqual(released.queue.isPlaying, false);
+            assert.strictEqual(released.queue.playbackRunId, before.queue.playbackRunId + 1);
+            assert.deepStrictEqual(released.starts, [], 'pending Ended cannot start anything during release');
+            // Replay the SAME entry before old Ended settles: its stale run must not advance replay.
+            await replayFromGroupPointer(page);
+            const replayRun = (await snapshot(page)).queue.playbackRunId;
+            await resolveEnd(page);
+            const after = await settled(page);
+            assert.strictEqual(after.queue.isPlaying, true, 'explicit replay remains the active owner');
+            assert.strictEqual(after.queue.playbackRunId, replayRun, 'old Ended cannot invalidate the replay run');
+            expectOutcome('explicit-release-invalidates-pending-ended', after, { starts: [current], index: 0, method: 'playItem' });
         });
         // 9. Stop/reset while the completion settle is pending, with no Queue View.
         await run('stop-during-pending-settle-no-queue-view', async page => {
@@ -221,14 +284,15 @@ async function main() {
         fs.writeFileSync(path.join(RESULT_DIR, 'contract-result.json'), JSON.stringify({
             completedAt: new Date().toISOString(), status: failures.length ? 'FAIL' : 'PASS', passed,
             total: passed + failures.length, failures, counts,
-            evidence: 'real queue + WAV; mocked Ended/settle; no live Spotify proof'
+            evidence: 'real queue + WAV + pointer replay; mocked Ended/settle/released Stop; no live Spotify proof'
         }, null, 2));
         if (failures.length) {
             for (const failure of failures) console.error(`FAIL [${failure.id}] ${failure.message.split('\n').slice(0, 3).join(' ')}`);
             console.error(`AUDIOFLIX_QUEUE_COMPLETION_CONTRACT_SMOKE_FAIL ${passed}/${passed + failures.length}`);
             process.exitCode = 1;
         } else {
-            console.log(`AUDIOFLIX_QUEUE_COMPLETION_CONTRACT_SMOKE_OK ${passed}/${passed} ${JSON.stringify(counts)}`);
+            console.log(`AUDIOFLIX_QUEUE_COMPLETION_CONTRACT_SMOKE_OK ${passed}/${passed}`);
+            if (process.argv.includes('--verbose')) console.log(JSON.stringify(counts));
         }
     } finally {
         await browser.close();

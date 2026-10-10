@@ -292,6 +292,9 @@ function evidence(error) {
         for (const key of ['watchJobs', 'watchRequests', 'progressRequests', 'progressTimers', 'retryTimers'])
             assert.equal(s.observation[key], 0, `${id}: ${key} settles without closing the page`);
         assert.equal(eventCount('Stopped'), stoppedCount + 1, `${id}: release emits exactly one Stopped`);
+        const stopDetail = dispatched.filter(event => event.detail?.status === 'Stopped').at(-1).detail;
+        assert.equal(stopDetail.released, true, `${id}: explicit release is distinguishable from ordinary Stop`);
+        assert.equal(stopDetail.item?.id, s.playback.item?.id, `${id}: release retains stopped identity for the queue owner`);
         assert.equal(eventCount('Ended'), endedCount, `${id}: release never advances via Ended`);
     };
     await A.stopAll(); engineState = { ...engineState, ended: false, completionId: '' };

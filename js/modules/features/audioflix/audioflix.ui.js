@@ -401,6 +401,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         playbackStatus = e.detail?.status || playbackStatus;
         const status = String(e.detail?.status || '');
         if (status === 'Ended') completeQueue(e.detail);
+        if (queueRuntime.release(e.detail)) rerender();
         updateStatusDOM();
         window.EveAudioflixTransport?.sync?.(overlay);
         if (nexusState?.open) rerender();

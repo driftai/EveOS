@@ -43,7 +43,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     const lifecycle = window.EveAudioflixSpotifyPlaybackLifecycle.create({
         remote, applyState: applyEngineState, isActive: () => active,
         isStarting: () => starting, currentRun: () => playbackRun,
-        onRelease: stopRemote,
+        onRelease: () => stopRemote(true),
         onDegraded: () => emitPlayback('Spotify status disconnected. Press Play to reconnect.', true),
         notify
     });
@@ -51,8 +51,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     function dispatch(name, detail) {
         window.dispatchEvent(new CustomEvent(name, { detail }));
     }
-    function emitPlayback(status, error = false) {
-        dispatch('eve:audioflix-playback', { status, item, provider: 'spotify', browserOnly: true, remoteManaged: true, error });
+    function emitPlayback(status, error = false, detail = {}) {
+        dispatch('eve:audioflix-playback', { status, item, provider: 'spotify', browserOnly: true, remoteManaged: true, error, ...detail });
     }
     function emitProgress() {
         dispatch('eve:audioflix-progress', { ...playback });
@@ -293,7 +293,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         refreshControls();
         return true;
     }
-    async function stopRemote() {
+    async function stopRemote(released = false) {
         const run = ++playbackRun;
         starting = false;
         clearPoll();
@@ -307,7 +307,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         ended = false;
         playback = { item: stopped, currentTime: 0, duration: 0, paused: true, provider: 'spotify', browserOnly: true, remoteManaged: true };
         if (stopped) {
-            emitPlayback('Stopped');
+            emitPlayback('Stopped', false, { item: stopped, released: released === true });
             emitProgress();
         }
         notify();

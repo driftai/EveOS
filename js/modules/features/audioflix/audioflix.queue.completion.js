@@ -81,7 +81,16 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
             advance: () => playIndex(queue().currentIndex + 1),
             restart
         });
-        return { ...bridge, invalidateRun, restart, complete };
+        const release = (detail) => {
+            const active = queue();
+            if (detail?.status !== 'Stopped' || detail.released !== true || !active.isPlaying
+                || detail.item?.id == null || String(detail.item.id) !== String(active.items[active.currentIndex])) return false;
+            invalidateRun();
+            active.isPlaying = false;
+            window.EveAudioflixAudio?.syncQueueView?.();
+            return true;
+        };
+        return { ...bridge, invalidateRun, restart, complete, release };
     }
 
     Object.assign(ns, { ready: true, create, createBridge, createRuntime, isStaleDelivery });

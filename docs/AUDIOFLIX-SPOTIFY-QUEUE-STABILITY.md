@@ -409,3 +409,9 @@ ordinary unavailable/degraded observations do not invent Stop, Ended or Play. Th
 lifecycle owns lazy observer construction, preserving one observer and one queue owner
 while keeping the managed adapter below its file-size headroom limit. This correction
 still requires exact-head live recovery and the canonical file approval matrix.
+
+Live recovery then proved that client retirement alone left the canonical queue
+armed. Released Stopped events now preserve the stopped item's identity. Only the
+queue runtime consumes an explicit release matching its current entry: it invalidates
+pending completion work and clears Playing without advancing or inventing Play.
+Ordinary Stopped, unrelated tracks and ambiguous connection degradation do not retire it.
