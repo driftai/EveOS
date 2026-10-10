@@ -54,6 +54,8 @@ async function main() {
             && window.EveAudioflixState?.ready
             && window.EveAudioflixSpotifyAnyBrowser?.ready
             && window.EveAudioflixDiagnostics?.ready, undefined, { timeout: 120000 });
+        const hydration = await H.waitForControllerHydration(page);
+        console.log('LIVE_QUEUE_CONTROLLER_STABLE', JSON.stringify(hydration));
 
         const initialQueue = await H.queueSnapshot(page);
         if (initialQueue.queue?.isPlaying) {
@@ -220,7 +222,12 @@ async function main() {
             diagnostics: result.diagnostics.summary
         }, null, 2));
         console.log(`AUDIOFLIX_SPOTIFY_LONG_QUEUE_LIVE_OK ${count}/${count}`);
+    } catch (error) {
+        const diagnostics = await H.controllerDiagnostics(page).catch(() => null);
+        if (diagnostics) console.error('LIVE_QUEUE_CONTROLLER_DIAGNOSTICS', JSON.stringify(diagnostics, null, 2));
+        throw error;
     } finally {
+        await H.disposeControllerProbe(page).catch(() => {});
         try {
             await page.evaluate(async ({ restore }) => {
                 const stopButton = document.querySelector('[data-af-action="stop-music-group"]');
