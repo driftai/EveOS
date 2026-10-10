@@ -25,6 +25,11 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     let lastCompletionId = '';
     let ended = false;
     let playbackRun = 0, engineGeneration = 0;
+    // Broker Play is staged (load -> volume -> activation). A single helper RPC is bounded, but the
+    // whole broker command can legitimately outlive the old 20s browser timer while Spotify is
+    // still activating. Keep the reply budget above that staged path so the client does not abandon
+    // a request that the helper is still finishing.
+    const PLAY_REPLY_TIMEOUT_MS = 45000;
     const SLOW_START_ADOPT_MS = 45000;
     const SLOW_START_POLL_MS = 750;
     let approvalPrompt = null;
@@ -268,7 +273,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             effectiveVolume: effectiveGain(item.volume ?? 1),
             itemId: String(item.id || ''),
             type: String(item.type || 'music')
-        }, { timeout: 20000 });
+        }, { timeout: PLAY_REPLY_TIMEOUT_MS });
         if (!result?.ok && result?.timeout) result = await adoptSlowStart(id, nextItem);
         if (run !== playbackRun) return false;
         finish?.(!result?.ok);
