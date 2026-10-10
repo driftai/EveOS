@@ -2,7 +2,7 @@
 
 import process from 'node:process';
 import { chromium } from 'playwright';
-import { createLongQueueHarness, normalizeSpotify } from './audioflix_spotify_long_queue_live_support.mjs';
+import { createLongQueueHarness, normalizeSpotify, spotifyTrackId } from './audioflix_spotify_long_queue_live_support.mjs';
 
 const argv = process.argv.slice(2);
 const has = (flag) => argv.includes(flag);
@@ -75,6 +75,8 @@ async function main() {
             throw new Error('No Spotify-linked track exists in this EveOS controller state. Pass --track=<Spotify URL/ID> or --tracks=<a;b;c>.');
         }
         const urls = Array.from({ length: count }, (_, index) => sourceTracks[index % sourceTracks.length]);
+        const expectedTrackIds = urls.map(spotifyTrackId);
+        H.assert(expectedTrackIds.every(Boolean), `fixture contains an invalid Spotify track: ${JSON.stringify(urls)}`);
         const expectedIds = Array.from({ length: count }, (_, index) => `${fixturePrefix}${index}`);
 
         await page.evaluate(() => {
@@ -125,15 +127,15 @@ async function main() {
         const ownership = await H.waitForOwnership(page, expectedIds);
         const ownerEpoch = Number(ownership.ownerEpoch || 0);
         H.assert(ownerEpoch > 0, 'Spotify ownership epoch is unavailable after fixture start');
-        await H.waitForTrackReady(page, 0, expectedIds, ownerEpoch);
-        await H.waitForManagedPlayback();
+        await H.waitForTrackReady(page, 0, expectedIds, ownerEpoch, expectedTrackIds[0]);
+        await H.waitForManagedPlayback(expectedTrackIds[0]);
 
         const transitions = [];
         let hiddenObserved = false;
         const backgroundAt = Math.max(2, Math.floor(count / 4));
 
         for (let index = 0; index < count; index += 1) {
-            const track = await H.waitForTrackReady(page, index, expectedIds, ownerEpoch);
+            const track = await H.waitForTrackReady(page, index, expectedIds, ownerEpoch, expectedTrackIds[index]);
 
             if (!foreground && index === backgroundAt) {
                 foreground = await context.newPage();
@@ -156,7 +158,9 @@ async function main() {
             await page.evaluate(async ({ duration, tail }) => {
                 await window.EveAudioflixAudio.seek(Math.max(0, duration - tail));
             }, { duration: track.duration, tail: tailSeconds });
-            const landed = await H.waitForSeekLanding(page, index, expectedIds, ownerEpoch, track.duration);
+            const landed = await H.waitForSeekLanding(
+                page, index, expectedIds, ownerEpoch, track.duration, expectedTrackIds[index]
+            );
 
             if (index < count - 1) {
                 if (!landed.advanced) {
