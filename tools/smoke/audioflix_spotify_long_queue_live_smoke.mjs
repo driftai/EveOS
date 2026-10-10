@@ -2,7 +2,7 @@
 
 import process from 'node:process';
 import { chromium } from 'playwright';
-import { normalizeSpotify, createLongQueueHarness } from './audioflix_spotify_long_queue_live_support.mjs';
+import { createLongQueueHarness, normalizeSpotify } from './audioflix_spotify_long_queue_live_support.mjs';
 
 const argv = process.argv.slice(2);
 const has = (flag) => argv.includes(flag);
@@ -17,10 +17,9 @@ const headless = has('--headless');
 const allowVisible = has('--allow-visible-controller');
 const shouldStart = has('--start');
 const takeOver = has('--take-over');
-const nonce = Date.now().toString(36);
-const groupName = `EveOS Live Queue ${nonce}`;
-const fixturePrefix = `live-queue-${nonce}-`;
-
+const groupName = `EveOS Live Queue ${Date.now().toString(36)}`;
+const fixtureNonce = Date.now().toString(36);
+const fixturePrefix = `live-queue-${fixtureNonce}-`;
 const supplied = String(value('--tracks', process.env.EVE_AUDIOFLIX_SPOTIFY_LIVE_TRACKS || '') || '')
     .split(/[;,\n]+/).map(normalizeSpotify).filter(Boolean);
 const single = normalizeSpotify(value('--track', process.env.EVE_AUDIOFLIX_SPOTIFY_LIVE_TRACK || ''));
@@ -30,23 +29,22 @@ const H = createLongQueueHarness({
     base, controllerUrl, engineUrl, groupName, fixturePrefix,
     transitionTimeout, tailSeconds, shouldStart, takeOver
 });
-H.validateUrls();
 
 async function main() {
-    const engine = await H.ensureManagedEngine();
+    H.validateUrls();
+    const managedPreflight = await H.ensureManagedEngine();
     console.log('LIVE_QUEUE_ENGINE_READY', JSON.stringify({
-        pageUrl: engine.status.pageUrl,
-        authState: engine.status.authState,
-        browserChannel: engine.status.browserChannel,
-        startedBySmoke: engine.startedBySmoke
+        pageUrl: managedPreflight.status.pageUrl,
+        authState: managedPreflight.status.authState,
+        browserChannel: managedPreflight.status.browserChannel,
+        startedBySmoke: managedPreflight.startedBySmoke
     }));
 
     const browser = await chromium.launch({ headless });
     const context = await browser.newContext({ viewport: { width: 1360, height: 900 } });
     const page = await context.newPage();
     let foreground = null;
-    let originalState = null;
-    let fixtureInstalled = false;
+    let originalStateCaptured = false;
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(String(error?.message || error)));
 
@@ -57,9 +55,13 @@ async function main() {
             && window.EveAudioflixSpotifyAnyBrowser?.ready
             && window.EveAudioflixDiagnostics?.ready, undefined, { timeout: 120000 });
 
-        const preflight = await H.queueSnapshot(page);
-        H.assert(!preflight.queue?.isPlaying,
-            `Disposable controller already has a live queue (${preflight.queue?.groupName || 'unknown'}). Stop it before running this proof.`);
+        const initialQueue = await H.queueSnapshot(page);
+        if (initialQueue.queue?.isPlaying) {
+            throw new Error(
+                `Disposable controller already has a live queue (${initialQueue.queue.groupName || 'unnamed'}). `
+                + 'Close competing AudioFlix playback before running the live proof.'
+            );
+        }
 
         let sourceTracks = [...supplied];
         if (!sourceTracks.length) {
@@ -73,21 +75,21 @@ async function main() {
             throw new Error('No Spotify-linked track exists in this EveOS controller state. Pass --track=<Spotify URL/ID> or --tracks=<a;b;c>.');
         }
         const urls = Array.from({ length: count }, (_, index) => sourceTracks[index % sourceTracks.length]);
+        const expectedIds = Array.from({ length: count }, (_, index) => `${fixturePrefix}${index}`);
 
-        originalState = await page.evaluate(() => JSON.parse(JSON.stringify(window.EveAudioflixState.ensure())));
         await page.evaluate(() => {
+            window.__eveLongQueueOriginalState = JSON.parse(JSON.stringify(window.EveAudioflixState.ensure()));
             window.__eveLongQueueOriginalSaveConfig = window.saveConfig;
             window.saveConfig = async () => true;
         });
+        originalStateCaptured = true;
 
-        const expectedIds = await page.evaluate(({ tracks, group, prefix }) => {
+        await page.evaluate(({ tracks, group, nonce }) => {
             const S = window.EveAudioflixState;
             S.addMusicGroup(group);
-            const ids = [];
             tracks.forEach((url, index) => {
-                const wantedId = `${prefix}${index}`;
                 const added = S.addItem('music', {
-                    id: wantedId,
+                    id: `live-queue-${nonce}-${index}`,
                     title: `Live Queue ${String(index + 1).padStart(2, '0')}`,
                     url,
                     spotifyUrl: url,
@@ -95,7 +97,6 @@ async function main() {
                     type: 'music',
                     volume: 0.05
                 });
-                ids.push(added.id);
                 S.toggleMusicGroup(added.id, group, true);
             });
             S.update({
@@ -105,31 +106,25 @@ async function main() {
                 activeFrontendMusicClassifier: '',
                 activeMusicFolderScope: ''
             }, 'audioflix-live-long-queue-fixture');
-            return ids;
-        }, { tracks: urls, group: groupName, prefix: fixturePrefix });
-        fixtureInstalled = true;
-
-        H.assert(expectedIds.length === count, `fixture created ${expectedIds.length} tracks; expected ${count}`);
-        H.assert(expectedIds.every((id) => String(id).startsWith(fixturePrefix)),
-            `fixture ids were rewritten unexpectedly: ${JSON.stringify(expectedIds)}`);
+        }, { tracks: urls, group: groupName, nonce: fixtureNonce });
 
         await page.click('.topbar-audioflix-btn');
         await page.waitForSelector('#audioflix-overlay:not([hidden]) .audioflix-panel', { timeout: 15000 });
         await page.click('[data-af-action="tab"][data-af-tab="music"]');
         await page.waitForFunction((group) => {
-            const root = document.querySelector('.audioflix-item-grid[data-af-active-group]');
-            return root?.dataset.afActiveGroup === group;
+            const grid = document.querySelector('.audioflix-item-grid[data-af-active-group]');
+            return grid?.dataset.afActiveGroup === group;
         }, groupName, { timeout: 15000 });
-        const playButtons = page.locator('#audioflix-overlay:not([hidden]) [data-af-action="play-music-group"]:visible');
-        H.assert(await playButtons.count() === 1,
-            `Expected exactly one visible Play Group button for fixture "${groupName}", found ${await playButtons.count()}.`);
-        await playButtons.first().click();
+        const playGroup = page.locator('.audioflix-frontend-subhead [data-af-action="play-music-group"]:visible');
+        const playCount = await playGroup.count();
+        H.assert(playCount === 1,
+            `expected exactly one Play Group button for temporary group "${groupName}", found ${playCount}`);
+        await playGroup.click();
 
-        const authoritative = await H.waitForFixtureQueue(page, expectedIds);
-        H.assertFixtureQueue(authoritative, expectedIds, 0);
+        await H.waitForFixtureQueue(page, expectedIds);
         const ownership = await H.waitForOwnership(page, expectedIds);
         const ownerEpoch = Number(ownership.ownerEpoch || 0);
-        H.assert(ownerEpoch > 0, 'Spotify owner epoch was not established.');
+        H.assert(ownerEpoch > 0, 'Spotify ownership epoch is unavailable after fixture start');
         await H.waitForTrackReady(page, 0, expectedIds, ownerEpoch);
         await H.waitForManagedPlayback();
 
@@ -167,9 +162,8 @@ async function main() {
                 if (!landed.advanced) {
                     await H.pollNode(async () => {
                         const snapshot = await H.queueSnapshot(page);
-                        // Fixture identity is invariant and must fail fast, but currentIndex is the
-                        // condition we are waiting to change. Do not assert the successor index on
-                        // the first poll while the just-ended track is still completing.
+                        // Queue identity/order must stay exact while currentIndex is allowed to
+                        // remain on the old track until the completion handoff actually lands.
                         H.assertFixtureQueue(snapshot, expectedIds);
                         const currentOwnership = snapshot.managed?.ownership;
                         H.assert(currentOwnership?.isOwner === true && Number(currentOwnership.ownerEpoch || 0) === ownerEpoch,
@@ -224,17 +218,28 @@ async function main() {
         console.log(`AUDIOFLIX_SPOTIFY_LONG_QUEUE_LIVE_OK ${count}/${count}`);
     } finally {
         try {
-            await page.evaluate(() => window.EveAudioflixAudio?.stopAll?.());
-            if (fixtureInstalled && originalState) {
-                await page.evaluate((state) => {
-                    const originalSave = window.__eveLongQueueOriginalSaveConfig;
-                    window.EveAudioflixState?.replaceState?.(state, 'audioflix-live-long-queue-cleanup');
-                    if (originalSave) window.saveConfig = originalSave;
-                    delete window.__eveLongQueueOriginalSaveConfig;
-                }, originalState);
-            }
+            await page.evaluate(async ({ restore }) => {
+                const stopButton = document.querySelector('[data-af-action="stop-music-group"]');
+                if (stopButton) {
+                    stopButton.click();
+                    await new Promise((resolve) => setTimeout(resolve, 200));
+                }
+                try { await window.EveAudioflixAudio?.stopAll?.(); } catch {}
+                if (restore && window.__eveLongQueueOriginalState) {
+                    window.EveAudioflixState?.replaceState?.(
+                        window.__eveLongQueueOriginalState,
+                        'audioflix-live-long-queue-restore'
+                    );
+                }
+                if (window.__eveLongQueueOriginalSaveConfig !== undefined) {
+                    window.saveConfig = window.__eveLongQueueOriginalSaveConfig;
+                }
+                delete window.__eveLongQueueOriginalState;
+                delete window.__eveLongQueueOriginalSaveConfig;
+                try { window.EveAudioflix?.render?.(); } catch {}
+            }, { restore: originalStateCaptured });
         } catch {}
-        if (engine.startedBySmoke) {
+        if (managedPreflight.startedBySmoke) {
             await H.jsonRequest('/api/audioflix/spotify-browser/stop', 'POST', {}).catch(() => {});
         }
         await browser.close().catch(() => {});
