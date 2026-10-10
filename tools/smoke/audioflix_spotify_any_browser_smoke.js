@@ -32,8 +32,8 @@ const remote = {
         lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true } };
         return lastState;
     },
-    async send(action, payload = {}) {
-        calls.push({ action, payload: { ...payload } });
+    async send(action, payload = {}, options = {}) {
+        calls.push({ action, payload: { ...payload }, options: { ...options } });
         if (action === 'play' && remote.coldStartTimeouts > 0) {
             // Cold engine start: the broker keeps loading/playing after the reply window closes.
             remote.coldStartTimeouts -= 1;
@@ -140,6 +140,8 @@ vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' 
     assert.equal(play.payload.spotifyId, '4cOdK2wGLETKBW3PvgPWqT');
     assert.equal(play.payload.effectiveVolume, 0.25,
         'track 50% x master/output 50% reaches the engine as exactly 25% once');
+    assert.equal(play.options.timeout, 45000,
+        'staged managed Play keeps a reply budget above the old 20s browser timeout race');
 
     window.EveAudioflixAudio.updateItemVolume('song-1', 0.4);
     await Promise.resolve();
