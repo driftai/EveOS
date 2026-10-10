@@ -99,6 +99,7 @@ manager._helper_status = lambda: {
     "spotifyFrameCount": 1,
     "mediaCount": 1,
     "playingCount": 1,
+    "trackIds": ["4cOdK2wGLETKBW3PvgPWqT"],
     "desiredVolume": 0.25,
     "authState": "signed-in",
     "browserChannel": "msedge",
@@ -110,6 +111,7 @@ public = manager.status()
 assert public["helperReachable"] is True
 assert public["authState"] == "signed-in"
 assert public["playingCount"] == 1
+assert public["trackIds"] == ["4cOdK2wGLETKBW3PvgPWqT"]
 assert public["phase"] == "ready"
 assert public["startupBudgetMs"] == expected_start_ms
 assert public["sessionPresent"] is True
