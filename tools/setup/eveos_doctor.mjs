@@ -16,6 +16,7 @@ const nodeMajor = Number(process.versions.node.split('.')[0]);
 need(nodeMajor >= 20, `Node.js >=20 required (found ${process.versions.node})`);
 for (const file of [
     'package.json', 'package-lock.json', 'requirements.txt', 'requirements-dev.txt', 'EveOS.html', 'start-server.bat',
+    'docs/FRESH_CLONE.md',
     'config/eveos-ports.json', 'tools/setup/python_runtime.cjs', 'tools/setup/eveos_npm.mjs',
     'tools/qualification/audioflix_lane3_runtime_acceptance.mjs',
     'tools/qualification/audioflix_lane3_file_acceptance.mjs',
