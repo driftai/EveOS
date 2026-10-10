@@ -1,0 +1,32 @@
+name: Repository guardrails
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repo-guardrails-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  structural:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Confirm supported Node runtime
+        shell: bash
+        run: |
+          node --version
+          node -e "if (Number(process.versions.node.split('.')[0]) < 20) process.exit(1)"
+      - name: Protect private/runtime boundaries
+        run: node tools/audit/eveos_repo_hygiene_guard.mjs
+      - name: Prove smoke registry is closed
+        run: node tools/audit/smoke-registry-audit.js
