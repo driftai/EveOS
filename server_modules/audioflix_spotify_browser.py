@@ -198,6 +198,7 @@ class SpotifyBrowserManager:
                 "spotifyFrameCount": int((helper or {}).get("spotifyFrameCount") or 0),
                 "mediaCount": int((helper or {}).get("mediaCount") or 0),
                 "playingCount": int((helper or {}).get("playingCount") or 0),
+                "trackIds": list((helper or {}).get("trackIds") or []),
                 "desiredVolume": (helper or {}).get("desiredVolume"),
                 "authState": (helper or {}).get("authState") or "unknown",
                 "browserChannel": (helper or {}).get("browserChannel") or "",
