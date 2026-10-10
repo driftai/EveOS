@@ -155,8 +155,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         queueTransition = queueTransition.catch(() => {}).then(async () => {
             if (runId !== queueRunId) return;
             const finish = window.EveAudioflixDiagnostics?.span?.('queue:start');
-            const attempts = activeMusicQueue.items.length;
-            const startingIndex = activeMusicQueue.currentIndex;
+            const attempts = activeMusicQueue.items.length, startingIndex = activeMusicQueue.currentIndex;
             let didStart = false;
             for (let attempt = 0; attempt < attempts && runId === queueRunId; attempt += 1) {
                 activeMusicQueue.currentIndex = targetIndex;
@@ -166,13 +165,8 @@ window.EveAudioflix = window.EveAudioflix || {};
                     const started = window.EveAudioflixAudio?.isInternalViewOpen?.()
                         ? await window.EveAudioflixAudio.openInternalView(track)
                         : await window.EveAudioflixAudio.playItem(track);
-                    if (started === false) {
-                        activeMusicQueue.currentIndex = startingIndex;
-                        finish?.(false);
-                        window.EveAudioflixAudio?.syncQueueView?.();
-                        rerender();
-                        return;
-                    }
+                    // Superseded start: cancellation, not a broken track. Restore the authoritative index, no skip.
+                    if (started === false) { activeMusicQueue.currentIndex = startingIndex; finish?.(false); window.EveAudioflixAudio?.syncQueueView?.(); rerender(); return; }
                     didStart = true; break;
                 } catch (err) {
                     playbackStatus = `Skipped ${track?.title || 'unavailable track'}: ${err?.message || 'Playback failed'}`;
