@@ -30,6 +30,8 @@ jobs:
         run: node tools/audit/eveos_repo_hygiene_guard.mjs
       - name: Protect automation security boundaries
         run: node tools/audit/github_actions_security_guard.mjs
+      - name: Prove security guard handles equivalent YAML spellings
+        run: node tests/github_actions_security_guard.test.mjs
       - name: Prove smoke registry is closed
         run: node tools/audit/smoke-registry-audit.js
       - name: Enforce generated runtime asset versions
@@ -38,8 +40,29 @@ jobs:
           node tools/audit/sync-runtime-asset-versions.js --write
           git diff -- EveOS.html js/config/manifest/scripts.parts/03-feature-modules.js
           git diff --exit-code -- EveOS.html js/config/manifest/scripts.parts/03-feature-modules.js
-      - name: Protect Queue View pointer stability
+      - name: Protect Queue View pointer stability structurally
         run: node tests/audioflix_queue_view_stability.test.cjs
+
+  queue-pointer-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Confirm supported Node runtime
+        shell: bash
+        run: |
+          node --version
+          node -e "if (Number(process.versions.node.split('.')[0]) < 20) process.exit(1)"
+      - name: Reconstruct Node dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Install isolated Playwright Chromium runtime
+        run: npx playwright install --with-deps chromium
+      - name: Prove Queue View hover/click stability with real pointer input
+        run: npm run --silent smoke:audioflix-queue-view-pointer-browser
 
   fresh-install:
     runs-on: windows-latest
