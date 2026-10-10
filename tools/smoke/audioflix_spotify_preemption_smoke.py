@@ -33,8 +33,16 @@ class SlowStartEngine:
         self.abort = threading.Event()
         self.hold_next_play = True
         self.abort_on_interrupt = True
+        self.hold_startup = False
+        self.startup_entered = threading.Event()
+        self.release_startup = threading.Event()
 
     def ensure_engine(self, page_url):
+        if self.hold_startup:
+            # First managed-browser launch (budget up to 135s); the helper cannot be interrupted.
+            self.hold_startup = False
+            self.startup_entered.set()
+            self.release_startup.wait(HOLD_S)
         return {"ok": True, "helperReachable": True, "engineStartedAt": 1000, "authState": "signed-in",
                 "browserRunning": True, "presentation": "hidden"}
 
@@ -83,6 +91,9 @@ class SlowStartEngine:
         self.abort.clear()
         self.hold_next_play = True
         self.abort_on_interrupt = True
+        self.hold_startup = False
+        self.startup_entered.clear()
+        self.release_startup.clear()
 
 
 real_interrupt = rpc.interrupt
@@ -190,6 +201,47 @@ assert fake.interrupts == [], f"observer interrupted the owner: {fake.interrupts
 assert results["o"].get("ok") is False and results["o"].get("observer"), results["o"]
 assert results["a"].get("ok"), results["a"]
 
+# First-launch window: Play A is inside ensure_engine() with no owner yet. The helper interrupt
+# is best-effort here (helper not up), so the broker fence alone must stop A after startup.
+def playback_work():
+    return [c for c in fake.calls if c[0] in {"load", "play", "volume"}]
+
+
+for label, cancel in (("stop", "stop"), ("pause", "pause"), ("play-b", "play")):
+    fake.reset()
+    fake.hold_next_play = False
+    fake.abort_on_interrupt = False
+    fake.hold_startup = True
+    broker, grant = new_broker()
+    observer = broker.connect({"mode": "localhost", "parentOrigin": "http://127.0.0.1:8765",
+                               "documentId": f"obs-{label}", "libraryScopeId": "origin:http://127.0.0.1:8765"}, context)
+    results = {}
+    t_a = spawn(results, "a", lambda: send(broker, grant, "play", {"spotifyId": A, "duration": 180}))
+    assert fake.startup_entered.wait(3), label
+    assert broker._owner_client_id == "", "Play A has not acquired ownership during startup"
+    # An observer never gains cancellation authority in the ownerless window.
+    t_o = spawn(results, "o", lambda: send(broker, observer, "stop" if cancel != "play" else "pause"))
+    time.sleep(0.2)
+    assert fake.interrupts == [], f"{label}: observer interrupted the pending first Play"
+    payload = {"spotifyId": B, "duration": 180} if cancel == "play" else {}
+    t_c = spawn(results, "c", lambda: send(broker, grant, cancel, payload))
+    time.sleep(0.2)
+    expected = {"stop": "stopped", "pause": "paused", "play": "superseded"}[cancel]
+    assert [r for r, _ in fake.interrupts] == [expected], f"{label}: {fake.interrupts}"
+    fake.release_startup.set()
+    for thread in (t_a, t_o, t_c):
+        thread.join(HOLD_S + 3)
+    assert results["a"].get("superseded") and results["a"].get("lifecycle") == "superseded", (label, results["a"])
+    assert browser_work_for(A) == [] and not [c for c in fake.calls if c[0] == "volume" and c[1] == A], \
+        f"{label}: stale first Play did post-startup work: {playback_work()}"
+    if cancel == "play":
+        assert results["c"].get("ok") and results["c"].get("isOwner"), results["c"]
+        assert [c[1] for c in fake.calls if c[0] == "load"] == [B]
+        assert fake.generation == broker._track_generation and broker._owner_client_id == grant["clientId"]
+    else:
+        assert playback_work() == [], f"{label}: {playback_work()}"
+        assert broker._owner_client_id == "", f"{label}: stale Play acquired ownership"
+
 # 6. Interrupt endpoint unavailable: dead and hung helpers stay bounded and harmless.
 manager = browser._manager
 saved = (manager._port, manager._token, manager._process_running)
@@ -230,4 +282,4 @@ t_s.join(HOLD_S + 3)
 assert not t_a.is_alive() and not t_s.is_alive(), "no deadlock when the interrupt fails"
 assert results["s"].get("ok"), results["s"]
 
-print("AUDIOFLIX_SPOTIFY_PREEMPTION_SMOKE_OK (pre-lock interrupt, stale queued fence, A->B, stop, observer, dead/hung endpoint)")
+print("AUDIOFLIX_SPOTIFY_PREEMPTION_SMOKE_OK (pre-lock interrupt, stale queued fence, A->B, stop, observer, first-launch fence, dead/hung endpoint)")

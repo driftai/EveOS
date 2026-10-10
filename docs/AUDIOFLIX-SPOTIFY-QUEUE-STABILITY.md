@@ -116,6 +116,16 @@ fixtures were corrected without altering production authorization or assertions.
   interrupt, dead or hung helper) and `audioflix_spotify_preemption_helper_smoke.js` (lease
   and pre-lease interrupt, A->B, audible Stop, real helper token check). Pause/Stop latency
   during a slow start is now bounded by the interrupt instead of the 15.5s lease.
+- First managed-engine launch (checkpoint 1d): Play acquires ownership only after
+  `_start_engine()` (up to the 135s launch budget), so while no owner exists, the initiating
+  client's own Pause/Stop may preempt its pending Play. This holds only while transport is busy
+  and both the running and the latest accepted intents are that client's; observers never can.
+  After `_start_engine()` returns, Play re-checks `still_current_locked()` before owner
+  acquisition, the generation bump, Load, volume and Play, and returns the structural superseded
+  result if a newer intent won. The broker fence is authoritative; the helper interrupt is
+  best-effort while the helper is still launching. Boundary: browser-process launch itself is
+  not cancellable, so a cancelled first launch still finishes starting the (silent) engine.
+  any-browser clears `starting` per run, and a superseded run's late failure resolves false.
 - The legacy repeat/restart path and unavailable/provider-restricted media remain
   separate live qualification targets; this patch does not promise full-length Free playback.
 - Uncached repository verification reached pre-existing Dex origin/receipt fixture

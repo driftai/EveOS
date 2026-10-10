@@ -29,7 +29,15 @@ def _may_preempt_locked(broker, client_id: str, action: str) -> bool:
     if action == "play":
         return True
     if action in {"pause", "stop"}:
-        return owner == client_id
+        if owner:
+            return owner == client_id
+        # Ownerless first-launch window: Play acquires ownership only after _start_engine(), so
+        # the initiating client may cancel its own pending start. It loses that authority as soon
+        # as another client's newer intent is the latest, and an observer never has it.
+        latest = getattr(broker, "_latest_intent", None)
+        running = getattr(broker, "_running_intent", None)
+        return bool(getattr(broker, "_transport_busy", False) and latest and running
+                    and latest[0] == client_id and running[0] == client_id)
     return not owner or owner == client_id
 
 
@@ -64,8 +72,21 @@ def run_fenced(broker, token, execute):
         if token is not None and getattr(broker, "_latest_intent", None) != token:
             return dict(SUPERSEDED_RESULT)
         broker._transport_busy = True
+        broker._running_intent = token
     try:
         return execute()
     finally:
         with broker._lock:
             broker._transport_busy = False
+            broker._running_intent = None
+
+
+def still_current_locked(broker) -> bool:
+    """Mid-execution fence (under ``broker._lock``): the executing intent is still the latest.
+
+    Long pre-browser phases (first engine launch, up to its 135s budget) can outlive a newer
+    accepted intent; the helper interrupt is best-effort while the helper is still launching,
+    so this broker check is the authoritative guard before ownership/generation/Load/Play.
+    """
+    token = getattr(broker, "_running_intent", None)
+    return token is None or getattr(broker, "_latest_intent", None) == token

@@ -375,6 +375,8 @@ class SpotifyClientBroker:
             if not started.get("ok") or not started.get("helperReachable"):
                 return {"ok": False, "reason": started.get("reason") or "Managed Spotify engine did not start."}
             with self._lock:
+                if not preemption.still_current_locked(self):  # newer intent won during startup
+                    return dict(preemption.SUPERSEDED_RESULT)
                 client = self._clients.get(client_id)
                 if not client:
                     return {"ok": False, "reason": "Spotify client expired."}
@@ -385,12 +387,10 @@ class SpotifyClientBroker:
                 "action": "load", "spotifyId": spotify_id, "title": _safe(args.get("title"), 240),
                 "duration": max(0, float(args.get("duration") or 0)), "generation": generation,
             })
-            if not loaded.get("ok"):
-                return loaded
+            if not loaded.get("ok"): return loaded
             gain = max(0.0, min(1.0, float(args.get("effectiveVolume") if args.get("effectiveVolume") is not None else 1)))
             volume = engine.set_effective_volume(gain, spotify_id)
-            if not volume.get("ok"):
-                return volume
+            if not volume.get("ok"): return volume
             played = engine.transport({"action": "play"})
             return self._state(client_id, played.get("state")) if played.get("ok") else played
 

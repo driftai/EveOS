@@ -330,6 +330,48 @@ vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' 
         remote.send = realSend;
     }
 
+    // A thrown remote start must not leave the provider stuck in `starting`, and an older run's
+    // late failure must never clear a newer run's start.
+    {
+        await window.EveAudioflixAudio.stopAll();
+        const realSend = remote.send;
+        const count = action => calls.filter(entry => entry.action === action).length;
+        remote.send = async (action, payload = {}, options = {}) => {
+            if (action !== 'play') return realSend(action, payload, options);
+            calls.push({ action, payload: { ...payload }, options: { ...options } });
+            throw new Error('relay dropped');
+        };
+        await assert.rejects(() => window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-throw' }), /relay dropped/);
+        const pausesBefore = count('pause'), stopsBefore = count('stop'), localStopsBefore = originalStopCount;
+        await window.EveAudioflixAudio.pause();
+        await window.EveAudioflixAudio.stopAll();
+        assert.equal(count('pause'), pausesBefore, 'Pause after a failed start routes to the local player');
+        assert.equal(count('stop'), stopsBefore, 'Stop after a failed start does not hit the broker');
+        assert.equal(originalStopCount, localStopsBefore + 1, 'Stop after a failed start reaches the local player');
+        const localBefore = originalPlayCount;
+        await window.EveAudioflixAudio.playItem({ id: 'local-after-throw', url: 'https://example.com/b.mp3', sourceProvider: 'direct' });
+        assert.equal(originalPlayCount, localBefore + 1, 'local playback after a failed start is normal');
+
+        const pending = new Map();
+        remote.send = async (action, payload = {}, options = {}) => {
+            if (action !== 'play') return realSend(action, payload, options);
+            calls.push({ action, payload: { ...payload }, options: { ...options } });
+            return new Promise((resolve, reject) => pending.set(payload.spotifyId, { resolve, reject }));
+        };
+        const runA = window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-a', url: 'https://open.spotify.com/track/1111111111111111111111' });
+        await new Promise(resolve => setTimeout(resolve, 20));
+        const runB = window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-b', url: 'https://open.spotify.com/track/2222222222222222222222' });
+        await new Promise(resolve => setTimeout(resolve, 20));
+        pending.get('1111111111111111111111').reject(new Error('late A failure'));
+        assert.equal(await runA, false, 'a superseded run failing late is cancellation, not a skip');
+        const pausesBeforeB = count('pause');
+        await window.EveAudioflixAudio.pause();
+        assert.equal(count('pause'), pausesBeforeB + 1, "A's late failure did not clear B's starting state");
+        pending.get('2222222222222222222222').resolve({ ok: false, lifecycle: 'paused', superseded: true });
+        assert.equal(await runB, false);
+        remote.send = realSend;
+    }
+
     await window.EveAudioflixAudio.stopAll();
     remote.connect = async () => { throw new Error('relay offline'); };
     remote.snapshot = () => ({ connected: false, status: 'unavailable', approvalRequired: false, relayReady: false, lastState: null });

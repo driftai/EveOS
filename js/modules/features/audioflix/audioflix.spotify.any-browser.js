@@ -265,26 +265,27 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             item, currentTime: 0, duration: Number(item.duration || item.resolvedDuration || 0) || 0,
             paused: true, provider: 'spotify', browserOnly: true, remoteManaged: true
         };
-        lastEngineStatus = '';
-        lastCompletionId = '';
-        ended = false;
-        engineGeneration = 0;
+        lastEngineStatus = ''; lastCompletionId = ''; ended = false; engineGeneration = 0;
         starting = true;
-        let result = await remote().send('play', {
-            spotifyId: id,
-            title: item.title || '',
-            duration: playback.duration,
-            effectiveVolume: effectiveGain(item.volume ?? 1),
-            itemId: String(item.id || ''),
-            type: String(item.type || 'music')
-        }, { timeout: PLAY_REPLY_TIMEOUT_MS });
-        if (!result?.ok && result?.timeout) result = await adoptSlowStart(id, nextItem);
+        let result;
+        try {
+            result = await remote().send('play', {
+                spotifyId: id, title: item.title || '', duration: playback.duration,
+                effectiveVolume: effectiveGain(item.volume ?? 1),
+                itemId: String(item.id || ''), type: String(item.type || 'music')
+            }, { timeout: PLAY_REPLY_TIMEOUT_MS });
+            if (!result?.ok && result?.timeout) result = await adoptSlowStart(id, nextItem);
+        } catch (error) {
+            if (run !== playbackRun) return false; // a superseded run's late failure is not a skip
+            throw error;
+        } finally {
+            // Run-scoped: a late failure of an older run never clears a newer run's start.
+            if (run === playbackRun) starting = false;
+        }
         if (run !== playbackRun) return false;
-        starting = false;
         // Preempted by a newer accepted intent: cancellation, not a broken track (no queue skip).
         if (!result?.ok && ['superseded', 'paused', 'stopped', 'page-reset'].includes(result?.lifecycle)) {
-            finish?.(true);
-            return false;
+            finish?.(true); return false;
         }
         finish?.(!result?.ok);
         if (!result?.ok) throw new Error(result?.reason || 'Managed Spotify playback failed.');
