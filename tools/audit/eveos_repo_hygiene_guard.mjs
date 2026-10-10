@@ -27,6 +27,16 @@ const forbiddenPath = file => forbiddenExact.has(file)
 
 for (const file of tracked) if (forbiddenPath(file)) fail.push(`private/runtime path is tracked: ${file}`);
 
+const ignoreContract = [
+    'data/runtime/.eveos-ignore-probe', 'data/modular-state/.eveos-ignore-probe', 'logs/.eveos-ignore-probe',
+    'output/.eveos-ignore-probe', 'test-results/.eveos-ignore-probe', 'playwright-report/.eveos-ignore-probe',
+    '.pytest_cache/.eveos-ignore-probe', '.claude/settings.local.json', '.spotify-probe-profile/.eveos-ignore-probe'
+];
+for (const probe of ignoreContract) {
+    try { runGit(['check-ignore', '-q', '--', probe]); }
+    catch { fail.push(`required local/runtime ignore boundary is missing: ${probe}`); }
+}
+
 const qualificationRoots = [
     'tools/qualification/audioflix_lane3_runtime_acceptance.mjs',
     'tools/qualification/audioflix_lane3_file_acceptance.mjs',
@@ -34,6 +44,7 @@ const qualificationRoots = [
 ];
 const durable = [
     'requirements-dev.txt', ...qualificationRoots,
+    'tools/qualification/README.md',
     'tools/qualification/lane3-native-controller.cjs',
     'tools/qualification/lane3-runtime-metrics.cjs',
     'tests/audioflix_queue_view_stability.test.cjs',
@@ -97,4 +108,4 @@ if (fail.length) {
     for (const issue of [...new Set(fail)]) console.error(`- ${issue}`);
     process.exit(1);
 }
-console.log(`EVEOS_REPO_HYGIENE_OK tracked=${tracked.length} scriptTargets=${scriptTargets.size} durable=${durable.length} qualificationRoots=${qualificationRoots.length}`);
+console.log(`EVEOS_REPO_HYGIENE_OK tracked=${tracked.length} scriptTargets=${scriptTargets.size} durable=${durable.length} ignoreProbes=${ignoreContract.length} qualificationRoots=${qualificationRoots.length}`);
