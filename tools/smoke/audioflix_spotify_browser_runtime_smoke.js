@@ -168,6 +168,53 @@ function makeBrowserContext(url) {
     assert.equal(lateRetries, 1, 'late autoplay revert gets exactly one bounded Play retry');
     assert.equal(late.observed.playing, true);
 
+    // Live run e1dd8d9d track 5: the retoggle's ordinary visible click timed out (unstable Play),
+    // so the authorized retry never landed. Only the retoggle may force it, exactly once.
+    function fakePlay() {
+        return {
+            normal: 0, forced: 0, dispatched: 0,
+            async click(opts = {}) {
+                if (opts.force) { this.forced += 1; return; }
+                this.normal += 1;
+                throw new Error('locator.click: Timeout 1800ms exceeded.');
+            },
+            async dispatchEvent() { this.dispatched += 1; }
+        };
+    }
+    const playMeta = { index: 4, aria: 'Play', testId: 'play-pause-button', visible: true, label: 'Play' };
+    const kickRuntime = { playbackKickCount: 0, lastPlaybackKickAt: 0 };
+    const kickNotes = [];
+    const kickNote = (kind, message) => kickNotes.push([kind, message]);
+    const retoggleButton = fakePlay();
+    const forcedRetry = await activation.clickCandidate(
+        retoggleButton, playMeta, kickNote, kickRuntime, 'playback-kick-retoggle', { forceOnVisibleTimeout: true }
+    );
+    assert.equal(forcedRetry.clicked, true, 'retoggle recovers an unstable visible Play with one forced click');
+    assert.equal(forcedRetry.method, 'forced-click');
+    assert.equal(retoggleButton.normal, 1);
+    assert.equal(retoggleButton.forced, 1, 'exactly one forced click, no loop');
+    assert.equal(retoggleButton.dispatched, 0);
+    assert.equal(kickRuntime.playbackKickCount, 1);
+    assert.ok(kickNotes.some(([kind, msg]) => kind === 'playback-kick-retoggle' && msg === 'forced-click: Play'));
+
+    const firstKickButton = fakePlay();
+    const ordinary = await activation.clickCandidate(firstKickButton, playMeta, kickNote, kickRuntime);
+    assert.equal(ordinary.clicked, false, 'the initial Play click is never forced');
+    assert.equal(firstKickButton.forced, 0);
+    assert.equal(firstKickButton.dispatched, 0);
+
+    const dispatchButton = fakePlay();
+    dispatchButton.click = async function click(opts = {}) {
+        if (opts.force) this.forced += 1; else this.normal += 1;
+        throw new Error('locator.click: Timeout 1800ms exceeded.');
+    };
+    const dispatched = await activation.clickCandidate(
+        dispatchButton, playMeta, kickNote, kickRuntime, 'playback-kick-retoggle', { forceOnVisibleTimeout: true }
+    );
+    assert.equal(dispatched.clicked, true, 'retoggle falls back to one synthetic click if force also fails');
+    assert.equal(dispatchButton.forced, 1);
+    assert.equal(dispatchButton.dispatched, 1);
+
     const livenessServer = http.createServer((_req, res) => { res.writeHead(200); res.end('ok'); });
     await new Promise((resolve) => livenessServer.listen(0, '127.0.0.1', resolve));
     const port = livenessServer.address().port;

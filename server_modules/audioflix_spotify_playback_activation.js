@@ -90,19 +90,30 @@ async function controlMeta(candidate, index) {
     return { index, aria, title, text, testId, visible, label };
 }
 
-async function clickCandidate(candidate, meta, note, runtime, noteKind = 'playback-kick') {
+async function forceClickCandidate(candidate) {
+    try { await candidate.click({ timeout: 1800, force: true }); }
+    catch { await candidate.dispatchEvent('click'); }
+}
+
+async function clickCandidate(candidate, meta, note, runtime, noteKind = 'playback-kick', options = {}) {
     const label = meta.label;
     const isPlayPause = meta.testId === 'play-pause-button' && !/\bpause\b/i.test(label);
     if (!isPlayPause && !(meta.visible && isLikelyPlayControl(label))) return { clicked: false };
     try {
-        if (meta.visible) await candidate.click({ timeout: 1800 });
-        else {
-            try { await candidate.click({ timeout: 1800, force: true }); }
-            catch { await candidate.dispatchEvent('click'); }
-        }
+        let forced = !meta.visible;
+        if (meta.visible) {
+            try { await candidate.click({ timeout: 1800 }); }
+            catch (error) {
+                // Only the already-authorized retoggle may force a visible-but-unstable Play control, once.
+                if (options.forceOnVisibleTimeout !== true) throw error;
+                note('playback-kick-candidate', `${meta.testId || meta.index}: ${error.message}`);
+                await forceClickCandidate(candidate);
+                forced = true;
+            }
+        } else await forceClickCandidate(candidate);
         runtime.playbackKickCount += 1;
         runtime.lastPlaybackKickAt = Date.now();
-        const method = meta.visible ? 'click' : 'forced-click';
+        const method = forced ? 'forced-click' : 'click';
         note(noteKind, `${method}: ${label || meta.testId || 'Spotify play control'}`);
         return { clicked: true, label: label || meta.testId || 'play control', method };
     } catch (error) {
@@ -111,7 +122,7 @@ async function clickCandidate(candidate, meta, note, runtime, noteKind = 'playba
     }
 }
 
-async function clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime, noteKind = 'playback-kick') {
+async function clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime, noteKind = 'playback-kick', clickOptions = {}) {
     if (!page || page.isClosed()) return { clicked: false, reason: 'engine page closed' };
     for (const frame of page.frames()) {
         if (!isSpotifyEmbedUrl(frame.url())) continue;
@@ -130,7 +141,7 @@ async function clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl
                     : 'Playback started before the Playwright click; leaving the provider control untouched.');
                 return { clicked: false, alreadyPlaying: true, reason: 'playback already started' };
             }
-            const result = await clickCandidate(candidate, meta, note, runtime, noteKind);
+            const result = await clickCandidate(candidate, meta, note, runtime, noteKind, clickOptions);
             if (result.clicked) return result;
         }
     }
@@ -230,7 +241,8 @@ async function handleTransportWithActivation(options, body) {
             const stable = await stabilizePlaybackKick({
                 observe: () => playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl),
                 retoggle: () => clickSpotifyPlayControl(
-                    page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime, 'playback-kick-retoggle'
+                    page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime, 'playback-kick-retoggle',
+                    { forceOnVisibleTimeout: true }
                 ),
                 waitForPlaying: () => waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS),
                 expectedGeneration: Number(result.state?.generation || 0),
@@ -273,6 +285,7 @@ module.exports = {
     providerPauseButtonShowsPlaying,
     shouldRetogglePlaybackKick,
     stabilizePlaybackKick,
+    clickCandidate,
     PLAY_WAKE_INITIAL_MS,
     PLAY_CONTROL_WAIT_MS,
     PLAY_CONTROL_RENDER_GRACE_MS,
