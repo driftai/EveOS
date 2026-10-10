@@ -22,6 +22,11 @@ assert.equal(helper.isLikelyPlayControl('Play on Spotify'), false);
 assert.equal(helper.isSpotifyEmbedUrl('https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT'), true);
 assert.equal(helper.isSpotifyEmbedUrl('https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT'), false);
 assert.equal(helper.spotifyFrameTrackId('https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT'), '4cOdK2wGLETKBW3PvgPWqT');
+assert.deepEqual(helper.playingTrackIds([
+    { trackId: '4cOdK2wGLETKBW3PvgPWqT', playingCount: 1 },
+    { trackId: '4cOdK2wGLETKBW3PvgPWqT', playingCount: 2 },
+    { trackId: '31NEDDU7nPpmFc6MbADxDg', playingCount: 0 }
+]), ['4cOdK2wGLETKBW3PvgPWqT']);
 assert.equal(helper.normalizeTrackId('spotify:track:4cOdK2wGLETKBW3PvgPWqT'), '4cOdK2wGLETKBW3PvgPWqT');
 assert.equal(helper.SERVER_LIVENESS_INTERVAL_MS, 5000);
 assert.equal(helper.SERVER_LIVENESS_TIMEOUT_MS, 30000);
