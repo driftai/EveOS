@@ -3,10 +3,14 @@
 const { URL } = require('node:url');
 const { engineSnapshot, engineCommand } = require('./audioflix_spotify_browser_transport.js');
 
-const PLAY_WAKE_INITIAL_MS = 900;
+const PLAY_WAKE_INITIAL_MS = 1400;
 const PLAY_CONTROL_WAIT_MS = 3200;
 const PLAY_WAKE_SETTLE_MS = 3200;
+const PLAY_KICK_VERIFY_MS = 700;
+const PLAY_KICK_NEAR_START_MAX_S = 2;
 const MAX_CONTROL_DIAGNOSTICS = 20;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function headlessRequestedFromPageUrl(value) {
     try { return new URL(String(value || '')).searchParams.get('playwright') === 'headless'; }
@@ -51,7 +55,7 @@ async function waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, timeout
     const deadline = Date.now() + Math.max(0, Number(timeoutMs || 0));
     let observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
     while (!observed.playing && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 120));
+        await delay(120);
         observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
     }
     return observed;
@@ -70,7 +74,7 @@ async function hoverSpotifySurfaces(page, isSpotifyEmbedUrl, note) {
             note('playback-hover-miss', error.message);
         }
     }
-    await new Promise((resolve) => setTimeout(resolve, 90));
+    await delay(90);
 }
 
 async function controlMeta(candidate, index) {
@@ -83,7 +87,7 @@ async function controlMeta(candidate, index) {
     return { index, aria, title, text, testId, visible, label };
 }
 
-async function clickCandidate(candidate, meta, note, runtime) {
+async function clickCandidate(candidate, meta, note, runtime, noteKind = 'playback-kick') {
     const label = meta.label;
     const isPlayPause = meta.testId === 'play-pause-button' && !/\bpause\b/i.test(label);
     if (!isPlayPause && !(meta.visible && isLikelyPlayControl(label))) return { clicked: false };
@@ -96,7 +100,7 @@ async function clickCandidate(candidate, meta, note, runtime) {
         runtime.playbackKickCount += 1;
         runtime.lastPlaybackKickAt = Date.now();
         const method = meta.visible ? 'click' : 'forced-click';
-        note('playback-kick', `${method}: ${label || meta.testId || 'Spotify play control'}`);
+        note(noteKind, `${method}: ${label || meta.testId || 'Spotify play control'}`);
         return { clicked: true, label: label || meta.testId || 'play control', method };
     } catch (error) {
         note('playback-kick-candidate', `${meta.testId || meta.index}: ${error.message}`);
@@ -104,7 +108,7 @@ async function clickCandidate(candidate, meta, note, runtime) {
     }
 }
 
-async function clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime) {
+async function clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime, noteKind = 'playback-kick') {
     if (!page || page.isClosed()) return { clicked: false, reason: 'engine page closed' };
     for (const frame of page.frames()) {
         if (!isSpotifyEmbedUrl(frame.url())) continue;
@@ -123,11 +127,40 @@ async function clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl
                     : 'Playback started before the Playwright click; leaving the provider control untouched.');
                 return { clicked: false, alreadyPlaying: true, reason: 'playback already started' };
             }
-            const result = await clickCandidate(candidate, meta, note, runtime);
+            const result = await clickCandidate(candidate, meta, note, runtime, noteKind);
             if (result.clicked) return result;
         }
     }
     return { clicked: false, reason: 'No Spotify Play control could be activated.' };
+}
+
+function shouldRetogglePlaybackKick(observed, expectedGeneration = 0) {
+    const transport = observed?.transport || {};
+    const currentGeneration = Math.max(0, Number(transport.generation || 0));
+    const wantedGeneration = Math.max(0, Number(expectedGeneration || 0));
+    if (wantedGeneration && currentGeneration && currentGeneration !== wantedGeneration) return false;
+    const currentTime = Math.max(0, Number(transport.currentTime || 0));
+    return observed?.playing !== true
+        && String(transport.status || '') === 'provider-paused'
+        && transport.paused !== false
+        && currentTime > 0
+        && currentTime < PLAY_KICK_NEAR_START_MAX_S;
+}
+
+async function stabilizePlaybackKick(options = {}) {
+    const observe = options.observe;
+    const retoggle = options.retoggle;
+    const wait = options.waitForPlaying;
+    const sleep = options.sleep || delay;
+    await sleep(Math.max(0, Number(options.verifyMs ?? PLAY_KICK_VERIFY_MS)));
+    let observed = await observe();
+    if (!shouldRetogglePlaybackKick(observed, options.expectedGeneration)) {
+        return { observed, retoggled: false };
+    }
+    const retry = await retoggle();
+    if (!retry?.clicked) return { observed, retoggled: false, retry };
+    observed = await wait();
+    return { observed, retoggled: true, retry };
 }
 
 async function recordControlDiagnostics(page, isSpotifyEmbedUrl, note) {
@@ -167,7 +200,7 @@ async function activateSpotifyPlayback(page, spotifySnapshots, isSpotifyEmbedUrl
         }
         const result = await clickSpotifyPlayControl(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime);
         if (result.clicked || result.alreadyPlaying) return result;
-        await new Promise((resolve) => setTimeout(resolve, 140));
+        await delay(140);
     }
     const result = { clicked: false, reason: 'No Spotify Play control could be activated.' };
     await recordControlDiagnostics(page, isSpotifyEmbedUrl, note);
@@ -188,9 +221,25 @@ async function handleTransportWithActivation(options, body) {
     if (!observed.playing) {
         const kicked = await activateSpotifyPlayback(page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime);
         activationMethod = kicked.alreadyPlaying ? 'controller-late' : (kicked.clicked ? `playwright-${kicked.method || 'click'}` : 'controller-pending');
-        observed = kicked.alreadyPlaying
-            ? await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl)
-            : await waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS);
+        if (kicked.alreadyPlaying) {
+            observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
+        } else if (kicked.clicked) {
+            const stable = await stabilizePlaybackKick({
+                observe: () => playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl),
+                retoggle: () => clickSpotifyPlayControl(
+                    page, spotifySnapshots, isSpotifyEmbedUrl, note, runtime, 'playback-kick-retoggle'
+                ),
+                waitForPlaying: () => waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS),
+                expectedGeneration: Number(result.state?.generation || 0)
+            });
+            observed = stable.observed;
+            if (stable.retoggled) activationMethod = `${activationMethod}+retoggle`;
+            if (!observed.playing && !stable.retoggled) {
+                observed = await waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS);
+            }
+        } else {
+            observed = await waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS);
+        }
     }
     if (!observed.playing) {
         const message = 'Spotify loaded but did not begin playback. The managed engine could not establish a playable user activation.';
@@ -218,5 +267,9 @@ module.exports = {
     headlessRequestedFromPageUrl,
     isLikelyPlayControl,
     providerPauseButtonShowsPlaying,
+    shouldRetogglePlaybackKick,
+    stabilizePlaybackKick,
+    PLAY_WAKE_INITIAL_MS,
+    PLAY_KICK_VERIFY_MS,
     handleTransportWithActivation
 };
