@@ -54,6 +54,11 @@ async function playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl) {
     };
 }
 
+function isConfirmedPlaybackObservation(observed) {
+    return String(observed?.transport?.status || '') === 'playing'
+        || Number(observed?.playingCount || 0) > 0;
+}
+
 async function waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, timeoutMs) {
     const deadline = Date.now() + Math.max(0, Number(timeoutMs || 0));
     let observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
@@ -62,6 +67,22 @@ async function waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, timeout
         observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
     }
     return observed;
+}
+
+async function waitForConfirmedPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, timeoutMs) {
+    const deadline = Date.now() + Math.max(0, Number(timeoutMs || 0));
+    let observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
+    while (!isConfirmedPlaybackObservation(observed) && Date.now() < deadline) {
+        await delay(120);
+        observed = await playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl);
+    }
+    return observed;
+}
+
+async function confirmPlaybackObservation(observed, waitForConfirmed, note = () => {}) {
+    if (!observed?.playing || isConfirmedPlaybackObservation(observed)) return observed;
+    note('playback-confirm-pending', 'Spotify exposes Pause without engine/media playback; waiting for strong confirmation.');
+    return waitForConfirmed();
 }
 
 async function hoverSpotifySurfaces(page, isSpotifyEmbedUrl, note) {
@@ -257,7 +278,12 @@ async function handleTransportWithActivation(options, body) {
             observed = await waitForPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS);
         }
     }
-    if (!observed.playing) {
+    observed = await confirmPlaybackObservation(
+        observed,
+        () => waitForConfirmedPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS),
+        note
+    );
+    if (!isConfirmedPlaybackObservation(observed)) {
         const message = 'Spotify loaded but did not begin playback. The managed engine could not establish a playable user activation.';
         runtime.lastError = message;
         runtime.state = observed.transport?.status || 'starting';
@@ -283,6 +309,8 @@ module.exports = {
     headlessRequestedFromPageUrl,
     isLikelyPlayControl,
     providerPauseButtonShowsPlaying,
+    isConfirmedPlaybackObservation,
+    confirmPlaybackObservation,
     shouldRetogglePlaybackKick,
     stabilizePlaybackKick,
     clickCandidate,
