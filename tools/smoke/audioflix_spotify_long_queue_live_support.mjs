@@ -136,11 +136,96 @@ export function createLongQueueHarness({
         }
         return { status, tracks, matches: !expectedTrackId || tracks.includes(expectedTrackId) };
     }
+    async function waitForControllerHydration(page, stableMs = 2000, timeoutMs = 12000) {
+        await page.evaluate(() => {
+            const state = window.EveAudioflixState?.ensure?.();
+            window.__eveLongQueueHydrationProbe = {
+                configRef: window.eveState?.config || null,
+                stateRef: state || null,
+                lastChangeAt: performance.now(),
+                changes: [],
+                focusTrace: [{ at: Date.now(), group: String(state?.activeFrontendMusicGroup || ''), reason: 'probe-start' }],
+                focusLast: String(state?.activeFrontendMusicGroup || ''),
+                timer: 0
+            };
+        });
+        const stable = await pollNode(async () => {
+            const sample = await page.evaluate(() => {
+                const probe = window.__eveLongQueueHydrationProbe;
+                const state = window.EveAudioflixState?.ensure?.();
+                const configRef = window.eveState?.config || null;
+                const now = performance.now();
+                if (probe.configRef !== configRef || probe.stateRef !== state) {
+                    probe.configRef = configRef;
+                    probe.stateRef = state;
+                    probe.lastChangeAt = now;
+                    probe.changes.push({ at: Date.now(), kind: 'identity', group: String(state?.activeFrontendMusicGroup || '') });
+                    if (probe.changes.length > 20) probe.changes.splice(0, probe.changes.length - 20);
+                }
+                const group = String(state?.activeFrontendMusicGroup || '');
+                if (group !== probe.focusLast) {
+                    probe.focusLast = group;
+                    probe.focusTrace.push({ at: Date.now(), group, reason: 'hydration-poll' });
+                }
+                return { stableForMs: now - probe.lastChangeAt, identityChanges: probe.changes.length, activeFrontendMusicGroup: group };
+            });
+            return { ok: sample.stableForMs >= stableMs, value: sample, reason: `controller state identity did not settle for ${stableMs}ms; last=${JSON.stringify(sample)}` };
+        }, timeoutMs, 100);
+        await page.evaluate(() => {
+            const probe = window.__eveLongQueueHydrationProbe;
+            if (!probe || probe.timer) return;
+            probe.timer = setInterval(() => {
+                const group = String(window.EveAudioflixState?.ensure?.()?.activeFrontendMusicGroup || '');
+                if (group === probe.focusLast) return;
+                probe.focusLast = group;
+                probe.focusTrace.push({ at: Date.now(), group, reason: 'runtime' });
+                if (probe.focusTrace.length > 30) probe.focusTrace.splice(0, probe.focusTrace.length - 30);
+            }, 100);
+        });
+        return stable;
+    }
+    async function controllerDiagnostics(page) {
+        return page.evaluate(() => {
+            const state = window.EveAudioflixState?.ensure?.() || {};
+            const probe = window.__eveLongQueueHydrationProbe || {};
+            const playback = window.EveAudioflixAudio?.getPlaybackState?.() || {};
+            return {
+                focus: {
+                    activeFrontendMusicGroup: String(state.activeFrontendMusicGroup || ''),
+                    activeFrontendMusicArtist: String(state.activeFrontendMusicArtist || ''),
+                    activeFrontendMusicClassifier: String(state.activeFrontendMusicClassifier || ''),
+                    activeMusicFolderScope: String(state.activeMusicFolderScope || '')
+                },
+                focusTrace: Array.isArray(probe.focusTrace) ? probe.focusTrace.slice(-30) : [],
+                hydrationChanges: Array.isArray(probe.changes) ? probe.changes.slice(-20) : [],
+                queue: window.EveAudioflix?.queueConnection?.snapshot?.() || null,
+                playback: {
+                    status: String(playback.status || ''),
+                    browserOnly: playback.browserOnly === true,
+                    item: playback.item ? {
+                        id: String(playback.item.id || ''),
+                        title: String(playback.item.title || ''),
+                        url: String(playback.item.spotifyUrl || playback.item.url || '')
+                    } : null
+                },
+                visibility: document.visibilityState
+            };
+        });
+    }
+    async function disposeControllerProbe(page) {
+        await page.evaluate(() => {
+            const probe = window.__eveLongQueueHydrationProbe;
+            if (probe?.timer) clearInterval(probe.timer);
+            if (probe) probe.timer = 0;
+        });
+    }
     async function queueSnapshot(page) {
         return page.evaluate(() => {
             const q = window.EveAudioflix?.queueConnection?.snapshot?.();
             const managed = window.EveAudioflixSpotifyAnyBrowser?.snapshot?.();
             const lastState = managed?.relay?.lastState || {};
+            const state = window.EveAudioflixState?.ensure?.() || {};
+            const probe = window.__eveLongQueueHydrationProbe || {};
             return {
                 queue: q ? JSON.parse(JSON.stringify(q)) : null,
                 managed: managed ? {
@@ -159,6 +244,12 @@ export function createLongQueueHarness({
                         ownerClientId: String(lastState.ownerClientId || '')
                     }
                 } : null,
+                focus: {
+                    activeFrontendMusicGroup: String(state.activeFrontendMusicGroup || ''),
+                    activeFrontendMusicArtist: String(state.activeFrontendMusicArtist || ''),
+                    activeFrontendMusicClassifier: String(state.activeFrontendMusicClassifier || '')
+                },
+                focusTrace: Array.isArray(probe.focusTrace) ? probe.focusTrace.slice(-12) : [],
                 visibility: document.visibilityState
             };
         });
@@ -167,7 +258,7 @@ export function createLongQueueHarness({
         const queue = snapshot?.queue;
         assert(queue, 'queue snapshot is unavailable');
         assert(queue.groupName === groupName,
-            `controller attached to unexpected queue "${queue.groupName || '(none)'}"; expected "${groupName}"`);
+            `controller attached to unexpected queue "${queue.groupName || '(none)'}"; expected "${groupName}"; authority=${JSON.stringify({ startReason: queue.startReason, queueGeneration: queue.queueGeneration, queueStartTrace: queue.queueStartTrace, focus: snapshot.focus, focusTrace: snapshot.focusTrace, entries: queue.entries })}`);
         assert(queue.entries?.length === expectedIds.length,
             `fixture queue has ${queue.entries?.length || 0} entries; expected ${expectedIds.length}`);
         const actualIds = (queue.entries || []).map((entry) => String(entry.id || ''));
@@ -258,6 +349,7 @@ export function createLongQueueHarness({
     }
     return {
         sleep, assert, jsonRequest, pollNode, validateUrls, ensureManagedEngine, queueSnapshot,
+        waitForControllerHydration, controllerDiagnostics, disposeControllerProbe,
         assertFixtureQueue, waitForFixtureQueue, waitForOwnership, waitForTrackReady,
         waitForManagedPlayback, waitForSeekLanding
     };
