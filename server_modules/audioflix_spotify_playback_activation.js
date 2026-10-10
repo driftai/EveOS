@@ -62,30 +62,35 @@ async function controlMeta(candidate, index) {
     return { index, aria, title, text, testId, visible, label };
 }
 
-async function forceClickCandidate(candidate) {
-    try { await candidate.click({ timeout: 1800, force: true }); }
-    catch { await candidate.dispatchEvent('click'); }
+const unleased = (action, capMs) => action(capMs);
+
+// Every click and its dispatched fallback go through the parent lease's mutate(), so neither
+// can wait past (or start after) the lifecycle deadline or a cancellation.
+async function forceClickCandidate(candidate, mutate = unleased) {
+    try { await mutate(timeout => candidate.click({ timeout, force: true }), 1800); }
+    catch (error) {
+        if (error instanceof PlaybackLeaseAbort) throw error;
+        await mutate(timeout => candidate.dispatchEvent('click', undefined, { timeout }), 1800);
+    }
 }
 
 async function clickCandidate(candidate, meta, note, runtime, noteKind = 'playback-kick', options = {}) {
     const label = meta.label;
     const isPlayPause = meta.testId === 'play-pause-button' && !/\bpause\b/i.test(label);
     if (!isPlayPause && !(meta.visible && isLikelyPlayControl(label))) return { clicked: false };
-    const guard = options.lease ? () => options.lease.verify() : async () => {};
+    const mutate = options.lease ? (action, cap) => options.lease.mutate(action, cap) : unleased;
     try {
         let forced = !meta.visible;
-        await guard();
         if (meta.visible) {
-            try { await candidate.click({ timeout: 1800 }); }
+            try { await mutate(timeout => candidate.click({ timeout }), 1800); }
             catch (error) {
                 // Only the already-authorized retoggle may force a visible-but-unstable Play control, once.
-                if (options.forceOnVisibleTimeout !== true) throw error;
+                if (error instanceof PlaybackLeaseAbort || options.forceOnVisibleTimeout !== true) throw error;
                 note('playback-kick-candidate', `${meta.testId || meta.index}: ${error.message}`);
-                await guard();
-                await forceClickCandidate(candidate);
+                await forceClickCandidate(candidate, mutate);
                 forced = true;
             }
-        } else await forceClickCandidate(candidate);
+        } else await forceClickCandidate(candidate, mutate);
         runtime.playbackKickCount += 1;
         runtime.lastPlaybackKickAt = Date.now();
         const method = forced ? 'forced-click' : 'click';
@@ -303,13 +308,14 @@ async function startWithLease(options, body, action, result, lease) {
     observed = await confirmPlaybackObservation(observed, waitConfirmed, note);
     const confirmation = await stabilizeConfirmedPlayback({
         observed, observe, sleep: ms => lease.sleep(ms),
-        resume: async () => { await lease.verify(); return lease.bound(() => engineCommand(page, { action: 'play' })); },
+        resume: () => lease.mutate(() => lease.bound(() => engineCommand(page, { action: 'play' }))),
         reactivate: async () => {
             await lease.verify();
             return reactivateStartup({
                 page, observe: () => playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl),
                 expectedGeneration: generation, isSpotifyEmbedUrl, note, runtime,
-                budgetMs: Math.min(RECOVERY_BUDGET_MS, lease.remaining()), guard: () => lease.verify()
+                budgetMs: Math.min(RECOVERY_BUDGET_MS, lease.remaining()), guard: () => lease.verify(),
+                mutate: (action, cap) => lease.mutate(action, cap)
             });
         },
         waitForConfirmed: waitConfirmed,

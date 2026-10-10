@@ -41,10 +41,27 @@ function fakeButton(hooks = {}) {
         getAttribute: async name => (name === 'aria-label' ? 'Play' : name === 'data-testid' ? 'play-pause-button' : ''),
         innerText: async () => '',
         isVisible: async () => { if (hooks.onVisible) await hooks.onVisible(); return true; },
-        click: async () => { button.clicks += 1; if (hooks.onClick) await hooks.onClick(); },
-        dispatchEvent: async () => { button.clicks += 1; }
+        click: async (opts = {}) => {
+            await actionable(hooks.clickDelay, opts.timeout);
+            button.clicks += 1; if (hooks.onClick) await hooks.onClick();
+        },
+        dispatchEvent: async (_type, _init, opts = {}) => {
+            await actionable(hooks.dispatchDelay, opts.timeout);
+            button.clicks += 1; button.dispatches = (button.dispatches || 0) + 1;
+        }
     };
     return button;
+}
+
+// Mirrors Playwright: an action waits for actionability up to its timeout, then either lands
+// or throws a TimeoutError without mutating. Timeout 0/undefined means Playwright's default (30s).
+async function actionable(delayMs = 0, timeoutMs) {
+    const limit = Number(timeoutMs) > 0 ? Number(timeoutMs) : 30000;
+    if (Number(delayMs) > limit) {
+        await sleep(limit);
+        const error = new Error(`Timeout ${limit}ms exceeded.`); error.name = 'TimeoutError'; throw error;
+    }
+    await sleep(Number(delayMs) || 0);
 }
 
 function fakePage(engine, frames = []) {
@@ -203,6 +220,9 @@ function options(page, extra = {}) {
     {
         const button = fakeButton();
         button.count = async () => 1;
+        const attempts = [];
+        const realClick = button.click;
+        button.click = (opts) => { attempts.push(opts); return realClick(opts); };
         const page = fakePage(fakeEngine(), [fakeFrame('iii', button)]);
         const observe = async () => ({ transport: { generation: 3, status: 'provider-paused', paused: true,
             playRequested: true, currentTime: 0 }, playingCount: 0 });
@@ -211,6 +231,52 @@ function options(page, extra = {}) {
             guard: async () => { throw new lease.PlaybackLeaseAbort('superseded'); } }),
         error => error.lifecycle === 'superseded');
         assert.equal(button.clicks, 0);
+    }
+
+    // 8-10. Late mutations: a click/dispatch whose actionability wait outlives the parent lease
+    // must time out at the lease deadline, never land after it (old 1800ms/900ms waits did).
+    const leaseFor = (budgetMs, gen = 21) => {
+        const eng = fakeEngine({ generation: gen, spotifyId: 'late', playRequested: true, status: 'provider-paused' });
+        return { eng, lease: lease.createPlaybackLease({ runtime: {}, generation: gen, spotifyId: 'late',
+            budgetMs, readState: async () => eng.snapshot() }) };
+    };
+    const playMeta = visible => ({ index: 0, testId: 'play-pause-button', label: 'Play', visible });
+    {
+        const { lease: l } = leaseFor(250);
+        const button = fakeButton({ clickDelay: 900, dispatchDelay: 0 });
+        await assert.rejects(activation.clickCandidate(button, playMeta(true), () => {}, { playbackKickCount: 0 },
+            'playback-kick-retoggle', { lease: l, forceOnVisibleTimeout: true }), error => error.lifecycle === 'deadline');
+        await sleep(2000);
+        assert.equal(button.clicks, 0, 'visible click cannot land after the lease deadline');
+        l.release();
+    }
+    {
+        const { lease: l } = leaseFor(250);
+        const button = fakeButton({ clickDelay: Infinity, dispatchDelay: 0 });
+        await assert.rejects(activation.clickCandidate(button, playMeta(false), () => {}, { playbackKickCount: 0 },
+            'playback-kick', { lease: l }), error => error.lifecycle === 'deadline');
+        await sleep(2200);
+        assert.equal(button.dispatches || 0, 0, 'timed-out forced click never becomes a late dispatchEvent');
+        assert.equal(button.clicks, 0);
+        l.release();
+    }
+    {
+        const { eng, lease: l } = leaseFor(250, 3);
+        const button = fakeButton({ clickDelay: 600 });
+        button.count = async () => 1;
+        const attempts = [];
+        const realClick = button.click;
+        button.click = (opts) => { attempts.push(opts); return realClick(opts); };
+        const page = fakePage(eng, [fakeFrame('late', button)]);
+        const observe = async () => ({ transport: eng.snapshot(), playingCount: 0 });
+        const result = await reactivateStartup({ page, observe, expectedGeneration: 3, budgetMs: 3200,
+            isSpotifyEmbedUrl: url => String(url).startsWith(EMBED), note: () => {}, runtime: { playbackKickCount: 0 },
+            guard: () => l.verify(), mutate: (action, cap) => l.mutate(action, cap) }).catch(error => ({ aborted: error.lifecycle }));
+        await sleep(1500);
+        assert.notEqual(result.clicked, true);
+        assert.ok(attempts.length > 0, 'reactivation reached its trusted click');
+        assert.equal(button.clicks, 0, 'reactivation click obeys the parent lease, not only its 3.2s budget');
+        l.release();
     }
 
     console.log('AUDIOFLIX_SPOTIFY_PLAYBACK_LEASE_SMOKE_OK');

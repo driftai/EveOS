@@ -41,6 +41,11 @@ async function reactivateStartup(options) {
     const { page, observe, expectedGeneration, isSpotifyEmbedUrl, note, runtime } = options;
     const budget = Math.min(RECOVERY_BUDGET_MS, Math.max(1, Number(options.budgetMs ?? RECOVERY_BUDGET_MS)));
     const deadline = Date.now() + budget;
+    // Clicks consume min(local recovery remaining, parent lifecycle lease remaining): the
+    // parent mutate() fences before/after and caps the timeout it hands in.
+    const mutate = options.mutate || ((action, capMs) => action(capMs));
+    const click = button => mutate(parentMs => button.click({ force: true,
+        timeout: Math.min(CLICK_TIMEOUT_MS, parentMs, remaining(deadline)) }), CLICK_TIMEOUT_MS);
     const fence = async () => {
         try {
             if (page.isClosed()) return false;
@@ -66,8 +71,7 @@ async function reactivateStartup(options) {
             if (/\bpause\b/i.test(label)) {
                 // The live failure has a stale Pause label despite paused media at zero. Reset
                 // that provider toggle once, then click only when it advertises Play.
-                if (options.guard) await options.guard();
-                await button.click({ force: true, timeout: Math.min(CLICK_TIMEOUT_MS, remaining(deadline)) });
+                await click(button);
                 note('playback-startup-reset', 'Trusted Pause reset for a same-generation paused startup.');
                 while (Date.now() < deadline) {
                     label = await labelOf(button, deadline);
@@ -81,8 +85,7 @@ async function reactivateStartup(options) {
             }
             // A Playwright mouse click supplies real browser input. A dispatched DOM click is
             // not a substitute for user activation, so failure stays failure here.
-            if (options.guard) await options.guard();
-            await button.click({ force: true, timeout: Math.min(CLICK_TIMEOUT_MS, remaining(deadline)) });
+            await click(button);
             runtime.playbackKickCount += 1;
             runtime.lastPlaybackKickAt = Date.now();
             note('playback-startup-reactivate', 'Trusted Play click after controller startup recovery failed.');

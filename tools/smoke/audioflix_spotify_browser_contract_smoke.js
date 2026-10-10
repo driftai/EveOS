@@ -54,7 +54,7 @@ assert(activation.includes('handleTransportWithActivation') && activation.includ
     && activation.includes('play-pause-button'),
     'remote Play/Resume has a bounded Spotify-control activation fallback');
 assert(activation.includes("body.hover") && activation.includes('force: true')
-    && activation.includes("dispatchEvent('click')") && activation.includes("note('playback-controls'")
+    && activation.includes("dispatchEvent('click',") && activation.includes("note('playback-controls'")
     && activation.includes("note('playback-kick-skip'") && activation.includes('if (observed.playing)'),
     'activation fallback diagnoses hidden controls and exits promptly when provider playback is already active');
 assert(!activation.includes('eval(') && !activation.includes('new Function('),

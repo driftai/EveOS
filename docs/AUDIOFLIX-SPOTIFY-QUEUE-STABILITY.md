@@ -88,6 +88,22 @@ fixtures were corrected without altering production authorization or assertions.
   engine pause. Strong media-based confirmation is unchanged.
   `audioflix_spotify_playback_lease_smoke.js` covers deadline, supersession between control
   read and click, explicit Pause, happy path, hung/stale seek and reactivation cancellation.
+- Browser mutations consume the parent lease (`lease.mutate`): each Play click, forced click,
+  dispatched fallback, same-generation resume and trusted reactivation click is fenced before,
+  given a timeout of at most the lease's remaining time (and reactivation's own 3.2s budget),
+  and refenced after. A timed-out forced click rechecks the lease before its dispatch fallback,
+  so no click can land after the deadline or a cancellation. The lease smoke reproduces the
+  late visible click, late `dispatchEvent` and parent-expired reactivation; all three fail on
+  `d9f6cdab` and pass now.
+- Queue run versus engine generation (boundary, not yet closed): `EveAudioflix.queueConnection`
+  `playbackRunId` stays the only queue-run authority; any-browser drops a stale run's reply and
+  the completion coordinator keys and rechecks `id:playbackRunId`. A new run does not change
+  the helper's engine generation until its `load` reaches the helper, and the Python manager
+  lock serializes that behind an in-flight start. A superseded run's start can therefore still
+  confirm (or click Play for the old track) for the rest of its lease (<= 15.5s) before the new
+  load replaces it. The same lock bounds Pause/Stop latency. Closing either needs a broker
+  decision (for example a lock-free, cancellation-only notice that carries the broker's
+  existing `_track_generation`), not a second queue token.
 - The legacy repeat/restart path and unavailable/provider-restricted media remain
   separate live qualification targets; this patch does not promise full-length Free playback.
 - Uncached repository verification reached pre-existing Dex origin/receipt fixture

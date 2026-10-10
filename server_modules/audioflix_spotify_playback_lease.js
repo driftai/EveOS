@@ -104,6 +104,19 @@ function createPlaybackLease(options = {}) {
             });
             lease.ensureLive();
         },
+        // Timeout for one browser action: never longer than the parent lease has left.
+        budget(capMs = Infinity) {
+            lease.ensureLive();
+            return Math.max(1, Math.min(Number(capMs) || Infinity, lease.remaining()));
+        },
+        // A playback mutation (click, dispatch, resume): fence before, bound its own wait by the
+        // remaining lease, and refence after so a late return is never treated as success.
+        async mutate(action, capMs = Infinity) {
+            await lease.verify();
+            const result = await action(lease.budget(capMs));
+            await lease.verify();
+            return result;
+        },
         // Recheck generation, track and play intent immediately before a delayed browser action.
         async verify() {
             lease.ensureLive();
