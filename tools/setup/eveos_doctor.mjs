@@ -18,6 +18,7 @@ for (const file of [
     'package.json', 'package-lock.json', 'requirements.txt', 'requirements-dev.txt', 'EveOS.html', 'start-server.bat',
     'docs/FRESH_CLONE.md', 'tools/qualification/README.md',
     'config/eveos-ports.json', 'tools/setup/python_runtime.cjs', 'tools/setup/eveos_npm.mjs',
+    'tools/setup/eveos_verify.mjs',
     'tools/qualification/audioflix_lane3_runtime_acceptance.mjs',
     'tools/qualification/audioflix_lane3_file_acceptance.mjs',
     'tools/qualification/audioflix_lane3_recovery_acceptance.mjs',

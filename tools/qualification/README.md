@@ -8,12 +8,10 @@ Run these on every development installation before live provider qualification:
 
 ```powershell
 node tools/setup/eveos_doctor.mjs
-node tools/audit/eveos_repo_hygiene_guard.mjs
-node tools/audit/smoke-registry-audit.js
-node tests/audioflix_queue_view_stability.test.cjs
+node tools/setup/eveos_verify.mjs
 ```
 
-`npm run test:guardrails` remains the canonical deterministic guardrail suite.
+`eveos_verify` composes repository hygiene, Queue View pointer stability, and the canonical deterministic guardrail suite. Live provider acceptance remains opt-in and separate.
 
 ## Audioflix Lane 3 live acceptance
 

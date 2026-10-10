@@ -45,13 +45,14 @@ node tools/setup/eveos_npm.mjs run smoke:audioflix-playback
 
 Existing plain `npm run ...` commands remain valid when the project virtual environment is already activated, but the wrapper is the reproducible fresh-clone path.
 
-To re-check an installation without changing it:
+To re-check an installation without changing it, use the canonical aggregate:
 
 ```powershell
 node tools/setup/eveos_doctor.mjs
-node tools/audit/eveos_repo_hygiene_guard.mjs
-node tools/setup/eveos_npm.mjs run test:guardrails
+node tools/setup/eveos_verify.mjs
 ```
+
+`eveos_verify` protects repository privacy/runtime boundaries, the Queue View pointer-stability regression, and the existing deterministic guardrail suite in one tracked command.
 
 ## Durable tests versus private evidence
 
@@ -62,7 +63,7 @@ Tracked durable tooling includes:
 - `tools/smoke/` — deterministic and registered smoke entry points/helpers;
 - `tools/qualification/` — opt-in machine/live acceptance drivers that need a real local environment;
 - `tools/audit/` — structural, privacy, registry, and generated-asset guardrails;
-- `tools/setup/` — fresh-install bootstrap, environment wrapper, Python resolver, and doctor;
+- `tools/setup/` — fresh-install bootstrap, environment wrapper, Python resolver, doctor, and aggregate verifier;
 - `tests/` — deterministic contract/regression tests.
 
 Machine-generated evidence stays under ignored runtime locations such as `data/runtime/`, `test-results/`, logs, screenshots, traces, browser profiles, caches, and local credentials. A qualification driver may write evidence there, but its source must not live there.
@@ -88,8 +89,7 @@ Never commit `.env` files, credentials, cookies, authentication profiles, local 
 Before pushing structural work, run:
 
 ```powershell
-node tools/audit/eveos_repo_hygiene_guard.mjs
-node tools/setup/eveos_npm.mjs run test:guardrails
+node tools/setup/eveos_verify.mjs
 ```
 
 The GitHub guardrail workflow has repository read permission only, uses pinned action SHAs, supplies no provider secrets, and separates zero-install structural checks from the Windows fresh-install proof.

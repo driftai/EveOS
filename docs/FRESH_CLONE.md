@@ -41,13 +41,13 @@ Run the doctor whenever a clone is moved, reconstructed, or materially updated:
 node tools/setup/eveos_doctor.mjs
 ```
 
-Run the deterministic repository gates before treating a branch as clean:
+Run the canonical deterministic repository proof before treating a branch as clean:
 
 ```powershell
-node tools/setup/eveos_npm.mjs run test:guardrails
-node tools/audit/eveos_repo_hygiene_guard.mjs
-node tests/audioflix_queue_view_stability.test.cjs
+node tools/setup/eveos_verify.mjs
 ```
+
+That aggregate runs the repository privacy/runtime hygiene guard, the Queue View pointer-stability regression, and the existing deterministic guardrail suite through the project virtualenv.
 
 Generated asset references are repository state. To verify them:
 
@@ -107,6 +107,7 @@ Normal code updates should flow through Git instead of downloaded replacement fi
 ```powershell
 git pull --ff-only
 node tools/setup/eveos_doctor.mjs
+node tools/setup/eveos_verify.mjs
 ```
 
 If dependency lockfiles, Python requirements, browser tooling, or setup contracts changed, rerun the bootstrap:

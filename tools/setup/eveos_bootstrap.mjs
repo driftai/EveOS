@@ -56,7 +56,7 @@ try {
     if (runtimeOnly) doctorArgs.push('--runtime-only');
     run(process.execPath, doctorArgs, 'Verify fresh installation');
     console.log('\nEVEOS_SETUP_OK');
-    if (!runtimeOnly) console.log('Run tests through: node tools/setup/eveos_npm.mjs run test:guardrails');
+    if (!runtimeOnly) console.log('Run deterministic repository verification with: node tools/setup/eveos_verify.mjs');
 } catch (error) {
     console.error(`\nEVEOS_SETUP_FAILED — ${error.message}`);
     process.exit(1);

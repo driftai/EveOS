@@ -50,6 +50,7 @@ const durable = [
     'tests/audioflix_queue_view_stability.test.cjs',
     'tools/setup/eveos_bootstrap.mjs',
     'tools/setup/eveos_doctor.mjs',
+    'tools/setup/eveos_verify.mjs',
     'tools/setup/eveos_npm.mjs',
     'tools/setup/python_runtime.cjs',
     'tools/setup/npm_runtime.cjs',

@@ -58,5 +58,5 @@ jobs:
             requirements-dev.txt
       - name: Reconstruct EveOS from tracked dependencies
         run: node tools/setup/eveos_bootstrap.mjs --skip-browser
-      - name: Run repository guardrails through the project virtualenv
-        run: node tools/setup/eveos_npm.mjs run --silent test:guardrails
+      - name: Run canonical deterministic repository verification
+        run: node tools/setup/eveos_verify.mjs
