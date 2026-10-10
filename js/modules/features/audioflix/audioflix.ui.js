@@ -118,7 +118,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         view: {
             get overlay() { return overlay; }, set overlay(v) { overlay = v; },
             get portedSounds() { return portedSounds; },
-            get activeMusicQueue() { return activeMusicQueue; }, set activeMusicQueue(v) { activeMusicQueue = v; },
+            get activeMusicQueue() { return activeMusicQueue; }, set activeMusicQueue(v) { const prev = activeMusicQueue; activeMusicQueue = v; window.EveAudioflixQueueMembership?.noteWrite?.(prev, v); },
             get nexusState() { return nexusState; }, set nexusState(v) { nexusState = v; },
             get importFormValues() { return importFormValues; }, set importFormValues(v) { importFormValues = v; },
             get playbackStatus() { return playbackStatus; }, set playbackStatus(v) { playbackStatus = v; },
@@ -360,7 +360,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         get groupPathsScopesOpen() { return groupPathsScopesOpen; }, set groupPathsScopesOpen(v) { groupPathsScopesOpen = v; },
         get groupPathsOpen() { return groupPathsOpen; }, set groupPathsOpen(v) { groupPathsOpen = v; },
         get nexusState() { return nexusState; }, set nexusState(v) { nexusState = v; },
-        get activeMusicQueue() { return activeMusicQueue; }, set activeMusicQueue(v) { activeMusicQueue = v; },
+        get activeMusicQueue() { return activeMusicQueue; }, set activeMusicQueue(v) { const prev = activeMusicQueue; activeMusicQueue = v; window.EveAudioflixQueueMembership?.noteWrite?.(prev, v); },
         shuffleQueue: (ids) => shuffleQueue(ids),
         get nativeHotkeysLive() { return nativeHotkeysLive; }, set nativeHotkeysLive(v) { nativeHotkeysLive = v; }
     };

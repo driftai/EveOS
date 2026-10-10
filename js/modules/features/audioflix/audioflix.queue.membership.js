@@ -133,6 +133,21 @@ window.EveAudioflixQueueMembership = window.EveAudioflixQueueMembership || {};
         return null;
     }
 
+    // Write-time trace: the ctx setter calls this, so the stack names the real writer.
+    function noteWrite(prev, next) {
+        const group = text(next?.groupName);
+        if (!group || group === lastObservedGroup) { lastObservedGroup = group; return; }
+        if (next?.startReason && Number(next.queueGeneration || 0) === queueGeneration) { lastObservedGroup = group; return; }
+        const action = pendingAction && Date.now() - pendingAction.at < 10000 ? pendingAction : null;
+        traceFromSnapshot({ groupName: group, entries: next.items || [], playbackRunId: 0 }, action?.reason || 'unattributed-queue-replace', {
+            sourceGroup: next.sourceGroup, renderedGroup: action?.renderedGroup, focus: currentFocus(),
+            stack: shortStack(3)
+        });
+        if (lastMeta) lastMeta.previousGroup = text(prev?.groupName);
+        pendingAction = null;
+        lastObservedGroup = group;
+    }
+
     function patchQueueSnapshot() {
         const bridge = window.EveAudioflix?.queueConnection;
         if (!bridge?.snapshot || bridge.snapshot.__eveQueueAuthorityTrace) return false;
@@ -141,7 +156,7 @@ window.EveAudioflixQueueMembership = window.EveAudioflixQueueMembership || {};
             const snapshot = original();
             const group = text(snapshot?.groupName);
             if (group && group !== lastObservedGroup) {
-                const action = pendingAction && Date.now() - pendingAction.at < 1500 ? pendingAction : null;
+                const action = pendingAction && Date.now() - pendingAction.at < 10000 ? pendingAction : null;
                 traceFromSnapshot(snapshot, action?.reason || 'unattributed-queue-replace', {
                     renderedGroup: action?.renderedGroup,
                     focus: action?.focus,
@@ -166,7 +181,7 @@ window.EveAudioflixQueueMembership = window.EveAudioflixQueueMembership || {};
             || text(target?.closest?.('.audioflix-frontend-subhead')?.nextElementSibling?.dataset?.afActiveGroup);
         pendingAction = { reason, renderedGroup, focus: currentFocus(), at: Date.now(), stack: shortStack(3) };
         const token = pendingAction;
-        setTimeout(() => { if (pendingAction === token) pendingAction = null; }, 1500);
+        setTimeout(() => { if (pendingAction === token) pendingAction = null; }, 10000);
     }, true);
 
     if (document.readyState === 'loading') {
@@ -217,5 +232,5 @@ window.EveAudioflixQueueMembership = window.EveAudioflixQueueMembership || {};
         return true;
     }
 
-    Object.assign(ns, { ready: true, start, snapshotMeta, selectionForAction, sync, patchQueueSnapshot });
+    Object.assign(ns, { ready: true, start, snapshotMeta, selectionForAction, sync, patchQueueSnapshot, noteWrite });
 })();
