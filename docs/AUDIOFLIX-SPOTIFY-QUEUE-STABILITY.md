@@ -357,3 +357,30 @@ Resume the ignored `lane3-runtime-acceptance.mjs --native --continue-native` har
 `--take-over` only when authorized), then proceed to Lane 4. Final endurance and uncached
 full-repository verify remain deferred to the agreed post-Lane-4 gate. No merge/deployment
 or rollback-branch deletion is authorized by this checkpoint.
+
+### Natural repeat observation correction (base `8fc8570e`)
+
+The native signed-in acceptance pass proved a full-duration hidden handoff and a natural
+repeat ON, but repeat OFF after moving the playing entry to #1 stalled. The observer
+returned on the first Ended while the same-item restart retained the managed client run.
+All 53 repeated-run samples then reported `watchJobs=0` despite state `watching`. Once
+the controller became hidden, presentation polling correctly stopped and could no longer
+mask the missing authoritative watch. This was an observation lifetime defect, not a
+second queue-owner requirement or proof of a browser freeze.
+
+The bounded status watch now survives durable Ended while playback remains active. A
+same-track restart and its subsequent Ended are observed without polling-based rearm;
+stop, run supersession, unsupported watch and degraded recovery still terminate it.
+Audioflix remains the sole completion/queue owner. The registered recovery smoke pins
+the exact pre-fix SHA as red and tests hidden same-URI restart, two distinct completion
+identities, duplicate durable packets, single-flight bounds and settled stop/dispose.
+Structural guardrails and the full registered Spotify playback/watch lane passed.
+Assets were synchronized explicitly. The server source did not change, so the existing
+identity-verified backend start time remains applicable.
+
+The original failed live evidence is preserved in ignored
+`data/runtime/smoke-results/LANE3-REPEAT-WATCH-BEFORE-FIX.json`.
+The corrected exact-head native HTTP acceptance and separately approved canonical file
+entrypoint matrix remain the closure gate; do not infer acceptance from deterministic
+tests alone. Lane 4, sustained endurance and the final uncached repository gate remain
+deferred. No merge, deployment or branch cleanup is part of this correction.

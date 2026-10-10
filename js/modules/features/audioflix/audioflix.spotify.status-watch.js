@@ -152,7 +152,10 @@ window.EveAudioflixSpotifyStatusWatch = window.EveAudioflixSpotifyStatusWatch ||
                 failures = 0;
                 report('watching');
                 if (!accept(result, run, token)) continue;
-                if (isEnded() || !isActive() || result.watchSupported !== true) return;
+                // Ended is a durable observation, not the observer's lifetime boundary. Repeat
+                // can restart this same item/run without calling start(); keep the bounded watch
+                // alive so Playing and its next Ended reach the queue even while the page is hidden.
+                if (!isActive() || result.watchSupported !== true) return;
                 cursor = watchCursor(result);
             }
         }
