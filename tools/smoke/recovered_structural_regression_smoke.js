@@ -3,6 +3,7 @@
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { resolvePython } = require('../setup/python_runtime.cjs');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
@@ -60,7 +61,7 @@ run(
 );
 
 run(
-    process.env.PYTHON || 'python',
+    resolvePython(ROOT),
     ['-m', 'pytest', ...pythonContracts, '-q'],
     'recovered structural Python contracts'
 );

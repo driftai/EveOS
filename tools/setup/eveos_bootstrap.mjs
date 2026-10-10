@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'));
 const skipBrowser = process.argv.includes('--skip-browser');
+const runtimeOnly = process.argv.includes('--runtime-only');
 const run = (command, args, label) => {
     console.log(`\n==> ${label}`);
     const result = spawnSync(command, args, { cwd: ROOT, stdio: 'inherit', windowsHide: true });
@@ -42,12 +43,18 @@ try {
     const venvPython = process.platform === 'win32'
         ? path.join(ROOT, '.venv', 'Scripts', 'python.exe')
         : path.join(ROOT, '.venv', 'bin', 'python');
-    run(venvPython, ['-m', 'pip', 'install', '--disable-pip-version-check', '-r', 'requirements.txt'], 'Install locked/declared Python dependencies');
+    const requirementsFile = runtimeOnly ? 'requirements.txt' : 'requirements-dev.txt';
+    run(venvPython, ['-m', 'pip', 'install', '--disable-pip-version-check', '-r', requirementsFile],
+        `Install EveOS ${runtimeOnly ? 'runtime' : 'runtime + test'} Python dependencies`);
     if (!skipBrowser) {
         run(process.execPath, [path.join(ROOT, 'node_modules', 'playwright', 'cli.js'), 'install', 'chromium'], 'Install Playwright Chromium');
     }
-    run(process.execPath, [path.join(ROOT, 'tools', 'setup', 'eveos_doctor.mjs')], 'Verify fresh installation');
+    const doctorArgs = [path.join(ROOT, 'tools', 'setup', 'eveos_doctor.mjs')];
+    if (skipBrowser) doctorArgs.push('--skip-browser');
+    if (runtimeOnly) doctorArgs.push('--runtime-only');
+    run(process.execPath, doctorArgs, 'Verify fresh installation');
     console.log('\nEVEOS_SETUP_OK');
+    if (!runtimeOnly) console.log('Run tests through: node tools/setup/eveos_npm.mjs run test:guardrails');
 } catch (error) {
     console.error(`\nEVEOS_SETUP_FAILED — ${error.message}`);
     process.exit(1);

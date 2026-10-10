@@ -6,7 +6,7 @@ EveOS treats Git as the durable product definition and the local machine as runt
 
 - Windows 11 is the primary host.
 - Node.js 20 or newer.
-- Python 3.10 or 3.11 for the declared Python runtime dependencies.
+- Python 3.10 or 3.11.
 - Git.
 - Network access is required while installing npm, Python, and Playwright packages.
 
@@ -19,16 +19,39 @@ git switch codex/audioflix-core-stability
 node tools/setup/eveos_bootstrap.mjs
 ```
 
-`node tools/setup/eveos_bootstrap.mjs` is intentionally deterministic about repository dependencies: it runs `npm ci`, creates an ignored `.venv`, installs `requirements.txt` into that environment, installs Playwright Chromium, and finishes with the repository doctor. Use `node tools/setup/eveos_bootstrap.mjs --skip-browser` only when browser-backed tests will not be run on that installation.
+The default bootstrap is the development/test install. It runs `npm ci`, creates the ignored project `.venv`, installs `requirements-dev.txt` (which includes the runtime requirements plus the Python test runner), installs Playwright Chromium, and finishes with the repository doctor.
 
-To re-check an existing installation without changing it:
+Optional bootstrap modes:
+
+```powershell
+# Runtime only; do not install Python test dependencies.
+node tools/setup/eveos_bootstrap.mjs --runtime-only
+
+# Keep the development/test environment but skip the Playwright browser download.
+node tools/setup/eveos_bootstrap.mjs --skip-browser
+```
+
+The doctor understands the same flags, so an intentionally browser-free or runtime-only installation is not reported as corrupt.
+
+## Run repository commands in the EveOS Python environment
+
+Many historical npm scripts invoke `python` directly. Do not depend on the machine-wide Python environment. The portable wrapper places the project `.venv` first in `PATH` and exports the same interpreter through `PYTHON` / `EVEOS_PYTHON` for child processes:
+
+```powershell
+node tools/setup/eveos_npm.mjs run test:guardrails
+node tools/setup/eveos_npm.mjs run test:smoke
+node tools/setup/eveos_npm.mjs run smoke:audioflix-playback
+```
+
+Existing plain `npm run ...` commands remain valid when the project virtual environment is already activated, but the wrapper is the reproducible fresh-clone path.
+
+To re-check an installation without changing it:
 
 ```powershell
 node tools/setup/eveos_doctor.mjs
-npm run test:guardrails
+node tools/audit/eveos_repo_hygiene_guard.mjs
+node tools/setup/eveos_npm.mjs run test:guardrails
 ```
-
-Then run the normal deterministic verification profile appropriate to the change, for example `npm test`, `npm run test:smoke`, or a focused `smoke:*` script.
 
 ## Durable tests versus private evidence
 
@@ -39,11 +62,12 @@ Tracked durable tooling includes:
 - `tools/smoke/` — deterministic and registered smoke entry points/helpers;
 - `tools/qualification/` — opt-in machine/live acceptance drivers that need a real local environment;
 - `tools/audit/` — structural, privacy, registry, and generated-asset guardrails;
-- `tools/setup/` — fresh-install bootstrap and doctor.
+- `tools/setup/` — fresh-install bootstrap, environment wrapper, Python resolver, and doctor;
+- `tests/` — deterministic contract/regression tests.
 
-Machine-generated evidence stays under ignored runtime locations such as `data/runtime/`, `test-results/`, logs, screenshots, traces, browser profiles, and local credentials. A qualification driver may write there, but its source must not live there.
+Machine-generated evidence stays under ignored runtime locations such as `data/runtime/`, `test-results/`, logs, screenshots, traces, browser profiles, caches, and local credentials. A qualification driver may write evidence there, but its source must not live there.
 
-The repository hygiene guard fails if private/runtime roots are tracked, if critical qualification drivers disappear, if package scripts point at untracked test programs, or if tracked executable source acquires a user-specific absolute home path.
+The repository hygiene guard fails if private/runtime roots are tracked, if critical qualification/setup capabilities disappear, if package scripts point at untracked programs, or if tracked executable source acquires a user-specific absolute home path.
 
 ## Audioflix Lane 3 live qualification
 
@@ -59,13 +83,13 @@ The drivers read `config/eveos-ports.json`; they do not assume a hard-coded EveO
 
 ## Privacy boundary
 
-Never commit `.env` files, credentials, cookies, authentication profiles, local browser state, private modular state, runtime evidence, or machine-specific authorization files. The canonical examples/configuration needed to create those locally may be tracked, but the populated state remains local.
+Never commit `.env` files, credentials, cookies, authentication profiles, local browser state, private modular state, runtime evidence, machine-specific authorization files, caches, or local virtual environments. Canonical examples/configuration needed to create those locally may be tracked, but populated state remains local.
 
 Before pushing structural work, run:
 
 ```powershell
 node tools/audit/eveos_repo_hygiene_guard.mjs
-npm run test:guardrails
+node tools/setup/eveos_npm.mjs run test:guardrails
 ```
 
-The GitHub guardrail workflow uses read-only repository permissions and runs only deterministic structural checks; live provider credentials are neither required nor supplied.
+The GitHub guardrail workflow has repository read permission only, uses pinned action SHAs, supplies no provider secrets, and separates zero-install structural checks from the Windows fresh-install proof.

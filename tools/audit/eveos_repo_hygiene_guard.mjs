@@ -29,12 +29,15 @@ for (const file of tracked) {
 }
 
 const durable = [
+    'requirements-dev.txt',
     'tools/qualification/audioflix_lane3_runtime_acceptance.mjs',
     'tools/qualification/audioflix_lane3_file_acceptance.mjs',
     'tools/qualification/audioflix_lane3_recovery_acceptance.mjs',
     'tests/audioflix_queue_view_stability.test.cjs',
     'tools/setup/eveos_bootstrap.mjs',
     'tools/setup/eveos_doctor.mjs',
+    'tools/setup/eveos_npm.mjs',
+    'tools/setup/python_runtime.cjs',
     'tools/audit/smoke-registry-audit.js',
     'docs/FRESH-INSTALL.md',
     '.github/workflows/repository-guardrails.yml'

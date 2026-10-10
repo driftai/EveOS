@@ -1,0 +1,7 @@
+# EveOS development/test dependencies.
+# Runtime dependencies remain in requirements.txt; this file is the default for a fresh
+# development clone so the repository can execute its Python-backed guardrails immediately.
+-r requirements.txt
+
+# Structural and regression tests under tests/ and tools/smoke/.
+pytest==9.1.1

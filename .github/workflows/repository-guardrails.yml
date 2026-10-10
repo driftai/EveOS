@@ -30,9 +30,29 @@ jobs:
         run: node tools/audit/eveos_repo_hygiene_guard.mjs
       - name: Prove smoke registry is closed
         run: node tools/audit/smoke-registry-audit.js
-      - name: Enforce qualification guardrail contract
-        run: node tools/smoke/qualification_guardrails_contract_smoke.js
       - name: Enforce generated runtime asset versions
         run: node tools/audit/sync-runtime-asset-versions.js
       - name: Protect Queue View pointer stability
         run: node tests/audioflix_queue_view_stability.test.cjs
+
+  fresh-install:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Provide supported Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Reconstruct EveOS from tracked dependencies
+        run: node tools/setup/eveos_bootstrap.mjs --skip-browser
+      - name: Run repository guardrails through the project virtualenv
+        run: node tools/setup/eveos_npm.mjs run --silent test:guardrails

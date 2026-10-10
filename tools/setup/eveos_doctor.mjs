@@ -5,6 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'));
+const skipBrowser = process.argv.includes('--skip-browser');
+const runtimeOnly = process.argv.includes('--runtime-only');
 const errors = [], warnings = [], ok = [];
 const pass = message => ok.push(message);
 const need = (condition, message) => condition ? pass(message) : errors.push(message);
@@ -13,8 +15,9 @@ const exists = relative => fs.existsSync(path.join(ROOT, ...relative.split('/'))
 const nodeMajor = Number(process.versions.node.split('.')[0]);
 need(nodeMajor >= 20, `Node.js >=20 required (found ${process.versions.node})`);
 for (const file of [
-    'package.json', 'package-lock.json', 'requirements.txt', 'EveOS.html', 'start-server.bat',
-    'config/eveos-ports.json', 'tools/qualification/audioflix_lane3_runtime_acceptance.mjs',
+    'package.json', 'package-lock.json', 'requirements.txt', 'requirements-dev.txt', 'EveOS.html', 'start-server.bat',
+    'config/eveos-ports.json', 'tools/setup/python_runtime.cjs', 'tools/setup/eveos_npm.mjs',
+    'tools/qualification/audioflix_lane3_runtime_acceptance.mjs',
     'tools/qualification/audioflix_lane3_file_acceptance.mjs',
     'tools/qualification/audioflix_lane3_recovery_acceptance.mjs'
 ]) need(exists(file), `required repository file present: ${file}`);
@@ -51,12 +54,18 @@ if (!fs.existsSync(venvPython)) {
     }
     const pipCheck = spawnSync(venvPython, ['-m', 'pip', 'check'], { cwd: ROOT, encoding: 'utf8', windowsHide: true });
     need(pipCheck.status === 0, `Python dependencies are internally consistent${pipCheck.status ? `: ${(pipCheck.stdout || pipCheck.stderr || '').trim()}` : ''}`);
+    if (!runtimeOnly) {
+        const pytest = spawnSync(venvPython, ['-m', 'pytest', '--version'], { cwd: ROOT, encoding: 'utf8', windowsHide: true });
+        need(pytest.status === 0, `pytest is installed in the EveOS virtualenv${pytest.status ? `: ${(pytest.stdout || pytest.stderr || '').trim()}` : ''}`);
+    }
 }
 
-if (exists('node_modules/playwright/package.json')) {
+if (!skipBrowser && exists('node_modules/playwright/package.json')) {
     const probe = spawnSync(process.execPath, ['-e', "const {chromium}=require('playwright');const fs=require('fs');process.exit(fs.existsSync(chromium.executablePath())?0:2)"],
         { cwd: ROOT, encoding: 'utf8', windowsHide: true });
     need(probe.status === 0, 'Playwright Chromium runtime installed');
+} else if (skipBrowser) {
+    warnings.push('Playwright Chromium runtime check skipped by explicit --skip-browser');
 }
 
 for (const message of ok) console.log(`OK   ${message}`);
@@ -66,4 +75,4 @@ if (errors.length) {
     console.error('\nEVEOS_DOCTOR_FAILED — run `node tools/setup/eveos_bootstrap.mjs`, then rerun this doctor.');
     process.exit(1);
 }
-console.log(`EVEOS_DOCTOR_OK checks=${ok.length} warnings=${warnings.length}`);
+console.log(`EVEOS_DOCTOR_OK checks=${ok.length} warnings=${warnings.length} mode=${runtimeOnly ? 'runtime' : 'development'}`);
