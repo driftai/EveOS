@@ -10,6 +10,7 @@ const PLAY_CONTROL_WAIT_MS = 3200;
 const PLAY_CONTROL_RENDER_GRACE_MS = 5000;
 const PLAY_WAKE_SETTLE_MS = 3200;
 const PLAY_KICK_VERIFY_MS = 700;
+const PLAY_CONFIRM_VERIFY_MS = 700;
 const PLAY_KICK_NEAR_START_MAX_S = 2;
 const MAX_CONTROL_DIAGNOSTICS = 20;
 
@@ -83,6 +84,53 @@ async function confirmPlaybackObservation(observed, waitForConfirmed, note = () 
     if (!observed?.playing || isConfirmedPlaybackObservation(observed)) return observed;
     note('playback-confirm-pending', 'Spotify exposes Pause without engine/media playback; waiting for strong confirmation.');
     return waitForConfirmed();
+}
+
+function shouldRecoverLostConfirmation(observed, expectedGeneration = 0) {
+    if (isConfirmedPlaybackObservation(observed)) return false;
+    const transport = observed?.transport || {};
+    const currentGeneration = Math.max(0, Number(transport.generation || 0));
+    const wantedGeneration = Math.max(0, Number(expectedGeneration || 0));
+    if (wantedGeneration && currentGeneration && currentGeneration !== wantedGeneration) return false;
+    const currentTime = Math.max(0, Number(transport.currentTime || 0));
+    return String(transport.status || '') === 'provider-paused'
+        && transport.paused !== false
+        && currentTime < PLAY_KICK_NEAR_START_MAX_S;
+}
+
+async function stabilizeConfirmedPlayback(options = {}) {
+    let observed = options.observed;
+    if (!isConfirmedPlaybackObservation(observed)) return { observed, recovered: false, stable: false };
+    const observe = options.observe;
+    const resume = options.resume;
+    const waitForConfirmed = options.waitForConfirmed;
+    const sleep = options.sleep || delay;
+    const note = options.note || (() => {});
+    const verifyMs = Math.max(0, Number(options.verifyMs ?? PLAY_CONFIRM_VERIFY_MS));
+
+    await sleep(verifyMs);
+    observed = await observe();
+    if (isConfirmedPlaybackObservation(observed)) return { observed, recovered: false, stable: true };
+
+    const transport = observed?.transport || {};
+    note('playback-confirm-lost', `${transport.status || 'unknown'} at ${Math.max(0, Number(transport.currentTime || 0)).toFixed(3)}s after strong confirmation.`);
+    if (!shouldRecoverLostConfirmation(observed, options.expectedGeneration)) {
+        return { observed, recovered: false, stable: false };
+    }
+
+    note('playback-confirm-recover', 'Reissuing one same-generation controller resume after startup playback relapsed.');
+    const retry = await resume();
+    if (!retry?.ok) return { observed, recovered: false, stable: false, retry };
+    observed = await waitForConfirmed();
+    if (!isConfirmedPlaybackObservation(observed)) return { observed, recovered: true, stable: false, retry };
+
+    await sleep(verifyMs);
+    observed = await observe();
+    if (!isConfirmedPlaybackObservation(observed)) {
+        const finalTransport = observed?.transport || {};
+        note('playback-confirm-lost', `${finalTransport.status || 'unknown'} at ${Math.max(0, Number(finalTransport.currentTime || 0)).toFixed(3)}s after bounded resume recovery.`);
+    }
+    return { observed, recovered: true, stable: isConfirmedPlaybackObservation(observed), retry };
 }
 
 async function hoverSpotifySurfaces(page, isSpotifyEmbedUrl, note) {
@@ -283,6 +331,16 @@ async function handleTransportWithActivation(options, body) {
         () => waitForConfirmedPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS),
         note
     );
+    const confirmation = await stabilizeConfirmedPlayback({
+        observed,
+        observe: () => playbackObservation(page, spotifySnapshots, isSpotifyEmbedUrl),
+        resume: () => engineCommand(page, { action: 'play' }),
+        waitForConfirmed: () => waitForConfirmedPlaying(page, spotifySnapshots, isSpotifyEmbedUrl, PLAY_WAKE_SETTLE_MS),
+        expectedGeneration: Number(result.state?.generation || 0),
+        note
+    });
+    observed = confirmation.observed;
+    if (confirmation.recovered) activationMethod = `${activationMethod}+resume-recover`;
     if (!isConfirmedPlaybackObservation(observed)) {
         const message = 'Spotify loaded but did not begin playback. The managed engine could not establish a playable user activation.';
         runtime.lastError = message;
@@ -311,6 +369,8 @@ module.exports = {
     providerPauseButtonShowsPlaying,
     isConfirmedPlaybackObservation,
     confirmPlaybackObservation,
+    shouldRecoverLostConfirmation,
+    stabilizeConfirmedPlayback,
     shouldRetogglePlaybackKick,
     stabilizePlaybackKick,
     clickCandidate,
@@ -318,5 +378,6 @@ module.exports = {
     PLAY_CONTROL_WAIT_MS,
     PLAY_CONTROL_RENDER_GRACE_MS,
     PLAY_KICK_VERIFY_MS,
+    PLAY_CONFIRM_VERIFY_MS,
     handleTransportWithActivation
 };
