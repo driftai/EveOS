@@ -32,6 +32,8 @@ jobs:
         run: node tools/audit/github_actions_security_guard.mjs
       - name: Prove security guard handles equivalent YAML spellings
         run: node tests/github_actions_security_guard.test.mjs
+      - name: Prove local hygiene cleanup and audit contracts
+        run: node tests/eveos_local_hygiene.test.mjs
       - name: Prove smoke registry is closed
         run: node tools/audit/smoke-registry-audit.js
       - name: Enforce generated runtime asset versions
