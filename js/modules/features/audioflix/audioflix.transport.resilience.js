@@ -176,19 +176,6 @@ window.EveAudioflixTransportResilience = window.EveAudioflixTransportResilience 
         if (playback?.browserOnly === true) sendProviderVolume(playback.item?.volume ?? 1);
     });
 
-    // Observe the provider-host signal before any higher-level adapter can lose provenance/identity.
-    window.addEventListener('message', (event) => {
-        const info = providerFrameInfo();
-        if (!info || event.source !== info.frame.contentWindow || event.origin !== info.url.origin) return;
-        const detail = event.data;
-        if (detail?.type !== 'eve-audioflix-provider'
-            || detail.token !== info.token
-            || detail.event !== 'state'
-            || detail.state !== 'ended') return;
-        const activeId = audio()?.getPlaybackState?.()?.item?.id;
-        scheduleQueueAdvance(activeId, 'provider-host state');
-    });
-
     const transport = window.EveAudioflixTransportControl = window.EveAudioflixTransportControl || {};
     Object.assign(transport, {
         resume,
