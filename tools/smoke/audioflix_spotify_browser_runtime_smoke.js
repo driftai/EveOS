@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 const helper = require(path.resolve(__dirname, '..', '..', 'server_modules', 'audioflix_spotify_browser.js'));
+const activation = require(path.resolve(__dirname, '..', '..', 'server_modules', 'audioflix_spotify_playback_activation.js'));
 
 assert.equal(helper.clampVolume(2), 1);
 assert.equal(helper.clampVolume(-1), 0);
@@ -30,6 +31,20 @@ assert.deepEqual(helper.playingTrackIds([
 assert.equal(helper.normalizeTrackId('spotify:track:4cOdK2wGLETKBW3PvgPWqT'), '4cOdK2wGLETKBW3PvgPWqT');
 assert.equal(helper.SERVER_LIVENESS_INTERVAL_MS, 5000);
 assert.equal(helper.SERVER_LIVENESS_TIMEOUT_MS, 30000);
+assert.equal(activation.PLAY_WAKE_INITIAL_MS, 1400, 'Spotify autoplay gets a grace period before Playwright kicks');
+assert.equal(activation.PLAY_KICK_VERIFY_MS, 700, 'Playwright kick is verified after the autoplay race window');
+assert.equal(activation.shouldRetogglePlaybackKick({
+    playing: false,
+    transport: { status: 'provider-paused', paused: true, currentTime: 0.204, generation: 3 }
+}, 3), true, 'a near-zero provider pause on the same generation is treated as a kick/autoplay race');
+assert.equal(activation.shouldRetogglePlaybackKick({
+    playing: false,
+    transport: { status: 'provider-paused', paused: true, currentTime: 0.204, generation: 4 }
+}, 3), false, 'a newer generation is never retoggled');
+assert.equal(activation.shouldRetogglePlaybackKick({
+    playing: false,
+    transport: { status: 'provider-paused', paused: true, currentTime: 3, generation: 3 }
+}, 3), false, 'an established provider pause is not mistaken for startup');
 
 function makeBrowserContext(url) {
     class FakeMedia {
@@ -79,6 +94,40 @@ function makeBrowserContext(url) {
 }
 
 (async () => {
+    let retoggleCalls = 0;
+    const recovered = await activation.stabilizePlaybackKick({
+        expectedGeneration: 3,
+        verifyMs: 0,
+        sleep: async () => {},
+        observe: async () => ({
+            playing: false,
+            transport: { status: 'provider-paused', paused: true, currentTime: 0.204, generation: 3 }
+        }),
+        retoggle: async () => { retoggleCalls += 1; return { clicked: true, method: 'click' }; },
+        waitForPlaying: async () => ({
+            playing: true,
+            transport: { status: 'playing', paused: false, currentTime: 0.9, generation: 3 }
+        })
+    });
+    assert.equal(retoggleCalls, 1, 'kick/autoplay race receives exactly one bounded Play retry');
+    assert.equal(recovered.retoggled, true);
+    assert.equal(recovered.observed.playing, true, 'bounded retry can recover playback');
+
+    let wrongGenerationRetries = 0;
+    const fenced = await activation.stabilizePlaybackKick({
+        expectedGeneration: 3,
+        verifyMs: 0,
+        sleep: async () => {},
+        observe: async () => ({
+            playing: false,
+            transport: { status: 'provider-paused', paused: true, currentTime: 0.2, generation: 4 }
+        }),
+        retoggle: async () => { wrongGenerationRetries += 1; return { clicked: true }; },
+        waitForPlaying: async () => ({ playing: true, transport: { generation: 4 } })
+    });
+    assert.equal(wrongGenerationRetries, 0, 'a replaced track generation is never retried');
+    assert.equal(fenced.retoggled, false);
+
     const livenessServer = http.createServer((_req, res) => { res.writeHead(200); res.end('ok'); });
     await new Promise((resolve) => livenessServer.listen(0, '127.0.0.1', resolve));
     const port = livenessServer.address().port;
