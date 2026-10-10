@@ -398,3 +398,14 @@ unlocks the original natural-end, stall and seek-completion assertions. Those or
 assertions remain intact. Focused candidate engine qualification passed. The saved
 live red is `data/runtime/smoke-results/LANE3-REPEAT-DOUBLE-RUN.json`; the combined
 corrected exact-head natural/background/reconnect/file matrix is still required.
+
+The next native run passed all four natural endings (foreground, hidden, repeat-on,
+and repeat-off after moving the current track to #1), then exposed a relay-release
+gap: Spotify stopped but the client and canonical queue still claimed Playing, hiding
+the Play Group control after reconnect. Explicit relay disconnect now publishes a
+release intent and discards cached provider identity. The split playback lifecycle
+retires only that released active/in-flight client run through the existing Stop path;
+ordinary unavailable/degraded observations do not invent Stop, Ended or Play. The same
+lifecycle owns lazy observer construction, preserving one observer and one queue owner
+while keeping the managed adapter below its file-size headroom limit. This correction
+still requires exact-head live recovery and the canonical file approval matrix.

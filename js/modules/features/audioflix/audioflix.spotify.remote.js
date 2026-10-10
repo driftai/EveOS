@@ -154,8 +154,8 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
             lastError: state.lastError, lastState: state.lastState
         };
     }
-    function notify() {
-        const value = snapshot();
+    function notify(detail = {}) {
+        const value = { ...snapshot(), ...detail };
         listeners.forEach((listener) => { try { listener(value); } catch {} });
     }
     function settleReady(ok, value) {
@@ -414,7 +414,8 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
         state.relayReady = false;
         state.unavailableUntil = 0;
         state.status = 'idle';
-        notify();
+        state.lastState = null;
+        notify({ released: true });
     }
 
     Object.assign(ns, {

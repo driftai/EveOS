@@ -24,6 +24,7 @@ def run():
     relay_source = (ROOT / "server_modules" / "audioflix_spotify_relay.py").read_text(encoding="utf-8")
     client_source = (ROOT / "js/modules/features/audioflix/audioflix.spotify.any-browser.js").read_text(encoding="utf-8")
     watcher_source = (ROOT / "js/modules/features/audioflix/audioflix.spotify.status-watch.js").read_text(encoding="utf-8")
+    lifecycle_source = (ROOT / "js/modules/features/audioflix/audioflix.spotify.playback-lifecycle.js").read_text(encoding="utf-8")
     manifest_source = (ROOT / "js/config/manifest/scripts.parts/03-feature-modules.js").read_text(encoding="utf-8")
     check('"/api/audioflix/spotify-client/status-watch"' in http_source,
           "HTTP status-watch route is not registered")
@@ -35,7 +36,8 @@ def run():
           "relay status-watch is serialized behind playback commands")
     check("remote().send('status-watch'" in watcher_source,
           "split managed Spotify watcher does not own completion through status-watch")
-    check("EveAudioflixSpotifyStatusWatch?.create" in client_source,
+    check("EveAudioflixSpotifyPlaybackLifecycle.create" in client_source
+          and "EveAudioflixSpotifyStatusWatch?.create" in lifecycle_source,
           "managed Spotify route does not delegate state observation to the split watcher")
     check("PROGRESS_POLL_MS = 1000" in watcher_source and "}, 400);" not in watcher_source,
           "legacy 400ms tab-owned Spotify polling is still active")

@@ -40,6 +40,13 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     let fallbackTimer = 0;
     let fallbackFlight = null;
     const listeners = new Set();
+    const lifecycle = window.EveAudioflixSpotifyPlaybackLifecycle.create({
+        remote, applyState: applyEngineState, isActive: () => active,
+        isStarting: () => starting, currentRun: () => playbackRun,
+        onRelease: stopRemote,
+        onDegraded: () => emitPlayback('Spotify status disconnected. Press Play to reconnect.', true),
+        notify
+    });
 
     function dispatch(name, detail) {
         window.dispatchEvent(new CustomEvent(name, { detail }));
@@ -194,21 +201,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         emitProgress();
         notify();
     }
-    function ensureStatusObserver() {
-        if (statusObserver) return statusObserver;
-        statusObserver = window.EveAudioflixSpotifyStatusWatch?.create?.({
-            remote,
-            applyState: applyEngineState,
-            isActive: () => active,
-            currentRun: () => playbackRun,
-            isEnded: () => ended,
-            onRecovery: ({ state }) => {
-                if (state === 'degraded' && active) emitPlayback('Spotify status disconnected. Press Play to reconnect.', true);
-                notify();
-            }
-        }) || null;
-        return statusObserver;
-    }
     async function fallbackPollOnce() {
         if (!active || fallbackFlight || !remote()?.snapshot?.().connected) return;
         const run = playbackRun;
@@ -222,7 +214,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     }
     function startPoll(seed) {
         clearPoll();
-        const observer = ensureStatusObserver();
+        const observer = lifecycle.ensureObserver();
+        statusObserver = observer;
         if (observer?.start) {
             observer.start(seed);
             return;

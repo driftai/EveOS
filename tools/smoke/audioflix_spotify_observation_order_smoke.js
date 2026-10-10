@@ -45,7 +45,14 @@ async function relayOrdering(protocol) {
         assert.equal(remote.snapshot().lastState.engine.paused, true);
         channel.port1.onmessage({ data: { type: 'ready', clientId: 'replacement-client', mode: 'localhost' } });
         assert.equal(remote.snapshot().lastState, null, 'new relay grant cannot retain previous broker counters');
-    } finally { remote.disconnect(); }
+    } finally {
+        let release;
+        remote.subscribe(detail => { if (detail.released) release = detail; });
+        remote.disconnect();
+        assert.equal(release?.released, true, 'Explicit disconnect must publish release intent');
+        assert.equal(release?.connected, false);
+        assert.equal(remote.snapshot().lastState, null, 'Released relay must discard stale provider identity');
+    }
 }
 
 async function playbackOrdering() {
@@ -72,6 +79,7 @@ async function playbackOrdering() {
     vm.runInContext(read('audioflix.spotify.status-watch.js'), context);
     const create = window.EveAudioflixSpotifyStatusWatch.create;
     window.EveAudioflixSpotifyStatusWatch.create = options => { observer = create(options); return observer; };
+    vm.runInContext(read('audioflix.spotify.playback-lifecycle.js'), context);
     vm.runInContext(read('audioflix.spotify.any-browser.js'), context);
     try {
         await audio.playItem({ id: 'fixture-song', url: `https://open.spotify.com/track/${id}`, title: 'Fixture', volume: 1 });
