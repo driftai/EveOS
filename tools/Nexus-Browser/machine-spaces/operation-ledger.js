@@ -72,17 +72,57 @@ function recordRequest(ledger, input, authorizer) {
   const entry = { ...intent, intentDigest: digest, state: 'queued',
     commandSummary: plain(input.commandSummary, MAX_SUMMARY),
     createdAt: String(input.createdAt || new Date().toISOString()),
+    dispatchedAt: null, executionStartedAt: null,
+    executionCompletedAt: null, resultPersistedAt: null,
     outputId: null, preview: '', bytes: null, exitCode: null };
   ledger.events.push(entry);
   return { entry, deduplicated: false };
 }
-function markRunning(ledger, requestId) {
+function markDispatched(ledger, requestId, dispatchedAt = new Date().toISOString()) {
   ensureLedger(ledger);
   const entry = entryFor(ledger, identifier(requestId, 'requestId'));
   if (!entry) throw error('MACHINE_NOT_FOUND', 'Unknown operation request.');
-  if (entry.state !== 'queued') throw error('MACHINE_ALREADY_DISPATCHED', 'Never re-dispatch an already claimed operation.');
+  if (entry.state !== 'queued' || entry.dispatchedAt)
+    throw error('MACHINE_ALREADY_DISPATCHED', 'Never re-dispatch an already claimed operation.');
+  entry.dispatchedAt = String(dispatchedAt);
+  return entry;
+}
+
+function markExecutionStarted(ledger, requestId, executionStartedAt = new Date().toISOString()) {
+  ensureLedger(ledger);
+  const entry = entryFor(ledger, identifier(requestId, 'requestId'));
+  if (!entry) throw error('MACHINE_NOT_FOUND', 'Unknown operation request.');
+  if (entry.state !== 'queued' || !entry.dispatchedAt)
+    throw error('MACHINE_NOT_DISPATCHED', 'Execution cannot start before dispatch.');
+  if (entry.executionStartedAt)
+    throw error('MACHINE_ALREADY_STARTED', 'Execution start cannot be replayed.');
+  entry.executionStartedAt = String(executionStartedAt);
   entry.state = 'running';
   return entry;
+}
+
+function markExecutionCompleted(ledger, requestId, executionCompletedAt = new Date().toISOString()) {
+  ensureLedger(ledger);
+  const entry = entryFor(ledger, identifier(requestId, 'requestId'));
+  if (!entry) throw error('MACHINE_NOT_FOUND', 'Unknown operation request.');
+  if (entry.state !== 'running' || !entry.executionStartedAt)
+    throw error('MACHINE_NOT_RUNNING', 'Execution cannot complete before it starts.');
+  if (entry.executionCompletedAt)
+    throw error('MACHINE_ALREADY_COMPLETED', 'Execution completion cannot be replayed.');
+  entry.executionCompletedAt = String(executionCompletedAt);
+  return entry;
+}
+
+// Compatibility owner for callers that have not yet split dispatch/start.
+// Production Machine Spaces uses the explicit boundaries above.
+function markRunning(ledger, requestId, startedAt = new Date().toISOString()) {
+  ensureLedger(ledger);
+  const entry = entryFor(ledger, identifier(requestId, 'requestId'));
+  if (!entry) throw error('MACHINE_NOT_FOUND', 'Unknown operation request.');
+  if (entry.state !== 'queued' || entry.dispatchedAt)
+    throw error('MACHINE_ALREADY_DISPATCHED', 'Never re-dispatch an already claimed operation.');
+  markDispatched(ledger, requestId, startedAt);
+  return markExecutionStarted(ledger, requestId, startedAt);
 }
 function settle(ledger, { requestId, state, outputId, preview = '', bytes = null,
   exitCode = null, finishedAt = new Date().toISOString() } = {}) {
@@ -93,22 +133,84 @@ function settle(ledger, { requestId, state, outputId, preview = '', bytes = null
     throw error('MACHINE_BAD_STATE', 'Only terminal states may settle an operation.');
   if (entry.state === state && entry.finishedAt)
     return { entry, deduplicated: true };
-  if (entry.state !== 'running' && !(entry.state === 'queued' && state === 'outcome-unknown'))
+  const failedBeforeExecutionStart = entry.state === 'queued'
+    && state === 'failed'
+    && !!entry.dispatchedAt
+    && !entry.executionStartedAt;
+  if (entry.state !== 'running'
+    && !(entry.state === 'queued' && state === 'outcome-unknown')
+    && !failedBeforeExecutionStart)
     throw error('MACHINE_ALREADY_SETTLED', 'A settled/unknown command cannot be replayed or rewritten.');
   if (state !== 'outcome-unknown' && !outputId)
     throw error('MACHINE_OUTPUT_REQUIRED', 'Settled commands require a durable output reference.');
   entry.outputId = outputId ? identifier(outputId, 'outputId') : null;
   entry.state = state;
+  if (state !== 'outcome-unknown') entry.resultPersistedAt = String(finishedAt);
   entry.preview = plain(preview, MAX_PREVIEW);
   entry.bytes = Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null;
   entry.exitCode = Number.isInteger(exitCode) ? exitCode : null;
   entry.finishedAt = String(finishedAt);
   return { entry, deduplicated: false };
 }
-function projection(entry) {
-  if (!STATES.has(entry?.state)) throw error('MACHINE_BAD_STATE', 'Unexpected operation state.');
+function stageAgeMs(stageSince, now) {
+  if (!stageSince) return null;
+  const since = Date.parse(String(stageSince));
+  const current = now instanceof Date ? now.getTime() : Date.parse(String(now));
+  if (!Number.isFinite(since) || !Number.isFinite(current)) return null;
+  return Math.max(0, current - since);
+}
+
+function lifecycleProjection(entry, now = new Date()) {
+  if (!STATES.has(entry?.state))
+    throw error('MACHINE_BAD_STATE', 'Unexpected operation state.');
+
+  const acceptedAt = entry.createdAt || null;
+  let currentStage = 'accepted';
+  let stageSince = acceptedAt;
+
+  if (entry.dispatchedAt) {
+    currentStage = 'dispatched';
+    stageSince = entry.dispatchedAt;
+  }
+  if (entry.executionStartedAt) {
+    currentStage = 'execution-started';
+    stageSince = entry.executionStartedAt;
+  }
+  if (entry.executionCompletedAt) {
+    currentStage = 'execution-completed';
+    stageSince = entry.executionCompletedAt;
+  }
+  if (entry.resultPersistedAt) {
+    currentStage = 'result-persisted';
+    stageSince = entry.resultPersistedAt;
+  }
+  if (entry.state === 'failed') {
+    currentStage = 'failed';
+    stageSince = entry.resultPersistedAt || entry.finishedAt || stageSince;
+  }
+  if (entry.state === 'outcome-unknown') {
+    currentStage = 'uncertain';
+    stageSince = entry.finishedAt || stageSince;
+  }
+
+  return {
+    currentStage,
+    stageSince,
+    stageAgeMs: stageAgeMs(stageSince, now),
+    acceptedAt,
+    dispatchedAt: entry.dispatchedAt || null,
+    executionStartedAt: entry.executionStartedAt || null,
+    executionCompletedAt: entry.executionCompletedAt || null,
+    resultPersistedAt: entry.resultPersistedAt || null
+  };
+}
+
+function projection(entry, now = new Date()) {
+  if (!STATES.has(entry?.state))
+    throw error('MACHINE_BAD_STATE', 'Unexpected operation state.');
   const { intentDigest, ...publicEntry } = entry;
-  return { ...publicEntry };
+  return { ...publicEntry, lifecycle: lifecycleProjection(entry, now) };
 }
 module.exports = { MAX_EVENTS, MAX_SUMMARY, MAX_PREVIEW, CAPABILITIES, createLedger, recordRequest,
-  markRunning, settle, projection, entryFor };
+  markDispatched, markExecutionStarted, markExecutionCompleted, markRunning,
+  settle, lifecycleProjection, projection, entryFor };

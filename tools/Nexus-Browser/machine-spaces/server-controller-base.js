@@ -137,7 +137,19 @@ function createMachineSpacesController({
           const target = broker.target(terminalId);
           return target ? { ...target, available: true } : { id: terminalId, targetId: terminalId, available: false };
         }),
-        requests: (space.requests || []).slice(-MAX_REQUESTS).map(ownerRequest)
+        requests: (space.requests || []).slice(-MAX_REQUESTS).map((request) => {
+          const item = ownerRequest(request);
+          const ledgerEntry = space.ledger
+            ? ledgerApi.entryFor(space.ledger, request.requestId)
+            : null;
+          if (ledgerEntry) {
+            item.lifecycle = ledgerApi.lifecycleProjection(
+              ledgerEntry,
+              new Date(now()).toISOString()
+            );
+          }
+          return item;
+        })
       }))
     };
   }
@@ -207,9 +219,13 @@ function createMachineSpacesController({
           capability: 'terminal.exec', operationDigest: record.commandDigest,
           commandSummary: record.commandSummary, createdAt: new Date(record.createdAt).toISOString()
         }, () => true);
-        ledgerApi.markRunning(space.ledger, record.requestId);
+        ledgerApi.markDispatched(
+          space.ledger,
+          record.requestId,
+          new Date(now()).toISOString()
+        );
         const request = (space.requests || []).find((entry) => entry.requestId === record.requestId);
-        if (request) { request.state = 'running'; delete request.command; delete request.challenge; }
+        if (request) { delete request.command; delete request.challenge; }
       });
     }
     send(notifyWs, { type: 'machine_command_started', requestId: record.requestId, targetId: record.targetId });
@@ -217,8 +233,24 @@ function createMachineSpacesController({
     let result;
     try {
       result = await broker.run({ targetId: record.targetId, requestId: record.requestId,
-        command: record.command, onStart: ({ pid, startedAt }) => send(notifyWs,
-          { type: 'machine_process_started', requestId: record.requestId, targetId: record.targetId, pid, startedAt }) });
+        command: record.command, onStart: ({ pid, startedAt }) => {
+          if (context.kind === 'dex') {
+            mutateRoom(context.roomId, (room) => {
+              const space = resolveRoomSpace(room, context.spaceId);
+              ledgerApi.markExecutionStarted(
+                space.ledger,
+                record.requestId,
+                startedAt
+              );
+              const request = (space.requests || []).find(
+                (entry) => entry.requestId === record.requestId
+              );
+              if (request) request.state = 'running';
+            });
+          }
+          send(notifyWs,
+            { type: 'machine_process_started', requestId: record.requestId, targetId: record.targetId, pid, startedAt });
+        } });
     } catch (error) {
       result = { requestId: record.requestId, targetId: record.targetId, stdout: '', stderr: error.message,
         bytes: Buffer.byteLength(error.message), exitCode: null, state: 'failed', reason: error.code || 'spawn-failed',
@@ -232,6 +264,17 @@ function createMachineSpacesController({
     if (context.kind === 'dex') {
       mutateRoom(context.roomId, (room) => {
         const space = resolveRoomSpace(room, context.spaceId);
+        const ledgerEntry = ledgerApi.entryFor(
+          space.ledger,
+          record.requestId
+        );
+        if (ledgerEntry?.executionStartedAt && !ledgerEntry.executionCompletedAt) {
+          ledgerApi.markExecutionCompleted(
+            space.ledger,
+            record.requestId,
+            result.finishedAt
+          );
+        }
         ledgerApi.settle(space.ledger, { requestId: record.requestId, state: result.state,
           outputId: output.outputId, preview: complete.preview, bytes: output.bytes,
           exitCode: result.exitCode, finishedAt: result.finishedAt });

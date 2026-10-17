@@ -317,7 +317,17 @@ function createMachineSpacesProviderControl({
             const wanted = String(command.requestId || '');
             const request = (space.requests || []).find((entry) => entry.requestId === wanted);
             if (!request) throw machineError('MACHINE_REQUEST_NOT_FOUND', 'No terminal request with that ID exists in this Machine Space.');
-            result = { ok: true, action, message: `Terminal request is ${request.state}.`, data: publicRequest(request) };
+            const data = publicRequest(request);
+            const ledgerEntry = space.ledger
+              ? ledgerApi.entryFor(space.ledger, wanted)
+              : null;
+            if (ledgerEntry) {
+              data.lifecycle = ledgerApi.lifecycleProjection(
+                ledgerEntry,
+                new Date(now()).toISOString()
+              );
+            }
+            result = { ok: true, action, message: `Terminal request is ${request.state}.`, data };
           } else {
             const page = spool.page(String(command.outputId || ''), { audience: `room:${room.id}`,
               stream: command.stream, offset: command.offset, limit: Math.min(8000, Number(command.limit) || 4000) });
