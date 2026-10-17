@@ -31,6 +31,13 @@ test('pre-push enforces exact lane, origin SHA, clean tree and all guardrails', 
     assert.match(hook, /\[ "\$seen" -ne 1 \]/);
     assert.match(hook, /exit 1/);
 });
+test('pre-push retains the candidate SHA after reading stdin to EOF', () => {
+    const hook = read('tools/hooks/pre-push');
+    assert.match(hook, /candidate_oid=\$\(git rev-parse HEAD\)/);
+    assert.match(hook, /\[ "\$local_oid" != "\$candidate_oid" \]/);
+    assert.match(hook, /\[ "\$\(git rev-parse HEAD\)" != "\$candidate_oid" \]/);
+    assert.doesNotMatch(hook, /\[ "\$\(git rev-parse HEAD\)" != "\$local_oid" \]/);
+});
 test('structural suite always includes publication-contract regressions', () => {
     const scripts = JSON.parse(read('package.json')).scripts;
     assert.equal(scripts['test:publication-hooks'], 'node --test tests/publication_hooks.test.js');
