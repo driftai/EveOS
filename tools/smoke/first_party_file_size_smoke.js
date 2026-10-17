@@ -47,6 +47,31 @@ function collectCodeFiles(directory, files = []) {
     return files;
 }
 
+// A partially staged commit must be evaluated from Git's index, not from a
+// possibly smaller working-tree version of the same file.
+if (process.argv.includes('--staged')) {
+    const { stagedFiles, physicalLines } = require('./first_party_staged_snapshot.js');
+    const eligible = (relative) => {
+        const normalized = relative.replace(/\\/g, '/');
+        const parents = normalized.split('/').slice(0, -1);
+        return CODE_EXTENSIONS.has(path.extname(normalized).toLowerCase())
+            && !EXCLUDED_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+            && !parents.some((part) => {
+                const name = part.toLowerCase();
+                return EXCLUDED_DIRECTORIES.has(name)
+                    || name.endsWith('-venv') || name.includes('venv');
+            });
+    };
+    const entries = stagedFiles(REPO_ROOT, eligible)
+        .map(({ relative, source }) => ({ relative, lines: physicalLines(source) }));
+    const violations = entries.filter((entry) => entry.lines > MAX_LINES);
+    if (violations.length) {
+        throw new Error('Staged first-party blobs exceed 450 lines:\n'
+            + violations.map(({ relative, lines }) => `${lines} ${relative}`).join('\n'));
+    }
+    console.log('FIRST_PARTY_STAGED_SIZE_OK', JSON.stringify({ checked: entries.length }));
+    process.exit(0);
+}
 const measured = collectCodeFiles(REPO_ROOT)
     .map((filePath) => ({
         filePath,

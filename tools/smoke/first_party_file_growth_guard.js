@@ -41,6 +41,31 @@ function baseLines(base, relative) {
     return result.status === 0 ? lines(result.stdout) : 0;
 }
 
+// The staged snapshot is distinct from the working tree during partial staging.
+if (process.argv.includes('--staged')) {
+    const { stagedFiles, physicalLines } = require('./first_party_staged_snapshot.js');
+    const requestedBase = String(process.env.EVEOS_GUARDRAIL_BASE || 'origin/main').trim();
+    const mergeBase = git(['merge-base', requestedBase, 'HEAD']);
+    if (!mergeBase) throw new Error('Cannot resolve staged growth baseline: ' + requestedBase);
+    const entries = stagedFiles(ROOT,
+        (relative) => CODE_EXTENSIONS.has(path.extname(relative).toLowerCase()))
+        .map(({ relative, source }) => ({
+            relative,
+            before: baseLines(mergeBase, relative),
+            after: physicalLines(source)
+        }));
+    const violations = entries.filter((entry) =>
+        entry.after > SOFT_MAX_LINES && entry.after > entry.before);
+    if (violations.length) {
+        throw new Error('Staged first-party growth exceeds 440 lines:\n'
+            + violations.map(({ relative, before, after }) =>
+                `${relative}: ${before} -> ${after} lines`).join('\n'));
+    }
+    console.log('FIRST_PARTY_STAGED_GROWTH_OK', JSON.stringify({
+        base: mergeBase, checked: entries.length
+    }));
+    process.exit(0);
+}
 const requestedBase = String(process.env.EVEOS_GUARDRAIL_BASE || 'origin/main').trim();
 const mergeBase = git(['merge-base', requestedBase, 'HEAD']);
 const changed = new Set();

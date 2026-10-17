@@ -44,3 +44,5 @@ test('structural suite always includes publication-contract regressions', () => 
     assert.ok(scripts['test:guardrails'].startsWith('npm run --silent test:publication-hooks && '));
     assert.equal(scripts['hooks:install'], 'git config --local core.hooksPath tools/hooks');
 });
+
+require('./publication_staged_snapshot.test.js');
