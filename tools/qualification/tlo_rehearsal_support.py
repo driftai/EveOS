@@ -7,6 +7,7 @@ import http.client
 import json
 import re
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -14,6 +15,10 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
+ROOT_TEXT = str(ROOT)
+if ROOT_TEXT not in sys.path:
+    sys.path.insert(0, ROOT_TEXT)
+
 BINDING_PATH = ROOT / "config" / "agents" / "tlo" / "RUNTIME.json"
 PACKAGE_PATH = ROOT / "package.json"
 TLO_PROFILE_PATH = ROOT / "config" / "agents" / "tlo" / "AGENT.md"

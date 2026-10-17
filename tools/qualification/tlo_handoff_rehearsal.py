@@ -18,6 +18,7 @@ from tlo_rehearsal_support import (
     git_preflight,
     git_text,
     http_json,
+    local_web_fingerprint,
     repository_binding,
     request_tlo_triage,
     run_process,
@@ -45,6 +46,13 @@ def self_test() -> None:
     binding = repository_binding()
     if binding["status"] != "MATCH":
         raise RehearsalError(f"Repository TLO binding mismatch: {binding['mismatches']}", state="VERSION_MISMATCH")
+
+    fingerprint = local_web_fingerprint()
+    if len(fingerprint) != 64:
+        raise RehearsalError(
+            "Local EveOS web fingerprint self-test returned an invalid digest.",
+            state="SELF_TEST_FAILED",
+        )
 
     fake_tlo = {
         "state": "ready",
