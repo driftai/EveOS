@@ -1,0 +1,42 @@
+#!/bin/sh
+# Fail-closed EveOS active-lane publication guard. This hook is clone-local.
+set -eu
+if [ "${1:-}" != "origin" ]; then
+    echo "PUSH BLOCKED: only the inspected origin remote is permitted." >&2
+    exit 1
+fi
+
+seen=0
+while read -r local_ref local_oid remote_ref remote_oid; do
+    seen=$((seen + 1))
+    if [ "$local_ref" != "refs/heads/eve/nexus-machine-spaces" ] ||
+       [ "$remote_ref" != "$local_ref" ] ||
+       [ "$local_oid" != "$(git rev-parse HEAD)" ] ||
+       [ "$remote_oid" != "$(git rev-parse refs/remotes/origin/eve/nexus-machine-spaces)" ]; then
+        echo "PUSH BLOCKED: wrong branch, candidate SHA or stale origin." >&2
+        exit 1
+    fi
+    if [ "$remote_oid" = "0000000000000000000000000000000000000000" ] ||
+       ! git merge-base --is-ancestor "$remote_oid" "$local_oid"; then
+        echo "PUSH BLOCKED: new branch or non-fast-forward update." >&2
+        exit 1
+    fi
+done
+if [ "$seen" -ne 1 ] ||
+   [ "$(git branch --show-current)" != "eve/nexus-machine-spaces" ] ||
+   [ -n "$(git status --porcelain=v1 --untracked-files=normal)" ]; then
+    echo "PUSH BLOCKED: expected one clean, authorized active-lane update." >&2
+    exit 1
+fi
+
+# Structural checks on the exact checked-out commit, independent of test choices.
+if ! npm run --silent test:guardrails; then
+    echo "PUSH BLOCKED: mandatory EveOS repository guardrails are RED." >&2
+    exit 1
+fi
+if [ -n "$(git status --porcelain=v1 --untracked-files=normal)" ] ||
+   [ "$(git rev-parse HEAD)" != "$local_oid" ]; then
+    echo "PUSH BLOCKED: source changed during qualification." >&2
+    exit 1
+fi
+echo "EVEOS_PUBLICATION_GUARD_OK $local_oid"

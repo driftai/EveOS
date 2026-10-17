@@ -1,4 +1,15 @@
 #!/bin/sh
+# Block oversize files before commit; retained alongside secret/assets checks.
+if ! node tools/smoke/first_party_file_size_smoke.js >/dev/null 2>&1; then
+    echo "COMMIT BLOCKED: first-party file exceeds the 450-line hard cap." >&2
+    node tools/smoke/first_party_file_size_smoke.js >&2
+    exit 1
+fi
+if ! node tools/smoke/first_party_file_growth_guard.js >/dev/null 2>&1; then
+    echo "COMMIT BLOCKED: a changed first-party file exceeded the 440-line growth gate." >&2
+    node tools/smoke/first_party_file_growth_guard.js >&2
+    exit 1
+fi
 # EveOS pre-commit runtime integrity and secret guard.
 # Blocks commits with stale runtime fingerprints, disconnected browser assets, or a
 # hardcoded credential. Keys belong in the user's Settings

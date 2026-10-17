@@ -98,3 +98,19 @@ git pull --ff-only
 ```
 
 Do not maintain separate downloadable replacement copies of these drivers.
+
+## Mandatory local publication checks (V0.7.5)
+
+Enable the tracked Git hooks once per checkout with `npm run hooks:install`. The
+pre-commit hook rejects files over 450 lines and growth beyond the 440-line
+headroom gate, alongside existing credential, runtime-asset and extension checks.
+The pre-push hook permits only one clean fast-forward update of
+`eve/nexus-machine-spaces` to a matching fetched origin SHA, then executes
+`npm run test:guardrails` against the exact candidate commit. A failing test
+or changing source blocks publication. Use `git fetch origin` and inspect
+remote drift rather than bypassing the hook. `main` remains protected.
+
+Git hooks are local and can be bypassed by `--no-verify`, a different Git
+installation/configuration, or direct GitHub API writes. They do **not** replace
+server-side branch rules and required CI checks. A future remote enforcement
+step must be explicitly configured before claims of unbypassable publication.

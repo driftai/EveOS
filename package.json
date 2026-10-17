@@ -11,7 +11,7 @@
     "test:security": "node tools/smoke/eveos_profile_runner.mjs --profile security",
     "test:ai-control": "node tools/smoke/eveos_profile_runner.mjs --profile ai-control",
     "test:github-actions-security": "node tests/github_actions_security_guard.test.mjs",
-    "test:guardrails": "npm run --silent audit:repo-hygiene && npm run --silent audit:github-actions-security && npm run --silent test:github-actions-security && npm run --silent smoke:qualification-guardrails-contract && npm run --silent audit:eveos-extension && npm run --silent audit:asset-versions && npm run --silent audit:smoke-registry && npm run --silent smoke:coverage-map && npm run --silent smoke:file-growth && npm run --silent smoke:file-size",
+    "test:guardrails": "npm run --silent test:publication-hooks && npm run --silent audit:repo-hygiene && npm run --silent audit:github-actions-security && npm run --silent test:github-actions-security && npm run --silent smoke:qualification-guardrails-contract && npm run --silent audit:eveos-extension && npm run --silent audit:asset-versions && npm run --silent audit:smoke-registry && npm run --silent smoke:coverage-map && npm run --silent smoke:file-growth && npm run --silent smoke:file-size",
     "test:handoff": "node tools/smoke/eveos_chat_handoff.mjs",
     "runtime:search-monitor:start": "node tools/runtime/search-monitor-runtime.mjs start",
     "runtime:search-monitor:status": "node tools/runtime/search-monitor-runtime.mjs status",
@@ -200,7 +200,9 @@
     "smoke:autotitle-live-browser": "node tools/smoke/autotitle_browser_html_smoke.js",
     "smoke:live-public-contracts": "npm run --silent smoke:api-live-provider-acceptance && npm run --silent smoke:api-live-provider-matrix && npm run --silent smoke:autotitle-live-browser",
     "smoke:camofox-local-installer": "python tools/camofox-runtime/fetch_browser.py --self-test && node --check tools/camofox-runtime/scripts/doctor.cjs && node tools/smoke/camofox_installer_preservation_smoke.js",
-    "smoke:watchfusion-live": "node tools/WatchFusion/tests/smoke/node/live.smoke.js"
+    "smoke:watchfusion-live": "node tools/WatchFusion/tests/smoke/node/live.smoke.js",
+    "hooks:install": "git config --local core.hooksPath tools/hooks",
+    "test:publication-hooks": "node --test tests/publication_hooks.test.js"
   },
   "engines": {
     "node": ">=20"
