@@ -11,6 +11,7 @@ const TTL_MS = 12 * 60 * 60 * 1000;
 const MAX_JOBS = 128, REPORT_MAX_BYTES = 32768;
 const JOB_ID = /^task-completion-[0-9a-f-]{36}$/i;
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{3,95}$/;
+const CORRELATION_ID = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 const SHA = /^[0-9a-f]{40}$/i;
 // The journal receives signed results; this list is NOT a shell/execution grant.
 const JOB_TYPES = new Set(['qualification', 'external-signal']);
@@ -97,9 +98,12 @@ function lifecycleProjection(job, now = Date.now()) {
 
 function compact(job, now = Date.now()) {
   if (!job) return null;
-  const { id, taskId, jobType = 'qualification', roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
+  const { id, taskId, jobType = 'qualification', roomId, roomName, sourceMessageId,
+    workerMemberId, requesterMemberId, branch, expectedHead,
     registeredAt, expiresAt, state, report, claimedAt, deliveredAt, deliveryError } = job;
-  return { id, taskId, jobType, roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
+  return { id, taskId, jobType, roomId, roomName,
+    sourceMessageId: sourceMessageId || null,
+    workerMemberId, requesterMemberId, branch, expectedHead,
     registeredAt, expiresAt, state, report: report || null, claimedAt: claimedAt || null,
     deliveredAt: deliveredAt || null, deliveryError: deliveryError || null,
     lifecycle: lifecycleProjection(job, now) };
@@ -151,8 +155,11 @@ function createTaskCompletionJournal({
       'Only qualification or externally completed signed-report jobs are registered.');
     const expectedHead = String(command.expectedHead || '').toLowerCase();
     const branch = String(command.branch || '');
+    const sourceMessageId = command.sourceMessageId == null
+      ? null : String(command.sourceMessageId);
     if (!TASK_ID.test(taskId) || !SHA.test(expectedHead)
-      || !/^[A-Za-z0-9_.\/-]{1,128}$/.test(branch) || branch.includes('..')) {
+      || !/^[A-Za-z0-9_.\/-]{1,128}$/.test(branch) || branch.includes('..')
+      || (sourceMessageId != null && !CORRELATION_ID.test(sourceMessageId))) {
       return error('TASK_COMPLETION_BAD_INTENT', 'Require task ID, exact 40-character SHA and explicit branch.');
     }
     if (registering.has(taskId)) return error('TASK_COMPLETION_REGISTRATION_IN_PROGRESS', 'Exact registration is in progress; inspect status before retrying.');
@@ -161,6 +168,7 @@ function createTaskCompletionJournal({
       if (previous.roomId !== room.id || previous.workerMemberId !== worker.id
         || previous.requesterMemberId !== requester.id || previous.expectedHead !== expectedHead
         || previous.branch !== branch || (previous.jobType || 'qualification') !== jobType
+        || (previous.sourceMessageId || null) !== sourceMessageId
         || !validWorker(previous, source)) {
         return error('TASK_COMPLETION_ID_CONFLICT', 'This task ID already belongs to another immutable request.');
       }
@@ -184,6 +192,7 @@ function createTaskCompletionJournal({
     const id = 'task-completion-' + randomUUID(), token = randomBytes(32).toString('hex');
     const job = {
       id, taskId, jobType, roomId: room.id, roomName: room.name || room.id,
+      sourceMessageId,
       workerMemberId: worker.id, workerTargetId: String(worker.binding.targetId),
       workerProviderId: worker.binding.providerId,
       requesterMemberId: requester.id, requesterTarget: compactBinding(requester.binding),
@@ -192,7 +201,10 @@ function createTaskCompletionJournal({
     };
     // Credential is an existing-local-runner capability, not part of room state,
     // browser notification text or the status API.
-    const credential = { version: 1, id, taskId, jobType, expectedHead, branch, token };
+    const credential = {
+      version: 1, id, taskId, jobType,
+      sourceMessageId, expectedHead, branch, token
+    };
     writeJournal(credentialPath(root, id), credential, io);
     journal.jobs.push(job);
     try { save(); } catch (e) { journal.jobs.pop(); throw e; }
@@ -292,5 +304,6 @@ function createTaskCompletionJournal({
   return { register, status, scan, claim, ack, uncertain, ready, all, diagnostics,
     root, filePath, resultPath: (id) => resultPath(root, id) };
 }
-module.exports = { TTL_MS, MAX_JOBS, REPORT_MAX_BYTES, DEFAULT_FILE, JOB_ID, TASK_ID, JOB_TYPES,
+module.exports = { TTL_MS, MAX_JOBS, REPORT_MAX_BYTES, DEFAULT_FILE,
+  JOB_ID, TASK_ID, CORRELATION_ID, JOB_TYPES,
   resultPath, credentialPath, tokenMatches, lifecycleProjection, createTaskCompletionJournal };
