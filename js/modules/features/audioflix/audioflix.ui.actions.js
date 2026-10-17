@@ -258,7 +258,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 (ctx.rerenderPlayback || ctx.rerender)();
                 return;
             }
-            if (action === 'shuffle-music-group') {
+            if (action === 'shuffle-music-group') { window.EveAudioflixSpotifyQueueHandoff?.invalidate?.();
                 // Shuffle Order: the playing track becomes #1 and the rest is randomized.
                 const q = ctx.activeMusicQueue || {};
                 // Reordering keeps the same playback run, including any pending completion.
@@ -271,7 +271,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 (ctx.rerenderPlayback || ctx.rerender)();
                 return;
             }
-            if (action === 'loop-music-group') {
+            if (action === 'loop-music-group') { window.EveAudioflixSpotifyQueueHandoff?.invalidate?.();
                 const q = ctx.activeMusicQueue || {};
                 const loop = !(q.loop === true);
                 ctx.activeMusicQueue = { ...q, loop };

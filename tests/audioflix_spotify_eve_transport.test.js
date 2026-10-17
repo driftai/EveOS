@@ -11,14 +11,16 @@ const SOURCE = fs.readFileSync(
     'utf8'
 );
 
+const MEDIA_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'js', 'modules', 'features', 'audioflix', 'audioflix.spotify.media.js'), 'utf8');
+
 function harness({ localPath = '', canonicalPatch = {} } = {}) {
     const canonical = {
         id: 'spotify-1',
         title: 'Example Song',
         artist: 'Example Artist',
-        url: 'https://open.spotify.com/track/abc123',
+        url: 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT',
         sourceProvider: 'spotify',
-        spotifyTrackId: 'abc123',
+        spotifyTrackId: '4cOdK2wGLETKBW3PvgPWqT',
         ...canonicalPatch
     };
     const state = { music: [canonical] };
@@ -26,6 +28,7 @@ function harness({ localPath = '', canonicalPatch = {} } = {}) {
     const requests = [];
     const window = {
         EveAudioflixNativeSpotify: {},
+        EveAudioflixSpotifyMedia: {},
         EveAudioflixNative: {},
         EveAudioflixState: {
             ensure: () => state,
@@ -41,7 +44,8 @@ function harness({ localPath = '', canonicalPatch = {} } = {}) {
             }
         }
     };
-    vm.runInNewContext(SOURCE, { window });
+    vm.runInNewContext(MEDIA_SOURCE, { window });
+    vm.runInNewContext(SOURCE, { window, location: { protocol: 'http:' } });
     const api = window.EveAudioflixNativeSpotify.create({
         async fetchJson(url, options) {
             requests.push({ url, options });
@@ -71,7 +75,7 @@ test('ordinary Spotify playback preserves the official URL and never invokes alt
     assert.equal(prepared.item.spotifyPlaybackMode, 'official-embed');
     assert.equal(prepared.item.eveOwnedPlaybackSource, false);
     assert.equal(prepared.item.preferEveDirectAudio, false);
-    assert.match(prepared.status, /official embedded player/i);
+    assert.match(prepared.status, /Spotify through the official embed/i);
     assert.equal(resolverCalls, 0);
     assert.equal(requests.length, 0);
     assert.equal(updates.length, 0);
@@ -92,20 +96,20 @@ test('retired cached YouTube playback matches cannot override the Spotify embed'
         await window.EveAudioflixLocalPlayback.prepare(canonical)
     );
 
-    assert.equal(prepared.item.url, 'https://open.spotify.com/track/abc123');
+    assert.equal(prepared.item.url, 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT');
     assert.notEqual(prepared.item.url, canonical.spotifyPlaybackUrl);
     assert.equal(prepared.item.spotifyPlaybackMode, 'official-embed');
     assert.equal(updates.length, 0);
 });
 
 test('old transformed items recover their Spotify identity from spotifyUrl', async () => {
-    const official = 'https://open.spotify.com/track/RESTORED123';
+    const official = 'https://open.spotify.com/track/2TpxZ7JUBn3uw46aR7qd6V';
     const { window, canonical } = harness({
         canonicalPatch: {
             url: 'https://www.youtube.com/watch?v=old-match',
             originalUrl: 'https://www.youtube.com/watch?v=old-match',
             spotifyUrl: official,
-            spotifyTrackId: 'RESTORED123',
+            spotifyTrackId: '2TpxZ7JUBn3uw46aR7qd6V',
             eveOwnedPlaybackSource: true,
             preferEveDirectAudio: true
         }
@@ -151,9 +155,10 @@ test('alternate recording lookup remains explicit and is never installed into Lo
     assert.equal(window.EveAudioflixLocalPlayback.__eveSpotifyPlaybackSourceWrapped, undefined);
     assert.equal(requests.length, 0);
 
-    const result = await api.resolveSpotifyPlaybackSource(canonical);
-    assert.equal(result.provider, 'youtube');
+    // Alternate playback resolution is deliberately absent from the official embed owner.
+    assert.equal(typeof api.resolveSpotifyPlaybackSource, 'undefined');
+    assert.equal(requests.length, 0);
+    await api.listSpotifyPlaylist('https://open.spotify.com/playlist/4cOdK2wGLETKBW3PvgPWqT');
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].url, '/api/audioflix/spotify-session');
-    assert.equal(JSON.parse(requests[0].options.body).action, 'resolve-playback-source');
+    assert.match(requests[0].url, /^\/api\/audioflix\/spotify-playlist\?url=/);
 });

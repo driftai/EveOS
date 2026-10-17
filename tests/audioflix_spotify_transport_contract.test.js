@@ -13,6 +13,7 @@ const capture = read('js', 'modules', 'features', 'audioflix', 'audioflix.audio.
 const spotify = read('js', 'modules', 'features', 'audioflix', 'audioflix.native.spotify.js');
 const host = read('server', 'audioflix-provider-host.html');
 const ui = read('js', 'modules', 'features', 'audioflix', 'audioflix.ui.js');
+const queueOwner = read('js', 'modules', 'features', 'audioflix', 'audioflix.queue.completion.js');
 
 function ordered(source, first, second, message) {
     const a = source.indexOf(first);
@@ -52,13 +53,13 @@ test('YouTube bridge keeps initial normalized volume distinct from live percent 
 
 test('active provider identity owns live volume routing', () => {
     assert.match(audio, /const activeUrlMatch = urlPlayback\?\.matches\?\.\(itemId\) === true/);
-    assert.match(audio, /if \(activeUrlMatch\) urlPlayback\.setVolume\(safeVolume\)/);
-    assert.match(audio, /layerController\.updateVolume\(itemId, safeVolume\)/);
+    assert.match(audio, /if \(activeUrlMatch\) urlPlayback\.setVolume\(safeVolume, options\)/);
+    assert.match(audio, /layerController\.updateVolume\(itemId, safeVolume, options\)/);
 });
 
 test('routed PCM reads current Audioflix volume for every outgoing chunk', () => {
     assert.match(capture, /encodePcm\?\.\(chunk, 0, chunk\.length, getVolume\(\)\)/);
-    assert.match(audio, /activeStreamVolume = safeVolume/);
+    assert.match(audio, /activeStreamVolume = outputVolume/);
 });
 
 test('all Eve-owned transports expose a natural Ended signal to the group queue', () => {
@@ -67,6 +68,6 @@ test('all Eve-owned transports expose a natural Ended signal to the group queue'
     assert.match(audio, /status:\s*lastStatus,\s*item:\s*endedItem,\s*settle/);
     assert.match(host, /0:\s*'ended'/);
     assert.match(ui, /status === 'Ended'/);
-    assert.match(ui, /Promise\.resolve\(e\.detail\?\.settle\)/);
-    assert.match(ui, /playQueueIndex\(expectedIndex \+ 1\)/);
+    assert.match(queueOwner, /Promise\.resolve\(detail\.settle\)/);
+    assert.match(queueOwner, /advance: \(\) => playIndex\(queue\(\)\.currentIndex \+ 1\)/);
 });

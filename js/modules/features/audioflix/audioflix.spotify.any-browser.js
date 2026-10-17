@@ -50,7 +50,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         window.dispatchEvent(new CustomEvent(name, { detail }));
     }
     function emitPlayback(status, error = false, detail = {}) {
-        dispatch('eve:audioflix-playback', { status, item, provider: 'spotify', browserOnly: true, remoteManaged: true, error, ...detail });
+        dispatch('eve:audioflix-playback', { status, item, provider: 'spotify', browserOnly: true, remoteManaged: true, queueDelegated: window.EveAudioflixSpotifyQueueHandoff?.isDelegated?.() === true, error, ...detail });
     }
     function emitProgress() {
         dispatch('eve:audioflix-progress', { ...playback });
@@ -153,6 +153,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     }
     function applyEngineState(result) {
         if (!result?.ok || !active) return;
+        window.EveAudioflixSpotifyQueueHandoff?.adopt?.(result, (next) => { item = next; playback.item = next; lastEngineStatus = ''; ended = false; });
         const engine = result.engine || {};
         if ((engine.spotifyId || engine.spotifyUri || engine.mediaType) && !media.matches(engine, media.fromItem(item))) return;
         if (window.EveAudioflixSpotifyStatusWatch?.isCurrentState?.(result, latestEngineState, remote()?.snapshot?.().lastState) === false) return;
@@ -371,7 +372,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
                 throw error;
             }
         };
-        audio.pause = async function anyBrowserPause() {
+        audio.pause = async function anyBrowserPause() { window.EveAudioflixSpotifyQueueHandoff?.invalidate?.();
             if (!active && !starting) return original.pause();
             const result = await remote().send('pause');
             if (result?.superseded) return false;
@@ -379,14 +380,14 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             applyEngineState(result);
             return true;
         };
-        audio.seek = async function anyBrowserSeek(seconds) {
+        audio.seek = async function anyBrowserSeek(seconds) { window.EveAudioflixSpotifyQueueHandoff?.invalidate?.();
             if (!active) return original.seek(seconds);
             const result = await remote().send('seek', { seconds: Math.max(0, Number(seconds || 0)) });
             if (!result?.ok) throw new Error(result?.reason || 'Spotify could not seek.');
             applyEngineState(result);
             return true;
         };
-        audio.stopAll = async function anyBrowserStopAll() {
+        audio.stopAll = async function anyBrowserStopAll() { window.EveAudioflixSpotifyQueueHandoff?.invalidate?.();
             if (!active && !starting) return original.stopAll();
             await stopRemote();
             return true;

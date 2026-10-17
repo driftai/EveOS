@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from server_modules import audioflix_spotify_browser_rpc as engine
 from server_modules import audioflix_spotify_connections as connections
 from server_modules import audioflix_spotify_broker_preemption as preemption
-from server_modules import audioflix_spotify_broker_volume as volume_control
+from server_modules import audioflix_spotify_broker_volume as volume_control, audioflix_spotify_queue_lease as delegated
 from server_modules.audioflix_spotify_media_identity import parse_media, media_from_payload
 
 _PROTOCOL_VERSION = 1
@@ -70,7 +70,7 @@ class SpotifyClientBroker:
         self._tokens: dict[str, str] = {}
         self._owner_client_id = ""
         self._owner_epoch = 0
-        self._track_generation = 0
+        self._track_generation = 0; self._delegated_queue = delegated.DelegatedQueue(self, engine)
         self._engine_epoch = 0
         self._engine_started_at = 0
 
@@ -243,7 +243,7 @@ class SpotifyClientBroker:
                 "ok": True, "connected": True, "clientId": client_id,
                 "isOwner": self._owner_client_id == client_id, "ownerClientId": self._owner_client_id,
                 "ownerEpoch": self._owner_epoch, "engineEpoch": self._engine_epoch,
-                "trackGeneration": self._track_generation, "engine": state or {},
+                "trackGeneration": self._track_generation, "engine": state or {}, "queueLease": self._delegated_queue.projection(client_id),
                 "managed": {
                     "browserRunning": bool(managed.get("browserRunning")),
                     "helperReachable": bool(managed.get("helperReachable")),
@@ -296,7 +296,7 @@ class SpotifyClientBroker:
                 if action not in {"status", "detach"} and seq <= client[seq_key]:
                     return {"ok": False, "resyncRequired": True, "reason": "Stale Spotify client command sequence."}
                 if action not in {"status", "detach"}:
-                    client[seq_key] = seq
+                    client[seq_key] = seq; self._delegated_queue.invalidate(client['clientId'], action) if action not in {'queue-arm', 'queue-disarm', 'volume'} else None
                     interrupt, fence = preemption.accept_locked(self, client, action, seq)
                 client["receipts"][command_id] = {
                     "fingerprint": fp, "result": None, "event": threading.Event()
@@ -344,6 +344,7 @@ class SpotifyClientBroker:
         return result
 
     def _execute_transport(self, client_id: str, action: str, args: dict, server_origin: str, connection_id: str) -> dict:
+        if action in {'queue-arm', 'queue-disarm'}: return self._delegated_queue.arm(client_id, args, connection_id) if action == 'queue-arm' else self._delegated_queue.disarm(client_id, str(args.get('leaseId') or ''))
         if action in {"release", "detach"}:
             return connections.release(self, client_id, connection_id, reset=action == "detach")
         with self._lock:
