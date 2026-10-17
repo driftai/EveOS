@@ -9,6 +9,9 @@
 
 const machineLedger = require('../machine-spaces/operation-ledger');
 const taskCompletion = require('./task-completion-journal');
+const {
+  assessExecutionDeliveryWatchdog
+} = require('./execution-delivery-watchdog');
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 
@@ -234,7 +237,7 @@ function correlateExecutionDelivery({
     );
   });
 
-  return {
+  const result = {
     version: 1,
 
     correlation: {
@@ -252,6 +255,12 @@ function correlateExecutionDelivery({
     machineSpaces: machine,
     taskCompletion: delivery,
     timeline
+  };
+
+  return {
+    ...result,
+    watchdog:
+      assessExecutionDeliveryWatchdog(result)
   };
 }
 
