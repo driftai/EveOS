@@ -24,21 +24,25 @@ function job(state, extra = {}) {
 }
 
 test('delivery ownership never masquerades as authoritative completion', () => {
-  assert.deepEqual(
-    lifecycleProjection(job('armed', {
-      readyAt: undefined,
-      claimedAt: undefined,
-      deliveredAt: undefined
-    })),
-    {
-      currentStage: 'accepted',
-      stageSince: registeredAt,
-      acceptedAt: registeredAt,
-      resultPersistedAt: null,
-      notificationAttemptedAt: null,
-      deliveryOutcome: null
-    }
-  );
+  const originalNow = Date.now;
+  Date.now = () => 0;
+  try {
+    assert.deepEqual(
+      lifecycleProjection(job('armed', {
+        readyAt: undefined,
+        claimedAt: undefined,
+        deliveredAt: undefined
+      })),
+      {
+        currentStage: 'accepted',
+        stageSince: registeredAt,
+        acceptedAt: registeredAt,
+        resultPersistedAt: null,
+        notificationAttemptedAt: null,
+        deliveryOutcome: null,
+        stageAgeMs: 0
+      }
+    );
 
   assert.deepEqual(
     lifecycleProjection(job('ready', {
@@ -51,7 +55,8 @@ test('delivery ownership never masquerades as authoritative completion', () => {
       acceptedAt: registeredAt,
       resultPersistedAt: readyAt,
       notificationAttemptedAt: null,
-      deliveryOutcome: null
+      deliveryOutcome: null,
+      stageAgeMs: 0
     }
   );
 
@@ -65,7 +70,8 @@ test('delivery ownership never masquerades as authoritative completion', () => {
       acceptedAt: registeredAt,
       resultPersistedAt: readyAt,
       notificationAttemptedAt: claimedAt,
-      deliveryOutcome: null
+      deliveryOutcome: null,
+      stageAgeMs: 0
     }
   );
 
@@ -85,4 +91,7 @@ test('delivery ownership never masquerades as authoritative completion', () => {
     })).deliveryOutcome,
     'uncertain'
   );
+  } finally {
+    Date.now = originalNow;
+  }
 });

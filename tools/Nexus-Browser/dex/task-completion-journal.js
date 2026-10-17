@@ -28,7 +28,18 @@ function credentialPath(root, id) {
   if (!JOB_ID.test(id)) throw new Error('TASK_COMPLETION_BAD_JOB_ID');
   return path.join(root, 'task-completions', 'credentials', id + '.json');
 }
-function lifecycleProjection(job) {
+function timeMs(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return value;
+  return Date.parse(String(value || ''));
+}
+function stageAgeMs(stageSince, now) {
+  if (!stageSince) return null;
+  const started = timeMs(stageSince), current = timeMs(now);
+  if (!Number.isFinite(started) || !Number.isFinite(current)) return null;
+  return Math.max(0, current - started);
+}
+function lifecycleProjection(job, now = Date.now()) {
   if (!job || typeof job !== 'object') return null;
 
   const state = String(job.state || '');
@@ -76,6 +87,7 @@ function lifecycleProjection(job) {
   return {
     currentStage,
     stageSince,
+    stageAgeMs: stageAgeMs(stageSince, now),
     acceptedAt,
     resultPersistedAt: resultPersisted ? (job.readyAt || null) : null,
     notificationAttemptedAt: notificationAttempted ? (job.claimedAt || null) : null,
@@ -83,14 +95,14 @@ function lifecycleProjection(job) {
   };
 }
 
-function compact(job) {
+function compact(job, now = Date.now()) {
   if (!job) return null;
   const { id, taskId, jobType = 'qualification', roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
     registeredAt, expiresAt, state, report, claimedAt, deliveredAt, deliveryError } = job;
   return { id, taskId, jobType, roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
     registeredAt, expiresAt, state, report: report || null, claimedAt: claimedAt || null,
     deliveredAt: deliveredAt || null, deliveryError: deliveryError || null,
-    lifecycle: lifecycleProjection(job) };
+    lifecycle: lifecycleProjection(job, now) };
 }
 function createTaskCompletionJournal({
   root = dataDir(), filePath = path.join(root, 'task-completion-journal.json'),
@@ -98,17 +110,19 @@ function createTaskCompletionJournal({
   now = Date.now
 } = {}) {
   const journal = readJournal(filePath, io);
+  const stamp = () => new Date(now()).toISOString();
+  const save = () => writeJournal(filePath, journal, io);
   let recovered = false;
   const registering = new Set();
   for (const job of journal.jobs) {
     if (job.state !== 'sent-unconfirmed') continue;
     job.state = 'outcome-unknown';
+    job.deliveredAt = stamp();
     job.deliveryError = 'Server restarted after submission claim; do not automatically resend.';
     recovered = true;
   }
-  const stamp = () => new Date(now()).toISOString();
-  const save = () => writeJournal(filePath, journal, io);
   if (recovered) save();
+  const view = (job) => compact(job, now());
   const error = (code, message) => ({ ok: false, code, message });
   function roomFor(job) { return (getState()?.rooms || []).find((room) => room.id === job.roomId); }
   function validWorker(job, source) {
@@ -153,7 +167,7 @@ function createTaskCompletionJournal({
       if (!io.existsSync(credentialPath(root, previous.id))) {
         return error('TASK_COMPLETION_CREDENTIAL_MISSING', 'Original registration exists but its local credential is missing.');
       }
-      return { ok: true, deduplicated: true, job: compact(previous) };
+      return { ok: true, deduplicated: true, job: view(previous) };
     }
     registering.add(taskId);
     try {
@@ -182,7 +196,7 @@ function createTaskCompletionJournal({
     writeJournal(credentialPath(root, id), credential, io);
     journal.jobs.push(job);
     try { save(); } catch (e) { journal.jobs.pop(); throw e; }
-    return { ok: true, job: compact(job) };
+    return { ok: true, job: view(job) };
     } finally { registering.delete(taskId); }
   }
   async function status({ source = {}, command = {} } = {}) {
@@ -191,7 +205,7 @@ function createTaskCompletionJournal({
     }
     const roomId = String(command.roomId || '');
     const jobs = journal.jobs.filter((job) => (!roomId || job.roomId === roomId) && validWorker(job, source));
-    return { ok: true, jobs: jobs.slice(-16).map(compact) };
+    return { ok: true, jobs: jobs.slice(-16).map(view) };
   }
   function acceptedLogs(value) {
     if (!Array.isArray(value)) return [];
@@ -248,7 +262,7 @@ function createTaskCompletionJournal({
     const job = journal.jobs.find((entry) => entry.id === id);
     if (!job || job.state !== 'ready') return null;
     job.state = 'sent-unconfirmed'; job.claimedAt = stamp(); save();
-    return compact(job);
+    return view(job);
   }
   function ack(id, accepted, message = '') {
     const job = journal.jobs.find((entry) => entry.id === id);
@@ -256,23 +270,24 @@ function createTaskCompletionJournal({
     job.state = accepted ? 'confirmed' : 'submission-failed';
     job.deliveredAt = stamp();
     if (!accepted) job.deliveryError = String(message || 'Provider did not accept notification').slice(0, 160);
-    save(); return compact(job);
+    save(); return view(job);
   }
   function uncertain(id, message) {
     const job = journal.jobs.find((entry) => entry.id === id);
     if (!job || job.state !== 'sent-unconfirmed') return null;
     job.state = 'outcome-unknown';
+    job.deliveredAt = stamp();
     job.deliveryError = String(message || 'Submission outcome unknown. No automatic replay.').slice(0, 160);
-    save(); return compact(job);
+    save(); return view(job);
   }
-  const deliveryView = (job) => ({ ...compact(job), requesterTarget: job.requesterTarget,
+  const deliveryView = (job) => ({ ...view(job), requesterTarget: job.requesterTarget,
     workerTargetId: job.workerTargetId, workerProviderId: job.workerProviderId });
   const ready = () => journal.jobs.filter((job) => job.state === 'ready').map(deliveryView);
-  const all = () => journal.jobs.map(compact);
+  const all = () => journal.jobs.map(view);
   const diagnostics = () => {
     const states = {};
     for (const job of journal.jobs) states[job.state] = (states[job.state] || 0) + 1;
-    return { total: journal.jobs.length, states, latest: compact(journal.jobs.at(-1)) };
+    return { total: journal.jobs.length, states, latest: view(journal.jobs.at(-1)) };
   };
   return { register, status, scan, claim, ack, uncertain, ready, all, diagnostics,
     root, filePath, resultPath: (id) => resultPath(root, id) };
