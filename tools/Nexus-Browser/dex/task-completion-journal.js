@@ -28,13 +28,69 @@ function credentialPath(root, id) {
   if (!JOB_ID.test(id)) throw new Error('TASK_COMPLETION_BAD_JOB_ID');
   return path.join(root, 'task-completions', 'credentials', id + '.json');
 }
+function lifecycleProjection(job) {
+  if (!job || typeof job !== 'object') return null;
+
+  const state = String(job.state || '');
+  const acceptedAt = job.registeredAt || null;
+
+  const resultPersisted = new Set([
+    'ready',
+    'sent-unconfirmed',
+    'confirmed',
+    'submission-failed',
+    'outcome-unknown'
+  ]).has(state);
+
+  const notificationAttempted = new Set([
+    'sent-unconfirmed',
+    'confirmed',
+    'submission-failed',
+    'outcome-unknown'
+  ]).has(state);
+
+  let currentStage = 'accepted';
+  let stageSince = acceptedAt;
+  let deliveryOutcome = null;
+
+  if (state === 'ready') {
+    currentStage = 'result-persisted';
+    stageSince = job.readyAt || acceptedAt;
+  } else if (state === 'sent-unconfirmed') {
+    currentStage = 'notification-attempted';
+    stageSince = job.claimedAt || job.readyAt || acceptedAt;
+  } else if (state === 'confirmed') {
+    currentStage = 'delivered';
+    stageSince = job.deliveredAt || job.claimedAt || job.readyAt || acceptedAt;
+    deliveryOutcome = 'delivered';
+  } else if (state === 'submission-failed') {
+    currentStage = 'failed';
+    stageSince = job.deliveredAt || job.claimedAt || job.readyAt || acceptedAt;
+    deliveryOutcome = 'failed';
+  } else if (state === 'outcome-unknown') {
+    currentStage = 'uncertain';
+    stageSince = job.deliveredAt || job.claimedAt || job.readyAt || acceptedAt;
+    deliveryOutcome = 'uncertain';
+  }
+
+  return {
+    currentStage,
+    stageSince,
+    acceptedAt,
+    resultPersistedAt: resultPersisted ? (job.readyAt || null) : null,
+    notificationAttemptedAt: notificationAttempted ? (job.claimedAt || null) : null,
+    deliveryOutcome
+  };
+}
+
 function compact(job) {
   if (!job) return null;
   const { id, taskId, jobType = 'qualification', roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
     registeredAt, expiresAt, state, report, claimedAt, deliveredAt, deliveryError } = job;
   return { id, taskId, jobType, roomId, roomName, workerMemberId, requesterMemberId, branch, expectedHead,
     registeredAt, expiresAt, state, report: report || null, claimedAt: claimedAt || null,
-    deliveredAt: deliveredAt || null, deliveryError: deliveryError || null };
+    deliveredAt: deliveredAt || null, deliveryError: deliveryError || null,
+    lifecycle: lifecycleProjection(job) };
 }
 function createTaskCompletionJournal({
   root = dataDir(), filePath = path.join(root, 'task-completion-journal.json'),
@@ -222,4 +278,4 @@ function createTaskCompletionJournal({
     root, filePath, resultPath: (id) => resultPath(root, id) };
 }
 module.exports = { TTL_MS, MAX_JOBS, REPORT_MAX_BYTES, DEFAULT_FILE, JOB_ID, TASK_ID, JOB_TYPES,
-  resultPath, credentialPath, tokenMatches, createTaskCompletionJournal };
+  resultPath, credentialPath, tokenMatches, lifecycleProjection, createTaskCompletionJournal };
