@@ -1,0 +1,20 @@
+{
+  "schema": "eveos.tlo-engineering-binding",
+  "schemaVersion": 1,
+  "bindingRevision": "eveos-0.7.0-tlo-engineering-v1",
+  "eveosVersion": "0.7.0",
+  "serverStatusVersion": "0.6.0",
+  "profileSeedRevision": "cf7ecec2eb92bdee",
+  "provider": "local-moe",
+  "triageProtocol": "eveos.tlo-engineering-triage.v1",
+  "runtime": {
+    "backend": "freetoken",
+    "baseUrl": "http://127.0.0.1:1919",
+    "modelId": "qwen36-nvfp4",
+    "runtimeVersion": "0.1.2",
+    "runtimeSourceCommit": "0ab982f10905fa775962a4eddcb44caa50065251",
+    "harnessPort": 5180,
+    "runtimePort": 1919,
+    "servedModelName": "nvidia/Qwen3.6-35B-A3B-NVFP4"
+  }
+}
