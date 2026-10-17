@@ -16,7 +16,19 @@ That seal is scoped: shipped functionality and the completed scale/performance l
 | Broader native / external acceptance | Partially proven, explicitly bounded | Natural provider endings/background/repeat, physical-phone WebRTC/output delay, Nexus/Dex provider recovery, model/account isolation and destructive crash/device-loss cases retain their own acceptance requirements |
 | Storage recovery mirror | Large-state recovery implemented through the existing IndexedDB owner; small-state behavior retained | Focused 25k/30 MB HTTP/file recovery, reload, explicit-clear and prior-generation backup contracts passed; do not infer later candidate performance from this storage proof |
 | Learned durations / terminal controls | Metadata persistence no longer requires a structural library rebuild; final queue exhaustion publishes terminal controls | Existing queue/browser regressions retain node identity, ordinary structural edits and no-extra-start assertions |
-| Viewport layout / qualification evidence | Bounded visible-card materialization and explicit overlay tracks; preserved cold metrics and runtime identity | Exact candidate acceptance still requires ordered 10 → strict-50 → 500 HTTP/file/25k gates, then real provider checks and uncached verification; isolated diagnostic winners do not seal a candidate |
+| Viewport layout / qualification evidence | Bounded visible-card materialization and explicit overlay tracks; preserved cold metrics and runtime identity | Ordered 10 → strict-50 → 500 HTTP/file/25k gates and the resumed canonical verifier passed at the final `606210ce2` closure. Do not reopen superseded renderer/hash investigations. |
+
+The ignored final closure receipt is
+`data/runtime/smoke-results/closure-20261016/handoff-final-606210ce2.json`.
+It closes the old 500-cycle, laptop-budget and repository-verification items.
+The table under **Initial ownership and qualification map** is retained as
+historical investigation state; its `REVIEWED, ACCEPTANCE PENDING` labels are
+not the current release ledger. Physical-phone WatchFusion remains explicitly
+unqualified. A newer field report shows managed Spotify group playback can
+stop advancing after the ordinary EveOS controller tab stays backgrounded for
+several songs; foreground playback is unaffected. That is a new browser
+lifecycle/queue-ownership acceptance gap, not evidence of a fixed song-count
+ceiling and not a reason to rerun the completed scale gates.
 
 The sections below retain the initial 2026-10-13 investigation and later renderer checkpoint as historical evidence. Their earlier `BLOCKED`, `PENDING`, `DEFERRED` and no-merge statements describe those checkpoints, not the current branch/seal status. Outstanding physical/provider proofs remain outstanding unless a later scoped artifact explicitly closes them.
 

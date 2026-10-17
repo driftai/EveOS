@@ -150,11 +150,18 @@ Extend Machine Spaces with a versioned discovery protocol. First implementation 
 
 Status vocabulary is only `DONE`, `BLOCKED`, `DEFERRED`, or `UNQUALIFIED`.
 
+Current checkpoint: `9c4c61e428ff0a582321ce314ea6d775f371cc5f` on
+`eve/nexus-machine-spaces`. Phase 0 was published and read back successfully.
+V0.7.1A's deterministic owner family and captured-final/Dex-ACK boundary are
+green, but a real extension-worker restart/reconnect pass has not yet been
+recorded for this exact checkpoint, so the milestone remains `UNQUALIFIED`
+rather than being promoted from unit evidence alone.
+
 | Milestone | Acceptance | Status |
 |---|---|---|
 | Phase 0 owner inventory | Existing execution, authority, delivery, qualification, handoff and diagnostics owners are mapped without introducing duplicate frameworks. | `DONE` |
-| Phase 0 publication-path proof | This ledger is committed to `eve/nexus-machine-spaces` from the exact inspected baseline using a non-force expected-SHA lease, then read back from the resulting remote SHA. | `UNQUALIFIED` until remote readback completes |
-| V0.7.1A | Durable per-command stage/outcome observability survives extension worker/runtime restart and distinguishes execution from result notification. | `UNQUALIFIED` |
+| Phase 0 publication-path proof | This ledger is committed to `eve/nexus-machine-spaces` from the exact inspected baseline using a non-force expected-SHA lease, then read back from the resulting remote SHA. | `DONE` at `3b389f2eb3ce0df80bcc20be5cc2af1034fb4e74` |
+| V0.7.1A | Durable per-command stage/outcome observability survives extension worker/runtime restart and distinguishes execution from result notification. | `UNQUALIFIED`; deterministic lifecycle/correlation/watchdog/captured-ACK coverage is green through `9c4c61e42`, live extension restart remains |
 | V0.7.1B | One versioned execution plan + receipt contract composes existing handoff, task-completion and Machine Spaces owners; exact-head green publication is proven. | `UNQUALIFIED` |
 | V0.7.2 | One authorized real task completes the golden execution -> browser evidence -> receipt -> commit -> non-force push -> remote readback loop without Drift as command/output relay. | `UNQUALIFIED` |
 | V0.7.3 | Navigator is integrated into Machine Spaces with freshness/auth/revalidation/degraded-mode guarantees and Windows nasty-path/restart/corrupt-index proof. | `UNQUALIFIED` |
