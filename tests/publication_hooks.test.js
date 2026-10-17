@@ -28,7 +28,7 @@ test('pre-push enforces exact lane, origin SHA, clean tree and all guardrails', 
         'status --porcelain=v1', 'test:guardrails', 'EVEOS_PUBLICATION_GUARD_OK']) {
         assert.ok(hook.includes(marker), 'Missing publication protection: ' + marker);
     }
-    assert.match(hook, /\[ "$seen" -ne 1 \]/);
+    assert.match(hook, /\[ "\$seen" -ne 1 \]/);
     assert.match(hook, /exit 1/);
 });
 test('structural suite always includes publication-contract regressions', () => {
