@@ -209,9 +209,13 @@
     };
 
     const finishPoll = (finalEvent) => {
+      // Only enter completion dedupe after the transport accepts the terminal event.
+      // An explicit false from safeSend means the socket is unavailable, so keep the
+      // existing single poll alive and let its bounded tick retry delivery.
+      if (finalEvent && send?.(finalEvent) === false) return false;
       rememberCompletedRequest(requestId);
-      if (finalEvent) send?.(finalEvent);
       stopResponsePoll(requestId);
+      return true;
     };
 
     const processSample = (sample) => {
@@ -247,8 +251,7 @@
         generationEndedForMs
       })) return false;
 
-      finishPoll({ type: 'response_final', requestId, text: sample.text, providerId: 'gemini', providerName: 'Gemini' });
-      return true;
+      return finishPoll({ type: 'response_final', requestId, text: sample.text, providerId: 'gemini', providerName: 'Gemini' });
     };
 
     const tick = async () => {
