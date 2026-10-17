@@ -5,6 +5,7 @@ const { createDexStateStore } = require('../dex/state-store');
 const { createServerDurability } = require('../dex/server-durability');
 const { buildHandoffPacket } = require('../dex/handoff-packet');
 const { urls } = require('../runtime-config');
+const { parseArgs: parseActiveLaneArgs, verifyActiveLane } = require('./active-lane-handoff');
 
 const ROOT = path.resolve(__dirname, '..');
 const DIAGNOSTICS = process.env.NEXUS_BROWSER_DIAGNOSTICS || process.env.BROWSER_AI_BRIDGE_DIAGNOSTICS || urls().diagnostics;
@@ -57,12 +58,7 @@ function strictRollover(repoState) {
   };
 }
 
-function parseArgs(argv = process.argv.slice(2)) {
-  const verify = argv.includes('--verify');
-  const unknown = argv.filter((token) => token !== '--verify');
-  if (unknown.length) throw new Error(`Unknown option: ${unknown.join(' ')}`);
-  return { verify };
-}
+function parseArgs(argv = process.argv.slice(2)) { return parseActiveLaneArgs(argv); }
 
 async function liveDiagnostics(fetchImpl = globalThis.fetch) {
   if (typeof fetchImpl !== 'function') return null;
@@ -79,11 +75,11 @@ async function liveDiagnostics(fetchImpl = globalThis.fetch) {
   }
 }
 
-async function build({ fetchImpl = globalThis.fetch, verify = false } = {}) {
+async function build({ fetchImpl = globalThis.fetch, verify = false, branch = null, expectedHead = null } = {}) {
   const stateStore = createDexStateStore();
   const durability = createServerDurability().diagnostics();
   const diagnostics = await liveDiagnostics(fetchImpl);
-  const repoState = gitState({ fetchOrigin: verify });
+  const repoState = gitState({ fetchOrigin: verify && !branch });
   const packet = buildHandoffPacket({
     snapshot: stateStore.load(),
     diagnostics,
@@ -91,13 +87,15 @@ async function build({ fetchImpl = globalThis.fetch, verify = false } = {}) {
     gitHead: repoState.head,
     repoState
   });
-  if (verify) packet.rollover = strictRollover(repoState);
+  if (verify) packet.rollover = branch
+    ? verifyActiveLane(repoState, { branch, expectedHead }, git)
+    : strictRollover(repoState);
   return packet;
 }
 
 async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
-  const packet = await build({ verify: options.verify });
+  const packet = await build({ verify: options.verify, branch: options.branch, expectedHead: options.expectedHead });
   console.log(JSON.stringify(packet, null, 2));
   if (options.verify && packet.rollover?.ok !== true) process.exitCode = 2;
   return packet;
