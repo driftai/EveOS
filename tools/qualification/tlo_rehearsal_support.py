@@ -180,7 +180,51 @@ def git_text(*args: str) -> str:
     return result["stdout"].strip()
 
 
-def git_preflight(expected_branch: str, *, allow_detached: bool = False) -> dict:
+def git_worktree_paths() -> list[str]:
+    paths: set[str] = set()
+    for args in (
+        ("diff", "--name-only", "HEAD", "--"),
+        ("ls-files", "--others", "--exclude-standard"),
+    ):
+        text = git_text(*args)
+        for line in text.splitlines():
+            relative = line.strip().replace("\\", "/")
+            if not relative:
+                continue
+            candidate = (ROOT / relative).resolve()
+            try:
+                candidate.relative_to(ROOT)
+            except ValueError as exc:
+                raise RehearsalError(
+                    f"Dirty path escapes repository root: {relative}",
+                    state="DIRTY_WORKTREE",
+                ) from exc
+            paths.add(relative)
+    return sorted(paths)
+
+
+def worktree_digest(paths: list[str]) -> str:
+    digest = hashlib.sha256()
+    for relative in sorted(set(paths)):
+        candidate = (ROOT / relative).resolve()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        if candidate.is_file():
+            digest.update(candidate.read_bytes())
+        elif candidate.exists():
+            digest.update(b"<non-file>")
+        else:
+            digest.update(b"<missing>")
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def git_preflight(
+    expected_branch: str,
+    *,
+    allow_detached: bool = False,
+    allowed_dirty_paths: list[str] | None = None,
+) -> dict:
     fetch = run_process(["git", "fetch", "--quiet", "origin", expected_branch], timeout=180)
     if fetch["status"] != 0:
         raise RehearsalError(
@@ -192,6 +236,8 @@ def git_preflight(expected_branch: str, *, allow_detached: bool = False) -> dict
     remote_ref = f"origin/{expected_branch}"
     remote_head = git_text("rev-parse", remote_ref)
     worktree = git_text("status", "--short")
+    worktree_paths = git_worktree_paths()
+    candidate_digest = worktree_digest(worktree_paths)
     detached = not branch
     if branch != expected_branch and not (allow_detached and detached and head == remote_head):
         found = "detached HEAD" if detached else repr(branch)
@@ -202,14 +248,40 @@ def git_preflight(expected_branch: str, *, allow_detached: bool = False) -> dict
         raise RehearsalError(
             f"Local HEAD {head} does not match {remote_ref} {remote_head}.", state="HEAD_MISMATCH"
         )
-    if worktree:
+    allowed = None
+    if allowed_dirty_paths is not None:
+        allowed = {
+            str(path).replace("\\", "/").strip("/")
+            for path in allowed_dirty_paths
+            if str(path).strip()
+        }
+
+    if worktree_paths and allowed is None:
         raise RehearsalError(
             "Worktree is dirty; preserve/reconcile local edits before this rehearsal.",
             state="DIRTY_WORKTREE",
         )
+
+    if allowed is not None:
+        unexpected = sorted(set(worktree_paths) - allowed)
+        if unexpected:
+            raise RehearsalError(
+                "Candidate worktree contains unauthorized dirty paths: "
+                + ", ".join(unexpected),
+                state="DIRTY_WORKTREE",
+            )
+
     return {
-        "branch": branch or "(detached)", "authorizedBranch": expected_branch, "detached": detached,
-        "head": head, "remoteRef": remote_ref, "remoteHead": remote_head, "worktreeClean": True,
+        "branch": branch or "(detached)",
+        "authorizedBranch": expected_branch,
+        "detached": detached,
+        "head": head,
+        "remoteRef": remote_ref,
+        "remoteHead": remote_head,
+        "worktreeClean": not bool(worktree_paths),
+        "worktreeStatus": worktree.splitlines() if worktree else [],
+        "worktreePaths": worktree_paths,
+        "candidateDigest": candidate_digest,
     }
 
 

@@ -17,11 +17,13 @@ from tlo_rehearsal_support import (
     bounded_lines,
     git_preflight,
     git_text,
+    git_worktree_paths,
     http_json,
     local_web_fingerprint,
     repository_binding,
     request_tlo_triage,
     run_process,
+    worktree_digest,
     safe_test_path,
     triage_prompt,
     validate_live_tlo,
@@ -94,6 +96,12 @@ def main() -> int:
     parser.add_argument("--test", default=DEFAULT_TEST)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--allow-detached", action="store_true")
+    parser.add_argument(
+        "--allow-dirty-path",
+        action="append",
+        default=[],
+        help="Permit only this exact dirty repository path during candidate triage; repeat as needed.",
+    )
     args = parser.parse_args()
     if args.self_test:
         self_test()
@@ -105,7 +113,11 @@ def main() -> int:
             f"EveOS/TLO repository binding mismatch: {binding['mismatches']}",
             state="VERSION_MISMATCH",
         )
-    git_state = git_preflight(args.branch, allow_detached=args.allow_detached)
+    git_state = git_preflight(
+        args.branch,
+        allow_detached=args.allow_detached,
+        allowed_dirty_paths=args.allow_dirty_path or None,
+    )
     test_path = safe_test_path(args.test)
 
     eveos_status_code, eveos_status = http_json("GET", "/api/status")
@@ -138,6 +150,12 @@ def main() -> int:
     test = run_process(["node", "--test", str(test_path)], timeout=300)
     post_head = git_text("rev-parse", "HEAD")
     post_worktree = git_text("status", "--short")
+    post_worktree_paths = git_worktree_paths()
+    post_candidate_digest = worktree_digest(post_worktree_paths)
+    candidate_unchanged = (
+        post_worktree_paths == git_state.get("worktreePaths", [])
+        and post_candidate_digest == git_state.get("candidateDigest")
+    )
     combined = "\n".join(part for part in (test["stdout"], test["stderr"], test["error"]) if part)
     test_record = {
         "path": test_path.relative_to(ROOT).as_posix(),
@@ -159,8 +177,11 @@ def main() -> int:
         "postState": {
             "head": post_head,
             "headUnchanged": post_head == git_state["head"],
-            "worktreeClean": not bool(post_worktree),
+            "worktreeClean": not bool(post_worktree_paths),
             "worktreeStatus": post_worktree.splitlines() if post_worktree else [],
+            "worktreePaths": post_worktree_paths,
+            "candidateDigest": post_candidate_digest,
+            "candidateUnchanged": candidate_unchanged,
         },
         "deterministicOutcome": "GREEN" if test["status"] == 0 else "RED",
         "authority": {
@@ -172,9 +193,9 @@ def main() -> int:
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     receipt_path = RESULT_DIR / f"{run_id}.json"
     write_json(receipt_path, receipt)
-    if post_head != git_state["head"] or post_worktree:
+    if post_head != git_state["head"] or not candidate_unchanged:
         raise RehearsalError(
-            "Focused test changed Git/source state; inspect the receipt before any TLO triage.",
+            "Focused test changed the authorized candidate state; inspect the receipt before any TLO triage.",
             state="POST_STATE_CHANGED",
         )
 
