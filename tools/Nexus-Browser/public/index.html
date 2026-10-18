@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/dex-mode.css">
   <link rel="stylesheet" href="/machine-spaces.css">
   <link rel="stylesheet" href="/codex-quota.css">
+  <link rel="stylesheet" href="/codex-burn.css">
 </head>
 <body>
   <main class="shell">
@@ -37,6 +38,12 @@
         <div class="codex-quota__item" data-window="fiveHour"><strong>5-hour limit</strong><progress max="100"></progress><span data-remaining>Unavailable</span><small data-reset>Reset time unavailable</small></div>
         <div class="codex-quota__item" data-window="weekly"><strong>Weekly limit</strong><progress max="100"></progress><span data-remaining>Unavailable</span><small data-reset>Reset time unavailable</small></div>
       </div>
+    </section>
+    <section id="nexusCodexBurn" class="codex-burn" aria-label="Observed Codex burn">
+      <strong>Codex · observed allowance consumption</strong>
+      <div data-burn-text role="status">Checking local observations…</div>
+      <div class="codex-burn__records" data-burn-details></div>
+      <small class="codex-burn__caveat">Observed account percentage-point changes during tasks, not model-specific billing or guaranteed Plus usage.</small>
     </section>
 
     <div id="baseModePanel">
@@ -392,5 +399,6 @@
   <script src="/machine-dialog.js"></script>
   <script src="/machine-spaces-ui.js"></script>
   <script src="/codex-quota-ui.js"></script>
+  <script src="/codex-burn-ui.js"></script>
 </body>
 </html>

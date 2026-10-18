@@ -5,6 +5,7 @@ const path = require('node:path');
 const terminalRelayStorage = require('./scripts/terminal-relay-storage');
 const runtimeConfig = require('./runtime-config');
 const { freshQuota } = require('./local-targets/codex-quota');
+const { readBurnSummary } = require('./local-targets/codex-burn');
 
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -61,7 +62,7 @@ function createHttpHandler({ host, port, publicDir, diagnostics }) {
       freshQuota().then((snapshot) => {
         if (res.writableEnded) return;
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify(snapshot));
+        res.end(JSON.stringify({ ...snapshot, burn: readBurnSummary() }));
       }, () => { res.writeHead(503).end('Quota unavailable'); });
       return;
     }

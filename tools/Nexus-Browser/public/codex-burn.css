@@ -1,0 +1,4 @@
+.codex-burn { border: 1px solid rgba(135,150,166,.3); border-radius: 12px; padding: 10px 14px; margin: 6px 0 14px; }
+.codex-burn__records { display: grid; gap: 7px; margin-top: 8px; }
+.codex-burn__records > div { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; }
+.codex-burn__caveat { display:block; margin-top:8px; opacity:.78; }
