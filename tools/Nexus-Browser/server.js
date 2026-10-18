@@ -16,7 +16,7 @@ const { ADAPTER_REVISION: EXPECTED_ADAPTER_REVISION } = require('./extension/con
 const { createDiagnosticsSnapshot } = require('./server-diagnostics'), { createServerLocalRelay } = require('./dex/server-local-relay'), { createAppTargetServerController } = require('./app-targets/server-controller');
 const { createServerLocalMessaging } = require('./server-local-messaging');
 const { createMachineSpacesController } = require('./machine-spaces/server-controller');
-const { createTerminalOperator } = require('./dex/terminal-operator'), { routeTerminalOperator } = require('./dex/server-terminal-operator-route');
+const { createTerminalOperator } = require('./dex/terminal-operator'), { routeTerminalOperator } = require('./dex/server-terminal-operator-route'), { launchRoomTui } = require('./dex/room-tui-launch');
 const { attachWebSocketHeartbeat } = require('./dex/ws-heartbeat'), { createDisposableRoomCleanup } = require('./dex/disposable-room-cleanup');
 const runtimeConfig = require('./runtime-config');
 const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
@@ -239,7 +239,7 @@ wss.on('connection', (ws, req) => {
           : msg.clientKind === 'dex' ? 'dex'
             : msg.clientKind === 'provider-control' ? 'provider-control'
               : msg.clientKind === 'maintenance' ? 'maintenance'
-                : msg.clientKind === 'terminal-operator' ? 'terminal-operator' : 'browser';
+                : msg.clientKind === 'terminal-operator' ? 'terminal-operator' : msg.clientKind === 'tui-launch' ? 'tui-launch' : 'browser';
         uiSockets.add(ws);
         console.log(`[bridge] ui connected [${ws.clientKind}]`);
         if (ws.clientKind === 'dex') {
@@ -267,6 +267,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (ws.role === 'ui') {
+      if (ws.clientKind === 'tui-launch') { safeSend(ws, await launchRoomTui({ ws, msg, snapshot: dexStateStore.load(), port: PORT })); return; }
       if (ws.clientKind === 'terminal-operator') {
         safeSend(ws, routeTerminalOperator(ws, msg, terminalOperator));
         return;

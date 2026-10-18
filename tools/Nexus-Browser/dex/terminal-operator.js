@@ -44,12 +44,12 @@ function stateFor(room, requestId) {
   const messages = room.messages || [];
   const originIndex = messages.findIndex(m => m.senderKind === 'user' && m.clientRequestId === requestId);
   if (originIndex < 0) return failure('DEX_TERMINAL_UNKNOWN_REQUEST', 'No committed message for this exact request ID.');
-  const origin = messages[originIndex], member = exactTlo(room);
+  const origin = messages[originIndex], enabledMembers = (room.members || []).filter(m => m.relayEnabled !== false);
   // Stop at the next user message: a later unrelated TLO response must never
   // be attributed to an earlier request whose completion was uncertain.
   const nextUser = messages.findIndex((m, i) => i > originIndex && m.senderKind === 'user');
   const segment = messages.slice(originIndex + 1, nextUser < 0 ? undefined : nextUser);
-  const response = member && segment.find(m => m.senderKind === 'agent' && m.senderId === member.id);
+  const response = segment.find(m => m.senderKind === 'agent' && enabledMembers.some(member => member.id === m.senderId));
   const final = response && (room.finalReceipts || []).find(r => r.messageId === response.id);
   return { ok: true, requestId, roomId: room.id, messageId: origin.id,
     status: final ? 'FINAL_RECEIPT_CONFIRMED' : response ? 'REPLY_OBSERVED_NOT_FINAL' : 'AWAITING_REPLY_OR_RECOVERY',
@@ -77,7 +77,7 @@ function createTerminalOperator({ load, save, scheduler, broadcastState = () => 
     if (!room) return failure('DEX_TERMINAL_ROOM_REQUIRED', 'Provide an exact existing room ID, not a room name.');
     if (action === 'dex_terminal_inspect') return { ok: true, action: 'inspect', ...projection(room, { limit: msg.limit }) };
     if (action === 'dex_terminal_check') return stateFor(room, String(msg.lookupId || requestId));
-    if (action !== 'dex_terminal_send') return failure('DEX_TERMINAL_BAD_ACTION', 'Unsupported terminal operator command.');
+    if (!['dex_terminal_send', 'dex_terminal_room_send'].includes(action)) return failure('DEX_TERMINAL_BAD_ACTION', 'Unsupported terminal operator command.');
     const text = msg.text;
     if (typeof text !== 'string' || !text.trim() || text.length > MAX_TEXT || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text))
       return failure('DEX_TERMINAL_BAD_TEXT', 'Provide bounded plain-text mission content.');
@@ -90,10 +90,18 @@ function createTerminalOperator({ load, save, scheduler, broadcastState = () => 
     }
     if (maintenanceBusy()) return failure('DEX_TERMINAL_MAINTENANCE_BUSY', 'Maintenance owns the dispatch lease.');
     if (runtimeBusy(room)) return failure('DEX_TERMINAL_ROOM_BUSY', 'Room has pending work; never dispatch over uncertain work.');
-    if (!exactTlo(room)) return failure('DEX_TERMINAL_TLO_ONLY', 'Require exactly one relay-enabled TLO member in this room.');
-    const attachedSpace = spaceFor(room);
-    if (!attachedSpace || !attachedSpace.resourceIds.some(id => targetAvailable(id) === true))
-      return failure('DEX_TERMINAL_MACHINE_SPACE_REQUIRED', 'Require exactly one Machine Space with a live attached terminal target.');
+    const tlo = exactTlo(room);
+    if (action === 'dex_terminal_send' || room.terminalBootstrap) {
+      if (!tlo) return failure('DEX_TERMINAL_TLO_ONLY', 'Require exactly one relay-enabled TLO member in this proof room.');
+    }
+    if (action === 'dex_terminal_room_send' && !(room.members || []).some(m => m.relayEnabled !== false))
+      return failure('DEX_TERMINAL_NO_AGENT', 'The selected room has no enabled participants.');
+    // Do not bypass the TLO proof-room attachment rule through the general chat route.
+    if (tlo) {
+      const attachedSpace = spaceFor(room);
+      if (!attachedSpace || !attachedSpace.resourceIds.some(id => targetAvailable(id) === true))
+        return failure('DEX_TERMINAL_MACHINE_SPACE_REQUIRED', 'Require a Machine Space with a live attached terminal target.');
+    }
     const at = now();
     const message = addMessage(room, { id: `msg-${uid()}`, senderKind: 'user', senderId: 'user',
       senderName: String(room.userName || 'Local operator').slice(0, 48), text, at });
@@ -106,8 +114,8 @@ function createTerminalOperator({ load, save, scheduler, broadcastState = () => 
     if (!result?.ok) return { ...failure('DEX_TERMINAL_RELAY_NOT_STARTED', result?.message || 'Relay admission failed.'),
       messageCommitted: true, messageId: message.id, requestId, retryForbidden: true };
     return { ok: true, requestId, roomId: room.id, messageId: message.id,
-      status: 'MESSAGE_COMMITTED_RELAY_ACCEPTED', agent: 'TLO',
-      machineSpaceId: spaceFor(room).id, deliveryConfirmed: false };
+      status: 'MESSAGE_COMMITTED_RELAY_ACCEPTED', agent: tlo ? 'TLO' : 'Dex room',
+      machineSpaceId: spaceFor(room)?.id || null, deliveryConfirmed: false };
   }
   return { handle };
 }

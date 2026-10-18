@@ -67,7 +67,7 @@ function transact(payload, { WebSocketImpl = null, url = endpoint(), timeoutMs =
 const id = () => `dex-terminal-${randomUUID()}`;
 function payload(p) {
   return { requestId: p.requestId || id(), roomId: p.room,
-    type: p.command === 'bootstrap' ? 'dex_terminal_bootstrap' : p.command === 'rooms' ? 'dex_terminal_rooms' : p.command === 'send' ? 'dex_terminal_send' : p.command === 'inspect' ? 'dex_terminal_inspect' : 'dex_terminal_check',
+    type: p.command === 'bootstrap' ? 'dex_terminal_bootstrap' : p.command === 'rooms' ? 'dex_terminal_rooms' : p.command === 'send' ? 'dex_terminal_room_send' : p.command === 'inspect' ? 'dex_terminal_inspect' : 'dex_terminal_check',
     ...(p.command === 'send' ? { text: p.text } : {}),
     ...(p.command === 'bootstrap' ? { roomName: p.name || 'TLO Autonomy Proof' } : {}),
     ...(p.command === 'inspect' ? { limit: Number(p.limit || 10) } : {}),
@@ -85,25 +85,7 @@ async function waitFor(p, tx = transact) {
   return { ok: false, code: 'DEX_TERMINAL_NOT_PROVEN', message: 'No authoritative TLO final receipt before deadline. Inspect the room and existing request; do not resend.', last: result?.status };
 }
 async function tui(p, tx = transact) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: 'Dex/TLO> ' });
-  let lastSend = null;
-  console.log('Local Dex terminal · room '+p.room+' · TLO-only · /status /check /wait /quit');
-  rl.prompt();
-  for await (const line of rl) {
-    const text = line.trim();
-    if (text === '/quit' || text === '/exit') break;
-    if (!text) { rl.prompt(); continue; }
-    try {
-      const action = text === '/status' ? 'inspect' : text === '/check' ? 'check' : text === '/wait' ? 'wait' : 'send';
-      if ((action === 'check' || action === 'wait') && !lastSend) throw Error('No send in this TUI session; use CLI check with --lookup-id.');
-      const params = { ...p, command: action, text, requestId: action === 'send' ? id() : undefined, lookupId: lastSend };
-      if (action === 'send') { lastSend = params.requestId; console.log('Request ID:', lastSend); }
-      const result = action === 'wait' ? await waitFor(params, tx) : await tx(payload(params));
-      console.log(JSON.stringify(result, null, 2));
-    } catch (error) { console.error('BLOCKED:', error.code || '', error.message); }
-    rl.prompt();
-  }
-  rl.close();
+  return require('./dex-room-tui').runTui(p, { tx, payload, id });
 }
 async function main(argv = process.argv.slice(2)) {
   const p = argumentsFor(argv);
