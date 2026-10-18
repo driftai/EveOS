@@ -25,12 +25,13 @@ function stateFor(room = {}, requestId, live = null) {
   let reply = receipt ? messages.find(m => m.id === receipt.messageId && m.senderKind === 'agent' && members.has(m.senderId)) : null;
   if (receipt && !reply) return failure('DEX_TERMINAL_RECEIPT_UNVERIFIABLE',
     'Final receipt exists, but its authorized agent message is unavailable.');
+  let olderUnresolved = false;
   if (!receipt) {
     // Earlier unresolved user requests could own a later reply. Old receipts
     // cannot prove which user message initiated a reply after that gap.
     const priorUserIndices = messages.slice(0, originIndex)
       .map((m, i) => m.senderKind === 'user' ? i : -1).filter(i => i >= 0);
-    const olderUnresolved = priorUserIndices.some(i => {
+    olderUnresolved = priorUserIndices.some(i => {
       const next = messages.findIndex((m, k) => k > i && m.senderKind === 'user');
       const previousSegment = messages.slice(i + 1, next < 0 ? undefined : next);
       return !previousSegment.some(m => m.senderKind === 'agent'
@@ -59,13 +60,28 @@ function stateFor(room = {}, requestId, live = null) {
       failure: { id: failed.id, at: failed.at || null, turnRequestId: failed.turnRequestId || null } };
   }
 
+  // Keep a visible response distinct from a final receipt. It is not safe to
+  // attribute one when an earlier message is unresolved or its exact final
+  // receipt belongs to a different source.
+  const unconfirmed = !olderUnresolved && segment.find(m => m.senderKind === 'agent'
+    && members.has(m.senderId)
+    && !receipts.some(r => r.messageId === m.id && r.sourceMessageId && r.sourceMessageId !== origin.id));
+  if (unconfirmed) return { ...base, status: 'REPLY_OBSERVED_NOT_FINAL',
+    finalRequestId: null,
+    response: { id: unconfirmed.id, at: unconfirmed.at || null, text: bounded(unconfirmed.text) } };
+
   const queued = room.pendingTurn?.sourceMessageId === origin.id;
   const recovering = room.recovery?.sourceMessageId === origin.id;
   const active = live?.sourceMessageId === origin.id && live?.roomId === room.id;
   const progress = recovering ? (room.recovery.dispatched ? 'generating-or-recovering' : 'dispatching')
     : queued ? 'queued' : active ? 'generating' : 'not-active';
   const partialText = active ? bounded(live.partialText) : '';
-  if (!queued && !recovering && !active && (nextUserIndex >= 0 || !room.relay?.active)) {
+  // A momentarily idle relay is not proof that admission or dispatch ended.
+  // Report an unknown outcome only when there is affirmative stop evidence.
+  const stopped = typeof room.relay?.lastStopReason === 'string'
+    && !!room.relay.lastStopReason.trim()
+    && !/^(Idle|Running)$/i.test(room.relay.lastStopReason.trim());
+  if (!queued && !recovering && !active && !room.relay?.active && stopped) {
     return { ...base, status: 'TURN_OUTCOME_UNKNOWN',
       code: 'DEX_TERMINAL_NO_AUTHORITATIVE_OUTCOME',
       message: 'The turn is no longer active and has no correlated success/failure receipt. Inspect its exact ID; do not resend.' };

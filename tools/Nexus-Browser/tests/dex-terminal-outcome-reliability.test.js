@@ -38,7 +38,29 @@ test('legacy Dex error in unambiguous user segment is a terminal failure', () =>
 });
 test('unsettled inactive request is not misrepresented as pending', () => {
   const r=room();r.relay.active=false;
+  r.relay.lastStopReason='TLO marked the room complete';
   assert.equal(stateFor(r,'request-a').status,'TURN_OUTCOME_UNKNOWN');
+});
+
+test('idle without authoritative stop evidence is still awaiting', () => {
+  const r=room();r.relay.active=false;
+  assert.equal(stateFor(r,'request-a').status,'AWAITING_REPLY_OR_RECOVERY');
+});
+test('visible reply before a final receipt retains non-final status', () => {
+  const r=room();r.relay.active=false;
+  r.messages.push({id:'reply-a',senderKind:'agent',senderId:member,text:'Hello but unconfirmed'});
+  const pending=stateFor(r,'request-a');
+  assert.equal(pending.status,'REPLY_OBSERVED_NOT_FINAL');
+  assert.equal(pending.response.text,'Hello but unconfirmed');
+  r.finalReceipts.push({requestId:'turn-a',messageId:'reply-a'});
+  assert.equal(stateFor(r,'request-a').status,'FINAL_RECEIPT_CONFIRMED');
+});
+test('unauthorized or later reply cannot count as an unconfirmed exact answer', () => {
+  const r=room();
+  r.messages.push({id:'user-b',senderKind:'user',clientRequestId:'request-b'},
+    {id:'wrong',senderKind:'agent',senderId:'not-a-member',text:'No'});
+  assert.equal(stateFor(r,'request-a').status,'AWAITING_REPLY_OR_RECOVERY');
+  assert.notEqual(stateFor(r,'request-b').status,'REPLY_OBSERVED_NOT_FINAL');
 });
 test('progress/preview only available for matching source turn', () => {
   const r=room();r.recovery={sourceMessageId:'user-a',requestId:'turn-a',dispatched:true};

@@ -9,3 +9,5 @@ Scope: local presentation and exact-outcome correlation on `eve/nexus-machine-sp
 - Terminal CLI `wait` recognizes settled failures and unknown outcomes rather than waiting only for success.
 
 Validation: focused deterministic tests. Full `npm run verify`, Windows interactive TUI and live Search Monitor reconnect acceptance **not yet qualified**; do not promote to `main`. The two historical pending provider-control receipts are not mutated.
+
+Regression correction: legacy `REPLY_OBSERVED_NOT_FINAL` and `AWAITING_REPLY_OR_RECOVERY` remain valid without an authoritative final or stop signal. A stopped turn with no final becomes `TURN_OUTCOME_UNKNOWN`. Response-partial preview capture precedes the scheduler activity early return. Focused tests must pass locally before full qualification.

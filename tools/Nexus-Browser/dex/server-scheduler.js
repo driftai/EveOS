@@ -374,11 +374,13 @@ function createDexServerScheduler({
     }
     const activity = activityFromTransport(msg);
     if (activity) {
+      // response_partial is classified as activity and returns here; capture
+      // its bounded preview before the early return for the terminal UI.
+      if (msg.type === 'response_partial') current.partialText = String(msg.text || '').slice(0, 1800);
       markDispatched();
       lease.touch(activity);
       return true;
     }
-    if (msg.type === 'response_partial') current.partialText = String(msg.text || '').slice(0, 1800);
     if (msg.type === 'response_final') return completeTurn(msg.text || '');
     if (msg.type === 'error') return handleTurnError(msg);
     return false;
