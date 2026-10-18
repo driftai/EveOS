@@ -1,0 +1,426 @@
+{
+  "schema": "eveos.qualification-manifest.v3",
+  "legacyScript": "verify:legacy",
+  "defaultWorkers": 3,
+  "deduplications": [
+    {
+      "script": "smoke:coverage-map",
+      "authoritativeGate": "guardrails",
+      "removedFromGate": "capability-surfaces",
+      "optimizedScript": "smoke:capability-surfaces:release",
+      "reason": "The identical deterministic coverage-map command already runs inside test:guardrails in the same checkout and environment."
+    }
+  ],
+  "gates": [
+    {
+      "id": "guardrails",
+      "legacyScript": "test:guardrails",
+      "script": "test:guardrails",
+      "category": "build-dependent",
+      "dependsOn": [],
+      "resources": ["build-output"],
+      "contracts": ["publication safety", "repository hygiene", "security", "asset and smoke registration"],
+      "sourcePatterns": ["package.json", "tools/audit/", "tools/smoke/"]
+    },
+    {
+      "id": "build-audioflix-genai",
+      "legacyScript": "build:audioflix-genai",
+      "script": "build:audioflix-genai",
+      "category": "build-dependent",
+      "dependsOn": ["guardrails"],
+      "resources": ["build-output"],
+      "contracts": ["AudioFlix generated browser bundle"],
+      "sourcePatterns": ["tools/bundles/", "js/vendor/audioflix-genai.js"]
+    },
+    {
+      "id": "build-nexus-browser-port",
+      "legacyScript": "build:nexus-browser-port",
+      "script": "build:nexus-browser-port",
+      "category": "build-dependent",
+      "dependsOn": ["guardrails"],
+      "resources": ["build-output"],
+      "contracts": ["Nexus Browser synchronized port"],
+      "sourcePatterns": ["tools/Nexus-Browser/", "tools/audit/sync-nexus-browser-port.js"]
+    },
+    {
+      "id": "build-asset-versions",
+      "legacyScript": "build:asset-versions",
+      "script": "build:asset-versions",
+      "category": "build-dependent",
+      "dependsOn": ["build-audioflix-genai", "build-nexus-browser-port"],
+      "resources": ["build-output"],
+      "contracts": ["runtime asset version propagation"],
+      "sourcePatterns": ["EveOS.html", "js/config/manifest/", "tools/audit/sync-runtime-asset-versions.js"]
+    },
+    {
+      "id": "audit-nexus-browser-port",
+      "legacyScript": "audit:nexus-browser-port",
+      "script": "audit:nexus-browser-port",
+      "category": "pure",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["Nexus Browser port parity"],
+      "sourcePatterns": ["tools/Nexus-Browser/"]
+    },
+    {
+      "id": "audit-runtime-assets",
+      "legacyScript": "audit:runtime-assets",
+      "script": "audit:runtime-assets",
+      "category": "pure",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["runtime asset reachability"],
+      "sourcePatterns": ["EveOS.html", "js/", "css/"]
+    },
+    {
+      "id": "audit-repository",
+      "legacyScript": "audit",
+      "script": "audit",
+      "category": "pure",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["repository structural audit"],
+      "sourcePatterns": ["tools/audit/"]
+    },
+    {
+      "id": "audit-python",
+      "legacyScript": "audit:python",
+      "script": "audit:python",
+      "category": "pure",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["tracked Python compilation"],
+      "sourcePatterns": ["server/", "server_modules/", "tools/"]
+    },
+    {
+      "id": "audit-ports",
+      "legacyScript": "audit:ports",
+      "script": "audit:ports",
+      "category": "pure",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["port registry ownership"],
+      "sourcePatterns": ["config/", "server_modules/"]
+    },
+    {
+      "id": "runtime-cache",
+      "legacyScript": "smoke:runtime-cache",
+      "script": "smoke:runtime-cache",
+      "category": "build-dependent",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["runtime asset caching and recovery"],
+      "sourcePatterns": ["js/", "tools/smoke/runtime_asset_"]
+    },
+    {
+      "id": "launcher",
+      "legacyScript": "smoke:launcher",
+      "script": "smoke:launcher",
+      "category": "pure",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["Windows launcher contract"],
+      "sourcePatterns": ["start-server.bat", "tools/batch/"]
+    },
+    {
+      "id": "python-launcher",
+      "legacyScript": "smoke:python-launcher",
+      "script": "smoke:python-launcher",
+      "category": "pure",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["Python launcher contract"],
+      "sourcePatterns": ["server/"]
+    },
+    {
+      "id": "server-startup",
+      "legacyScript": "smoke:server-startup",
+      "script": "smoke:server-startup",
+      "category": "service-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["ports", "services"],
+      "contracts": ["web server startup and cleanup"],
+      "sourcePatterns": ["server/", "server_modules/"]
+    },
+    {
+      "id": "control-plane-startup",
+      "legacyScript": "smoke:control-plane-startup",
+      "script": "smoke:control-plane-startup",
+      "category": "service-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["ports", "services"],
+      "contracts": ["local control plane startup"],
+      "sourcePatterns": ["server/eveos-control-helper.py"]
+    },
+    {
+      "id": "control-plane",
+      "legacyScript": "smoke:control-plane",
+      "script": "smoke:control-plane",
+      "category": "service-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["ports", "services"],
+      "contracts": ["control plane lifecycle and selective reload"],
+      "sourcePatterns": ["server/", "server_modules/eveos_"]
+    },
+    {
+      "id": "selective-reload-browser",
+      "legacyScript": "smoke:selective-reload-browser",
+      "script": "smoke:selective-reload-browser",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["playwright", "ports", "services"],
+      "contracts": ["pointer-confirmed selective reload UI"],
+      "sourcePatterns": ["tests/eveos_selective_reload_browser.test.mjs"]
+    },
+    {
+      "id": "capability-behavior",
+      "legacyScript": "smoke:capability-behavior",
+      "script": "smoke:capability-behavior",
+      "category": "pure",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["capability behavior and degraded states"],
+      "sourcePatterns": ["tools/smoke/"]
+    },
+    {
+      "id": "capability-surfaces",
+      "legacyScript": "smoke:capability-surfaces",
+      "script": "smoke:capability-surfaces:release",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["capability surfaces and transitions", "coverage map satisfied by guardrails"],
+      "sourcePatterns": ["server_modules/", "extension/"]
+    },
+    {
+      "id": "watchfusion",
+      "legacyScript": "smoke:watchfusion",
+      "script": "smoke:watchfusion",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["WatchFusion integration and degradation"],
+      "sourcePatterns": ["tools/WatchFusion/", "tools/smoke/watchfusion_"]
+    },
+    {
+      "id": "nexus-browser",
+      "legacyScript": "smoke:nexus-browser",
+      "script": "smoke:nexus-browser",
+      "category": "browser-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["playwright"],
+      "contracts": ["Nexus Browser isolation and integration"],
+      "sourcePatterns": ["tools/Nexus-Browser/", "tools/smoke/nexus_browser_"]
+    },
+    {
+      "id": "nexus-functional",
+      "legacyScript": "smoke:nexus-functional",
+      "script": "smoke:nexus-functional",
+      "category": "pure",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["Nexus search function"],
+      "sourcePatterns": ["js/modules/features/nexus/"]
+    },
+    {
+      "id": "regressions",
+      "legacyScript": "smoke:regressions",
+      "script": "smoke:regressions",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["cross-cutting regression contracts"],
+      "sourcePatterns": ["tools/smoke/"]
+    },
+    {
+      "id": "matrix",
+      "legacyScript": "smoke:matrix",
+      "script": "smoke:matrix",
+      "category": "browser-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["playwright"],
+      "contracts": ["Matrix UI and native window contracts"],
+      "sourcePatterns": ["js/modules/features/matrix/", "tools/smoke/matrix_"]
+    },
+    {
+      "id": "world-book",
+      "legacyScript": "smoke:world-book",
+      "script": "smoke:world-book",
+      "category": "browser-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["playwright"],
+      "contracts": ["World Book, Notes and narration integration"],
+      "sourcePatterns": ["js/modules/features/world", "js/modules/features/notes", "tools/smoke/world_"]
+    },
+    {
+      "id": "bookmark-intel",
+      "legacyScript": "smoke:bookmark-intel",
+      "script": "smoke:bookmark-intel",
+      "category": "browser-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["playwright"],
+      "contracts": ["Bookmark Intelligence integration"],
+      "sourcePatterns": ["server_modules/bookmark_intel_", "tools/smoke/bookmark_intel_"]
+    },
+    {
+      "id": "local-moe",
+      "legacyScript": "smoke:local-moe",
+      "script": "smoke:local-moe",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["local MoE integration contract"],
+      "sourcePatterns": ["server_modules/local_moe", "tools/smoke/local_moe_"]
+    },
+    {
+      "id": "agent-nexus",
+      "legacyScript": "smoke:agent-nexus",
+      "script": "smoke:agent-nexus",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["Agent Nexus integration"],
+      "sourcePatterns": ["server_modules/agent_nexus", "tools/smoke/agent_nexus_"]
+    },
+    {
+      "id": "search-monitor",
+      "legacyScript": "smoke:search-monitor",
+      "script": "smoke:search-monitor",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["Search Monitor and Gemini session state"],
+      "sourcePatterns": ["js/modules/gemini/search_monitor/", "tools/smoke/search_monitor_"]
+    },
+    {
+      "id": "gemini-audio",
+      "legacyScript": "smoke:gemini-audio",
+      "script": "smoke:gemini-audio",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["Gemini audio queue, worklet and retry"],
+      "sourcePatterns": ["js/modules/gemini/", "tools/smoke/gemini_audio_"]
+    },
+    {
+      "id": "server-security",
+      "legacyScript": "smoke:server-security",
+      "script": "smoke:server-security",
+      "category": "pure",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["server proxy security"],
+      "sourcePatterns": ["server_modules/", "tools/smoke/server_proxy_security_smoke.py"]
+    },
+    {
+      "id": "audioflix-spotify",
+      "legacyScript": "smoke:audioflix-spotify",
+      "script": "smoke:audioflix-spotify",
+      "category": "browser-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["audioflix-runtime", "playwright"],
+      "contracts": ["Spotify match, managed browser, playback observation and isolation"],
+      "sourcePatterns": ["js/modules/features/audioflix/", "server_modules/audioflix_spotify_", "tools/smoke/audioflix_spotify_"]
+    },
+    {
+      "id": "audioflix-state",
+      "legacyScript": "smoke:audioflix-state",
+      "script": "smoke:audioflix-state",
+      "category": "browser-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["audioflix-runtime", "playwright"],
+      "contracts": ["AudioFlix persistence, recovery and library topology"],
+      "sourcePatterns": ["js/modules/features/audioflix/", "tools/smoke/audioflix_"]
+    },
+    {
+      "id": "audioflix-backup-roundtrip",
+      "legacyScript": "smoke:audioflix-backup-roundtrip",
+      "script": "smoke:audioflix-backup-roundtrip",
+      "category": "browser-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["audioflix-runtime", "playwright"],
+      "contracts": ["AudioFlix backup durability and music port"],
+      "sourcePatterns": ["js/modules/features/audioflix/", "tools/smoke/audioflix_"]
+    },
+    {
+      "id": "audioflix-instagram",
+      "legacyScript": "smoke:audioflix-instagram",
+      "script": "smoke:audioflix-instagram",
+      "category": "browser-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["audioflix-runtime", "playwright", "ports"],
+      "contracts": ["Instagram public, playlist, offline and backend behavior"],
+      "sourcePatterns": ["js/modules/features/audioflix/", "server_modules/audioflix_instagram_", "tools/smoke/audioflix_instagram_"]
+    },
+    {
+      "id": "audioflix-volume",
+      "legacyScript": "smoke:audioflix-volume",
+      "script": "smoke:audioflix-volume",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["audioflix-runtime"],
+      "contracts": ["managed volume, views and output ports"],
+      "sourcePatterns": ["js/modules/features/audioflix/", "tools/smoke/audioflix_volume_"]
+    },
+    {
+      "id": "audioflix-playback",
+      "legacyScript": "smoke:audioflix-playback",
+      "script": "smoke:audioflix-playback",
+      "category": "browser-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["audioflix-runtime", "playwright"],
+      "contracts": ["native handoff, queue view, typed playback and background advance"],
+      "sourcePatterns": ["js/modules/features/audioflix/", "tools/smoke/audioflix_"]
+    },
+    {
+      "id": "audioflix-piano",
+      "legacyScript": "smoke:audioflix-piano",
+      "script": "smoke:audioflix-piano",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["audioflix-runtime"],
+      "contracts": ["Piano integration"],
+      "sourcePatterns": ["server_modules/audioflix_piano", "tools/smoke/audioflix_piano_"]
+    },
+    {
+      "id": "piano-queue",
+      "legacyScript": "smoke:piano-queue",
+      "script": "smoke:piano-queue",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["audioflix-runtime"],
+      "contracts": ["Piano player queue"],
+      "sourcePatterns": ["js/modules/features/audioflix/", "tools/smoke/piano_player_"]
+    },
+    {
+      "id": "piano-metadata",
+      "legacyScript": "smoke:piano-metadata",
+      "script": "smoke:piano-metadata",
+      "category": "pure",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["Piano metadata planner"],
+      "sourcePatterns": ["tools/smoke/piano_metadata_"]
+    },
+    {
+      "id": "audioflix-soundlab",
+      "legacyScript": "smoke:audioflix-soundlab",
+      "script": "smoke:audioflix-soundlab",
+      "category": "browser-owned",
+      "dependsOn": ["build-asset-versions"],
+      "resources": ["audioflix-runtime", "playwright"],
+      "contracts": ["SoundLab processing, cache, playback and backend"],
+      "sourcePatterns": ["js/modules/features/audioflix/", "server_modules/sonic_forge_", "tools/smoke/audioflix_soundlab_"]
+    },
+    {
+      "id": "gemini-context",
+      "legacyScript": "smoke:gemini-context",
+      "script": "smoke:gemini-context",
+      "category": "integration",
+      "dependsOn": ["build-asset-versions"],
+      "resources": [],
+      "contracts": ["Gemini selective, chunked and live context handoff"],
+      "sourcePatterns": ["js/modules/gemini/", "tools/smoke/gemini_context_"]
+    }
+  ]
+}

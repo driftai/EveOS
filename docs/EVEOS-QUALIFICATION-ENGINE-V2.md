@@ -1,5 +1,8 @@
 # EveOS Qualification Engine v2
 
+> Superseded for release execution by [Qualification Engine v3](EVEOS-QUALIFICATION-ENGINE-V3.md).
+> This document remains the v2 baseline and AudioFlix optimization record.
+
 ## Purpose
 
 Qualification v2 separates rapid deterministic feedback from stateful acceptance and the

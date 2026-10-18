@@ -36,6 +36,10 @@ function main() {
 const packageSource = fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8');
 const pkg = JSON.parse(packageSource);
 const scripts = pkg.scripts || {};
+const qualificationManifest = JSON.parse(fs.readFileSync(
+    path.join(ROOT, 'tools', 'qualification', 'eveos_qualification_manifest.v3.json'),
+    'utf8'
+));
 const profileSource = fs.readFileSync(path.join(__dirname, 'eveos_profile_runner.mjs'), 'utf8');
 const handoffSource = fs.readFileSync(path.join(__dirname, 'eveos_chat_handoff.mjs'), 'utf8');
 const { zeroBacklogViolation } = require('../audit/smoke-registry-audit.js');
@@ -93,12 +97,25 @@ for (const [name, profile] of Object.entries({
 
 const verify = String(scripts.verify || '');
 requireTrue(
-    verify.startsWith('npm run test:guardrails && '),
-    'verify must run structural guardrails before build/write steps'
+    verify === 'python -B tools/qualification/eveos_timed_qualification.py --profile verify',
+    'verify must use the authoritative Qualification Engine v3 release profile'
+);
+const legacyVerify = String(scripts['verify:legacy'] || '');
+requireTrue(
+    legacyVerify.startsWith('npm run test:guardrails && ') &&
+        legacyVerify.indexOf('npm run test:guardrails') < legacyVerify.indexOf('npm run build:asset-versions'),
+    'legacy comparison oracle must preserve guardrails before build/write steps'
 );
 requireTrue(
-    verify.indexOf('npm run test:guardrails') < verify.indexOf('npm run build:asset-versions'),
-    'verify can mutate asset versions before proving they are already synchronized'
+    qualificationManifest.schema === 'eveos.qualification-manifest.v3' &&
+        qualificationManifest.gates.length === 41 &&
+        qualificationManifest.legacyScript === 'verify:legacy',
+    'Qualification Engine v3 manifest identity or release inventory drifted'
+);
+requireTrue(
+    scripts['smoke:capability-surfaces:release'] ===
+        scripts['smoke:capability-surfaces'].replace(' && npm run --silent smoke:coverage-map', ''),
+    'release capability surface must differ only by the guardrail-owned coverage-map duplicate'
 );
 
 function readProfileScripts(profileName) {
@@ -150,7 +167,7 @@ requireTrue(chainIncludes(scripts['smoke:control-plane'], 'smoke:service-reload'
     'control-plane smoke lost its registered service reload leaf');
 for (const name of ['smoke:control-plane', 'smoke:selective-reload-browser']) {
     requireTrue(profiles.deep.includes(name), `deep lost required selective reload check: ${name}`);
-    requireTrue(chainIncludes(verify, name), `verify lost required selective reload check: ${name}`);
+    requireTrue(chainIncludes(legacyVerify, name), `legacy parity oracle lost required selective reload check: ${name}`);
 }
 requireTrue(
     handoffSource.includes("if (profile === 'none' && explicit.length) plan.push('test:guardrails');"),
