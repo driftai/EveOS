@@ -1,0 +1,26 @@
+{
+  "schema": "eveos.engineering-safeguards.v1",
+  "version": 1,
+  "invariants": [
+    {
+      "id": "qualification-engine-v3-release-authority",
+      "owner": "EveOS qualification",
+      "authoritativeTests": [
+        "smoke:engineering-safeguards-contract",
+        "smoke:qualification-guardrails-contract",
+        "smoke:timed-qualification-contract"
+      ],
+      "originalProblem": "The full release was one 581.67-second exclusive command and could silently lose coverage when manually decomposed.",
+      "validatedBehavior": "The manifest accounts for 41 legacy obligations, schedules safe work with bounded resource ownership, rejects incomplete evidence, and keeps the sequential oracle available without running it twice.",
+      "recoveryRef": "dcde98d0640267374d686138856c386916543121",
+      "requiredObligations": 41,
+      "performance": {
+        "referenceSeconds": 462.92,
+        "warnRatio": 1.35,
+        "minimumWarningSeconds": 600,
+        "policy": "advisory-only; compare same-profile successful full-release receipts and investigate sustained regressions"
+      },
+      "intentionalUpgrade": "Update the release manifest, legacy oracle, this registry entry, regression fixtures, recovery reference, and documentation in one reviewed change."
+    }
+  ]
+}

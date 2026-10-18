@@ -53,6 +53,7 @@ for (const required of [
     'smoke:codex-exec-bootstrap-contract',
     'smoke:tlo-autorecovery-contract',
     'smoke:qualification-guardrails-contract',
+    'smoke:engineering-safeguards-contract',
     'smoke:timed-qualification-contract',
     'audit:asset-versions',
     'audit:smoke-registry',
@@ -79,6 +80,11 @@ requireTrue(
     scripts['smoke:tlo-autorecovery-contract'] ===
         'python -B tools/qualification/tlo_autorecover_policy_test.py',
     'TLO autorecovery deterministic contract entrypoint drifted'
+);
+requireTrue(
+    scripts['smoke:engineering-safeguards-contract'] ===
+        'python -B tools/qualification/eveos_engineering_safeguards.py --self-test',
+    'engineering safeguards deterministic contract entrypoint drifted'
 );
 requireTrue(
     scripts['smoke:timed-qualification-contract'] ===
