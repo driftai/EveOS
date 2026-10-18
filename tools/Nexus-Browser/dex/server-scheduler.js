@@ -6,6 +6,7 @@ const stateApi = require('./server-scheduler-state'), controlReceiptApi = requir
 const { createServerSchedulerRecovery } = require('./server-scheduler-recovery');
 const recoveryMailbox = require('./recovery-mailbox'), promptSend = require('./prompt-send-recovery');
 const { directRoomSend } = require('./direct-room-send-policy');
+const schedulerTelemetry = require('./server-scheduler-telemetry');
 const { TURN_TIMEOUT_MS, TURN_IDLE_TIMEOUT_MS, TURN_ABSOLUTE_TIMEOUT_MS,
   activityFromTransport, createServerTurnLease } = require('./server-turn-lease');
 function createDexServerScheduler({
@@ -421,26 +422,10 @@ function createDexServerScheduler({
   function transportLost() { recovery.transportLost(); return current ? parkCurrent('Provider transport disconnected.') : true; }
   function resume() { processSoon(0); }
   function diagnostics() {
-    const snapshot = load();
-    const activeRoom = current ? stateApi.roomById(snapshot, current.roomId) : null;
-    const active = current ? {
-      roomId: current.roomId, memberId: current.memberId, requestId: current.requestId,
-      phase: current.phase, retryCount: current.retryCount || 0,
-      targetId: current.targetId || null,
-      ...(lease.diagnostics() || {}),
-      dispatched: !!activeRoom?.recovery?.dispatched,
-      recoveryPending: !!activeRoom?.recovery
-    } : null;
-    return { owner: 'localhost', current: active,
-      queuedIncoming: (snapshot.rooms || []).map((room) => ({ roomId: room.id, queued: (room.deferredRelays || []).length })).filter((entry) => entry.queued),
-      pendingRooms: stateApi.pendingRooms(snapshot).map((room) => room.id),
-      recoveryRooms: (snapshot.rooms || []).filter((room) => !!room.recovery).map((room) => room.id),
-      recovery: recovery.diagnostics() };
+    return schedulerTelemetry.diagnostics({ current, load, stateApi, lease, recovery });
   }
   function terminalLiveState(roomId) {
-    if (!current || current.roomId !== roomId) return null;
-    return { roomId: current.roomId, sourceMessageId: current.sourceMessageId,
-      requestId: current.requestId, partialText: current.partialText || '' };
+    return schedulerTelemetry.terminalLiveState(current, roomId);
   }
   return {
     terminalLiveState, startRelay, stopRelay, continueRelay,
