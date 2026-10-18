@@ -18,6 +18,40 @@
   governorPanel.className = 'machine-request-history';
   governorPanel.innerHTML = '<summary>Engineering Governor receipts (read-only)</summary><div class="machine-request-list" data-governor-evidence></div>';
   section.insertAdjacentElement('afterend', governorPanel);
+  // Local-owner preparation only. Remote agents have no authority through this form.
+  const governorPrepare = document.createElement('details');
+  governorPrepare.className = 'machine-request-history';
+  governorPrepare.innerHTML = `<summary>Prepare Governor supervised job (local owner)</summary>
+    <form data-governor-prepare class="machine-request-list">
+      <label>Run ID <input name="runId" placeholder="governor-001" required maxlength="64"></label>
+      <label>Managed PowerShell target ID <input name="targetId" placeholder="terminal-powershell-..." required></label>
+      <label>Expected 40-character Git HEAD <input name="expectedHead" required minlength="40" maxlength="40"></label>
+      <label>Mission path under data/runtime <input name="mission" placeholder="data/runtime/mission.txt" required></label>
+      <label>Tier <select name="tier"><option value="small">Small / low</option><option value="medium" selected>Medium</option><option value="complex">Complex / medium</option></select></label>
+      <label>Allowed source files (one repository-relative path per line)
+        <textarea name="allowedFiles" rows="3" required></textarea></label>
+      <button type="submit" class="secondary">Prepare only — local Start still required</button>
+      <div data-governor-prepare-status role="status"></div>
+    </form>`;
+  governorPanel.insertAdjacentElement('afterend', governorPrepare);
+  const governorForm = governorPrepare.querySelector('[data-governor-prepare]');
+  const governorFormStatus = governorPrepare.querySelector('[data-governor-prepare-status]');
+  governorForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const roomId = activeRoomId(), spaceId = activeSpaceId();
+    if (!editable() || !roomId || !spaceId || phase !== 'connected') {
+      governorFormStatus.textContent = 'Enable Human Input and choose an active room/space.';
+      return;
+    }
+    const data = new FormData(governorForm);
+    const values = (name) => String(data.get(name) || '').trim();
+    const allowedFiles = values('allowedFiles').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    const ok = send({ type:'machine_prepare_governor_job',
+      requestId:`governor-prepare-${globalThis.crypto?.randomUUID?.() || Date.now()}`,
+      roomId, spaceId, targetId:values('targetId'), runId:values('runId'),
+      mission:values('mission'), expectedHead:values('expectedHead'), tier:values('tier'), allowedFiles });
+    governorFormStatus.textContent = ok ? 'Preparation requested. No model has started.' : 'Nexus is disconnected.';
+  });
   const governorList = governorPanel.querySelector('[data-governor-evidence]');
   governorPanel.addEventListener('toggle', () => {
     if (governorPanel.open && socket?.readyState === WebSocket.OPEN)
@@ -84,6 +118,7 @@
     const meta = document.createElement('div'); meta.className = 'machine-meta';
     meta.textContent = [
       `request ${job.requestId || 'n/a'}`,
+      job.governor?.runId ? `Governor ${job.governor.runId} (${job.governor.tier})` : null,
       `epoch ${short(job.processEpoch, 18) || 'n/a'}`,
       job.reboundCount ? `rebound ${job.reboundCount}×` : null,
       job.reason || null,
@@ -152,6 +187,11 @@
     render();
   }
   function handle(payload) {
+    if (payload.type === 'machine_governor_job_prepared') {
+      governorFormStatus.textContent = `Queued Governor job ${payload.job?.jobId || 'unknown'}. Click Start supervised to launch after review.`;
+      requestSnapshot();
+      return;
+    }
     if (payload.type === 'machine_governor_receipts') {
       governorList.replaceChildren();
       const rows = Array.isArray(payload.runs) ? payload.runs.slice(0, 16) : [];

@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('node:crypto');
 const { createSupervisedJobCoordinator } = require('./supervised-job');
+const { createGovernorJobPlan } = require('./governor-job-plan');
 const { inspectGovernorRuns } = require('./governor-run-inspect');
 const { createSupervisedJobProviderControl, ACTIONS } = require('./supervised-job-provider-control');
 const { findSpace } = require('./server-controller-filesystem');
@@ -18,6 +19,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   const jobs = options.supervisedJobs || createSupervisedJobCoordinator({ now: options.now });
   const commandStore = options.supervisedCommandStore || new Map();
   const governorReceiptReader = options.governorReceiptReader || inspectGovernorRuns;
+  const governorRoot = options.governorRoot || require('node:path').resolve(__dirname, '..', '..', '..');
   const sessions = new WeakMap();
   const hooked = new WeakSet();
 
@@ -38,7 +40,8 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   }
   function visible(roomId = null, spaceId = null) {
     return jobs.snapshot().jobs.filter((job) => (!roomId || job.roomId === roomId) && (!spaceId || job.spaceId === spaceId))
-      .map((job) => ({ ...job, commandAvailable: commandStore.has(job.jobId) }));
+      .map((job) => ({ ...job, commandAvailable: commandStore.has(job.jobId),
+        governor: commandStore.get(job.jobId)?.governor || null }));
   }
   function broadcastJobs(reason, changed = []) {
     const payload = { type: 'machine_supervised_jobs', reason, jobs: visible(), changed };
@@ -75,6 +78,41 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
       broadcastJobs('settled', [settled]);
     } catch {}
   }
+  function prepareGovernorLocal(ws, msg) {
+    requireLocal(ws);
+    const room = (getState()?.rooms || []).find((entry) => entry.id === String(msg.roomId || ''));
+    if (!room) throw machineError('MACHINE_ROOM_NOT_FOUND', 'Choose the exact active Dex room.');
+    const space = findSpace(room, String(msg.spaceId || ''));
+    if (!space) throw machineError('MACHINE_SPACE_REQUIRED', 'Choose an exact active Machine Space.');
+    const targetId = String(msg.targetId || '');
+    const target = base.broker.target(targetId);
+    if (!target || !(space.resourceIds || []).includes(targetId))
+      throw machineError('MACHINE_TARGET_NOT_ATTACHED', 'Attach the managed PowerShell target to this exact Machine Space first.');
+    if (!/^[A-Za-z0-9:_-]{1,128}$/.test(String(msg.requestId || '')))
+      throw machineError('MACHINE_GOVERNOR_REQUEST_REQUIRED', 'A stable bounded requestId is required.');
+    const spec = {
+      runId: msg.runId, expectedHead: msg.expectedHead, tier: msg.tier,
+      mission: msg.mission, allowedFiles: msg.allowedFiles
+    };
+    const plan = createGovernorJobPlan({ ...spec, target }, { repoRoot: governorRoot });
+    const job = jobs.create({
+      requestId: msg.requestId, kind: 'governor', roomId: room.id, spaceId: space.id,
+      ownerMemberId: 'local', targetId, processEpoch: target.processEpoch,
+      commandDigest: plan.commandDigest
+    });
+    const prior = commandStore.get(job.jobId);
+    if (job.kind !== 'governor' || (prior && (prior.kind !== 'governor' || prior.commandDigest !== plan.commandDigest)))
+      throw machineError('MACHINE_JOB_REQUEST_CONFLICT', 'Request ID already owns another immutable job.');
+    if (!prior && job.state !== 'queued')
+      throw machineError('MACHINE_GOVERNOR_NO_REPLAY', 'A started or settled Governor job cannot be prepared again.');
+    if (!prior) commandStore.set(job.jobId, {
+      command: plan.command, commandDigest: plan.commandDigest,
+      kind: 'governor', spec, missionSha256: plan.missionSha256,
+      governor: plan.metadata
+    });
+    return { ...job, governor: plan.metadata, commandAvailable: true };
+  }
+
   function startLocal(ws, msg) {
     requireLocal(ws);
     const current = jobs.status(msg.jobId);
@@ -84,6 +122,13 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
     const target = base.broker.target(current.targetId);
     if (!target || target.processEpoch !== current.processEpoch)
       throw machineError('MACHINE_JOB_TARGET_EPOCH_MISMATCH', 'The prepared terminal was replaced before launch.');
+    if (stored.kind === 'governor') {
+      let validated;
+      try { validated = createGovernorJobPlan({ ...stored.spec, target }, { repoRoot: governorRoot }); }
+      catch { throw machineError('MACHINE_GOVERNOR_PLAN_CHANGED', 'Governor run, mission, target or plan is no longer valid; do not start it.'); }
+      if (validated.commandDigest !== stored.commandDigest || validated.missionSha256 !== stored.missionSha256)
+        throw machineError('MACHINE_GOVERNOR_PLAN_CHANGED', 'Governor mission or plan changed since preparation.');
+    }
     const active = base.broker.activeInfo(target.id);
     if (active)
       throw machineError('MACHINE_TARGET_BUSY', `The managed terminal is already running ${active.mode || 'a command'}; the supervised job remains queued.`);
@@ -154,6 +199,12 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   async function handle(ws, msg = {}) {
     const type = String(msg.type || '');
     try {
+      if (type === 'machine_prepare_governor_job') {
+        const job = prepareGovernorLocal(ws, msg);
+        safeSend(ws, { type: 'machine_governor_job_prepared', requestId: msg.requestId, job });
+        broadcastJobs('governor-prepared', [job]);
+        return true;
+      }
       if (type === 'machine_governor_receipts') {
         requireLocal(ws); localSession(ws);
         const evidence = governorReceiptReader();

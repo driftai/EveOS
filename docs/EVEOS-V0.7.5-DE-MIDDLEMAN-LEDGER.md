@@ -197,3 +197,21 @@ execution/receipt contract. Real supervised task binding, durable notification,
 crash/restart qualification and live browser/provider proof remain `UNQUALIFIED`
 until exercised on the authorized Windows machine. The accompanying Governor
 Git-porcelain fix preserves the status prefix used to identify modified files.
+
+## V0.7.1B — Bounded Governor supervised execution binding
+
+The existing Machine Spaces supervised-job controller now accepts a **local-owner-only**
+structured Governor plan (exact room, space, attached managed PowerShell target,
+expected HEAD, ignored-runtime mission/run ID, and explicit allowlisted files).
+It builds a fixed Governor CLI command server-side, rejects shell/path injection,
+records the job through the **existing** supervised coordinator, and leaves it
+queued until Human Input and local Start authorization. Before starting, it
+revalidates the pinned target and mission SHA-256. It cannot publish implicitly.
+Governor remains sole owner of live quota/model-effort policy, actual inference,
+qualification, evidence, and separate Git publication authorization.
+
+This is NOT yet the no-middleman golden workflow: the initial preparation UI is
+local owner controlled, the supervised job ledger is process-lifetime, and real
+crash/restart/reconnect, real provider control, and delivery acceptance are
+still `UNQUALIFIED`. Durable Governor receipts remain separate read-only evidence,
+not proof that a supervised process survived or delivered its final result.
