@@ -2,17 +2,21 @@
 import threading
 import time
 import unittest
+from pathlib import Path
+import sys
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from server_modules import audioflix_spotify_queue_lease as queue_mod
 
 IDS = ['4cOdK2wGLETKBW3PvgPWqT', '5cOdK2wGLETKBW3PvgPWqT', '6cOdK2wGLETKBW3PvgPWqT']
 
 
-def plan():
+def plan(start=0, count=3):
+    spotify_ids = IDS if start == 0 and count == 3 else [f'{i:022d}' for i in range(start, start + count)]
     return [{'spotifyUri': f'spotify:track:{spotify_id}', 'mediaType': 'track',
-             'spotifyId': spotify_id, 'itemId': f'music-{i}', 'title': f'Song {i}',
-             'duration': 25, 'effectiveVolume': 0.75} for i, spotify_id in enumerate(IDS)]
+             'spotifyId': spotify_id, 'itemId': f'music-{start + i}', 'title': f'Song {start + i}',
+             'duration': 25, 'effectiveVolume': 0.75} for i, spotify_id in enumerate(spotify_ids)]
 
 
 class FakeEngine:
@@ -100,6 +104,32 @@ class DelegationTests(unittest.TestCase):
         self.assertTrue(until(lambda: self.broker.play_count == 1))
         time.sleep(.08)
         self.assertEqual(self.broker.play_count, 1)
+
+    def test_bounded_window_keeps_absolute_index_and_never_fakes_full_queue_end(self):
+        entries = plan(300, 3)
+        self.engine.state['spotifyUri'] = entries[0]['spotifyUri']
+        result = self.owner.arm('owner', {'entries': entries, 'index': 300,
+            'baseIndex': 300, 'queueCount': 500, 'runId': 8},
+            'conn-1', 'http://127.0.0.1:8765')
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['queueLease']['baseIndex'], 300)
+        self.assertEqual(result['queueLease']['queueCount'], 500)
+        for expected_index in (301, 302):
+            self.engine.end()
+            self.assertTrue(until(lambda: self.owner.projection('owner')['index'] == expected_index))
+        self.engine.end()
+        self.assertTrue(until(lambda: self.owner.projection('owner')['state'] == 'window-exhausted'))
+        self.assertEqual(self.owner.projection('owner')['index'], 302)
+        self.assertEqual(self.broker.play_count, 2)
+
+    def test_partial_window_cannot_claim_loop_semantics(self):
+        entries = plan(300, 3)
+        self.engine.state['spotifyUri'] = entries[0]['spotifyUri']
+        result = self.owner.arm('owner', {'entries': entries, 'index': 300,
+            'baseIndex': 300, 'queueCount': 500, 'runId': 8, 'loop': True},
+            'conn-1', 'http://127.0.0.1:8765')
+        self.assertFalse(result['ok'])
+        self.assertIsNone(self.owner.projection('owner'))
 
     def test_explicit_override_revokes_lease_and_never_replays_completion(self):
         self.assertTrue(self.arm()['ok'])

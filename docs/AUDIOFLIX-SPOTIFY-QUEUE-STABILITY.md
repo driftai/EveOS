@@ -182,6 +182,22 @@ queue-run authority. Ownership trace:
 Deterministic coverage: `tools/smoke/audioflix_queue_completion_contract_smoke.js` (run by the
 managed lane through the browser contract smoke).
 
+### Frozen-page continuation and large groups
+
+Managed Spotify completion is delegated to the broker only for the exact authenticated queue
+run, engine epoch and playback generation. The terminal-backed observer therefore survives a
+fully frozen/minimized EveOS page without opening or focusing that page. The relay request stays
+under its 128 KiB boundary: queues above 256 entries delegate a forward window of at most 256
+Spotify entries beginning at the absolute current index. Broker receipts retain absolute queue
+positions (`baseIndex`, `index`, `queueCount`), so thawed UI projection never mistakes a window
+offset for a library queue index. A partial window cannot claim loop semantics, and exhausting a
+window before the real queue end reports `window-exhausted` rather than falsely reporting queue
+completion. Local controls, owner changes, generation changes and uncertain transport outcomes
+still revoke or fail the lease closed.
+
+The JavaScript handoff and Python lease regressions include a 500-entry queue, absolute index
+adoption, zero-frontend-callback advancement, exact-once completion and partial-loop rejection.
+
 ## Lane 3, first local checkpoint (base `57487c76`)
 
 This is a focused checkpoint, not a sealed Lane 3 or final Windows/provider qualification.

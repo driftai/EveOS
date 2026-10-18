@@ -8,10 +8,13 @@ const root = path.join(__dirname, '..');
 const moduleText = fs.readFileSync(path.join(root, 'js/modules/features/audioflix/audioflix.spotify.queue-handoff.js'), 'utf8');
 const uri = i => `spotify:track:${i}`;
 const ids = ['4cOdK2wGLETKBW3PvgPWqT', '5cOdK2wGLETKBW3PvgPWqT'];
-function harness() {
+const idAt = i => ids[i] || String(i).padStart(22, '0');
+function harness({ count = 2, currentIndex = 0 } = {}) {
     const calls = [];
-    const list = ids.map((id, i) => ({ id: `music-${i}`, title: `Song ${i}`, url: uri(id), duration: 12 }));
-    const queue = { items: list.map(item => item.id), currentIndex: 0, isPlaying: true, loop: false };
+    const list = Array.from({ length: count }, (_, i) => ({
+        id: `music-${i}`, title: `Song ${i}`, url: uri(idAt(i)), duration: 12
+    }));
+    const queue = { items: list.map(item => item.id), currentIndex, isPlaying: true, loop: false };
     let run = 8, adopted = 0;
     const win = {
         addEventListener() {},
@@ -22,10 +25,13 @@ function harness() {
         EveAudioflixSpotifyAnyBrowser: { snapshot: () => ({ active: true }) },
         EveAudioflixSpotifyRemote: {
             snapshot: () => ({ connected: true, lastState: { isOwner: true,
-                engine: { spotifyUri: uri(ids[0]), generation: 17, status: 'playing' } } }),
+                engine: { spotifyUri: list[queue.currentIndex].url, generation: 17, status: 'playing' } } }),
             async send(action, payload) {
                 calls.push({ action, payload });
-                if (action === 'queue-arm') return { ok: true, queueLease: { leaseId: 'lease-a', runId: 8, index: 0, state: 'active' } };
+                if (action === 'queue-arm') return { ok: true, queueLease: {
+                    leaseId: 'lease-a', runId: 8, index: payload.index,
+                    baseIndex: payload.baseIndex, queueCount: payload.queueCount, state: 'active'
+                } };
                 return { ok: true };
             }
         },
@@ -64,6 +70,30 @@ test('owner index receipt is adopted without invoking a second play', async () =
     assert.equal(h.queue.currentIndex, 1);
     assert.equal(adoptedItems[0], 'music-1');
     assert.equal(h.calls.filter(x => x.action === 'play').length, 0);
+});
+
+test('a large queue delegates a bounded forward window with absolute queue identity', async () => {
+    const h = harness({ count: 500, currentIndex: 7 });
+    const handoff = h.win.EveAudioflixSpotifyQueueHandoff;
+    assert.equal(await handoff.arm(h.queue, i => h.list[i]), true);
+    const payload = h.calls[0].payload;
+    assert.equal(payload.entries.length, 256);
+    assert.equal(payload.baseIndex, 7);
+    assert.equal(payload.queueCount, 500);
+    assert.equal(payload.index, 7);
+    assert.equal(payload.entries[0].itemId, 'music-7');
+    assert.equal(payload.entries.at(-1).itemId, 'music-262');
+    assert.equal(handoff.adopt({ queueLease: { leaseId: 'lease-a', runId: 8,
+        index: 8, baseIndex: 7, queueCount: 500, itemId: 'music-8', state: 'active'
+    }, engine: { spotifyUri: h.list[8].url } }), true);
+    assert.equal(h.queue.currentIndex, 8);
+});
+
+test('a large looping queue refuses a partial-order delegation', async () => {
+    const h = harness({ count: 500 });
+    h.queue.loop = true;
+    assert.equal(await h.win.EveAudioflixSpotifyQueueHandoff.arm(h.queue, i => h.list[i]), false);
+    assert.equal(h.calls.length, 0);
 });
 
 test('replaced queue run cannot adopt an old lease', async () => {

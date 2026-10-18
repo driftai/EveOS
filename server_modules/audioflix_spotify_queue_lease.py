@@ -29,8 +29,9 @@ class DelegatedQueue:
             lease = self.lease
             if not lease or lease['clientId'] != client_id:
                 return None
-            return {key: lease[key] for key in ('leaseId', 'runId', 'index', 'count',
-                                                 'itemId', 'generation', 'state', 'reason')}
+            return {key: lease[key] for key in ('leaseId', 'runId', 'index', 'baseIndex',
+                                                 'count', 'queueCount', 'itemId', 'generation',
+                                                 'state', 'reason')}
 
     def invalidate(self, client_id, action):
         with self.broker._lock:
@@ -43,13 +44,20 @@ class DelegatedQueue:
         broker = self.broker
         entries = args.get('entries')
         index = args.get('index')
+        base_index = args.get('baseIndex', 0)
+        queue_count = args.get('queueCount', len(entries) if isinstance(entries, list) else 0)
         run_id = args.get('runId')
         if not server_origin:
             return {'ok': False, 'reason': 'Trusted engine origin required.'}
         if not isinstance(entries, list) or not 1 <= len(entries) <= MAX_ITEMS:
             return {'ok': False, 'reason': 'Delegated queue requires 1–256 Spotify items.'}
-        if type(index) is not int or not 0 <= index < len(entries):
+        if (type(index) is not int or type(base_index) is not int or type(queue_count) is not int
+                or base_index < 0 or queue_count < 1
+                or not base_index <= index < base_index + len(entries)
+                or base_index + len(entries) > queue_count):
             return {'ok': False, 'reason': 'Invalid delegated queue index.'}
+        if args.get('loop') is True and (base_index != 0 or len(entries) != queue_count):
+            return {'ok': False, 'reason': 'Loop delegation requires the complete bounded queue.'}
         if type(run_id) is not int or not 0 < run_id <= 2 ** 53 - 1:
             return {'ok': False, 'reason': 'Invalid frontend playback run.'}
         cleaned = []
@@ -82,7 +90,7 @@ class DelegatedQueue:
         with broker._lock:
             broker._sync_engine_epoch_locked(status)
         actual = status.get('transport') or {}
-        expected = cleaned[index]
+        expected = cleaned[index - base_index]
         generation = actual.get('generation')
         if (not status.get('helperReachable') or not isinstance(generation, int)
                 or generation <= 0 or actual.get('spotifyUri') != expected['spotifyUri']
@@ -96,7 +104,8 @@ class DelegatedQueue:
                 old['state'] = 'released'
                 old['reason'] = 'Superseded by a newer exact queue plan.'
             lease = {'leaseId': 'afq-' + secrets.token_hex(12), 'clientId': client_id,
-                     'connectionId': connection_id, 'serverOrigin': server_origin, 'runId': run_id, 'index': index,
+                     'connectionId': connection_id, 'serverOrigin': server_origin, 'runId': run_id,
+                     'index': index, 'baseIndex': base_index, 'queueCount': queue_count,
                      'itemId': expected['itemId'], 'count': len(cleaned), 'entries': cleaned,
                      'generation': generation, 'engineEpoch': engine_epoch,
                      'intentFence': fence, 'lastCompletion': '', 'state': 'active',
@@ -156,7 +165,7 @@ class DelegatedQueue:
                         lease['reason'] = 'Managed engine epoch changed during delegation.'
                         return
                 current = result.get('transport') or {}
-                expected = lease['entries'][lease['index']]
+                expected = lease['entries'][lease['index'] - lease['baseIndex']]
                 if (not result.get('helperReachable')
                     or current.get('spotifyUri') != expected['spotifyUri']
                     or current.get('generation') != lease['generation']):
@@ -177,14 +186,19 @@ class DelegatedQueue:
                         continue
                     lease['lastCompletion'] = completion  # claim BEFORE mutation: uncertain cannot replay
                     next_index = lease['index'] if lease['repeatOne'] else lease['index'] + 1
-                    if next_index >= lease['count']:
+                    if next_index >= lease['queueCount']:
                         if lease['loop']:
                             next_index = 0
                         else:
                             lease['state'] = 'finished'
                             lease['reason'] = 'Queue reached its natural end.'
                             return
-                    next_entry = lease['entries'][next_index]
+                    window_offset = next_index - lease['baseIndex']
+                    if not 0 <= window_offset < lease['count']:
+                        lease['state'] = 'window-exhausted'
+                        lease['reason'] = 'Bounded queue window ended before the full queue.'
+                        return
+                    next_entry = lease['entries'][window_offset]
                 # Reuse the broker's transport lock and accepted-intent fence. Never issue an
                 # untracked browser command, and never retry a transport with unknown outcome.
                 def play_if_current():
