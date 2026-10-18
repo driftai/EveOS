@@ -66,11 +66,12 @@ function addMessage(room, { id, senderKind, senderId, senderName, text, at, cont
   return message;
 }
 
-function rememberFinalReceipt(room, requestId, messageId, at = new Date().toISOString()) {
+function rememberFinalReceipt(room, requestId, messageId, at = new Date().toISOString(), sourceMessageId = null) {
   if (!requestId || !messageId) return false;
   room.finalReceipts = Array.isArray(room.finalReceipts) ? room.finalReceipts : [];
   if (room.finalReceipts.some((entry) => entry.requestId === requestId)) return false;
-  room.finalReceipts.push({ requestId, messageId, committedAt: at });
+  room.finalReceipts.push({ requestId, messageId, committedAt: at,
+    ...(sourceMessageId ? { sourceMessageId } : {}) });
   room.finalReceipts = room.finalReceipts.slice(-128);
   return true;
 }

@@ -308,10 +308,12 @@ function createDexServerScheduler({
     const room = stateApi.roomById(snapshot, current.roomId);
     const member = stateApi.memberById(room, current.memberId);
     if (room) {
-      addMessage(room, {
+      const failed = addMessage(room, {
         senderKind: 'system', senderId: null,
         senderName: 'Dex', text: `${member?.name || 'Agent'}: ${message}`
       });
+      Object.assign(failed, { relayFailure: true,
+        sourceMessageId: current.sourceMessageId, turnRequestId: current.requestId });
       setStopped(room, stopReason);
       save(snapshot);
     }
@@ -341,7 +343,7 @@ function createDexServerScheduler({
     const disposition = protocol.relayDisposition(parsed, member.name, repeated, room.relay);
     if (parsed.done) doneWatchApi.consume(room, { completedMemberId: member.id, message, at: now() });
     if (parsed.headsUpTarget || parsed.headsUpInvalid) doneWatchApi.emitHeadsUp(room, { senderMemberId: member.id, targetRef: parsed.headsUpTarget, invalid: parsed.headsUpInvalid, done: parsed.done, message, at: now() });
-    stateApi.rememberFinalReceipt(room, current.requestId, message.id, now());
+    stateApi.rememberFinalReceipt(room, current.requestId, message.id, now(), current.sourceMessageId);
     clearCurrent();
     if (disposition.action === 'stop') setStopped(room, disposition.reason);
     else enqueueNext(room, message);
@@ -376,6 +378,7 @@ function createDexServerScheduler({
       lease.touch(activity);
       return true;
     }
+    if (msg.type === 'response_partial') current.partialText = String(msg.text || '').slice(0, 1800);
     if (msg.type === 'response_final') return completeTurn(msg.text || '');
     if (msg.type === 'error') return handleTurnError(msg);
     return false;
@@ -432,8 +435,13 @@ function createDexServerScheduler({
       recoveryRooms: (snapshot.rooms || []).filter((room) => !!room.recovery).map((room) => room.id),
       recovery: recovery.diagnostics() };
   }
+  function terminalLiveState(roomId) {
+    if (!current || current.roomId !== roomId) return null;
+    return { roomId: current.roomId, sourceMessageId: current.sourceMessageId,
+      requestId: current.requestId, partialText: current.partialText || '' };
+  }
   return {
-    startRelay, stopRelay, continueRelay,
+    terminalLiveState, startRelay, stopRelay, continueRelay,
     handleTransportEvent, onStateChanged, transportLost, resume, process, resolvePassiveRecovery: (input) => recovery.resolvePassive(input), diagnostics
   };
 }

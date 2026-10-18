@@ -6,6 +6,7 @@ const { randomUUID, createHash } = require('node:crypto');
 const { addMessage, roomById } = require('./server-scheduler-state');
 const { runtimeBusy } = require('./server-state-merge');
 const { bootstrap } = require('./terminal-provision');
+const { stateFor } = require('./terminal-turn-outcome');
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9:_-]{7,127}$/;
 const ROOM_ID = /^room-[A-Za-z0-9_-]{6,125}$/;
@@ -40,24 +41,6 @@ function projection(room, { limit = 10 } = {}) {
     ...(m.clientRequestId ? { clientRequestId: m.clientRequestId } : {})
   })) };
 }
-function stateFor(room, requestId) {
-  const messages = room.messages || [];
-  const originIndex = messages.findIndex(m => m.senderKind === 'user' && m.clientRequestId === requestId);
-  if (originIndex < 0) return failure('DEX_TERMINAL_UNKNOWN_REQUEST', 'No committed message for this exact request ID.');
-  const origin = messages[originIndex], enabledMembers = (room.members || []).filter(m => m.relayEnabled !== false);
-  // Stop at the next user message: a later unrelated TLO response must never
-  // be attributed to an earlier request whose completion was uncertain.
-  const nextUser = messages.findIndex((m, i) => i > originIndex && m.senderKind === 'user');
-  const segment = messages.slice(originIndex + 1, nextUser < 0 ? undefined : nextUser);
-  const response = segment.find(m => m.senderKind === 'agent' && enabledMembers.some(member => member.id === m.senderId));
-  const final = response && (room.finalReceipts || []).find(r => r.messageId === response.id);
-  return { ok: true, requestId, roomId: room.id, messageId: origin.id,
-    status: final ? 'FINAL_RECEIPT_CONFIRMED' : response ? 'REPLY_OBSERVED_NOT_FINAL' : 'AWAITING_REPLY_OR_RECOVERY',
-    finalRequestId: final?.requestId || null,
-    response: response ? { id: response.id, at: response.at || null, text: String(response.text || '').slice(0, MAX_TEXT) } : null,
-    recoveryPending: !!room.recovery, relayActive: !!room.relay?.active,
-    lastStopReason: String(room.relay?.lastStopReason || '').slice(0, 120) };
-}
 function createTerminalOperator({ load, save, scheduler, broadcastState = () => {}, maintenanceBusy = () => false, targetAvailable = () => true, machineBroker = null, repoRoot = null, now = () => new Date().toISOString(), uid = randomUUID } = {}) {
   if (typeof load !== 'function' || typeof save !== 'function' || !scheduler?.startRelay)
     throw new TypeError('terminal operator requires the existing Dex state store and scheduler');
@@ -76,7 +59,7 @@ function createTerminalOperator({ load, save, scheduler, broadcastState = () => 
     const room = exactRoom(snapshot, msg.roomId);
     if (!room) return failure('DEX_TERMINAL_ROOM_REQUIRED', 'Provide an exact existing room ID, not a room name.');
     if (action === 'dex_terminal_inspect') return { ok: true, action: 'inspect', ...projection(room, { limit: msg.limit }) };
-    if (action === 'dex_terminal_check') return stateFor(room, String(msg.lookupId || requestId));
+    if (action === 'dex_terminal_check') return stateFor(room, String(msg.lookupId || requestId), scheduler.terminalLiveState?.(room.id));
     if (!['dex_terminal_send', 'dex_terminal_room_send'].includes(action)) return failure('DEX_TERMINAL_BAD_ACTION', 'Unsupported terminal operator command.');
     const text = msg.text;
     if (typeof text !== 'string' || !text.trim() || text.length > MAX_TEXT || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text))

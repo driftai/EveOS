@@ -303,7 +303,7 @@ function createServerSchedulerRecovery({
     });
     if (!requestedStopReason) stateApi.extendBudget(room, parsed);
     const disposition = protocol.relayDisposition(parsed, member.name, repeated, room.relay);
-    stateApi.rememberFinalReceipt(room, recovery.requestId, message.id, new Date(nowMs()).toISOString());
+    stateApi.rememberFinalReceipt(room, recovery.requestId, message.id, new Date(nowMs()).toISOString(), recovery.sourceMessageId);
     try { onRecovered({ room, member, message, parsed }); } catch {}
     clearActive();
     if (requestedStopReason) setStopped(room, requestedStopReason);

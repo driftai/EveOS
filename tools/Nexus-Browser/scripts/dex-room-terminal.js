@@ -75,11 +75,11 @@ function payload(p) {
 }
 async function waitFor(p, tx = transact) {
   if (!p.lookupId && !p.requestId) throw Error('wait requires --lookup-id EXACT_SEND_REQUEST_ID.');
-  const deadline = Date.now() + Number(p.timeout || 90) * 1000;
+  const deadline = Date.now() + Number(p.timeout || 195) * 1000;
   let result;
   while (Date.now() < deadline) {
     result = await tx(payload({ ...p, command: 'check', requestId: id() }));
-    if (!result.ok || result.status === 'FINAL_RECEIPT_CONFIRMED') return result;
+    if (!result.ok || ['FINAL_RECEIPT_CONFIRMED', 'TURN_FAILED', 'TURN_OUTCOME_UNKNOWN'].includes(result.status)) return result;
     await new Promise(r => setTimeout(r, 1500));
   }
   return { ok: false, code: 'DEX_TERMINAL_NOT_PROVEN', message: 'No authoritative TLO final receipt before deadline. Inspect the room and existing request; do not resend.', last: result?.status };
