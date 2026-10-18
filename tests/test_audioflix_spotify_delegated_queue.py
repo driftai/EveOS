@@ -50,7 +50,7 @@ class FakeBroker:
             self._engine_epoch += 1
 
     def _execute_transport(self, client_id, action, args, server_origin, connection_id):
-        assert client_id == 'owner' and action == 'play' and connection_id == 'conn-1'
+        assert client_id == 'owner' and action == 'play' and connection_id == 'conn-1' and server_origin == 'http://127.0.0.1:8765'
         self.play_count += 1
         if self.fail_next:
             return {'ok': False, 'timeout': True, 'reason': 'Unconfirmed helper transport.'}
@@ -79,7 +79,7 @@ class DelegationTests(unittest.TestCase):
         self.owner = queue_mod.DelegatedQueue(self.broker, self.engine)
 
     def arm(self, **extras):
-        return self.owner.arm('owner', {'entries': plan(), 'index': 0, 'runId': 8, **extras}, 'conn-1')
+        return self.owner.arm('owner', {'entries': plan(), 'index': 0, 'runId': 8, **extras}, 'conn-1', 'http://127.0.0.1:8765')
 
     def test_three_natural_ends_advance_without_any_frontend_timer(self):
         self.assertTrue(self.arm()['ok'])
@@ -132,6 +132,10 @@ class DelegationTests(unittest.TestCase):
         bad[1]['spotifyUri'] = 'https://example.net/music'
         self.assertFalse(self.arm(entries=bad)['ok'])
         self.assertIsNone(self.owner.projection('owner'))
+
+    def test_missing_origin_refuses_delegation(self):
+        result = self.owner.arm('owner', {'entries': plan(), 'index': 0, 'runId': 8}, 'conn-1', '')
+        self.assertFalse(result['ok'])
 
     def test_fenced_new_intent_retires_lease(self):
         self.assertTrue(self.arm()['ok'])

@@ -39,11 +39,13 @@ class DelegatedQueue:
                 lease['state'] = 'released'
                 lease['reason'] = 'New authenticated playback intent.'
 
-    def arm(self, client_id, args, connection_id):
+    def arm(self, client_id, args, connection_id, server_origin):
         broker = self.broker
         entries = args.get('entries')
         index = args.get('index')
         run_id = args.get('runId')
+        if not server_origin:
+            return {'ok': False, 'reason': 'Trusted engine origin required.'}
         if not isinstance(entries, list) or not 1 <= len(entries) <= MAX_ITEMS:
             return {'ok': False, 'reason': 'Delegated queue requires 1–256 Spotify items.'}
         if type(index) is not int or not 0 <= index < len(entries):
@@ -94,7 +96,7 @@ class DelegatedQueue:
                 old['state'] = 'released'
                 old['reason'] = 'Superseded by a newer exact queue plan.'
             lease = {'leaseId': 'afq-' + secrets.token_hex(12), 'clientId': client_id,
-                     'connectionId': connection_id, 'runId': run_id, 'index': index,
+                     'connectionId': connection_id, 'serverOrigin': server_origin, 'runId': run_id, 'index': index,
                      'itemId': expected['itemId'], 'count': len(cleaned), 'entries': cleaned,
                      'generation': generation, 'engineEpoch': engine_epoch,
                      'intentFence': fence, 'lastCompletion': '', 'state': 'active',
@@ -190,7 +192,7 @@ class DelegatedQueue:
                         if self.lease is not lease or lease['state'] != 'active':
                             return {'ok': False, 'reason': 'Queue lease revoked before Play.'}
                     return broker._execute_transport(lease['clientId'], 'play',
-                        next_entry, '', lease['connectionId'])
+                        next_entry, lease['serverOrigin'], lease['connectionId'])
                 response = preemption.run_fenced(broker, lease['intentFence'], play_if_current)
                 with broker._lock:
                     if self.lease is not lease or lease['state'] != 'active':

@@ -344,7 +344,7 @@ class SpotifyClientBroker:
         return result
 
     def _execute_transport(self, client_id: str, action: str, args: dict, server_origin: str, connection_id: str) -> dict:
-        if action in {'queue-arm', 'queue-disarm'}: return self._delegated_queue.arm(client_id, args, connection_id) if action == 'queue-arm' else self._delegated_queue.disarm(client_id, str(args.get('leaseId') or ''))
+        if action in {'queue-arm', 'queue-disarm'}: return self._delegated_queue.arm(client_id, args, connection_id, server_origin) if action == 'queue-arm' else self._delegated_queue.disarm(client_id, str(args.get('leaseId') or ''))
         if action in {"release", "detach"}:
             return connections.release(self, client_id, connection_id, reset=action == "detach")
         with self._lock:
