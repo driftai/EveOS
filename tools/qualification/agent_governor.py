@@ -67,7 +67,7 @@ def git(repo: Path, *args: str) -> str:
     result = command(['git', *args], cwd=repo, timeout=30)
     if result.returncode:
         raise RuntimeError('GIT_COMMAND_FAILED: ' + args[0])
-    return result.stdout.strip()
+    return result.stdout.rstrip('\r\n')  # Preserve leading Git porcelain status columns.
 
 
 def remote_sha(repo: Path, branch=BRANCH):

@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('node:crypto');
 const { createSupervisedJobCoordinator } = require('./supervised-job');
+const { inspectGovernorRuns } = require('./governor-run-inspect');
 const { createSupervisedJobProviderControl, ACTIONS } = require('./supervised-job-provider-control');
 const { findSpace } = require('./server-controller-filesystem');
 const dexProtocol = require('../public/dex-protocol');
@@ -16,6 +17,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   const base = createBaseController(options);
   const jobs = options.supervisedJobs || createSupervisedJobCoordinator({ now: options.now });
   const commandStore = options.supervisedCommandStore || new Map();
+  const governorReceiptReader = options.governorReceiptReader || inspectGovernorRuns;
   const sessions = new WeakMap();
   const hooked = new WeakSet();
 
@@ -152,6 +154,12 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   async function handle(ws, msg = {}) {
     const type = String(msg.type || '');
     try {
+      if (type === 'machine_governor_receipts') {
+        requireLocal(ws); localSession(ws);
+        const evidence = governorReceiptReader();
+        safeSend(ws, { type: 'machine_governor_receipts', requestId: msg.requestId || null, ...evidence });
+        return true;
+      }
       if (type === 'machine_supervised_jobs') {
         requireLocal(ws); localSession(ws);
         safeSend(ws, { type: 'machine_supervised_jobs', reason: 'snapshot', jobs: visible(msg.roomId || null, msg.spaceId || null) });

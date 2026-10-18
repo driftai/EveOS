@@ -13,6 +13,16 @@
   section.open = true;
   section.innerHTML = '<summary>Supervised jobs</summary><div class="machine-request-list" data-supervised-jobs></div>';
   resources.insertAdjacentElement('afterend', section);
+  // Read-only engineering evidence is local owner status, never a Dex command.
+  const governorPanel = document.createElement('details');
+  governorPanel.className = 'machine-request-history';
+  governorPanel.innerHTML = '<summary>Engineering Governor receipts (read-only)</summary><div class="machine-request-list" data-governor-evidence></div>';
+  section.insertAdjacentElement('afterend', governorPanel);
+  const governorList = governorPanel.querySelector('[data-governor-evidence]');
+  governorPanel.addEventListener('toggle', () => {
+    if (governorPanel.open && socket?.readyState === WebSocket.OPEN)
+      socket.send(JSON.stringify({ type: 'machine_governor_receipts' }));
+  });
   const list = section.querySelector('[data-supervised-jobs]');
   let socket = null;
   let phase = 'connecting';
@@ -142,6 +152,24 @@
     render();
   }
   function handle(payload) {
+    if (payload.type === 'machine_governor_receipts') {
+      governorList.replaceChildren();
+      const rows = Array.isArray(payload.runs) ? payload.runs.slice(0, 16) : [];
+      if (!rows.length) {
+        const empty = document.createElement('div'); empty.className = 'machine-empty';
+        empty.textContent = `Engineering receipts: ${payload.state || 'unavailable'}. No job is started by this view.`;
+        governorList.append(empty);
+      }
+      for (const entry of rows) {
+        const row = document.createElement('div'); row.className = 'machine-request';
+        row.textContent = [entry.runId, entry.state, entry.model || 'model unknown',
+          entry.effort || 'effort unknown', entry.updatedAt || 'time unavailable',
+          entry.published ? `published ${entry.published.slice(0, 12)}` : 'not published'
+        ].join(' · ');
+        governorList.append(row);
+      }
+      return;
+    }
     if (payload.type === 'machine_supervised_jobs') {
       const roomId = activeRoomId(), spaceId = activeSpaceId();
       jobs = Array.isArray(payload.jobs)
@@ -168,6 +196,7 @@
       phase = 'connected';
       send({ type: 'hello', role: 'ui', clientKind: 'machine-supervised-jobs' });
       setTimeout(requestSnapshot, 50);
+      if (governorPanel.open) send({ type: 'machine_governor_receipts' });
       render();
     });
     socket.addEventListener('message', (event) => {

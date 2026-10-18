@@ -182,3 +182,18 @@ Regression proving shared behavior?
 ```
 
 A proliferation review identifies reusable work; it does not silently authorize unrelated scope expansion.
+
+## V0.7.1B — Governor evidence visibility (bounded candidate)
+
+The existing Agent Governor's ignored `receipt.json` records can now be
+projected through the **existing Machine Spaces supervised controller** to a
+read-only owner UI. The projection is local-UI-only, scans a bounded history,
+and explicitly excludes mission content, logs, paths, credentials and source
+file lists. It neither starts nor retries work; Dex and Machine Spaces retain
+their separate routing and mutation authority.
+
+This is an initial evidence-visibility slice, **not** the completed shared
+execution/receipt contract. Real supervised task binding, durable notification,
+crash/restart qualification and live browser/provider proof remain `UNQUALIFIED`
+until exercised on the authorized Windows machine. The accompanying Governor
+Git-porcelain fix preserves the status prefix used to identify modified files.

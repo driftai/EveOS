@@ -65,6 +65,15 @@ class Tests(unittest.TestCase):
             self.assertEqual(json.loads((root / 'receipt.json').read_text())['state'], 'RUNNING')
             self.assertEqual(len((root / 'events.jsonl').read_text().splitlines()), 2)
 
+    def test_git_porcelain_preserves_leading_status_column(self):
+        from unittest.mock import patch
+        class Result:
+            returncode = 0
+            stdout = ' M package.json\n?? tools/qualification/new.py\n'
+        with patch.object(coordinator, 'command', return_value=Result()):
+            self.assertEqual(coordinator.changed_files(Path('.')),
+                             ['package.json', 'tools/qualification/new.py'])
+
     def test_rejects_unauthorized_paths(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

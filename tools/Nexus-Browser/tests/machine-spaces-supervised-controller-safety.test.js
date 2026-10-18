@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { createSupervisedJobCoordinator } = require('../machine-spaces/supervised-job');
 const { enhanceMachineSpacesSupervisedController } = require('../machine-spaces/server-controller-supervised');
 
-function fixture({ activeInfo = null, interrupt = true } = {}) {
+function fixture({ activeInfo = null, interrupt = true, governorReceiptReader = () => ({ state: 'EMPTY', runs: [] }) } = {}) {
   const ws = {};
   const uiSockets = new Set([ws]);
   const sent = [];
@@ -34,6 +34,7 @@ function fixture({ activeInfo = null, interrupt = true } = {}) {
     safeSend(_ws, payload) { sent.push(payload); return true; },
     supervisedJobs: jobs,
     supervisedCommandStore: commandStore,
+    governorReceiptReader,
     getState: () => ({ rooms: [] })
   });
   return { ws, sent, jobs, job, commandStore, controller, runs: () => runs };
@@ -70,4 +71,20 @@ test('cancelling a running job with no active process also carries the current l
   await f.controller.handle(f.ws, { type: 'machine_cancel_supervised_job', jobId: f.job.jobId, requestId: 'ui-cancel' });
   assert.equal(f.jobs.status(f.job.jobId).state, 'cancelled');
   assert.equal(f.commandStore.has(f.job.jobId), false);
+});
+
+test('Governor evidence is visible only to locally authenticated Machine Spaces UI', async () => {
+  let reads = 0;
+  const f = fixture({ governorReceiptReader: () => {
+    reads++;
+    return { schema: 'eveos.machine-governor-evidence.v1', state: 'AVAILABLE',
+      runs: [{ runId: 'run-one', state: 'QUALIFIED' }] };
+  } });
+  await f.controller.handle({}, { type: 'machine_governor_receipts', requestId: 'provider-ask' });
+  assert.equal(reads, 0, 'provider-origin client cannot read local evidence');
+  await f.controller.handle(f.ws, { type: 'machine_governor_receipts', requestId: 'local-ask' });
+  assert.equal(reads, 1);
+  assert.equal(f.sent.at(-1).type, 'machine_governor_receipts');
+  assert.equal(f.sent.at(-1).runs[0].runId, 'run-one');
+  assert.equal(f.runs(), 0, 'read-only evidence never executes a terminal command');
 });
