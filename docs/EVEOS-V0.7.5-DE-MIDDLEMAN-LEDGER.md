@@ -215,3 +215,33 @@ local owner controlled, the supervised job ledger is process-lifetime, and real
 crash/restart/reconnect, real provider control, and delivery acceptance are
 still `UNQUALIFIED`. Durable Governor receipts remain separate read-only evidence,
 not proof that a supervised process survived or delivered its final result.
+
+## V0.7.1B — Dex terminal operator / TLO-only room acceptance candidate
+
+The existing Dex server-side scheduler and durable room store now accept a narrow,
+**direct-loopback, origin-less Node terminal operator** route. It records a
+human-origin message in one exact room with exactly one relay-enabled TLO
+member and one Machine Space containing a live managed terminal. It then invokes
+only the existing one-turn `startRelay` boundary. The same immutable client
+request ID is persisted in the originating user message. No second scheduler,
+agent impersonation, unsolicited machine execution or publication path is added.
+
+A terminal client supports room listing, transcript inspection, one-shot messages,
+readback, explicit same-ID status checks, and a minimal interactive TUI. It does
+not invent an agent response: final success requires an existing Dex final
+receipt for a response from the exact bound TLO member. Uncertain/missing
+receipts require manual inspection; no blind resend. Browser-origin sockets
+and non-operator command types are rejected by this new transport.
+
+A disposable Playwright UI test inspects actual Dex room/TLO/Machine Space
+controls and terminal-operator readback; the unattached-terminal rejection
+must occur before any live TLO inference. The browser test proves UI and route
+composition, **not** that TLO's local model produced a response or executed a
+Machine Spaces action. A separate explicit live proof is required for that.
+
+Still UNQUALIFIED: live TLO inference/final receipt, real provider-driven
+Machine Spaces read actions, restart/reconnect behavior under pending tool
+work, and a complete authorized qualification/commit/delivery workflow. The
+terminal route inherits existing localhost trust; it is not remote access or
+OS-user identity authentication. Do not change this status to DONE based only
+on synthetic browser/UI coverage.

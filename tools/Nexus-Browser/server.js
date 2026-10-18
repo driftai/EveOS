@@ -16,6 +16,7 @@ const { ADAPTER_REVISION: EXPECTED_ADAPTER_REVISION } = require('./extension/con
 const { createDiagnosticsSnapshot } = require('./server-diagnostics'), { createServerLocalRelay } = require('./dex/server-local-relay'), { createAppTargetServerController } = require('./app-targets/server-controller');
 const { createServerLocalMessaging } = require('./server-local-messaging');
 const { createMachineSpacesController } = require('./machine-spaces/server-controller');
+const { createTerminalOperator } = require('./dex/terminal-operator'), { routeTerminalOperator } = require('./dex/server-terminal-operator-route');
 const { attachWebSocketHeartbeat } = require('./dex/ws-heartbeat'), { createDisposableRoomCleanup } = require('./dex/disposable-room-cleanup');
 const runtimeConfig = require('./runtime-config');
 const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
@@ -100,6 +101,12 @@ const { selectedLocalTarget, sendLocalStatus, sendLocalEvent, broadcastLocalStat
 const serverLocalRelay = createServerLocalRelay({ localTargets, mirrorPrompt: (targetId, msg, target) => mirrorPromptToConsoles(targetId, serverDexSource, msg, target), emitEvent: (targetId, payload) => sendLocalEvent(targetId, serverDexSource, payload), broadcastStatus: (targetId) => broadcastLocalStatus(targetId, serverDexSource) }); const appTargetController = createAppTargetServerController({ appTargets, safeSend, uiSockets, getDurability: () => durability, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive() });
 const dexScheduler = createDexServerScheduler({ stateStore: { load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot) }, durability: { beforeDispatch: (...args) => durability.beforeDispatch(...args), observe: (...args) => durability.observe(...args), markFailed: (...args) => durability.markFailed(...args), query: (...args) => durability.query(...args) }, getOnlineTargets: () => lastTabs, getProviders: () => lastProviders, getSelectedOnlineTarget: () => lastTarget, getLocalTargets: async (force = false) => { if (force) await refreshLocalTargets(null, { force: true }); return lastLocalTargets; }, getAppTargets: async (force = false) => appTargets.listAppTargets({ force }), isExtensionAvailable: () => !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN && extensionSessions.current().ready, sendExtension: (payload) => safeSend(extensionSocket, payload), sendLocalPrompt: serverLocalRelay.sendLocalPrompt, sendAppPrompt: appTargets.sendAppPrompt, captureLocalLatest: localTargets.captureLocalLatest, captureAppLatest: appTargets.captureAppLatest, broadcastState: broadcastDexState, broadcastEvent: (payload) => safeSend(dexRouting.dexClient(), payload), maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(),
   onTurnSettled: () => { doneWatchDelivery.flush(); taskCompletion?.flush(); postIdleMaintenance?.tick().catch((error) => console.log('[bridge] post-idle tick: ' + error.message)); }, recordIncident: (input) => durability.recordIncident(input) });
+const terminalOperator = createTerminalOperator({
+  load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot),
+  scheduler: dexScheduler, broadcastState: broadcastDexState,
+  maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(),
+  targetAvailable: (id) => !!machineSpaces.broker.target(id)
+});
 postIdleMaintenance = startPostIdleMaintenance({
   dexStateStore, providerControlRouting, providerTargetSpawnRouting, dexScheduler,
   localTargets, serverLocalRelay, serverSessionId: SERVER_SESSION_ID
@@ -205,7 +212,7 @@ async function handleLocalUiCommand(ws, msg) {
 }
 wss.on('connection', (ws, req) => {
   ws.role = null; ws.remoteAddress = req?.socket?.remoteAddress || '';
-  ws.clientKind = 'browser';
+  ws.clientKind = 'browser'; ws.terminalOperatorOrigin = req?.headers?.origin || null;
   ws.localTargetId = null; ws.appTargetId = null;
   ws.on('message', guardAsyncHandler(async (raw) => {
     let msg;
@@ -231,7 +238,8 @@ wss.on('connection', (ws, req) => {
         ws.clientKind = msg.clientKind === 'console' ? 'console'
           : msg.clientKind === 'dex' ? 'dex'
             : msg.clientKind === 'provider-control' ? 'provider-control'
-              : msg.clientKind === 'maintenance' ? 'maintenance' : 'browser';
+              : msg.clientKind === 'maintenance' ? 'maintenance'
+                : msg.clientKind === 'terminal-operator' ? 'terminal-operator' : 'browser';
         uiSockets.add(ws);
         console.log(`[bridge] ui connected [${ws.clientKind}]`);
         if (ws.clientKind === 'dex') {
@@ -259,6 +267,10 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (ws.role === 'ui') {
+      if (ws.clientKind === 'terminal-operator') {
+        safeSend(ws, routeTerminalOperator(ws, msg, terminalOperator));
+        return;
+      }
       if (ws.clientKind === 'maintenance' && await taskCompletion.handleCommand(ws, msg)) return;
       if (ws.clientKind === 'maintenance' && ['cleanup_disposable_rooms', 'resolve_passive_recovery'].includes(msg.type)) { if (postIdleMaintenance.leaseActive()) { safeSend(ws, { type: 'error', code: 'POST_IDLE_LEASE_BUSY', message: 'Another maintenance operation owns the exclusive lease.' }); return; } const result = msg.type === 'cleanup_disposable_rooms' ? await disposableRoomCleanup.run(msg.requestId) : dexScheduler.resolvePassiveRecovery({ roomId: msg.roomId, requestId: msg.recoveryRequestId, reason: msg.reason }); if (msg.type === 'resolve_passive_recovery' && result.ok) broadcastDexState(dexStateStore.load()); safeSend(ws, msg.type === 'cleanup_disposable_rooms' ? result : { type: 'resolve_passive_recovery_result', requestId: msg.requestId || null, ...result }); return; }
       if (msg.type === 'dex_state_put' && ws.clientKind === 'dex') {
