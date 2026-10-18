@@ -245,3 +245,26 @@ work, and a complete authorized qualification/commit/delivery workflow. The
 terminal route inherits existing localhost trust; it is not remote access or
 OS-user identity authentication. Do not change this status to DONE based only
 on synthetic browser/UI coverage.
+
+## V0.7.1B — Scriptable TLO proof-room bootstrap (bounded candidate)
+
+A directly-loopback-bound terminal operator can now provision a *new*, disposable
+TLO-only Dex room with exactly one newly created Machine Space containing one
+managed PowerShell terminal. `dex-room-terminal.js bootstrap --name ...` is also
+usable from authorized local automation and agent runners with shell access.
+No Dex UI clicks, fake target identities, arbitrary room mutations, inference,
+command execution, repo-safe grants, file grants, publication, or auto-retries.
+The room uses the existing durable Dex store and Machine Spaces broker.
+The immutable bootstrap request ID prevents duplicate resources; if the target
+was lost/restarted the tool reports `ready:false` rather than silently recreating it.
+The browser state merger preserves server-created bootstrap rooms against older
+Dex viewer snapshots, without changing the existing room relay scheduler.
+
+The disposable Playwright acceptance uses a separate Nexus data directory,
+exercises the same terminal control route and checks that the real UI can
+see the scripted room, TLO member, and attached Machine Space. It performs
+**zero TLO inference and zero tool execution**. A real authenticated TLO answer,
+provider-control read receipt, crash/reconnect and agent-side authorization proof
+are still separately UNQUALIFIED. Localhost shell clients are a privileged
+operator trust tier: agent scripts must be invoked only with explicit intended
+local authority. This narrow bootstrap never grants unrestricted machine control.

@@ -5,6 +5,7 @@
 const { randomUUID, createHash } = require('node:crypto');
 const { addMessage, roomById } = require('./server-scheduler-state');
 const { runtimeBusy } = require('./server-state-merge');
+const { bootstrap } = require('./terminal-provision');
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9:_-]{7,127}$/;
 const ROOM_ID = /^room-[A-Za-z0-9_-]{6,125}$/;
@@ -57,7 +58,7 @@ function stateFor(room, requestId) {
     recoveryPending: !!room.recovery, relayActive: !!room.relay?.active,
     lastStopReason: String(room.relay?.lastStopReason || '').slice(0, 120) };
 }
-function createTerminalOperator({ load, save, scheduler, broadcastState = () => {}, maintenanceBusy = () => false, targetAvailable = () => true, now = () => new Date().toISOString(), uid = randomUUID } = {}) {
+function createTerminalOperator({ load, save, scheduler, broadcastState = () => {}, maintenanceBusy = () => false, targetAvailable = () => true, machineBroker = null, repoRoot = null, now = () => new Date().toISOString(), uid = randomUUID } = {}) {
   if (typeof load !== 'function' || typeof save !== 'function' || !scheduler?.startRelay)
     throw new TypeError('terminal operator requires the existing Dex state store and scheduler');
   function exactRoom(snapshot, roomId) {
@@ -69,6 +70,8 @@ function createTerminalOperator({ load, save, scheduler, broadcastState = () => 
     const requestId = String(msg.requestId || '');
     if (!ID.test(requestId)) return failure('DEX_TERMINAL_BAD_ID', 'Use one stable opaque request ID (8-128 characters).');
     const snapshot = load();
+    if (action === 'dex_terminal_bootstrap') return bootstrap({ requestId, roomName: Object.hasOwn(msg, 'roomName') ? msg.roomName : undefined,
+      load, save, broker: machineBroker, repoRoot, broadcastState, now });
     if (action === 'dex_terminal_rooms') return { ok: true, action: 'rooms', rooms: (snapshot?.rooms || []).slice(0, 32).map(summary) };
     const room = exactRoom(snapshot, msg.roomId);
     if (!room) return failure('DEX_TERMINAL_ROOM_REQUIRED', 'Provide an exact existing room ID, not a room name.');

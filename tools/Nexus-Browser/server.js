@@ -105,7 +105,7 @@ const terminalOperator = createTerminalOperator({
   load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot),
   scheduler: dexScheduler, broadcastState: broadcastDexState,
   maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(),
-  targetAvailable: (id) => !!machineSpaces.broker.target(id)
+  targetAvailable: (id) => !!machineSpaces.broker.target(id), machineBroker: machineSpaces.broker, repoRoot: runtimeConfig.EVEOS_ROOT
 });
 postIdleMaintenance = startPostIdleMaintenance({
   dexStateStore, providerControlRouting, providerTargetSpawnRouting, dexScheduler,

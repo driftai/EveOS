@@ -54,7 +54,7 @@ function mergeIdleRoom(serverRoom, clientRoom) {
   const messages = Array.isArray(client.messages) && client.messages.length === 0
     ? []
     : mergeMessages(serverRoom.messages || [], client.messages || []);
-  const merged = { ...client, settings: mergeSettings(serverRoom, client), ...mergeDoneWatchFields(serverRoom, client), messages, finalReceipts: serverRoom.finalReceipts || [], lastHeadsUp: serverRoom.lastHeadsUp || null, deferredRelays: serverRoom.deferredRelays || [], deferredSendReceipts: serverRoom.deferredSendReceipts || [], lateFinalWatches: serverRoom.lateFinalWatches || [], localToolResults: serverRoom.localToolResults || [], localToolResultFailure: serverRoom.localToolResultFailure || null, machineSpaces: serverRoom.machineSpaces || client.machineSpaces || null, relay: { ...(serverRoom.relay || {}) } };
+  const merged = { ...client, terminalBootstrap: serverRoom.terminalBootstrap || null, settings: mergeSettings(serverRoom, client), ...mergeDoneWatchFields(serverRoom, client), messages, finalReceipts: serverRoom.finalReceipts || [], lastHeadsUp: serverRoom.lastHeadsUp || null, deferredRelays: serverRoom.deferredRelays || [], deferredSendReceipts: serverRoom.deferredSendReceipts || [], lateFinalWatches: serverRoom.lateFinalWatches || [], localToolResults: serverRoom.localToolResults || [], localToolResultFailure: serverRoom.localToolResultFailure || null, machineSpaces: serverRoom.machineSpaces || client.machineSpaces || null, relay: { ...(serverRoom.relay || {}) } };
   delete merged.pendingTurn;
   delete merged.recovery;
   // Only localhost can create/correlate control intents. An idle server room
@@ -100,6 +100,7 @@ function mergeClientSnapshot(serverSnapshot, clientSnapshot) {
     const clientRoom = clientById.get(serverRoom.id);
     if (runtimeBusy(serverRoom)) rooms.push(mergeBusyRoom(serverRoom, clientRoom));
     else if (clientRoom) rooms.push(mergeIdleRoom(serverRoom, clientRoom));
+    else if (serverRoom.terminalBootstrap?.schema === 'eveos.dex-tlo-scripted-bootstrap.v1') rooms.push(serverRoom); // Headless-created test rooms survive stale viewers.
     else continue;
   }
 

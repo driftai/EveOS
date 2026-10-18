@@ -9,17 +9,17 @@ const urls = () => require('../runtime-config').urls();
 
 function argumentsFor(argv = []) {
   const [command, ...tokens] = argv;
-  if (!['rooms', 'inspect', 'send', 'check', 'wait', 'tui'].includes(command)) throw Error('Use rooms, inspect, send, check, wait, or tui.');
+  if (!['bootstrap', 'rooms', 'inspect', 'send', 'check', 'wait', 'tui'].includes(command)) throw Error('Use rooms, inspect, send, check, wait, or tui.');
   const p = { command };
   for (let i = 0; i < tokens.length; i += 1) {
     const key = tokens[i];
-    if (!['--room','--text','--file','--request-id','--lookup-id','--timeout','--limit'].includes(key) || i + 1 >= tokens.length || tokens[i + 1].startsWith('--'))
+    if (!['--room','--name','--text','--file','--request-id','--lookup-id','--timeout','--limit'].includes(key) || i + 1 >= tokens.length || tokens[i + 1].startsWith('--'))
       throw Error(`Unexpected/missing argument ${key}`);
     const name = key.slice(2).replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
     if (Object.hasOwn(p, name)) throw Error(`Repeated argument ${key}`);
     p[name] = tokens[++i];
   }
-  if (command !== 'rooms' && !/^room-[A-Za-z0-9_-]{6,125}$/.test(p.room || '')) throw Error('Use --room EXACT_ROOM_ID (not a name).');
+  if (!['rooms','bootstrap'].includes(command) && !/^room-[A-Za-z0-9_-]{6,125}$/.test(p.room || '')) throw Error('Use --room EXACT_ROOM_ID (not a name).');
   if (p.file && p.text) throw Error('Choose either --text or --file.');
   if (p.file) {
     const stat = fs.statSync(p.file);
@@ -67,8 +67,9 @@ function transact(payload, { WebSocketImpl = null, url = endpoint(), timeoutMs =
 const id = () => `dex-terminal-${randomUUID()}`;
 function payload(p) {
   return { requestId: p.requestId || id(), roomId: p.room,
-    type: p.command === 'rooms' ? 'dex_terminal_rooms' : p.command === 'send' ? 'dex_terminal_send' : p.command === 'inspect' ? 'dex_terminal_inspect' : 'dex_terminal_check',
+    type: p.command === 'bootstrap' ? 'dex_terminal_bootstrap' : p.command === 'rooms' ? 'dex_terminal_rooms' : p.command === 'send' ? 'dex_terminal_send' : p.command === 'inspect' ? 'dex_terminal_inspect' : 'dex_terminal_check',
     ...(p.command === 'send' ? { text: p.text } : {}),
+    ...(p.command === 'bootstrap' ? { roomName: p.name || 'TLO Autonomy Proof' } : {}),
     ...(p.command === 'inspect' ? { limit: Number(p.limit || 10) } : {}),
     ...(p.command === 'check' || p.command === 'wait' ? { lookupId: p.lookupId || p.requestId } : {}) };
 }
@@ -108,7 +109,7 @@ async function main(argv = process.argv.slice(2)) {
   const p = argumentsFor(argv);
   if (p.command === 'tui') return tui(p);
   const req = payload(p);
-  if (p.command === 'send') console.log('REQUEST_ID', req.requestId, '(preserve for recovery; do not blind-retry)');
+  if (['send','bootstrap'].includes(p.command)) console.log('REQUEST_ID', req.requestId, '(preserve for recovery; do not blind-retry)');
   const result = p.command === 'wait' ? await waitFor(p) : await transact(req);
   console.log(JSON.stringify(result, null, 2));
   if (!result.ok || p.command === 'wait' && result.status !== 'FINAL_RECEIPT_CONFIRMED') process.exitCode = 2;
