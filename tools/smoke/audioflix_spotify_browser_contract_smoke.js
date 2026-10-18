@@ -2,22 +2,14 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('node:child_process');
+const { createQuietChildSuite } = require('./helpers/quiet_child_suite');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const read = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
 const assert = (condition, message) => { if (!condition) throw new Error(`ASSERT FAILED: ${message}`); };
-const runNode = (relative) => {
-    const result = spawnSync(process.execPath, [path.join(ROOT, relative)], { cwd: ROOT, stdio: 'inherit', env: process.env });
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(`${relative} failed with exit ${result.status}`);
-};
-const runPython = (relative) => {
-    const executable = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
-    const result = spawnSync(executable, [path.join(ROOT, relative)], { cwd: ROOT, stdio: 'inherit', env: process.env });
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(`${relative} failed with exit ${result.status}`);
-};
+const suite = createQuietChildSuite({ root: ROOT, name: 'audioflix-spotify-browser-contract',
+    artifactDirectory: 'data/runtime/smoke-results/audioflix-spotify-browser-contract' });
+const { runNode, runPython } = suite;
 
 const helper = read('server_modules/audioflix_spotify_browser.js');
 const activation = read('server_modules/audioflix_spotify_playback_activation.js');
@@ -197,5 +189,7 @@ runNode('tools/smoke/audioflix_queue_completion_contract_smoke.js');
 runNode('tools/smoke/audioflix_provider_host_completion_smoke.js');
 runNode('tools/smoke/audioflix_spotify_engine_smoke.js');
 runNode('tools/smoke/audioflix_spotify_repeat_rearm_smoke.js');
-require('./audioflix_spotify_managed_import_smoke.js');
-console.log('AUDIOFLIX_SPOTIFY_BROWSER_CONTRACT_SMOKE_OK');
+runNode('tests/audioflix_spotify_queue_handoff.test.js');
+runPython('tests/test_audioflix_spotify_delegated_queue.py');
+runNode('tools/smoke/audioflix_spotify_managed_import_smoke.js');
+suite.finish('AUDIOFLIX_SPOTIFY_BROWSER_CONTRACT_SMOKE_OK');

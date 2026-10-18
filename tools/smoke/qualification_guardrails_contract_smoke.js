@@ -49,6 +49,7 @@ for (const required of [
     'smoke:codex-exec-bootstrap-contract',
     'smoke:tlo-autorecovery-contract',
     'smoke:qualification-guardrails-contract',
+    'smoke:timed-qualification-contract',
     'audit:asset-versions',
     'audit:smoke-registry',
     'smoke:coverage-map',
@@ -75,6 +76,20 @@ requireTrue(
         'python -B tools/qualification/tlo_autorecover_policy_test.py',
     'TLO autorecovery deterministic contract entrypoint drifted'
 );
+requireTrue(
+    scripts['smoke:timed-qualification-contract'] ===
+        'python -B tools/qualification/eveos_timed_qualification.py --self-test',
+    'timed qualification scheduler contract entrypoint drifted'
+);
+for (const [name, profile] of Object.entries({
+    'qualify:fast:timed': 'fast', 'qualify:affected:timed': 'affected',
+    'qualify:integration:timed': 'integration', 'verify:timed': 'verify'
+})) {
+    requireTrue(
+        scripts[name] === `python -B tools/qualification/eveos_timed_qualification.py --profile ${profile}`,
+        `timed qualification profile entrypoint drifted: ${name}`
+    );
+}
 
 const verify = String(scripts.verify || '');
 requireTrue(

@@ -3,7 +3,6 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('node:child_process');
 const { chromium } = require('playwright');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -13,15 +12,6 @@ const SPOTIFY_VOLUME = path.join(ROOT, 'js', 'modules', 'features', 'audioflix',
 const SPOTIFY_PLAYBACK = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.audio.url.spotify.js');
 const moduleUrl = (name) => `file:///${path.join(ROOT, 'js', 'modules', 'features', 'audioflix', name).replace(/\\/g, '/')}`;
 const assert = (condition, message) => { if (!condition) throw new Error(`ASSERT FAILED: ${message}`); };
-
-function runChild(runtime, relative) {
-    const command = runtime === 'python'
-        ? (process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3'))
-        : process.execPath;
-    const result = spawnSync(command, [path.join(ROOT, relative)], { cwd: ROOT, stdio: 'inherit', env: process.env });
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(`${relative} failed with exit ${result.status}`);
-}
 
 (async () => {
     const uiMain = fs.readFileSync(UI_MAIN, 'utf8');
@@ -209,11 +199,6 @@ function runChild(runtime, relative) {
         await browser.close();
         fs.rmSync(fixture, { force: true });
     }
-
-    runChild('node', 'tools/smoke/audioflix_spotify_browser_contract_smoke.js');
-    runChild('node', 'tools/smoke/audioflix_spotify_browser_runtime_smoke.js');
-    runChild('python', 'tools/smoke/audioflix_spotify_browser_python_smoke.py');
-    runChild('node', 'tools/smoke/audioflix_volume_managed_smoke.js');
 
     console.log('AUDIOFLIX_SPOTIFY_PLAYBACK_SMOKE_OK');
 })().catch((error) => {

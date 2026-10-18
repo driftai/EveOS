@@ -82,6 +82,9 @@ async function createFixture(browser, root, { queueView = true } = {}) {
     await context.addInitScript(() => {
         try { localStorage.clear(); } catch {}
         window.__eveSmokeNoAutoGemini = true;
+        // These queue contracts exercise fully loaded AudioFlix, not the production
+        // idle-loading cadence. Keep all scripts, but remove deliberate batch pauses.
+        window.__RUSH_DEFERRED_LOAD = true;
     });
     await context.tracing.start({ screenshots: true, snapshots: true });
     await page.goto(pathToFileURL(path.join(root, 'EveOS.html')).href, { waitUntil: 'load', timeout: 180000 });
