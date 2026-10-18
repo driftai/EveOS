@@ -4,6 +4,8 @@
   "private": true,
   "description": "Local-first browser workspace and knowledge system",
   "scripts": {
+    "verify:timed": "python -B tools/qualification/eveos_timed_qualification.py --profile verify",
+    "qualify:nexus:timed": "python -B tools/qualification/eveos_timed_qualification.py --profile nexus",
     "test": "npm run verify",
     "test:smoke": "node tools/smoke/eveos_profile_runner.mjs --profile fast --reuse-pass",
     "test:smoke:verbose": "node tools/smoke/eveos_profile_runner.mjs --profile fast --verbose",
