@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const terminalRelayStorage = require('./scripts/terminal-relay-storage');
 const runtimeConfig = require('./runtime-config');
+const { freshQuota } = require('./local-targets/codex-quota');
 
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -51,6 +52,17 @@ function createHttpHandler({ host, port, publicDir, diagnostics }) {
     if (url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify({ ok: true, service: 'eveos-nexus-browser', port }));
+      return;
+    }
+    if (url.pathname === '/codex/quota' && req.method === 'GET') {
+      const remote = String(req.socket?.remoteAddress || '');
+      const loopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+      if (!loopback) { res.writeHead(403).end('Loopback only'); return; }
+      freshQuota().then((snapshot) => {
+        if (res.writableEnded) return;
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(snapshot));
+      }, () => { res.writeHead(503).end('Quota unavailable'); });
       return;
     }
     if (url.pathname === '/terminal-relay/status') {

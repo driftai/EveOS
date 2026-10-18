@@ -9,6 +9,7 @@ const {
   resumedThreadId, queueAndCapture
 } = require('./codex-common');
 
+const { ensureCodexDispatch } = require('./codex-quota');
 const SPAWNED_ID = 'local:codex-cli:spawned';
 const STATE_FILE = path.join(dataDir(), 'codex-spawned-session.json');
 const active = new Set();
@@ -114,7 +115,7 @@ async function sendPrompt(args) {
   if (!String(args.text || '').trim()) throw new Error('Local agent prompt is empty.');
   if (active.has(id)) throw new Error('That ChatGPT target is already handling a turn.');
   active.add(id);
-  try { return await sendSpawned(args); }
+  try { await ensureCodexDispatch(); return await sendSpawned(args); }
   finally { active.delete(id); }
 }
 

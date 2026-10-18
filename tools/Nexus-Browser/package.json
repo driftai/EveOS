@@ -10,6 +10,8 @@
     "test": "node --test tests/*.test.js",
     "start:raw": "node server.js",
     "doctor": "node scripts/bridge-doctor.js",
+    "quota:codex": "node scripts/codex-quota-cli.js",
+    "quota:codex:strict": "node scripts/codex-quota-cli.js --require-fresh",
     "inspect:control-receipts": "node scripts/provider-receipt-inspect.js",
     "qualify": "node scripts/qualify.js",
     "qualify:live": "node scripts/live-qualify.js",

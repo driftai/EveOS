@@ -46,6 +46,8 @@ const baseline = JSON.parse(fs.readFileSync(
 
 const guardrailScript = String(scripts['test:guardrails'] || '');
 for (const required of [
+    'smoke:codex-exec-bootstrap-contract',
+    'smoke:tlo-autorecovery-contract',
     'smoke:qualification-guardrails-contract',
     'audit:asset-versions',
     'audit:smoke-registry',
@@ -58,6 +60,21 @@ for (const required of [
         `test:guardrails lost required structural check: ${required}`
     );
 }
+requireTrue(
+    scripts['smoke:codex-exec-bootstrap-contract'] ===
+        'python -B tools/qualification/codex_exec_bootstrap_test.py',
+    'Codex exec bootstrap deterministic contract entrypoint drifted'
+);
+requireTrue(
+    scripts['qualify:codex-exec-bootstrap-native'] ===
+        'python -B tools/qualification/codex_exec_bootstrap_test.py --native',
+    'Codex exec bootstrap native preflight entrypoint drifted'
+);
+requireTrue(
+    scripts['smoke:tlo-autorecovery-contract'] ===
+        'python -B tools/qualification/tlo_autorecover_policy_test.py',
+    'TLO autorecovery deterministic contract entrypoint drifted'
+);
 
 const verify = String(scripts.verify || '');
 requireTrue(

@@ -1,0 +1,8 @@
+.codex-quota { border: 1px solid rgba(135,150,166,.35); border-radius: 12px; padding: 10px 14px; margin: 14px 0; color: inherit; }
+.codex-quota__header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.codex-quota__header button { padding: 5px 10px; font-size: .85em; }
+.codex-quota__grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px; margin-top:10px; }
+.codex-quota__item { display:flex; flex-direction:column; gap:4px; }
+.codex-quota progress { display:block; width:100%; height: 12px; accent-color:#4d97ca; }
+.codex-quota[data-quota-level="low"] progress { accent-color:#bb812e; }
+.codex-quota small { opacity:.8; }

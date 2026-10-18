@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/target-classes.css">
   <link rel="stylesheet" href="/dex-mode.css">
   <link rel="stylesheet" href="/machine-spaces.css">
+  <link rel="stylesheet" href="/codex-quota.css">
 </head>
 <body>
   <main class="shell">
@@ -25,6 +26,18 @@
       <button id="baseModeTab" class="mode-tab active" type="button">Base Mode</button>
       <button id="dexModeTab" class="mode-tab" type="button">Dex Mode</button>
     </nav>
+
+    <section id="nexusCodexQuota" class="codex-quota" data-quota-level="normal" aria-label="Codex capacity">
+      <div class="codex-quota__header">
+        <strong>Codex · usage limits</strong>
+        <span data-quota-status role="status">Checking local Codex quota…</span>
+        <button type="button" data-quota-refresh class="secondary">Refresh</button>
+      </div>
+      <div class="codex-quota__grid">
+        <div class="codex-quota__item" data-window="fiveHour"><strong>5-hour limit</strong><progress max="100"></progress><span data-remaining>Unavailable</span><small data-reset>Reset time unavailable</small></div>
+        <div class="codex-quota__item" data-window="weekly"><strong>Weekly limit</strong><progress max="100"></progress><span data-remaining>Unavailable</span><small data-reset>Reset time unavailable</small></div>
+      </div>
+    </section>
 
     <div id="baseModePanel">
       <section class="target-card">
@@ -378,5 +391,6 @@
   <script src="/dex-mode.js"></script>
   <script src="/machine-dialog.js"></script>
   <script src="/machine-spaces-ui.js"></script>
+  <script src="/codex-quota-ui.js"></script>
 </body>
 </html>

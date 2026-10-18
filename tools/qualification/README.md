@@ -13,6 +13,26 @@ node tools/setup/eveos_verify.mjs
 
 `eveos_verify` composes repository hygiene, GitHub Actions security, Queue View pointer stability, recovered structural regression contracts, and the canonical deterministic guardrail suite. Live provider acceptance remains opt-in and separate.
 
+## Codex exec bootstrap
+
+The tracked bootstrap keeps the approval policy global, requires the exact branch and
+HEAD, uses only `workspace-write`, and never retries an unknown execution outcome.
+Its deterministic contract is part of `test:guardrails`:
+
+```powershell
+npm run --silent smoke:codex-exec-bootstrap-contract
+```
+
+The installed Windows CLI can be checked without model inference or mission dispatch:
+
+```powershell
+npm run --silent qualify:codex-exec-bootstrap-native
+```
+
+An actual mission launch remains explicit. Pass `--expected-head`, keep the mission and
+result directory under ignored runtime evidence, and inspect the JSON receipt before any
+manual retry. The bootstrap never publishes or grants TLO execution authority.
+
 If an older workstation still contains Lane 3 `.mjs`/`.cjs` drivers under `data/runtime/smoke-results/`, audit them with:
 
 ```powershell

@@ -194,6 +194,7 @@ def main() -> int:
         )
 
         if result["status"] == 0:
+            authority_guard(args.branch, args.expected_head, allowed_dirty)
             receipt["outcome"] = "GREEN"
 
             write_json(

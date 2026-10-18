@@ -11,7 +11,10 @@ function stop(room, reason) {
   room.relay.lastStopReason = reason;
 }
 
-function repairSnapshot(snapshot, { now = Date.now(), maxRecoveryAgeMs = 24 * 60 * 60 * 1000 } = {}) {
+function repairSnapshot(snapshot, {
+  now = Date.now(), maxRecoveryAgeMs = 24 * 60 * 60 * 1000,
+  restartRecovery = false
+} = {}) {
   const value = snapshot && typeof snapshot === 'object' ? snapshot : {};
   const rooms = Array.isArray(value.rooms) ? value.rooms : [];
   const repairs = [];
@@ -25,6 +28,18 @@ function repairSnapshot(snapshot, { now = Date.now(), maxRecoveryAgeMs = 24 * 60
     const memberIds = new Set(room.members.map((member) => member?.id).filter(Boolean));
     const messageIds = new Set(room.messages.map((message) => message?.id).filter(Boolean));
     const recovery = room.recovery || null;
+
+    if (restartRecovery && Array.isArray(room.localToolResults)) {
+      for (const result of room.localToolResults) {
+        if (!result || result.state !== 'claimed') continue;
+        result.state = 'outcome-unknown';
+        repairs.push({
+          roomId: room.id,
+          requestId: result.requestId || null,
+          code: 'ORPHANED_LOCAL_TOOL_RESULT_CLAIM'
+        });
+      }
+    }
 
     if (room.relay.active && !room.members.length) {
       stop(room, 'Deterministic repair · active room had no participants');

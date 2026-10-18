@@ -33,19 +33,19 @@ function createDexStateStore({ filePath = DEFAULT_FILE } = {}) {
   let lastIssues = [];
   let current = readJson(filePath);
 
-  function normalize(snapshot) {
+  function normalize(snapshot, { restartRecovery = false } = {}) {
     if (!snapshot) return null;
-    const repaired = repairSnapshot(cleanSnapshot(snapshot));
+    const repaired = repairSnapshot(cleanSnapshot(snapshot), { restartRecovery });
     lastRepairs = repaired.repairs;
     lastIssues = repaired.issues;
     return repaired.snapshot;
   }
 
-  current = normalize(current);
+  current = normalize(current, { restartRecovery: true });
   if (current && lastRepairs.length) atomicWrite(filePath, current);
 
   function load() {
-    if (!current) current = normalize(readJson(filePath));
+    if (!current) current = normalize(readJson(filePath), { restartRecovery: true });
     return current ? JSON.parse(JSON.stringify(current)) : null;
   }
 

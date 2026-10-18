@@ -28,7 +28,7 @@ function runChild(runtime, relative) {
     const queueCompletion = fs.readFileSync(QUEUE_COMPLETION, 'utf8');
     const spotifyVolume = fs.readFileSync(SPOTIFY_VOLUME, 'utf8');
     const spotifyPlayback = fs.readFileSync(SPOTIFY_PLAYBACK, 'utf8');
-    assert(uiMain.includes("if (status === 'Ended') completeQueue(e.detail)")
+    assert(uiMain.includes("if (status === 'Ended' && !(e.detail?.remoteManaged && window.EveAudioflixSpotifyQueueHandoff?.isDelegated?.())) completeQueue(e.detail)")
         && uiMain.includes('window.EveAudioflixQueueCompletion.createRuntime({')
         && uiMain.includes('playIndex: (index) => playQueueIndex(index)')
         && uiMain.includes('complete: completeQueue } = queueRuntime')
@@ -36,7 +36,7 @@ function runChild(runtime, relative) {
         && queueCompletion.includes('const complete = create({')
         && queueCompletion.includes('await (latest.repeatOne ? restart() : advance())')
         && queueCompletion.includes('advance: () => playIndex(queue().currentIndex + 1)'),
-        'frontend queue remains the sole owner that consumes Spotify Ended and advances');
+        'frontend owns nondelegated Ended; delegated Spotify completion remains broker-owned');
     assert(!spotifyVolume.includes('getDisplayMedia') && !spotifyVolume.includes('createMediaStreamSource'),
         'Spotify volume never regresses to tab/screen capture');
     assert(!spotifyPlayback.includes('paused unexpectedly. Recovering')

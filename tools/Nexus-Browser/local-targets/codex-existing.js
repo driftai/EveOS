@@ -4,6 +4,7 @@ const {
   discoverCodexProcesses, resumedThreadId, findRolloutFile, queueAndCapture
 } = require('./codex-common');
 
+const { ensureCodexDispatch } = require('./codex-quota');
 const TARGET_PREFIX = 'local:codex-existing:';
 const active = new Set();
 
@@ -42,6 +43,7 @@ async function sendPrompt({ requestId, text, target, emit, queueImpl = queueAndC
   if (active.has(threadId)) throw new Error('That existing ChatGPT terminal is already handling a turn.');
   active.add(threadId);
   try {
+    await ensureCodexDispatch();
     const result = await queueImpl({
       threadId, text, cwd: target.workspace || process.cwd(),
       emitPartial: (value) => emit?.({
