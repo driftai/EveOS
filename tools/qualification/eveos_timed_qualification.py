@@ -222,7 +222,7 @@ def validate_gate_graph(gates):
     if visited != len(gates): raise ValueError('qualification dependency cycle detected')
 
 
-def run_dag(gates, evidence, *, jobs, heartbeat, slow_warning, previous=None):
+def run_dag(gates, evidence, *, jobs, heartbeat, slow_warning, previous=None, runner=run_gate):
     validate_gate_graph(gates)
     previous_times = {item.get('gate'): item.get('seconds') for item in (previous or {}).get('gates', [])}
     for item in gates:
@@ -254,7 +254,7 @@ def run_dag(gates, evidence, *, jobs, heartbeat, slow_warning, previous=None):
                             now-resource_blocked_since.get(label, now), 3)
                         item['workerWaitSeconds'] = round(max(
                             0, item['queueWaitSeconds']-item['resourceWaitSeconds']), 3)
-                        future = pool.submit(run_gate, item, evidence, registry=registry,
+                        future = pool.submit(runner, item, evidence, registry=registry,
                                              heartbeat=heartbeat, slow_warning=slow_warning)
                         futures[future] = item; pending.pop(label); capacity -= 1
                 if not futures:
@@ -367,18 +367,33 @@ def self_test():
     sleeper = lambda label, resource=(), code=0, depends=(): gate(label,
         [sys.executable, '-c', f'import time; time.sleep(.12); raise SystemExit({code})'],
         resource, depends, 'pure')
+    # A 120ms child-process speed ratio is unreliable on busy Windows hosts:
+    # process startup and the runner's polling interval dominate the signal.
+    # Instead, prove that two independent gates ENTER their runners together.
+    overlapping = threading.Event()
+    overlap_guard = threading.Lock()
+    overlap_count = 0
+
+    def synchronized_gate(spec, _evidence, **_options):
+        nonlocal overlap_count
+        with overlap_guard:
+            overlap_count += 1
+            if overlap_count == 2: overlapping.set()
+        met = overlapping.wait(timeout=5)
+        return {'gate': spec['label'], 'status': 'PASS' if met else 'FAIL',
+                'seconds': 0, 'execution': 'executed'}
+
     with contextlib.redirect_stdout(io.StringIO()):
-        begun = time.monotonic()
         parallel, _, _ = run_dag([sleeper('parallel-a'), sleeper('parallel-b')], evidence,
-                                 jobs=2, heartbeat=120, slow_warning=60)
-        parallel_elapsed = time.monotonic()-begun
+                                 jobs=2, heartbeat=120, slow_warning=60, runner=synchronized_gate)
         begun = time.monotonic()
         serial, _, _ = run_dag([sleeper('lock-a', ('shared',)), sleeper('lock-b', ('shared',))], evidence,
                                jobs=2, heartbeat=120, slow_warning=60)
         serial_elapsed = time.monotonic()-begun
         failed, skipped, _ = run_dag([sleeper('bad', code=7), sleeper('blocked', depends=('bad',))], evidence,
                                      jobs=2, heartbeat=120, slow_warning=60)
-    assert len(parallel) == 2 and parallel_elapsed < serial_elapsed * .8
+    assert len(parallel) == 2 and overlapping.is_set() and all(
+        item['status'] == 'PASS' for item in parallel)
     assert len(serial) == 2 and serial_elapsed >= .22 and sum(x['queueWaitSeconds'] for x in serial) >= .08
     assert failed[0]['status'] == 'FAIL' and skipped == [{'gate': 'blocked', 'reason': 'dependency failed'}]
     for invalid in ([gate('a', [], depends=('missing',))],
