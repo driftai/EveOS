@@ -92,10 +92,12 @@ test('TUI can display bounded progress before authoritative final', async () => 
     tx:async msg=>msg.type==='send'?{ok:true,status:'MESSAGE_COMMITTED_RELAY_ACCEPTED'}
       :++checks===1?{ok:true,status:'AWAITING_REPLY_OR_RECOVERY',progress:'generating',partialText:'Hello'}
         :{ok:true,status:'FINAL_RECEIPT_CONFIRMED',response:{text:'Hello'}}});
+  input.write('/preview on\n');
   input.write('hello\n');
   const until=Date.now()+700;
   while(!log.includes('TLO/Dex> Hello') && Date.now()<until)await new Promise(r=>setTimeout(r,5));
   input.write('/quit\n');await work;
+  assert.match(log,/generating/);
   assert.match(log,/live preview/);
   assert.match(log,/TLO\/Dex> Hello/);
 });

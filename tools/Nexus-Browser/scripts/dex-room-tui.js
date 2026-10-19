@@ -40,7 +40,7 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
   const rl = readline.createInterface({ input, output, terminal: !!output.isTTY, prompt: 'Dex> ' });
   const receipts = new Map();
   const monitors = new Map();
-  let latest = null, verbose = false, closed = false;
+  let latest = null, verbose = false, previewEnabled = false, closed = false;
   const write = (message) => { if (closed) return; output.write(`\n${message}\n`); rl.prompt(true); };
   const fail = (error) => write(`! ${error.code || 'ERROR'}: ${error.message || error}`);
   const safePreview = value => String(value || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x1b]/g, '').slice(0, 1800);
@@ -84,7 +84,7 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
             write(`· ${result.progress.replace(/-/g, ' ')} (${Math.round((Date.now() - started) / 1000)}s)`);
             lastUpdate = Date.now();
           }
-          const partial = safePreview(result.partialText);
+          const partial = previewEnabled ? safePreview(result.partialText) : '';
           if (partial && partial !== lastPartial) {
             const added = partial.startsWith(lastPartial) ? partial.slice(lastPartial.length) : partial;
             // Bound preview frequency. The final receipt remains authoritative.
@@ -111,7 +111,7 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
     monitors.set(requestId, pending);
     return pending;
   }
-  output.write(`Dex room ${p.room} · auto-replies on · /status /history /errors /check /wait /details /ids /quit\n`);
+  output.write(`Dex room ${p.room} · auto-replies on · /status /history /errors /check /wait /details /ids /preview /quit\n`);
   rl.prompt();
   for await (const line of rl) {
     const text = line.trim();
@@ -119,7 +119,13 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
     if (text === '/quit' || text === '/exit') break;
     try {
       if (text === '/help') {
-        write('/status room state and last error · /history recent messages · /errors latest Dex room errors · /check latest receipt · /wait await latest reply · /details [on|off] technical receipts · /ids request IDs · /quit');
+        write('/status room state and last error · /history recent messages · /errors latest Dex room errors · /check latest receipt · /wait await latest reply · /details [on|off] technical receipts · /ids request IDs · /preview [on|off] live text preview · /quit');
+      } else if (text === '/preview' || text === '/preview on' || text === '/preview off') {
+        if (text === '/preview on') previewEnabled = true;
+        if (text === '/preview off') previewEnabled = false;
+        write(`Live preview ${previewEnabled ? 'ON' : 'OFF'} (confirmed replies always display).`);
+      } else if (text.startsWith('/preview ')) {
+        write('Usage: /preview [on|off]. No message sent.');
       } else if (text === '/ids') {
         write([...receipts.keys()].join('\n') || 'No messages sent in this session.');
       } else if (text === '/details' || text === '/details on' || text === '/details off') {
