@@ -301,10 +301,14 @@ inner recovery receipts are projected into the exact room's final Machine
 Spaces event without exposing raw output. Operational usage and the A-I
 acceptance map live in `docs/NEXUS-PHASE3-AUTONOMOUS-RECOVERY.md`.
 
-Status: **IMPLEMENTED, LIVE REPAIR-TO-GREEN ACCEPTANCE PENDING**. Deterministic
-contracts cover bounded correction, unauthorized scope, concurrency isolation,
-restart reconciliation and no-replay. The remaining seal is a disposable live
-TLO repair-to-GREEN receipt through ordinary PowerShell and the managed terminal.
+Status: **IMPLEMENTED AND LIVE ACCEPTED**. Deterministic contracts cover bounded
+correction, unauthorized scope, concurrency isolation, restart reconciliation
+and no-replay. On 2026-10-19, disposable live failures reached GREEN through
+both ordinary PowerShell and the Playwright-operated managed-terminal workflow.
+The Machine Spaces proof used Human Input, exact authority review and the second
+Start confirmation, then projected the shared engine's GREEN receipt into the
+exact Dex room with zero browser errors. Exact receipt and A-I evidence are in
+`docs/NEXUS-PHASE3-AUTONOMOUS-RECOVERY.md`.
 
 ## V0.7.1B — Scriptable TLO proof-room bootstrap (bounded candidate)
 

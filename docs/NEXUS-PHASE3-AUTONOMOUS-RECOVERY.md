@@ -78,5 +78,25 @@ job becomes `outcome-unknown`. Neither state is replayed automatically.
 | H: uncertain command | timeout/outcome-unknown no-replay contracts |
 | I: regression | Nexus Browser, AI-control, guardrail and publication suites |
 
-Passing deterministic tests proves the contracts. Final operational acceptance
-also requires a disposable live TLO repair-to-GREEN receipt in both interfaces.
+## Final acceptance receipt — 2026-10-19
+
+The shared recovery implementation was accepted at `4ce1f53a7`, followed by
+the exact live-receipt projection correction at `1c58ddd78`.
+
+| Scenario | Result |
+| --- | --- |
+| A: ordinary success/no inference | PASS — one command attempt, zero repair proposals, `tlo-autorecover-20261019T125659-b126ca29/receipt.json` |
+| B: ordinary repair to GREEN | PASS — failure, one authorized edit, targeted retry, GREEN, `tlo-autorecover-20261019T125721-a03f1cb3/receipt.json` |
+| C: Machine Spaces repair to GREEN | PASS — Playwright local-owner preparation and second Start confirmation; job `machine-job-b3572798-a515-4809-96c5-eff958e059c7`; room receipt `tlo-autorecover-20261019T130401-0fd101fd/receipt.json`; zero browser errors |
+| D: restart/crash | PASS — durable restart reconciliation cancels never-started work and marks active work outcome-unknown without replay |
+| E: unauthorized repair | PASS — exact branch, HEAD, target, cwd, path, symlink and retry-authority rejections |
+| F: malformed/unavailable model | PASS — bounded JSON extraction/correction and fail-closed TLO preflight/proposal handling |
+| G: concurrency | PASS — immutable request IDs, per-target exclusion, isolated receipts and stale-epoch rejection |
+| H: uncertain command | PASS — timeout and unconfirmed interruption become outcome-unknown and are never replayed |
+| I: regression | PASS — Nexus Browser 1835/1835, Dex qualification, AI-control 14/14, root Nexus smoke 4/4, publication guardrails and 463/463 smoke registration |
+
+The three receipt paths are ignored machine-local evidence. The table records
+their accepted identities without making private model output or mutable runtime
+state part of Git. Mode A and Mode B now exercise the same recovery engine and
+both have a real failure → authorized repair → targeted verification → safe
+retry → GREEN proof.
