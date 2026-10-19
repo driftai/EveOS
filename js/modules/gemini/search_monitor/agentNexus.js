@@ -41,6 +41,7 @@
                     <button type="button" data-agent-management-action="new">New agent</button>
                 </div>
                 <p class="eveos-agent-management-status" data-agent-management-status>Open this view to load local agent profiles.</p>
+                ${window.EveOSAgentDocuments?.secureBanner?.() || ''}
                 <div class="eveos-agent-tabs" data-agent-management-tabs role="tablist" aria-label="Local agents"></div>
                 <form class="eveos-agent-form" data-agent-management-form hidden>
                     <label>Agent ID<input name="id" maxlength="64" pattern="[a-z0-9][a-z0-9._-]{0,63}" required></label>
