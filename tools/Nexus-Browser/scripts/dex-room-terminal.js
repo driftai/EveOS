@@ -85,7 +85,7 @@ async function waitFor(p, tx = transact) {
   return { ok: false, code: 'DEX_TERMINAL_NOT_PROVEN', message: 'No authoritative TLO final receipt before deadline. Inspect the room and existing request; do not resend.', last: result?.status };
 }
 async function tui(p, tx = transact) {
-  return require('./dex-room-tui').runTui(p, { tx, payload, id });
+  return require('./dex-room-tui').runTui(p, { tx, payload, id, resolveIdentity: true });
 }
 async function main(argv = process.argv.slice(2)) {
   const p = argumentsFor(argv);

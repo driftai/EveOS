@@ -2,6 +2,7 @@
 // Interactive room chat is a presentation client. It never dispatches a second
 // agent turn, and verifies finals against the existing durable Dex receipt.
 const readline = require('node:readline');
+const { promptFor } = require('./dex-tui-identity');
 
 const safeDiagnostic = (value, limit = 320) => String(value ?? '')
   .replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').slice(0, limit);
@@ -34,13 +35,24 @@ function formatFinal(result = {}) {
   return `${result.code || result.status || 'UNKNOWN'}: ${result.message || 'Final receipt not confirmed'}`;
 }
 async function runTui(p, { tx, payload, id, input = process.stdin, output = process.stdout,
-  errorOutput = process.stderr, pollMs = 700, timeoutMs = 195000 } = {}) {
+  errorOutput = process.stderr, pollMs = 700, timeoutMs = 195000, displayName = null, resolveIdentity = false } = {}) {
   if (typeof tx !== 'function' || typeof payload !== 'function' || typeof id !== 'function')
     throw new TypeError('Dex TUI requires the established terminal operator client');
-  const rl = readline.createInterface({ input, output, terminal: !!output.isTTY, prompt: 'Dex> ' });
+  let speaker = displayName || p.userName || '';
+  if (resolveIdentity && !speaker) {
+    // Read-only inspection of this exact room; never dispatch merely to label the prompt.
+    try {
+      const result = await tx(payload({ ...p, command: 'inspect', requestId: id(), limit: 20 }));
+      if (result?.ok) {
+        speaker = result.userName || [...(result.messages || [])].reverse()
+          .find(message => message?.senderKind === 'user')?.senderName || '';
+      }
+    } catch {} // Keep the prompt usable offline; fallback label is User.
+  }
+  const rl = readline.createInterface({ input, output, terminal: !!output.isTTY, prompt: promptFor(speaker, 'Dex') });
   const receipts = new Map();
   const monitors = new Map();
-  let latest = null, verbose = false, previewEnabled = false, closed = false;
+  let latest = null, verbose = false, previewEnabled = false, quiet = false, closed = false, navigation = 'quit';
   const write = (message) => { if (closed) return; output.write(`\n${message}\n`); rl.prompt(true); };
   const fail = (error) => write(`! ${error.code || 'ERROR'}: ${error.message || error}`);
   const safePreview = value => String(value || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x1b]/g, '').slice(0, 1800);
@@ -81,7 +93,7 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
           }
           if (result.progress && result.progress !== lastProgress) {
             lastProgress = result.progress;
-            write(`· ${result.progress.replace(/-/g, ' ')} (${Math.round((Date.now() - started) / 1000)}s)`);
+            if (!quiet) write(`· ${result.progress.replace(/-/g, ' ')} (${Math.round((Date.now() - started) / 1000)}s)`);
             lastUpdate = Date.now();
           }
           const partial = previewEnabled ? safePreview(result.partialText) : '';
@@ -94,7 +106,7 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
             }
             lastPartial = partial;
           }
-          if (Date.now() - lastUpdate > 15000) {
+          if (!quiet && Date.now() - lastUpdate > 15000) {
             write(`· Waiting for exact reply (${Math.round((Date.now() - started) / 1000)}s, ${result.progress || 'pending'})`);
             lastUpdate = Date.now();
           }
@@ -111,15 +123,23 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
     monitors.set(requestId, pending);
     return pending;
   }
-  output.write(`Dex room ${p.room} · auto-replies on · /status /history /errors /check /wait /details /ids /preview /quit\n`);
+  output.write(`Dex room ${p.room} · auto-replies on · /status /history /errors /check /wait /details /ids /preview /quiet /back /home /quit\n`);
   rl.prompt();
   for await (const line of rl) {
     const text = line.trim();
     if (!text) { rl.prompt(); continue; }
-    if (text === '/quit' || text === '/exit') break;
+    if (text === '/back' || text === '/rooms') { navigation = 'rooms'; break; }
+    if (text === '/home') { navigation = 'home'; break; }
+    if (text === '/quit' || text === '/exit') { navigation = 'quit'; break; }
     try {
       if (text === '/help') {
-        write('/status room state and last error · /history recent messages · /errors latest Dex room errors · /check latest receipt · /wait await latest reply · /details [on|off] technical receipts · /ids request IDs · /preview [on|off] live text preview · /quit');
+        write('/status room state and last error · /history recent messages · /errors latest Dex room errors · /check latest receipt · /wait await latest reply · /details [on|off] technical receipts · /ids request IDs · /preview [on|off] live text preview · /quiet [on|off] suppress progress · /back rooms · /home menu · /quit exit');
+      } else if (text === '/quiet' || text === '/quiet on' || text === '/quiet off') {
+        if (text === '/quiet on') quiet = true;
+        if (text === '/quiet off') quiet = false;
+        write(`Quiet mode ${quiet ? 'ON' : 'OFF'} (request IDs, failures and finals remain visible).`);
+      } else if (text.startsWith('/quiet ')) {
+        write('Usage: /quiet [on|off]. No message sent.');
       } else if (text === '/preview' || text === '/preview on' || text === '/preview off') {
         if (text === '/preview on') previewEnabled = true;
         if (text === '/preview off') previewEnabled = false;
@@ -168,5 +188,6 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
   }
   closed = true;
   rl.close();
+  return { navigation };
 }
 module.exports = { runTui, formatRoom, formatFinal, formatRecentErrors };

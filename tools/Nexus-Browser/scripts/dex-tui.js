@@ -1,82 +1,120 @@
 #!/usr/bin/env node
 'use strict';
-// Room picker for the existing Dex terminal operator. Selection is read-only;
-// only the established room chat client can submit a user-origin message.
+// Terminal-native navigation. Each child view owns stdin exclusively until it
+// returns. No room or target is dispatched while navigating.
 const readline = require('node:readline');
 const { randomUUID } = require('node:crypto');
-
+const { displayName } = require('./dex-tui-identity');
 const ROOM_ID = /^room-[A-Za-z0-9_-]{6,125}$/;
-const safe = value => String(value ?? '').replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').slice(0, 80);
+const safe = (value, limit = 80) => String(value ?? '')
+  .replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').slice(0, limit);
 const nextId = () => `dex-terminal-${randomUUID()}`;
-
 function chooseRoom(choice, rooms) {
   const entry = String(choice || '').trim();
   if (/^[1-9]\d*$/.test(entry)) return rooms[Number(entry) - 1] || null;
   return rooms.find(room => room.roomId === entry) || null;
 }
 function formatRooms(rooms) {
-  if (!rooms.length) return 'No available Dex rooms. Use /refresh to check again.';
-  const lines = ['Available Dex rooms:'];
+  if (!rooms.length) return '  No rooms found. Use /refresh to retry.';
+  const lines = ['  ROOMS'];
   rooms.forEach((room, index) => {
     const states = [room.busy ? 'busy' : 'idle'];
-    if (room.recoveryPending) states.push('recovery pending');
+    if (room.recoveryPending) states.push('recovery');
     if (room.tloMemberId) states.push('TLO');
-    if (room.machineSpaceId) states.push('Machine Space');
-    lines.push(`${index + 1}. ${safe(room.roomName) || safe(room.roomId)} [${states.join(', ')}]`);
-    lines.push(`   ${room.roomId}`);
+    if (room.machineSpaceId) states.push('space');
+    lines.push(`  ${String(index + 1).padStart(2)}  ${safe(room.roomName) || safe(room.roomId)}  [${states.join(' · ')}]`);
   });
   return lines.join('\n');
+}
+function home() {
+  return '\n  EVEOS  /  NEXUS TERMINAL\n'
+    + '  ─────────────────────────────────────\n'
+    + '  1  Dex rooms           Chat and receipts\n'
+    + '  2  Base Mode           Select a local target\n'
+    + '  3  Machine Spaces      Read-only inventory\n'
+    + '  ─────────────────────────────────────\n'
+    + '  /name NAME set your label · /quit exit  ·  /help commands\n';
+}
+function askLine(input, output, prompt) {
+  return new Promise(resolve => {
+    const rl = readline.createInterface({ input, output, terminal: !!output.isTTY });
+    let done = false;
+    const finish = value => { if (done) return; done = true; rl.close(); resolve(value); };
+    rl.once('line', finish);
+    rl.once('close', () => finish(null));
+    rl.setPrompt(prompt);
+    rl.prompt();
+  });
 }
 async function runApp({ input = process.stdin, output = process.stdout,
   tx = (...args) => require('./dex-room-terminal').transact(...args),
   makePayload = (...args) => require('./dex-room-terminal').payload(...args),
-  id = nextId, runRoom = (...args) => require('./dex-room-tui').runTui(...args) } = {}) {
-  let rooms = [];
+  id = nextId,
+  runRoom = (...args) => require('./dex-room-tui').runTui(...args),
+  runBase = (...args) => require('./dex-tui-base').runBase(...args),
+  runSpaces = (...args) => require('./dex-tui-spaces').runSpaces(...args)
+} = {}) {
   const say = message => output.write(`${message}\n`);
+  let place = 'home';
+  let rooms = [];
+  let preferredName = displayName(process.env.NEXUS_TUI_DISPLAY_NAME || 'User');
   async function refresh() {
-    // Discovery never submits a room message or changes dispatch ownership.
-    const result = await tx(makePayload({ command: 'rooms', requestId: id() }));
-    if (!result?.ok || !Array.isArray(result.rooms)) {
-      rooms = []; // An old picker snapshot must not be used after a failed refresh.
-      say(`! ${safe(result?.code || 'DEX_TUI_ROOMS_UNAVAILABLE')}: ${safe(result?.message || 'Room discovery failed.')}`);
-      return;
+    try {
+      const result = await tx(makePayload({ command: 'rooms', requestId: id() }));
+      if (!result?.ok || !Array.isArray(result.rooms)) throw Object.assign(
+        new Error(result?.message || 'Room discovery failed'), { code: result?.code || 'ROOMS_UNAVAILABLE' });
+      rooms = result.rooms.filter(room => ROOM_ID.test(room?.roomId || '')).slice(0, 32);
+      return true;
+    } catch (error) {
+      rooms = []; // never select from a stale discovery snapshot
+      say(`  ! ${safe(error.code || 'ROOMS_UNAVAILABLE')}: ${safe(error.message)}`);
+      return false;
     }
-    rooms = result.rooms.filter(room => ROOM_ID.test(room?.roomId || '')).slice(0, 32);
-    say(formatRooms(rooms));
   }
-  say('EveOS Dex TUI · choose a room number or exact room ID');
-  say('Commands: /refresh /help /quit');
-  try { await refresh(); }
-  catch (error) { rooms = []; say(`! Room discovery unavailable: ${safe(error?.message || error)}`); }
-  const rl = readline.createInterface({ input, output, terminal: !!output.isTTY, prompt: 'dex-tui> ' });
-  try {
-    rl.prompt();
-    for await (const raw of rl) {
-      const choice = raw.trim();
-      if (choice === '/quit' || choice === '/exit') return { ok: true, quit: true };
-      if (choice === '/help') say('Choose a displayed number or exact room ID. /refresh reloads rooms. /quit exits.');
-      else if (choice === '/refresh') {
-        try { await refresh(); }
-        catch (error) { rooms = []; say(`! Room discovery unavailable: ${safe(error?.message || error)}`); }
-      } else if (choice) {
-        const selected = chooseRoom(choice, rooms);
-        if (!selected) say('No matching listed room. Use /refresh or select an exact displayed room ID.');
-        else {
-          // Stop consuming stdin before transferring ownership to the proven
-          // single-room TUI. No messages are sent as part of room selection.
-          rl.close();
-          say(`Opening ${safe(selected.roomName) || selected.roomId} (${selected.roomId})`);
-          await runRoom({ room: selected.roomId }, { tx, payload: makePayload, id, input, output });
-          return { ok: true, roomId: selected.roomId };
-        }
+  for (;;) {
+    if (place === 'home') {
+      say(home());
+      const value = await askLine(input, output, 'nexus> ');
+      if (value === null || ['/quit', '/exit', 'q'].includes(value.trim())) return { ok: true, quit: true };
+      if (value.trim().startsWith('/name ')) {
+        preferredName = displayName(value.trim().slice(6));
+        say(`  Input identity set to ${preferredName} (this terminal session only).`);
+        continue;
       }
-      rl.prompt();
+      if (['1', '/dex', '/rooms'].includes(value.trim())) { place = 'rooms'; await refresh(); continue; }
+      if (['2', '/base'].includes(value.trim())) { place = 'base'; continue; }
+      if (['3', '/spaces', '/machine'].includes(value.trim())) { place = 'spaces'; continue; }
+      say('  Commands: 1 Dex rooms · 2 Base Mode · 3 Machine Spaces · /quit');
+    } else if (place === 'rooms') {
+      say(`\n${formatRooms(rooms)}\n  /refresh reload · /home main menu · /quit exit`);
+      const value = await askLine(input, output, 'rooms> ');
+      if (value === null || value.trim() === '/quit') return { ok: true, quit: true };
+      if (['/home', '/back'].includes(value.trim())) { place = 'home'; continue; }
+      if (value.trim() === '/refresh') { await refresh(); continue; }
+      const selected = chooseRoom(value, rooms);
+      if (!selected) { say('  ! Not a listed room. Use a number or exact room ID.'); continue; }
+      say(`\n  Connecting to ${safe(selected.roomName)}…`);
+      const roomUser = displayName(selected.userName || preferredName);
+      if (selected.userName && preferredName === 'User') preferredName = roomUser;
+      const result = await runRoom({ room: selected.roomId }, { tx, payload: makePayload, id, input, output, displayName: roomUser });
+      if (result?.navigation === 'quit') return { ok: true, quit: true };
+      if (result?.navigation === 'home') place = 'home';
+      else { place = 'rooms'; await refresh(); }
+    } else if (place === 'base') {
+      const result = await runBase({ input, output, id, displayName: preferredName });
+      if (result?.navigation === 'quit') return { ok: true, quit: true };
+      place = result?.navigation === 'rooms' ? 'rooms' : 'home';
+      if (place === 'rooms') await refresh();
+    } else if (place === 'spaces') {
+      const result = await runSpaces({ input, output, id, tx, makePayload });
+      if (result?.navigation === 'quit') return { ok: true, quit: true };
+      place = result?.navigation === 'rooms' ? 'rooms' : 'home';
+      if (place === 'rooms') await refresh();
     }
-    return { ok: true, quit: true };
-  } finally { rl.close(); }
+  }
 }
 if (require.main === module) runApp().catch(error => {
   console.error('DEX_TUI_STOP', error.code || '', error.message || error);
   process.exitCode = 2;
 });
-module.exports = { runApp, formatRooms, chooseRoom };
+module.exports = { runApp, formatRooms, chooseRoom, home, askLine, safe };

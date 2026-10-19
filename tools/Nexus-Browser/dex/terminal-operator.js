@@ -28,6 +28,7 @@ function summary(room, targetAvailable = () => true) {
   const tlo = exactTlo(room), space = spaceFor(room);
   const machineSpaceLive = !!space?.resourceIds?.some(id => targetAvailable(id) === true);
   return { roomId: room.id, roomName: String(room.name || '').slice(0, 80),
+    userName: String(room.userName || 'User').slice(0, 48),
     tloMemberId: tlo?.id || null, machineSpaceId: space?.id || null,
     machineSpaceLive,
     active: !!room.relay?.active, busy: runtimeBusy(room),
