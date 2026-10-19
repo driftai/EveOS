@@ -51,7 +51,7 @@ function createLocalPlanController({ jobs, commandStore, broker, getState, repoR
   }
   function recoverySpec(msg) {
     return { runId: msg.runId, branch: msg.branch, expectedHead: msg.expectedHead,
-      retrySafety: msg.retrySafety, command: msg.command, repairFiles: msg.repairFiles,
+      retrySafety: msg.retrySafety, command: msg.command, repairFiles: msg.repairFiles, preserveFiles: msg.preserveFiles,
       contextFiles: msg.contextFiles, invariants: msg.invariants, maxAttempts: msg.maxAttempts };
   }
   function prepareRecovery(msg) {
