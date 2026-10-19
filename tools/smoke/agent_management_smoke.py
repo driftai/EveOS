@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from server_modules import agent_management_api as api  # noqa: E402
+from server_modules import agent_document_library as documents  # noqa: E402
 from server_modules import agent_management_store as store, tlo_definition  # noqa: E402
 from server_modules import tlo_chat  # noqa: E402
 
@@ -76,7 +77,8 @@ def run():
         backup_path = Path(temporary) / "agents.backup.json"
         definition_path = Path(temporary) / "tlo" / "AGENT.md"
         with patch.object(store, "STORE_PATH", live_path), patch.object(store, "BACKUP_PATH", backup_path), \
-                patch.object(tlo_definition, "LIVE_PATH", definition_path):
+                patch.object(tlo_definition, "LIVE_PATH", definition_path), \
+                patch.object(documents, "OVERRIDES", Path(temporary) / "documents"):
             initial, persisted = store.load_store()
             require(not persisted and [agent["id"] for agent in initial["agents"]] == ["tlo"],
                     "Missing safe non-persisted TLO bootstrap profile")
@@ -115,6 +117,27 @@ def run():
                     "I am no longer just a chat box" not in prompt,
                     "Origin metadata was lost or injected into the boot prompt")
             require("TLO_PRIVATE_SENTINEL" not in prompt, "Private notes leaked into boot context")
+            require("Machine Spaces" in prompt and "Nexus Browser knowledge" in prompt,
+                    "Nexus guide was not injected into TLO new-turn context")
+            guide = documents.read(documents.GUIDE)
+            require(guide["source"] == "tracked" and
+                    any(item["path"] == documents.GUIDE for item in documents.catalog()),
+                    "Tracked Markdown library did not expose Nexus guide")
+            updated_guide = documents.save(documents.GUIDE, "# Custom Nexus Guide\\nGUIDE_ONLY_SENTINEL\\n",
+                                            guide["revision"])
+            require(updated_guide["source"] == "private-override" and
+                    "GUIDE_ONLY_SENTINEL" in tlo_chat.build_system_prompt(store.scoped_projection("tlo", "default")),
+                    "Private guide did not reach TLO new-turn context")
+            try:
+                documents.save(documents.GUIDE, "old revision must fail", guide["revision"])
+                raise AssertionError("Stale Markdown revision was accepted")
+            except documents.DocumentError:
+                pass
+            require("GUIDE_ONLY_SENTINEL" in documents.read(documents.GUIDE)["text"],
+                    "Rejected stale revision replaced the current document")
+            require("GUIDE_ONLY_SENTINEL" not in
+                    tlo_chat.build_system_prompt(store.scoped_projection("eve-engineering", "default")),
+                    "TLO's guide leaked into another agent's prompt")
             try:
                 tlo_definition.save("\x00")
                 raise AssertionError("Invalid definition was accepted")
