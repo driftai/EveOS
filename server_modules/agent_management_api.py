@@ -127,7 +127,7 @@ def handle_post_request(handler, path) -> bool:
             "agent": agent,
         })
     except (agent_management_store.AgentStoreError, tlo_definition.DefinitionError,
-            agent_portability.PortabilityError) as exc:
+            agent_document_library.DocumentError, agent_portability.PortabilityError) as exc:
         send_json(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
     except Exception:
         logger.exception("Agent Management save failed")
