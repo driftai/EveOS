@@ -51,6 +51,11 @@ function createEngineeringRecoveryJobPlan(input = {}, { repoRoot = DEFAULT_ROOT,
   if (!Array.isArray(repairInput) || repairInput.length < 1 || repairInput.length > 16)
     throw fault('MACHINE_RECOVERY_BAD_FILES', 'Authorize one to 16 exact repair files.');
   const repairFiles = repairInput.map((item) => relativeFile(item, root, fsImpl));
+  const preserveInput = Array.isArray(input.preserveFiles) ? input.preserveFiles : [];
+  if (preserveInput.length > 16) throw fault('MACHINE_RECOVERY_BAD_FILES', 'At most 16 noneditable preserved files.');
+  const preserveFiles = preserveInput.map((item) => relativeFile(item, root, fsImpl));
+  if (preserveFiles.some((file) => repairFiles.includes(file)))
+    throw fault('MACHINE_RECOVERY_BAD_FILES', 'A preserved file cannot also be an authorized repair file.');
   if (new Set(repairFiles).size !== repairFiles.length)
     throw fault('MACHINE_RECOVERY_BAD_FILES', 'Recovery repair files must be unique.');
   const contextInput = Array.isArray(input.contextFiles) && input.contextFiles.length ? input.contextFiles : repairFiles;
@@ -67,6 +72,7 @@ function createEngineeringRecoveryJobPlan(input = {}, { repoRoot = DEFAULT_ROOT,
   const args = ['python', '-B', 'tools/qualification/eve_run.py', '--branch', branch,
     '--expected-head', expectedHead,
     ...repairFiles.flatMap((file) => ['--repair-file', file]),
+    ...preserveFiles.flatMap((file) => ['--preserve-file', file]),
     ...contextFiles.flatMap((file) => ['--context-file', file]),
     ...invariants.flatMap((value) => ['--invariant', value]),
     '--max-attempts', String(maxAttempts), '--retry-safety', 'idempotent',
@@ -75,7 +81,7 @@ function createEngineeringRecoveryJobPlan(input = {}, { repoRoot = DEFAULT_ROOT,
   const commandDigest = createHash('sha256').update(command).digest('hex');
   return Object.freeze({ runId, branch, expectedHead, command, commandDigest, originalCommand,
     metadata: Object.freeze({ schema: 'eveos.machine-spaces.recovery-authority.v1', runId, expectedHead,
-      retrySafety: 'idempotent', repairFiles, contextFiles, invariants, maxAttempts }) });
+      retrySafety: 'idempotent', repairFiles, preserveFiles, contextFiles, invariants, maxAttempts }) });
 }
 
 module.exports = { BRANCH, createEngineeringRecoveryJobPlan, relativeFile, psLiteral, fault };
