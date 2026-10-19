@@ -30,6 +30,22 @@
         ].join('');
     }
 
+    function secureBanner() {
+        return window.location?.protocol === 'file:'
+            ? '<p class="eveos-agent-doc-note">Private Agent Management is restricted to the EveOS localhost page. <button type="button" data-agent-doc-action="secure">Open secure localhost EveOS</button></p>'
+            : '';
+    }
+
+    function openSecureManagement() {
+        const registry = window.EveOSPortRegistry?.url?.('EVEOS_WEB_PORT') || 'http://127.0.0.1:8765';
+        const target = new URL('/EveOS.html', registry);
+        if (!['127.0.0.1', 'localhost'].includes(target.hostname) || target.protocol !== 'http:') {
+            feedback('Local EveOS URL is invalid; use its own localhost page.', true);
+            return;
+        }
+        window.open(target.toString(), '_blank', 'noopener');
+    }
+
     function bases() {
         const network = window.GeminiServerNetwork?.localCandidateBases?.() || [];
         const port = window.EveOSPortRegistry?.url?.('EVEOS_WEB_PORT');
@@ -195,6 +211,7 @@
             const target = event.target.closest('[data-agent-doc-path]');
             if (target) { select(target.dataset.agentDocPath); return; }
             const action = event.target.closest('[data-agent-doc-action]')?.dataset.agentDocAction;
+            if (action === 'secure') openSecureManagement();
             if (action === 'refresh') refresh();
             else if (action === 'save') save();
         });
@@ -204,5 +221,5 @@
     }
 
     function activate() { if (!loaded) refresh(); }
-    window.EveOSAgentDocuments = Object.freeze({ markup, bind, activate });
+    window.EveOSAgentDocuments = Object.freeze({ markup, secureBanner, bind, activate });
 })();
