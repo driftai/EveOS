@@ -77,7 +77,9 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
         const playDirect = window.EveAudioflixUrlDirect.create({
             playback, ensureStage, setStageStatus, emitPlayback, emitProgress,
             internalView: () => requestedInternalView, rate: () => playbackRate,
-            activate: session => { active = session; }, active: () => active, onPlayer: options.onPlayer
+            activate: session => { active = session; },
+            retire: session => { if (active === session) active = null; },
+            active: () => active, onPlayer: options.onPlayer
         });
 
         async function playYouTube(item) {

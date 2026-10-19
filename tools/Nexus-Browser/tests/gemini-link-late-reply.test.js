@@ -85,17 +85,17 @@ test('a correlated Gemini reply after the old deadline wins inside the bounded g
     correlation: CORRELATION,
     emit: (message) => emitted.push(message),
     WebSocketImpl: MockWebSocket,
-    timeoutMs: 12,
-    lateReplyGraceMs: 60
+    timeoutMs: 80,
+    lateReplyGraceMs: 800
   });
 
   const socket = await waitFor(() => MockWebSocket.instances[0]);
   const request = await waitFor(() => socket.sent.find((message) => message.type === 'nexus_workspace_request'));
   assert.deepEqual(request.correlation, CORRELATION);
-  assert.equal(request.timeoutMs, 72);
+  assert.equal(request.timeoutMs, 880);
 
-  await new Promise((resolve) => setTimeout(resolve, 22));
-  assert.equal(emitted.some((message) => message.type === 'response_activity' && message.event === 'late_reply_grace'), true);
+  await waitFor(() => emitted.some((message) => message.type === 'response_activity'
+    && message.event === 'late_reply_grace'), 1500);
 
   socket.emit('message', event('nexus_workspace_transcription', { text: 'late correlated answer' }));
   socket.emit('message', event('nexus_workspace_turn_complete'));
@@ -114,13 +114,17 @@ test('mismatched late replies are ignored and the request rejects once after gra
     correlation: CORRELATION,
     emit: (message) => emitted.push(message),
     WebSocketImpl: MockWebSocket,
-    timeoutMs: 8,
-    lateReplyGraceMs: 24
+    timeoutMs: 80,
+    lateReplyGraceMs: 800
   });
 
+  // Observe a timeout rejection immediately; a busy test runner may advance
+  // beyond its deadline before any awaited setup step returns.
+  const expectedTimeout = assert.rejects(pending, /late-reply grace window/);
   const socket = await waitFor(() => MockWebSocket.instances[0]);
   await waitFor(() => socket.sent.find((message) => message.type === 'nexus_workspace_request'));
-  await new Promise((resolve) => setTimeout(resolve, 12));
+  await waitFor(() => emitted.some((message) => message.type === 'response_activity'
+    && message.event === 'late_reply_grace'), 1500);
 
   socket.emit('message', JSON.stringify({
     type: 'nexus_workspace_turn_complete',
@@ -128,7 +132,7 @@ test('mismatched late replies are ignored and the request rejects once after gra
     correlation: { ...CORRELATION, roomId: 'wrong-room' }
   }));
 
-  await assert.rejects(pending, /late-reply grace window/);
+  await expectedTimeout;
   assert.equal(emitted.filter((message) => message.type === 'response_final').length, 0);
   assert.equal(emitted.filter((message) => message.type === 'response_activity' && message.event === 'late_reply_grace').length, 1);
 });

@@ -64,6 +64,9 @@ window.EveAudioflixUrlDirect = window.EveAudioflixUrlDirect || {};
                     : undefined;
                 emitPlayback('Ended', false, { item, settle });
                 window.EveAudioflixLocalPlayback?.clearMediaSource?.(player);
+                // A same-item repeat must create a fresh player; this source is already released.
+                // Retire only the exact completed session, never a replacement started by a listener.
+                deps.retire?.(session);
             });
             player.addEventListener('error', async () => {
                 if (!item._retriedDirect && item.rawAudioUrl) {
