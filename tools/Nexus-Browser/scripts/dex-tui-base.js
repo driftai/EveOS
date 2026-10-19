@@ -4,8 +4,10 @@
 const { randomUUID } = require('node:crypto');
 const { askLine, safe } = require('./dex-tui');
 const { promptFor } = require('./dex-tui-identity');
+const { createPromptOutput } = require('./dex-tui-output');
 const { createPeer } = require('./dex-tui-peer');
 const TLO_ID = 'local:tlo-chat:default';
+const cleanBaseReply = value => safe(value, 1800).replace(/\s*\[\[DEX:DONE\]\]\s*$/u, '').trimEnd();
 function showTargets(targets) {
   const lines = ['\n  BASE  /  LOCAL TARGETS'];
   targets.forEach((target, index) => lines.push(`  ${index + 1}  ${safe(target.providerName || target.title)}  [${safe(target.targetTypeName || 'local', 32)}]`));
@@ -15,7 +17,8 @@ function showTargets(targets) {
 async function runBase({ input = process.stdin, output = process.stdout, displayName = 'User', id = () => `base-tui-${randomUUID()}`,
   createConnection = createPeer } = {}) {
   let peer, targets = [], selected = null, pending = null, closed = false;
-  const say = value => { if (!closed) output.write(`${value}\n`); };
+  const promptView = createPromptOutput(output);
+  const say = value => { if (!closed) promptView.write(value); };
   function event(message) {
     if (closed || !pending) return;
     if (message.type === 'transport_closed') {
@@ -27,7 +30,7 @@ async function runBase({ input = process.stdin, output = process.stdout, display
     // Partial updates are intentionally suppressed in Base V1.
     if (message.type === 'response_partial') return;
     if (message.type === 'response_final') {
-      say(`\n  ${safe(pending.providerName || 'Agent')}/Base> ${safe(message.text || '', 1800)}\n`);
+      say(`\n  ${safe(pending.providerName || 'Agent')}/Base> ${cleanBaseReply(message.text || '')}\n`);
       pending = null;
     } else if (message.type === 'error') {
       say(`  ! ${safe(message.code)}: ${safe(message.message, 400)} (request ${pending.requestId})`);
@@ -47,7 +50,7 @@ async function runBase({ input = process.stdin, output = process.stdout, display
     for (;;) {
       if (screen === 'targets') {
         say(showTargets(targets));
-        const value = await askLine(input, output, 'base> ');
+        const value = await askLine(input, output, 'base> ', promptView);
         if (value === null || value.trim() === '/quit') return { navigation: 'quit' };
         if (['/home', '/back'].includes(value.trim())) return { navigation: 'home' };
         if (value.trim() === '/refresh') { await refresh(); continue; }
@@ -66,7 +69,7 @@ async function runBase({ input = process.stdin, output = process.stdout, display
           say('  Read-only target view: interactive chat requires separate validation.');
         screen = 'chat';
       } else {
-        const value = await askLine(input, output, promptFor(displayName, 'Base'));
+        const value = await askLine(input, output, promptFor(displayName, 'Base'), promptView);
         if (value === null || value.trim() === '/quit') return { navigation: 'quit' };
         if (['/home', '/back'].includes(value.trim())) return { navigation: 'home' };
         if (value.trim() === '/targets') {
@@ -99,4 +102,4 @@ async function runBase({ input = process.stdin, output = process.stdout, display
     peer?.close();
   }
 }
-module.exports = { TLO_ID, showTargets, runBase };
+module.exports = { TLO_ID, showTargets, runBase, cleanBaseReply };

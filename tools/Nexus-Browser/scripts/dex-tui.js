@@ -5,6 +5,7 @@
 const readline = require('node:readline');
 const { randomUUID } = require('node:crypto');
 const { displayName } = require('./dex-tui-identity');
+const { createPromptOutput } = require('./dex-tui-output');
 const ROOM_ID = /^room-[A-Za-z0-9_-]{6,125}$/;
 const safe = (value, limit = 80) => String(value ?? '')
   .replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').slice(0, limit);
@@ -35,14 +36,15 @@ function home() {
     + '  ─────────────────────────────────────\n'
     + '  /name NAME set your label · /quit exit  ·  /help commands\n';
 }
-function askLine(input, output, prompt) {
+function askLine(input, output, prompt, promptView = null) {
   return new Promise(resolve => {
     const rl = readline.createInterface({ input, output, terminal: !!output.isTTY });
     let done = false;
-    const finish = value => { if (done) return; done = true; rl.close(); resolve(value); };
+    const finish = value => { if (done) return; done = true; promptView?.detach(rl); rl.close(); resolve(value); };
     rl.once('line', finish);
     rl.once('close', () => finish(null));
     rl.setPrompt(prompt);
+    promptView?.attach(rl);
     rl.prompt();
   });
 }
@@ -58,6 +60,7 @@ async function runApp({ input = process.stdin, output = process.stdout,
   let place = 'home';
   let rooms = [];
   let preferredName = displayName(process.env.NEXUS_TUI_DISPLAY_NAME || 'User');
+  let nameExplicit = !!process.env.NEXUS_TUI_DISPLAY_NAME;
   async function refresh() {
     try {
       const result = await tx(makePayload({ command: 'rooms', requestId: id() }));
@@ -78,6 +81,7 @@ async function runApp({ input = process.stdin, output = process.stdout,
       if (value === null || ['/quit', '/exit', 'q'].includes(value.trim())) return { ok: true, quit: true };
       if (value.trim().startsWith('/name ')) {
         preferredName = displayName(value.trim().slice(6));
+        nameExplicit = true;
         say(`  Input identity set to ${preferredName} (this terminal session only).`);
         continue;
       }
@@ -94,8 +98,8 @@ async function runApp({ input = process.stdin, output = process.stdout,
       const selected = chooseRoom(value, rooms);
       if (!selected) { say('  ! Not a listed room. Use a number or exact room ID.'); continue; }
       say(`\n  Connecting to ${safe(selected.roomName)}…`);
-      const roomUser = displayName(selected.userName || preferredName);
-      if (selected.userName && preferredName === 'User') preferredName = roomUser;
+      const roomUser = displayName(nameExplicit ? preferredName : (selected.userName || preferredName));
+      if (!nameExplicit && selected.userName && preferredName === 'User') preferredName = roomUser;
       const result = await runRoom({ room: selected.roomId }, { tx, payload: makePayload, id, input, output, displayName: roomUser });
       if (result?.navigation === 'quit') return { ok: true, quit: true };
       if (result?.navigation === 'home') place = 'home';

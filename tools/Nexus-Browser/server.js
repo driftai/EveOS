@@ -110,7 +110,7 @@ const terminalOperator = createTerminalOperator({
 });
 postIdleMaintenance = startPostIdleMaintenance({
   dexStateStore, providerControlRouting, providerTargetSpawnRouting, dexScheduler,
-  localTargets, serverLocalRelay, serverSessionId: SERVER_SESSION_ID
+  localTargets, serverLocalRelay, serverSessionId: SERVER_SESSION_ID, broadcastState: broadcastDexState, machineTargetsBusy: () => machineSpaces.broker.listTargets().some(target => target.busy) || !!machineSpaces.supervisedJobs?.snapshot?.().jobs.some(job => ["queued", "running", "deferred"].includes(job.state))
 });
 taskCompletion = startTaskCompletion({ dexStateStore, localTargets, safeSend, getTabs: () => lastTabs,
   getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null });

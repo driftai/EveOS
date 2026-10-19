@@ -52,8 +52,15 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
   const rl = readline.createInterface({ input, output, terminal: !!output.isTTY, prompt: promptFor(speaker, 'Dex') });
   const receipts = new Map();
   const monitors = new Map();
-  let latest = null, verbose = false, previewEnabled = false, quiet = false, closed = false, navigation = 'quit';
-  const write = (message) => { if (closed) return; output.write(`\n${message}\n`); rl.prompt(true); };
+  let latest = null, verbose = false, previewEnabled = false, quiet = !!output.isTTY, closed = false, navigation = 'quit';
+  let awaitingInput = false;
+  rl.on('line', () => { awaitingInput = false; });
+  const write = (message) => {
+    if (closed) return;
+    if (awaitingInput && output.isTTY === true) { readline.clearLine(output, 0); readline.cursorTo(output, 0); }
+    output.write(`\n${message}\n`);
+    if (awaitingInput && output.isTTY === true) rl.prompt(true);
+  };
   const fail = (error) => write(`! ${error.code || 'ERROR'}: ${error.message || error}`);
   const safePreview = value => String(value || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x1b]/g, '').slice(0, 1800);
   function remember(requestId, section, value) {
@@ -124,10 +131,11 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
     return pending;
   }
   output.write(`Dex room ${p.room} · auto-replies on · /status /history /errors /check /wait /details /ids /preview /quiet /back /home /quit\n`);
+  awaitingInput = true;
   rl.prompt();
   for await (const line of rl) {
     const text = line.trim();
-    if (!text) { rl.prompt(); continue; }
+    if (!text) { awaitingInput = true; rl.prompt(); continue; }
     if (text === '/back' || text === '/rooms') { navigation = 'rooms'; break; }
     if (text === '/home') { navigation = 'home'; break; }
     if (text === '/quit' || text === '/exit') { navigation = 'quit'; break; }
@@ -184,6 +192,7 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
         if (verbose) write(JSON.stringify(receipts.get(requestId), null, 2));
       }
     } catch (error) { fail(error); }
+    awaitingInput = true;
     rl.prompt();
   }
   closed = true;
