@@ -236,3 +236,62 @@
         grid-column: 1;
     }
 }
+
+/* Private agent documentation browser */
+.eveos-agent-docs {
+  margin: 16px 0; padding: 12px;
+  border: 1px solid rgba(119, 177, 191, .27);
+  border-radius: 12px; background: rgba(10, 25, 32, .52);
+}
+.eveos-agent-docs > summary { cursor: pointer; font-size: .81rem; font-weight: 750; }
+.eveos-agent-doc-note {
+  color: rgba(230, 246, 255, .66); font-size: .7rem; line-height: 1.55;
+}
+.eveos-agent-doc-status { margin: 10px 0; font-size: .72rem; color: #d8e6f3; }
+.eveos-agent-doc-status[data-state="ready"] { color: #a7ebcf; }
+.eveos-agent-doc-status[data-state="offline"] { color: #eacb8c; }
+.eveos-agent-doc-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 9px 0; }
+.eveos-agent-doc-actions button {
+  border: 1px solid rgba(104, 174, 195, .4); background: rgba(17, 52, 68, .8);
+  color: #e6f5ff; border-radius: 8px; padding: 7px 10px; cursor: pointer;
+}
+.eveos-agent-doc-actions button:disabled { opacity: .45; cursor: default; }
+.eveos-agent-doc-actions input {
+  flex: 1; min-width: 150px; padding: 8px; border-radius: 8px;
+  background: rgba(5, 17, 25, .86); border: 1px solid rgba(104, 174, 195, .3);
+  color: #e9f6fd; font-size: .72rem;
+}
+.eveos-agent-doc-layout {
+  display: grid; grid-template-columns: minmax(135px, 35%) minmax(0, 1fr); gap: 11px;
+}
+.eveos-agent-doc-tree {
+  max-height: 380px; overflow: auto; min-width: 0; border: 1px solid rgba(104, 174, 195, .2);
+  border-radius: 9px; padding: 6px; background: rgba(4, 14, 21, .68);
+}
+.eveos-agent-doc-group {
+  position: sticky; top: 0; padding: 8px 4px 5px; background: #11232d;
+  color: #a2cad8; font-size: .65rem; font-weight: 750; overflow-wrap: anywhere;
+}
+.eveos-agent-doc-item {
+  display: block; width: 100%; padding: 6px; text-align: left; border: 0; border-radius: 6px;
+  color: #d6eaf2; font: 400 .69rem/1.4 inherit; background: transparent;
+  cursor: pointer; overflow-wrap: anywhere;
+}
+.eveos-agent-doc-item.is-active { background: rgba(8, 145, 178, .24); color: white; }
+.eveos-agent-doc-item:hover { background: rgba(85, 151, 181, .13); }
+.eveos-agent-doc-editor { display: grid; gap: 7px; min-width: 0; align-content: start; }
+.eveos-agent-doc-editor strong { color: #effbff; font-size: .72rem; overflow-wrap: anywhere; }
+.eveos-agent-doc-editor small { color: #a0b7c3; font-size: .65rem; }
+.eveos-agent-doc-editor textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 230px;
+  border: 1px solid rgba(104, 174, 195, .35); border-radius: 8px; padding: 9px;
+  background: rgba(4, 15, 21, .83); color: #e9f7fc;
+  font: 400 .73rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.eveos-agent-doc-editor [data-state="error"] { color: #ffadb6; }
+.eveos-agent-doc-editor [data-state="ok"] { color: #b9dccf; }
+.eveos-agent-doc-editor [role="status"] { font-size: .65rem; line-height: 1.5; }
+@media (max-width: 720px) {
+  .eveos-agent-doc-layout { grid-template-columns: 1fr; }
+  .eveos-agent-doc-tree { max-height: 170px; }
+}
