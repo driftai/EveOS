@@ -3,6 +3,16 @@
 // agent turn, and verifies finals against the existing durable Dex receipt.
 const readline = require('node:readline');
 
+const safeDiagnostic = (value, limit = 320) => String(value ?? '')
+  .replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').slice(0, limit);
+const isDexError = m => m?.senderKind === 'system' && m?.senderName === 'Dex'
+  && /^[^:\n]{1,80}:\s+[A-Z][A-Z0-9_]+:/.test(String(m.text || ''));
+function formatRecentErrors(result = {}) {
+  if (!result.ok) return `${safeDiagnostic(result.code || 'ROOM_ERROR')}: ${safeDiagnostic(result.message)}`;
+  const recent = (result.messages || []).filter(isDexError).slice(-5);
+  return recent.length ? recent.map(m => `! Room error (not proof for this request)${m.at ? ` @ ${safeDiagnostic(m.at, 48)}` : ''}: ${safeDiagnostic(m.text, 1000)}`).join('\n')
+    : 'No Dex relay errors among the most recent inspected messages.';
+}
 function formatRoom(result = {}) {
   if (!result.ok) return `${result.code || 'ROOM_ERROR'}: ${result.message || 'Room unavailable'}`;
   const bits = [result.roomName || result.roomId || 'Dex room'];
@@ -11,13 +21,14 @@ function formatRoom(result = {}) {
   if (result.recoveryPending) bits.push('recovery pending');
   if (result.tloMemberId) bits.push('TLO bound');
   if (result.machineSpaceId) bits.push('Machine Space attached');
+  if (result.lastStopReason && /error|fail|disconnect|timeout/i.test(result.lastStopReason)) bits.push('last stop: ' + safeDiagnostic(result.lastStopReason));
   return bits.join(' · ');
 }
 function formatFinal(result = {}) {
   if (result.status === 'FINAL_RECEIPT_CONFIRMED' && result.response)
     return `TLO/Dex> ${result.response.text}`;
   if (result.status === 'TURN_FAILED')
-    return `! ${result.code || 'DEX_RELAY_FAILED'}: ${result.message || 'Dex turn failed.'}`;
+    return `! ${safeDiagnostic(result.code || 'DEX_RELAY_FAILED')}: ${safeDiagnostic(result.message || 'Dex turn failed.', 1000)} (request ${safeDiagnostic(result.requestId || 'unknown', 128)})`;
   if (result.status === 'TURN_OUTCOME_UNKNOWN')
     return `! Outcome unknown (${result.requestId || 'request'}): ${result.message || 'Inspect before retrying.'}`;
   return `${result.code || result.status || 'UNKNOWN'}: ${result.message || 'Final receipt not confirmed'}`;
@@ -43,7 +54,7 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
     if (monitors.has(requestId)) return monitors.get(requestId);
     const pending = (async () => {
       const deadline = Date.now() + timeoutMs;
-      let result = null, lastProgress = '', lastPartial = '', lastUpdate = 0;
+      let result = null, lastProgress = '', lastPartial = '', lastUpdate = 0, roomErrorNoted = false;
       const started = Date.now();
       while (!closed && Date.now() < deadline) {
         try {
@@ -55,6 +66,18 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
             write(formatFinal(result));
             if (verbose) write(`Receipt /details:\n${JSON.stringify(receipts.get(requestId), null, 2)}`);
             return result;
+          }
+          // A room-level stop is useful diagnostic evidence, not proof of this
+          // specific request. Keep the original request ID and never replay.
+          if (!roomErrorNoted && result.status === 'AWAITING_REPLY_OR_RECOVERY'
+              && result.progress === 'not-active' && !result.relayActive && !result.recoveryPending
+              && /error|fail|disconnect|timeout/i.test(String(result.lastStopReason || ''))) {
+            roomErrorNoted = true;
+            write(`! Room reports ${safeDiagnostic(result.lastStopReason)}; exact request ${requestId} is NOT confirmed failed or completed. Use /errors and /check. Do not resend.`);
+            try {
+              const diagnostics = await tx(payload({ ...p, command: 'inspect', requestId: id(), limit: 20 }));
+              if (!closed) write(formatRecentErrors(diagnostics));
+            } catch (error) { if (!closed) write(`! Room diagnostics unavailable: ${safeDiagnostic(error?.message || error)}`); }
           }
           if (result.progress && result.progress !== lastProgress) {
             lastProgress = result.progress;
@@ -88,7 +111,7 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
     monitors.set(requestId, pending);
     return pending;
   }
-  output.write(`Dex room ${p.room} · auto-replies on · /status /history /check /wait /details /ids /quit\n`);
+  output.write(`Dex room ${p.room} · auto-replies on · /status /history /errors /check /wait /details /ids /quit\n`);
   rl.prompt();
   for await (const line of rl) {
     const text = line.trim();
@@ -96,16 +119,17 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
     if (text === '/quit' || text === '/exit') break;
     try {
       if (text === '/help') {
-        write('/status room state · /history recent messages · /check latest receipt · /wait await latest reply · /details [on|off] technical receipts · /ids request IDs · /quit');
+        write('/status room state and last error · /history recent messages · /errors latest Dex room errors · /check latest receipt · /wait await latest reply · /details [on|off] technical receipts · /ids request IDs · /quit');
       } else if (text === '/ids') {
         write([...receipts.keys()].join('\n') || 'No messages sent in this session.');
       } else if (text === '/details' || text === '/details on' || text === '/details off') {
         if (text.endsWith(' on')) verbose = true;
         if (text.endsWith(' off')) verbose = false;
         write(latest ? JSON.stringify(receipts.get(latest), null, 2) : `Detailed receipts ${verbose ? 'enabled' : 'hidden'}. No messages yet.`);
-      } else if (text === '/status' || text === '/history') {
-        const result = await tx(payload({ ...p, command: 'inspect', requestId: id(), limit: text === '/history' ? 15 : 3 }));
-        if (text === '/status') write(formatRoom(result));
+      } else if (text === '/status' || text === '/history' || text === '/errors') {
+        const result = await tx(payload({ ...p, command: 'inspect', requestId: id(), limit: text === '/history' ? 15 : 20 }));
+        if (text === '/status') { write(formatRoom(result)); if (result.ok) write(formatRecentErrors(result)); }
+        else if (text === '/errors') write(formatRecentErrors(result));
         else write(!result.ok ? formatRoom(result) : (result.messages || []).map(m => `${m.senderName || m.senderKind}> ${m.text}`).join('\n') || 'No messages.');
       } else if (text === '/check' || text === '/wait') {
         if (!latest) throw new Error('No message in this TUI session; use CLI check with the exact request ID.');
@@ -128,7 +152,7 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
           }
         }
         else if (result.status === 'MESSAGE_COMMITTED_RELAY_ACCEPTED') {
-          write(`· Sent. Waiting for the room reply…`);
+          write(`· Sent (request ${requestId}). Waiting for the room reply…`);
           void monitor(requestId);
         } else write(`· ${result.status || 'Accepted'} · /details for request ${requestId}`);
         if (verbose) write(JSON.stringify(receipts.get(requestId), null, 2));
@@ -139,4 +163,4 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
   closed = true;
   rl.close();
 }
-module.exports = { runTui, formatRoom, formatFinal };
+module.exports = { runTui, formatRoom, formatFinal, formatRecentErrors };
