@@ -67,7 +67,7 @@
       <label>Exact PowerShell command <textarea name="command" rows="3" required></textarea></label>
       <label>Authorized repair files (one repository-relative path per line)
         <textarea name="repairFiles" rows="3" required></textarea></label>
-      <label>Additional read-only context files (optional)
+      <label>Protected existing files (optional; SHA-256 locked, NEVER editable by TLO)\n        <textarea name="preserveFiles" rows="2" placeholder="docs/example-work-in-progress.md"></textarea></label>\n      <label>Additional read-only context files (optional)
         <textarea name="contextFiles" rows="2"></textarea></label>
       <label>Invariants (optional, one per line)<textarea name="invariants" rows="2"></textarea></label>
       <label>Repair attempts <select name="maxAttempts"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
@@ -91,7 +91,7 @@
       requestId: `recovery-prepare-${globalThis.crypto?.randomUUID?.() || Date.now()}`,
       roomId, spaceId, targetId: value('targetId'), runId: value('runId'),
       branch: 'eve/nexus-machine-spaces', expectedHead: value('expectedHead'),
-      command: value('command'), repairFiles: lines('repairFiles'), contextFiles: lines('contextFiles'),
+      command: value('command'), repairFiles: lines('repairFiles'), preserveFiles: lines('preserveFiles'), contextFiles: lines('contextFiles'),
       invariants: lines('invariants'), maxAttempts: Number(value('maxAttempts') || 1), retrySafety: 'idempotent',
       visibleTerminal: data.get('visibleTerminal') === 'on' });
     recoveryStatus.textContent = ok ? 'Recovery authority queued for review. No command or model has started.' : 'Nexus is disconnected.';
