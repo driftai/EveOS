@@ -57,6 +57,43 @@
     if (governorPanel.open && socket?.readyState === WebSocket.OPEN)
       socket.send(JSON.stringify({ type: 'machine_governor_receipts' }));
   });
+  const recoveryPrepare = document.createElement('details');
+  recoveryPrepare.className = 'machine-request-history';
+  recoveryPrepare.innerHTML = `<summary>Prepare TLO recovery job (local owner)</summary>
+    <form data-recovery-prepare class="machine-request-list">
+      <label>Run ID <input name="runId" placeholder="recovery-001" required maxlength="64"></label>
+      <label>Managed PowerShell target ID <input name="targetId" placeholder="terminal-powershell-..." required></label>
+      <label>Expected 40-character Git HEAD <input name="expectedHead" required minlength="40" maxlength="40"></label>
+      <label>Exact PowerShell command <textarea name="command" rows="3" required></textarea></label>
+      <label>Authorized repair files (one repository-relative path per line)
+        <textarea name="repairFiles" rows="3" required></textarea></label>
+      <label>Additional read-only context files (optional)
+        <textarea name="contextFiles" rows="2"></textarea></label>
+      <label>Invariants (optional, one per line)<textarea name="invariants" rows="2"></textarea></label>
+      <label>Repair attempts <select name="maxAttempts"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
+      <label><input name="retrySafe" type="checkbox" required> I confirm this exact command is idempotent and safe to rerun only after a verified authorized repair.</label>
+      <button type="submit" class="secondary">Prepare recovery — local Start still required</button>
+      <div data-recovery-prepare-status role="status"></div>
+    </form>`;
+  governorPrepare.insertAdjacentElement('afterend', recoveryPrepare);
+  const recoveryForm = recoveryPrepare.querySelector('[data-recovery-prepare]');
+  const recoveryStatus = recoveryPrepare.querySelector('[data-recovery-prepare-status]');
+  recoveryForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const roomId = activeRoomId(), spaceId = activeSpaceId();
+    if (!editable() || !roomId || !spaceId || phase !== 'connected') {
+      recoveryStatus.textContent = 'Enable Human Input and choose an active room/space.'; return;
+    }
+    const data = new FormData(recoveryForm), value = (name) => String(data.get(name) || '').trim();
+    const lines = (name) => value(name).split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+    const ok = send({ type: 'machine_prepare_recovery_job',
+      requestId: `recovery-prepare-${globalThis.crypto?.randomUUID?.() || Date.now()}`,
+      roomId, spaceId, targetId: value('targetId'), runId: value('runId'),
+      branch: 'eve/nexus-machine-spaces', expectedHead: value('expectedHead'),
+      command: value('command'), repairFiles: lines('repairFiles'), contextFiles: lines('contextFiles'),
+      invariants: lines('invariants'), maxAttempts: Number(value('maxAttempts') || 1), retrySafety: 'idempotent' });
+    recoveryStatus.textContent = ok ? 'Recovery authority queued for review. No command or model has started.' : 'Nexus is disconnected.';
+  });
   const list = section.querySelector('[data-supervised-jobs]');
   let socket = null;
   let phase = 'connecting';
@@ -119,6 +156,7 @@
     meta.textContent = [
       `request ${job.requestId || 'n/a'}`,
       job.governor?.runId ? `Governor ${job.governor.runId} (${job.governor.tier})` : null,
+      job.recovery?.runId ? `TLO recovery ${job.recovery.runId} · ${job.recovery.maxAttempts} repair attempt(s) · idempotent retry` : null,
       `epoch ${short(job.processEpoch, 18) || 'n/a'}`,
       job.reboundCount ? `rebound ${job.reboundCount}×` : null,
       job.reason || null,
@@ -129,8 +167,11 @@
     const actions = document.createElement('div'); actions.className = 'machine-request-actions';
     if (job.state === 'queued') {
       actions.append(button('Start supervised', async () => {
+        const recoveryNotice = job.recovery
+          ? `\n\nRecovery authority: TLO may edit only ${job.recovery.repairFiles.join(', ')}, run this same idempotent command again after a verified repair, and stop after ${job.recovery.maxAttempts} repair attempt(s).`
+          : '';
         const ok = await confirmAction('Start this supervised job?',
-          'The exact prepared command will start in its pinned Nexus-managed terminal. It may remain running until stopped, completed, or the supervision ceiling is reached.',
+          'The exact prepared command will start in its pinned Nexus-managed terminal. It may remain running until stopped, completed, or the supervision ceiling is reached.' + recoveryNotice,
           'Start job');
         if (ok) requestMutation('machine_start_supervised_job', job);
       }));
@@ -191,6 +232,10 @@
       governorFormStatus.textContent = `Queued Governor job ${payload.job?.jobId || 'unknown'}. Click Start supervised to launch after review.`;
       requestSnapshot();
       return;
+    }
+    if (payload.type === 'machine_recovery_job_prepared') {
+      recoveryStatus.textContent = `Queued TLO recovery job ${payload.job?.jobId || 'unknown'}. Review its command and repair authority, then click Start supervised.`;
+      requestSnapshot(); return;
     }
     if (payload.type === 'machine_governor_receipts') {
       governorList.replaceChildren();

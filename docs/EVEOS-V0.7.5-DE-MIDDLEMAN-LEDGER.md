@@ -286,9 +286,25 @@ bounded browser diagnostics, and waits for the existing service-chat bridge to
 register before reporting ready. This is an operational host for the existing
 conversation, not a second provider session, scheduler, or authority path.
 
-Status: **IMPLEMENTED, AUTOMATED ACCEPTANCE PENDING**. Live TLO failure-to-
-proposal proof, restart/reconnect recovery, concurrency, bounded correction and
-authorized proposal-to-repair-to-GREEN remain Phase 4/5 acceptance work.
+The live Playwright path has now proven exact-room confirmed failure, automatic
+middle-agent dispatch and a valid versioned TLO proposal. Phase 4 adds an
+explicit local-owner recovery authority plan that invokes the existing Python
+`tlo_autorecover` engine inside the pinned managed terminal. Ordinary
+PowerShell uses the same engine through `eve_run.py`. Both retain the existing
+exact-edit policy, backups, branch/HEAD fencing, bounded correction and
+same-command verification. Started commands require an explicit idempotent
+retry declaration; timeout and uncertain execution never replay.
+
+Supervised job history is now durable. A restart before dispatch settles the
+job as cancelled; restart after dispatch settles it outcome-unknown. Completed
+inner recovery receipts are projected into the exact room's final Machine
+Spaces event without exposing raw output. Operational usage and the A-I
+acceptance map live in `docs/NEXUS-PHASE3-AUTONOMOUS-RECOVERY.md`.
+
+Status: **IMPLEMENTED, LIVE REPAIR-TO-GREEN ACCEPTANCE PENDING**. Deterministic
+contracts cover bounded correction, unauthorized scope, concurrency isolation,
+restart reconciliation and no-replay. The remaining seal is a disposable live
+TLO repair-to-GREEN receipt through ordinary PowerShell and the managed terminal.
 
 ## V0.7.1B — Scriptable TLO proof-room bootstrap (bounded candidate)
 

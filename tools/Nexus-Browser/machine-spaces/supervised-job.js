@@ -16,15 +16,22 @@ function createSupervisedJobCoordinator(options = {}) {
   const idFactory = typeof options.idFactory === 'function' ? options.idFactory : () => randomUUID();
   const leaseTtlMs = Math.max(5000, Number(options.leaseTtlMs) || 120000);
   const maxJobs = Math.max(16, Number(options.maxJobs) || 256);
+  const store = options.store || null;
   const jobs = new Map();
   const requestIndex = new Map();
   const events = [];
   let sequence = 0;
+  const restartSettlements = [];
 
   function stamp() { return new Date(now()).toISOString(); }
+  function persist() {
+    if (!store?.save) return;
+    store.save({ version: 1, sequence, jobs: [...jobs.values()].map(publicJob), events: events.map(clone) });
+  }
   function record(type, job, extra = {}) {
     events.push({ sequence: ++sequence, type, at: stamp(), jobId: job.jobId, requestId: job.requestId, ...clone(extra) });
     if (events.length > 2000) events.splice(0, events.length - 2000);
+    persist();
   }
   function exact(jobId) {
     const job = jobs.get(text(jobId));
@@ -190,7 +197,36 @@ function createSupervisedJobCoordinator(options = {}) {
   function status(jobId) { return publicJob(exact(jobId)); }
   function snapshot() { return { version: 1, jobs: [...jobs.values()].map(publicJob), events: events.map(clone) }; }
 
-  return { create, start, defer, rebound, settle, cancel, terminalizeForSession, terminalizeForTarget, status, snapshot };
+  function restore() {
+    const saved = store?.load?.();
+    if (!saved || !Array.isArray(saved.jobs)) return;
+    if (Array.isArray(saved.events)) events.push(...saved.events.slice(-2000).map(clone));
+    sequence = Math.max(Number(saved.sequence) || 0, ...events.map((entry) => Number(entry.sequence) || 0), 0);
+    for (const raw of saved.jobs.slice(-maxJobs)) {
+      if (!raw?.jobId || !raw?.requestId || !raw?.targetId || !raw?.processEpoch) continue;
+      const job = { ...clone(raw), lease: null };
+      if (job.state === 'queued') {
+        job.state = 'cancelled'; job.reason = 'nexus-restarted-before-dispatch';
+        job.errorCode = 'MACHINE_JOB_RESTARTED_BEFORE_DISPATCH'; job.finishedAt = stamp();
+        restartSettlements.push(job);
+      } else if (job.state === 'running' || job.state === 'deferred') {
+        job.state = 'outcome-unknown'; job.reason = 'nexus-restarted-during-supervised-execution';
+        job.errorCode = 'MACHINE_JOB_RESTART_OUTCOME_UNKNOWN'; job.finishedAt = stamp();
+        restartSettlements.push(job);
+      }
+      jobs.set(job.jobId, job); requestIndex.set(job.requestId, job.jobId);
+    }
+    if (restartSettlements.length) {
+      for (const job of restartSettlements) events.push({ sequence: ++sequence, type: 'restart-reconciled',
+        at: stamp(), jobId: job.jobId, requestId: job.requestId, state: job.state, errorCode: job.errorCode });
+      persist();
+    }
+  }
+  function recovered() { return restartSettlements.map(publicJob); }
+  restore();
+
+  return { create, start, defer, rebound, settle, cancel, terminalizeForSession, terminalizeForTarget,
+    status, snapshot, recovered };
 }
 
 module.exports = { TERMINAL_STATES, ACTIVE_STATES, createSupervisedJobCoordinator };

@@ -50,13 +50,26 @@ def run(command: list[str], timeout: int = 900) -> dict:
             "stdout": result.stdout or "",
             "stderr": result.stderr or "",
             "durationMs": round((time.monotonic() - started) * 1000),
+            "started": True,
+            "failureClass": "process-exit" if result.returncode else None,
         }
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "status": 124,
+            "stdout": str(exc.stdout or ""),
+            "stderr": str(exc.stderr or exc),
+            "durationMs": round((time.monotonic() - started) * 1000),
+            "started": True,
+            "failureClass": "timeout-outcome-unknown",
+        }
+    except OSError as exc:
         return {
             "status": 125,
             "stdout": "",
             "stderr": str(exc),
             "durationMs": round((time.monotonic() - started) * 1000),
+            "started": False,
+            "failureClass": "launch-failure",
         }
 
 

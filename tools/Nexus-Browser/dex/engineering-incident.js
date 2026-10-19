@@ -49,6 +49,9 @@ function incidentText(job, classification) {
     `exit=${result.exitCode ?? 'unknown'} error=${bounded(job.errorCode || 'none', 96)} outputReceipt=${bounded(result.outputId || 'none', 128)}`
   ];
   if (job.reason) lines.push(`reason=${bounded(job.reason, 240)}`);
+  if (result.recovery?.receipt) lines.push(
+    `recovery=${bounded(result.recovery.outcome, 32)} receipt=${bounded(result.recovery.receipt, 260)}`
+  );
   if (job.state === 'failed') lines.push(
     'Middle-agent task: reply with exactly one JSON object (no prose or fence).',
     `Required template: {"schema":"eveos.machine-spaces.engineering-proposal.v1","incidentJobId":"${bounded(job.jobId, 128)}","classification":"${classification}","summary":"bounded diagnosis","confidence":0.0,"requestedEvidence":[],"repair":{"kind":"none","paths":[],"description":"bounded recommendation"},"retryIntent":"none"}`,

@@ -49,6 +49,9 @@ test('supervised UI exposes local start/rebound/cancel but no provider control m
   assert.match(source, /data-human-input/);
   assert.match(source, /Reattach supervision/);
   assert.match(source, /It will not replay the command/);
+  assert.match(source, /machine_prepare_recovery_job/);
+  assert.match(source, /I confirm this exact command is idempotent/);
+  assert.match(source, /TLO may edit only/);
   assert.doesNotMatch(source, /\[\[DEX:CMD/);
   assert.doesNotMatch(source, /job_start['"]/);
 });

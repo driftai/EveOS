@@ -19,6 +19,7 @@ from tlo_autorecover_core import (
 )
 from tlo_autorecover_evidence import evidence_deficit, repair_prompt
 from tlo_autorecover_policy import apply_edits, validate_plan
+from tlo_recovery_receipt import create_receipt, retry_disposition, transition, RETRY_SAFETY
 from tlo_rehearsal_support import (
     MAX_PROMPT_CHARS,
     RESULT_DIR,
@@ -28,7 +29,7 @@ from tlo_rehearsal_support import (
 )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--branch", required=True)
@@ -58,12 +59,13 @@ def main() -> int:
         type=int,
         default=MAX_WORKER_REPAIRS,
     )
+    parser.add_argument("--retry-safety", choices=sorted(RETRY_SAFETY), default="never")
     parser.add_argument(
         "command",
         nargs=argparse.REMAINDER,
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     command = list(args.command)
 
@@ -128,30 +130,18 @@ def main() -> int:
 
     root = RESULT_DIR / run_id
 
-    receipt = {
-        "schema": "eveos.tlo-engineering-autorecovery",
-        "schemaVersion": 2,
-        "runId": run_id,
-        "branch": args.branch,
-        "expectedHead": args.expected_head,
-        "command": command,
-        "repairFiles": repair_files,
-        "contextFiles": context_paths,
-        "invariants": invariants,
-        "attempts": [],
-    }
+    receipt = create_receipt(run_id=run_id, branch=args.branch, expected_head=args.expected_head,
+        command=command, repair_files=repair_files, context_files=context_paths,
+        invariants=invariants, retry_safety=args.retry_safety)
+    def record_state(state: str, **details) -> None:
+        transition(receipt, state, **details)
+        write_json(root / "receipt.json", receipt)
 
     validate_tlo()
+    authority_guard(args.branch, args.expected_head, allowed_dirty)
+    record_state("PREFLIGHT")
 
-    authority_guard(
-        args.branch,
-        args.expected_head,
-        allowed_dirty,
-    )
-
-    for worker_attempt in range(
-        args.max_attempts + 1
-    ):
+    for worker_attempt in range(args.max_attempts + 1):
         print()
         print("=" * 60)
         print(
@@ -159,10 +149,8 @@ def main() -> int:
         )
         print("=" * 60)
 
-        result = run(
-            command,
-            timeout=1800,
-        )
+        record_state("DISPATCHED", attempt=worker_attempt + 1)
+        result = run(command, timeout=1800)
 
         if result["stdout"]:
             print(
@@ -181,26 +169,18 @@ def main() -> int:
             "run": worker_attempt + 1,
             "exitStatus": result["status"],
             "durationMs": result["durationMs"],
+            "started": result.get("started"),
+            "failureClass": result.get("failureClass"),
             "proposals": [],
         }
-
-        receipt["attempts"].append(
-            attempt_record
-        )
-
-        write_json(
-            root / "receipt.json",
-            receipt,
-        )
+        receipt["attempts"].append(attempt_record)
+        write_json(root / "receipt.json", receipt)
 
         if result["status"] == 0:
             authority_guard(args.branch, args.expected_head, allowed_dirty)
+            record_state("GREEN", attempt=worker_attempt + 1)
             receipt["outcome"] = "GREEN"
-
-            write_json(
-                root / "receipt.json",
-                receipt,
-            )
+            write_json(root / "receipt.json", receipt)
 
             print()
             print("TLO_AUTORECOVERY GREEN")
@@ -212,6 +192,18 @@ def main() -> int:
             )
 
             return 0
+
+        retry_ok, stop_state = retry_disposition(args.retry_safety, result)
+        if not retry_ok:
+            record_state(stop_state, attempt=worker_attempt + 1,
+                failureClass=result.get("failureClass"))
+            receipt["outcome"] = stop_state
+            write_json(root / "receipt.json", receipt)
+            raise RuntimeError(
+                "Automatic replay is not authorized or the execution outcome is uncertain."
+            )
+        record_state("FAILURE_CONFIRMED", attempt=worker_attempt + 1,
+            failureClass=result.get("failureClass"))
 
         head = git_text(
             "rev-parse",
@@ -269,6 +261,7 @@ def main() -> int:
             1,
             MAX_PROPOSALS + 1,
         ):
+            record_state("TRIAGING", attempt=worker_attempt + 1, proposal=proposal)
             validate_tlo()
 
             prompt = repair_prompt(
@@ -354,6 +347,7 @@ def main() -> int:
                 )
 
             try:
+                record_state("REPAIR_PROPOSED", attempt=worker_attempt + 1, proposal=proposal)
                 edits = validate_plan(
                     plan,
                     repair_set,
@@ -369,6 +363,7 @@ def main() -> int:
                 )
 
                 accepted_plan = plan_path
+                record_state("PATCH_APPLIED", attempt=worker_attempt + 1, proposal=proposal)
                 break
 
             except RepairProposalRejected as exc:
@@ -430,6 +425,7 @@ def main() -> int:
             "TLO applied bounded repair to: "
             + ", ".join(applied)
         )
+        record_state("VERIFYING", attempt=worker_attempt + 2)
         print(
             "Rerunning the same worker automatically..."
         )
