@@ -2,11 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { argumentsFor, waitForProposal } = require('../scripts/dex-phase3-engineering-playwright-qualify');
+const { DEFAULT_PHASE3_FAILURE_MARKER, argumentsFor, waitForProposal } = require('../scripts/dex-phase3-engineering-playwright-qualify');
 
 test('Phase 3 Playwright qualifier requires an exact room and bounded selection token', () => {
+  assert.equal(DEFAULT_PHASE3_FAILURE_MARKER, 'PHASE3_CONTROLLED_FAILURE');
   assert.deepEqual(argumentsFor(['--room', 'room-phase3proof', '--timeout', '90']), {
-    roomId: 'room-phase3proof', token: 'PHASE3_CONTROLLED_FAILURE', timeoutMs: 90000, headless: true
+    roomId: 'room-phase3proof', token: DEFAULT_PHASE3_FAILURE_MARKER, timeoutMs: 90000, headless: true
   });
   assert.throws(() => argumentsFor(['--room', 'Phase Three']), /exact Dex room/);
   assert.throws(() => argumentsFor(['--room', 'room-phase3proof', '--token', 'x\nstart']), /plain text/);

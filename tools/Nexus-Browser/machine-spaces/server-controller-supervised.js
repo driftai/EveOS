@@ -6,6 +6,7 @@ const { inspectGovernorRuns } = require('./governor-run-inspect');
 const { createSupervisedJobProviderControl, ACTIONS } = require('./supervised-job-provider-control');
 const { createLocalPlanController } = require('./server-controller-local-plans');
 const { recoveryProjection } = require('./engineering-recovery-result');
+const { createSupervisedLiveView } = require('./supervised-live-view');
 const dexProtocol = require('../public/dex-protocol');
 for (const action of ACTIONS) dexProtocol.PROVIDER_CONTROL_ACTIONS.add(action);
 
@@ -20,6 +21,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   const commandStore = options.supervisedCommandStore || new Map();
   const governorReceiptReader = options.governorReceiptReader || inspectGovernorRuns;
   const onSupervisedJobSettled = options.onSupervisedJobSettled || (() => {});
+  const liveView = options.supervisedLiveView || createSupervisedLiveView();
   const governorRoot = options.governorRoot || require('node:path').resolve(__dirname, '..', '..', '..');
   const sessions = new WeakMap();
   const hooked = new WeakSet();
@@ -46,7 +48,8 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
         const display = stored?.displayCommand || stored?.command || '';
         return { ...job, commandAvailable: !!stored,
           commandPreview: display ? (display.length > 180 ? `${display.slice(0, 177)}...` : display) : null,
-          governor: stored?.governor || null, recovery: stored?.recovery || null };
+          governor: stored?.governor || null, recovery: stored?.recovery || null,
+          visibleTerminal: stored?.visibleTerminal === true };
       });
   }
   function broadcastJobs(reason, changed = []) {
@@ -87,7 +90,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
     } catch {}
   }
   const localPlans = createLocalPlanController({ jobs, commandStore, broker: base.broker,
-    getState, repoRoot: governorRoot });
+    getState, repoRoot: governorRoot, resolveHead: options.resolveSupervisedHead });
 
   function startLocal(ws, msg) {
     requireLocal(ws);
@@ -104,11 +107,18 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
       throw machineError('MACHINE_TARGET_BUSY', `The managed terminal is already running ${active.mode || 'a command'}; the supervised job remains queued.`);
     const sessionId = localSession(ws);
     const running = jobs.start(current.jobId, { sessionId, targetId: target.id, processEpoch: target.processEpoch });
+    let observer = null;
+    if (stored.visibleTerminal === true) {
+      try { observer = liveView.start({ jobId: current.jobId, command: stored.displayCommand || stored.command }); }
+      catch { observer = null; }
+    }
     const run = base.broker.runSupervised({
       targetId: target.id, processEpoch: target.processEpoch, requestId: current.requestId, command: stored.command,
-      onStart(detail) { safeSend(ws, { type: 'machine_supervised_job_started', job: jobs.status(current.jobId), process: detail }); }
+      onStart(detail) { safeSend(ws, { type: 'machine_supervised_job_started', job: jobs.status(current.jobId), process: detail }); },
+      onData(detail) { observer?.write(detail); }
     });
-    run.then((result) => settleFromProcess(current.jobId, result), (error) => settleFromProcess(current.jobId, null, error));
+    run.then((result) => { observer?.finish(result); settleFromProcess(current.jobId, result); },
+      (error) => { observer?.finish(null, error); settleFromProcess(current.jobId, null, error); });
     broadcastJobs('started', [running]);
     return running;
   }
@@ -182,6 +192,12 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
         requireLocal(ws); const job = localPlans.prepareRecovery(msg);
         safeSend(ws, { type: 'machine_recovery_job_prepared', requestId: msg.requestId, job });
         broadcastJobs('recovery-prepared', [job]);
+        return true;
+      }
+      if (type === 'machine_prepare_room_recovery') {
+        requireLocal(ws); const job = localPlans.prepareRoomRecovery(msg);
+        safeSend(ws, { type: 'machine_recovery_job_prepared', requestId: msg.requestId, job });
+        broadcastJobs('room-recovery-prepared', [job]);
         return true;
       }
       if (type === 'machine_governor_receipts') {

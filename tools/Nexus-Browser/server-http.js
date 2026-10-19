@@ -15,6 +15,7 @@ const MIME = Object.freeze({
 });
 const INDEX_ENHANCEMENTS = Object.freeze([
   '<script src="/machine-human-gate-ui.js"></script>',
+  '<script src="/room-recovery-intent.js"></script>',
   '<script src="/machine-supervised-jobs-ui.js"></script>',
   '<script src="/machine-request-view-ui.js"></script>'
 ]);

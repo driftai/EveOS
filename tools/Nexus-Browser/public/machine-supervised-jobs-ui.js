@@ -72,6 +72,7 @@
       <label>Invariants (optional, one per line)<textarea name="invariants" rows="2"></textarea></label>
       <label>Repair attempts <select name="maxAttempts"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
       <label><input name="retrySafe" type="checkbox" required> I confirm this exact command is idempotent and safe to rerun only after a verified authorized repair.</label>
+      <label><input name="visibleTerminal" type="checkbox" checked> Open a visible read-only terminal view while the managed process runs.</label>
       <button type="submit" class="secondary">Prepare recovery — local Start still required</button>
       <div data-recovery-prepare-status role="status"></div>
     </form>`;
@@ -91,7 +92,8 @@
       roomId, spaceId, targetId: value('targetId'), runId: value('runId'),
       branch: 'eve/nexus-machine-spaces', expectedHead: value('expectedHead'),
       command: value('command'), repairFiles: lines('repairFiles'), contextFiles: lines('contextFiles'),
-      invariants: lines('invariants'), maxAttempts: Number(value('maxAttempts') || 1), retrySafety: 'idempotent' });
+      invariants: lines('invariants'), maxAttempts: Number(value('maxAttempts') || 1), retrySafety: 'idempotent',
+      visibleTerminal: data.get('visibleTerminal') === 'on' });
     recoveryStatus.textContent = ok ? 'Recovery authority queued for review. No command or model has started.' : 'Nexus is disconnected.';
   });
   const list = section.querySelector('[data-supervised-jobs]');
@@ -100,6 +102,9 @@
   let jobs = [];
   let reconnectTimer = null;
   const outputs = new Map();
+  const dexPrompt = document.getElementById('dexPrompt');
+  const dexSend = document.getElementById('dexSend');
+  let lastRoomIntent = null;
 
   const activeRoomId = () => roomList.querySelector('.dex-room-item.active')?.dataset.roomId || '';
   const activeSpaceId = () => String(spaceSelect.value || '');
@@ -109,6 +114,39 @@
     socket.send(JSON.stringify(payload));
     return true;
   };
+  async function prepareRoomIntent() {
+    const parsed = globalThis.BrowserAiBridgeRoomRecoveryIntent?.parse(dexPrompt?.value || '');
+    if (!parsed) return;
+    const roomId = activeRoomId(), spaceId = activeSpaceId();
+    if (!editable() || !roomId || !spaceId || phase !== 'connected') {
+      recoveryStatus.textContent = 'Room message sent; preparation requires Human Input, an active Machine Space, and Nexus connectivity.';
+      return;
+    }
+    const key = `${roomId}:${spaceId}:${parsed.scriptPath}`;
+    const now = Date.now();
+    if (lastRoomIntent?.key === key && now - lastRoomIntent.at < 1500) return;
+    // Lock during the confirmation dialog; Enter and Send may both fire.
+    lastRoomIntent = { key, at: now };
+    const approved = await confirmAction('Confirm safe recovery for this script',
+      `Script: ${parsed.scriptPath}\n\nI confirm this script is idempotent, safe to run again after a verified repair, and TLO may edit only that script. Preparation is inert; Start supervised is a second, separate confirmation.`,
+      'Confirm retry safety');
+    if (!approved) { lastRoomIntent = null; return; }
+    if (activeRoomId() !== roomId || activeSpaceId() !== spaceId || !editable() || phase !== 'connected') {
+      recoveryStatus.textContent = 'Room/space or Human Input state changed during confirmation; preparation cancelled.';
+      return;
+    }
+    const id = globalThis.crypto?.randomUUID?.() || String(Date.now());
+    const ok = send({ type: 'machine_prepare_room_recovery', requestId: `room-recovery:${id}`,
+      runId: `room-${id}`, roomId, spaceId, scriptPath: parsed.scriptPath,
+      visibleTerminal: true, retrySafeConfirmed: true });
+    recoveryStatus.textContent = ok
+      ? `Room recovery requested for ${parsed.scriptPath}. Review the exact queued job and press Start supervised.`
+      : 'Room message continues normally, but Nexus disconnected before recovery preparation.';
+  }
+  dexSend?.addEventListener('click', prepareRoomIntent, true);
+  dexPrompt?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) prepareRoomIntent();
+  }, true);
   const short = (value, length = 12) => {
     const text = String(value || '');
     return text.length > length ? `${text.slice(0, length)}…` : text;
@@ -157,6 +195,8 @@
       `request ${job.requestId || 'n/a'}`,
       job.governor?.runId ? `Governor ${job.governor.runId} (${job.governor.tier})` : null,
       job.recovery?.runId ? `TLO recovery ${job.recovery.runId} · ${job.recovery.maxAttempts} repair attempt(s) · idempotent retry` : null,
+      job.recovery?.worker?.name ? `worker ${job.recovery.worker.name} (${job.recovery.worker.providerId || 'provider unknown'})` : null,
+      job.visibleTerminal ? 'visible read-only terminal view' : null,
       `epoch ${short(job.processEpoch, 18) || 'n/a'}`,
       job.reboundCount ? `rebound ${job.reboundCount}×` : null,
       job.reason || null,
@@ -170,8 +210,9 @@
         const recoveryNotice = job.recovery
           ? `\n\nRecovery authority: TLO may edit only ${job.recovery.repairFiles.join(', ')}, run this same idempotent command again after a verified repair, and stop after ${job.recovery.maxAttempts} repair attempt(s).`
           : '';
+        const terminalNotice = job.visibleTerminal ? '\n\nA visible read-only terminal will mirror the managed execution.' : '';
         const ok = await confirmAction('Start this supervised job?',
-          'The exact prepared command will start in its pinned Nexus-managed terminal. It may remain running until stopped, completed, or the supervision ceiling is reached.' + recoveryNotice,
+          'The exact prepared command will start in its pinned Nexus-managed terminal. It may remain running until stopped, completed, or the supervision ceiling is reached.' + recoveryNotice + terminalNotice,
           'Start job');
         if (ok) requestMutation('machine_start_supervised_job', job);
       }));

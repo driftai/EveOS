@@ -57,6 +57,17 @@ test('completed work records GREEN evidence without invoking an agent', () => {
   assert.equal(state.value().rooms[0].engineeringIncidentReceipts[0].dispatch, 'not-required');
 });
 
+test('exhausted recovery defers to the local owner without another agent loop', () => {
+  const state = store(room([member('tlo')])), calls = [];
+  const bridge = createEngineeringIncidentBridge({ load: state.load, save: state.save,
+    scheduler: { startMemberTurn(input) { calls.push(input); return { ok: true }; } } });
+  const result = bridge.handle({ ...job('failed'), kind: 'recovery' });
+  assert.equal(calls.length, 0);
+  assert.equal(result.receipt.dispatch, 'owner-required');
+  assert.equal(result.dispatch.code, 'ENGINEERING_RECOVERY_EXHAUSTED');
+  assert.match(state.value().rooms[0].messages[0].text, /local owner action is required/i);
+});
+
 test('existing scheduler targets the exact member instead of round-robin selection', async () => {
   const state = store(room([member('eve'), member('tlo')], { middleAgentMemberId: 'tlo' }));
   const snapshot = state.load(); snapshot.rooms[0].messages.push({ id: 'incident-one', senderKind: 'system', senderName: 'Machine Spaces', text: 'failure',

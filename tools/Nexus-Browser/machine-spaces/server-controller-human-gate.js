@@ -11,6 +11,7 @@ const MUTATING_TYPES = new Set([
   'machine_revoke_file_grant',
   'machine_prepare_governor_job',
   'machine_prepare_recovery_job',
+  'machine_prepare_room_recovery',
   'machine_start_supervised_job',
   'machine_rebound_supervised_job',
   'machine_cancel_supervised_job',

@@ -52,7 +52,11 @@ function incidentText(job, classification) {
   if (result.recovery?.receipt) lines.push(
     `recovery=${bounded(result.recovery.outcome, 32)} receipt=${bounded(result.recovery.receipt, 260)}`
   );
-  if (job.state === 'failed') lines.push(
+  const exhaustedRecovery = job.kind === 'recovery' && job.state === 'failed';
+  if (exhaustedRecovery) lines.push(
+    'Recovery exhausted: local owner action is required. No automatic replay or additional agent turn will be scheduled.'
+  );
+  else if (job.state === 'failed') lines.push(
     'Middle-agent task: reply with exactly one JSON object (no prose or fence).',
     `Required template: {"schema":"eveos.machine-spaces.engineering-proposal.v1","incidentJobId":"${bounded(job.jobId, 128)}","classification":"${classification}","summary":"bounded diagnosis","confidence":0.0,"requestedEvidence":[],"repair":{"kind":"none","paths":[],"description":"bounded recommendation"},"retryIntent":"none"}`,
     'Allowed repair.kind: none, prepare-command, source-patch, await-approval. Allowed retryIntent: none, after-verified-repair, requires-approval. Paths must be repository-relative, or [] when no source change is proposed.',
@@ -80,13 +84,16 @@ function createEngineeringIncidentBridge({ load, save, scheduler, broadcastState
       senderKind: 'system', senderId: null, senderName: 'Machine Spaces', text: incidentText(job, classification) });
     message.engineeringIncident = { schema: 'eveos.machine-spaces.engineering-incident.v1', jobId: job.jobId,
       requestId: job.requestId || null, classification, outputId: job.result?.outputId || null };
+    const exhaustedRecovery = job.kind === 'recovery' && job.state === 'failed';
     const receipt = { key, jobId: job.jobId, requestId: job.requestId || null, state: job.state,
       classification, messageId: message.id, createdAt: at, middleAgentMemberId: null,
-      dispatch: job.state === 'failed' ? 'pending' : 'not-required' };
+      dispatch: exhaustedRecovery ? 'owner-required' : job.state === 'failed' ? 'pending' : 'not-required' };
     room.engineeringIncidentReceipts.push(receipt);
     room.engineeringIncidentReceipts = room.engineeringIncidentReceipts.slice(-MAX_RECEIPTS);
     snapshot = save(snapshot); broadcastState(snapshot);
     if (job.state !== 'failed') return { ok: true, receipt };
+    if (exhaustedRecovery) return { ok: true, receipt,
+      dispatch: { ok: false, code: 'ENGINEERING_RECOVERY_EXHAUSTED', message: 'Local owner action is required.' } };
 
     room = stateApi.roomById(snapshot, job.roomId);
     const middle = middleAgentFor(room);

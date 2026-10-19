@@ -9,9 +9,11 @@ const { transact } = require('./dex-room-terminal');
 const { validateEngineeringProposal } = require('../dex/engineering-proposal');
 
 const ROOM = /^room-[A-Za-z0-9_-]{6,125}$/;
+// Fixed failure label for a controlled Playwright proof; not an API token or credential.
+const DEFAULT_PHASE3_FAILURE_MARKER = 'PHASE3_CONTROLLED_FAILURE';
 
 function argumentsFor(argv = []) {
-  const options = { roomId: '', token: 'PHASE3_CONTROLLED_FAILURE', timeoutMs: 240000, headless: true };
+  const options = { roomId: '', token: DEFAULT_PHASE3_FAILURE_MARKER, timeoutMs: 240000, headless: true };
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
     if (key === '--headed') options.headless = false;
@@ -157,4 +159,4 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 if (require.main === module) main();
-module.exports = { argumentsFor, waitForProposal, run, main };
+module.exports = { DEFAULT_PHASE3_FAILURE_MARKER, argumentsFor, waitForProposal, run, main };
