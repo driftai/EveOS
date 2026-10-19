@@ -51,6 +51,15 @@ test('no TLO, no machine attachment, busy room and invalid room fail closed',()=
   assert.equal(fixture({busy:true}).run('dex_terminal_send',{text:'hi'}).code,'DEX_TERMINAL_ROOM_BUSY');
   assert.equal(fixture().run('dex_terminal_send',{roomId:'other',text:'hi'}).code,'DEX_TERMINAL_ROOM_REQUIRED');
 });
+test('an explicit proof-room send restores its no-grant managed target after a bridge restart',()=>{
+  let state={rooms:[{id:ROOM,name:'Proof',userName:'Drift',messages:[],members:[{id:'tlo',relayEnabled:true,binding:{targetClassId:'local-origin',targetId:'local:tlo-chat:default',providerId:'tlo-chat'}}],
+    machineSpaces:{spaces:[{id:'space-proof',resourceIds:['terminal-powershell-stale']}]},terminalBootstrap:{schema:'eveos.dex-tlo-scripted-bootstrap.v1',requestId:'bootstrap-proof-0001',spaceId:'space-proof',targetId:'terminal-powershell-stale'},relay:{active:false}}]};
+  const live=new Set(), broker={createSession:()=>{live.add('terminal-powershell-restored');return {id:'terminal-powershell-restored'};}};
+  const core=createTerminalOperator({load:()=>structuredClone(state),save:s=>(state=structuredClone(s)),scheduler:{startRelay:()=>({ok:true})},targetAvailable:id=>live.has(id),machineBroker:broker,repoRoot:'C:\\EveOS',uid:()=> 'restored'});
+  const result=core.handle({type:'dex_terminal_send',roomId:ROOM,requestId:ID,text:'testing 123'});
+  assert.equal(result.ok,true);assert.deepEqual(state.rooms[0].machineSpaces.spaces[0].resourceIds,['terminal-powershell-restored']);
+  assert.equal(state.rooms[0].terminalBootstrap.targetId,'terminal-powershell-restored');
+});
 test('a visible reply is not final proof until an authoritative final receipt exists',()=>{
   const f=fixture();const sent=f.run('dex_terminal_send',{text:'ping'});
   f.state().rooms[0].messages.push({id:'msg-response',senderKind:'agent',senderId:'member-tlo',text:'pong'});

@@ -20,7 +20,7 @@ function formatRoom(result = {}) {
   else bits.push('idle');
   if (result.recoveryPending) bits.push('recovery pending');
   if (result.tloMemberId) bits.push('TLO bound');
-  if (result.machineSpaceId) bits.push('Machine Space attached');
+  if (result.machineSpaceId) bits.push(result.machineSpaceLive === false ? 'Machine Space terminal offline' : 'Machine Space attached');
   if (result.lastStopReason && /error|fail|disconnect|timeout/i.test(result.lastStopReason)) bits.push('last stop: ' + safeDiagnostic(result.lastStopReason));
   return bits.join(' · ');
 }

@@ -7,6 +7,7 @@ const { runTui, formatRoom, formatFinal } = require('../scripts/dex-room-tui');
 test('default chat formatting shows the reply, not a JSON send receipt', () => {
   assert.equal(formatFinal({ status: 'FINAL_RECEIPT_CONFIRMED', response: { text: 'Hello, I am TLO.' } }), 'TLO/Dex> Hello, I am TLO.');
   assert.match(formatRoom({ ok: true, roomName: 'Proof', busy: false, tloMemberId: 'tlo', machineSpaceId: 'space' }), /idle · TLO bound · Machine Space attached/);
+  assert.match(formatRoom({ ok: true, roomName: 'Proof', busy: false, tloMemberId: 'tlo', machineSpaceId: 'space', machineSpaceLive: false }), /Machine Space terminal offline/);
 });
 
 test('TUI prints confirmed reply automatically; raw receipt appears only after /details', async () => {

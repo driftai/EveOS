@@ -5,7 +5,7 @@
 const { randomUUID, createHash } = require('node:crypto');
 const { addMessage, roomById } = require('./server-scheduler-state');
 const { runtimeBusy } = require('./server-state-merge');
-const { bootstrap } = require('./terminal-provision');
+const { bootstrap, proofRoom } = require('./terminal-provision');
 const { stateFor } = require('./terminal-turn-outcome');
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9:_-]{7,127}$/;
@@ -24,17 +24,19 @@ function spaceFor(room) {
   const attached = candidates.filter(s => s && s.archived !== true && Array.isArray(s.resourceIds) && s.resourceIds.length);
   return attached.length === 1 ? attached[0] : null;
 }
-function summary(room) {
+function summary(room, targetAvailable = () => true) {
   const tlo = exactTlo(room), space = spaceFor(room);
+  const machineSpaceLive = !!space?.resourceIds?.some(id => targetAvailable(id) === true);
   return { roomId: room.id, roomName: String(room.name || '').slice(0, 80),
     tloMemberId: tlo?.id || null, machineSpaceId: space?.id || null,
+    machineSpaceLive,
     active: !!room.relay?.active, busy: runtimeBusy(room),
     recoveryPending: !!room.recovery, lastStopReason: String(room.relay?.lastStopReason || '').slice(0, 120),
     messageCount: (room.messages || []).length };
 }
-function projection(room, { limit = 10 } = {}) {
+function projection(room, { limit = 10, targetAvailable } = {}) {
   const n = Number.isInteger(limit) ? Math.max(1, Math.min(limit, 20)) : 10;
-  return { ...summary(room), messages: (room.messages || []).slice(-n).map(m => ({
+  return { ...summary(room, targetAvailable), messages: (room.messages || []).slice(-n).map(m => ({
     id: m.id, at: m.at || null, senderKind: m.senderKind,
     senderName: String(m.senderName || '').slice(0, 60),
     text: String(m.text || '').slice(0, MAX_TEXT),
@@ -55,10 +57,10 @@ function createTerminalOperator({ load, save, scheduler, broadcastState = () => 
     const snapshot = load();
     if (action === 'dex_terminal_bootstrap') return bootstrap({ requestId, roomName: Object.hasOwn(msg, 'roomName') ? msg.roomName : undefined,
       load, save, broker: machineBroker, repoRoot, broadcastState, now });
-    if (action === 'dex_terminal_rooms') return { ok: true, action: 'rooms', rooms: (snapshot?.rooms || []).slice(0, 32).map(summary) };
+    if (action === 'dex_terminal_rooms') return { ok: true, action: 'rooms', rooms: (snapshot?.rooms || []).slice(0, 32).map(room => summary(room, targetAvailable)) };
     const room = exactRoom(snapshot, msg.roomId);
     if (!room) return failure('DEX_TERMINAL_ROOM_REQUIRED', 'Provide an exact existing room ID, not a room name.');
-    if (action === 'dex_terminal_inspect') return { ok: true, action: 'inspect', ...projection(room, { limit: msg.limit }) };
+    if (action === 'dex_terminal_inspect') return { ok: true, action: 'inspect', ...projection(room, { limit: msg.limit, targetAvailable }) };
     if (action === 'dex_terminal_check') return stateFor(room, String(msg.lookupId || requestId), scheduler.terminalLiveState?.(room.id));
     if (!['dex_terminal_send', 'dex_terminal_room_send'].includes(action)) return failure('DEX_TERMINAL_BAD_ACTION', 'Unsupported terminal operator command.');
     const text = msg.text;
@@ -81,7 +83,18 @@ function createTerminalOperator({ load, save, scheduler, broadcastState = () => 
       return failure('DEX_TERMINAL_NO_AGENT', 'The selected room has no enabled participants.');
     // Do not bypass the TLO proof-room attachment rule through the general chat route.
     if (tlo) {
-      const attachedSpace = spaceFor(room);
+      let attachedSpace = spaceFor(room);
+      if ((!attachedSpace || !attachedSpace.resourceIds.some(id => targetAvailable(id) === true))
+          && proofRoom(room) && machineBroker?.createSession && repoRoot) {
+        attachedSpace = (room.machineSpaces?.spaces || []).find(space => space?.id === room.terminalBootstrap.spaceId && space.archived !== true) || null;
+        if (attachedSpace) {
+          try {
+            const target = machineBroker.createSession({ type: 'powershell', cwd: repoRoot, label: 'TLO Proof (no grants)' });
+            attachedSpace.resourceIds = [target.id];
+            room.terminalBootstrap.targetId = target.id;
+          } catch {}
+        }
+      }
       if (!attachedSpace || !attachedSpace.resourceIds.some(id => targetAvailable(id) === true))
         return failure('DEX_TERMINAL_MACHINE_SPACE_REQUIRED', 'Require a Machine Space with a live attached terminal target.');
     }
