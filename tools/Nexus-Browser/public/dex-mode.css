@@ -220,3 +220,26 @@
   .dex-number { max-width: none; }
   .dex-message { max-width: 96%; }
 }
+
+/* Engineering receipts have a separate semantic status from generic system alerts. */
+.dex-message.system.engineering-success {
+  background: rgba(15, 48, 39, .75);
+  border-color: #347760;
+  color: #d7efe5;
+}
+.dex-message.system.engineering-warning {
+  background: rgba(55, 43, 19, .72);
+  border-color: #96804c;
+  color: #f2e5ba;
+}
+.dex-message.system.engineering-danger {
+  background: rgba(65, 29, 34, .78);
+  border-color: #a65c67;
+  color: #f7d6db;
+}
+.engineering-receipt { margin-top: 9px; font-size: 12px; }
+.engineering-receipt summary { cursor: pointer; opacity: .85; }
+.engineering-receipt pre {
+  max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-size: 11px; color: inherit; opacity: .75;
+}
