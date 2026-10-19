@@ -230,9 +230,10 @@ def scoped_projection(agent_id: str, scope_id: str = "default") -> dict:
     scope = next((item for item in agent["scopes"] if item["id"] == target_scope), None)
     if not scope:
         raise AgentStoreError("Agent scope not found")
-    from server_modules import tlo_definition
+    from server_modules import agent_document_library, tlo_definition
 
     definition = tlo_definition.load(agent) if target_agent == "tlo" else None
+    nexus_guide = agent_document_library.tlo_guide() if target_agent == "tlo" else None
     return {
         "schema": "eveos.agent-projection",
         "schemaVersion": 1,
@@ -244,6 +245,7 @@ def scoped_projection(agent_id: str, scope_id: str = "default") -> dict:
             "workingRules": list(agent["workingRules"]),
             "providerBinding": dict(agent["providerBinding"]),
             "allowedTools": list(agent["allowedTools"]),
+            **({"nexusGuide": nexus_guide["text"], "nexusGuideRevision": nexus_guide["revision"]} if nexus_guide else {}),
             **({"definition": definition["text"], "definitionMetadata": {
                 "source": definition["source"], "revision": definition["revision"], "path": definition["path"],
                 "includedSections": ["agent.definition", "agent.role", "scope.instructions", "scope.context", "allowedTools"],
