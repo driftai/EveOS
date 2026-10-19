@@ -33,7 +33,7 @@
   };
   const el = Object.fromEntries([
     'baseModeTab','dexModeTab','baseModePanel','dexModePanel','dexRoomList','dexNewRoom',
-    'dexRoomName','dexUserName','dexAutoRelay','dexMaxTurns','dexSaveRoom','dexClearChat','dexDeleteRoom',
+    'dexRoomName','dexUserName','dexAutoRelay','dexMaxTurns','dexMiddleAgent','dexSaveRoom','dexClearChat','dexDeleteRoom',
     'dexRoomStatus','dexMemberClass','dexMemberType','dexMemberTarget','dexMemberName','dexRefreshTargets',
     'dexAddMember','dexCancelMemberEdit','dexMemberRelayEnabled','dexMemberList','dexTranscript','dexPrompt','dexSend','dexStopRelay',
     'dexContinueRelay','dexDiagnostics','dexControlLabel','dexControlHint','dexHumanToggle'
@@ -50,7 +50,7 @@
       userName: 'User',
       members: [],
       messages: [],
-      settings: { autoRelay: true, maxTurns: 8, contextMessages: 8, contextDefaultMessages: null },
+      settings: { autoRelay: true, maxTurns: 8, contextMessages: 8, contextDefaultMessages: null, middleAgentMode: 'automatic', middleAgentMemberId: null },
       relay: { active: false, remaining: 0, waitingFor: null, lastStopReason: 'Idle' },
       createdAt: now(),
       updatedAt: now()
@@ -320,6 +320,8 @@
     el.dexUserName.value = room.userName;
     el.dexAutoRelay.checked = !!room.settings.autoRelay;
     el.dexMaxTurns.value = room.settings.maxTurns;
+    el.dexMiddleAgent.replaceChildren(...[['automatic','Automatic (sole eligible agent)'], ['disabled','Disabled'], ...(room.members || []).filter(member => member.relayEnabled !== false).map(member => [member.id, `${member.name} · ${member.binding?.providerName || member.binding?.providerId || 'provider'}`])].map(([value, label]) => new Option(label, value)));
+    el.dexMiddleAgent.value = room.settings.middleAgentMode === 'disabled' ? 'disabled' : room.settings.middleAgentMemberId || 'automatic';
     const budgetLabel = ` · ${room.relay.scheduledTurns ?? '?'} / ${room.relay.turnBudgetTotal ?? '?'} scheduled · ${room.relay.remaining || 0} left${room.recovery ? ` · ${room.recovery.relayRemaining || 0} held in capture-only recovery${room.recovery.promptSendFailure?.attentionAtMs ? ' · inspect exact bound tab; do not resend' : ''}` : ''}`;
     const receiptPending = controlApi.roomHasPendingControlReceipt(state, room);
     el.dexRoomStatus.textContent = room.relay.active
@@ -364,6 +366,8 @@
     const nextBudget = protocol.clampInt(el.dexMaxTurns.value, 1, protocol.MAX_RELAY_TURNS, 8);
     if (room.settings.maxTurns !== nextBudget) room.settings.budgetRevision = Number(room.settings.budgetRevision || 0) + 1;
     room.settings.maxTurns = nextBudget;
+    const middle = el.dexMiddleAgent.value; room.settings.middleAgentMode = middle === 'disabled' ? 'disabled' : middle === 'automatic' ? 'automatic' : 'manual';
+    room.settings.middleAgentMemberId = ['automatic', 'disabled'].includes(middle) ? null : middle;
     room.updatedAt = now();
     persist();
     renderAll();

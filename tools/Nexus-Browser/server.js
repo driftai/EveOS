@@ -15,7 +15,7 @@ const { assetRevision } = require('./server-asset-revision');
 const { ADAPTER_REVISION: EXPECTED_ADAPTER_REVISION } = require('./extension/content/provider-adapter-revision');
 const { createDiagnosticsSnapshot } = require('./server-diagnostics'), { createServerLocalRelay } = require('./dex/server-local-relay'), { createAppTargetServerController } = require('./app-targets/server-controller');
 const { createServerLocalMessaging } = require('./server-local-messaging');
-const { createMachineSpacesController } = require('./machine-spaces/server-controller');
+const { createMachineSpacesController } = require('./machine-spaces/server-controller'), { createEngineeringIncidentBridge } = require('./dex/engineering-incident');
 const { createTerminalOperator } = require('./dex/terminal-operator'), { routeTerminalOperator } = require('./dex/server-terminal-operator-route'), { launchRoomTui } = require('./dex/room-tui-launch');
 const { attachWebSocketHeartbeat } = require('./dex/ws-heartbeat'), { createDisposableRoomCleanup } = require('./dex/disposable-room-cleanup');
 const runtimeConfig = require('./runtime-config');
@@ -46,7 +46,7 @@ let lastProviders = [];
 let lastTarget = null;
 let lastLocalTargets = [];
 let dexStateStore = createDexStateStore();
-let postIdleMaintenance = null, taskCompletion = null;
+let postIdleMaintenance = null, taskCompletion = null, engineeringIncidentBridge = null;
 let durability = createServerDurability();
 function configureDurability(o = {}) { const prev = { durability, dexStateStore }; if (o.durability) durability = o.durability; if (o.dexStateStore) dexStateStore = o.dexStateStore; return prev; }
 const safeSend = createSafeSend({
@@ -61,7 +61,7 @@ function syncExtensionAuthority(state = extensionSessions.current()) {
 }
 function broadcastDexState(snapshot = dexStateStore.load()) { for (const ws of uiSockets) if (ws.clientKind === 'dex') safeSend(ws, { type: 'dex_state_snapshot', snapshot }); }
 const dexRouting = createDexServerRouting({ uiSockets, safeSend });
-const machineSpaces = createMachineSpacesController({ safeSend, uiSockets, getState: () => dexStateStore.load(), saveState: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState });
+const machineSpaces = createMachineSpacesController({ safeSend, uiSockets, getState: () => dexStateStore.load(), saveState: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, onSupervisedJobSettled: (job) => engineeringIncidentBridge?.handle(job) });
 const ensureDexClient = createEnsureDexClient({
   dexRouting, sendToExtension: (payload) => safeSend(extensionSocket, payload)
 });
@@ -101,7 +101,7 @@ const { selectedLocalTarget, sendLocalStatus, sendLocalEvent, broadcastLocalStat
 });
 const serverLocalRelay = createServerLocalRelay({ localTargets, mirrorPrompt: (targetId, msg, target) => mirrorPromptToConsoles(targetId, serverDexSource, msg, target), emitEvent: (targetId, payload) => sendLocalEvent(targetId, serverDexSource, payload), broadcastStatus: (targetId) => broadcastLocalStatus(targetId, serverDexSource) }); const appTargetController = createAppTargetServerController({ appTargets, safeSend, uiSockets, getDurability: () => durability, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive() });
 const dexScheduler = createDexServerScheduler({ stateStore: { load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot) }, durability: { beforeDispatch: (...args) => durability.beforeDispatch(...args), observe: (...args) => durability.observe(...args), markFailed: (...args) => durability.markFailed(...args), query: (...args) => durability.query(...args) }, getOnlineTargets: () => lastTabs, getProviders: () => lastProviders, getSelectedOnlineTarget: () => lastTarget, getLocalTargets: async (force = false) => { if (force) await refreshLocalTargets(null, { force: true }); return lastLocalTargets; }, getAppTargets: async (force = false) => appTargets.listAppTargets({ force }), isExtensionAvailable: () => !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN && extensionSessions.current().ready, sendExtension: (payload) => safeSend(extensionSocket, payload), sendLocalPrompt: serverLocalRelay.sendLocalPrompt, sendAppPrompt: appTargets.sendAppPrompt, captureLocalLatest: localTargets.captureLocalLatest, captureAppLatest: appTargets.captureAppLatest, broadcastState: broadcastDexState, broadcastEvent: (payload) => safeSend(dexRouting.dexClient(), payload), maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(),
-  onTurnSettled: () => { doneWatchDelivery.flush(); taskCompletion?.flush(); postIdleMaintenance?.tick().catch((error) => console.log('[bridge] post-idle tick: ' + error.message)); }, recordIncident: (input) => durability.recordIncident(input) });
+  onTurnSettled: () => { doneWatchDelivery.flush(); taskCompletion?.flush(); postIdleMaintenance?.tick().catch((error) => console.log('[bridge] post-idle tick: ' + error.message)); }, recordIncident: (input) => durability.recordIncident(input) }); engineeringIncidentBridge = createEngineeringIncidentBridge({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), scheduler: dexScheduler, broadcastState: broadcastDexState });
 const terminalOperator = createTerminalOperator({
   load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot),
   scheduler: dexScheduler, broadcastState: broadcastDexState,

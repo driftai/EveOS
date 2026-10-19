@@ -34,6 +34,11 @@ function formatFinal(result = {}) {
     return `! Outcome unknown (${result.requestId || 'request'}): ${result.message || 'Inspect before retrying.'}`;
   return `${result.code || result.status || 'UNKNOWN'}: ${result.message || 'Final receipt not confirmed'}`;
 }
+function formatJobs(result = {}) {
+  if (!result.ok) return formatRoom(result);
+  const jobs = result.engineeringIncidents || [];
+  return jobs.length ? jobs.map(job => `${safeDiagnostic(job.state, 24)} · ${safeDiagnostic(job.classification, 48)} · ${safeDiagnostic(job.jobId, 128)} · middle=${safeDiagnostic(job.middleAgentMemberId || 'none', 80)} · ${safeDiagnostic(job.dispatch, 32)}`).join('\n') : 'No supervised engineering incidents recorded for this room.';
+}
 async function runTui(p, { tx, payload, id, input = process.stdin, output = process.stdout,
   errorOutput = process.stderr, pollMs = 700, timeoutMs = 195000, displayName = null, resolveIdentity = false } = {}) {
   if (typeof tx !== 'function' || typeof payload !== 'function' || typeof id !== 'function')
@@ -130,7 +135,7 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
     monitors.set(requestId, pending);
     return pending;
   }
-  output.write(`Dex room ${p.room} · auto-replies on · /status /history /errors /check /wait /details /ids /preview /quiet /back /home /quit\n`);
+  output.write(`Dex room ${p.room} · auto-replies on · /status /jobs /history /errors /check /wait /details /ids /preview /quiet /back /home /quit\n`);
   awaitingInput = true;
   rl.prompt();
   for await (const line of rl) {
@@ -141,7 +146,7 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
     if (text === '/quit' || text === '/exit') { navigation = 'quit'; break; }
     try {
       if (text === '/help') {
-        write('/status room state and last error · /history recent messages · /errors latest Dex room errors · /check latest receipt · /wait await latest reply · /details [on|off] technical receipts · /ids request IDs · /preview [on|off] live text preview · /quiet [on|off] suppress progress · /back rooms · /home menu · /quit exit');
+        write('/status room state and last error · /jobs supervised engineering incidents · /history recent messages · /errors latest Dex room errors · /check latest receipt · /wait await latest reply · /details [on|off] technical receipts · /ids request IDs · /preview [on|off] live text preview · /quiet [on|off] suppress progress · /back rooms · /home menu · /quit exit');
       } else if (text === '/quiet' || text === '/quiet on' || text === '/quiet off') {
         if (text === '/quiet on') quiet = true;
         if (text === '/quiet off') quiet = false;
@@ -160,9 +165,10 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
         if (text.endsWith(' on')) verbose = true;
         if (text.endsWith(' off')) verbose = false;
         write(latest ? JSON.stringify(receipts.get(latest), null, 2) : `Detailed receipts ${verbose ? 'enabled' : 'hidden'}. No messages yet.`);
-      } else if (text === '/status' || text === '/history' || text === '/errors') {
+      } else if (text === '/status' || text === '/jobs' || text === '/history' || text === '/errors') {
         const result = await tx(payload({ ...p, command: 'inspect', requestId: id(), limit: text === '/history' ? 15 : 20 }));
         if (text === '/status') { write(formatRoom(result)); if (result.ok) write(formatRecentErrors(result)); }
+        else if (text === '/jobs') write(formatJobs(result));
         else if (text === '/errors') write(formatRecentErrors(result));
         else write(!result.ok ? formatRoom(result) : (result.messages || []).map(m => `${m.senderName || m.senderKind}> ${m.text}`).join('\n') || 'No messages.');
       } else if (text === '/check' || text === '/wait') {
@@ -199,4 +205,4 @@ async function runTui(p, { tx, payload, id, input = process.stdin, output = proc
   rl.close();
   return { navigation };
 }
-module.exports = { runTui, formatRoom, formatFinal, formatRecentErrors };
+module.exports = { runTui, formatRoom, formatFinal, formatRecentErrors, formatJobs };

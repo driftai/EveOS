@@ -59,8 +59,21 @@
       if (!value) return { ok: false, code: 'DEX_CONTROL_BAD_SETTING', message: 'userName cannot be empty.' };
       room.userName = value; changed += 1;
     }
+    if (command.middleAgentMode != null || command.middleAgent != null) {
+      const mode = clean(command.middleAgentMode || (command.middleAgent ? 'manual' : ''), 24);
+      if (!['automatic', 'manual', 'disabled'].includes(mode))
+        return { ok: false, code: 'DEX_CONTROL_BAD_SETTING', message: 'middleAgentMode must be automatic, manual, or disabled.' };
+      let memberId = null;
+      if (mode === 'manual') {
+        const resolved = resolveMember(room, command.middleAgent);
+        if (!resolved.member) return { ok: false, code: 'DEX_CONTROL_MEMBER_NOT_FOUND', message: resolved.error };
+        if (resolved.member.relayEnabled === false) return { ok: false, code: 'DEX_CONTROL_BAD_SETTING', message: 'The selected middle agent must participate in relay turns.' };
+        memberId = resolved.member.id;
+      }
+      settings.middleAgentMode = mode; settings.middleAgentMemberId = memberId; changed += 1;
+    }
     if (!changed) {
-      return { ok: false, code: 'DEX_CONTROL_BAD_SETTING', message: 'configure_room requires autoRelay, maxTurns, contextDefaultMessages, or userName.' };
+      return { ok: false, code: 'DEX_CONTROL_BAD_SETTING', message: 'configure_room requires relay, budget, context, identity, or middle-agent settings.' };
     }
     touch(room);
     return { ok: true, message: `Updated settings for ${room.name}.` };
@@ -98,6 +111,7 @@
     const resolved = resolveMember(room, command.member);
     if (!resolved.member) return { ok: false, code: 'DEX_CONTROL_MEMBER_NOT_FOUND', message: resolved.error };
     room.members = room.members.filter((member) => member.id !== resolved.member.id);
+    if (room.settings?.middleAgentMemberId === resolved.member.id) { room.settings.middleAgentMemberId = null; room.settings.middleAgentMode = 'automatic'; }
     if (room.agentCheckpoints) delete room.agentCheckpoints[resolved.member.id];
     touch(room);
     return { ok: true, member: resolved.member, message: `Removed ${resolved.member.name} from ${room.name}.` };

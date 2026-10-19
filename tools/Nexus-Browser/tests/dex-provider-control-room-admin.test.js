@@ -89,6 +89,17 @@ test('bound online agent can rename, observe, and remove another participant', (
   assert.deepEqual(state.rooms[0].members.map((member) => member.id), ['eve']);
 });
 
+test('room middle-agent slot is provider-neutral, explicit, and clears when its member leaves', () => {
+  const state = fixture(), ctl = controller(state);
+  const selected = ctl.handle({ source: eveSource, command: { action: 'configure_room',
+    room: 'Core Room', middleAgentMode: 'manual', middleAgent: 'astro' } });
+  assert.equal(selected.ok, true);
+  assert.equal(state.rooms[0].settings.middleAgentMemberId, 'astro');
+  assert.equal(ctl.handle({ source: eveSource, command: { action: 'remove_agent', member: 'astro' } }).ok, true);
+  assert.equal(state.rooms[0].settings.middleAgentMode, 'automatic');
+  assert.equal(state.rooms[0].settings.middleAgentMemberId, null);
+});
+
 test('status exposes stable member ids for room administration', () => {
   const state = fixture();
   const result = controller(state).handle({ source: eveSource, command: { action: 'status' } });

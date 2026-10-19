@@ -33,11 +33,15 @@ function summary(room, targetAvailable = () => true) {
     machineSpaceLive,
     active: !!room.relay?.active, busy: runtimeBusy(room),
     recoveryPending: !!room.recovery, lastStopReason: String(room.relay?.lastStopReason || '').slice(0, 120),
+    engineeringIncidentCount: (room.engineeringIncidentReceipts || []).length,
     messageCount: (room.messages || []).length };
 }
 function projection(room, { limit = 10, targetAvailable } = {}) {
   const n = Number.isInteger(limit) ? Math.max(1, Math.min(limit, 20)) : 10;
-  return { ...summary(room, targetAvailable), messages: (room.messages || []).slice(-n).map(m => ({
+  return { ...summary(room, targetAvailable), engineeringIncidents: (room.engineeringIncidentReceipts || []).slice(-10).map(entry => ({
+    jobId: entry.jobId, requestId: entry.requestId, state: entry.state, classification: entry.classification,
+    middleAgentMemberId: entry.middleAgentMemberId, dispatch: entry.dispatch, createdAt: entry.createdAt
+  })), messages: (room.messages || []).slice(-n).map(m => ({
     id: m.id, at: m.at || null, senderKind: m.senderKind,
     senderName: String(m.senderName || '').slice(0, 60),
     text: String(m.text || '').slice(0, MAX_TEXT),

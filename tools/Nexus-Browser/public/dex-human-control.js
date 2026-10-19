@@ -2,14 +2,14 @@
   // UI-only editing gate. Agent provider-control commands still run independently.
   // Never persist this flag: every new page or asset reload starts agent-managed.
   const LOCKABLE = Object.freeze([
-    'dexNewRoom', 'dexRoomName', 'dexUserName', 'dexAutoRelay', 'dexMaxTurns',
+    'dexNewRoom', 'dexRoomName', 'dexUserName', 'dexAutoRelay', 'dexMaxTurns', 'dexMiddleAgent',
     'dexSaveRoom', 'dexClearChat', 'dexDeleteRoom',
     'dexMemberClass', 'dexMemberType', 'dexMemberTarget', 'dexMemberName',
     'dexMemberRelayEnabled', 'dexAddMember', 'dexCancelMemberEdit',
     'dexStopRelay', 'dexContinueRelay'
   ]);
   const ROOM_STRUCTURE = new Set([
-    'dexRoomName', 'dexUserName', 'dexAutoRelay', 'dexMaxTurns',
+    'dexRoomName', 'dexUserName', 'dexAutoRelay', 'dexMaxTurns', 'dexMiddleAgent',
     'dexSaveRoom', 'dexDeleteRoom',
     'dexMemberClass', 'dexMemberType', 'dexMemberTarget', 'dexMemberName',
     'dexMemberRelayEnabled', 'dexAddMember', 'dexCancelMemberEdit'

@@ -7,6 +7,8 @@ const { createServerSchedulerRecovery } = require('./server-scheduler-recovery')
 const recoveryMailbox = require('./recovery-mailbox'), promptSend = require('./prompt-send-recovery');
 const { directRoomSend } = require('./direct-room-send-policy');
 const schedulerTelemetry = require('./server-scheduler-telemetry');
+const { createMemberTurnStarter } = require('./server-scheduler-member-turn');
+const { validateEngineeringProposal } = require('./engineering-proposal');
 const { TURN_TIMEOUT_MS, TURN_IDLE_TIMEOUT_MS, TURN_ABSOLUTE_TIMEOUT_MS,
   activityFromTransport, createServerTurnLease } = require('./server-turn-lease');
 function createDexServerScheduler({
@@ -248,6 +250,8 @@ function createDexServerScheduler({
     processSoon(0);
     return { ok: true, roomId };
   }
+  const startMemberTurn = createMemberTurnStarter({ load, save, currentRoomId: () => current?.roomId || null,
+    maintenanceBusy, processSoon, now });
   function stopRelay({ roomId, reason = 'Stopped' } = {}) {
     const snapshot = load(), room = stateApi.roomById(snapshot, roomId);
     if (!room) return { ok: false, code: 'DEX_ROOM_NOT_FOUND', message: 'Dex room not found.' };
@@ -337,7 +341,8 @@ function createDexServerScheduler({
       senderName: member.name, text: parsed.text || '(No textual response.)',
       contextOverride: parsed.contextOverride
     });
-    if (parsed.providerControlCommand && !directRoomSend(parsed.providerControlCommand)) controlReceiptApi.rememberIntent(room, { executorMember: member, sourceMessage, command: parsed.providerControlCommand, agentMessage: message, turnRequestId: current.requestId, at: now() });
+    if (sourceMessage?.engineeringIncident) { message.engineeringRawText = String(text || '').slice(0, 12000); message.engineeringProposal = validateEngineeringProposal(parsed.text, sourceMessage.engineeringIncident); }
+    if (!sourceMessage?.engineeringIncident && parsed.providerControlCommand && !directRoomSend(parsed.providerControlCommand)) controlReceiptApi.rememberIntent(room, { executorMember: member, sourceMessage, command: parsed.providerControlCommand, agentMessage: message, turnRequestId: current.requestId, at: now() });
     delete room.recovery;
     room.relay.waitingFor = null;
     stateApi.extendBudget(room, parsed);
@@ -428,7 +433,7 @@ function createDexServerScheduler({
     return schedulerTelemetry.terminalLiveState(current, roomId);
   }
   return {
-    terminalLiveState, startRelay, stopRelay, continueRelay,
+    terminalLiveState, startRelay, startMemberTurn, stopRelay, continueRelay,
     handleTransportEvent, onStateChanged, transportLost, resume, process, resolvePassiveRecovery: (input) => recovery.resolvePassive(input), diagnostics
   };
 }

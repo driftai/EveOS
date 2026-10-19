@@ -19,6 +19,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   const jobs = options.supervisedJobs || createSupervisedJobCoordinator({ now: options.now });
   const commandStore = options.supervisedCommandStore || new Map();
   const governorReceiptReader = options.governorReceiptReader || inspectGovernorRuns;
+  const onSupervisedJobSettled = options.onSupervisedJobSettled || (() => {});
   const governorRoot = options.governorRoot || require('node:path').resolve(__dirname, '..', '..', '..');
   const sessions = new WeakMap();
   const hooked = new WeakSet();
@@ -76,6 +77,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
       });
       commandStore.delete(jobId);
       broadcastJobs('settled', [settled]);
+      try { onSupervisedJobSettled(settled); } catch {}
     } catch {}
   }
   function prepareGovernorLocal(ws, msg) {
@@ -171,6 +173,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
         });
         commandStore.delete(current.jobId);
         broadcastJobs('settled', [settled]);
+        try { onSupervisedJobSettled(settled); } catch {}
         return settled;
       }
       return jobs.status(current.jobId);
@@ -181,7 +184,9 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
       sessionId: lease?.holderSessionId,
       leaseId: lease?.leaseId
     });
-    commandStore.delete(current.jobId); broadcastJobs('cancelled', [cancelled]); return cancelled;
+    commandStore.delete(current.jobId); broadcastJobs('cancelled', [cancelled]);
+    try { onSupervisedJobSettled(cancelled); } catch {}
+    return cancelled;
   }
 
   const jobControl = createSupervisedJobProviderControl({ jobs, commandStore, broker: base.broker, getState,
@@ -237,7 +242,11 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   const previousStop = base.stop?.bind(base);
   function stop() {
     for (const job of jobs.snapshot().jobs) {
-      if (['queued', 'running', 'deferred'].includes(job.state)) jobs.terminalizeForTarget(job.targetId, job.processEpoch, 'nexus-stopped');
+      if (['queued', 'running', 'deferred'].includes(job.state)) {
+        for (const settled of jobs.terminalizeForTarget(job.targetId, job.processEpoch, 'nexus-stopped')) {
+          try { onSupervisedJobSettled(settled); } catch {}
+        }
+      }
     }
     previousStop?.();
   }

@@ -246,6 +246,43 @@ terminal route inherits existing localhost trust; it is not remote access or
 OS-user identity authentication. Do not change this status to DONE based only
 on synthetic browser/UI coverage.
 
+## Phase 3 — Machine Spaces engineering incident bridge (candidate)
+
+The existing Machine Spaces supervised controller now sends each terminal
+settlement to a localhost-owned engineering incident bridge. The bridge writes
+one bounded, durable system event into the job's exact Dex room and retains the
+raw terminal output only in the existing private spool. Room-visible evidence
+contains the job/request/space/target/process-epoch identities, failure class,
+exit/error details and private output receipt ID. Duplicate settlement delivery
+is idempotent.
+
+Only a confirmed `failed` job may schedule engineering triage. `completed`,
+`cancelled`, and `outcome-unknown` jobs never invoke repair or replay. The exact
+middle-agent member is chosen from `room.settings.middleAgentMemberId`, an
+explicit `engineeringRole`, or the sole eligible room participant. This makes
+TLO the current hot-seat worker without hard-coding TLO as infrastructure. A
+missing, disabled, busy or unavailable worker leaves durable evidence and a
+safe stop; deterministic Nexus operation continues.
+
+Triage uses `startMemberTurn` on the existing Dex scheduler. There is no second
+scheduler, transport, authority store, or execution path. The response is saved
+both as bounded raw agent text and as a validated
+`eveos.machine-spaces.engineering-proposal.v1` projection. Malformed JSON,
+wrong-job proposals, invalid confidence/retry/repair values, and unsafe paths
+are rejected as proposals. Engineering replies cannot directly execute embedded
+provider commands; a later authorized owner must turn a valid proposal into an
+existing queued/approved Machine Spaces operation.
+
+The room TUI exposes `/jobs` as read-only incident history. Local browser
+Machine Spaces controls remain the only owner of start, cancel, approval and
+output retrieval. The source tests prove exact-member routing, cross-state
+receipt preservation, duplicate suppression, output privacy, uncertainty
+no-replay, provider-neutral selection and controller-to-bridge settlement.
+
+Status: **IMPLEMENTED, AUTOMATED ACCEPTANCE PENDING**. Live TLO failure-to-
+proposal proof, restart/reconnect recovery, concurrency, bounded correction and
+authorized proposal-to-repair-to-GREEN remain Phase 4/5 acceptance work.
+
 ## V0.7.1B — Scriptable TLO proof-room bootstrap (bounded candidate)
 
 A directly-loopback-bound terminal operator can now provision a *new*, disposable
