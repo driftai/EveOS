@@ -23,6 +23,8 @@ def build_autorecover_argv(args: argparse.Namespace) -> list[str]:
     result.extend(("--retry-safety", args.retry_safety))
     for path in args.repair_file:
         result.extend(("--allow-dirty-path", path, "--repair-file", path))
+    for path in args.preserve_file:
+        result.extend(("--preserve-file", path))
     for path in args.context_file:
         result.extend(("--context-file", path))
     for value in args.invariant:
@@ -38,6 +40,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--branch")
     parser.add_argument("--expected-head")
     parser.add_argument("--repair-file", action="append", required=True)
+    parser.add_argument("--preserve-file", action="append", default=[])
     parser.add_argument("--context-file", action="append", default=[])
     parser.add_argument("--invariant", action="append", default=[])
     parser.add_argument("--max-attempts", type=int, default=1)
