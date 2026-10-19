@@ -4,6 +4,29 @@
   const GEMINI_ROOM_AUDIO_EVENT = 'nexus-gemini-link-room-audio';
   const MAX_ROOM_AUDIO_ATTACHMENTS = 48;
 
+
+  function engineeringNotice(raw) {
+    const value = String(raw || '');
+    if (!value.startsWith('[ENGINEERING INCIDENT v1]')) return null;
+    const field = (name) => value.match(new RegExp('(?:^|\\s)' + name + '=([^\\s]+)'))?.[1] || '';
+    const state = field('state');
+    const exit = field('exit');
+    const recovery = field('recovery');
+    const success = state === 'completed' && (recovery === 'GREEN' || exit === '0');
+    const uncertain = state === 'outcome-unknown' || state === 'deferred';
+    const job = field('job').slice(-12) || 'unknown';
+    const title = success ? 'Machine Spaces completed successfully'
+      : uncertain ? 'Machine Spaces needs confirmation before retrying'
+        : state === 'failed' ? 'Machine Spaces job failed'
+          : 'Machine Spaces job ' + (state || 'updated');
+    const explanation = success ? 'Recovery passed. No action is required.'
+      : uncertain ? 'The execution result is not proven. Inspect the existing job; do not replay it.'
+        : state === 'failed' ? 'Review the failure receipt before authorizing a correction.'
+          : 'Review the job record for details.';
+    return { tone: success ? 'success' : uncertain ? 'warning' : state === 'failed' ? 'danger' : 'neutral',
+      title, explanation, job, raw: value };
+  }
+
   function createView({ state, el, protocol, onRoomSelect }) {
   const roomAudio = new Map();
 
@@ -93,6 +116,8 @@
     for (const message of room.messages) {
       const article = document.createElement('article');
       article.className = `dex-message ${message.senderKind}`;
+      const notice = message.senderKind === 'system' ? engineeringNotice(message.text) : null;
+      if (notice) article.classList.add('engineering-' + notice.tone);
       const meta = document.createElement('div');
       meta.className = 'dex-message-meta';
       meta.textContent = message.senderKind === 'user'
@@ -100,9 +125,18 @@
         : message.senderName || 'Dex';
       const body = document.createElement('div');
       body.className = 'dex-message-body';
-      body.textContent = message.senderKind === 'system'
-        ? message.text
-        : protocol.messageWrapper(message);
+      body.textContent = notice ? notice.title + ' · ' + notice.explanation
+        : message.senderKind === 'system' ? message.text : protocol.messageWrapper(message);
+      if (notice) {
+        const details = document.createElement('details');
+        details.className = 'engineering-receipt';
+        const summary = document.createElement('summary');
+        summary.textContent = 'Technical receipt · job …' + notice.job;
+        const pre = document.createElement('pre');
+        pre.textContent = notice.raw;
+        details.append(summary, pre);
+        body.append(details);
+      }
       article.append(meta, body);
       const attachment = message.senderKind === 'agent' ? roomAudioForMessage(room, message) : null;
       if (attachment) attachRoomAudio(article, attachment, message.id);
@@ -128,7 +162,7 @@
   return { renderRooms, renderTranscript, rememberRoomAudio };
   }
 
-  const api = { createView, GEMINI_ROOM_AUDIO_EVENT };
+  const api = { createView, engineeringNotice, GEMINI_ROOM_AUDIO_EVENT };
   globalThis.BrowserAiBridgeDexRoomView = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
