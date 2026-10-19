@@ -19,6 +19,7 @@ from tlo_autorecover_core import (
 )
 from tlo_autorecover_evidence import evidence_deficit, repair_prompt
 from tlo_autorecover_policy import apply_edits, validate_plan
+from tlo_preserved_files import capture as capture_preserved, verify as verify_preserved
 from tlo_recovery_receipt import create_receipt, retry_disposition, transition, RETRY_SAFETY
 from tlo_rehearsal_support import (
     MAX_PROMPT_CHARS,
@@ -59,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=MAX_WORKER_REPAIRS,
     )
+    parser.add_argument("--preserve-file", action="append", default=[])
     parser.add_argument("--retry-safety", choices=sorted(RETRY_SAFETY), default="never")
     parser.add_argument(
         "command",
@@ -93,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
     ]
 
     repair_set = set(repair_files)
+    preserved = capture_preserved(args.preserve_file, repair_set)
+    allowed_dirty.update(preserved)
 
     if not repair_set:
         raise RuntimeError(
@@ -139,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
 
     validate_tlo()
     authority_guard(args.branch, args.expected_head, allowed_dirty)
+    verify_preserved(preserved)
     record_state("PREFLIGHT")
 
     for worker_attempt in range(args.max_attempts + 1):
@@ -151,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
 
         record_state("DISPATCHED", attempt=worker_attempt + 1)
         result = run(command, timeout=1800)
+        verify_preserved(preserved)
 
         if result["stdout"]:
             print(
@@ -178,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if result["status"] == 0:
             authority_guard(args.branch, args.expected_head, allowed_dirty)
+            verify_preserved(preserved)
             record_state("GREEN", attempt=worker_attempt + 1)
             receipt["outcome"] = "GREEN"
             write_json(root / "receipt.json", receipt)
@@ -415,6 +422,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         attempt_record["repairedFiles"] = applied
+        verify_preserved(preserved)
 
         write_json(
             root / "receipt.json",
