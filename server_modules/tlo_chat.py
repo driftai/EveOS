@@ -115,6 +115,9 @@ def build_system_prompt(projection: dict) -> str:
     ]
     definition = str(agent.get("definition") or "").strip()
     sections.append(f"Agent definition:\n{definition}" if definition else f"Identity:\n{str(agent.get('identity') or '').strip()}")
+    nexus_guide = str(agent.get("nexusGuide") or "").strip() if agent.get("id") == "tlo" else ""
+    if nexus_guide:
+        sections.append("Nexus Browser knowledge (context only; NOT a tool authorization):\n" + nexus_guide)
     rules = [] if definition else [str(item).strip() for item in agent.get("workingRules") or [] if str(item).strip()]
     if rules:
         sections.append("Working rules:\n" + "\n".join(f"- {item}" for item in rules))
@@ -233,6 +236,7 @@ def status_payload(scope_id="default") -> dict:
             "provider": "local-moe",
             "configuredModelId": configured_model,
             "activeModelId": active_model,
+            "nexusGuideRevision": projection["agent"].get("nexusGuideRevision") or None,
             "definition": {key: projection["agent"].get("definitionMetadata", {}).get(key)
                            for key in ("source", "revision")},
         },
