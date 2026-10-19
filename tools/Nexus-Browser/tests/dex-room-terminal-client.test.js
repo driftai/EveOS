@@ -29,3 +29,12 @@ test('wait proof rejects missing receipt and never issues a second send',async()
   const r=await cli.waitFor({room:ROOM,lookupId:'terminal-proof-01',timeout:'2'}, async x=>{types.push(x.type);return {ok:true,status:'AWAITING_REPLY_OR_RECOVERY'};});
   assert.equal(r.code,'DEX_TERMINAL_NOT_PROVEN');assert.ok(types.every(x=>x==='dex_terminal_check'));
 });
+test('wait --request-id preserves the original send identity while polling with fresh request IDs',async()=>{
+  const calls=[];
+  const r=await cli.waitFor({room:ROOM,requestId:'terminal-proof-original',timeout:'2'},async x=>{
+    calls.push(x);return {ok:true,status:'FINAL_RECEIPT_CONFIRMED'};
+  });
+  assert.equal(r.status,'FINAL_RECEIPT_CONFIRMED');assert.equal(calls.length,1);
+  assert.equal(calls[0].lookupId,'terminal-proof-original');
+  assert.notEqual(calls[0].requestId,'terminal-proof-original');
+});

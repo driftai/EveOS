@@ -49,7 +49,12 @@ function incidentText(job, classification) {
     `exit=${result.exitCode ?? 'unknown'} error=${bounded(job.errorCode || 'none', 96)} outputReceipt=${bounded(result.outputId || 'none', 128)}`
   ];
   if (job.reason) lines.push(`reason=${bounded(job.reason, 240)}`);
-  if (job.state === 'failed') lines.push('Middle-agent task: return one JSON object with schema eveos.machine-spaces.engineering-proposal.v1, incidentJobId, classification, summary, confidence (0-1), requestedEvidence, repair {kind, paths, description}, and retryIntent. Diagnose from bounded evidence only. Do not claim execution, apply changes, or replay the failed command.');
+  if (job.state === 'failed') lines.push(
+    'Middle-agent task: reply with exactly one JSON object (no prose or fence).',
+    `Required template: {"schema":"eveos.machine-spaces.engineering-proposal.v1","incidentJobId":"${bounded(job.jobId, 128)}","classification":"${classification}","summary":"bounded diagnosis","confidence":0.0,"requestedEvidence":[],"repair":{"kind":"none","paths":[],"description":"bounded recommendation"},"retryIntent":"none"}`,
+    'Allowed repair.kind: none, prepare-command, source-patch, await-approval. Allowed retryIntent: none, after-verified-repair, requires-approval. Paths must be repository-relative, or [] when no source change is proposed.',
+    'Diagnose from bounded evidence only. Do not claim execution, apply changes, or replay the failed command.'
+  );
   else if (job.state === 'outcome-unknown') lines.push('Safe stop: execution outcome is uncertain. Do not replay or propose automatic retry.');
   return lines.join('\n');
 }

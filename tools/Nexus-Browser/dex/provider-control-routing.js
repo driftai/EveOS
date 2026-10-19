@@ -4,6 +4,7 @@ const directSend = require('./provider-control-direct-send');
 const { directRoomSend } = require('./direct-room-send-policy');
 const roomTools = require('./room-tools'), entryCheck = require('./provider-control-entry-check');
 const { routeDoneWatch } = require('./provider-control-done-watch');
+const { createLocalProviderControlDelivery } = require('./local-provider-control-delivery');
 const POST_IDLE_ACTIONS = new Set(['arm_post_idle','post_idle_status','cancel_post_idle','report_post_idle']);
 const { runPostIdleCommand } = require('./post-idle-control');
 const MUTATING_ACTIONS = new Set([
@@ -372,6 +373,8 @@ function createProviderControlRouting({
     return true;
   }
 
+  const localDelivery = createLocalProviderControlDelivery({ getState, pending, handleRequest });
+
   async function handleResult(ws, msg) {
     if (msg?.type !== 'provider_control_result' || ws?.clientKind !== 'dex' || ws !== dexClient()) return false;
     const requestId = String(msg.requestId || '');
@@ -419,6 +422,7 @@ function createProviderControlRouting({
   return {
     handle, dropSocket, pending, pendingMutations, recentMutations,
     mutationKey: (source, command) => mutationKey(source, command), settleOrigin,
+    flushLocalIntents: localDelivery.flush,
     observeExtension: agentExtensionReload.observeExtension, providerControlConnected: agentExtensionReload.providerControlConnected,
     agentExtensionReload
   };

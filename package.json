@@ -29,6 +29,7 @@
     "runtime:nexus-browser:status": "node tools/runtime/nexus-browser-runtime.mjs status",
     "runtime:nexus-browser:stop": "node tools/runtime/nexus-browser-runtime.mjs stop",
     "runtime:nexus-browser:restart": "node tools/runtime/nexus-browser-runtime.mjs restart",
+    "runtime:nexus-playwright-workspace": "node tools/Nexus-Browser/scripts/nexus-playwright-workspace-host.js",
     "runtime:bridge:nexus-open": "node tools/runtime/bridge-nexus-open.cjs",
     "qualify:codex-exec-bootstrap-native": "python -B tools/qualification/codex_exec_bootstrap_test.py --native",
     "qualify:audioflix-lane3:recovery": "node tools/qualification/audioflix_lane3_recovery_acceptance.mjs --take-over",

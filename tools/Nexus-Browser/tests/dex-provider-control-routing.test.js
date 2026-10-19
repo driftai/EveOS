@@ -57,7 +57,6 @@ test('provider-control request reports Dex UI offline instead of disappearing', 
   assert.equal(resultFor(local).result.code, 'DEX_UI_OFFLINE');
 });
 
-
 test('provider-control wakes a headed Dex client before declaring the UI offline', async () => {
   const uiSockets = new Set();
   const local = socket('ui', 'provider-control');

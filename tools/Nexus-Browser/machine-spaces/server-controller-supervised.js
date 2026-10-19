@@ -41,8 +41,12 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   }
   function visible(roomId = null, spaceId = null) {
     return jobs.snapshot().jobs.filter((job) => (!roomId || job.roomId === roomId) && (!spaceId || job.spaceId === spaceId))
-      .map((job) => ({ ...job, commandAvailable: commandStore.has(job.jobId),
-        governor: commandStore.get(job.jobId)?.governor || null }));
+      .map((job) => {
+        const stored = commandStore.get(job.jobId);
+        return { ...job, commandAvailable: !!stored,
+          commandPreview: stored?.command ? (stored.command.length > 180 ? `${stored.command.slice(0, 177)}...` : stored.command) : null,
+          governor: stored?.governor || null };
+      });
   }
   function broadcastJobs(reason, changed = []) {
     const payload = { type: 'machine_supervised_jobs', reason, jobs: visible(), changed };

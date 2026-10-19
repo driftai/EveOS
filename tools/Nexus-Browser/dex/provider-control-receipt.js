@@ -35,6 +35,8 @@ function rememberIntent(room, {
     version: 1,
     action: String(command.action).trim().toLowerCase(),
     commandKey: commandKey(command),
+    command: stableValue(command),
+    controlRequestId: `local-control-${turnRequestId || agentMessage.id}`,
     executorMemberId: executorMember.id,
     executorName: executorMember.name || 'Agent',
     executorTarget: compactBinding(executorMember.binding),

@@ -44,6 +44,7 @@ test('server routes provider-control extension or local requests through the Dex
   assert.match(server, /clientKind === 'provider-control'/);
   assert.match(server, /providerControlRouting\.handle\(ws, msg\)/);
   assert.match(server, /providerControlRouting\.dropSocket\(ws\)/);
+  assert.match(server, /providerControlRouting\.flushLocalIntents\(\)/);
 });
 
 test('Dex UI loads provider-control before runtime and handles routed requests', () => {

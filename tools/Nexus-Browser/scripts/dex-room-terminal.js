@@ -75,10 +75,11 @@ function payload(p) {
 }
 async function waitFor(p, tx = transact) {
   if (!p.lookupId && !p.requestId) throw Error('wait requires --lookup-id EXACT_SEND_REQUEST_ID.');
+  const lookupId = p.lookupId || p.requestId;
   const deadline = Date.now() + Number(p.timeout || 195) * 1000;
   let result;
   while (Date.now() < deadline) {
-    result = await tx(payload({ ...p, command: 'check', requestId: id() }));
+    result = await tx(payload({ ...p, command: 'check', requestId: id(), lookupId }));
     if (!result.ok || ['FINAL_RECEIPT_CONFIRMED', 'TURN_FAILED', 'TURN_OUTCOME_UNKNOWN'].includes(result.status)) return result;
     await new Promise(r => setTimeout(r, 1500));
   }

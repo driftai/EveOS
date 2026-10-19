@@ -16,6 +16,8 @@
     "dex:tui": "node scripts/dex-room-terminal.js tui",
     "dex:rooms": "node scripts/dex-room-terminal.js rooms",
     "dex:bootstrap": "node scripts/dex-room-terminal.js bootstrap",
+    "workspace:playwright": "node scripts/nexus-playwright-workspace-host.js",
+    "qualify:phase3:live": "node scripts/dex-phase3-engineering-playwright-qualify.js",
     "qualify:dex-scripted:ui": "node scripts/dex-scripted-setup-playwright-qualify.js",
     "qualify:dex-terminal:ui": "node scripts/dex-terminal-playwright-qualify.js",
     "qualify": "node scripts/qualify.js",

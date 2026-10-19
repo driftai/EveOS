@@ -49,6 +49,16 @@ test('busy target is rejected before queued supervised job transitions to runnin
   assert.equal(f.sent.at(-1).code, 'MACHINE_TARGET_BUSY');
 });
 
+test('local supervisor snapshot includes the bounded immutable command preview needed for review', async () => {
+  const f = fixture();
+  await f.controller.handle(f.ws, { type: 'machine_supervised_jobs', roomId: 'room-one', spaceId: 'space-one' });
+  const snapshot = f.sent.at(-1);
+  assert.equal(snapshot.type, 'machine_supervised_jobs');
+  assert.equal(snapshot.jobs.length, 1);
+  assert.equal(snapshot.jobs[0].commandAvailable, true);
+  assert.equal(snapshot.jobs[0].commandPreview, 'npm run dev');
+});
+
 test('unconfirmed interrupt settles a running supervised job with its current lease', async () => {
   let active = null;
   const f = fixture({ activeInfo: () => active, interrupt: false });

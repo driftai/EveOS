@@ -61,7 +61,11 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
   function visibleJobs(input) {
     const { room, space } = roomSpace(input);
     return jobs.snapshot().jobs.filter((job) => job.roomId === room.id && job.spaceId === space.id)
-      .map((job) => ({ ...job, commandAvailable: commandStore.has(job.jobId) }));
+      .map((job) => {
+        const stored = commandStore.get(job.jobId);
+        return { ...job, commandAvailable: !!stored,
+          commandPreview: stored?.command ? (stored.command.length > 180 ? `${stored.command.slice(0, 177)}...` : stored.command) : null };
+      });
   }
 
   function route(input, helpers = {}) {

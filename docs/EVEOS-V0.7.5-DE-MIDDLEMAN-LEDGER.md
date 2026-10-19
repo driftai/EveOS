@@ -279,6 +279,13 @@ output retrieval. The source tests prove exact-member routing, cross-state
 receipt preservation, duplicate suppression, output privacy, uncertainty
 no-replay, provider-neutral selection and controller-to-bridge settlement.
 
+The operational Nexus Playwright workspace host mounts the existing Search
+Monitor and Nexus Browser surfaces through the shared EveOS Playwright helper.
+It is loopback-only, accepts no arbitrary JavaScript/action input, records only
+bounded browser diagnostics, and waits for the existing service-chat bridge to
+register before reporting ready. This is an operational host for the existing
+conversation, not a second provider session, scheduler, or authority path.
+
 Status: **IMPLEMENTED, AUTOMATED ACCEPTANCE PENDING**. Live TLO failure-to-
 proposal proof, restart/reconnect recovery, concurrency, bounded correction and
 authorized proposal-to-repair-to-GREEN remain Phase 4/5 acceptance work.

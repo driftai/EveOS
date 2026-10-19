@@ -121,3 +121,13 @@ test('engineering responses require a versioned bounded proposal and traversal-f
   delete escape.ok;
   assert.equal(validateEngineeringProposal(JSON.stringify(escape), { jobId: 'job-one' }).code, 'ENGINEERING_PROPOSAL_PATH_INVALID');
 });
+
+test('failure incident gives the middle agent an exact versioned JSON template and closed enums', () => {
+  const { incidentText } = require('../dex/engineering-incident');
+  const text = incidentText(job('failed'), 'confirmed-command-or-test-failure');
+  assert.match(text, /reply with exactly one JSON object \(no prose or fence\)/);
+  assert.match(text, /"schema":"eveos\.machine-spaces\.engineering-proposal\.v1"/);
+  assert.match(text, /"incidentJobId":"machine-job-one"/);
+  assert.match(text, /Allowed repair\.kind: none, prepare-command, source-patch, await-approval/);
+  assert.match(text, /Allowed retryIntent: none, after-verified-repair, requires-approval/);
+});
