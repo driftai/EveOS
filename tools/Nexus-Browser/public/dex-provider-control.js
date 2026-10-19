@@ -72,13 +72,10 @@
     return pool.find((target) => String(target.id) === targetId
       && (!command.providerId || target.providerId === command.providerId)) || null;
   }
-  function roomBusy(_state, room) {
-    if (!room) return false;
-    return !!room.relay?.active
-      || !!room.relay?.waitingFor
-      || !!room.pendingTurn
-      || !!room.recovery || !!room.pendingProviderControlReceipt || !!room.deferredRelays?.length;
-  }
+  function roomExecutionBusy(_state, room) { return !!room && (!!room.relay?.active
+    || !!room.relay?.waitingFor || !!room.pendingTurn || !!room.recovery || !!room.deferredRelays?.length); }
+  function roomHasPendingControlReceipt(_state, room) { return !!room?.pendingProviderControlReceipt; }
+  function roomBusy(state, room) { return roomExecutionBusy(state, room) || roomHasPendingControlReceipt(state, room); }
   function clearRoomHistory(room) {
     if (!room) return 0;
     const cleared = Array.isArray(room.messages) ? room.messages.length : 0;
@@ -427,7 +424,7 @@
     findRoom,
     roomSummary,
     onboardingData,
-    roomBusy,
+    roomBusy, roomExecutionBusy, roomHasPendingControlReceipt,
     clearRoomHistory,
     compactTarget,
     bindingFromTarget,

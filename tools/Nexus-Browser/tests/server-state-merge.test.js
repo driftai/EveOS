@@ -119,7 +119,29 @@ test('valid UI edits preserve an active canonical provider-control intent', () =
     const clientRoom = { ...serverRoom, name: 'Renamed by UI', pendingProviderControlReceipt: value };
     const room = merge.mergeClientSnapshot({ rooms: [serverRoom] }, { rooms: [clientRoom] }).rooms[0];
     assert.equal(room.name, 'Renamed by UI');
+    assert.equal(merge.executionBusy(room), false);
     assert.deepEqual(room.pendingProviderControlReceipt, intent);
     assert.equal(merge.runtimeBusy(room), true);
   }
+});
+
+test('receipt-pending stopped rooms accept structural edits but reject implicit deletion', () => {
+  const intent = { action: 'quorum_presence', turnRequestId: 'dex-turn-old' };
+  const serverRoom = { ...activeRoom(), relay: { active: false, waitingFor: null }, pendingProviderControlReceipt: intent };
+  delete serverRoom.pendingTurn; delete serverRoom.recovery;
+  const client = { ...serverRoom, name: 'Editable proof room', members: [{ id: 'vera', name: 'Vera' }], pendingProviderControlReceipt: undefined };
+  const edited = merge.mergeClientSnapshot({ rooms: [serverRoom] }, { rooms: [client] });
+  assert.equal(edited.rooms[0].name, 'Editable proof room');
+  assert.equal(edited.rooms[0].members[0].id, 'vera');
+  assert.deepEqual(edited.rooms[0].pendingProviderControlReceipt, intent);
+  assert.equal(merge.mergeClientSnapshot({ rooms: [serverRoom] }, { rooms: [] }).rooms.length, 1);
+});
+
+test('viewer saves preserve the server retirement ledger and reject injected entries', () => {
+  const canonical = [{ roomId: 'retired-room', disposition: 'USER_RETIRED_UNRESOLVED' }];
+  const result = merge.mergeClientSnapshot(
+    { rooms: [], retiredProviderControlReceipts: canonical },
+    { rooms: [], retiredProviderControlReceipts: [{ roomId: 'injected' }] }
+  );
+  assert.deepEqual(result.retiredProviderControlReceipts, canonical);
 });

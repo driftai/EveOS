@@ -19,6 +19,34 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); }
 .badge.online { border-color: #3e7255; color: #9ee2b4; }
 .badge.offline { color: #ef9c9c; }
 
+.nexus-panel-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #252e3b;
+  border-radius: 12px;
+  background: rgba(17, 21, 29, .86);
+}
+.nexus-panel-tools > strong { color: #aab8ca; font-size: 12px; }
+.nexus-panel-tools__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.nexus-panel-tools button { padding: 7px 10px; font-size: 12px; }
+.nexus-panel-tools button.active { border-color: #668bd0; background: #203b67; color: #fff; }
+.nexus-provider-usage { margin: 0 0 14px; }
+.nexus-provider-usage .codex-quota { margin-top: 0; }
+.nexus-collapsible > summary {
+  cursor: pointer;
+  color: #cbd7e7;
+  font-size: 13px;
+  font-weight: 750;
+  user-select: none;
+}
+.nexus-collapsible[open] > summary { padding-bottom: 10px; border-bottom: 1px solid #273141; }
+.nexus-collapsible__body, .nexus-collapsible__actions { margin-top: 12px; }
+.nexus-collapsible__actions { justify-content: flex-end; }
+
 .target-card, .composer, .diagnostics { border: 1px solid #252e3b; background: rgba(17, 21, 29, .92); border-radius: 16px; padding: 16px; min-width: 0; }
 .target-row { display: grid; gap: 9px; min-width: 0; }
 .target-row label, .diagnostics-title { font-size: 13px; color: #aab6c7; font-weight: 650; }
@@ -263,6 +291,11 @@ a.search-result-title:hover { color: #aecdff; text-decoration: underline; }
   overflow-wrap: anywhere;
   word-break: break-word;
   font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+@media (max-width: 680px) {
+  .nexus-panel-tools { align-items: flex-start; flex-direction: column; }
+  .nexus-panel-tools__actions { justify-content: flex-start; }
 }
 
 @media (max-width: 760px) {

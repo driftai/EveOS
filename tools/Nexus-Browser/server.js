@@ -7,7 +7,7 @@ const { createQualificationRestartHook } = require('./dex/qualification-restart'
 const { createDexStateStore } = require('./dex/state-store'), { createDexServerScheduler } = require('./dex/server-scheduler'), { createDoneWatchDelivery } = require('./dex/done-watch-delivery');
 const { startPostIdleMaintenance } = require('./dex/server-post-idle'), { startTaskCompletion } = require('./dex/server-task-completion'), { createServerStreamNudgeAuth } = require('./dex/server-stream-nudge-auth');
 const { createEnsureDexClient } = require('./dex/server-ensure-ui');
-const { mergeClientSnapshot } = require('./dex/server-state-merge'), finalState = require('./dex/server-scheduler-state');
+const { mergeClientSnapshot } = require('./dex/server-state-merge'), finalState = require('./dex/server-scheduler-state'), { createRoomDeleteRoute } = require('./dex/server-room-delete-route');
 const finalReceiptDisposition = require('./dex/final-receipt-disposition');
 const { createServerDurability } = require('./dex/server-durability');
 const { createExtensionSessionArbiter } = require('./dex/extension-session-arbiter');
@@ -92,6 +92,7 @@ const streamNudgeAuth = createServerStreamNudgeAuth({ getState: () => dexStateSt
   extensionReady: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1,
   maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), reconcileFinal: (event) => dexScheduler.handleTransportEvent(event),
   expectedAdapterRevision: () => EXPECTED_ADAPTER_REVISION, reloadSafe: () => !!postIdleMaintenance?.readyRooms?.() && extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 });
+const roomDeleteRoute = createRoomDeleteRoute({ dexRouting, machineSpaces, providerControlRouting, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), stateStore: dexStateStore, broadcastState: broadcastDexState, safeSend });
 const doneWatchDelivery = createDoneWatchDelivery({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, safeSend, getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null, getTabs: () => lastTabs });
 const qualificationRouting = createQualificationRouting({ safeSend, getExtensionSocket: () => extensionSocket, getDurability: () => durability, getStateStore: () => dexStateStore, restartHook: qualificationRestart, serverSessionId: SERVER_SESSION_ID });
 const serverDexSource = { clientKind: 'dex' };
@@ -267,6 +268,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (ws.role === 'ui') {
+      if (roomDeleteRoute.handle(ws, msg)) return;
       if (ws.clientKind === 'tui-launch') { safeSend(ws, await launchRoomTui({ ws, msg, snapshot: dexStateStore.load(), port: PORT })); return; }
       if (ws.clientKind === 'terminal-operator') {
         safeSend(ws, routeTerminalOperator(ws, msg, terminalOperator));

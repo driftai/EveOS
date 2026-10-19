@@ -94,6 +94,14 @@ test('server runtime state wins reconnect races while browser still mirrors room
   assert.match(dexMode, /stateSync\?\.applyRemote/);
 });
 
+test('room deletion is a localhost-authorized operation and stopped receipt rooms remain editable', () => {
+  assert.match(server, /roomDeleteRoute\.handle\(ws, msg\)/);
+  assert.match(dexMode, /type: 'dex_room_delete'/);
+  assert.match(dexMode, /msg\.type === 'dex_room_delete_result'/);
+  assert.match(dexMode, /roomExecutionBusy\(state, room\)/);
+  assert.match(dexMode, /unresolved provider receipt preserved; editing available/);
+});
+
 test('Dex exposes safe room-chat clearing without deleting room identity or participants', () => {
   assert.match(html, /id="dexClearChat"[^>]*>Clear chat</);
   assert.match(dexMode, /controlApi\.clearRoomHistory\(room\)/);

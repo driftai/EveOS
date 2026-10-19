@@ -13,12 +13,14 @@ test('Dex state store persists room snapshots atomically across recreation', () 
   first.save({
     rooms: [{ id: 'room-1', name: 'Durable room', updatedAt: '2026-09-18T08:00:00.000Z' }],
     activeRoomId: 'room-1',
+    retiredProviderControlReceipts: [{ roomId: 'retired-room', disposition: 'USER_RETIRED_UNRESOLVED' }],
     savedAt: '2026-09-18T08:01:00.000Z'
   });
   const second = createDexStateStore({ filePath });
   const loaded = second.load();
   assert.equal(loaded.rooms[0].name, 'Durable room');
   assert.equal(loaded.activeRoomId, 'room-1');
+  assert.equal(loaded.retiredProviderControlReceipts[0].roomId, 'retired-room');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

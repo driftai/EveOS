@@ -7,9 +7,11 @@ const DEFAULT_FILE = path.join(dataDir(), 'dex-state.json');
 
 function cleanSnapshot(value = {}) {
   const rooms = Array.isArray(value.rooms) ? value.rooms : [];
+  const retiredProviderControlReceipts = Array.isArray(value.retiredProviderControlReceipts)
+    ? value.retiredProviderControlReceipts.slice(-100) : [];
   const activeRoomId = typeof value.activeRoomId === 'string' ? value.activeRoomId : null;
   const savedAt = Number.isFinite(Date.parse(value.savedAt || '')) ? value.savedAt : new Date().toISOString();
-  return { version: 1, rooms, activeRoomId, savedAt };
+  return { version: 1, rooms, activeRoomId, retiredProviderControlReceipts, savedAt };
 }
 
 function readJson(filePath) {

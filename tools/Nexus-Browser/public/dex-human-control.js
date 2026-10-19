@@ -16,15 +16,15 @@
   ]);
 
   function gateStatus({ unlocked = false, connected = false, controller = false,
-    hasRoom = false, busy = false, messageCount = 0, editing = false } = {}) {
+    hasRoom = false, busy = false, receiptPending = false, messageCount = 0, editing = false } = {}) {
     const ready = unlocked && connected && controller;
     const structural = ready && hasRoom && !busy;
     return {
       ready, structural,
       allowNewRoom: ready,
-      allowClear: structural && messageCount > 0,
+      allowClear: structural && !receiptPending && messageCount > 0,
       allowStop: ready && busy,
-      allowContinue: structural && messageCount > 0 && !editing
+      allowContinue: structural && !receiptPending && messageCount > 0 && !editing
     };
   }
 

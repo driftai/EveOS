@@ -82,6 +82,7 @@
   gap: 8px;
 }
 .dex-sidebar h2, .dex-card h2 { margin: 0; font-size: 15px; }
+.dex-card > summary { font-size: 15px; }
 .dex-room-list { display: grid; gap: 7px; margin-top: 12px; }
 .dex-room-item {
   width: 100%;

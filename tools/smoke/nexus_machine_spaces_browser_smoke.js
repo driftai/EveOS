@@ -95,6 +95,7 @@ async function main() {
       if (!livePort) {
         await pointerClick(page, '#dexModeTab');
         await pointerClick(page, '#dexHumanToggle');
+        await pointerClick(page, '#dexMachineSpaces > summary');
         await pointerClick(page, '#machineCreateSpace');
         await page.locator('.machine-dialog-input').fill('Browser Proof');
         await pointerClick(page, '.machine-dialog-actions button:last-child');

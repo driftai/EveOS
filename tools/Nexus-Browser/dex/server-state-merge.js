@@ -1,12 +1,14 @@
-function runtimeBusy(room) {
+function executionBusy(room) {
   return !!room && (
     !!room.recovery ||
     !!room.pendingTurn ||
-    !!room.pendingProviderControlReceipt ||
     (room.deferredRelays || []).length > 0 ||
     !!room.relay?.active ||
     !!room.relay?.waitingFor
   );
+}
+function runtimeBusy(room) {
+  return executionBusy(room) || !!room?.pendingProviderControlReceipt;
 }
 
 function mergeMessages(serverMessages = [], clientMessages = []) {
@@ -86,6 +88,13 @@ function mergeBusyRoom(serverRoom, clientRoom) {
   };
 }
 
+function mergeReceiptPendingRoom(serverRoom, clientRoom) {
+  const merged = mergeIdleRoom(serverRoom, clientRoom);
+  merged.messages = mergeMessages(serverRoom.messages || [], clientRoom?.messages || []);
+  merged.pendingProviderControlReceipt = { ...serverRoom.pendingProviderControlReceipt };
+  return merged;
+}
+
 function mergeClientSnapshot(serverSnapshot, clientSnapshot) {
   const server = serverSnapshot && typeof serverSnapshot === 'object' ? serverSnapshot : {};
   const client = clientSnapshot && typeof clientSnapshot === 'object' ? clientSnapshot : {};
@@ -98,7 +107,9 @@ function mergeClientSnapshot(serverSnapshot, clientSnapshot) {
   for (const serverRoom of serverRooms) {
     if (!serverRoom?.id) continue;
     const clientRoom = clientById.get(serverRoom.id);
-    if (runtimeBusy(serverRoom)) rooms.push(mergeBusyRoom(serverRoom, clientRoom));
+    if (executionBusy(serverRoom)) rooms.push(mergeBusyRoom(serverRoom, clientRoom));
+    else if (serverRoom.pendingProviderControlReceipt && clientRoom) rooms.push(mergeReceiptPendingRoom(serverRoom, clientRoom));
+    else if (serverRoom.pendingProviderControlReceipt) rooms.push(serverRoom);
     else if (clientRoom) rooms.push(mergeIdleRoom(serverRoom, clientRoom));
     else if (serverRoom.terminalBootstrap?.schema === 'eveos.dex-tlo-scripted-bootstrap.v1') rooms.push(serverRoom); // Headless-created test rooms survive stale viewers.
     else continue;
@@ -112,6 +123,11 @@ function mergeClientSnapshot(serverSnapshot, clientSnapshot) {
   return {
     version: Number(server.version || client.version || 1),
     rooms,
+    // Receipt retirement is a localhost-owned audit ledger. Preserve the
+    // canonical copy across ordinary viewer saves and ignore client injection.
+    retiredProviderControlReceipts: Array.isArray(server.retiredProviderControlReceipts)
+      ? server.retiredProviderControlReceipts
+      : [],
     activeRoomId: rooms.some((room) => room.id === client.activeRoomId)
       ? client.activeRoomId
       : rooms.some((room) => room.id === server.activeRoomId)
@@ -122,11 +138,13 @@ function mergeClientSnapshot(serverSnapshot, clientSnapshot) {
 }
 
 module.exports = {
+  executionBusy,
   runtimeBusy,
   mergeMessages,
   mergeCheckpoints,
   mergeDoneWatchFields,
   mergeIdleRoom,
   mergeBusyRoom,
+  mergeReceiptPendingRoom,
   mergeClientSnapshot
 };

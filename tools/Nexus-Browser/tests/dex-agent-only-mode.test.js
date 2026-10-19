@@ -89,6 +89,17 @@ test('human unlock still respects runtime standby, reconnect, and busy-room safe
   assert.equal(ui.controls.dexContinueRelay.disabled, true);
 });
 
+test('a stopped room receipt permits editing while destructive history clearing stays fenced', () => {
+  const ui = fixture();
+  ui.toggle.click();
+  ui.ctl.render({ ...available, receiptPending: true });
+  assert.equal(ui.controls.dexSaveRoom.disabled, false);
+  assert.equal(ui.controls.dexAddMember.disabled, false);
+  assert.equal(ui.controls.dexDeleteRoom.disabled, false);
+  assert.equal(ui.controls.dexClearChat.disabled, true);
+  assert.equal(ui.controls.dexContinueRelay.disabled, true);
+});
+
 test('provider commands bypass the browser-only editing gate and human messaging stays available', () => {
   assert.match(mode, /providerControl\.handle\(msg\)/);
   assert.match(mode, /humanInput\.render/);

@@ -187,6 +187,9 @@
       if (result?.applied) log('Dex state synchronized from localhost scheduler.');
       return;
     }
+    if (msg.type === 'dex_room_delete_result') {
+      memberController.clear(); log(msg.message || 'Room deleted.'); renderAll(); return;
+    }
     if (msg.type === 'provider_control_request') {
       const result = providerControl.handle(msg);
       if (result?.ok && controlApi.MUTATING_ACTIONS.has(String(msg.command?.action || '').trim().toLowerCase())) {
@@ -318,20 +321,22 @@
     el.dexAutoRelay.checked = !!room.settings.autoRelay;
     el.dexMaxTurns.value = room.settings.maxTurns;
     const budgetLabel = ` · ${room.relay.scheduledTurns ?? '?'} / ${room.relay.turnBudgetTotal ?? '?'} scheduled · ${room.relay.remaining || 0} left${room.recovery ? ` · ${room.recovery.relayRemaining || 0} held in capture-only recovery${room.recovery.promptSendFailure?.attentionAtMs ? ' · inspect exact bound tab; do not resend' : ''}` : ''}`;
+    const receiptPending = controlApi.roomHasPendingControlReceipt(state, room);
     el.dexRoomStatus.textContent = room.relay.active
       ? `Relay running on localhost${budgetLabel}${room.relay.waitingFor ? ' · waiting for agent' : ''}${connectionSuffix}`
-      : `Relay stopped · ${room.relay.lastStopReason || 'Idle'}${budgetLabel}${connectionSuffix}`;
+      : `Relay stopped · ${room.relay.lastStopReason || 'Idle'}${budgetLabel}${receiptPending ? ' · unresolved provider receipt preserved; editing available' : ''}${connectionSuffix}`;
     memberController.render(room);
     roomView.renderTranscript(room);
     const editing = memberController.isEditing();
-    const busy = controlApi.roomBusy(state, room);
+    const busy = controlApi.roomBusy(state, room), executionBusy = controlApi.roomExecutionBusy(state, room);
     el.dexSend.disabled = !uiConnected || state.runtimeRole !== 'controller'
       || !room.members.length || busy || editing;
     humanInput.render({
       connected: uiConnected,
       controller: state.runtimeRole === 'controller',
       hasRoom: !!room,
-      busy,
+      busy: executionBusy,
+      receiptPending,
       messageCount: room.messages.length,
       editing
     });
@@ -352,7 +357,7 @@
   });
   el.dexSaveRoom.addEventListener('click', () => {
     const room = activeRoom();
-    if (!room || !canHumanEdit() || controlApi.roomBusy(state, room)) return;
+    if (!room || !canHumanEdit() || controlApi.roomExecutionBusy(state, room)) return;
     room.name = protocol.cleanName(el.dexRoomName.value, room.name);
     room.userName = protocol.cleanName(el.dexUserName.value, 'User');
     room.settings.autoRelay = el.dexAutoRelay.checked;
@@ -374,13 +379,11 @@
   });
   el.dexDeleteRoom.addEventListener('click', () => {
     const room = activeRoom();
-    if (!room || !canHumanEdit() || controlApi.roomBusy(state, room)) return log('Enable Human Input and stop the relay before deleting a room.');
-    state.rooms = state.rooms.filter((item) => item.id !== room.id);
-    if (!state.rooms.length) state.rooms.push(defaultRoom(1));
-    memberController.clear();
-    state.activeRoomId = state.rooms[0].id;
-    persist();
-    renderAll();
+    if (!room || !canHumanEdit() || controlApi.roomExecutionBusy(state, room)) return log('Enable Human Input and stop active room work before deleting it.');
+    const pending = controlApi.roomHasPendingControlReceipt(state, room);
+    const warning = pending ? ' Its unresolved provider-control receipt will be preserved in the local retirement ledger.' : '';
+    if (!confirm(`Delete "${room.name}"?${warning}`)) return;
+    if (!send({ type: 'dex_room_delete', requestId: uid('dex-room-delete'), roomId: room.id, confirmName: room.name, retireUnresolved: pending })) log('Nexus is disconnected; room was not deleted.');
   });
   el.dexSend.addEventListener('click', () => {
     const room = activeRoom();
