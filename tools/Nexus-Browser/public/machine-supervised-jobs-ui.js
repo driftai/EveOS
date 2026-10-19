@@ -182,12 +182,16 @@
     const head = document.createElement('div'); head.className = 'machine-request-head';
     const title = document.createElement('div'); title.className = 'machine-request-title';
     title.textContent = `Supervised · ${job.targetId || 'terminal'} · ${job.jobId}`;
-    const badge = document.createElement('span'); badge.className = `machine-state-${job.state}`; badge.textContent = job.state;
+    const badge = document.createElement('span'); badge.className = `machine-state-${job.state}`;
+    badge.textContent = ({ completed: 'Completed', failed: 'Failed', queued: 'Waiting for approval',
+      running: 'Running', deferred: 'Needs reattachment', cancelled: 'Cancelled',
+      'outcome-unknown': 'Outcome unknown' })[job.state] || job.state;
     head.append(title, badge);
 
     const command = document.createElement('pre'); command.className = 'machine-request-command';
     command.textContent = job.commandAvailable === false
-      ? '(prepared command no longer available)'
+      ? (job.state === 'completed' ? 'Job finished. Command details have been released.'
+        : 'Original command unavailable; do not rerun this job.')
       : (job.commandPreview || `request ${job.requestId || 'unknown'} · command digest ${short(job.commandDigest, 20) || 'n/a'}`);
 
     const meta = document.createElement('div'); meta.className = 'machine-meta';
@@ -232,7 +236,12 @@
       }, { danger: true }));
     }
     if (job.result?.outputId) actions.append(button('View output', () => requestOutput(job), { owner: false }));
-    card.append(head, command, meta, actions);
+    const technical = document.createElement('details');
+    technical.className = 'machine-job-technical';
+    const technicalSummary = document.createElement('summary');
+    technicalSummary.textContent = 'Technical details · IDs and process epoch';
+    technical.append(technicalSummary, meta);
+    card.append(head, command, technical, actions);
 
     const cached = job.result?.outputId ? outputs.get(job.result.outputId) : null;
     if (cached) {
