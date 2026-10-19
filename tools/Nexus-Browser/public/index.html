@@ -233,14 +233,14 @@
         <button id="dexHumanToggle" class="dex-human-toggle" type="button" aria-pressed="false">Enable Human Input</button>
       </div>
       <div class="dex-layout">
-        <aside class="dex-sidebar">
-          <div class="dex-sidebar-head">
-            <h2>Rooms</h2>
+        <details id="dexRoomsPanel" class="dex-sidebar nexus-collapsible" data-nexus-collapsible open>
+          <summary>Rooms</summary>
+          <div class="dex-sidebar-head nexus-collapsible__actions">
             <button id="dexNewRoom" type="button">+ Room</button>
           </div>
           <p class="dex-note">Rooms and transcripts are saved in private, machine-local EveOS data and mirrored in this browser. Each room binds named participants to specific online chats or local agent sessions.</p>
           <div id="dexRoomList" class="dex-room-list"></div>
-        </aside>
+        </details>
 
         <div class="dex-main">
           <details class="dex-card nexus-collapsible" data-nexus-collapsible open>
