@@ -35,8 +35,8 @@ def _tracked() -> list[str]:
                    if name.endswith(".md") and not name.startswith("data/")})
 
 
-def _seed(name: str) -> Path:
-    if not isinstance(name, str) or name not in _tracked():
+def _seed(name: str, known: set[str] | None = None) -> Path:
+    if not isinstance(name, str) or name not in (known if known is not None else set(_tracked())):
         raise DocumentError("Select a tracked Markdown document from the library.")
     candidate = ROOT / name
     if candidate.is_symlink() or not candidate.is_file():
@@ -59,9 +59,10 @@ def _revision(text: str) -> str:
 
 def catalog() -> list[dict]:
     result = []
-    for name in _tracked():
+    tracked = set(_tracked())
+    for name in sorted(tracked):
         try:
-            path = _seed(name)
+            path = _seed(name, tracked)
         except DocumentError:
             continue
         group = "/".join(name.split("/")[:-1]) or "Repository root"
