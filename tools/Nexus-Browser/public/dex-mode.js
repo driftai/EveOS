@@ -275,7 +275,7 @@
     toggle: el.dexHumanToggle,
     controls: el,
     onRelock: () => memberController.clear(),
-    onChange: () => renderAll()
+    onChange: (enabled) => { if (enabled && state.runtimeRole !== 'controller') send({ type: 'dex_request_primary', requestId: uid('dex-primary') }); renderAll(); }
   });
   const canHumanEdit = () => humanInput.isEnabled() && state.runtimeRole === 'controller' && state.uiConnectionPhase === 'connected';
 

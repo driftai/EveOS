@@ -76,3 +76,16 @@ test('standby Dex runtime is promoted when primary disconnects', () => {
   assert.equal(standby.sent.at(-1).type, 'dex_runtime_role');
   assert.equal(standby.sent.at(-1).role, 'primary');
 });
+
+test('explicit Human Input claim atomically transfers the sole primary editor', () => {
+  const primary = peer('dex'), standby = peer('dex');
+  const uiSockets = new Set([primary, standby]);
+  const safeSend = (ws, payload) => { ws.sent.push(payload); return true; };
+  const router = createDexServerRouting({ uiSockets, safeSend });
+  router.registerDex(primary); router.registerDex(standby);
+  assert.equal(router.claimPrimaryDex(standby), true);
+  assert.equal(router.isPrimaryDex(primary), false);
+  assert.equal(router.isPrimaryDex(standby), true);
+  assert.deepEqual(primary.sent.at(-1), { type: 'dex_runtime_role', role: 'standby' });
+  assert.deepEqual(standby.sent.at(-1), { type: 'dex_runtime_role', role: 'primary' });
+});

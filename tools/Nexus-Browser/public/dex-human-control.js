@@ -40,7 +40,9 @@
       panel.dataset.humanInput = unlocked ? 'enabled' : 'disabled';
       label.textContent = unlocked ? 'Human Input Enabled' : 'Agent-Only Mode';
       hint.textContent = unlocked
-        ? 'Room editing and relay controls are available on the primary, connected Dex viewer. Agents remain independent.'
+        ? !context.connected ? 'Waiting for the local Nexus connection before enabling room edits.'
+          : !context.controller ? 'Claiming the primary editing role from the other Dex viewer…'
+            : 'Room editing and relay controls are available here. Agents remain independent.'
         : 'Agents manage room structure and controls. You can browse rooms and send messages without unlocking.';
       toggle.textContent = unlocked ? 'Return to Agent-Only Mode' : 'Enable Human Input';
       toggle.classList.toggle('is-enabled', unlocked);
@@ -65,7 +67,7 @@
     toggle.addEventListener('click', () => {
       unlocked = !unlocked;
       if (!unlocked) onRelock?.();
-      onChange?.();
+      onChange?.(unlocked);
     });
     render();
     return { isEnabled, render };

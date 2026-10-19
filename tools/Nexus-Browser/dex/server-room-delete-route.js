@@ -12,6 +12,13 @@ function createRoomDeleteRoute({
   }
 
   function handle(ws, msg = {}) {
+    if (msg.type === 'dex_request_primary') {
+      const claimed = dexRouting?.claimPrimaryDex?.(ws) === true;
+      safeSend(ws, claimed
+        ? { type: 'dex_state_snapshot', snapshot: stateStore?.load?.() }
+        : { type: 'error', requestId: msg.requestId || null, code: 'DEX_PRIMARY_CLAIM_DENIED', message: 'Only a connected Dex viewer may claim the editing role.' });
+      return true;
+    }
     if (msg.type !== 'dex_room_delete' || ws?.clientKind !== 'dex') return false;
     let result;
     if (!dexRouting?.isPrimaryDex?.(ws)) {

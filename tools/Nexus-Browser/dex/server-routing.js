@@ -26,6 +26,19 @@ function createDexServerRouting({ uiSockets, safeSend }) {
     return primaryDex === ws;
   }
 
+  function claimPrimaryDex(ws) {
+    if (ws?.clientKind !== 'dex' || !uiSockets.has(ws)) return false;
+    const previous = dexClient();
+    if (previous === ws) {
+      safeSend(ws, { type: 'dex_runtime_role', role: 'primary' });
+      return true;
+    }
+    primaryDex = ws;
+    if (previous && uiSockets.has(previous)) safeSend(previous, { type: 'dex_runtime_role', role: 'standby' });
+    safeSend(ws, { type: 'dex_runtime_role', role: 'primary' });
+    return true;
+  }
+
   function unregisterDex(ws) {
     if (primaryDex !== ws) return false;
     primaryDex = null;
@@ -79,6 +92,7 @@ function createDexServerRouting({ uiSockets, safeSend }) {
     allowLocalPeer,
     dexClient,
     registerDex,
+    claimPrimaryDex,
     unregisterDex,
     isPrimaryDex
   };

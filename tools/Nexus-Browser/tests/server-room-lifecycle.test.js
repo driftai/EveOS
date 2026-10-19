@@ -68,3 +68,15 @@ test('server route requires the primary local controller and broadcasts the comm
   assert.deepEqual(broadcast.rooms.map((entry) => entry.id), ['two']);
   assert.equal('snapshot' in sent && sent.snapshot !== undefined, false);
 });
+
+test('server route lets an explicit connected Dex viewer claim editing authority', () => {
+  const ws = { clientKind: 'dex' }, sent = [], value = snapshot();
+  const route = createRoomDeleteRoute({
+    dexRouting: { claimPrimaryDex: (candidate) => candidate === ws },
+    stateStore: { load: () => value },
+    safeSend: (_socket, message) => { sent.push(message); }
+  });
+  assert.equal(route.handle(ws, { type: 'dex_request_primary', requestId: 'dex-primary-1' }), true);
+  assert.equal(sent[0].type, 'dex_state_snapshot');
+  assert.equal(sent[0].snapshot, value);
+});

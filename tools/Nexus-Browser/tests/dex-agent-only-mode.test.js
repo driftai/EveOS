@@ -24,12 +24,12 @@ function fixture() {
     classList: { toggle(name, state) { toggle.classes[state ? 'add' : 'delete'](name); } },
     click() { calls.click(); }
   };
-  let relocks = 0, changes = 0;
+  let relocks = 0; const changes = [];
   const ctl = human.createController({
     panel, label, hint, toggle, controls,
-    onRelock() { relocks += 1; }, onChange() { changes += 1; }
+    onRelock() { relocks += 1; }, onChange(enabled) { changes.push(enabled); }
   });
-  return { ctl, controls, panel, label, toggle, get relocks() { return relocks; },
+  return { ctl, controls, panel, label, hint, toggle, get relocks() { return relocks; },
     get changes() { return changes; } };
 }
 
@@ -71,7 +71,7 @@ test('locking again invokes draft cleanup and a fresh controller always returns 
   ui.toggle.click();
   ui.ctl.render(available);
   assert.equal(ui.relocks, 1);
-  assert.equal(ui.changes, 2);
+  assert.deepEqual(ui.changes, [true, false]);
   assert.equal(ui.ctl.isEnabled(), false);
   assert.equal(fixture().ctl.isEnabled(), false);
 });
@@ -81,6 +81,7 @@ test('human unlock still respects runtime standby, reconnect, and busy-room safe
   ui.toggle.click();
   ui.ctl.render({ ...available, controller: false });
   assert.equal(ui.controls.dexNewRoom.disabled, true);
+  assert.match(ui.hint.textContent, /Claiming the primary editing role/);
   ui.ctl.render({ ...available, connected: false });
   assert.equal(ui.controls.dexSaveRoom.disabled, true);
   ui.ctl.render({ ...available, busy: true });
@@ -103,6 +104,7 @@ test('a stopped room receipt permits editing while destructive history clearing 
 test('provider commands bypass the browser-only editing gate and human messaging stays available', () => {
   assert.match(mode, /providerControl\.handle\(msg\)/);
   assert.match(mode, /humanInput\.render/);
+  assert.match(mode, /onChange: \(enabled\)[\s\S]*dex_request_primary/);
   assert.match(mode, /canHumanEdit\(\)/);
   assert.match(mode, /el\.dexSend\.disabled = !uiConnected/);
   assert.match(roomView, /el\.dexRoomList\.replaceChildren\(\)/);
