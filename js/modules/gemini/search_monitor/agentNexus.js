@@ -60,6 +60,7 @@
                         <span>Schema v1 · atomic local persistence</span>
                     </div>
                 </form>
+                ${window.EveOSAgentDocuments?.markup?.() || ''}
                 <div class="eveos-agent-management-head">
                     <span><strong>Private Agent Nexus transfer</strong><small>Stop Nexus Browser first. Exports include room messages; review the downloaded file before sharing.</small></span>
                 </div>
@@ -388,7 +389,7 @@
             button.classList.toggle('is-active', active);
             if (button.getAttribute('role') === 'tab') button.setAttribute('aria-selected', String(active));
         });
-        if (view === 'management') loadManagement(false);
+        if (view === 'management') { loadManagement(false); window.EveOSAgentDocuments?.activate?.(); }
         if (view === 'tlo') window.EveOSTloChat?.activate?.();
         if (view === 'nexus-browser') window.EveOSNexusBrowser?.activate?.();
     }
@@ -420,6 +421,7 @@
         boundRoots.add(container);
         window.EveOSTloChat?.bind?.(container);
         window.EveOSNexusBrowser?.bind?.(container);
+        window.EveOSAgentDocuments?.bind?.(container);
         container.addEventListener('click', handleClick);
         container.addEventListener('submit', (event) => {
             if (!event.target.matches('[data-agent-management-form]')) return;
