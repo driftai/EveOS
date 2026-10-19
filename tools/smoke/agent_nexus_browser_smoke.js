@@ -39,6 +39,8 @@ async function main() {
     let savedDefinition = { text: '# TLO\n\nBrowser smoke definition\n', source: 'starter-file',
         path: 'config/agents/tlo/AGENT.md', origin: 'Origin-only browser smoke sentinel' };
     let runtimeReady = false;
+    let documentRevision = '111111111111111111111111';
+    let documentText = '# TLO Nexus Guide\nMachine Spaces are permissioned room resources.';
 
     await runBrowserSmoke({
         name: 'agent-nexus-browser',
@@ -100,6 +102,33 @@ async function main() {
                         }
                     })
                 });
+                return;
+            }
+
+            if (url.pathname === '/api/eve-state/modular/agent-management/documents' && request.method() === 'GET') {
+                await route.fulfill({ status: 200, contentType: 'application/json', headers: corsHeaders,
+                    body: JSON.stringify({ ok: true, documents: [{
+                        path: 'config/agents/tlo/NEXUS.md', group: 'config/agents/tlo',
+                        title: 'NEXUS', hasOverride: documentRevision !== '111111111111111111111111'
+                    }] }) });
+                return;
+            }
+            if (url.pathname === '/api/eve-state/modular/agent-management/documents/file') {
+                if (request.method() === 'POST') {
+                    const payload = request.postDataJSON();
+                    if (payload.expectedRevision !== documentRevision) {
+                        await route.fulfill({ status: 409, contentType: 'application/json', headers: corsHeaders,
+                            body: JSON.stringify({ ok: false, error: 'Stale document revision' }) });
+                        return;
+                    }
+                    documentText = payload.text;
+                    documentRevision = '222222222222222222222222';
+                }
+                await route.fulfill({ status: 200, contentType: 'application/json', headers: corsHeaders,
+                    body: JSON.stringify({ ok: true, document: {
+                        path: 'config/agents/tlo/NEXUS.md', text: documentText,
+                        revision: documentRevision, source: documentRevision.startsWith('2') ? 'private-override' : 'tracked'
+                    } }) });
                 return;
             }
 
@@ -262,6 +291,20 @@ async function main() {
             document.querySelector('[data-agent-management-form]')?.hidden === false
             && document.querySelector('[data-agent-management-status]')?.textContent?.includes('loaded')
         ), undefined, { timeout: 10000 });
+
+        const library = managementPanel.locator('[data-agent-docs]');
+        assert(await library.count() === 1, 'Agent documents workspace was not mounted');
+        await library.locator(':scope > summary').click();
+        await page.waitForFunction(() => document.querySelector('[data-agent-doc-list] button'));
+        await library.locator('[data-agent-doc-path="config/agents/tlo/NEXUS.md"]').click();
+        await page.waitForFunction(() => document.querySelector('[data-agent-doc-text]')?.value?.includes('permissioned room resources'));
+        const documentEditor = library.locator('[data-agent-doc-text]');
+        await documentEditor.fill('# Updated Nexus Guide\nHuman Input remains required.');
+        await library.locator('[data-agent-doc-action="save"]').click();
+        await page.waitForFunction(() => document.querySelector('[data-agent-doc-feedback]')?.textContent?.includes('Saved privately'));
+        assert(documentText.includes('Human Input remains required'), 'The guide editor failed to save its revision');
+        assert((await library.locator('[data-agent-live-state]').textContent()).includes('TLO:'),
+            'Agent Management did not expose the real TLO readiness panel');
 
         const nameField = page.locator('[data-agent-management-form] [name="displayName"]');
         assert(await nameField.inputValue() === 'TLO', 'Agent Management did not load the persisted profile');
