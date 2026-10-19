@@ -25,8 +25,8 @@ the child process provably never started. `idempotent` is required for a
 started command to run again after an authorized repair. A timeout is always
 `OUTCOME_UNKNOWN` and is never replayed automatically.
 
-The ignored receipt is written under
-`data/runtime/smoke-results/tlo-autorecovery/<run>/receipt.json`. It includes
+The ignored receipt is written at
+`data/runtime/smoke-results/tlo-autorecover-<timestamp>-<nonce>/receipt.json`. It includes
 ordered lifecycle events, every command attempt, raw bounded proposal evidence,
 backups, applied paths and the final outcome.
 
