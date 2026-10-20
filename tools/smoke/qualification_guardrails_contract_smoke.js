@@ -78,7 +78,7 @@ requireTrue(
 );
 requireTrue(
     scripts['smoke:tlo-autorecovery-contract'] ===
-        'python -B tools/qualification/tlo_autorecover_policy_test.py && python -B tools/qualification/tlo_recovery_receipt_test.py && python -B tools/qualification/eve_run_test.py',
+        'python -B tools/qualification/tlo_autorecover_policy_test.py && python -B tools/qualification/tlo_recovery_receipt_test.py && python -B tools/qualification/eve_run_test.py && python -B tools/qualification/tlo_preserved_files_test.py',
     'TLO autorecovery deterministic contract entrypoint drifted'
 );
 requireTrue(

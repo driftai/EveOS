@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import argparse
 import sys
 import time
 import uuid
 
+from tlo_autorecover_arguments import parse_recovery_args
 from tlo_autorecover_core import (
     MAX_PROPOSALS,
     MAX_WORKER_REPAIRS,
@@ -20,7 +20,7 @@ from tlo_autorecover_core import (
 from tlo_autorecover_evidence import evidence_deficit, repair_prompt
 from tlo_autorecover_policy import apply_edits, validate_plan
 from tlo_preserved_files import capture as capture_preserved, verify as verify_preserved
-from tlo_recovery_receipt import create_receipt, retry_disposition, transition, RETRY_SAFETY
+from tlo_recovery_receipt import create_receipt, retry_disposition, transition
 from tlo_rehearsal_support import (
     MAX_PROMPT_CHARS,
     RESULT_DIR,
@@ -31,43 +31,7 @@ from tlo_rehearsal_support import (
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("--branch", required=True)
-    parser.add_argument("--expected-head", required=True)
-    parser.add_argument(
-        "--allow-dirty-path",
-        action="append",
-        default=[],
-    )
-    parser.add_argument(
-        "--repair-file",
-        action="append",
-        default=[],
-    )
-    parser.add_argument(
-        "--context-file",
-        action="append",
-        default=[],
-    )
-    parser.add_argument(
-        "--invariant",
-        action="append",
-        default=[],
-    )
-    parser.add_argument(
-        "--max-attempts",
-        type=int,
-        default=MAX_WORKER_REPAIRS,
-    )
-    parser.add_argument("--preserve-file", action="append", default=[])
-    parser.add_argument("--retry-safety", choices=sorted(RETRY_SAFETY), default="never")
-    parser.add_argument(
-        "command",
-        nargs=argparse.REMAINDER,
-    )
-
-    args = parser.parse_args(argv)
+    args = parse_recovery_args(argv)
 
     command = list(args.command)
 

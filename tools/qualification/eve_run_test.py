@@ -13,6 +13,7 @@ class EveRunTests(unittest.TestCase):
             branch=None,
             expected_head=None,
             repair_file=["tools/safe.js"],
+            preserve_file=["docs/WIP.md"],
             context_file=["tools/context.js"],
             invariant=["preserve receipts"],
             max_attempts=1,
@@ -23,11 +24,12 @@ class EveRunTests(unittest.TestCase):
             built = eve_run.build_autorecover_argv(args)
         self.assertEqual(built[:4], ["--branch", "eve/nexus-machine-spaces", "--expected-head", "a" * 40])
         self.assertIn("--allow-dirty-path", built)
+        self.assertEqual(built[built.index("--preserve-file") + 1], "docs/WIP.md")
         self.assertEqual(built[built.index("--") + 1:], ["node", "tools/test.js", "arg with space"])
 
     def test_detached_head_is_rejected_without_explicit_branch(self):
         args = argparse.Namespace(branch=None, expected_head="a" * 40, repair_file=["x"],
-            context_file=[], invariant=[], max_attempts=1, retry_safety="never",
+            preserve_file=[], context_file=[], invariant=[], max_attempts=1, retry_safety="never",
             command=["--", "node", "x.js"])
         with mock.patch.object(eve_run, "git_text", return_value=""):
             with self.assertRaisesRegex(RuntimeError, "Detached HEAD"):

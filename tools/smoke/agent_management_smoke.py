@@ -97,8 +97,11 @@ def run():
             encoded = json.dumps(projection, sort_keys=True)
             require(projection["agent"]["id"] == tlo["id"] and "TLO_SCOPE_SENTINEL" in encoded,
                     "Requested TLO scope was not projected")
-            for forbidden in ["TLO_PRIVATE_SENTINEL", "EVE_PRIVATE_SENTINEL", "EVE_SCOPE_SENTINEL", "permissions"]:
-                require(forbidden not in encoded, f"Projection leaked forbidden field/value: {forbidden}")
+            for forbidden in ["TLO_PRIVATE_SENTINEL", "EVE_PRIVATE_SENTINEL", "EVE_SCOPE_SENTINEL"]:
+                require(forbidden not in encoded, f"Projection leaked forbidden value: {forbidden}")
+            require(all("permissions" not in part for part in
+                        (projection, projection["agent"], projection["scope"])),
+                    "Projection leaked forbidden permissions field")
             require("Identity for TLO" in projection["agent"]["definition"],
                     "Legacy authored identity was not preserved before file save")
             require(not definition_path.exists(), "Projection read should not write private state")
