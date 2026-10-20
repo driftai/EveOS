@@ -79,9 +79,9 @@ test('job status/list stay scoped to the authorized room and space', () => {
 
 test('agent can queue only a registered Playwright smoke, with a reviewable job and receipt', () => {
   const { control, commandStore, target, root } = fixture();
-  const args = { space: 'space-one', terminal: 'terminal-one', scenario: 'agent-nexus-browser', requestId: 'browser-proof-one' };
+  const args = { space: 'space-one', terminal: 'terminal-one', scenario: 'agent-nexus-browser' };
   const req = input('playwright_prepare', args);
-  req.requestId = args.requestId;
+  req.requestId = 'browser-proof-one';
   const result = control.route(req);
   assert.equal(result.ok, true);
   assert.equal(result.data.state, 'queued');
