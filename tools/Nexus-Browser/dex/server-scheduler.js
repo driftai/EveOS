@@ -8,7 +8,7 @@ const recoveryMailbox = require('./recovery-mailbox'), promptSend = require('./p
 const { directRoomSend } = require('./direct-room-send-policy');
 const schedulerTelemetry = require('./server-scheduler-telemetry');
 const { createMemberTurnStarter } = require('./server-scheduler-member-turn');
-const { validateEngineeringProposal } = require('./engineering-proposal');
+const { validateEngineeringProposal } = require('./engineering-proposal'), { validateEngineeringCompletion } = require('./engineering-completion');
 const { TURN_TIMEOUT_MS, TURN_IDLE_TIMEOUT_MS, TURN_ABSOLUTE_TIMEOUT_MS,
   activityFromTransport, createServerTurnLease } = require('./server-turn-lease');
 function createDexServerScheduler({
@@ -338,16 +338,20 @@ function createDexServerScheduler({
       contextOverride: parsed.contextOverride
     });
     if (capabilityContext && capabilityContext.digest !== current.capabilityContext?.digest) recordIncident({ code: 'AGENT_CAPABILITY_CONTEXT_MISMATCH', source: 'server-scheduler', roomId: room.id, memberId: member.id, requestId: current.requestId, evidence: { expected: current.capabilityContext?.digest || null, returned: capabilityContext.digest } }); if (current.capabilityContext?.packs?.length) message.capabilityContext = current.capabilityContext; if (sourceMessage?.engineeringIncident) { message.engineeringRawText = String(text || '').slice(0, 12000); message.engineeringProposal = validateEngineeringProposal(parsed.text, sourceMessage.engineeringIncident); }
+    const completion = sourceMessage?.engineeringVerification
+      ? validateEngineeringCompletion(parsed.text, sourceMessage.engineeringVerification, parsed.done) : null;
+    if (completion) message.engineeringCompletion = completion;
     if (!sourceMessage?.engineeringIncident && parsed.providerControlCommand && !directRoomSend(parsed.providerControlCommand)) controlReceiptApi.rememberIntent(room, { executorMember: member, sourceMessage, command: parsed.providerControlCommand, agentMessage: message, turnRequestId: current.requestId, at: now() });
     delete room.recovery;
     room.relay.waitingFor = null;
     stateApi.extendBudget(room, parsed);
     const disposition = protocol.relayDisposition(parsed, member.name, repeated, room.relay);
-    if (parsed.done) doneWatchApi.consume(room, { completedMemberId: member.id, message, at: now() });
-    if (parsed.headsUpTarget || parsed.headsUpInvalid) doneWatchApi.emitHeadsUp(room, { senderMemberId: member.id, targetRef: parsed.headsUpTarget, invalid: parsed.headsUpInvalid, done: parsed.done, message, at: now() });
+    if (parsed.done && (!completion || completion.ok)) doneWatchApi.consume(room, { completedMemberId: member.id, message, at: now() });
+    if ((!completion || completion.ok) && (parsed.headsUpTarget || parsed.headsUpInvalid)) doneWatchApi.emitHeadsUp(room, { senderMemberId: member.id, targetRef: parsed.headsUpTarget, invalid: parsed.headsUpInvalid, done: parsed.done, message, at: now() });
     stateApi.rememberFinalReceipt(room, current.requestId, message.id, now(), current.sourceMessageId);
     clearCurrent();
-    if (disposition.action === 'stop') setStopped(room, disposition.reason);
+    if (completion && !completion.ok) setStopped(room, `Engineering completion rejected: ${completion.code}`);
+    else if (disposition.action === 'stop') setStopped(room, disposition.reason);
     else enqueueNext(room, message);
     save(snapshot);
     processSoon(0);

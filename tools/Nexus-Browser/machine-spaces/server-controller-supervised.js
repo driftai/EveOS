@@ -92,13 +92,19 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
           recovery: recoveryProjection(result)
         }
       });
+      const settledPlan = commandStore.get(jobId) || null;
       commandStore.delete(jobId);
       broadcastJobs('settled', [settled]);
-      try { onSupervisedJobSettled(settled); } catch {}
+      try { onSupervisedJobSettled(settled, settledPlan); } catch {}
     } catch {}
   }
   const localPlans = createLocalPlanController({ jobs, commandStore, broker: base.broker,
     getState, repoRoot: governorRoot, resolveHead: options.resolveSupervisedHead });
+  function prepareEngineeringRecovery(msg) {
+    const job = localPlans.prepareRecovery(msg);
+    broadcastJobs('engineering-recovery-prepared', [job]);
+    return job;
+  }
 
   function startLocal(ws, msg, authorization = null) {
     requireLocal(ws);
@@ -296,7 +302,8 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
     previousStop?.();
   }
 
-  return { ...base, handle, providerControl, supervisedJobs: jobs, supervisedCommandStore: commandStore, jobControl, stop };
+  return { ...base, handle, providerControl, supervisedJobs: jobs, supervisedCommandStore: commandStore,
+    prepareEngineeringRecovery, jobControl, stop };
 }
 
 module.exports = { enhanceMachineSpacesSupervisedController };

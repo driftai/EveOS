@@ -52,8 +52,18 @@ function incidentText(job, classification) {
   if (result.recovery?.receipt) lines.push(
     `recovery=${bounded(result.recovery.outcome, 32)} receipt=${bounded(result.recovery.receipt, 260)}`
   );
+  if (job.engineeringPlan?.repairFiles?.length) lines.push(
+    `retrySafety=idempotent repairCandidates=${job.engineeringPlan.repairFiles.map((item) => bounded(item, 260)).join(',')}`,
+    ...job.engineeringPlan.invariants.slice(0, 8).map((item) => `invariant=${bounded(item, 400)}`)
+  );
   const exhaustedRecovery = job.kind === 'recovery' && job.state === 'failed';
-  if (exhaustedRecovery) lines.push(
+  const verifiedRecovery = job.kind === 'recovery' && job.state === 'completed'
+    && Number(result.exitCode) === 0 && result.recovery?.outcome === 'GREEN' && result.recovery?.receipt;
+  if (verifiedRecovery) lines.push(
+    'Middle-agent task: report the verified GREEN result with the exact job, outputReceipt, and receipt values above, then append [[DEX:DONE]].',
+    'Nexus will reject DONE unless all three values bind to this server-owned completion receipt.'
+  );
+  else if (exhaustedRecovery) lines.push(
     'Recovery exhausted: local owner action is required. No automatic replay or additional agent turn will be scheduled.'
   );
   else if (job.state === 'failed') lines.push(
@@ -84,21 +94,30 @@ function createEngineeringIncidentBridge({ load, save, scheduler, broadcastState
       senderKind: 'system', senderId: null, senderName: 'Machine Spaces', text: incidentText(job, classification) });
     message.engineeringIncident = { schema: 'eveos.machine-spaces.engineering-incident.v1', jobId: job.jobId,
       requestId: job.requestId || null, classification, outputId: job.result?.outputId || null };
+    const verifiedRecovery = job.kind === 'recovery' && job.state === 'completed'
+      && Number(job.result?.exitCode) === 0 && job.result?.recovery?.outcome === 'GREEN'
+      && job.result?.recovery?.receipt;
+    if (verifiedRecovery) message.engineeringVerification = {
+      schema: 'eveos.machine-spaces.engineering-verification.v1', jobId: job.jobId,
+      state: job.state, exitCode: job.result.exitCode, outputId: job.result.outputId,
+      outcome: job.result.recovery.outcome, receipt: job.result.recovery.receipt
+    };
     const exhaustedRecovery = job.kind === 'recovery' && job.state === 'failed';
     const receipt = { key, jobId: job.jobId, requestId: job.requestId || null, state: job.state,
       classification, messageId: message.id, createdAt: at, middleAgentMemberId: null,
-      dispatch: exhaustedRecovery ? 'owner-required' : job.state === 'failed' ? 'pending' : 'not-required' };
+      dispatch: exhaustedRecovery ? 'owner-required' : (job.state === 'failed' || verifiedRecovery) ? 'pending' : 'not-required' };
     room.engineeringIncidentReceipts.push(receipt);
     room.engineeringIncidentReceipts = room.engineeringIncidentReceipts.slice(-MAX_RECEIPTS);
     snapshot = save(snapshot); broadcastState(snapshot);
-    if (job.state !== 'failed') return { ok: true, receipt };
+    if (job.state !== 'failed' && !verifiedRecovery) return { ok: true, receipt };
     if (exhaustedRecovery) return { ok: true, receipt,
       dispatch: { ok: false, code: 'ENGINEERING_RECOVERY_EXHAUSTED', message: 'Local owner action is required.' } };
 
     room = stateApi.roomById(snapshot, job.roomId);
     const middle = middleAgentFor(room);
     let dispatch = middle
-      ? scheduler.startMemberTurn({ roomId: room.id, sourceMessageId: message.id, memberId: middle.id, purpose: 'engineering-recovery' })
+      ? scheduler.startMemberTurn({ roomId: room.id, sourceMessageId: message.id, memberId: middle.id,
+        purpose: verifiedRecovery ? 'engineering-verification' : 'engineering-recovery' })
       : { ok: false, code: 'ENGINEERING_MIDDLE_AGENT_UNAVAILABLE', message: 'No eligible middle agent is selected.' };
     snapshot = load(); room = stateApi.roomById(snapshot, job.roomId);
     const stored = (room?.engineeringIncidentReceipts || []).find((entry) => entry.key === key);

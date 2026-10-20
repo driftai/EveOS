@@ -42,6 +42,19 @@ test('agent may prepare but not remotely launch a supervised command', () => {
   assert.equal(control.owns('job_rebound'), false, 'remote provider surface must not expose rebound');
 });
 
+test('agent may declare bounded idempotent recovery authority but still cannot launch it', () => {
+  const { control, commandStore } = fixture();
+  const command = { space: 'space-one', terminal: 'terminal-one', command: 'node package.json',
+    retrySafety: 'idempotent', repairFiles: ['package.json'], contextFiles: ['package.json'],
+    invariants: ['Only repair the disposable test target.'], requestId: 'recovery-authority-one' };
+  const request = input('job_prepare', command); request.requestId = command.requestId;
+  const result = control.route(request), stored = commandStore.get(result.data.jobId);
+  assert.equal(result.ok, true); assert.equal(stored.retrySafety, 'idempotent');
+  assert.deepEqual(stored.repairFiles, ['package.json']); assert.equal(control.owns('job_start'), false);
+  const conflict = structuredClone(request); conflict.command.repairFiles = ['README.md'];
+  assert.equal(control.route(conflict).code, 'MACHINE_JOB_REQUEST_CONFLICT');
+});
+
 test('job_prepare requires exact committed relay provenance', () => {
   const { control, commandStore } = fixture();
   const result = control.route(input('job_prepare', { space: 'space-one', terminal: 'terminal-one', command: 'npm run dev' }, null));

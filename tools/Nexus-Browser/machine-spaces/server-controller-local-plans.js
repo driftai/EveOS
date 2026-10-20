@@ -60,6 +60,7 @@ function createLocalPlanController({ jobs, commandStore, broker, getState, repoR
     const plan = createEngineeringRecoveryJobPlan({ ...spec, target }, { repoRoot });
     const worker = middleAgentFor(room);
     return store(msg, 'recovery', plan, { spec, stored: { recovery: { ...plan.metadata,
+      incidentJobId: msg.incidentJobId || null, proposalMessageId: msg.proposalMessageId || null,
       worker: worker ? { memberId: worker.id, name: worker.name, providerId: worker.binding?.providerId || null } : null },
       visibleTerminal: msg.visibleTerminal === true } });
   }

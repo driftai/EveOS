@@ -9,6 +9,8 @@ const { formatJobs } = require('../scripts/dex-room-tui');
 const { createSupervisedJobCoordinator } = require('../machine-spaces/supervised-job');
 const { enhanceMachineSpacesSupervisedController } = require('../machine-spaces/server-controller-supervised');
 const { SCHEMA, validateEngineeringProposal } = require('../dex/engineering-proposal');
+const { createEngineeringCycle } = require('../dex/engineering-cycle');
+const { validateEngineeringCompletion } = require('../dex/engineering-completion');
 
 function store(seed) {
   let value = structuredClone(seed);
@@ -55,6 +57,20 @@ test('completed work records GREEN evidence without invoking an agent', () => {
   bridge.handle(job('completed'));
   assert.equal(calls.length, 0);
   assert.equal(state.value().rooms[0].engineeringIncidentReceipts[0].dispatch, 'not-required');
+});
+
+test('completed recovery dispatches one receipt-bound verification turn', () => {
+  const state = store(room([member('tlo')])), calls = [];
+  const bridge = createEngineeringIncidentBridge({ load: state.load, save: state.save,
+    scheduler: { startMemberTurn(input) { calls.push(input); return { ok: true }; } }, uid: () => 'verified' });
+  const result = bridge.handle({ ...job('completed'), kind: 'recovery',
+    result: { outputId: 'output-green', exitCode: 0, recovery: { outcome: 'GREEN',
+      receipt: 'data/runtime/smoke-results/tlo-autorecover-proof/receipt.json' } } });
+  assert.equal(result.dispatch.ok, true); assert.equal(calls.length, 1);
+  assert.equal(calls[0].purpose, 'engineering-verification');
+  const message = state.value().rooms[0].messages[0];
+  assert.equal(message.engineeringVerification.outputId, 'output-green');
+  assert.match(message.text, /Nexus will reject DONE/);
 });
 
 test('exhausted recovery defers to the local owner without another agent loop', () => {
@@ -141,4 +157,58 @@ test('failure incident gives the middle agent an exact versioned JSON template a
   assert.match(text, /"incidentJobId":"machine-job-one"/);
   assert.match(text, /Allowed repair\.kind: none, prepare-command, source-patch, await-approval/);
   assert.match(text, /Allowed retryIntent: none, after-verified-repair, requires-approval/);
+});
+
+test('verified completion requires DONE bound to exact server receipts', () => {
+  const verification = { schema: 'eveos.machine-spaces.engineering-verification.v1',
+    jobId: 'machine-job-green', state: 'completed', exitCode: 0, outputId: 'output-green',
+    outcome: 'GREEN', receipt: 'data/runtime/smoke-results/tlo-autorecover-proof/receipt.json' };
+  assert.equal(validateEngineeringCompletion('GREEN [[DEX:DONE]]', verification, true).ok, false);
+  const text = `GREEN job=machine-job-green output=output-green receipt=${verification.receipt} [[DEX:DONE]]`;
+  assert.equal(validateEngineeringCompletion(text, verification, true).ok, true);
+  assert.equal(validateEngineeringCompletion(text, { ...verification, exitCode: 1 }, true).ok, false);
+});
+
+test('validated proposal prepares one inert scoped recovery job through the existing owner', () => {
+  const state = store(room([member('tlo')])), prepared = [], incidents = [];
+  const proposalMessage = { id: 'proposal-one', senderKind: 'agent', senderName: 'TLO',
+    engineeringProposal: { ok: true, incidentJobId: 'machine-job-failed', retryIntent: 'after-verified-repair',
+      repair: { kind: 'source-patch', paths: ['tools/fixture.js'] } } };
+  const seeded = state.load(); seeded.rooms[0].messages.push(proposalMessage); state.save(seeded);
+  const cycle = createEngineeringCycle({ load: state.load, save: state.save, repoRoot: process.cwd(),
+    resolveHead: () => 'a'.repeat(40), broadcastState() {},
+    incidentBridge: { handle(input) { incidents.push(input); return { ok: true }; } },
+    machineSpaces: { prepareEngineeringRecovery(input) { prepared.push(input); return { jobId: 'machine-job-recovery' }; } } });
+  cycle.onJobSettled({ ...job('failed'), jobId: 'machine-job-failed' }, {
+    command: 'node tools/fixture.js', retrySafety: 'idempotent', repairFiles: ['tools/fixture.js'],
+    contextFiles: ['tools/fixture.js'], invariants: ['preserve the passing branch'] });
+  assert.equal(cycle.reconcile().changed, true); assert.equal(prepared.length, 1);
+  assert.equal(prepared[0].incidentJobId, 'machine-job-failed');
+  assert.equal(prepared[0].visibleTerminal, true); assert.equal(incidents.length, 1);
+  const receipt = state.value().rooms[0].engineeringCycleReceipts[0];
+  assert.equal(receipt.state, 'approval-pending'); assert.equal(receipt.recoveryJobId, 'machine-job-recovery');
+  assert.equal(cycle.reconcile().changed, false); assert.equal(prepared.length, 1);
+});
+
+test('scheduler rejects engineering DONE that is not bound to the authoritative receipt', async () => {
+  const state = store(room([member('tlo')]));
+  const seeded = state.load();
+  seeded.rooms[0].messages.push({ id: 'verification-one', senderKind: 'system', senderName: 'Machine Spaces',
+    text: 'verified recovery', engineeringVerification: {
+      schema: 'eveos.machine-spaces.engineering-verification.v1', jobId: 'machine-job-green',
+      state: 'completed', exitCode: 0, outputId: 'output-green', outcome: 'GREEN',
+      receipt: 'data/runtime/smoke-results/tlo-autorecover-proof/receipt.json'
+    } });
+  state.save(seeded);
+  const timers = [], scheduler = createDexServerScheduler({ stateStore: state,
+    durability: { beforeDispatch: async () => ({ ok: true }), query: () => ({ reliable: true }) },
+    getLocalTargets: async () => [{ id: 'local:tlo', providerId: 'tlo-chat', targetClassId: 'local-origin' }],
+    sendLocalPrompt: async () => {}, setTimer(fn) { timers.push(fn); return timers.length; }, clearTimer() {} });
+  assert.equal(scheduler.startMemberTurn({ roomId: 'room-one', sourceMessageId: 'verification-one', memberId: 'tlo' }).ok, true);
+  await timers.shift()();
+  const requestId = scheduler.diagnostics().current.requestId;
+  await scheduler.handleTransportEvent({ type: 'response_final', requestId, text: 'GREEN [[DEX:DONE]]' });
+  const saved = state.value().rooms[0], reply = saved.messages.at(-1);
+  assert.equal(reply.engineeringCompletion.ok, false);
+  assert.match(saved.relay.lastStopReason, /Engineering completion rejected/);
 });

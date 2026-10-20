@@ -2,6 +2,7 @@
 
 const { cleanCommand, commandDigest } = require('./approval-broker');
 const { registeredPlan } = require('./playwright-job-plan');
+const { relativeFile } = require('./engineering-recovery-job-plan');
 const { createChatApproval, publicChatApproval } = require('./supervised-chat-approval');
 
 const ACTIONS = new Set(['job_prepare', 'playwright_prepare', 'job_status', 'job_list']);
@@ -41,6 +42,17 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
     if (!command) throw machineError('MACHINE_COMMAND_REQUIRED', 'Supervised job command is empty.');
     const digest = commandDigest(command);
     const kind = playwright ? 'playwright-acceptance' : 'terminal-supervised';
+    const retrySafety = normalized(input.command?.retrySafety || 'never');
+    if (!['never', 'idempotent'].includes(retrySafety))
+      throw machineError('MACHINE_JOB_RETRY_SAFETY_INVALID', 'retrySafety must be never or idempotent.');
+    const repairFiles = Array.isArray(input.command?.repairFiles)
+      ? input.command.repairFiles.slice(0, 16).map((item) => relativeFile(item, repoRoot)) : [];
+    if (retrySafety === 'idempotent' && !repairFiles.length)
+      throw machineError('MACHINE_JOB_REPAIR_FILES_REQUIRED', 'Idempotent engineering recovery requires exact repairFiles.');
+    const contextFiles = Array.isArray(input.command?.contextFiles) && input.command.contextFiles.length
+      ? input.command.contextFiles.slice(0, 24).map((item) => relativeFile(item, repoRoot)) : repairFiles;
+    const invariants = Array.isArray(input.command?.invariants)
+      ? input.command.invariants.slice(0, 12).map(normalized).filter(Boolean) : [];
     const job = jobs.create({
       requestId: input.requestId,
       kind,
@@ -54,7 +66,10 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
     const prior = commandStore.get(job.jobId);
     if (job.kind !== kind || job.roomId !== room.id || job.spaceId !== space.id
         || job.ownerMemberId !== input.origin.executorMemberId
-        || (prior && (prior.commandDigest !== digest || prior.kind !== (playwright ? 'playwright-acceptance' : undefined))))
+        || (prior && (prior.commandDigest !== digest || prior.kind !== (playwright ? 'playwright-acceptance' : undefined)
+          || prior.retrySafety !== retrySafety || JSON.stringify(prior.repairFiles) !== JSON.stringify(repairFiles)
+          || JSON.stringify(prior.contextFiles) !== JSON.stringify(contextFiles)
+          || JSON.stringify(prior.invariants) !== JSON.stringify(invariants))))
       throw machineError('MACHINE_JOB_REQUEST_CONFLICT', 'This request ID already owns a different immutable supervised job.');
     if (!prior) {
       const stored = {
@@ -64,6 +79,7 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
         actorMemberId: input.origin.executorMemberId,
         actorName: input.origin.executorName || 'Agent',
         sourceMessageId: input.origin.agentMessageId,
+        retrySafety, repairFiles, contextFiles, invariants,
         createdAt: job.createdAt
       };
       if (playwright) stored.chatApproval = createChatApproval({ jobId: job.jobId, commandDigest: digest, now });
