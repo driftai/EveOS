@@ -4,6 +4,7 @@ const { randomUUID } = require('node:crypto');
 const { createSupervisedJobCoordinator } = require('./supervised-job');
 const { inspectGovernorRuns } = require('./governor-run-inspect');
 const { createSupervisedJobProviderControl, ACTIONS } = require('./supervised-job-provider-control');
+const { verifyPrepared } = require('./playwright-job-plan');
 const { createLocalPlanController } = require('./server-controller-local-plans');
 const { recoveryProjection } = require('./engineering-recovery-result');
 const { createSupervisedLiveView } = require('./supervised-live-view');
@@ -102,6 +103,11 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
     if (!target || target.processEpoch !== current.processEpoch)
       throw machineError('MACHINE_JOB_TARGET_EPOCH_MISMATCH', 'The prepared terminal was replaced before launch.');
     if (stored.kind === 'governor' || stored.kind === 'recovery') localPlans.revalidate(stored, target);
+    if (stored.kind === 'playwright-acceptance' || current.kind === 'playwright-acceptance') {
+      if (stored.kind !== current.kind)
+        throw machineError('MACHINE_PLAYWRIGHT_PLAN_CHANGED', 'The queued Playwright job kind changed.');
+      verifyPrepared({ stored, target, repoRoot: governorRoot });
+    }
     const active = base.broker.activeInfo(target.id);
     if (active)
       throw machineError('MACHINE_TARGET_BUSY', `The managed terminal is already running ${active.mode || 'a command'}; the supervised job remains queued.`);
@@ -168,7 +174,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   }
 
   const jobControl = createSupervisedJobProviderControl({ jobs, commandStore, broker: base.broker, getState,
-    findSpace: (room, reference) => findSpace(room, reference) });
+    repoRoot: governorRoot, findSpace: (room, reference) => findSpace(room, reference) });
   const providerControl = {
     owns(action) { const value = String(action || '').toLowerCase(); return jobControl.owns(value) || base.providerControl.owns(value); },
     route(input, helpers) {

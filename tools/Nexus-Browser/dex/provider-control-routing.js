@@ -11,7 +11,7 @@ const MUTATING_ACTIONS = new Set([
   'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
   'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
   'stop_relay', 'continue_relay', 'set_room_budget', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
-  'arm_post_idle', 'cancel_post_idle', 'report_post_idle', 'terminal_exec',
+  'arm_post_idle', 'cancel_post_idle', 'report_post_idle', 'terminal_exec', 'playwright_prepare',
   'quorum_presence', 'quorum_open', 'quorum_vote', 'quorum_close'
 ]);
 const DEDUPE_TTL_MS = 120000, MAX_ORIGIN_WAIT_MS = 4 * 60 * 1000, ORIGIN_POLL_MS = 250, LATE_ORIGIN_GRACE_MS = 5000;

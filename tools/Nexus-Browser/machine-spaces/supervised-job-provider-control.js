@@ -1,13 +1,14 @@
 'use strict';
 
 const { cleanCommand, commandDigest } = require('./approval-broker');
+const { registeredPlan } = require('./playwright-job-plan');
 
-const ACTIONS = new Set(['job_prepare', 'job_status', 'job_list']);
+const ACTIONS = new Set(['job_prepare', 'playwright_prepare', 'job_status', 'job_list']);
 
 function machineError(code, message) { return Object.assign(new Error(message), { code }); }
 function normalized(value) { return String(value ?? '').trim(); }
 
-function createSupervisedJobProviderControl({ jobs, commandStore, broker, getState, findSpace } = {}) {
+function createSupervisedJobProviderControl({ jobs, commandStore, broker, getState, findSpace, repoRoot } = {}) {
   if (!jobs || !commandStore || !broker || typeof getState !== 'function' || typeof findSpace !== 'function')
     throw new TypeError('supervised job provider control requires jobs, commandStore, broker, getState and findSpace');
 
@@ -30,12 +31,17 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
     const target = broker.target(targetId);
     if (!target || !(space.resourceIds || []).includes(targetId))
       throw machineError('MACHINE_TARGET_NOT_ATTACHED', 'Supervised job target must be attached to this exact Machine Space.');
-    const command = cleanCommand(String(input.command?.command || ''));
+    // Agents select a registered Playwright scenario; the server, not the agent,
+    // supplies the exact command. Execution still requires a separate local Start.
+    const playwright = input.command.action === 'playwright_prepare';
+    const plan = playwright ? registeredPlan({ command: input.command, target, repoRoot }) : null;
+    const command = playwright ? plan.command : cleanCommand(String(input.command?.command || ''));
     if (!command) throw machineError('MACHINE_COMMAND_REQUIRED', 'Supervised job command is empty.');
     const digest = commandDigest(command);
+    const kind = playwright ? 'playwright-acceptance' : 'terminal-supervised';
     const job = jobs.create({
       requestId: input.requestId,
-      kind: 'terminal-supervised',
+      kind,
       roomId: room.id,
       spaceId: space.id,
       ownerMemberId: input.origin.executorMemberId,
@@ -44,9 +50,12 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
       commandDigest: digest
     });
     const prior = commandStore.get(job.jobId);
-    if (prior && prior.commandDigest !== digest)
-      throw machineError('MACHINE_JOB_REQUEST_CONFLICT', 'This supervised job already owns a different immutable command.');
+    if (job.kind !== kind || job.roomId !== room.id || job.spaceId !== space.id
+        || job.ownerMemberId !== input.origin.executorMemberId
+        || (prior && (prior.commandDigest !== digest || prior.kind !== (playwright ? 'playwright-acceptance' : undefined))))
+      throw machineError('MACHINE_JOB_REQUEST_CONFLICT', 'This request ID already owns a different immutable supervised job.');
     if (!prior) commandStore.set(job.jobId, {
+      ...(playwright ? { kind, scenario: plan.scenario, runnerSha256: plan.runnerSha256 } : {}),
       command,
       commandDigest: digest,
       actorMemberId: input.origin.executorMemberId,
@@ -72,13 +81,14 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
     const action = String(input?.command?.action || '').toLowerCase();
     let result;
     try {
-      if (action === 'job_prepare') {
+      if (action === 'job_prepare' || action === 'playwright_prepare') {
         const data = prepare(input);
         result = { ok: true, action, message: `Prepared supervised job ${data.jobId}; local owner approval is required before launch.`, data };
       } else if (action === 'job_status') {
         const data = jobs.status(input.command?.jobId);
-        const { room } = roomSpace(input);
-        if (data.roomId !== room.id) throw machineError('MACHINE_JOB_NOT_AUTHORIZED', 'That supervised job is outside this authorized room.');
+        const { room, space } = roomSpace(input);
+        if (data.roomId !== room.id || data.spaceId !== space.id)
+          throw machineError('MACHINE_JOB_NOT_AUTHORIZED', 'That supervised job is outside this authorized room and Machine Space.');
         result = { ok: true, action, message: `Supervised job ${data.jobId} is ${data.state}.`,
           data: { ...data, commandAvailable: commandStore.has(data.jobId) } };
       } else if (action === 'job_list') {
