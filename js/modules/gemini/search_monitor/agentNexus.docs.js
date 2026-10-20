@@ -14,7 +14,7 @@
         return [
             '<details class="eveos-agent-docs" data-agent-docs>',
             '<summary>Agent files & EveOS knowledge library</summary>',
-            '<p class="eveos-agent-doc-note">Browse tracked Markdown by folder. Edits are private local overrides; repository files remain unchanged. TLO always receives AGENT.md; registered capability packs load only for relevant turns.</p>',
+            '<p class="eveos-agent-doc-note">Browse tracked Markdown by folder. Edits are private local overrides; repository files remain unchanged. TLO always receives AGENT.md; TLO and Dex recipients receive only task-relevant registered capability packs.</p>',
             '<div class="eveos-agent-doc-status" data-agent-live-state>Checking TLO…</div>',
             '<div class="eveos-agent-doc-actions"><input type="search" data-agent-doc-search placeholder="Find a Markdown file or folder" aria-label="Find a Markdown document">',
             '<button type="button" data-agent-doc-action="refresh">Refresh library & TLO</button></div>',
@@ -197,7 +197,7 @@
             const item = catalog.find((doc) => doc.path === current.path);
             if (item) item.hasOverride = true;
             showDocument();
-            feedback('Saved privately. AGENT.md affects every TLO turn; registered capability documents load only when relevant.');
+            feedback('Saved privately. AGENT.md affects every TLO turn; registered capability documents load only for relevant TLO and Dex turns.');
             if (current.path === 'config/agents/tlo/AGENT.md') {
                 window.EveOSAgentNexus?.loadManagement?.(true);
             }

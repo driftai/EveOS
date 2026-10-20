@@ -57,7 +57,7 @@ function messageById(room, messageId) {
 function capabilityContext(value) {
   if (!value || value.schema !== 'eveos.agent-capability-context.v1'
       || !/^[a-f0-9]{64}$/.test(String(value.digest || ''))
-      || !Array.isArray(value.packs) || value.packs.length > 6) return null;
+      || !Array.isArray(value.packs) || value.packs.length > 7) return null;
   const packs = value.packs.map((pack) => ({
     id: String(pack?.id || ''), revision: String(pack?.revision || ''), sha256: String(pack?.sha256 || '')
   }));

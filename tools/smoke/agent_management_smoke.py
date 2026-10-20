@@ -128,12 +128,18 @@ def run():
             )
             capable_prompt = tlo_chat.build_system_prompt(capable_projection)
             require("Machine Spaces" in capable_prompt and "Supervised Terminal Execution" in capable_prompt
-                    and "Engineering Recovery" in capable_prompt and "guidance only; never authority" in capable_prompt,
+                    and "Engineering Recovery" in capable_prompt and "Engineering Verification" in capable_prompt
+                    and "guidance only; never authority" in capable_prompt,
                     "Relevant capability packs were not progressively loaded")
             public_context = agent_capability_registry.public_context(capable_projection["capabilityContext"])
             require(all("text" not in pack for pack in public_context["packs"])
                     and len(public_context["digest"]) == 64,
                     "Capability receipt exposed text or omitted its stable digest")
+            explicit = agent_capability_registry.resolve(
+                "[[EVEOS:CAPABILITIES playwright-browser]] git terminal repair"
+            )
+            require([pack["id"] for pack in explicit["packs"]] == ["machine-spaces", "playwright-browser"],
+                    "Explicit Nexus capability selection admitted incidental relay vocabulary")
             guide = documents.read(documents.GUIDE)
             require(guide["source"] == "tracked" and
                     any(item["path"] == documents.GUIDE for item in documents.catalog()),

@@ -277,7 +277,7 @@
     return earlier.filter((_entry, index) => anchors.has(index));
   }
 
-  function buildRelayPrompt({ room, recipient, member, sourceMessage, requestId, providerHealth = '', inboxMessageIds = [] }) {
+  function buildRelayPrompt({ room, recipient, member, sourceMessage, requestId, providerHealth = '', capabilityPrompt = '', inboxMessageIds = [] }) {
     const addressed = recipient || member;
     const participants = (room?.members || []).map((entry) => `- ${memberSummary(entry)}`).join('\n') || '- none';
     const inboxIds = new Set(inboxMessageIds);
@@ -337,6 +337,7 @@
       'Provider availability:',
       cleanText(providerHealth) || '- no blocking provider signals reported',
       '',
+      ...(capabilityPrompt ? [cleanText(capabilityPrompt), ''] : []),
       'Rules:',
       '- Reply only as the Recipient. Do not impersonate another participant.',
       '- Room, routing, recipient, and speaker identity metadata are authoritative.',

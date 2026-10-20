@@ -1,0 +1,54 @@
+{
+  "schema": "eveos.agent-capability-registry.v1",
+  "maxSelected": 7,
+  "maxContextChars": 16000,
+  "packs": [
+    {
+      "id": "machine-spaces",
+      "title": "Machine Spaces",
+      "path": "config/agents/capabilities/machine-spaces.md",
+      "patterns": ["\\bmachine spaces?\\b", "\\bdex room\\b", "\\bterminal target\\b", "\\bworking director(?:y|ies)\\b"]
+    },
+    {
+      "id": "supervised-terminal",
+      "title": "Supervised terminal",
+      "path": "config/agents/capabilities/supervised-terminal.md",
+      "requires": ["machine-spaces"],
+      "patterns": ["\\bterminal\\b", "\\bpowershell\\b", "\\bshell\\b", "\\bcommands?\\b", "\\bscripts?\\b", "\\b(?:ls|dir|cd|pwd|nano)\\b"]
+    },
+    {
+      "id": "playwright-browser",
+      "title": "Playwright browser",
+      "path": "config/agents/capabilities/playwright-browser.md",
+      "requires": ["machine-spaces"],
+      "patterns": ["\\bplaywright\\b", "\\bbrowser\\b", "\\bnavigate\\b", "\\bclick\\b", "\\bweb page\\b"]
+    },
+    {
+      "id": "engineering-recovery",
+      "title": "Engineering recovery",
+      "path": "config/agents/capabilities/engineering-recovery.md",
+      "requires": ["machine-spaces", "supervised-terminal", "engineering-verification"],
+      "patterns": ["\\brecover(?:y)?\\b", "\\brepairs?\\b", "\\bfailed?\\b", "\\bretr(?:y|ies)\\b", "\\[engineering incident"]
+    },
+    {
+      "id": "engineering-verification",
+      "title": "Engineering verification",
+      "path": "config/agents/capabilities/engineering-verification.md",
+      "requires": ["machine-spaces", "supervised-terminal"],
+      "patterns": ["\\btests?\\b", "\\bverif(?:y|ied|ication)\\b", "\\bsmoke\\b", "\\bimplement(?:ation|ed)?\\b", "\\bbug ?fix\\b", "\\bengineering (?:task|work)\\b"]
+    },
+    {
+      "id": "git-workflow",
+      "title": "Git workflow",
+      "path": "config/agents/capabilities/git-workflow.md",
+      "patterns": ["\\bgit\\b", "\\bbranch\\b", "\\bcommit\\b", "\\bpush\\b", "\\bworking tree\\b"]
+    },
+    {
+      "id": "repository-navigation",
+      "title": "Repository navigation",
+      "path": "config/agents/capabilities/repository-navigation.md",
+      "requires": ["machine-spaces"],
+      "patterns": ["\\brepositor(?:y|ies)\\b", "\\bfind (?:a )?file\\b", "\\bread (?:the )?file\\b", "\\blist files\\b", "\\bsearch (?:the )?(?:repo|source)\\b"]
+    }
+  ]
+}

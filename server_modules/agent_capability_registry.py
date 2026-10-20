@@ -4,16 +4,13 @@ import hashlib, json, re
 from server_modules import agent_document_library
 
 SCHEMA = "eveos.agent-capability-context.v1"
-MAX_SELECTED, MAX_CONTEXT_CHARS = 6, 12_000
 _EXPLICIT = re.compile(r"\[\[EVEOS:CAPABILITIES\s+([^\]]+)\]\]", re.I)
-_PACKS = (
-    {"id":"machine-spaces","title":"Machine Spaces","path":"config/agents/capabilities/machine-spaces.md","patterns":(r"\bmachine spaces?\b",r"\bdex room\b",r"\bterminal target\b",r"\bworking directory\b")},
-    {"id":"supervised-terminal","title":"Supervised terminal","path":"config/agents/capabilities/supervised-terminal.md","requires":("machine-spaces",),"patterns":(r"\bterminal\b",r"\bpowershell\b",r"\bshell\b",r"\bcommand\b",r"\bscript\b",r"\b(?:ls|dir|cd|pwd|nano)\b")},
-    {"id":"playwright-browser","title":"Playwright browser","path":"config/agents/capabilities/playwright-browser.md","requires":("machine-spaces",),"patterns":(r"\bplaywright\b",r"\bbrowser\b",r"\bnavigate\b",r"\bclick\b",r"\bweb page\b")},
-    {"id":"engineering-recovery","title":"Engineering recovery","path":"config/agents/capabilities/engineering-recovery.md","requires":("machine-spaces","supervised-terminal"),"patterns":(r"\brecover(?:y)?\b",r"\brepair\b",r"\bfailed?\b",r"\bretry\b",r"\[engineering incident")},
-    {"id":"git-workflow","title":"Git workflow","path":"config/agents/capabilities/git-workflow.md","patterns":(r"\bgit\b",r"\bbranch\b",r"\bcommit\b",r"\bpush\b",r"\bworking tree\b")},
-    {"id":"repository-navigation","title":"Repository navigation","path":"config/agents/capabilities/repository-navigation.md","requires":("machine-spaces",),"patterns":(r"\brepositor(?:y|ies)\b",r"\bfind (?:a )?file\b",r"\bread (?:the )?file\b",r"\blist files\b",r"\bsearch (?:the )?(?:repo|source)\b")},
-)
+_MANIFEST = json.loads((agent_document_library.ROOT / "config/agents/capabilities/registry.json").read_text(encoding="utf-8"))
+if _MANIFEST.get("schema") != "eveos.agent-capability-registry.v1":
+    raise RuntimeError("Agent capability registry schema is invalid")
+MAX_SELECTED = int(_MANIFEST.get("maxSelected") or 6)
+MAX_CONTEXT_CHARS = int(_MANIFEST.get("maxContextChars") or 12_000)
+_PACKS = tuple(_MANIFEST.get("packs") or ())
 _BY_ID = {item["id"]: item for item in _PACKS}
 
 class CapabilityContextError(ValueError): pass
@@ -23,13 +20,15 @@ def catalog():
 
 def _selected(message):
     selected = []
-    for match in _EXPLICIT.findall(message):
+    explicit = _EXPLICIT.findall(message)
+    for match in explicit:
         for raw in re.split(r"[\s,]+", match.strip().lower()):
             if raw and raw not in _BY_ID: raise CapabilityContextError(f"Unknown registered capability: {raw}")
             if raw and raw not in selected: selected.append(raw)
-    lowered = message.lower()
-    for item in _PACKS:
-        if item["id"] not in selected and any(re.search(pattern, lowered) for pattern in item.get("patterns", ())): selected.append(item["id"])
+    if not explicit:
+        lowered = message.lower()
+        for item in _PACKS:
+            if item["id"] not in selected and any(re.search(pattern, lowered) for pattern in item.get("patterns", ())): selected.append(item["id"])
     result = []
     def add(capability_id):
         for dependency in _BY_ID[capability_id].get("requires", ()): add(dependency)

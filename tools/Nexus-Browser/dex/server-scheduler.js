@@ -2,7 +2,7 @@ const { randomUUID } = require('node:crypto');
 const protocol = require('../public/dex-protocol');
 const healthApi = require('../public/dex-provider-health');
 const failurePolicy = require('../public/dex-failure-policy');
-const stateApi = require('./server-scheduler-state'), controlReceiptApi = require('./provider-control-receipt'), doneWatchApi = require('../public/dex-done-watch');
+const stateApi = require('./server-scheduler-state'), controlReceiptApi = require('./provider-control-receipt'), doneWatchApi = require('../public/dex-done-watch'), capabilityApi = require('./agent-capability-context');
 const { createServerSchedulerRecovery } = require('./server-scheduler-recovery');
 const recoveryMailbox = require('./recovery-mailbox'), promptSend = require('./prompt-send-recovery');
 const { directRoomSend } = require('./direct-room-send-policy');
@@ -119,19 +119,17 @@ function createDexServerScheduler({
   }
   async function routeCurrent() {
     if (!current) return false;
-    const snapshot = load();
-    const room = stateApi.roomById(snapshot, current.roomId);
-    const member = stateApi.memberById(room, current.memberId);
-    const source = stateApi.messageById(room, current.sourceMessageId);
+    const snapshot = load(), room = stateApi.roomById(snapshot, current.roomId), member = stateApi.memberById(room, current.memberId), source = stateApi.messageById(room, current.sourceMessageId);
     if (!room || !member || !source || !room.relay?.active) {
       clearCurrent();
       processSoon(0);
       return false;
     }
+    const capabilityContext = capabilityApi.resolve(source.text); current.capabilityContext = capabilityApi.publicContext(capabilityContext);
     current.prompt = protocol.buildRelayPrompt({
       room, member, recipient: member, sourceMessage: source,
       requestId: current.requestId, inboxMessageIds: current.inboxMessageIds || [],
-      providerHealth: healthApi.roomContext(room, getOnlineTargets() || [])
+      providerHealth: healthApi.roomContext(room, getOnlineTargets() || []), capabilityPrompt: capabilityApi.promptText(capabilityContext)
     }); if (room.recovery) { room.recovery.expectedPrompt = current.prompt; save(snapshot); }
     if (member.binding?.targetClassId === 'local-origin') {
       const target = await localTarget(member);
@@ -273,9 +271,7 @@ function createDexServerScheduler({
   }
   async function handleTurnError(msg = {}) {
     if (!current) return false;
-    const snapshot = load();
-    const room = stateApi.roomById(snapshot, current.roomId);
-    const member = stateApi.memberById(room, current.memberId);
+    const snapshot = load(), room = stateApi.roomById(snapshot, current.roomId), member = stateApi.memberById(room, current.memberId);
     const source = stateApi.messageById(room, current.sourceMessageId);
     if (!room || !member || !source) return false;
     const decision = failurePolicy.decision(msg.code, {
@@ -341,7 +337,7 @@ function createDexServerScheduler({
       senderName: member.name, text: parsed.text || '(No textual response.)',
       contextOverride: parsed.contextOverride
     });
-    if (capabilityContext) message.capabilityContext = capabilityContext; if (sourceMessage?.engineeringIncident) { message.engineeringRawText = String(text || '').slice(0, 12000); message.engineeringProposal = validateEngineeringProposal(parsed.text, sourceMessage.engineeringIncident); }
+    if (capabilityContext && capabilityContext.digest !== current.capabilityContext?.digest) recordIncident({ code: 'AGENT_CAPABILITY_CONTEXT_MISMATCH', source: 'server-scheduler', roomId: room.id, memberId: member.id, requestId: current.requestId, evidence: { expected: current.capabilityContext?.digest || null, returned: capabilityContext.digest } }); if (current.capabilityContext?.packs?.length) message.capabilityContext = current.capabilityContext; if (sourceMessage?.engineeringIncident) { message.engineeringRawText = String(text || '').slice(0, 12000); message.engineeringProposal = validateEngineeringProposal(parsed.text, sourceMessage.engineeringIncident); }
     if (!sourceMessage?.engineeringIncident && parsed.providerControlCommand && !directRoomSend(parsed.providerControlCommand)) controlReceiptApi.rememberIntent(room, { executorMember: member, sourceMessage, command: parsed.providerControlCommand, agentMessage: message, turnRequestId: current.requestId, at: now() });
     delete room.recovery;
     room.relay.waitingFor = null;

@@ -6,3 +6,4 @@ Machine Spaces are room-bound execution resources owned by EveOS. Resolve the ex
 - Never infer that a persisted terminal attachment is live after restart.
 - Use existing request IDs, ledgers, output receipts, and exact-room routing.
 - A middle agent coordinates work; Nexus remains the authority owner.
+- When exact controls are needed, request the room's current self-service contract with `[[DEX:CMD {"action":"onboard"}]]`; do not guess resource IDs or supported actions.
