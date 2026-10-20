@@ -91,3 +91,18 @@ test('local Dex chat approval starts once only after Human Input and records dur
   assert.equal(f.runs(), 1, 'replayed approval cannot execute twice');
   assert.equal(f.sent.get(f.chat).at(-1).code, 'MACHINE_PLAYWRIGHT_CHAT_NOT_QUEUED');
 });
+
+test('composed production controller resolves the bound Machine Space for agent preparation', () => {
+  const f = fixture();
+  const result = f.controller.providerControl.route({
+    source: { providerId: 'tlo-chat', targetClassId: 'local-origin' },
+    command: { action: 'playwright_prepare', space: 'space-one', terminal: 'terminal-one',
+      scenario: 'agent-nexus-browser' },
+    requestId: 'production-route-proof', boundRoomId: 'room-one',
+    origin: { roomId: 'room-one', executorMemberId: 'agent-one', executorName: 'TLO',
+      agentMessageId: 'msg-agent-proof' }
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.data.kind, 'playwright-acceptance');
+  assert.match(result.data.chatApproval.requiredText, /^\/approve-playwright machine-job-/);
+});

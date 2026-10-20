@@ -4,6 +4,7 @@ const { randomUUID } = require('node:crypto');
 const { createSupervisedJobCoordinator } = require('./supervised-job');
 const { inspectGovernorRuns } = require('./governor-run-inspect');
 const { createSupervisedJobProviderControl, ACTIONS } = require('./supervised-job-provider-control');
+const { findSpace } = require('./server-controller-model');
 const { verifyPrepared } = require('./playwright-job-plan');
 const { publicChatApproval, validateChatApproval } = require('./supervised-chat-approval');
 const { createLocalPlanController } = require('./server-controller-local-plans');
