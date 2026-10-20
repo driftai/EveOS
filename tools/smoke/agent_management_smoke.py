@@ -19,7 +19,7 @@ if str(ROOT) not in sys.path:
 from server_modules import agent_management_api as api  # noqa: E402
 from server_modules import agent_document_library as documents  # noqa: E402
 from server_modules import agent_management_store as store, tlo_definition  # noqa: E402
-from server_modules import tlo_chat  # noqa: E402
+from server_modules import agent_capability_registry, tlo_chat  # noqa: E402
 
 
 def require(condition, message):
@@ -120,8 +120,20 @@ def run():
                     "I am no longer just a chat box" not in prompt,
                     "Origin metadata was lost or injected into the boot prompt")
             require("TLO_PRIVATE_SENTINEL" not in prompt, "Private notes leaked into boot context")
-            require("Machine Spaces" in prompt and "Nexus Browser knowledge" in prompt,
-                    "Nexus guide was not injected into TLO new-turn context")
+            require("Machine Spaces" not in prompt,
+                    "Unrelated TLO turn eagerly received Machine Spaces knowledge")
+            capable_projection = store.scoped_projection("tlo", "default")
+            capable_projection["capabilityContext"] = agent_capability_registry.resolve(
+                "Use the Machine Spaces terminal to run this script and recover a failed test"
+            )
+            capable_prompt = tlo_chat.build_system_prompt(capable_projection)
+            require("Machine Spaces" in capable_prompt and "Supervised Terminal Execution" in capable_prompt
+                    and "Engineering Recovery" in capable_prompt and "guidance only; never authority" in capable_prompt,
+                    "Relevant capability packs were not progressively loaded")
+            public_context = agent_capability_registry.public_context(capable_projection["capabilityContext"])
+            require(all("text" not in pack for pack in public_context["packs"])
+                    and len(public_context["digest"]) == 64,
+                    "Capability receipt exposed text or omitted its stable digest")
             guide = documents.read(documents.GUIDE)
             require(guide["source"] == "tracked" and
                     any(item["path"] == documents.GUIDE for item in documents.catalog()),
@@ -129,8 +141,8 @@ def run():
             updated_guide = documents.save(documents.GUIDE, "# Custom Nexus Guide\\nGUIDE_ONLY_SENTINEL\\n",
                                             guide["revision"])
             require(updated_guide["source"] == "private-override" and
-                    "GUIDE_ONLY_SENTINEL" in tlo_chat.build_system_prompt(store.scoped_projection("tlo", "default")),
-                    "Private guide did not reach TLO new-turn context")
+                    "GUIDE_ONLY_SENTINEL" not in tlo_chat.build_system_prompt(store.scoped_projection("tlo", "default")),
+                    "Legacy Nexus guide was still injected eagerly instead of capability packs")
             try:
                 documents.save(documents.GUIDE, "old revision must fail", guide["revision"])
                 raise AssertionError("Stale Markdown revision was accepted")

@@ -209,6 +209,13 @@
         if (!finalized) throw new Error('The TLO stream ended before completion.');
     }
 
+    function capabilityContext(response) {
+        try {
+            const value = JSON.parse(response.headers.get('X-EveOS-Capability-Context') || 'null');
+            return value?.schema === 'eveos.agent-capability-context.v1' ? value : null;
+        } catch (_) { return null; }
+    }
+
     async function sendMessage(form, options = {}) {
         const external = options.external === true;
         if (active) {
@@ -264,6 +271,8 @@
                 signal: run.controller.signal
             });
             if (!response.ok) await jsonResponse(response);
+            const context = capabilityContext(response);
+            if (context) options.onContext?.(context);
             await consumeSseResponse(response, {
                 onDelta(piece) {
                     if (run.cancelled || active !== run) return;

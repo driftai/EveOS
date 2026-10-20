@@ -117,6 +117,7 @@
     async function sendTloRequest(message) {
         const requestId = String(message.requestId || '');
         const tlo = window.EveOSTloChat;
+        let capabilityContext = null;
         if (!tlo?.sendWorkspaceMessage) {
             const error = new Error('The TLO Search Monitor workspace is not mounted.');
             error.code = 'TLO_WORKSPACE_UNAVAILABLE';
@@ -126,9 +127,12 @@
             requestId,
             onPartial(text) {
                 serviceEvent('service_workspace_partial', TLO_TARGET, requestId, { text: String(text || '') });
-            }
+            },
+            onContext(value) { capabilityContext = value; }
         });
-        serviceEvent('service_workspace_final', TLO_TARGET, requestId, { text: String(finalText || '') });
+        serviceEvent('service_workspace_final', TLO_TARGET, requestId, {
+            text: String(finalText || ''), ...(capabilityContext ? { capabilityContext } : {})
+        });
     }
 
     async function handleWorkspaceRequest(message) {

@@ -59,7 +59,9 @@ test('routes TLO through the registered Search Monitor workspace and preserves s
   });
   bridge.handleHostMessage(ws, {
     type: 'service_workspace_final', targetId: TLO_ID, requestId: 'turn-1',
-    workspaceId: 'search-monitor-a', text: 'same conversation'
+    workspaceId: 'search-monitor-a', text: 'same conversation',
+    capabilityContext: { schema: 'eveos.agent-capability-context.v1', digest: 'a'.repeat(64),
+      packs: [{ id: 'machine-spaces', revision: 'b'.repeat(24), sha256: 'c'.repeat(64) }] }
   });
 
   assert.equal(await turn, 'same conversation');
@@ -68,6 +70,7 @@ test('routes TLO through the registered Search Monitor workspace and preserves s
     ['response_final', 'same conversation']
   ]);
   assert.equal(bridge.snapshot(TLO_ID).busy, false);
+  assert.equal(events.at(-1).capabilityContext.packs[0].id, 'machine-spaces');
 });
 
 test('fails closed instead of inventing a second Local MoE conversation', async () => {

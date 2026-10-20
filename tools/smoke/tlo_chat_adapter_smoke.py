@@ -208,6 +208,10 @@ def run():
                 model_payload = json.loads(upstream.body.decode("utf-8"))
                 require("model" not in model_payload, "Empty modelId overrode current Harness selection")
                 require(model_payload["system"] == prompt, "TLO scoped projection was not the exact system context")
+                capability_header = json.loads(handler.response_headers["X-EveOS-Capability-Context"])
+                require(capability_header["schema"] == "eveos.agent-capability-context.v1"
+                        and capability_header["packs"] == [] and len(capability_header["digest"]) == 64,
+                        "TLO stream omitted its bounded capability-context receipt")
                 streamed = handler.wfile.getvalue().decode("utf-8")
                 require(streamed.index('"Hel"') < streamed.index('"lo"'), "Streaming text order changed")
                 require(streamed.count("data: [DONE]") == 1, "TLO stream did not finalize exactly once")

@@ -10,7 +10,7 @@ import threading
 from dataclasses import dataclass, field
 from http import HTTPStatus
 
-from server_modules import agent_management_store, eveos_ports, gemini_control, local_moe_control, tlo_schema_cache
+from server_modules import agent_capability_registry, agent_management_store, eveos_ports, gemini_control, local_moe_control, tlo_schema_cache
 from server_modules.eve_state_store_api_helpers import query_value, send_json
 
 
@@ -115,9 +115,7 @@ def build_system_prompt(projection: dict) -> str:
     ]
     definition = str(agent.get("definition") or "").strip()
     sections.append(f"Agent definition:\n{definition}" if definition else f"Identity:\n{str(agent.get('identity') or '').strip()}")
-    nexus_guide = str(agent.get("nexusGuide") or "").strip() if agent.get("id") == "tlo" else ""
-    if nexus_guide:
-        sections.append("Nexus Browser knowledge (context only; NOT a tool authorization):\n" + nexus_guide)
+    sections.extend(agent_capability_registry.prompt_sections(projection.get("capabilityContext") or {}))
     rules = [] if definition else [str(item).strip() for item in agent.get("workingRules") or [] if str(item).strip()]
     if rules:
         sections.append("Working rules:\n" + "\n".join(f"- {item}" for item in rules))
@@ -305,6 +303,8 @@ def _upstream_error(response) -> TloChatError:
 def _stream_chat(handler, payload: dict) -> None:
     message, scope_id, request_id, history = _request_data(payload)
     projection = _projection(scope_id)
+    capability_context = agent_capability_registry.resolve(message)
+    projection["capabilityContext"] = capability_context
     lifecycle = local_moe_control.get_status()
     if not lifecycle.get("running"):
         state = "harness_starting" if lifecycle.get("state") == "starting" else "harness_stopped"
@@ -345,6 +345,8 @@ def _stream_chat(handler, payload: dict) -> None:
         handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
         handler.send_header("Cache-Control", "no-cache")
         handler.send_header("X-Accel-Buffering", "no")
+        handler.send_header("Access-Control-Expose-Headers", "X-EveOS-Capability-Context")
+        handler.send_header("X-EveOS-Capability-Context", json.dumps(agent_capability_registry.public_context(capability_context), separators=(",", ":")))
         handler.send_header("Connection", "close")
         handler.end_headers()
         handler.close_connection = True

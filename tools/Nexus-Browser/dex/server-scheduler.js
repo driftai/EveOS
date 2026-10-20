@@ -326,7 +326,7 @@ function createDexServerScheduler({
     processSoon(0);
     return false;
   }
-  function completeTurn(text) {
+  function completeTurn(text, capabilityContext = null) {
     if (!current) return false;
     const snapshot = load();
     const room = stateApi.roomById(snapshot, current.roomId);
@@ -341,7 +341,7 @@ function createDexServerScheduler({
       senderName: member.name, text: parsed.text || '(No textual response.)',
       contextOverride: parsed.contextOverride
     });
-    if (sourceMessage?.engineeringIncident) { message.engineeringRawText = String(text || '').slice(0, 12000); message.engineeringProposal = validateEngineeringProposal(parsed.text, sourceMessage.engineeringIncident); }
+    if (capabilityContext) message.capabilityContext = capabilityContext; if (sourceMessage?.engineeringIncident) { message.engineeringRawText = String(text || '').slice(0, 12000); message.engineeringProposal = validateEngineeringProposal(parsed.text, sourceMessage.engineeringIncident); }
     if (!sourceMessage?.engineeringIncident && parsed.providerControlCommand && !directRoomSend(parsed.providerControlCommand)) controlReceiptApi.rememberIntent(room, { executorMember: member, sourceMessage, command: parsed.providerControlCommand, agentMessage: message, turnRequestId: current.requestId, at: now() });
     delete room.recovery;
     room.relay.waitingFor = null;
@@ -387,7 +387,7 @@ function createDexServerScheduler({
       lease.touch(activity);
       return true;
     }
-    if (msg.type === 'response_final') return completeTurn(msg.text || '');
+    if (msg.type === 'response_final') return completeTurn(msg.text || '', stateApi.capabilityContext(msg.capabilityContext));
     if (msg.type === 'error') return handleTurnError(msg);
     return false;
   }

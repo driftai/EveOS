@@ -102,10 +102,12 @@ test('localhost owns a normal online turn from queue through completion', async 
   room = h.store.value().rooms[0];
   assert.equal(room.recovery.dispatched, true);
 
-  await h.scheduler.handleTransportEvent({ type: 'response_final', requestId, text: 'Done.' });
+  await h.scheduler.handleTransportEvent({ type: 'response_final', requestId, text: 'Done.', capabilityContext:
+    { schema: 'eveos.agent-capability-context.v1', digest: 'a'.repeat(64), packs: [{ id: 'machine-spaces', revision: 'b'.repeat(24), sha256: 'c'.repeat(64) }] } });
   room = h.store.value().rooms[0];
   assert.equal(room.messages.at(-1).senderName, 'Eve');
   assert.equal(room.messages.at(-1).text, 'Done.');
+  assert.equal(room.messages.at(-1).capabilityContext.packs[0].id, 'machine-spaces');
   assert.equal(room.relay.active, false);
   assert.equal(room.relay.lastStopReason, 'Relay budget complete');
   assert.equal(room.recovery, undefined);

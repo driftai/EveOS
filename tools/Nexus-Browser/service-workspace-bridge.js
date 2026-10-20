@@ -168,7 +168,9 @@ function handleHostMessage(socket, message = {}) {
   }
 
   const text = String(message.text || '') || `${entry.target.providerName} completed without a visible response.`;
-  entry.emit?.(targetEvent(entry.target, requestId, 'response_final', { text }));
+  entry.emit?.(targetEvent(entry.target, requestId, 'response_final', {
+    text, ...(message.capabilityContext ? { capabilityContext: message.capabilityContext } : {})
+  }));
   entry.resolve(text);
   return true;
 }
