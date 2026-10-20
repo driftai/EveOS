@@ -15,7 +15,7 @@ async function pointerClick(page, selector) {
   await page.mouse.up();
 }
 
-test('real pointer approval intercepts only the exact Human-Input-gated Playwright phrase', async (t) => {
+test('real pointer shorthand is contextual, Human-Input-gated and bound to one pending Playwright job', async (t) => {
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage();
@@ -45,21 +45,29 @@ test('real pointer approval intercepts only the exact Human-Input-gated Playwrig
   assert.equal(await page.evaluate(() => window.__ordinaryClicks), 1);
   assert.equal(await page.evaluate(() => window.__sent.filter((entry) => entry.type === 'machine_chat_approve_supervised_job').length), 0);
 
-  const phrase = '/approve-playwright machine-job-proof abcdef012345 A1B2C3D4E5F6';
-  await page.locator('#dexPrompt').fill(phrase);
+  await page.locator('#dexPrompt').fill('yes, go ahead');
   await pointerClick(page, '#dexSend');
-  assert.equal(await page.evaluate(() => window.__ordinaryClicks), 1, 'locked approval never reaches ordinary Dex send');
+  assert.equal(await page.evaluate(() => window.__ordinaryClicks), 2, 'affirmative prose stays ordinary without a pending job');
+
+  await page.evaluate(() => {
+    const payload = { type: 'machine_supervised_jobs', jobs: [{ jobId: 'machine-job-proof', roomId: 'room-one',
+      kind: 'playwright-acceptance', state: 'queued' }] };
+    window.__sockets[0].dispatchEvent(new MessageEvent('message', { data: JSON.stringify(payload) }));
+  });
+  await page.locator('#dexPrompt').fill('/approve');
+  await pointerClick(page, '#dexSend');
+  assert.equal(await page.evaluate(() => window.__ordinaryClicks), 2, 'locked approval never reaches ordinary Dex send');
   assert.match(await page.locator('#dexDiagnostics').textContent(), /Enable Human Input/);
 
   await page.locator('#dexModePanel').evaluate((node) => { node.dataset.humanInput = 'enabled'; });
   await pointerClick(page, '#dexSend');
   const approval = await page.evaluate(() => window.__sent.find((entry) => entry.type === 'machine_chat_approve_supervised_job'));
   assert.equal(approval.roomId, 'room-one');
-  assert.equal(approval.jobId, 'machine-job-proof');
-  assert.equal(approval.commandDigestPrefix, 'abcdef012345');
-  assert.equal(approval.challenge, 'A1B2C3D4E5F6');
+  assert.equal(approval.approvalText, '/approve');
+  assert.equal(approval.approvalIntent, 'single-pending-playwright');
+  assert.equal(approval.jobId, undefined);
   assert.equal(await page.locator('#dexPrompt').inputValue(), '');
-  assert.equal(await page.evaluate(() => window.__ordinaryClicks), 1, 'approved phrase is consumed by the dedicated bridge');
+  assert.equal(await page.evaluate(() => window.__ordinaryClicks), 2, 'approved shorthand is consumed by the dedicated bridge');
 
   await page.evaluate((requestId) => {
     const payload = { type: 'machine_supervised_job_changed', requestId, action: 'started', job: { jobId: 'machine-job-proof' } };

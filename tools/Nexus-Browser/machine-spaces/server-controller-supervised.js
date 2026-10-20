@@ -6,7 +6,7 @@ const { inspectGovernorRuns } = require('./governor-run-inspect');
 const { createSupervisedJobProviderControl, ACTIONS } = require('./supervised-job-provider-control');
 const { findSpace } = require('./server-controller-model');
 const { verifyPrepared } = require('./playwright-job-plan');
-const { publicChatApproval, validateChatApproval } = require('./supervised-chat-approval');
+const { publicChatApproval, validateChatApproval, validateChatApprovalIntent } = require('./supervised-chat-approval');
 const { createLocalPlanController } = require('./server-controller-local-plans');
 const { recoveryProjection } = require('./engineering-recovery-result');
 const { createSupervisedLiveView } = require('./supervised-live-view');
@@ -140,10 +140,21 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
     requireLocal(ws);
     if (ws.clientKind !== 'machine-chat-approval')
       throw machineError('MACHINE_PLAYWRIGHT_CHAT_CLIENT_REQUIRED', 'Playwright chat approval requires the dedicated local Dex approval client.');
-    const current = jobs.status(msg.jobId);
+    let current;
+    if (msg.approvalIntent) {
+      const pending = jobs.snapshot().jobs.filter((job) => job.roomId === String(msg.roomId || '')
+        && job.kind === 'playwright-acceptance' && job.state === 'queued');
+      if (!pending.length)
+        throw machineError('MACHINE_PLAYWRIGHT_CHAT_APPROVAL_NONE', 'This room has no pending Playwright request to approve.');
+      if (pending.length !== 1)
+        throw machineError('MACHINE_PLAYWRIGHT_CHAT_APPROVAL_AMBIGUOUS', 'This room has multiple pending Playwright requests; use the exact job-specific phrase.');
+      current = jobs.status(pending[0].jobId);
+    } else current = jobs.status(msg.jobId);
     const stored = commandStore.get(current.jobId);
     const sourceMessageId = `msg-playwright-approval-${randomUUID()}`;
-    const authorization = validateChatApproval({ message: msg, job: current, stored, now: nowMs });
+    const authorization = msg.approvalIntent
+      ? validateChatApprovalIntent({ message: msg, job: current, stored, now: nowMs })
+      : validateChatApproval({ message: msg, job: current, stored, now: nowMs });
     const running = startLocal(ws, { jobId: current.jobId }, { ...authorization, sourceMessageId });
     let snapshot = getState();
     const room = (snapshot?.rooms || []).find((entry) => entry.id === current.roomId);
@@ -153,9 +164,10 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
         senderName: String(room.userName || 'Local operator').slice(0, 48), text: authorization.approvedText, at });
       const receipt = schedulerState.addMessage(room, { id: `msg-playwright-start-${randomUUID()}`,
         senderKind: 'system', senderId: null, senderName: 'Machine Spaces',
-        text: `Exact local chat approval consumed once; registered Playwright job ${current.jobId} started.`, at });
+        text: `Local chat approval bound to ${current.jobId} and consumed once; registered Playwright job started.`, at });
       receipt.playwrightApproval = { schema: 'eveos.machine-spaces.playwright-chat-receipt.v1',
-        jobId: current.jobId, approvalDigest: authorization.approvalDigest, sourceMessageId };
+        jobId: current.jobId, method: authorization.method,
+        approvalDigest: authorization.approvalDigest, sourceMessageId };
       snapshot = saveState(snapshot); broadcastState(snapshot);
     }
     return running;
@@ -255,7 +267,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
       if (type === 'machine_chat_approve_supervised_job') {
         const job = approveFromChat(ws, msg);
         safeSend(ws, { type: 'machine_supervised_job_changed', requestId: msg.requestId || null,
-          action: 'started', approvalMethod: 'dex-owner-chat', job }); return true;
+          action: 'started', approvalMethod: job.authorization?.method || null, job }); return true;
       }
       if (type === 'machine_rebound_supervised_job') {
         const job = reboundLocal(ws, msg); safeSend(ws, { type: 'machine_supervised_job_changed', action: 'rebound', job }); return true;

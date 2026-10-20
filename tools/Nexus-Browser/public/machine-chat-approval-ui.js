@@ -2,11 +2,14 @@
   'use strict';
 
   const APPROVAL = /^\/approve-playwright\s+(machine-job-[A-Za-z0-9-]{1,180})\s+([a-f0-9]{12})\s+([a-f0-9]{12})$/i;
+  const SHORTHAND = /^(?:\/approve|yes[,.]?\s+go\s+ahead)[.!]?$/i;
   function parse(value) {
     const approvalText = String(value || '').trim();
     const match = APPROVAL.exec(approvalText);
-    return match ? { approvalText, jobId: match[1], commandDigestPrefix: match[2].toLowerCase(),
-      challenge: match[3].toUpperCase() } : null;
+    if (match) return { approvalText, jobId: match[1], commandDigestPrefix: match[2].toLowerCase(),
+      challenge: match[3].toUpperCase() };
+    return SHORTHAND.test(approvalText)
+      ? { approvalText, approvalIntent: 'single-pending-playwright' } : null;
   }
   const api = { parse };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
@@ -18,8 +21,10 @@
   const roomList = document.getElementById('dexRoomList');
   const diagnostics = document.getElementById('dexDiagnostics');
   if (!panel || !prompt || !sendButton || !roomList) return;
-  let socket = null, reconnectTimer = null, pending = null;
+  let socket = null, reconnectTimer = null, pending = null, jobs = [];
   const activeRoomId = () => roomList.querySelector('.dex-room-item.active')?.dataset.roomId || '';
+  const pendingInRoom = (roomId) => jobs.filter((job) => job?.roomId === roomId
+    && job.kind === 'playwright-acceptance' && job.state === 'queued');
   function note(value) {
     if (!diagnostics) return;
     diagnostics.textContent = `[${new Date().toLocaleTimeString()}] ${value}\n${diagnostics.textContent || ''}`.slice(0, 12000);
@@ -31,11 +36,19 @@
   function submit(event) {
     const parsed = parse(prompt.value);
     if (!parsed) return false;
+    const roomId = activeRoomId();
+    if (parsed.approvalIntent) {
+      const candidates = pendingInRoom(roomId);
+      if (!candidates.length) return false;
+      if (candidates.length !== 1) {
+        event?.preventDefault?.(); event?.stopImmediatePropagation?.();
+        return note('Multiple Playwright jobs await approval; use the exact job-specific phrase.'), true;
+      }
+    }
     event?.preventDefault?.(); event?.stopImmediatePropagation?.();
     if (pending) return note('A Playwright chat approval is already being submitted.'), true;
-    if (panel.dataset.humanInput !== 'enabled') return note('Enable Human Input before approving a Playwright job from chat.'), true;
-    const roomId = activeRoomId();
     if (!roomId) return note('Select the exact Dex room before approving its Playwright job.'), true;
+    if (panel.dataset.humanInput !== 'enabled') return note('Enable Human Input before approving a Playwright job from chat.'), true;
     const requestId = `machine-chat-approval-${globalThis.crypto?.randomUUID?.() || Date.now()}`;
     pending = { requestId, original: prompt.value };
     if (!send({ type: 'machine_chat_approve_supervised_job', requestId, roomId, ...parsed })) {
@@ -48,9 +61,13 @@
     clearTimeout(reconnectTimer);
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
     socket = new WebSocket(`${scheme}://${location.host}/ws`);
-    socket.addEventListener('open', () => send({ type: 'hello', role: 'ui', clientKind: 'machine-chat-approval' }));
+    socket.addEventListener('open', () => {
+      send({ type: 'hello', role: 'ui', clientKind: 'machine-chat-approval' });
+      send({ type: 'machine_supervised_jobs' });
+    });
     socket.addEventListener('message', (event) => {
       let payload; try { payload = JSON.parse(event.data); } catch { return; }
+      if (payload.type === 'machine_supervised_jobs') jobs = Array.isArray(payload.jobs) ? payload.jobs : jobs;
       if (!pending || payload.requestId !== pending.requestId) return;
       if (payload.type === 'machine_supervised_job_changed' && payload.action === 'started') {
         note(`Approved and started ${payload.job?.jobId || 'the Playwright job'} from exact local chat consent.`); pending = null;

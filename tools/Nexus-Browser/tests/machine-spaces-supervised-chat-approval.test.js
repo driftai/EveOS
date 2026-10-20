@@ -6,7 +6,8 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { commandDigest } = require('../machine-spaces/approval-broker');
 const { registeredPlan } = require('../machine-spaces/playwright-job-plan');
-const { createChatApproval, publicChatApproval, validateChatApproval } = require('../machine-spaces/supervised-chat-approval');
+const { createChatApproval, publicChatApproval, validateChatApproval,
+  validateChatApprovalIntent } = require('../machine-spaces/supervised-chat-approval');
 const { createSupervisedJobCoordinator } = require('../machine-spaces/supervised-job');
 const { enhanceMachineSpacesSupervisedController } = require('../machine-spaces/server-controller-supervised');
 const { enhanceMachineSpacesHumanGateController } = require('../machine-spaces/server-controller-human-gate');
@@ -26,6 +27,12 @@ test('chat approval text is exact, expiring and bound to one registered Playwrig
     commandDigestPrefix: 'abcdef012345', challenge: 'A1B2C3D4E5F6'
   });
   assert.equal(chatUi.parse('yes'), null);
+  assert.deepEqual(chatUi.parse('/approve'), {
+    approvalText: '/approve', approvalIntent: 'single-pending-playwright'
+  });
+  assert.deepEqual(chatUi.parse('yes, go ahead'), {
+    approvalText: 'yes, go ahead', approvalIntent: 'single-pending-playwright'
+  });
   const accepted = validateChatApproval({ message: { approvalText: approval.requiredText,
     jobId: job.jobId, roomId: job.roomId, challenge: approval.challenge }, job, stored, now: () => stamp });
   assert.equal(accepted.method, 'dex-owner-chat');
@@ -37,6 +44,22 @@ test('chat approval text is exact, expiring and bound to one registered Playwrig
   assert.throws(() => validateChatApproval({ message: { approvalText: approval.requiredText,
     jobId: job.jobId, roomId: job.roomId, challenge: approval.challenge }, job, stored, now: () => stamp }),
   { code: 'MACHINE_PLAYWRIGHT_CHAT_APPROVAL_EXPIRED' });
+});
+
+test('short approval intent binds to the server-selected registered job without exposing its nonce', () => {
+  const stamp = Date.parse('2026-10-20T12:00:00.000Z');
+  const approval = createChatApproval({ jobId: 'machine-job-one', commandDigest: 'abcdef0123456789',
+    now: () => stamp, bytes: () => Buffer.from('a1b2c3d4e5f6', 'hex') });
+  const job = { jobId: 'machine-job-one', roomId: 'room-one', state: 'queued',
+    kind: 'playwright-acceptance', commandDigest: 'abcdef0123456789' };
+  const stored = { kind: job.kind, commandDigest: job.commandDigest, chatApproval: approval };
+  const accepted = validateChatApprovalIntent({ message: { approvalText: '/approve',
+    approvalIntent: 'single-pending-playwright', roomId: job.roomId }, job, stored, now: () => stamp });
+  assert.equal(accepted.method, 'dex-owner-chat-shorthand');
+  assert.equal(accepted.approvalDigest, approval.approvalDigest);
+  assert.throws(() => validateChatApprovalIntent({ message: { approvalText: 'yes',
+    approvalIntent: 'single-pending-playwright', roomId: job.roomId }, job, stored, now: () => stamp }),
+  { code: 'MACHINE_PLAYWRIGHT_CHAT_INTENT_INVALID' });
 });
 
 function fixture() {
@@ -66,7 +89,8 @@ function fixture() {
     saveState(value) { snapshot = structuredClone(value); return snapshot; }, broadcastState() {}, governorRoot: ROOT };
   const controller = enhanceMachineSpacesHumanGateController(
     shared => enhanceMachineSpacesSupervisedController(() => base, shared), options);
-  return { controller, gate, chat, outsider, sent, jobs, job, approval: chatApproval, snapshot: () => snapshot, runs: () => runs };
+  return { controller, gate, chat, outsider, sent, jobs, job, approval: chatApproval,
+    commandStore, plan, digest, snapshot: () => snapshot, runs: () => runs };
 }
 
 test('local Dex chat approval starts once only after Human Input and records durable provenance', async () => {
@@ -90,6 +114,31 @@ test('local Dex chat approval starts once only after Human Input and records dur
   await f.controller.handle(f.chat, input);
   assert.equal(f.runs(), 1, 'replayed approval cannot execute twice');
   assert.equal(f.sent.get(f.chat).at(-1).code, 'MACHINE_PLAYWRIGHT_CHAT_NOT_QUEUED');
+});
+
+test('local shorthand starts exactly one pending room job and refuses ambiguity', async () => {
+  const single = fixture();
+  await single.controller.handle(single.gate, { type: 'machine_set_human_input', enabled: true });
+  await single.controller.handle(single.chat, { type: 'machine_chat_approve_supervised_job',
+    requestId: 'approve-short', roomId: 'room-one', approvalText: '/approve',
+    approvalIntent: 'single-pending-playwright' });
+  assert.equal(single.jobs.status(single.job.jobId).authorization.method, 'dex-owner-chat-shorthand');
+  assert.equal(single.runs(), 1);
+  assert.equal(single.snapshot().rooms[0].messages[0].text, '/approve');
+
+  const ambiguous = fixture();
+  const second = ambiguous.jobs.create({ requestId: 'request-two', kind: ambiguous.plan.kind,
+    roomId: 'room-one', spaceId: 'space-one', ownerMemberId: 'agent-one', targetId: 'terminal-one',
+    processEpoch: 'epoch-one', commandDigest: ambiguous.digest });
+  ambiguous.commandStore.set(second.jobId, { ...ambiguous.plan, commandDigest: ambiguous.digest,
+    chatApproval: createChatApproval({ jobId: second.jobId, commandDigest: ambiguous.digest,
+      now: () => Date.parse('2026-10-20T12:00:00.000Z'), bytes: () => Buffer.from('223344556677', 'hex') }) });
+  await ambiguous.controller.handle(ambiguous.gate, { type: 'machine_set_human_input', enabled: true });
+  await ambiguous.controller.handle(ambiguous.chat, { type: 'machine_chat_approve_supervised_job',
+    requestId: 'approve-ambiguous', roomId: 'room-one', approvalText: 'yes, go ahead',
+    approvalIntent: 'single-pending-playwright' });
+  assert.equal(ambiguous.sent.get(ambiguous.chat).at(-1).code, 'MACHINE_PLAYWRIGHT_CHAT_APPROVAL_AMBIGUOUS');
+  assert.equal(ambiguous.runs(), 0);
 });
 
 test('composed production controller resolves the bound Machine Space for agent preparation', () => {

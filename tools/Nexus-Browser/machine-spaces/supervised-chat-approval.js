@@ -4,6 +4,8 @@ const { createHash, randomBytes, timingSafeEqual } = require('node:crypto');
 
 const CHAT_APPROVAL_TTL_MS = 5 * 60 * 1000;
 const CHALLENGE = /^[A-F0-9]{12}$/;
+const APPROVAL_INTENT = 'single-pending-playwright';
+const SHORTHAND = /^(?:\/approve|yes[,.]?\s+go\s+ahead)[.!]?$/i;
 
 function machineError(code, message) { return Object.assign(new Error(message), { code }); }
 function text(value) { return String(value ?? '').trim(); }
@@ -61,10 +63,32 @@ function validateChatApproval({ message, job, stored, now = Date.now } = {}) {
   };
 }
 
+function validateChatApprovalIntent({ message, job, stored, now = Date.now } = {}) {
+  if (text(message?.approvalIntent) !== APPROVAL_INTENT || !SHORTHAND.test(text(message?.approvalText)))
+    throw machineError('MACHINE_PLAYWRIGHT_CHAT_INTENT_INVALID', 'Use /approve or "yes, go ahead" for the single pending Playwright request.');
+  if (!job || job.kind !== 'playwright-acceptance' || job.state !== 'queued')
+    throw machineError('MACHINE_PLAYWRIGHT_CHAT_NOT_QUEUED', 'Chat approval requires one queued registered Playwright job.');
+  if (!stored || stored.kind !== 'playwright-acceptance' || stored.commandDigest !== job.commandDigest)
+    throw machineError('MACHINE_PLAYWRIGHT_PLAN_CHANGED', 'The registered Playwright plan is unavailable or changed.');
+  const approval = stored.chatApproval;
+  if (!approval || approval.schema !== 'eveos.machine-spaces.playwright-chat-approval.v1')
+    throw machineError('MACHINE_PLAYWRIGHT_CHAT_APPROVAL_MISSING', 'This job has no local chat approval challenge.');
+  if (Date.parse(approval.expiresAt) <= now())
+    throw machineError('MACHINE_PLAYWRIGHT_CHAT_APPROVAL_EXPIRED', 'The Playwright chat approval expired; prepare a new job or use the local review card.');
+  if (text(message?.roomId) !== job.roomId)
+    throw machineError('MACHINE_PLAYWRIGHT_CHAT_SCOPE_MISMATCH', 'The chat approval belongs to another Dex room.');
+  return {
+    method: 'dex-owner-chat-shorthand',
+    approvalDigest: approval.approvalDigest,
+    approvedText: text(message.approvalText)
+  };
+}
+
 module.exports = {
-  CHAT_APPROVAL_TTL_MS,
+  CHAT_APPROVAL_TTL_MS, APPROVAL_INTENT, SHORTHAND,
   approvalText,
   createChatApproval,
   publicChatApproval,
-  validateChatApproval
+  validateChatApproval,
+  validateChatApprovalIntent
 };
