@@ -16,6 +16,8 @@ test('restart preserves terminal history and refuses to replay running or queued
   const store = memoryStore();
   const first = createSupervisedJobCoordinator({ store, idFactory: (() => { let n = 0; return () => String(++n); })() });
   const queued = create(first, 'queued'), running = create(first, 'running'), done = create(first, 'done');
+  first.authorize(running.jobId, { method: 'test-local-owner' });
+  first.authorize(done.jobId, { method: 'test-local-owner' });
   first.start(running.jobId, { sessionId: 'owner' });
   const active = first.status(done.jobId);
   const started = first.start(done.jobId, { sessionId: 'owner' });

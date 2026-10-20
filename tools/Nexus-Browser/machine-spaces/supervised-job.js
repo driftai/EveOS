@@ -48,6 +48,7 @@ function createSupervisedJobCoordinator(options = {}) {
         leaseId: job.lease.leaseId, holderSessionId: job.lease.holderSessionId,
         expiresAt: job.lease.expiresAt, generation: job.lease.generation
       } : null,
+      authorization: job.authorization || null,
       result: job.result, errorCode: job.errorCode, reason: job.reason,
       reboundCount: job.reboundCount, leaseGeneration: job.leaseGeneration
     });
@@ -84,10 +85,34 @@ function createSupervisedJobCoordinator(options = {}) {
       ownerMemberId: text(input.ownerMemberId) || null,
       targetId, processEpoch, commandDigest: text(input.commandDigest) || null,
       createdAt: stamp(), startedAt: null, deferredAt: null, finishedAt: null,
-      lease: null, leaseGeneration: 0, result: null, errorCode: null, reason: null, reboundCount: 0
+      lease: null, leaseGeneration: 0, authorization: null,
+      result: null, errorCode: null, reason: null, reboundCount: 0
     };
     jobs.set(job.jobId, job); requestIndex.set(requestId, job.jobId); prune();
     record('created', job);
+    return publicJob(job);
+  }
+
+  function authorize(jobId, input = {}) {
+    const job = exact(jobId);
+    if (job.state !== 'queued') throw makeError('MACHINE_JOB_STATE_CONFLICT', `Job ${job.jobId} is ${job.state}, not queued.`);
+    const method = text(input.method), approvalDigest = text(input.approvalDigest);
+    if (!method) throw makeError('MACHINE_JOB_AUTHORIZATION_REQUIRED', 'Supervised job authorization provenance is required.');
+    const next = {
+      method,
+      sourceMessageId: text(input.sourceMessageId) || null,
+      approvalDigest: approvalDigest || null,
+      authorizedAt: stamp()
+    };
+    if (job.authorization) {
+      const same = job.authorization.method === next.method
+        && job.authorization.sourceMessageId === next.sourceMessageId
+        && job.authorization.approvalDigest === next.approvalDigest;
+      if (!same) throw makeError('MACHINE_JOB_AUTHORIZATION_CONFLICT', 'This queued job already has different authorization provenance.');
+      return publicJob(job);
+    }
+    job.authorization = next;
+    record('authorized', job, { ...next });
     return publicJob(job);
   }
 
@@ -114,6 +139,8 @@ function createSupervisedJobCoordinator(options = {}) {
       if (job.state === 'running' && leaseValid(job, input.leaseId, input.sessionId)) return publicJob(job);
       throw makeError('MACHINE_JOB_STATE_CONFLICT', `Job ${job.jobId} is ${job.state}, not queued.`);
     }
+    if (!job.authorization)
+      throw makeError('MACHINE_JOB_AUTHORIZATION_REQUIRED', 'Supervised job cannot start without recorded owner authorization.');
     if (text(input.targetId || job.targetId) !== job.targetId || text(input.processEpoch || job.processEpoch) !== job.processEpoch)
       throw makeError('MACHINE_JOB_TARGET_EPOCH_MISMATCH', 'Managed terminal identity changed before supervised job start.');
     const sessionId = text(input.sessionId);
@@ -225,7 +252,7 @@ function createSupervisedJobCoordinator(options = {}) {
   function recovered() { return restartSettlements.map(publicJob); }
   restore();
 
-  return { create, start, defer, rebound, settle, cancel, terminalizeForSession, terminalizeForTarget,
+  return { create, authorize, start, defer, rebound, settle, cancel, terminalizeForSession, terminalizeForTarget,
     status, snapshot, recovered };
 }
 

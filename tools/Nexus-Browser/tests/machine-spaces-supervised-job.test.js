@@ -19,6 +19,11 @@ function create(jobs, requestId = 'req-one') {
   });
 }
 
+function authorize(jobs, job) {
+  jobs.authorize(job.jobId, { method: 'test-local-owner' });
+  return job;
+}
+
 test('request id is exact-once and conflicting payload is rejected', () => {
   const { jobs } = fixture();
   const first = create(jobs);
@@ -29,9 +34,31 @@ test('request id is exact-once and conflicting payload is rejected', () => {
   });
 });
 
-test('rebound requires the same trusted terminal process epoch and rotates the lease monotonically', () => {
+test('authorization provenance is durable, immutable and recorded before launch', () => {
   const { jobs } = fixture();
   const job = create(jobs);
+  const authorized = jobs.authorize(job.jobId, { method: 'dex-owner-chat',
+    sourceMessageId: 'msg-owner-one', approvalDigest: 'digest-one' });
+  assert.equal(authorized.authorization.method, 'dex-owner-chat');
+  assert.equal(jobs.snapshot().events.at(-1).type, 'authorized');
+  assert.deepEqual(jobs.authorize(job.jobId, { method: 'dex-owner-chat',
+    sourceMessageId: 'msg-owner-one', approvalDigest: 'digest-one' }), authorized);
+  assert.throws(() => jobs.authorize(job.jobId, { method: 'local-ui-confirmation' }), {
+    code: 'MACHINE_JOB_AUTHORIZATION_CONFLICT'
+  });
+});
+
+test('coordinator itself refuses launch without recorded authorization', () => {
+  const { jobs } = fixture();
+  const job = create(jobs);
+  assert.throws(() => jobs.start(job.jobId, { sessionId: 'session-a' }), {
+    code: 'MACHINE_JOB_AUTHORIZATION_REQUIRED'
+  });
+});
+
+test('rebound requires the same trusted terminal process epoch and rotates the lease monotonically', () => {
+  const { jobs } = fixture();
+  const job = authorize(jobs, create(jobs));
   const started = jobs.start(job.jobId, { sessionId: 'browser-session-a', targetId: job.targetId, processEpoch: job.processEpoch });
   const firstLease = started.lease.leaseId;
   assert.equal(started.lease.generation, 1);
@@ -55,7 +82,7 @@ test('rebound requires the same trusted terminal process epoch and rotates the l
 
 test('stale supervision lease cannot settle a running job', () => {
   const { jobs } = fixture();
-  const job = create(jobs);
+  const job = authorize(jobs, create(jobs));
   const running = jobs.start(job.jobId, { sessionId: 'session-a' });
   assert.throws(() => jobs.settle(job.jobId, { state: 'completed', sessionId: 'session-b', leaseId: running.lease.leaseId, result: { ok: true } }), {
     code: 'MACHINE_JOB_LEASE_INVALID'
@@ -66,7 +93,7 @@ test('stale supervision lease cannot settle a running job', () => {
 
 test('same terminal settlement is idempotent but a contradictory second outcome is rejected', () => {
   const { jobs } = fixture();
-  const job = create(jobs);
+  const job = authorize(jobs, create(jobs));
   const running = jobs.start(job.jobId, { sessionId: 'session-a' });
   const input = { state: 'failed', sessionId: 'session-a', leaseId: running.lease.leaseId, result: { exitCode: 2 }, errorCode: 'EXIT_2' };
   const first = jobs.settle(job.jobId, input);
@@ -77,8 +104,8 @@ test('same terminal settlement is idempotent but a contradictory second outcome 
 
 test('session loss defers work without replay and target loss terminalizes uncertain work', () => {
   const { jobs } = fixture();
-  const one = create(jobs, 'req-one');
-  const two = create(jobs, 'req-two');
+  const one = authorize(jobs, create(jobs, 'req-one'));
+  const two = authorize(jobs, create(jobs, 'req-two'));
   jobs.start(one.jobId, { sessionId: 'session-a' });
   jobs.start(two.jobId, { sessionId: 'session-b' });
 
@@ -95,12 +122,12 @@ test('session loss defers work without replay and target loss terminalizes uncer
 
 test('audit snapshot exposes lifecycle without secret lease tokens beyond lease id', () => {
   const { jobs } = fixture();
-  const job = create(jobs);
+  const job = authorize(jobs, create(jobs));
   const running = jobs.start(job.jobId, { sessionId: 'session-a' });
   jobs.defer(job.jobId, { sessionId: 'session-a', leaseId: running.lease.leaseId });
   jobs.rebound(job.jobId, { sessionId: 'session-b', targetId: job.targetId, processEpoch: job.processEpoch });
   const snapshot = jobs.snapshot();
-  assert.deepEqual(snapshot.events.map((entry) => entry.type), ['created', 'started', 'deferred', 'rebound']);
+  assert.deepEqual(snapshot.events.map((entry) => entry.type), ['created', 'authorized', 'started', 'deferred', 'rebound']);
   assert.equal(snapshot.jobs[0].reboundCount, 1);
   assert.equal(snapshot.jobs[0].leaseGeneration, 2);
 });

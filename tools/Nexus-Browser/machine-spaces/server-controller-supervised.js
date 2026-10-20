@@ -5,9 +5,11 @@ const { createSupervisedJobCoordinator } = require('./supervised-job');
 const { inspectGovernorRuns } = require('./governor-run-inspect');
 const { createSupervisedJobProviderControl, ACTIONS } = require('./supervised-job-provider-control');
 const { verifyPrepared } = require('./playwright-job-plan');
+const { publicChatApproval, validateChatApproval } = require('./supervised-chat-approval');
 const { createLocalPlanController } = require('./server-controller-local-plans');
 const { recoveryProjection } = require('./engineering-recovery-result');
 const { createSupervisedLiveView } = require('./supervised-live-view');
+const schedulerState = require('../dex/server-scheduler-state');
 const dexProtocol = require('../public/dex-protocol');
 for (const action of ACTIONS) dexProtocol.PROVIDER_CONTROL_ACTIONS.add(action);
 
@@ -17,6 +19,9 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   const uiSockets = options.uiSockets || new Set();
   const safeSend = options.safeSend || (() => false);
   const getState = options.getState || (() => null);
+  const saveState = options.saveState || ((value) => value);
+  const broadcastState = options.broadcastState || (() => {});
+  const nowMs = options.now || (() => Date.now());
   const base = createBaseController(options);
   const jobs = options.supervisedJobs || createSupervisedJobCoordinator({ now: options.now });
   const commandStore = options.supervisedCommandStore || new Map();
@@ -50,7 +55,8 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
         return { ...job, commandAvailable: !!stored,
           commandPreview: display ? (display.length > 180 ? `${display.slice(0, 177)}...` : display) : null,
           governor: stored?.governor || null, recovery: stored?.recovery || null,
-          visibleTerminal: stored?.visibleTerminal === true };
+          visibleTerminal: stored?.visibleTerminal === true,
+          chatApproval: publicChatApproval(stored, nowMs) };
       });
   }
   function broadcastJobs(reason, changed = []) {
@@ -93,7 +99,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   const localPlans = createLocalPlanController({ jobs, commandStore, broker: base.broker,
     getState, repoRoot: governorRoot, resolveHead: options.resolveSupervisedHead });
 
-  function startLocal(ws, msg) {
+  function startLocal(ws, msg, authorization = null) {
     requireLocal(ws);
     const current = jobs.status(msg.jobId);
     if (current.state !== 'queued') throw machineError('MACHINE_JOB_STATE_CONFLICT', `Job is ${current.state}; queued is required for first launch.`);
@@ -112,6 +118,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
     if (active)
       throw machineError('MACHINE_TARGET_BUSY', `The managed terminal is already running ${active.mode || 'a command'}; the supervised job remains queued.`);
     const sessionId = localSession(ws);
+    jobs.authorize(current.jobId, authorization || { method: 'local-ui-confirmation' });
     const running = jobs.start(current.jobId, { sessionId, targetId: target.id, processEpoch: target.processEpoch });
     let observer = null;
     if (stored.visibleTerminal === true) {
@@ -126,6 +133,30 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
     run.then((result) => { observer?.finish(result); settleFromProcess(current.jobId, result); },
       (error) => { observer?.finish(null, error); settleFromProcess(current.jobId, null, error); });
     broadcastJobs('started', [running]);
+    return running;
+  }
+  function approveFromChat(ws, msg) {
+    requireLocal(ws);
+    if (ws.clientKind !== 'machine-chat-approval')
+      throw machineError('MACHINE_PLAYWRIGHT_CHAT_CLIENT_REQUIRED', 'Playwright chat approval requires the dedicated local Dex approval client.');
+    const current = jobs.status(msg.jobId);
+    const stored = commandStore.get(current.jobId);
+    const sourceMessageId = `msg-playwright-approval-${randomUUID()}`;
+    const authorization = validateChatApproval({ message: msg, job: current, stored, now: nowMs });
+    const running = startLocal(ws, { jobId: current.jobId }, { ...authorization, sourceMessageId });
+    let snapshot = getState();
+    const room = (snapshot?.rooms || []).find((entry) => entry.id === current.roomId);
+    if (room) {
+      const at = new Date(nowMs()).toISOString();
+      schedulerState.addMessage(room, { id: sourceMessageId, senderKind: 'user', senderId: 'user',
+        senderName: String(room.userName || 'Local operator').slice(0, 48), text: authorization.approvedText, at });
+      const receipt = schedulerState.addMessage(room, { id: `msg-playwright-start-${randomUUID()}`,
+        senderKind: 'system', senderId: null, senderName: 'Machine Spaces',
+        text: `Exact local chat approval consumed once; registered Playwright job ${current.jobId} started.`, at });
+      receipt.playwrightApproval = { schema: 'eveos.machine-spaces.playwright-chat-receipt.v1',
+        jobId: current.jobId, approvalDigest: authorization.approvalDigest, sourceMessageId };
+      snapshot = saveState(snapshot); broadcastState(snapshot);
+    }
     return running;
   }
   function reboundLocal(ws, msg) {
@@ -174,7 +205,7 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   }
 
   const jobControl = createSupervisedJobProviderControl({ jobs, commandStore, broker: base.broker, getState,
-    repoRoot: governorRoot, findSpace: (room, reference) => findSpace(room, reference) });
+    repoRoot: governorRoot, now: nowMs, findSpace: (room, reference) => findSpace(room, reference) });
   const providerControl = {
     owns(action) { const value = String(action || '').toLowerCase(); return jobControl.owns(value) || base.providerControl.owns(value); },
     route(input, helpers) {
@@ -219,6 +250,11 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
       }
       if (type === 'machine_start_supervised_job') {
         const job = startLocal(ws, msg); safeSend(ws, { type: 'machine_supervised_job_changed', action: 'started', job }); return true;
+      }
+      if (type === 'machine_chat_approve_supervised_job') {
+        const job = approveFromChat(ws, msg);
+        safeSend(ws, { type: 'machine_supervised_job_changed', requestId: msg.requestId || null,
+          action: 'started', approvalMethod: 'dex-owner-chat', job }); return true;
       }
       if (type === 'machine_rebound_supervised_job') {
         const job = reboundLocal(ws, msg); safeSend(ws, { type: 'machine_supervised_job_changed', action: 'rebound', job }); return true;

@@ -13,6 +13,7 @@ const MUTATING_TYPES = new Set([
   'machine_prepare_recovery_job',
   'machine_prepare_room_recovery',
   'machine_start_supervised_job',
+  'machine_chat_approve_supervised_job',
   'machine_rebound_supervised_job',
   'machine_cancel_supervised_job',
   'machine_register_trusted_adapter',

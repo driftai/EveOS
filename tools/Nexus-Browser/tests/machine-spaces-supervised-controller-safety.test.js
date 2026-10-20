@@ -62,6 +62,7 @@ test('local supervisor snapshot includes the bounded immutable command preview n
 test('unconfirmed interrupt settles a running supervised job with its current lease', async () => {
   let active = null;
   const f = fixture({ activeInfo: () => active, interrupt: false });
+  f.jobs.authorize(f.job.jobId, { method: 'test-local-owner' });
   const running = f.jobs.start(f.job.jobId, { sessionId: 'supervisor-one', targetId: 'terminal-one', processEpoch: 'epoch-one' });
   active = { mode: 'supervised', requestId: running.requestId };
 
@@ -76,6 +77,7 @@ test('unconfirmed interrupt settles a running supervised job with its current le
 
 test('cancelling a running job with no active process also carries the current lease', async () => {
   const f = fixture({ activeInfo: null });
+  f.jobs.authorize(f.job.jobId, { method: 'test-local-owner' });
   f.jobs.start(f.job.jobId, { sessionId: 'supervisor-one', targetId: 'terminal-one', processEpoch: 'epoch-one' });
 
   await f.controller.handle(f.ws, { type: 'machine_cancel_supervised_job', jobId: f.job.jobId, requestId: 'ui-cancel' });

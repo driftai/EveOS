@@ -201,6 +201,8 @@
       job.recovery?.runId ? `TLO recovery ${job.recovery.runId} · ${job.recovery.maxAttempts} repair attempt(s) · idempotent retry` : null,
       job.recovery?.worker?.name ? `worker ${job.recovery.worker.name} (${job.recovery.worker.providerId || 'provider unknown'})` : null,
       job.visibleTerminal ? 'visible read-only terminal view' : null,
+      job.chatApproval?.expired ? 'chat approval expired; use the local Start control'
+        : job.chatApproval?.requiredText ? `chat approval ${job.chatApproval.requiredText}` : null,
       `epoch ${short(job.processEpoch, 18) || 'n/a'}`,
       job.reboundCount ? `rebound ${job.reboundCount}×` : null,
       job.reason || null,

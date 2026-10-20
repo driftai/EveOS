@@ -89,12 +89,15 @@ test('agent can queue only a registered Playwright smoke, with a reviewable job 
   const stored = commandStore.get(result.data.jobId);
   assert.equal(stored.command, 'node tools/smoke/agent_nexus_browser_smoke.js');
   assert.equal(stored.kind, 'playwright-acceptance');
+  assert.match(result.data.chatApproval.requiredText, new RegExp(`^/approve-playwright ${result.data.jobId} [a-f0-9]{12} [A-F0-9]{12}$`));
+  assert.equal(result.data.chatApproval.expired, false);
   assert.ok(verifyPrepared({ stored, target, repoRoot: root }));
   assert.equal(control.owns('playwright_start'), false);
   assert.equal(control.owns('playwright_eval'), false);
   const again = control.route(req);
   assert.equal(again.ok, true);
   assert.equal(again.data.jobId, result.data.jobId);
+  assert.equal(again.data.chatApproval.requiredText, result.data.chatApproval.requiredText);
   assert.equal(commandStore.size, 1);
   assert.equal(control.route(input('job_status', { space: 'space-one', jobId: result.data.jobId })).data.state, 'queued');
 });

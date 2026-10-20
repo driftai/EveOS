@@ -2,13 +2,15 @@
 
 const { cleanCommand, commandDigest } = require('./approval-broker');
 const { registeredPlan } = require('./playwright-job-plan');
+const { createChatApproval, publicChatApproval } = require('./supervised-chat-approval');
 
 const ACTIONS = new Set(['job_prepare', 'playwright_prepare', 'job_status', 'job_list']);
 
 function machineError(code, message) { return Object.assign(new Error(message), { code }); }
 function normalized(value) { return String(value ?? '').trim(); }
 
-function createSupervisedJobProviderControl({ jobs, commandStore, broker, getState, findSpace, repoRoot } = {}) {
+function createSupervisedJobProviderControl({ jobs, commandStore, broker, getState, findSpace, repoRoot,
+  now = () => Date.now() } = {}) {
   if (!jobs || !commandStore || !broker || typeof getState !== 'function' || typeof findSpace !== 'function')
     throw new TypeError('supervised job provider control requires jobs, commandStore, broker, getState and findSpace');
 
@@ -54,17 +56,23 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
         || job.ownerMemberId !== input.origin.executorMemberId
         || (prior && (prior.commandDigest !== digest || prior.kind !== (playwright ? 'playwright-acceptance' : undefined))))
       throw machineError('MACHINE_JOB_REQUEST_CONFLICT', 'This request ID already owns a different immutable supervised job.');
-    if (!prior) commandStore.set(job.jobId, {
-      ...(playwright ? { kind, scenario: plan.scenario, runnerSha256: plan.runnerSha256 } : {}),
-      command,
-      commandDigest: digest,
-      actorMemberId: input.origin.executorMemberId,
-      actorName: input.origin.executorName || 'Agent',
-      sourceMessageId: input.origin.agentMessageId,
-      createdAt: job.createdAt
-    });
+    if (!prior) {
+      const stored = {
+        ...(playwright ? { kind, scenario: plan.scenario, runnerSha256: plan.runnerSha256 } : {}),
+        command,
+        commandDigest: digest,
+        actorMemberId: input.origin.executorMemberId,
+        actorName: input.origin.executorName || 'Agent',
+        sourceMessageId: input.origin.agentMessageId,
+        createdAt: job.createdAt
+      };
+      if (playwright) stored.chatApproval = createChatApproval({ jobId: job.jobId, commandDigest: digest, now });
+      commandStore.set(job.jobId, stored);
+    }
+    const stored = commandStore.get(job.jobId);
     return { ...job, commandAvailable: true,
-      commandPreview: command.length > 180 ? `${command.slice(0, 177)}...` : command };
+      commandPreview: command.length > 180 ? `${command.slice(0, 177)}...` : command,
+      chatApproval: publicChatApproval(stored, now) };
   }
 
   function visibleJobs(input) {
@@ -73,7 +81,8 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
       .map((job) => {
         const stored = commandStore.get(job.jobId);
         return { ...job, commandAvailable: !!stored,
-          commandPreview: stored?.command ? (stored.command.length > 180 ? `${stored.command.slice(0, 177)}...` : stored.command) : null };
+          commandPreview: stored?.command ? (stored.command.length > 180 ? `${stored.command.slice(0, 177)}...` : stored.command) : null,
+          chatApproval: publicChatApproval(stored, now) };
       });
   }
 
@@ -89,8 +98,9 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
         const { room, space } = roomSpace(input);
         if (data.roomId !== room.id || data.spaceId !== space.id)
           throw machineError('MACHINE_JOB_NOT_AUTHORIZED', 'That supervised job is outside this authorized room and Machine Space.');
+        const stored = commandStore.get(data.jobId);
         result = { ok: true, action, message: `Supervised job ${data.jobId} is ${data.state}.`,
-          data: { ...data, commandAvailable: commandStore.has(data.jobId) } };
+          data: { ...data, commandAvailable: !!stored, chatApproval: publicChatApproval(stored, now) } };
       } else if (action === 'job_list') {
         const data = visibleJobs(input);
         result = { ok: true, action, message: `${data.length} supervised job(s) are visible in this Machine Space.`, data };

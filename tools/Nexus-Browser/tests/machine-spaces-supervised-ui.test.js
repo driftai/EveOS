@@ -12,11 +12,13 @@ test('Nexus index response injects Machine Spaces companions exactly once in dep
   const html = '<html><body><script src="/machine-spaces-ui.js"></script></body></html>';
   const enhanced = enhanceIndex(html);
   assert.match(enhanced, /machine-human-gate-ui\.js/);
+  assert.match(enhanced, /machine-chat-approval-ui\.js/);
   assert.match(enhanced, /room-recovery-intent\.js/);
   assert.match(enhanced, /machine-supervised-jobs-ui\.js/);
   assert.match(enhanced, /machine-request-view-ui\.js/);
   assert.ok(enhanced.indexOf('machine-spaces-ui.js') < enhanced.indexOf('machine-human-gate-ui.js'));
   assert.ok(enhanced.indexOf('machine-human-gate-ui.js') < enhanced.indexOf('machine-supervised-jobs-ui.js'));
+  assert.ok(enhanced.indexOf('machine-human-gate-ui.js') < enhanced.indexOf('machine-chat-approval-ui.js'));
   assert.ok(enhanced.indexOf('room-recovery-intent.js') < enhanced.indexOf('machine-supervised-jobs-ui.js'));
   assert.ok(enhanced.indexOf('machine-supervised-jobs-ui.js') < enhanced.indexOf('machine-request-view-ui.js'));
   assert.equal((enhanceIndex(enhanced).match(/machine-human-gate-ui\.js/g) || []).length, 1);
@@ -24,6 +26,7 @@ test('Nexus index response injects Machine Spaces companions exactly once in dep
   assert.equal((enhanceIndex(enhanced).match(/machine-request-view-ui\.js/g) || []).length, 1);
   assert.deepEqual(INDEX_ENHANCEMENTS, [
     '<script src="/machine-human-gate-ui.js"></script>',
+    '<script src="/machine-chat-approval-ui.js"></script>',
     '<script src="/room-recovery-intent.js"></script>',
     '<script src="/machine-supervised-jobs-ui.js"></script>',
     '<script src="/machine-request-view-ui.js"></script>'
@@ -42,6 +45,11 @@ test('Human Input gate companion mirrors the Dex toggle and scopes Dex terminal 
   assert.match(source, /addEventListener\('click', createDexTerminal, true\)/);
   assert.match(source, /pagehide/);
   assert.doesNotMatch(source, /\[\[DEX:CMD/);
+});
+
+test('dedicated Playwright chat approval client is registered by the bridge hello router', () => {
+  const source = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+  assert.match(source, /msg\.clientKind === 'machine-chat-approval' \? 'machine-chat-approval'/);
 });
 
 test('supervised UI exposes local start/rebound/cancel but no provider control markers', () => {

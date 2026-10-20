@@ -239,8 +239,8 @@ wss.on('connection', (ws, req) => {
         ws.clientKind = msg.clientKind === 'console' ? 'console'
           : msg.clientKind === 'dex' ? 'dex'
             : msg.clientKind === 'provider-control' ? 'provider-control'
-              : msg.clientKind === 'maintenance' ? 'maintenance'
-                : msg.clientKind === 'terminal-operator' ? 'terminal-operator' : msg.clientKind === 'tui-launch' ? 'tui-launch' : 'browser';
+              : msg.clientKind === 'maintenance' ? 'maintenance' : msg.clientKind === 'machine-chat-approval' ? 'machine-chat-approval'
+                  : msg.clientKind === 'terminal-operator' ? 'terminal-operator' : msg.clientKind === 'tui-launch' ? 'tui-launch' : 'browser';
         uiSockets.add(ws);
         console.log(`[bridge] ui connected [${ws.clientKind}]`);
         if (ws.clientKind === 'dex') {
