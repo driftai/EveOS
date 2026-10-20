@@ -69,3 +69,26 @@ The integrated extension no longer requests `<all_urls>`. Its manifest is restri
 Phase 2 completed its native-Windows qualification on 2026-09-20 with the trusted `bonsai2-27b-ptq1` registry model. The stopped surface remained navigable and did not start Local MoE. After an explicit start, TLO streamed a first turn, recalled a unique token on the second turn, cancelled an in-flight long response, and returned to an idle request count without spawning duplicate Harness or model processes. Local MoE then stopped cleanly, and the ignored Agent Management TLO profile survived the EveOS web-server restart while its scoped projection continued to exclude private fields.
 
 Nexus Browser remains a peer of TLO. It does not receive TLO's private profile, filesystem access, credentials, or unrelated Agent Management data. See `docs/NEXUS-BROWSER-INTEGRATION.md` for the integrated ownership map, runtime paths, verification commands, and delete-readiness boundary.
+
+## Repeatable acceptance
+
+Run the focused Agent Nexus and Agent Management contract from a clean committed
+candidate with:
+
+```powershell
+npm run --silent qualify:agent-nexus-acceptance -- --profile focused --expected-head <40-character-SHA>
+```
+
+Use `--profile ai-control` for the focused checks plus the affected AI-control
+profile. Use `--profile release` only for the final candidate; it adds the full
+41-obligation release qualification. The driver fails fast, keeps successful
+terminal output to one line, saves bounded structured evidence under
+`data/runtime/smoke-results/agent-nexus-acceptance-<profile>.json`, and verifies
+that the Phase 3 ledger and recovery guide remain byte-identical during the run.
+
+The Playwright smoke covers the normal `file://` EveOS shell with its trusted
+localhost Agent Management iframe, private saves, iframe reload persistence,
+desktop and narrow geometry, focus preservation, request counts, and failure
+artifacts. Backend persistence, stale-revision rejection, input validation and
+new-turn context assembly remain asserted by the isolated Python contract rather
+than being inferred from browser pixels.

@@ -4,6 +4,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { runBrowserSmoke } = require('./browser-smoke-diagnostics.shared');
+const { verifyResponsiveReload } = require('./agent_nexus_browser_acceptance.shared');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const FILE_URL = 'file:///' + path.join(ROOT, 'EveOS.html').replace(/\\/g, '/');
@@ -349,6 +350,7 @@ async function main() {
             document.querySelector('[data-agent-management-status]')?.textContent?.includes('saved to the private local store')
         ), undefined, { timeout: 10000 });
         assert(savedAgent.displayName === 'TLO Browser Smoke', 'Agent Management save did not send the edited profile');
+        await verifyResponsiveReload({ page, frame: adminFrame });
 
         await adminFrame.locator('[data-agent-portable-file]').setInputFiles({
             name: 'dummy-agent-nexus.json', mimeType: 'application/json',
@@ -405,7 +407,7 @@ async function main() {
         assert(localMoeStatusReads.length >= 1, 'Opening Local MoE did not perform the passive status read');
         assert(tloStatusReads.length >= 1, 'Opening Agent Nexus did not perform a passive TLO status read');
         assert(nexusStatusReads.length >= 1, 'Opening Nexus Browser did not perform a passive status read');
-        assert(managementReads.length === 2, `Agent Management loaded ${managementReads.length} times instead of twice`);
+        assert(managementReads.length === 3, `Agent Management loaded ${managementReads.length} times instead of three times including reload`);
         assert(managementWrites.length === 1, `Agent Management saved ${managementWrites.length} times instead of once`);
         assert(events.pageErrors.length === 0, `Page errors detected: ${events.pageErrors.join('\n')}`);
 
