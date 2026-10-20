@@ -8,9 +8,14 @@ const { spawnSync } = require('node:child_process');
 
 const repo = path.resolve(__dirname, '..');
 function run(root, executable, args, options = {}) {
+    const { env: extraEnv = {}, ...spawnOptions } = options;
+    const env = { ...process.env, ...extraEnv };
+    // Git exports repository-scoped variables while hooks run. Those variables
+    // must not leak into this deliberately independent fixture repository.
+    for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX']) delete env[key];
     return spawnSync(executable, args, {
         cwd: root, encoding: 'utf8', windowsHide: true,
-        maxBuffer: 8 * 1024 * 1024, ...options
+        maxBuffer: 8 * 1024 * 1024, env, ...spawnOptions
     });
 }
 function git(root, ...args) {
