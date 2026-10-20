@@ -295,3 +295,10 @@
   .eveos-agent-doc-layout { grid-template-columns: 1fr; }
   .eveos-agent-doc-tree { max-height: 170px; }
 }
+
+/* Localhost-origin editor embedded in the file:// EveOS surface. */
+.eveos-agent-management-embed {
+    width: 100%; min-height: 640px; height: 76vh; max-height: 1100px;
+    display: block; border: 1px solid rgba(34,211,238,.18); border-radius: 12px;
+    background: #061019;
+}

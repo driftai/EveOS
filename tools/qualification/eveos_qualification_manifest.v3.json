@@ -258,7 +258,7 @@
       "script": "smoke:bookmark-intel",
       "category": "browser-owned",
       "dependsOn": ["build-asset-versions"],
-      "resources": ["playwright"],
+      "resources": ["playwright", "ports", "services"],
       "contracts": ["Bookmark Intelligence integration"],
       "sourcePatterns": ["server_modules/bookmark_intel_", "tools/smoke/bookmark_intel_"]
     },

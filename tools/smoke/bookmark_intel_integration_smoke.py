@@ -6,6 +6,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -51,7 +52,20 @@ def assert_static_contract() -> None:
     check("window.BookmarkIntelManager" in manager_text, "bookmark-intel-manager.js defines BookmarkIntelManager")
     check("BOOKMARK_INTEL_PORT" in manager_text, "bookmark-intel-manager.js references BOOKMARK_INTEL_PORT")
     check("/api/bookmark-intel/status" in manager_text, "bookmark-intel-manager.js queries /api/bookmark-intel/status")
+    manifest = json.loads((ROOT / "tools" / "qualification" / "eveos_qualification_manifest.v3.json").read_text(encoding="utf-8"))
+    gate = next(g for g in manifest["gates"] if g["id"] == "bookmark-intel")
+    check(set(gate["resources"]) >= {"playwright", "ports", "services"}, "lifecycle gate locks ports and services")
 
+
+def assert_health_observation_contract() -> None:
+    # No second health request may invalidate a successful startup observation.
+    health = {"ok": True, "service": "bookmark-intel", "appVersion": "0.10.0"}
+    with mock.patch.object(bookmark_intel_control, "_health_payload", side_effect=AssertionError("double health probe")):
+        with mock.patch.object(bookmark_intel_control, "_listener_pids", return_value=[1234]):
+            with mock.patch.object(bookmark_intel_control, "_read_desired_state", return_value=False):
+                result = bookmark_intel_control._status(verified_health=health)
+    check(result["running"] is True, "verified health remains authoritative for startup reply")
+    check(result["appVersion"] == "0.10.0", "verified version preserved")
 
 def assert_lifecycle() -> None:
     initial = bookmark_intel_control.get_status()
@@ -79,6 +93,7 @@ def assert_lifecycle() -> None:
 
 def main() -> None:
     assert_static_contract()
+    assert_health_observation_contract()
     assert_lifecycle()
     print("BOOKMARK_INTEL_INTEGRATION_SMOKE_OK")
 

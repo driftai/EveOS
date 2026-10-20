@@ -118,8 +118,10 @@ def _terminate_pid(pid: int) -> bool:
         return False
 
 
-def _status(message: str = "") -> dict:
-    health = _health_payload()
+def _status(message: str = "", *, verified_health: dict | None = None) -> dict:
+    # Reuse a successful health observation during startup. An immediate
+    # second probe can fail transiently after the service already answered 200.
+    health = verified_health if verified_health is not None else _health_payload()
     process_alive = bool(_PROCESS and _PROCESS.poll() is None)
     running = health is not None
     port_busy = _port_open() and not running
@@ -183,11 +185,18 @@ def start_server(*, persist: bool = True) -> dict:
             _launch_command(), cwd=str(_tool_root()), stdin=subprocess.DEVNULL,
             stdout=sink, stderr=sink, env=environment, creationflags=flags,
         )
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline and _health_payload() is None and _PROCESS.poll() is None:
-        time.sleep(0.1)
+    deadline = time.monotonic() + 12
+    health = None
+    while time.monotonic() < deadline and _PROCESS.poll() is None:
+        health = _health_payload()
+        if health is not None:
+            break
+        time.sleep(0.15)
     with _LOCK:
-        payload = _status("Bookmark Intel started." if _health_payload() else "Bookmark Intel is starting; first setup can take a few minutes.")
+        payload = _status(
+            "Bookmark Intel started." if health else "Bookmark Intel is starting; first setup can take a few minutes.",
+            verified_health=health,
+        )
         if _PROCESS.poll() is not None and not payload["running"]:
             payload.update(ok=False, state="error", message="Bookmark Intel exited before becoming ready.")
         return payload
@@ -199,6 +208,13 @@ def stop_server(*, persist: bool = True) -> dict:
         if persist:
             _write_desired_state(False)
         owned = _health_payload() is not None
+        # Health can transiently time out while the known port is listening.
+        # Only terminate a listener after verifying our service identity.
+        if not owned and _port_open():
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and not owned:
+                time.sleep(0.15)
+                owned = _health_payload() is not None
         stopped = False
         if owned:
             for pid in _listener_pids():
@@ -211,7 +227,17 @@ def stop_server(*, persist: bool = True) -> dict:
             except (OSError, subprocess.TimeoutExpired):
                 pass
         _PROCESS = None
-    return _status("Bookmark Intel stopped." if stopped else "Bookmark Intel was already stopped.")
+    # Windows may exit the cmd.exe wrapper before the Uvicorn listener
+    # releases 9077. A stopped reply requires actual port release.
+    deadline = time.monotonic() + 6
+    while True:
+        result = _status("Bookmark Intel stopped." if stopped else "Bookmark Intel was already stopped.")
+        if not result["running"] and not _port_open():
+            return result
+        if time.monotonic() >= deadline:
+            return {**result, "ok": False, "state": "blocked",
+                    "message": "Bookmark Intel shutdown unconfirmed; inspect port ownership before retrying."}
+        time.sleep(0.15)
 
 
 def restore_desired_state_async() -> None:

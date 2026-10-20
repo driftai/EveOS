@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>EveOS Agent Management</title>
+  <link rel="stylesheet" href="/css/modules/gemini/gemini_link_surfaces.agent-nexus.css">
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #061019; color: #e3f2fc; font-family: system-ui, sans-serif; }
+    body { padding: 14px 18px 28px; }
+    .eveos-agent-nexus-intro, .eveos-agent-nexus-nav { display: none !important; }
+    .eveos-agent-nexus-panel[data-agent-nexus-panel="management"] { margin-top: 0; }
+    .eveos-agent-form input, .eveos-agent-form textarea, .eveos-agent-form select, .eveos-agent-doc-editor textarea {
+      width: 100%; min-width: 0; background: #071824; border: 1px solid #264352; color: #e3f2fc;
+      border-radius: 7px; padding: 9px; font: inherit;
+    }
+    .eveos-agent-docs { margin-top: 14px; }
+    .eveos-agent-docs summary { cursor: pointer; font-weight: 700; }
+    .eveos-agent-doc-note { color: #a0b7c3; }
+    button, input, textarea, select { font-family: inherit; }
+    @media(max-width:620px) { body { padding: 9px; } .eveos-agent-form { grid-template-columns: 1fr; } }
+  </style>
+  <script src="/js/modules/gemini/search_monitor/agentNexus.docs.js" defer></script>
+  <script src="/js/modules/gemini/search_monitor/agentNexus.js" defer></script>
+</head>
+<body>
+  <main id="agent-management-root" aria-label="EveOS private Agent Management">Loading Agent Management…</main>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const root = document.getElementById('agent-management-root');
+      if (window.location.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(window.location.hostname)) {
+        root.textContent = 'Private Agent Management requires the local EveOS server.';
+        return;
+      }
+      if (!window.EveOSAgentDocuments || !window.EveOSAgentNexus) {
+        root.textContent = 'Agent Management assets are unavailable; check the EveOS localhost server.';
+        return;
+      }
+      root.innerHTML = window.EveOSAgentNexus.markup();
+      window.EveOSAgentNexus.bind(root);
+      window.EveOSAgentNexus.selectView('management');
+    });
+  </script>
+</body>
+</html>

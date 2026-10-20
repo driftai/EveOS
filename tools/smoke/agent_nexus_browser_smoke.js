@@ -2,6 +2,7 @@
 'use strict';
 
 const path = require('node:path');
+const fs = require('node:fs');
 const { runBrowserSmoke } = require('./browser-smoke-diagnostics.shared');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -221,6 +222,17 @@ async function main() {
             });
         });
 
+        // A file:// shell must embed a localhost-origin editor instead of issuing private API calls.
+        await page.route('http://127.0.0.1:8765/agent-management-embedded.html', async (route) => {
+            await route.fulfill({ status: 200, contentType: 'text/html',
+                body: fs.readFileSync(path.join(ROOT, 'agent-management-embedded.html'), 'utf8') });
+        });
+        await page.route(/http:\/\/127\.0\.0\.1:8765\/(?:js\/modules\/gemini\/search_monitor\/agentNexus(?:\.docs)?\.js|css\/modules\/gemini\/gemini_link_surfaces\.agent-nexus\.css)/,
+            async (route) => {
+                const name = new URL(route.request().url()).pathname.slice(1);
+                await route.fulfill({ status: 200, contentType: name.endsWith('.css') ? 'text/css' : 'application/javascript',
+                    body: fs.readFileSync(path.join(ROOT, name), 'utf8') });
+            });
         await page.goto(FILE_URL, { waitUntil: 'domcontentloaded', timeout: 240000 });
         await page.waitForFunction(() => (
             !!window.SearchMonitorBoot
@@ -285,9 +297,13 @@ async function main() {
         ), undefined, { timeout: 10000 });
 
         await page.locator('[data-agent-nexus-view="management"]').first().click();
-        const managementPanel = page.locator('[data-agent-nexus-panel="management"]');
+        await page.frameLocator('iframe.eveos-agent-management-embed')
+            .locator('[data-agent-management-status]').waitFor({ state: 'visible', timeout: 10000 });
+        const adminFrame = page.frames().find((frame) => frame.url().includes('/agent-management-embedded.html'));
+        assert(adminFrame, 'Trusted localhost Agent Management iframe was not loaded');
+        const managementPanel = adminFrame.locator('[data-agent-nexus-panel="management"]');
         assert(await managementPanel.isVisible(), 'Agent Management panel did not become visible');
-        await page.waitForFunction(() => (
+        await adminFrame.waitForFunction(() => (
             document.querySelector('[data-agent-management-form]')?.hidden === false
             && document.querySelector('[data-agent-management-status]')?.textContent?.includes('loaded')
         ), undefined, { timeout: 10000 });
@@ -295,58 +311,58 @@ async function main() {
         const library = managementPanel.locator('[data-agent-docs]');
         assert(await library.count() === 1, 'Agent documents workspace was not mounted');
         await library.locator(':scope > summary').click();
-        await page.waitForFunction(() => document.querySelector('[data-agent-doc-list] button'));
+        await adminFrame.waitForFunction(() => document.querySelector('[data-agent-doc-list] button'));
         await library.locator('[data-agent-doc-path="config/agents/tlo/NEXUS.md"]').click();
-        await page.waitForFunction(() => document.querySelector('[data-agent-doc-text]')?.value?.includes('permissioned room resources'));
+        await adminFrame.waitForFunction(() => document.querySelector('[data-agent-doc-text]')?.value?.includes('permissioned room resources'));
         const documentEditor = library.locator('[data-agent-doc-text]');
         await documentEditor.fill('# Updated Nexus Guide\nHuman Input remains required.');
         await library.locator('[data-agent-doc-action="save"]').click();
-        await page.waitForFunction(() => document.querySelector('[data-agent-doc-feedback]')?.textContent?.includes('Saved privately'));
+        await adminFrame.waitForFunction(() => document.querySelector('[data-agent-doc-feedback]')?.textContent?.includes('Saved privately'));
         assert(documentText.includes('Human Input remains required'), 'The guide editor failed to save its revision');
         assert((await library.locator('[data-agent-live-state]').textContent()).includes('TLO:'),
             'Agent Management did not expose the real TLO readiness panel');
 
-        const nameField = page.locator('[data-agent-management-form] [name="displayName"]');
+        const nameField = adminFrame.locator('[data-agent-management-form] [name="displayName"]');
         assert(await nameField.inputValue() === 'TLO', 'Agent Management did not load the persisted profile');
         assert(
-            await page.locator('[data-agent-management-form] [name="privateNotes"]').inputValue()
+            await adminFrame.locator('[data-agent-management-form] [name="privateNotes"]').inputValue()
                 === 'PRIVATE_BROWSER_SMOKE_SENTINEL',
             'Private notes were not available inside the explicitly opened private management surface'
         );
-        const definitionEditor = page.locator('[data-agent-management-form] [name="tloDefinition"]');
+        const definitionEditor = adminFrame.locator('[data-agent-management-form] [name="tloDefinition"]');
         assert(await definitionEditor.isVisible(), 'TLO file definition editor is not visible');
         assert(await definitionEditor.inputValue() === savedDefinition.text, 'TLO definition did not load');
-        assert((await page.locator('[data-agent-tlo-path]').textContent()).includes('AGENT.md'),
+        assert((await adminFrame.locator('[data-agent-tlo-path]').textContent()).includes('AGENT.md'),
             'The active definition path was not visible');
-        assert((await page.locator('[data-agent-tlo-origin]').textContent()).includes('Origin-only browser smoke sentinel'),
+        assert((await adminFrame.locator('[data-agent-tlo-origin]').textContent()).includes('Origin-only browser smoke sentinel'),
             'TLO origin metadata was not visible separately');
-        assert(!(await page.locator('[data-agent-json-identity]').isVisible()),
+        assert(!(await adminFrame.locator('[data-agent-json-identity]').isVisible()),
             'Legacy JSON identity editor is visible beside the authoritative TLO file');
         await definitionEditor.fill('# TLO\n\nEdited in browser');
-        await page.locator('[data-agent-management-action="save-definition"]').click();
-        await page.waitForFunction(() => document.querySelector('[data-agent-management-status]')?.textContent?.includes('definition saved'));
+        await adminFrame.locator('[data-agent-management-action="save-definition"]').click();
+        await adminFrame.waitForFunction(() => document.querySelector('[data-agent-management-status]')?.textContent?.includes('definition saved'));
         assert(savedDefinition.text.includes('Edited in browser'), 'Definition save did not use the file-backed route');
 
         await nameField.fill('TLO Browser Smoke');
-        await page.locator('[data-agent-management-form] [data-agent-management-action="save"]').click();
-        await page.waitForFunction(() => (
+        await adminFrame.locator('[data-agent-management-form] [data-agent-management-action="save"]').click();
+        await adminFrame.waitForFunction(() => (
             document.querySelector('[data-agent-management-status]')?.textContent?.includes('saved to the private local store')
         ), undefined, { timeout: 10000 });
         assert(savedAgent.displayName === 'TLO Browser Smoke', 'Agent Management save did not send the edited profile');
 
-        await page.locator('[data-agent-portable-file]').setInputFiles({
+        await adminFrame.locator('[data-agent-portable-file]').setInputFiles({
             name: 'dummy-agent-nexus.json', mimeType: 'application/json',
             buffer: Buffer.from(JSON.stringify({ schema: 'eveos.agent-nexus-portable', schemaVersion: 1 }))
         });
-        await page.locator('[data-agent-management-action="preview"]').click();
-        await page.waitForFunction(() => !document.querySelector('[data-agent-management-action="apply"]')?.hidden);
-        assert((await page.locator('[data-agent-portable-status]').textContent()).includes('1 rooms'),
+        await adminFrame.locator('[data-agent-management-action="preview"]').click();
+        await adminFrame.waitForFunction(() => !document.querySelector('[data-agent-management-action="apply"]')?.hidden);
+        assert((await adminFrame.locator('[data-agent-portable-status]').textContent()).includes('1 rooms'),
             'Portable preview counts were not shown');
-        await page.locator('[data-agent-management-action="apply"]').click();
-        await page.waitForFunction(() => document.querySelector('[data-agent-portable-status]')?.textContent?.includes('Import complete'));
+        await adminFrame.locator('[data-agent-management-action="apply"]').click();
+        await adminFrame.waitForFunction(() => document.querySelector('[data-agent-portable-status]')?.textContent?.includes('Import complete'));
 
-        await page.locator('[data-agent-management-action="new"]').click();
-        const draftId = await page.locator('[data-agent-management-form] [name="id"]').inputValue();
+        await adminFrame.locator('[data-agent-management-action="new"]').click();
+        const draftId = await adminFrame.locator('[data-agent-management-form] [name="id"]').inputValue();
         assert(/^agent-\d+$/.test(draftId), `New-agent action did not create a local draft: ${draftId}`);
 
         const geometry = await page.evaluate(() => {

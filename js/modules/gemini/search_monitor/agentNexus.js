@@ -19,6 +19,7 @@
             || '<p class="eveos-ai-provider-message">TLO Chat module is unavailable.</p>';
         const nexusBrowserMarkup = window.EveOSNexusBrowser?.markup?.()
             || '<p class="eveos-ai-provider-message">Nexus Browser module is unavailable.</p>';
+        const fileMode = window.location?.protocol === 'file:';
         return `
             <div class="eveos-agent-nexus-intro">
                 <strong>Two peers, separate responsibilities</strong>
@@ -36,6 +37,7 @@
                 ${nexusBrowserMarkup}
             </section>
             <section class="eveos-agent-nexus-panel" data-agent-nexus-panel="management" hidden>
+                ${fileMode ? '<iframe class="eveos-agent-management-embed" title="Local EveOS Agent Management" src="http://127.0.0.1:8765/agent-management-embedded.html" loading="lazy" referrerpolicy="no-referrer"></iframe>' : `
                 <div class="eveos-agent-management-head">
                     <span><strong>Agent Management</strong><small>Private profiles persist only on this machine.</small></span>
                     <button type="button" data-agent-management-action="new">New agent</button>
@@ -72,6 +74,7 @@
                     <button type="button" data-agent-management-action="apply" hidden>Apply reviewed import</button>
                 </div>
                 <p class="eveos-agent-management-status" data-agent-portable-status>Import adds only new IDs; conflicts block the entire apply. Live bindings and private notes are excluded.</p>
+                `}
             </section>
         `;
     }
@@ -390,7 +393,7 @@
             button.classList.toggle('is-active', active);
             if (button.getAttribute('role') === 'tab') button.setAttribute('aria-selected', String(active));
         });
-        if (view === 'management') { loadManagement(false); window.EveOSAgentDocuments?.activate?.(); }
+        if (view === 'management' && window.location?.protocol !== 'file:') { loadManagement(false); window.EveOSAgentDocuments?.activate?.(); }
         if (view === 'tlo') window.EveOSTloChat?.activate?.();
         if (view === 'nexus-browser') window.EveOSNexusBrowser?.activate?.();
     }

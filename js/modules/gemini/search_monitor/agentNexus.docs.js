@@ -31,9 +31,7 @@
     }
 
     function secureBanner() {
-        return window.location?.protocol === 'file:'
-            ? '<p class="eveos-agent-doc-note">Private Agent Management is restricted to the EveOS localhost page. <button type="button" data-agent-doc-action="secure">Open secure localhost EveOS</button></p>'
-            : '';
+        return ''; // The file:// surface embeds the localhost-origin editor instead.
     }
 
     function openSecureManagement() {
@@ -57,7 +55,7 @@
         let problem;
         for (const base of bases()) {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 5000);
+            const timer = setTimeout(() => controller.abort(), path.includes('/documents') ? 20000 : 6000);
             try {
                 const response = await fetch(base + path, {
                     cache: 'no-store',
@@ -155,18 +153,25 @@
         loading = true;
         feedback('Loading Markdown catalog and TLO runtime status…');
         try {
-            const [docs, status] = await Promise.all([
+            const [docs, status] = await Promise.allSettled([
                 request(API + '/documents'), request(TLO)
             ]);
-            catalog = docs.documents || [];
+            if (docs.status !== 'fulfilled') throw docs.reason;
+            catalog = docs.value.documents || [];
             loaded = true;
             renderTree();
-            const model = status.agent?.activeModelId || 'none';
-            const revision = status.agent?.nexusGuideRevision || 'unavailable';
             const live = node('[data-agent-live-state]');
-            live.dataset.state = status.canChat === true ? 'ready' : 'offline';
-            live.textContent = 'TLO: ' + (status.canChat ? 'Ready to chat' : (status.message || status.state || 'Unavailable'))
-                + ' · model: ' + model + ' · Nexus guide: ' + revision;
+            if (status.status === 'fulfilled') {
+                const value = status.value;
+                const model = value.agent?.activeModelId || 'none';
+                const revision = value.agent?.nexusGuideRevision || 'unavailable';
+                live.dataset.state = value.canChat === true ? 'ready' : 'offline';
+                live.textContent = 'TLO: ' + (value.canChat ? 'Ready to chat' : (value.message || value.state || 'Unavailable'))
+                    + ' · model: ' + model + ' · Nexus guide: ' + revision;
+            } else {
+                live.dataset.state = 'offline';
+                live.textContent = 'TLO status temporarily unavailable; Markdown library remains accessible.';
+            }
             feedback(catalog.length + ' tracked Markdown documents available. Private changes are not published to Git.');
         } catch (error) {
             feedback(error.message || 'Could not load Agent Management documents.', true);

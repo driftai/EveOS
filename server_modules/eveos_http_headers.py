@@ -9,6 +9,8 @@ class EveOSHTTPHeadersMixin:
     protocol_version = "HTTP/1.1"
 
     def end_headers(self):
+        if (self.path or "").split("?", 1)[0] == "/agent-management-embedded.html":
+            self.send_header("Content-Security-Policy", "frame-ancestors file: http://localhost:* http://127.0.0.1:*")
         # Add CORS headers to all responses (Origin allow-listed; see eveos_cors_origin).
         has_acao = any(b'access-control-allow-origin:' in h.lower() for h in self._headers_buffer)
         if not has_acao:
