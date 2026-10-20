@@ -7,6 +7,10 @@ const { socket, resultFor, admissionFor, entryFixture, harness, waitUntil, remem
   require('./helpers/dex-provider-control-fixture');
 test('browser and localhost agree on which provider-control actions mutate durable Dex state', () => {
   assert.deepEqual([...browserControl.MUTATING_ACTIONS].sort(), [...SERVER_MUTATING_ACTIONS].sort());
+  for (const action of ['job_prepare', 'playwright_prepare']) {
+    assert.equal(SERVER_MUTATING_ACTIONS.has(action), true, action + ' must retain origin/duplication protection');
+    assert.equal(browserControl.MUTATING_ACTIONS.has(action), true, action + ' must flush durable state before acknowledgement');
+  }
 });
 test('provider-control extension request routes to Dex UI and result returns only to origin', async () => {
   const { dex, routing } = harness();
