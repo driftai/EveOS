@@ -81,7 +81,8 @@ npm run --silent qualify:agent-nexus-acceptance -- --profile focused --expected-
 
 Use `--profile ai-control` for the focused checks plus the affected AI-control
 profile. Use `--profile release` only for the final candidate; it adds the full
-41-obligation release qualification. The driver fails fast, keeps successful
+41-obligation release qualification with two workers so Windows deadline probes
+remain meaningful under load. The driver fails fast, keeps successful
 terminal output to one line, saves bounded structured evidence under
 `data/runtime/smoke-results/agent-nexus-acceptance-<profile>.json`, and verifies
 that the Phase 3 ledger and recovery guide remain byte-identical during the run.

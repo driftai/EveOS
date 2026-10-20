@@ -14,7 +14,9 @@ const profiles = {
     focused,
     'ai-control': [...focused, 'npm run --silent test:ai-control'],
     release: [...focused, 'npm run --silent test:ai-control',
-        'python -B tools/qualification/eveos_timed_qualification.py --profile release --jobs 4']
+        // Keep Windows timing probes deterministic; four concurrent workers can
+        // starve their process-start deadline without exposing a product defect.
+        'python -B tools/qualification/eveos_timed_qualification.py --profile release --jobs 2']
 };
 
 function exec(command, options = {}) {
