@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -119,6 +120,27 @@ class Tests(unittest.TestCase):
                     coordinator.verify_preserved(root, ['draft.md'], hashes)
             finally:
                 coordinator.changed_files = old
+
+    def test_preserved_draft_is_shelved_for_push_hook_and_restored_exactly(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+            subprocess.run(['git', 'config', 'user.name', 'Fixture'], cwd=root, check=True)
+            subprocess.run(['git', 'config', 'user.email', 'fixture@example.invalid'], cwd=root, check=True)
+            (root / 'source.py').write_text('source\n')
+            (root / 'draft.md').write_text('baseline\n')
+            subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'baseline'], cwd=root, check=True)
+            (root / 'draft.md').write_text('unfinished user draft\n')
+            hashes = coordinator.hash_files(root, ['draft.md'])
+            shelf = coordinator.shelf_preserved(root, root / 'run-1', ['draft.md'])
+            self.assertEqual(coordinator.changed_files(root), [])
+            coordinator.restore_preserved(root, shelf, hashes)
+            self.assertEqual((root / 'draft.md').read_text(), 'unfinished user draft\n')
+            self.assertEqual(coordinator.changed_files(root), ['draft.md'])
+            self.assertNotEqual(subprocess.run(
+                ['git', 'rev-parse', '--verify', 'refs/stash'], cwd=root,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode, 0)
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

@@ -120,6 +120,46 @@ def verify_preserved(repo: Path, paths: list[str], hashes: dict):
         raise RuntimeError('PRESERVED_FILE_CHANGED')
 
 
+def shelf_preserved(repo: Path, folder: Path, paths: list[str]) -> dict | None:
+    """Temporarily clean exact tracked drafts so the mandatory push hook can run."""
+    dirty = sorted(set(changed_files(repo)) & set(paths))
+    if not dirty:
+        return None
+    for name in dirty:
+        if command(['git', 'ls-files', '--error-unmatch', '--', name], cwd=repo).returncode:
+            raise RuntimeError('PRESERVED_FILE_MUST_BE_TRACKED')
+    before = command(['git', 'rev-parse', '--verify', 'refs/stash'], cwd=repo)
+    result = command(['git', 'stash', 'push', '--message',
+                      f'eveos-governor-{folder.name}', '--', *dirty], cwd=repo, timeout=120)
+    if result.returncode:
+        raise RuntimeError('PRESERVED_FILE_SHELVE_FAILED')
+    oid = git(repo, 'rev-parse', '--verify', 'refs/stash')
+    if before.returncode == 0 and oid == before.stdout.strip():
+        raise RuntimeError('PRESERVED_FILE_SHELVE_NOT_CREATED')
+    if changed_files(repo):
+        raise RuntimeError('WORKTREE_NOT_CLEAN_AFTER_PRESERVED_SHELVE')
+    return {'oid': oid, 'paths': dirty}
+
+
+def restore_preserved(repo: Path, shelf: dict | None, hashes: dict):
+    """Restore exact drafts by immutable stash OID, then remove only that stash."""
+    if not shelf:
+        return
+    oid, paths = shelf['oid'], shelf['paths']
+    applied = command(['git', 'stash', 'apply', '--index', oid], cwd=repo, timeout=120)
+    if applied.returncode:
+        raise RuntimeError('PRESERVED_FILE_RESTORE_FAILED_STASH_RETAINED')
+    verify_preserved(repo, paths, hashes)
+    if set(changed_files(repo)) != set(paths):
+        raise RuntimeError('PRESERVED_FILE_RESTORE_DIRTY_SET_MISMATCH')
+    rows = git(repo, 'stash', 'list', '--format=%gd%x09%H').splitlines()
+    refs = [row.split('\t', 1)[0] for row in rows if row.endswith('\t' + oid)]
+    if len(refs) != 1 or git(repo, 'rev-parse', refs[0]) != oid:
+        raise RuntimeError('PRESERVED_STASH_IDENTITY_UNCERTAIN')
+    if command(['git', 'stash', 'drop', refs[0]], cwd=repo, timeout=30).returncode:
+        raise RuntimeError('PRESERVED_STASH_DROP_FAILED')
+
+
 def quota(repo: Path, folder: Path, label: str) -> dict:
     script = 'tools/Nexus-Browser/scripts/codex-quota-cli.js'
     result = command(['node', script, '--require-fresh'], cwd=repo, timeout=20)
@@ -221,7 +261,15 @@ def publish(repo: Path, folder: Path, receipt: dict, allowed: list[str]):
     if git(repo, 'rev-parse', f'refs/remotes/origin/{BRANCH}') != baseline:
         raise RuntimeError('STALE_TRACKING_REFERENCE')
     push_ref = f'refs/heads/{BRANCH}:refs/heads/{BRANCH}'
-    push = command(['git', 'push', 'origin', push_ref], cwd=repo, timeout=3600)
+    shelf = shelf_preserved(repo, folder, preserved)
+    if shelf:
+        event(folder, receipt, 'PRESERVED_WORKTREE_SHELVED', preservedShelf=shelf['oid'])
+    try:
+        push = command(['git', 'push', 'origin', push_ref], cwd=repo, timeout=3600)
+    finally:
+        restore_preserved(repo, shelf, receipt.get('preservedHashes') or {})
+        if shelf:
+            event(folder, receipt, 'PRESERVED_WORKTREE_RESTORED', preservedShelf=shelf['oid'])
     if push.returncode:
         raise RuntimeError('PUSH_BLOCKED_LOCAL_COMMIT_PRESERVED')
     if remote_sha(repo) != candidate:
