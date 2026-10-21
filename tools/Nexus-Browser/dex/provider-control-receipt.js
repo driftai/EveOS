@@ -121,6 +121,7 @@ function applyResult(snapshot, origin, result, requestId, at = new Date().toISOS
       action: origin.action,
       ok: !!result.ok,
       code: result.code || null,
+      roomId: room.id,
       executorMemberId: origin.executorMemberId,
       originMessageId: origin.originMessageId || null
     }

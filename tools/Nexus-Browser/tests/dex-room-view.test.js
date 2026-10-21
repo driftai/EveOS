@@ -10,7 +10,8 @@ test('read-only room list remains navigable regardless of human editing mode', (
       return {
         tagName: tag, className: '', textContent: '', children: [], dataset: {},
         addEventListener(kind, handler) { this[kind] = handler; },
-        append(...children) { this.children.push(...children); }
+        append(...children) { this.children.push(...children); },
+        prepend(...children) { this.children.unshift(...children); }
       };
     } };
     const list = { children: [], replaceChildren() { this.children = []; },

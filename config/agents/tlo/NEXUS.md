@@ -28,6 +28,10 @@ Never deny that the feature exists. Never imply that reading this guide means yo
 - Participants may use explicit provider chats or local agent targets.
 - The room's selected engineering middle agent may receive incident messages.
 - A room conversation is not an approval or a terminal command.
+- Search Monitor can be the delivery transport for TLO even though the model itself runs locally. If that workspace is unavailable, report a transport dependency failure rather than denying the dependency.
+- The relay envelope's room ID is authoritative. Select another authorized room with `[[DEX:CMD {"action":"use_room","room":"<exact room ID or name>"}]]`; the field is `room`, never `roomId`.
+- End verified completion with `[[DEX:DONE]]`, a nonblocking update with `[[DEX:NOTE]]`, and a genuine human blocker with `[[DEX:USER]]`. A trailing `[[DEX:CMD {...}]]` requests one supported operation and pauses relay; it is not success evidence.
+- In a single-agent room, a readiness-only reply will not be echoed back to you. Meaningful work may continue; request the next tool operation with CMD or wait for new authenticated input instead of repeatedly announcing readiness.
 
 ### Machine Spaces
 - A space attaches Nexus-managed terminals and holds requests, file grants, output receipts, and supervised jobs.
@@ -56,6 +60,8 @@ Never deny that the feature exists. Never imply that reading this guide means yo
 - Outcome unknown: "The process outcome cannot be proven; inspect the same request before doing anything else."
 - Human Input locked: "The local user must enable Human Input in Dex before the attachment or supervised change."
 - Target unavailable: "This room remembers a terminal no longer present in Nexus's active inventory."
+- Quota reserve reached: "Execution paused before dispatch to preserve the configured model reserve; this is not a test failure."
+- Before claiming a cause, inspect the available `job_status`, `terminal_status`, and `terminal_output` receipt. Call anything else a hypothesis.
 
 ## Agent files and documentation
 

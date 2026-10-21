@@ -2,7 +2,7 @@ const { randomUUID } = require('node:crypto');
 const protocol = require('../public/dex-protocol');
 const healthApi = require('../public/dex-provider-health');
 const failurePolicy = require('../public/dex-failure-policy');
-const stateApi = require('./server-scheduler-state'), controlReceiptApi = require('./provider-control-receipt'), doneWatchApi = require('../public/dex-done-watch'), capabilityApi = require('./agent-capability-context');
+const stateApi = require('./server-scheduler-state'), controlReceiptApi = require('./provider-control-receipt'), doneWatchApi = require('../public/dex-done-watch'), capabilityApi = require('./agent-capability-context'), { buildAgentLiveContext, readinessOnlyReply } = require('./agent-live-context');
 const { createServerSchedulerRecovery } = require('./server-scheduler-recovery');
 const recoveryMailbox = require('./recovery-mailbox'), promptSend = require('./prompt-send-recovery');
 const { directRoomSend } = require('./direct-room-send-policy');
@@ -129,11 +129,11 @@ function createDexServerScheduler({
     current.prompt = protocol.buildRelayPrompt({
       room, member, recipient: member, sourceMessage: source,
       requestId: current.requestId, inboxMessageIds: current.inboxMessageIds || [],
-      providerHealth: healthApi.roomContext(room, getOnlineTargets() || []), capabilityPrompt: capabilityApi.promptText(capabilityContext)
+      providerHealth: healthApi.roomContext(room, getOnlineTargets() || []), capabilityPrompt: [buildAgentLiveContext({ room, member }), capabilityApi.promptText(capabilityContext)].filter(Boolean).join('\n\n')
     }); if (room.recovery) { room.recovery.expectedPrompt = current.prompt; save(snapshot); }
     if (member.binding?.targetClassId === 'local-origin') {
       const target = await localTarget(member);
-      if (!target) return handleTurnError({ code: 'LOCAL_TARGET_NOT_FOUND', message: 'Local agent target is unavailable.' });
+      if (!target) return handleTurnError({ code: 'LOCAL_TARGET_NOT_FOUND', message: member.binding?.transport === 'search-monitor-workspace' ? 'Search Monitor workspace delivery target is unavailable; the local model may still be healthy, but this Dex turn cannot be delivered.' : 'Local agent target is unavailable.' });
       return dispatchDirect(target, 'local-origin', sendLocalPrompt);
     }
     if (member.binding?.targetClassId === 'app-origin') {
@@ -345,7 +345,7 @@ function createDexServerScheduler({
     delete room.recovery;
     room.relay.waitingFor = null;
     stateApi.extendBudget(room, parsed);
-    const disposition = protocol.relayDisposition(parsed, member.name, repeated, room.relay);
+    const disposition = protocol.relayDisposition(parsed, member.name, repeated, { ...room.relay, singleAgentIdle: (room.members || []).filter((entry) => entry.relayEnabled !== false).length === 1 && readinessOnlyReply(parsed.text) });
     if (parsed.done && (!completion || completion.ok)) doneWatchApi.consume(room, { completedMemberId: member.id, message, at: now() });
     if ((!completion || completion.ok) && (parsed.headsUpTarget || parsed.headsUpInvalid)) doneWatchApi.emitHeadsUp(room, { senderMemberId: member.id, targetRef: parsed.headsUpTarget, invalid: parsed.headsUpInvalid, done: parsed.done, message, at: now() });
     stateApi.rememberFinalReceipt(room, current.requestId, message.id, now(), current.sourceMessageId);

@@ -151,6 +151,10 @@
     const text = String(value || '');
     return text.length > length ? `${text.slice(0, length)}…` : text;
   };
+  const copyTechnical = async (buttonNode, value) => {
+    try { await navigator.clipboard.writeText(value); buttonNode.textContent = 'Copied'; }
+    catch { buttonNode.textContent = 'Copy unavailable'; }
+  };
   const button = (label, action, { danger = false, owner = true } = {}) => {
     const node = document.createElement('button');
     node.type = 'button'; node.textContent = label;
@@ -182,7 +186,7 @@
     const card = document.createElement('div'); card.className = 'machine-request';
     const head = document.createElement('div'); head.className = 'machine-request-head';
     const title = document.createElement('div'); title.className = 'machine-request-title';
-    title.textContent = `Supervised · ${job.targetId || 'terminal'} · ${job.jobId}`;
+    title.textContent = `${job.kind === 'playwright-acceptance' ? 'Browser verification' : job.governor ? 'Governed engineering' : 'Supervised engineering'} · ${job.targetLabel || 'Managed terminal'} · ${({ completed: 'completed', failed: 'failed', queued: 'waiting for approval', running: 'running', deferred: 'needs reattachment', cancelled: 'cancelled', 'outcome-unknown': 'outcome unknown' })[job.state] || job.state}`;
     const badge = document.createElement('span'); badge.className = `machine-state-${job.state}`;
     badge.textContent = ({ completed: 'Completed', failed: 'Failed', queued: 'Waiting for approval',
       running: 'Running', deferred: 'Needs reattachment', cancelled: 'Cancelled',
@@ -197,6 +201,11 @@
 
     const meta = document.createElement('div'); meta.className = 'machine-meta';
     meta.textContent = [
+      `job ${job.jobId || 'n/a'}`,
+      `room ${job.roomName || 'Unnamed room'} (${job.roomId || 'n/a'})`,
+      `space ${job.spaceName || 'Unnamed Machine Space'} (${job.spaceId || 'n/a'})`,
+      `terminal ${job.targetLabel || 'Managed terminal'} (${job.targetId || 'n/a'})`,
+      job.ownerName ? `agent ${job.ownerName} (${job.ownerMemberId})` : null,
       `request ${job.requestId || 'n/a'}`,
       job.governor?.runId ? `Governor ${job.governor.runId} (${job.governor.tier})` : null,
       job.recovery?.runId ? `TLO recovery ${job.recovery.runId} · ${job.recovery.maxAttempts} repair attempt(s) · idempotent retry` : null,
@@ -247,7 +256,11 @@
     technical.className = 'machine-job-technical';
     const technicalSummary = document.createElement('summary');
     technicalSummary.textContent = 'Technical details · IDs and process epoch';
-    technical.append(technicalSummary, meta);
+    const copy = button('Copy technical IDs', () => copyTechnical(copy, JSON.stringify({
+      jobId: job.jobId, requestId: job.requestId, roomId: job.roomId, spaceId: job.spaceId,
+      terminalId: job.targetId, processEpoch: job.processEpoch, outputId: job.result?.outputId || null
+    }, null, 2)), { owner: false });
+    technical.append(technicalSummary, copy, meta);
     card.append(head, command, technical, actions);
 
     const cached = job.result?.outputId ? outputs.get(job.result.outputId) : null;

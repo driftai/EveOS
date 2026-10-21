@@ -169,6 +169,7 @@
     if (parsed.done) return { action: 'stop', kind: 'done', reason: `${name} marked the room complete` };
     if (parsed.note) return { action: 'stop', kind: 'note', reason: `${name} posted a note` };
     if (repeated) return { action: 'stop', kind: 'loop', reason: 'Loop guard stopped a repeated reply' };
+    if (relay.singleAgentIdle) return { action: 'stop', kind: 'single-agent', reason: `${name} completed one readiness-only turn · awaiting new input or an authenticated tool result` };
     if (!relay.active) return { action: 'stop', kind: 'stopped', reason: relay.lastStopReason || 'Relay stopped' };
     if (relay.remaining <= 0) return { action: 'stop', kind: 'budget', reason: 'Relay budget complete' };
     return { action: 'continue', kind: 'reply', reason: null };

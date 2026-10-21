@@ -61,10 +61,14 @@ test('scheduler injects server-selected context and ignores spoofed response pro
   const prompt = sent.find((entry) => entry.type === 'send_prompt')?.text || '';
   assert.match(prompt, /engineering-verification/);
   assert.match(prompt, /Do not claim \*\*GREEN\*\*/);
+  assert.match(prompt, /DEX LIVE CONTROL CONTRACT/);
+  assert.match(prompt, /Current room: Engineering \(room-one\)/);
+  assert.match(prompt, /"action":"use_room","room":/);
   const requestId = scheduler.diagnostics().current.requestId;
-  await scheduler.handleTransportEvent({ type: 'response_final', requestId, text: 'Done.', capabilityContext:
+  await scheduler.handleTransportEvent({ type: 'response_final', requestId, text: 'I am ready to proceed.', capabilityContext:
     { schema: capability.SCHEMA, digest: 'a'.repeat(64), packs: [] } });
   const reply = value.rooms[0].messages.at(-1);
   assert.ok(reply.capabilityContext.packs.some((pack) => pack.id === 'engineering-verification'));
   assert.equal(incidents.at(-1).code, 'AGENT_CAPABILITY_CONTEXT_MISMATCH');
+  assert.match(value.rooms[0].relay.lastStopReason, /readiness-only turn/);
 });

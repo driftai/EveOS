@@ -125,18 +125,21 @@ test('the supervised controller emits the authoritative settled job to the room 
   const ui = {}, settled = [], jobs = createSupervisedJobCoordinator({ idFactory: () => 'one' });
   const queued = jobs.create({ requestId: 'request-one', roomId: 'room-one', spaceId: 'space-one',
     ownerMemberId: 'local', targetId: 'terminal-one', processEpoch: 'epoch-one', commandDigest: 'digest' });
-  const commandStore = new Map([[queued.jobId, { command: 'broken-command', commandDigest: 'digest', kind: 'terminal' }]]);
+  const commandStore = new Map([[queued.jobId, { command: 'broken-command', commandDigest: 'digest', kind: 'terminal',
+    governor: { runId: 'run-published' } }]]);
   const base = { broker: { target: () => ({ id: 'terminal-one', processEpoch: 'epoch-one' }), activeInfo: () => null,
-    runSupervised: async () => ({ state: 'failed', stdout: 'bounded', stderr: 'failure', exitCode: 1, bytes: 14, totalBytes: 14 }) },
+    runSupervised: async () => ({ state: 'completed', stdout: 'bounded', stderr: '', exitCode: 0, bytes: 7, totalBytes: 7 }) },
     spool: { store: () => ({ outputId: 'output-one' }) }, providerControl: { owns: () => false, route: () => null },
     handle: async () => false, stop() {} };
   const controller = enhanceMachineSpacesSupervisedController(() => base, { uiSockets: new Set([ui]),
     safeSend: () => true, supervisedJobs: jobs, supervisedCommandStore: commandStore,
+    governorReceiptReader: () => ({ runs: [{ runId: 'run-published', state: 'PUBLISHED', published: 'a'.repeat(40) }] }),
     onSupervisedJobSettled: (entry) => settled.push(entry) });
   await controller.handle(ui, { type: 'machine_start_supervised_job', jobId: queued.jobId });
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(settled.length, 1); assert.equal(settled[0].state, 'failed');
+  assert.equal(settled.length, 1); assert.equal(settled[0].state, 'completed');
   assert.equal(settled[0].result.outputId, 'output-one');
+  assert.equal(settled[0].result.publicationSha, 'a'.repeat(40));
 });
 
 test('engineering responses require a versioned bounded proposal and traversal-free paths', () => {

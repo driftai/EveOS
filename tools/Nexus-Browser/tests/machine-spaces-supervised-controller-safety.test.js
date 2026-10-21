@@ -17,7 +17,7 @@ function fixture({ activeInfo = null, interrupt = true, governorReceiptReader = 
   const commandStore = new Map([[job.jobId, { command: 'npm run dev' }]]);
   let runs = 0;
   const broker = {
-    target(id) { return id === 'terminal-one' ? { id: 'terminal-one', processEpoch: 'epoch-one' } : null; },
+    target(id) { return id === 'terminal-one' ? { id: 'terminal-one', processEpoch: 'epoch-one', label: 'EveOS PowerShell' } : null; },
     activeInfo() { return typeof activeInfo === 'function' ? activeInfo() : activeInfo; },
     interrupt() { return interrupt; },
     runSupervised() { runs++; return new Promise(() => {}); }
@@ -35,7 +35,8 @@ function fixture({ activeInfo = null, interrupt = true, governorReceiptReader = 
     supervisedJobs: jobs,
     supervisedCommandStore: commandStore,
     governorReceiptReader,
-    getState: () => ({ rooms: [] })
+    getState: () => ({ rooms: [{ id: 'room-one', name: 'Readable Engineering',
+      members: [{ id: 'agent-eve', name: 'Eve' }], machineSpaces: { spaces: [{ id: 'space-one', name: 'Core Workspace' }] } }] })
   });
   return { ws, sent, jobs, job, commandStore, controller, runs: () => runs };
 }
@@ -57,6 +58,10 @@ test('local supervisor snapshot includes the bounded immutable command preview n
   assert.equal(snapshot.jobs.length, 1);
   assert.equal(snapshot.jobs[0].commandAvailable, true);
   assert.equal(snapshot.jobs[0].commandPreview, 'npm run dev');
+  assert.equal(snapshot.jobs[0].roomName, 'Readable Engineering');
+  assert.equal(snapshot.jobs[0].spaceName, 'Core Workspace');
+  assert.equal(snapshot.jobs[0].targetLabel, 'EveOS PowerShell');
+  assert.equal(snapshot.jobs[0].ownerName, 'Eve');
 });
 
 test('unconfirmed interrupt settles a running supervised job with its current lease', async () => {

@@ -222,23 +222,42 @@
 }
 
 /* Engineering receipts have a separate semantic status from generic system alerts. */
-.dex-message.system.engineering-success {
+.dex-message.engineering-success {
   background: rgba(15, 48, 39, .75);
   border-color: #347760;
   color: #d7efe5;
 }
-.dex-message.system.engineering-warning {
+.dex-message.engineering-warning {
   background: rgba(55, 43, 19, .72);
   border-color: #96804c;
   color: #f2e5ba;
 }
-.dex-message.system.engineering-danger {
+.dex-message.engineering-danger {
   background: rgba(65, 29, 34, .78);
   border-color: #a65c67;
   color: #f7d6db;
 }
+.dex-message.engineering-neutral {
+  background: rgba(19, 39, 67, .76);
+  border-color: #416b9f;
+  color: #dceaff;
+}
+.dex-notice-label {
+  display: inline-flex; margin: 0 0 8px; padding: 3px 8px; border: 1px solid currentColor;
+  border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+}
+.dex-result-summary {
+  display: grid; grid-template-columns: minmax(76px, auto) minmax(0, 1fr);
+  gap: 5px 10px; margin: 10px 0 0; white-space: normal;
+}
+.dex-result-summary dt { color: #9fb0c5; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.dex-result-summary dd { margin: 0; }
 .engineering-receipt { margin-top: 9px; font-size: 12px; }
 .engineering-receipt summary { cursor: pointer; opacity: .85; }
+.dex-copy-technical {
+  margin: 8px 0 0; padding: 5px 8px; border: 1px solid currentColor; border-radius: 7px;
+  background: transparent; color: inherit; cursor: pointer; font: inherit;
+}
 .engineering-receipt pre {
   max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
   font-size: 11px; color: inherit; opacity: .75;

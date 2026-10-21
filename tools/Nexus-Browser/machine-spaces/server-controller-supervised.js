@@ -55,11 +55,17 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
     if (!uiSockets.has(ws)) throw machineError('MACHINE_LOCAL_OWNER_REQUIRED', 'Only the local Machine Spaces owner can launch, interrupt, or rebound supervised jobs.');
   }
   function visible(roomId = null, spaceId = null) {
+    const snapshot = getState();
     return jobs.snapshot().jobs.filter((job) => (!roomId || job.roomId === roomId) && (!spaceId || job.spaceId === spaceId))
       .map((job) => {
         const stored = commandStore.get(job.jobId);
         const display = stored?.displayCommand || stored?.command || '';
-        return { ...job, commandAvailable: !!stored,
+        const room = (snapshot?.rooms || []).find((entry) => entry.id === job.roomId);
+        const space = (room?.machineSpaces?.spaces || []).find((entry) => entry.id === job.spaceId);
+        const target = base.broker?.target?.(job.targetId);
+        const owner = (room?.members || []).find((entry) => entry.id === job.ownerMemberId);
+        return { ...job, roomName: room?.name || null, spaceName: space?.name || null,
+          targetLabel: target?.label || null, ownerName: owner?.name || null, commandAvailable: !!stored,
           commandPreview: display ? (display.length > 180 ? `${display.slice(0, 177)}...` : display) : null,
           governor: stored?.governor || null, recovery: stored?.recovery || null,
           visibleTerminal: stored?.visibleTerminal === true,
@@ -86,6 +92,12 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
       } catch {}
     }
     const lease = current.state === 'running' ? current.lease : null;
+    const storedBeforeSettle = commandStore.get(jobId) || null;
+    let governorEvidence = null;
+    try {
+      if (storedBeforeSettle?.governor?.runId) governorEvidence = governorReceiptReader({ maxRuns: 16 }).runs
+        ?.find((entry) => entry.runId === storedBeforeSettle.governor.runId) || null;
+    } catch {}
     try {
       const settled = jobs.settle(jobId, {
         state: ['completed', 'failed', 'cancelled', 'outcome-unknown'].includes(state) ? state : 'failed',
@@ -96,7 +108,8 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
         result: error ? null : {
           outputId, exitCode: result.exitCode, signal: result.signal, bytes: result.bytes,
           totalBytes: result.totalBytes, outputTruncated: result.outputTruncated === true,
-          recovery: recoveryProjection(result)
+          recovery: recoveryProjection(result), governorState: governorEvidence?.state || null,
+          publicationSha: state === 'completed' && Number(result.exitCode) === 0 ? governorEvidence?.published || null : null
         }
       });
       const settledPlan = commandStore.get(jobId) || null;

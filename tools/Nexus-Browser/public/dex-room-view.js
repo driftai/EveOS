@@ -3,6 +3,8 @@
   // Structural edits are independently gated by dex-human-control.js.
   const GEMINI_ROOM_AUDIO_EVENT = 'nexus-gemini-link-room-audio';
   const MAX_ROOM_AUDIO_ATTACHMENTS = 48;
+  const receiptApi = globalThis.BrowserAiBridgeDexReceiptPresentation
+    || (typeof module !== 'undefined' && module.exports ? require('./dex-receipt-presentation.js') : null);
 
 
   function engineeringNotice(raw) {
@@ -116,7 +118,8 @@
     for (const message of room.messages) {
       const article = document.createElement('article');
       article.className = `dex-message ${message.senderKind}`;
-      const notice = message.senderKind === 'system' ? engineeringNotice(message.text) : null;
+      const legacy = message.senderKind === 'system' ? engineeringNotice(message.text) : null;
+      const notice = receiptApi?.present(message) || legacy;
       if (notice) article.classList.add('engineering-' + notice.tone);
       const meta = document.createElement('div');
       meta.className = 'dex-message-meta';
@@ -125,16 +128,40 @@
         : message.senderName || 'Dex';
       const body = document.createElement('div');
       body.className = 'dex-message-body';
-      body.textContent = notice ? notice.title + ' · ' + notice.explanation
+      body.textContent = notice ? notice.title + (notice.explanation ? ' · ' + notice.explanation : '')
         : message.senderKind === 'system' ? message.text : protocol.messageWrapper(message);
       if (notice) {
+        if (notice.label) {
+          const badge = document.createElement('div'); badge.className = 'dex-notice-label';
+          badge.textContent = notice.label; body.prepend(badge);
+        }
+        if (notice.rows) {
+          const summaryGrid = document.createElement('dl'); summaryGrid.className = 'dex-result-summary';
+          for (const [label, value] of notice.rows) {
+            const term = document.createElement('dt'); term.textContent = label;
+            const detail = document.createElement('dd'); detail.textContent = value;
+            summaryGrid.append(term, detail);
+          }
+          body.append(summaryGrid);
+        }
         const details = document.createElement('details');
         details.className = 'engineering-receipt';
         const summary = document.createElement('summary');
-        summary.textContent = 'Technical receipt · job …' + notice.job;
+        summary.textContent = legacy ? 'Technical receipt · job …' + notice.job : 'Technical details · exact IDs and receipt';
         const pre = document.createElement('pre');
-        pre.textContent = notice.raw;
-        details.append(summary, pre);
+        const technical = notice.technical;
+        pre.textContent = technical ? `${technical.json}\n\n${technical.raw}` : notice.raw;
+        details.append(summary);
+        if (technical && Object.keys(technical.ids).length) {
+          const copy = document.createElement('button'); copy.type = 'button';
+          copy.className = 'dex-copy-technical'; copy.textContent = 'Copy technical IDs';
+          copy.addEventListener('click', async () => {
+            try { await navigator.clipboard.writeText(technical.json); copy.textContent = 'Copied'; }
+            catch { copy.textContent = 'Copy unavailable'; }
+          });
+          details.append(copy);
+        }
+        details.append(pre);
         body.append(details);
       }
       article.append(meta, body);

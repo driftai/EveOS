@@ -67,7 +67,7 @@ function createEngineeringCycle({ load, save, broadcastState = () => {}, machine
               ? 'The exact repair started under the original bounded owner workflow approval.'
               : 'The exact repair remains inert until independent local-owner approval.'}` });
           system.engineeringRecoveryPrepared = { incidentJobId: proposal.incidentJobId,
-            proposalMessageId: message.id, recoveryJobId: job.jobId };
+            proposalMessageId: message.id, recoveryJobId: job.jobId, state: receipt.state, code: receipt.code };
         } catch (error) {
           receipt.code = error.code || 'ENGINEERING_RECOVERY_PREPARE_FAILED';
           receipt.message = String(error.message || error).slice(0, 240);

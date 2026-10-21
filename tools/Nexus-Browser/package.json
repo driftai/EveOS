@@ -20,6 +20,7 @@
     "qualify:phase3:live": "node scripts/dex-phase3-engineering-playwright-qualify.js",
     "qualify:dex-scripted:ui": "node scripts/dex-scripted-setup-playwright-qualify.js",
     "qualify:dex-terminal:ui": "node scripts/dex-terminal-playwright-qualify.js",
+    "qualify:dex-readability:ui": "node scripts/dex-readability-playwright-qualify.js",
     "qualify": "node scripts/qualify.js",
     "qualify:live": "node scripts/live-qualify.js",
     "qualify:machine-spaces": "node scripts/machine-spaces-all-qualify.js",

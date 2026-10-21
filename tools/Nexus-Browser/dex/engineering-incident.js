@@ -52,6 +52,7 @@ function incidentText(job, classification) {
   if (result.recovery?.receipt) lines.push(
     `recovery=${bounded(result.recovery.outcome, 32)} receipt=${bounded(result.recovery.receipt, 260)}`
   );
+  if (result.publicationSha) lines.push(`publication=${bounded(result.publicationSha, 40)}`);
   if (job.engineeringPlan?.repairFiles?.length) lines.push(
     `retrySafety=idempotent repairCandidates=${job.engineeringPlan.repairFiles.map((item) => bounded(item, 260)).join(',')}`,
     ...job.engineeringPlan.invariants.slice(0, 8).map((item) => `invariant=${bounded(item, 400)}`)
@@ -70,6 +71,7 @@ function incidentText(job, classification) {
     'Middle-agent task: reply with exactly one JSON object (no prose or fence).',
     `Required template: {"schema":"eveos.machine-spaces.engineering-proposal.v1","incidentJobId":"${bounded(job.jobId, 128)}","classification":"${classification}","summary":"bounded diagnosis","confidence":0.0,"requestedEvidence":[],"repair":{"kind":"none","paths":[],"description":"bounded recommendation"},"retryIntent":"none"}`,
     'Allowed repair.kind: none, prepare-command, source-patch, await-approval. Allowed retryIntent: none, after-verified-repair, requires-approval. Paths must be repository-relative, or [] when no source change is proposed.',
+    'Read job_status and the referenced terminal_output before naming a root cause. If evidence is unavailable, label possibilities as hypotheses.',
     'Diagnose from bounded evidence only. Do not claim execution, apply changes, or replay the failed command.'
   );
   else if (job.state === 'outcome-unknown') lines.push('Safe stop: execution outcome is uncertain. Do not replay or propose automatic retry.');
@@ -93,7 +95,12 @@ function createEngineeringIncidentBridge({ load, save, scheduler, broadcastState
     const message = stateApi.addMessage(room, { id: `msg-engineering-${uid()}`, at,
       senderKind: 'system', senderId: null, senderName: 'Machine Spaces', text: incidentText(job, classification) });
     message.engineeringIncident = { schema: 'eveos.machine-spaces.engineering-incident.v1', jobId: job.jobId,
-      requestId: job.requestId || null, classification, outputId: job.result?.outputId || null };
+      requestId: job.requestId || null, roomId: job.roomId, spaceId: job.spaceId || null,
+      targetId: job.targetId || null, kind: job.kind || null, state: job.state,
+      classification, exitCode: job.result?.exitCode ?? null, outputId: job.result?.outputId || null,
+      recoveryOutcome: job.result?.recovery?.outcome || null,
+      recoveryReceipt: job.result?.recovery?.receipt || null,
+      publicationSha: job.result?.publicationSha || null, errorCode: job.errorCode || null };
     const verifiedRecovery = job.kind === 'recovery' && job.state === 'completed'
       && Number(job.result?.exitCode) === 0 && job.result?.recovery?.outcome === 'GREEN'
       && job.result?.recovery?.receipt;

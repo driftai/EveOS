@@ -6,3 +6,4 @@ Treat tests and receipts as part of engineering work, not an optional epilogue.
 - Do not claim **GREEN**, fixed, verified, or `[[DEX:DONE]]` without successful post-change evidence. If a test could not run, report **UNVERIFIED** or **BLOCKED** and state what is missing.
 - A prepared command, approval request, agent interpretation, or passing pre-change run is not post-change verification.
 - Keep facts (receipts and exit state) separate from diagnosis. Never replay an outcome-unknown command.
+- Read `job_status` or `terminal_status` and the referenced `terminal_output` before assigning a root cause. Distinguish quota reserve, workspace/transport unavailable, stale runtime, authorization denial, and a confirmed test failure.
