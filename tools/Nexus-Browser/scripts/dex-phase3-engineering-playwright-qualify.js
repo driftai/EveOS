@@ -13,20 +13,22 @@ const ROOM = /^room-[A-Za-z0-9_-]{6,125}$/;
 const DEFAULT_PHASE3_FAILURE_MARKER = 'PHASE3_CONTROLLED_FAILURE';
 
 function argumentsFor(argv = []) {
-  const options = { roomId: '', token: DEFAULT_PHASE3_FAILURE_MARKER, timeoutMs: 240000, headless: true };
+  const options = { roomId: '', jobId: '', token: DEFAULT_PHASE3_FAILURE_MARKER, timeoutMs: 240000, headless: true };
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
     if (key === '--headed') options.headless = false;
     else if (key === '--headless') options.headless = true;
-    else if (['--room', '--token', '--timeout'].includes(key)) {
+    else if (['--room', '--job', '--token', '--timeout'].includes(key)) {
       const value = argv[++index];
       if (value == null || String(value).startsWith('--')) throw new Error(`${key} requires a value.`);
       if (key === '--room') options.roomId = value;
+      else if (key === '--job') options.jobId = value;
       else if (key === '--token') options.token = value;
       else options.timeoutMs = Number(value) * 1000;
     } else throw new Error(`Unsupported Phase 3 Playwright option ${key}.`);
   }
   if (!ROOM.test(options.roomId)) throw new Error('--room must be one exact Dex room ID.');
+  if (options.jobId && !/^machine-job-[A-Za-z0-9_-]{6,125}$/.test(options.jobId)) throw new Error('--job must be one exact supervised job ID.');
   if (!options.token || options.token.length > 120 || /[\x00-\x1f\x7f]/.test(options.token)) throw new Error('--token must be bounded plain text.');
   if (!Number.isFinite(options.timeoutMs) || options.timeoutMs < 30000 || options.timeoutMs > 300000) {
     throw new Error('--timeout must be 30..300 seconds.');
@@ -99,9 +101,10 @@ async function run(options) {
       const cardText = await candidate.innerText();
       const receiptMatches = (roomState.messages || []).some((message) => message.senderName === 'Dex'
         && message.text.includes(candidateJobId) && message.text.includes(options.token));
-      if (cardText.includes(options.token) || receiptMatches) matching.push(candidate);
+      if (options.jobId ? candidateJobId === options.jobId : cardText.includes(options.token) || receiptMatches) matching.push(candidate);
     }
-    if (matching.length !== 1) throw new Error(`Expected one exact queued job for token ${options.token}; found ${matching.length}.`);
+    const selector = options.jobId ? `job ${options.jobId}` : `token ${options.token}`;
+    if (matching.length !== 1) throw new Error(`Expected one exact queued job for ${selector}; found ${matching.length}.`);
     const card = matching[0];
     const title = await card.locator('.machine-request-title').innerText();
     const jobId = title.split('·').map((part) => part.trim()).at(-1) || '';

@@ -4,7 +4,7 @@
   "bindingRevision": "eveos-0.7.0-tlo-engineering-v1",
   "eveosVersion": "0.7.0",
   "serverStatusVersion": "0.6.0",
-  "profileSeedRevision": "cf7ecec2eb92bdee",
+  "profileSeedRevision": "0ea4e58433a6d479",
   "provider": "local-moe",
   "triageProtocol": "eveos.tlo-engineering-triage.v1",
   "runtime": {

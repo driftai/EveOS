@@ -7,9 +7,12 @@ const { DEFAULT_PHASE3_FAILURE_MARKER, argumentsFor, waitForProposal } = require
 test('Phase 3 Playwright qualifier requires an exact room and bounded selection token', () => {
   assert.equal(DEFAULT_PHASE3_FAILURE_MARKER, 'PHASE3_CONTROLLED_FAILURE');
   assert.deepEqual(argumentsFor(['--room', 'room-phase3proof', '--timeout', '90']), {
-    roomId: 'room-phase3proof', token: DEFAULT_PHASE3_FAILURE_MARKER, timeoutMs: 90000, headless: true
+    roomId: 'room-phase3proof', jobId: '', token: DEFAULT_PHASE3_FAILURE_MARKER, timeoutMs: 90000, headless: true
   });
+  assert.equal(argumentsFor(['--room', 'room-phase3proof', '--job', 'machine-job-phase3proof']).jobId,
+    'machine-job-phase3proof');
   assert.throws(() => argumentsFor(['--room', 'Phase Three']), /exact Dex room/);
+  assert.throws(() => argumentsFor(['--room', 'room-phase3proof', '--job', 'unsafe']), /exact supervised job ID/);
   assert.throws(() => argumentsFor(['--room', 'room-phase3proof', '--token', 'x\nstart']), /plain text/);
 });
 
