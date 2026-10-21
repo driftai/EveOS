@@ -21,7 +21,7 @@ function loadModule() {
   try { delete require.cache[operatorPath]; return require(operatorPath); }
   finally { Module._load = original; }
 }
-const { createTerminalOperator } = loadModule();
+const { createTerminalOperator, projection } = loadModule();
 const ROOM='room-test000001', ID='operator-test-0001';
 function fixture({ tlo = true, space = true, busy = false } = {}) {
   let state={rooms:[{ id:ROOM,name:'Proof',userName:'Drift',messages:[],members:tlo?[{id:'member-tlo',name:'TLO',relayEnabled:true,binding:{targetClassId:'local-origin',targetId:'local:tlo-chat:default',providerId:'tlo-chat'}}]:[],
@@ -87,6 +87,22 @@ test('bounded hostile text, duplicate enabled members and unresolved control are
   assert.equal(g.run('dex_terminal_send',{text:'Hi'}).code,'DEX_TERMINAL_TLO_ONLY');
   const h=fixture();h.state().rooms[0].pendingProviderControlReceipt={};
   assert.equal(h.run('dex_terminal_send',{text:'Hi'}).code,'DEX_TERMINAL_ROOM_BUSY');
+});
+
+test('terminal inspection exposes bounded server-owned engineering completion evidence',()=>{
+  const room={id:ROOM,name:'Proof',messages:[
+    {id:'verification',senderKind:'system',senderName:'Machine Spaces',text:'GREEN source',engineeringVerification:{
+      schema:'eveos.machine-spaces.engineering-verification.v1',jobId:'machine-job-proof',state:'completed',exitCode:0,
+      outputId:'machine-output-proof',outcome:'GREEN',receipt:'data/runtime/smoke-results/tlo-autorecover-proof/receipt.json',private:'omit'}},
+    {id:'completion',senderKind:'agent',senderName:'TLO',text:'Verified GREEN',engineeringCompletion:{
+      ok:true,code:'ENGINEERING_COMPLETION_VERIFIED',jobId:'machine-job-proof',outputId:'machine-output-proof',
+      receipt:'data/runtime/smoke-results/tlo-autorecover-proof/receipt.json',private:'omit'}}
+  ],members:[],machineSpaces:{spaces:[]},relay:{active:false},engineeringIncidentReceipts:[]};
+  const view=projection(room,{limit:10});
+  assert.equal(view.messages[0].engineeringVerification.outcome,'GREEN');
+  assert.equal(view.messages[0].engineeringVerification.private,undefined);
+  assert.equal(view.messages[1].engineeringCompletion.code,'ENGINEERING_COMPLETION_VERIFIED');
+  assert.equal(view.messages[1].engineeringCompletion.private,undefined);
 });
 
 test('a later TLO answer cannot masquerade as the earlier request reply',()=>{

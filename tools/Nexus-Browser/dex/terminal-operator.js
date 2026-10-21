@@ -36,6 +36,23 @@ function summary(room, targetAvailable = () => true) {
     engineeringIncidentCount: (room.engineeringIncidentReceipts || []).length,
     messageCount: (room.messages || []).length };
 }
+function engineeringEvidence(message) {
+  const verification = message?.engineeringVerification;
+  const completion = message?.engineeringCompletion;
+  return {
+    ...(verification?.schema === 'eveos.machine-spaces.engineering-verification.v1' ? { engineeringVerification: {
+      schema: verification.schema, jobId: String(verification.jobId || '').slice(0, 160),
+      state: String(verification.state || '').slice(0, 32), exitCode: Number(verification.exitCode),
+      outputId: String(verification.outputId || '').slice(0, 160), outcome: String(verification.outcome || '').slice(0, 32),
+      receipt: String(verification.receipt || '').slice(0, 300)
+    } } : {}),
+    ...(typeof completion?.ok === 'boolean' ? { engineeringCompletion: {
+      ok: completion.ok, code: String(completion.code || '').slice(0, 80),
+      jobId: String(completion.jobId || '').slice(0, 160), outputId: String(completion.outputId || '').slice(0, 160),
+      receipt: String(completion.receipt || '').slice(0, 300)
+    } } : {})
+  };
+}
 function projection(room, { limit = 10, targetAvailable } = {}) {
   const n = Number.isInteger(limit) ? Math.max(1, Math.min(limit, 20)) : 10;
   return { ...summary(room, targetAvailable), engineeringIncidents: (room.engineeringIncidentReceipts || []).slice(-10).map(entry => ({
@@ -45,7 +62,8 @@ function projection(room, { limit = 10, targetAvailable } = {}) {
     id: m.id, at: m.at || null, senderKind: m.senderKind,
     senderName: String(m.senderName || '').slice(0, 60),
     text: String(m.text || '').slice(0, MAX_TEXT),
-    ...(m.clientRequestId ? { clientRequestId: m.clientRequestId } : {})
+    ...(m.clientRequestId ? { clientRequestId: m.clientRequestId } : {}),
+    ...engineeringEvidence(m)
   })) };
 }
 function createTerminalOperator({ load, save, scheduler, broadcastState = () => {}, maintenanceBusy = () => false, targetAvailable = () => true, machineBroker = null, repoRoot = null, now = () => new Date().toISOString(), uid = randomUUID } = {}) {
