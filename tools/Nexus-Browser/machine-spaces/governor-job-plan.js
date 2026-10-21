@@ -1,7 +1,7 @@
 'use strict';
 
-// Converts a strictly bounded local-owner proposal into an existing supervised
-// terminal command. No new executor, authorization plane, retry loop, or publisher.
+// Converts a strictly bounded proposal into the existing supervised terminal and
+// governor publisher. No new executor, authorization plane, retry loop, or publisher.
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
@@ -10,6 +10,7 @@ const SHA = /^[a-f0-9]{40}$/;
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9_. -]*$/;
 const TIERS = new Set(['small', 'medium', 'complex']);
+const COMMIT_MESSAGE = /^[A-Za-z0-9][^\r\n\x00-\x1f]{4,119}$/;
 
 function fault(code, message) { return Object.assign(new Error(message), { code }); }
 function relative(value, prefix) {
@@ -46,6 +47,14 @@ function createGovernorJobPlan(input = {}, { repoRoot = DEFAULT_ROOT, fsImpl = f
   const files = allowed.map((s) => relative(s));
   if (new Set(files).size !== files.length || files.some((s) => s.startsWith('data/runtime/') || s.startsWith('.git/') || s === '.git'))
     throw fault('MACHINE_GOVERNOR_BAD_FILES', 'Duplicate, protected, or runtime files cannot be granted.');
+  const preserved = Array.isArray(input.preserveFiles) ? input.preserveFiles.map((s) => relative(s)) : [];
+  if (preserved.length > 8 || new Set(preserved).size !== preserved.length
+      || preserved.some((file) => files.includes(file) || file.startsWith('data/runtime/') || file.startsWith('.git/')))
+    throw fault('MACHINE_GOVERNOR_BAD_PRESERVE_FILES', 'Preserved files must be a small, exact, disjoint repository-relative set.');
+  const publish = input.publish === true;
+  const commitMessage = String(input.commitMessage || 'feat(nexus): complete governed engineering task').trim();
+  if (!COMMIT_MESSAGE.test(commitMessage))
+    throw fault('MACHINE_GOVERNOR_BAD_COMMIT_MESSAGE', 'Commit message must be one bounded printable line.');
   const mission = relative(input.mission, 'data/runtime/');
   if (!mission.endsWith('.txt') && !mission.endsWith('.md'))
     throw fault('MACHINE_GOVERNOR_BAD_MISSION', 'Mission must be an existing ignored .txt or .md file.');
@@ -65,13 +74,18 @@ function createGovernorJobPlan(input = {}, { repoRoot = DEFAULT_ROOT, fsImpl = f
     'python', '-B', 'tools/qualification/agent_governor.py', 'run',
     '--repo', '.', '--run-dir', runRelative, '--expected-head', expectedHead,
     '--tier', tier, '--mission', mission,
-    ...files.flatMap((file) => ['--allow-file', file])
+    ...files.flatMap((file) => ['--allow-file', file]),
+    ...preserved.flatMap((file) => ['--preserve-file', file]),
+    '--commit-message', commitMessage,
+    ...(publish ? ['--authorize-publish'] : [])
   ];
   const command = '& ' + args.map(token).join(' '); // Invoke literal executable in PowerShell.
   if (command.length > 4000) throw fault('MACHINE_GOVERNOR_COMMAND_TOO_LONG', 'Governed command exceeds maximum length.');
   const digest = createHash('sha256').update(command).digest('hex');
+  const publication = publish ? { branch: 'eve/nexus-machine-spaces', remote: 'origin', commitMessage } : null;
   return Object.freeze({ runId, tier, expectedHead, command, commandDigest: digest, missionSha256,
-    metadata: Object.freeze({ runId, tier, expectedHead, planDigest: digest }) });
+    allowedFiles: Object.freeze(files), preserveFiles: Object.freeze(preserved), publication: publication && Object.freeze(publication),
+    metadata: Object.freeze({ runId, tier, expectedHead, planDigest: digest, publicationRequested: publish }) });
 }
 
 module.exports = { createGovernorJobPlan, relative, fault };

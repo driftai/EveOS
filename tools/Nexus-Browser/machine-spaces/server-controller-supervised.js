@@ -13,9 +13,12 @@ const { workflowEligible, createWorkflowAuthorization,
 const { createLocalPlanController } = require('./server-controller-local-plans');
 const { recoveryProjection } = require('./engineering-recovery-result');
 const { createSupervisedLiveView } = require('./supervised-live-view');
+const { ACTION: WORKSPACE_ACTION,
+  createWorkspaceProvisionProviderControl } = require('./workspace-provision-provider-control');
 const schedulerState = require('../dex/server-scheduler-state');
 const dexProtocol = require('../public/dex-protocol');
 for (const action of ACTIONS) dexProtocol.PROVIDER_CONTROL_ACTIONS.add(action);
+dexProtocol.PROVIDER_CONTROL_ACTIONS.add(WORKSPACE_ACTION);
 
 function machineError(code, message) { return Object.assign(new Error(message), { code }); }
 
@@ -260,12 +263,19 @@ function enhanceMachineSpacesSupervisedController(createBaseController, options 
   }
 
   const jobControl = createSupervisedJobProviderControl({ jobs, commandStore, broker: base.broker, getState,
-    repoRoot: governorRoot, now: nowMs, findSpace: (room, reference) => findSpace(room, reference) });
+    repoRoot: governorRoot, now: nowMs, findSpace: (room, reference) => findSpace(room, reference),
+    prepareGovernor: (input) => localPlans.prepareProviderGovernor(input) });
+  const workspaceControl = typeof base.broker?.createSession === 'function'
+    ? createWorkspaceProvisionProviderControl({ getState, saveState, broadcastState,
+      broker: base.broker, repoRoot: governorRoot, now: nowMs })
+    : { owns: () => false, route: () => null };
   const providerControl = {
-    owns(action) { const value = String(action || '').toLowerCase(); return jobControl.owns(value) || base.providerControl.owns(value); },
+    owns(action) { const value = String(action || '').toLowerCase();
+      return workspaceControl.owns(value) || jobControl.owns(value) || base.providerControl.owns(value); },
     route(input, helpers) {
       const action = String(input?.command?.action || '').toLowerCase();
-      const outcome = jobControl.owns(action) ? jobControl.route(input, helpers) : base.providerControl.route(input, helpers);
+      const outcome = workspaceControl.owns(action) ? workspaceControl.route(input, helpers)
+        : jobControl.owns(action) ? jobControl.route(input, helpers) : base.providerControl.route(input, helpers);
       if (jobControl.owns(action)) broadcastJobs('provider-control');
       return outcome;
     }

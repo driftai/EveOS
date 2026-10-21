@@ -34,6 +34,21 @@ test('plan is deterministic, bound to a single ignored run and cannot self-publi
   assert.equal(first.commandDigest.length,64);
 });
 
+test('explicit publication is bound to exact files, protected edits and commit metadata', (t) => {
+  const f = fixture(t);
+  fs.mkdirSync(path.join(f.repo, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(f.repo, 'docs', 'draft.md'), 'unfinished');
+  const plan = createGovernorJobPlan({ ...f.input, publish: true,
+    preserveFiles: ['docs/draft.md'], commitMessage: 'feat(nexus): prove fresh-room publication' }, f.options);
+  assert.match(plan.command, /--authorize-publish/);
+  assert.match(plan.command, /--preserve-file' 'docs\/draft\.md/);
+  assert.match(plan.command, /--commit-message' 'feat\(nexus\): prove fresh-room publication/);
+  assert.equal(plan.publication.branch, 'eve/nexus-machine-spaces');
+  assert.deepEqual([...plan.preserveFiles], ['docs/draft.md']);
+  assert.throws(() => createGovernorJobPlan({ ...f.input, publish: true,
+    preserveFiles: ['tools/example.js'] }, f.options), /Preserved files/);
+});
+
 test('rejects path traversal, injection, duplicate files, high/ultra and unknown model tier', (t) => {
   const f = fixture(t);
   const bad = [

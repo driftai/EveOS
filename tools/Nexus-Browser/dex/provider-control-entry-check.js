@@ -7,7 +7,7 @@ const ONLINE_ORIGIN_MUTATING_ACTIONS = new Set([
   'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
   'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
   'stop_relay', 'continue_relay', 'set_room_budget', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
-  'arm_post_idle', 'cancel_post_idle', 'report_post_idle', 'terminal_exec'
+  'arm_post_idle', 'cancel_post_idle', 'report_post_idle', 'workspace_ensure', 'terminal_exec', 'governor_prepare'
 ]);
 const fail = (code, message) => ({ ok: false, code, message });
 const isOnlineOrigin = (source = {}) => String(source.targetClassId || '').trim().toLowerCase() === 'online-origin';

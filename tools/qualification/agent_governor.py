@@ -77,25 +77,27 @@ def remote_sha(repo: Path, branch=BRANCH):
     return result[0].split()[0]
 
 
-def verify_baseline(repo: Path, expected_head: str, *, clean: bool, branch=BRANCH):
+def verify_baseline(repo: Path, expected_head: str, *, clean: bool, branch=BRANCH,
+                    preserved: list[str] | None = None):
     if git(repo, 'branch', '--show-current') != branch or git(repo, 'rev-parse', 'HEAD') != expected_head:
         raise RuntimeError('UNEXPECTED_BRANCH_OR_HEAD')
-    if clean and git(repo, 'status', '--porcelain=v1', '--untracked-files=all'):
+    if clean and changed_files(repo, exclude=preserved or []):
         raise RuntimeError('NONEMPTY_WORKTREE')
     if not (repo / 'tools/hooks/pre-push').is_file():
         raise RuntimeError('PUBLICATION_HOOK_NOT_FOUND')
 
 
-def changed_files(repo: Path):
+def changed_files(repo: Path, exclude: list[str] | None = None):
     raw = git(repo, 'status', '--porcelain=v1', '--untracked-files=all')
     rows = [line for line in raw.splitlines() if line]
     if any(line[:2] not in (' M', 'M ', '??') or ' -> ' in line for line in rows):
         raise RuntimeError('UNSUPPORTED_GIT_CHANGE_TYPE')
-    return sorted(line[3:].strip('"') for line in rows)
+    omitted = set(exclude or [])
+    return sorted(line[3:].strip('"') for line in rows if line[3:].strip('"') not in omitted)
 
 
-def allowable_files(repo: Path, authorized: list[str]) -> list[str]:
-    real = changed_files(repo)
+def allowable_files(repo: Path, authorized: list[str], preserved: list[str] | None = None) -> list[str]:
+    real = changed_files(repo, exclude=preserved or [])
     if not real:
         raise RuntimeError('NO_CODE_CHANGES_TO_QUALIFY')
     if set(real) != set(authorized):
@@ -111,6 +113,11 @@ def allowable_files(repo: Path, authorized: list[str]) -> list[str]:
 
 def hash_files(repo: Path, paths: list[str]) -> dict:
     return {p: hashlib.sha256((repo / p).read_bytes()).hexdigest() for p in paths}
+
+
+def verify_preserved(repo: Path, paths: list[str], hashes: dict):
+    if hash_files(repo, paths) != hashes:
+        raise RuntimeError('PRESERVED_FILE_CHANGED')
 
 
 def quota(repo: Path, folder: Path, label: str) -> dict:
@@ -177,8 +184,10 @@ def publish(repo: Path, folder: Path, receipt: dict, allowed: list[str]):
     if receipt['state'] != 'QUALIFIED':
         raise RuntimeError('NOT_QUALIFIED')
     baseline = receipt['expectedHead']
+    preserved = receipt.get('preservedFiles') or []
     verify_baseline(repo, baseline, clean=False)
-    allowable_files(repo, allowed)
+    verify_preserved(repo, preserved, receipt.get('preservedHashes') or {})
+    allowable_files(repo, allowed, preserved)
     if hash_files(repo, allowed) != receipt.get('sourceHashes'):
         raise RuntimeError('SOURCE_CHANGED_SINCE_QUALIFICATION')
     if remote_sha(repo) != baseline:
@@ -186,7 +195,7 @@ def publish(repo: Path, folder: Path, receipt: dict, allowed: list[str]):
     # Git hook is mandatory, no bypass environment or alternative push route.
     if git(repo, 'config', '--local', '--get', 'core.hooksPath') != 'tools/hooks':
         raise RuntimeError('CANONICAL_HOOKS_NOT_ENABLED')
-    check = command(['git', 'diff', '--check'], cwd=repo)
+    check = command(['git', 'diff', '--check', '--', *allowed], cwd=repo)
     if check.returncode:
         raise RuntimeError('DIFF_CHECK_FAILED')
     stage = command(['git', 'add', '--', *allowed], cwd=repo)
@@ -195,13 +204,14 @@ def publish(repo: Path, folder: Path, receipt: dict, allowed: list[str]):
     if sorted(git(repo, 'diff', '--cached', '--name-only').splitlines()) != sorted(allowed):
         raise RuntimeError('STAGED_FILE_SET_MISMATCH')
     event(folder, receipt, 'COMMITTING')
-    commit = command(['git', 'commit', '-m', 'feat(nexus): govern Codex dispatch and quota evidence'], cwd=repo, timeout=120)
+    commit = command(['git', 'commit', '-m', receipt['commitMessage']], cwd=repo, timeout=120)
     if commit.returncode:
         raise RuntimeError('COMMIT_FAILED_PRESERVE_INDEX')
     candidate = git(repo, 'rev-parse', 'HEAD')
     event(folder, receipt, 'LOCAL_COMMIT', candidate=candidate)
-    if changed_files(repo):
+    if changed_files(repo, exclude=preserved):
         raise RuntimeError('POST_COMMIT_DIRTY')
+    verify_preserved(repo, preserved, receipt.get('preservedHashes') or {})
     if remote_sha(repo) != baseline:
         raise RuntimeError('REMOTE_ADVANCED_AFTER_COMMIT')
     # Pre-push hook compares against the local tracking reference.
@@ -230,6 +240,8 @@ def main(argv=None):
     ap.add_argument('--effort', choices=['low', 'medium', 'high'])
     ap.add_argument('--permit-high', action='store_true')
     ap.add_argument('--allow-file', action='append', default=[])
+    ap.add_argument('--preserve-file', action='append', default=[])
+    ap.add_argument('--commit-message', default='feat(nexus): complete governed engineering task')
     ap.add_argument('--authorize-publish', action='store_true')
     args = ap.parse_args(argv)
     repo, folder = args.repo.resolve(), args.run_dir.resolve()
@@ -258,7 +270,15 @@ def main(argv=None):
         if args.phase == 'run':
             if receipt_file.exists() or not args.expected_head or not args.mission:
                 raise RuntimeError('NEW_RUN_REQUIRES_UNUSED_FOLDER_HEAD_AND_MISSION')
-            verify_baseline(repo, args.expected_head, clean=True)
+            preserved = sorted(set(args.preserve_file))
+            if set(preserved) & set(args.allow_file):
+                raise RuntimeError('PRESERVED_AND_ALLOWED_FILE_OVERLAP')
+            if any(not name or name.startswith(('data/runtime/', '.git/')) or not (repo / name).is_file()
+                   for name in preserved):
+                raise RuntimeError('INVALID_PRESERVED_FILE')
+            if not re.fullmatch(r'[A-Za-z0-9][^\r\n\x00-\x1f]{4,119}', args.commit_message):
+                raise RuntimeError('INVALID_COMMIT_MESSAGE')
+            verify_baseline(repo, args.expected_head, clean=True, preserved=preserved)
             plan = choose(args.tier, args.effort, args.permit_high)
             mission = args.mission.resolve(strict=True)
             if not mission.is_relative_to((repo / 'data/runtime').resolve()):
@@ -268,6 +288,8 @@ def main(argv=None):
                 raise RuntimeError('EXACT_ALLOW_FILE_SET_REQUIRED')
             receipt = {'schema': 'eveos.agent-governor.v1', 'expectedHead': args.expected_head,
                        'branch': BRANCH, 'plan': plan, 'allowedFiles': allowed,
+                       'preservedFiles': preserved, 'preservedHashes': hash_files(repo, preserved),
+                       'commitMessage': args.commit_message,
                        'missionSha256': hashlib.sha256(mission.read_bytes()).hexdigest()}
             event(folder, receipt, 'PREFLIGHT')
             before = quota(repo, folder, 'before')
@@ -311,12 +333,14 @@ def main(argv=None):
                 raise RuntimeError('PUBLISH_REQUIRES_QUALIFIED_RECEIPT')
         if args.phase in ('run', 'qualify'):
             verify_baseline(repo, receipt['expectedHead'], clean=False)
-            allowed = allowable_files(repo, receipt['allowedFiles'])
+            verify_preserved(repo, receipt.get('preservedFiles') or [], receipt.get('preservedHashes') or {})
+            allowed = allowable_files(repo, receipt['allowedFiles'], receipt.get('preservedFiles') or [])
             receipt['sourceHashes'] = hash_files(repo, allowed)
             if not run_gates(repo, folder, receipt):
                 return 5
             verify_baseline(repo, receipt['expectedHead'], clean=False)
-            allowable_files(repo, allowed)
+            verify_preserved(repo, receipt.get('preservedFiles') or [], receipt.get('preservedHashes') or {})
+            allowable_files(repo, allowed, receipt.get('preservedFiles') or [])
             if hash_files(repo, allowed) != receipt['sourceHashes']:
                 event(folder, receipt, 'SOURCE_DRIFT_AFTER_QUALIFICATION')
                 return 6

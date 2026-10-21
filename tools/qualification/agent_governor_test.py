@@ -80,7 +80,7 @@ class Tests(unittest.TestCase):
             (root / 'x.py').write_text('hi')
             old = coordinator.changed_files
             try:
-                coordinator.changed_files = lambda _: ['x.py']
+                coordinator.changed_files = lambda _, exclude=None: ['x.py']
                 with self.assertRaisesRegex(RuntimeError, 'UNAUTHORIZED'):
                     coordinator.allowable_files(root, ['y.py'])
                 self.assertEqual(coordinator.allowable_files(root, ['x.py']), ['x.py'])
@@ -101,6 +101,24 @@ class Tests(unittest.TestCase):
         self.assertIn("refs/heads/{BRANCH}:refs/heads/{BRANCH}", source)
         self.assertNotIn('force', source)
         self.assertIn('CANONICAL_HOOKS_NOT_ENABLED', source)
+
+    def test_preserved_files_are_excluded_but_hash_fenced(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / 'source.py').write_text('source')
+            (root / 'draft.md').write_text('draft')
+            old = coordinator.changed_files
+            try:
+                coordinator.changed_files = lambda _, exclude=None: [
+                    name for name in ['draft.md', 'source.py'] if name not in (exclude or [])]
+                self.assertEqual(coordinator.allowable_files(root, ['source.py'], ['draft.md']), ['source.py'])
+                hashes = coordinator.hash_files(root, ['draft.md'])
+                coordinator.verify_preserved(root, ['draft.md'], hashes)
+                (root / 'draft.md').write_text('changed')
+                with self.assertRaisesRegex(RuntimeError, 'PRESERVED_FILE_CHANGED'):
+                    coordinator.verify_preserved(root, ['draft.md'], hashes)
+            finally:
+                coordinator.changed_files = old
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

@@ -7,3 +7,5 @@ Machine Spaces are room-bound execution resources owned by EveOS. Resolve the ex
 - Use existing request IDs, ledgers, output receipts, and exact-room routing.
 - A middle agent coordinates work; Nexus remains the authority owner.
 - When exact controls are needed, request the room's current self-service contract with `[[DEX:CMD {"action":"onboard"}]]`; do not guess resource IDs or supported actions.
+- In a fresh room, the selected middle agent may request `workspace_ensure`. Nexus may create or reuse one EveOS-rooted managed PowerShell target, but this grants no execution, file-write, approval, or publication authority.
+- After provisioning, use the returned exact room, Machine Space, terminal, and process epoch. Never recreate resources merely because a prior receipt reports them unavailable.

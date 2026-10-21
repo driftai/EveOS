@@ -29,7 +29,7 @@ function createLocalPlanController({ jobs, commandStore, broker, getState, repoR
   function store(msg, kind, plan, extra = {}) {
     const { room, space, targetId, target } = context(msg, `MACHINE_${kind.toUpperCase()}_REQUEST_REQUIRED`);
     const job = jobs.create({ requestId: msg.requestId, kind, roomId: room.id, spaceId: space.id,
-      ownerMemberId: 'local', targetId, processEpoch: target.processEpoch, commandDigest: plan.commandDigest });
+      ownerMemberId: extra.ownerMemberId || 'local', targetId, processEpoch: target.processEpoch, commandDigest: plan.commandDigest });
     const prior = commandStore.get(job.jobId);
     if (job.kind !== kind || (prior && (prior.kind !== kind || prior.commandDigest !== plan.commandDigest)))
       throw machineError('MACHINE_JOB_REQUEST_CONFLICT', 'Request ID already owns another immutable job.');
@@ -37,17 +37,46 @@ function createLocalPlanController({ jobs, commandStore, broker, getState, repoR
       throw machineError('MACHINE_JOB_NO_REPLAY', 'A started or settled supervised plan cannot be prepared again.');
     if (!prior) commandStore.set(job.jobId, { command: plan.command, commandDigest: plan.commandDigest,
       displayCommand: plan.originalCommand || null, kind, spec: extra.spec, ...extra.stored });
-    return { ...job, [kind]: extra.stored?.[kind] || plan.metadata,
+    return { ...job, [kind]: extra.publicProjection || extra.stored?.[kind] || plan.metadata,
       visibleTerminal: extra.stored?.visibleTerminal === true, commandAvailable: true,
       commandPreview: plan.originalCommand || null };
   }
   function prepareGovernor(msg) {
     const { target } = context(msg, 'MACHINE_GOVERNOR_REQUEST_REQUIRED');
     const spec = { runId: msg.runId, expectedHead: msg.expectedHead, tier: msg.tier,
-      mission: msg.mission, allowedFiles: msg.allowedFiles };
+      mission: msg.mission, allowedFiles: msg.allowedFiles, preserveFiles: msg.preserveFiles,
+      publish: msg.publish === true, commitMessage: msg.commitMessage };
     const plan = createGovernorJobPlan({ ...spec, target }, { repoRoot });
-    return store(msg, 'governor', plan, { spec,
-      stored: { missionSha256: plan.missionSha256, governor: plan.metadata } });
+    return store(msg, 'governor', plan, { spec, publicProjection: plan.metadata,
+      stored: { missionSha256: plan.missionSha256, governor: { ...plan.metadata,
+        allowedFiles: [...plan.allowedFiles], preserveFiles: [...plan.preserveFiles], publication: plan.publication } } });
+  }
+  function prepareProviderGovernor(input) {
+    if (!input.origin?.roomId || !input.origin?.executorMemberId || !input.origin?.agentMessageId)
+      throw machineError('MACHINE_GOVERNOR_ORIGIN_REQUIRED', 'governor_prepare must trail an exact committed Dex relay reply.');
+    const command = input.command || {};
+    const head = resolveHead(root);
+    if (command.expectedHead && command.expectedHead !== head)
+      throw machineError('MACHINE_GOVERNOR_HEAD_CHANGED', 'The requested Git HEAD is stale; inspect the current room workspace before preparing a new task.');
+    const msg = { requestId: input.requestId, roomId: input.origin.roomId,
+      spaceId: command.space, targetId: command.terminal || command.terminalId,
+      runId: command.runId, expectedHead: head, tier: command.tier,
+      mission: command.mission, allowedFiles: command.allowedFiles,
+      preserveFiles: command.preserveFiles, publish: command.publish === true,
+      commitMessage: command.commitMessage };
+    const { room, target } = context(msg, 'MACHINE_GOVERNOR_REQUEST_REQUIRED');
+    const worker = middleAgentFor(room);
+    if (!worker || worker.id !== input.origin.executorMemberId)
+      throw machineError('MACHINE_GOVERNOR_MIDDLE_AGENT_REQUIRED', 'Only this room\'s selected middle agent may prepare a governed engineering task.');
+    const spec = { runId: msg.runId, expectedHead: msg.expectedHead, tier: msg.tier,
+      mission: msg.mission, allowedFiles: msg.allowedFiles, preserveFiles: msg.preserveFiles,
+      publish: msg.publish, commitMessage: msg.commitMessage };
+    const plan = createGovernorJobPlan({ ...spec, target }, { repoRoot });
+    return store(msg, 'governor', plan, { spec, ownerMemberId: worker.id, publicProjection: plan.metadata,
+      stored: { missionSha256: plan.missionSha256, governor: { ...plan.metadata,
+          allowedFiles: [...plan.allowedFiles], preserveFiles: [...plan.preserveFiles], publication: plan.publication },
+        actorMemberId: worker.id, actorName: worker.name,
+        sourceMessageId: input.origin.agentMessageId, visibleTerminal: true } });
   }
   function recoverySpec(msg) {
     return { runId: msg.runId, branch: msg.branch, expectedHead: msg.expectedHead,
@@ -123,7 +152,7 @@ function createLocalPlanController({ jobs, commandStore, broker, getState, repoR
       throw machineError('MACHINE_GOVERNOR_PLAN_CHANGED', 'Governor mission changed after preparation; do not start it.');
     return current;
   }
-  return { prepareGovernor, prepareRecovery, prepareRoomRecovery, revalidate,
+  return { prepareGovernor, prepareProviderGovernor, prepareRecovery, prepareRoomRecovery, revalidate,
     currentHead: () => resolveHead(root) };
 }
 

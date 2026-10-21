@@ -6,13 +6,13 @@ const { relativeFile } = require('./engineering-recovery-job-plan');
 const { createChatApproval, publicChatApproval } = require('./supervised-chat-approval');
 const { workflowEligible } = require('./engineering-workflow-authorization');
 
-const ACTIONS = new Set(['job_prepare', 'playwright_prepare', 'job_status', 'job_list']);
+const ACTIONS = new Set(['job_prepare', 'playwright_prepare', 'governor_prepare', 'job_status', 'job_list']);
 
 function machineError(code, message) { return Object.assign(new Error(message), { code }); }
 function normalized(value) { return String(value ?? '').trim(); }
 
 function createSupervisedJobProviderControl({ jobs, commandStore, broker, getState, findSpace, repoRoot,
-  now = () => Date.now() } = {}) {
+  prepareGovernor = null, now = () => Date.now() } = {}) {
   if (!jobs || !commandStore || !broker || typeof getState !== 'function' || typeof findSpace !== 'function')
     throw new TypeError('supervised job provider control requires jobs, commandStore, broker, getState and findSpace');
 
@@ -112,6 +112,17 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
       if (action === 'job_prepare' || action === 'playwright_prepare') {
         const data = prepare(input);
         result = { ok: true, action, message: `Prepared supervised job ${data.jobId}; local owner approval is required before launch.`, data };
+      } else if (action === 'governor_prepare') {
+        if (typeof prepareGovernor !== 'function')
+          throw machineError('MACHINE_GOVERNOR_UNAVAILABLE', 'Governed engineering preparation is unavailable on this Nexus runtime.');
+        const job = prepareGovernor(input);
+        const stored = commandStore.get(job.jobId);
+        if (!stored?.chatApproval) stored.chatApproval = createChatApproval({
+          jobId: job.jobId, commandDigest: job.commandDigest, kind: 'governor', now });
+        const data = { ...job, workflowEligible: workflowEligible(job, stored),
+          chatApproval: publicChatApproval(stored, now) };
+        result = { ok: true, action,
+          message: `Prepared governed engineering job ${data.jobId}; one local workflow approval is required before launch.`, data };
       } else if (action === 'job_status') {
         const data = jobs.status(input.command?.jobId);
         const { room, space } = roomSpace(input);

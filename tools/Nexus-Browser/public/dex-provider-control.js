@@ -15,10 +15,10 @@
     'help', 'onboard', 'checkpoint', 'read_checkpoint', 'rooms', 'targets', 'create_room', 'use_room', 'status',
     'rename_self', 'set_self_relay', 'clear_chat', 'delete_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'send', 'handoff_room',
     'stop_relay', 'continue_relay', 'room_budget', 'set_room_budget', 'room_log', 'tool_result_status', 'reload_extension', 'watch_done', 'unwatch_done',
-    'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle', 'terminal_targets', 'terminal_exec', 'terminal_status', 'terminal_output',
-    'job_prepare', 'playwright_prepare', 'job_status', 'job_list', ...roomAdminApi.ACTIONS
+    'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle', 'workspace_ensure', 'terminal_targets', 'terminal_exec', 'terminal_status', 'terminal_output',
+    'job_prepare', 'playwright_prepare', 'governor_prepare', 'job_status', 'job_list', ...roomAdminApi.ACTIONS
   ]);
-  const MUTATING_ACTIONS = new Set(['checkpoint','create_room','rename_room','configure_room','add_agent','spawn_agent','despawn_agent','rename_agent','set_agent_relay','remove_agent','rename_self','set_self_relay','stop_relay','continue_relay','set_room_budget','clear_chat','delete_room','send','handoff_room','reload_extension','watch_done','unwatch_done','arm_post_idle','cancel_post_idle','report_post_idle','terminal_exec','job_prepare','playwright_prepare','quorum_presence','quorum_open','quorum_vote','quorum_close']);
+  const MUTATING_ACTIONS = new Set(['checkpoint','create_room','rename_room','configure_room','add_agent','spawn_agent','despawn_agent','rename_self','set_self_relay','rename_agent','set_agent_relay','remove_agent','stop_relay','continue_relay','set_room_budget','clear_chat','delete_room','send','handoff_room','reload_extension','watch_done','unwatch_done','arm_post_idle','cancel_post_idle','report_post_idle','workspace_ensure','terminal_exec','job_prepare','playwright_prepare','governor_prepare','quorum_presence','quorum_open','quorum_vote','quorum_close']);
   function clean(value, max = 16000) {
     return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, max);
   }
@@ -133,7 +133,7 @@
         providerName: member?.binding?.providerName || null,
         relayEnabled: member?.relayEnabled !== false
       },
-      commands: ['rooms', 'targets', 'status', 'room_budget', 'set_room_budget', 'room_log', 'tool_result_status', 'checkpoint', 'read_checkpoint', 'use_room', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done', 'terminal_targets', 'terminal_exec', 'terminal_status', 'terminal_output', 'job_prepare', 'playwright_prepare', 'job_status', 'job_list'],
+      commands: ['rooms', 'targets', 'status', 'room_budget', 'set_room_budget', 'room_log', 'tool_result_status', 'checkpoint', 'read_checkpoint', 'use_room', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay', 'stop_relay', 'continue_relay', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done', 'workspace_ensure', 'terminal_targets', 'terminal_exec', 'terminal_status', 'terminal_output', 'job_prepare', 'playwright_prepare', 'governor_prepare', 'job_status', 'job_list'],
       spawnProviders: providers.filter((entry) => entry.orchestration?.spawnable).map((entry) => ({ providerId: entry.id, providerName: entry.name })),
       continuity: continuityApi.onboardingGuidance(room, member, provider),
       rules: [
@@ -221,8 +221,8 @@
       if (!ACTIONS.has(action)) return { ok: false, code: 'DEX_CONTROL_BAD_ACTION', message: `Unsupported Dex provider-control action: ${action || '(missing)'}` };
       if (!source.targetClassId || !source.providerId) return { ok: false, code: 'DEX_CONTROL_BAD_SOURCE', message: 'Provider-control source identity is incomplete.' };
       if (action === 'help') return help();
-      if (['reload_extension', 'watch_done', 'unwatch_done', 'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle', 'room_budget', 'set_room_budget', 'room_log', 'tool_result_status', 'terminal_targets', 'terminal_exec', 'terminal_status', 'terminal_output',
-        'job_prepare', 'playwright_prepare', 'job_status', 'job_list'].includes(action)) return { ok: false, code: 'DEX_CONTROL_SERVER_ONLY', message: `${action} is owned by the localhost provider-control router.` };
+      if (['reload_extension', 'watch_done', 'unwatch_done', 'arm_post_idle', 'post_idle_status', 'cancel_post_idle', 'report_post_idle', 'room_budget', 'set_room_budget', 'room_log', 'tool_result_status', 'workspace_ensure', 'terminal_targets', 'terminal_exec', 'terminal_status', 'terminal_output',
+        'job_prepare', 'playwright_prepare', 'governor_prepare', 'job_status', 'job_list'].includes(action)) return { ok: false, code: 'DEX_CONTROL_SERVER_ONLY', message: `${action} is owned by the localhost provider-control router.` };
       if (action === 'create_room') {
         if (typeof createRoom !== 'function') {
           return { ok: false, code: 'DEX_CONTROL_CREATE_UNAVAILABLE', message: 'Dex room creation is unavailable in this runtime.' };

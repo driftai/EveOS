@@ -11,7 +11,7 @@ const SHORTHAND = /^(?:\/approve|yes[,.]?\s+go\s+ahead)[.!]?$/i;
 function machineError(code, message) { return Object.assign(new Error(message), { code }); }
 function text(value) { return String(value ?? '').trim(); }
 function approvalText(jobId, commandDigest, challenge, kind = 'playwright-acceptance') {
-  const command = kind === 'terminal-supervised' ? '/approve-workflow' : '/approve-playwright';
+  const command = ['terminal-supervised', 'governor'].includes(kind) ? '/approve-workflow' : '/approve-playwright';
   return `${command} ${text(jobId)} ${text(commandDigest).slice(0, 12)} ${text(challenge).toUpperCase()}`;
 }
 function approvalDigest(value) { return createHash('sha256').update(text(value)).digest('hex'); }
@@ -23,7 +23,7 @@ function createChatApproval({ jobId, commandDigest, kind = 'playwright-acceptanc
   const challenge = bytes(6).toString('hex').toUpperCase();
   const requiredText = approvalText(jobId, commandDigest, challenge, kind);
   return {
-    schema: kind === 'terminal-supervised'
+    schema: ['terminal-supervised', 'governor'].includes(kind)
       ? 'eveos.machine-spaces.workflow-chat-approval.v1'
       : 'eveos.machine-spaces.playwright-chat-approval.v1',
     challenge,
@@ -91,7 +91,7 @@ function validateChatApprovalIntent({ message, job, stored, now = Date.now } = {
 }
 
 function validateWorkflowChatApproval({ message, job, stored, now = Date.now } = {}) {
-  if (!job || job.kind !== 'terminal-supervised' || job.state !== 'queued')
+  if (!job || !['terminal-supervised', 'governor'].includes(job.kind) || job.state !== 'queued')
     throw machineError('MACHINE_WORKFLOW_CHAT_NOT_QUEUED', 'Chat workflow approval requires one queued eligible engineering job.');
   if (!stored?.chatApproval || stored.chatApproval.schema !== 'eveos.machine-spaces.workflow-chat-approval.v1'
       || stored.commandDigest !== job.commandDigest)
