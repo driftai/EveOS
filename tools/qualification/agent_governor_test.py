@@ -121,6 +121,23 @@ class Tests(unittest.TestCase):
             finally:
                 coordinator.changed_files = old
 
+    def test_asset_sync_is_host_owned_and_keeps_the_authorized_file_fence(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            folder = root / 'run'
+            folder.mkdir()
+            class Result:
+                returncode = 0
+            with patch.object(coordinator, 'command', return_value=Result()) as run, \
+                    patch.object(coordinator, 'changed_files', return_value=['source.js', 'manifest.js']):
+                coordinator.sync_runtime_assets(root, folder, ['source.js', 'manifest.js'], [])
+                self.assertIn('build:asset-versions', run.call_args.args[0])
+            with patch.object(coordinator, 'command', return_value=Result()), \
+                    patch.object(coordinator, 'changed_files', return_value=['outside.js']):
+                with self.assertRaisesRegex(RuntimeError, 'ASSET_SYNC_UNAUTHORIZED'):
+                    coordinator.sync_runtime_assets(root, folder, ['source.js'], [])
+
     def test_preserved_draft_is_shelved_for_push_hook_and_restored_exactly(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

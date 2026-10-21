@@ -220,6 +220,18 @@ def run_gates(repo: Path, folder: Path, receipt: dict):
     return True
 
 
+def sync_runtime_assets(repo: Path, folder: Path, allowed: list[str], preserved: list[str]):
+    """Run the deterministic asset writer outside the sandboxed editing agent."""
+    with (folder / 'asset-sync.log').open('wb') as log:
+        proc = command(['npm', 'run', '--silent', 'build:asset-versions'], cwd=repo,
+                       stdout=log, timeout=300)
+    if proc.returncode:
+        raise RuntimeError('ASSET_SYNC_FAILED')
+    unexpected = set(changed_files(repo, exclude=preserved)) - set(allowed)
+    if unexpected:
+        raise RuntimeError('ASSET_SYNC_UNAUTHORIZED_FILE_SET')
+
+
 def publish(repo: Path, folder: Path, receipt: dict, allowed: list[str]):
     if receipt['state'] != 'QUALIFIED':
         raise RuntimeError('NOT_QUALIFIED')
@@ -382,6 +394,7 @@ def main(argv=None):
         if args.phase in ('run', 'qualify'):
             verify_baseline(repo, receipt['expectedHead'], clean=False)
             verify_preserved(repo, receipt.get('preservedFiles') or [], receipt.get('preservedHashes') or {})
+            sync_runtime_assets(repo, folder, receipt['allowedFiles'], receipt.get('preservedFiles') or [])
             allowed = allowable_files(repo, receipt['allowedFiles'], receipt.get('preservedFiles') or [])
             receipt['sourceHashes'] = hash_files(repo, allowed)
             if not run_gates(repo, folder, receipt):
