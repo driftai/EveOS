@@ -91,7 +91,9 @@
     function syncFullUiReadiness(container) {
         if (!container) return;
         const hasFullUi = !!container.querySelector('.mdl-layout__container');
-        container.dataset.geminiFullReady = hasFullUi ? '1' : '0';
+        container.dataset.geminiFullReady = hasFullUi
+            ? '1'
+            : (container.dataset.geminiFullLoadRequested === '1' ? '0' : '');
     }
 
     function ensureExpandedWorkspace(container) {
@@ -178,6 +180,8 @@
     function openGeminiProvider(container) {
         if (!container || container.dataset.geminiMonitorView !== 'full') return;
         // Explicit Load Gemini Workspace owns expansion and heavy frontend boot.
+        container.dataset.geminiFullLoadRequested = '1';
+        syncFullUiReadiness(container);
         ensureExpandedWorkspace(container);
         requestGeminiBoot('gemini-provider-explicit-load');
         startFullUiPolling(container);

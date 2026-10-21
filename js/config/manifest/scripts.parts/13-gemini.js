@@ -12,7 +12,7 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/gemini/search_monitor/searchMonitorAiHome.markup.js?v=6ca099e49c12",
     "js/modules/gemini/search_monitor/searchMonitorAiHome.js?v=3319bf4939e8",
     "js/modules/gemini/search_monitor/searchMonitorUpdates.js?v=f3f058b5d78a",
-    "js/modules/gemini/gemini-init.js?v=ce931f88e3d0",
+    "js/modules/gemini/gemini-init.js?v=131d147da9cf",
     "js/modules/gemini/server_control/geminiServerNetwork.js?v=9edb7c790707",
     "js/modules/gemini/server_control/eveosControlPlane.js?v=53a506753d2a",
     "js/modules/gemini/server_control/geminiCredentialBridge.js?v=5a9af87959b0",

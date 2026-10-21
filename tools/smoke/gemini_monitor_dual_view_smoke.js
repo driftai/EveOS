@@ -55,6 +55,7 @@ async function main() {
             const provider = root?.querySelector('[data-ai-provider="gemini"]');
             return {
                 summaryDisplay: summary ? window.getComputedStyle(summary).display : '',
+                loadingMessage: summary ? window.getComputedStyle(summary, '::after').content : '',
                 workspaceDisplay: workspace ? window.getComputedStyle(workspace).display : '',
                 geminiProviderOpen: provider?.open === true,
                 fullUiPresent: !!root?.querySelector('.mdl-layout__container'),
@@ -64,7 +65,8 @@ async function main() {
         if (passiveWorkspace.summaryDisplay !== 'none'
             || passiveWorkspace.workspaceDisplay === 'none'
             || passiveWorkspace.geminiProviderOpen
-            || passiveWorkspace.fullUiPresent) {
+            || passiveWorkspace.fullUiPresent
+            || passiveWorkspace.loadingMessage !== 'none') {
             throw new Error(`Workspace mode violated passive provider isolation: ${JSON.stringify(passiveWorkspace)}`);
         }
 
@@ -119,6 +121,9 @@ async function main() {
                 compact: document.getElementById('loadingIndicator')?.classList.contains('compact') || false,
                 rootMode: root?.dataset.geminiMonitorView || '',
                 fullReady: root?.dataset.geminiFullReady || '',
+                loadingMessage: document.getElementById('search-monitor-assistant-pane')
+                    ? window.getComputedStyle(document.getElementById('search-monitor-assistant-pane'), '::after').content
+                    : '',
                 savedMode: window.localStorage?.getItem('eve.geminiMonitorView') || '',
                 summaryPane,
                 workspace,
@@ -150,6 +155,9 @@ async function main() {
         }
         if (!result.providerOpen) {
             throw new Error(`Gemini provider did not remain explicitly open after activation: ${JSON.stringify(result)}`);
+        }
+        if (result.loadingMessage !== 'none') {
+            throw new Error(`Ready Gemini workspace retained its loading message: ${JSON.stringify(result)}`);
         }
         if (!result.workspace || result.workspace.display === 'none' || result.workspace.height < 220) {
             throw new Error(`Full Gemini workspace did not render in monitor: ${JSON.stringify(result)}`);
