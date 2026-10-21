@@ -123,7 +123,8 @@ function createLocalPlanController({ jobs, commandStore, broker, getState, repoR
       throw machineError('MACHINE_GOVERNOR_PLAN_CHANGED', 'Governor mission changed after preparation; do not start it.');
     return current;
   }
-  return { prepareGovernor, prepareRecovery, prepareRoomRecovery, revalidate };
+  return { prepareGovernor, prepareRecovery, prepareRoomRecovery, revalidate,
+    currentHead: () => resolveHead(root) };
 }
 
 module.exports = { createLocalPlanController };

@@ -2,14 +2,15 @@
   'use strict';
 
   const APPROVAL = /^\/approve-playwright\s+(machine-job-[A-Za-z0-9-]{1,180})\s+([a-f0-9]{12})\s+([a-f0-9]{12})$/i;
+  const WORKFLOW_APPROVAL = /^\/approve-workflow\s+(machine-job-[A-Za-z0-9-]{1,180})\s+([a-f0-9]{12})\s+([a-f0-9]{12})$/i;
   const SHORTHAND = /^(?:\/approve|yes[,.]?\s+go\s+ahead)[.!]?$/i;
   function parse(value) {
     const approvalText = String(value || '').trim();
-    const match = APPROVAL.exec(approvalText);
+    const match = APPROVAL.exec(approvalText) || WORKFLOW_APPROVAL.exec(approvalText);
     if (match) return { approvalText, jobId: match[1], commandDigestPrefix: match[2].toLowerCase(),
       challenge: match[3].toUpperCase() };
     return SHORTHAND.test(approvalText)
-      ? { approvalText, approvalIntent: 'single-pending-playwright' } : null;
+      ? { approvalText, approvalIntent: 'single-pending-supervised' } : null;
   }
   const api = { parse };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
@@ -24,7 +25,7 @@
   let socket = null, reconnectTimer = null, pending = null, jobs = [];
   const activeRoomId = () => roomList.querySelector('.dex-room-item.active')?.dataset.roomId || '';
   const pendingInRoom = (roomId) => jobs.filter((job) => job?.roomId === roomId
-    && job.kind === 'playwright-acceptance' && job.state === 'queued');
+    && job.state === 'queued' && job.chatApproval);
   function note(value) {
     if (!diagnostics) return;
     diagnostics.textContent = `[${new Date().toLocaleTimeString()}] ${value}\n${diagnostics.textContent || ''}`.slice(0, 12000);
@@ -42,17 +43,17 @@
       if (!candidates.length) return false;
       if (candidates.length !== 1) {
         event?.preventDefault?.(); event?.stopImmediatePropagation?.();
-        return note('Multiple Playwright jobs await approval; use the exact job-specific phrase.'), true;
+        return note('Multiple supervised jobs await approval; use the exact job-specific phrase.'), true;
       }
     }
     event?.preventDefault?.(); event?.stopImmediatePropagation?.();
-    if (pending) return note('A Playwright chat approval is already being submitted.'), true;
-    if (!roomId) return note('Select the exact Dex room before approving its Playwright job.'), true;
-    if (panel.dataset.humanInput !== 'enabled') return note('Enable Human Input before approving a Playwright job from chat.'), true;
+    if (pending) return note('A supervised chat approval is already being submitted.'), true;
+    if (!roomId) return note('Select the exact Dex room before approving its supervised job.'), true;
+    if (panel.dataset.humanInput !== 'enabled') return note('Enable Human Input before approving a supervised job from chat.'), true;
     const requestId = `machine-chat-approval-${globalThis.crypto?.randomUUID?.() || Date.now()}`;
     pending = { requestId, original: prompt.value };
     if (!send({ type: 'machine_chat_approve_supervised_job', requestId, roomId, ...parsed })) {
-      pending = null; note('Nexus is disconnected; the Playwright job was not approved.'); return true;
+      pending = null; note('Nexus is disconnected; the supervised job was not approved.'); return true;
     }
     prompt.value = '';
     return true;

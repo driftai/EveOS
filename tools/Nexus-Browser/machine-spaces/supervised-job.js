@@ -102,12 +102,14 @@ function createSupervisedJobCoordinator(options = {}) {
       method,
       sourceMessageId: text(input.sourceMessageId) || null,
       approvalDigest: approvalDigest || null,
+      workflow: clone(input.workflow || null),
       authorizedAt: stamp()
     };
     if (job.authorization) {
       const same = job.authorization.method === next.method
         && job.authorization.sourceMessageId === next.sourceMessageId
-        && job.authorization.approvalDigest === next.approvalDigest;
+        && job.authorization.approvalDigest === next.approvalDigest
+        && JSON.stringify(job.authorization.workflow || null) === JSON.stringify(next.workflow);
       if (!same) throw makeError('MACHINE_JOB_AUTHORIZATION_CONFLICT', 'This queued job already has different authorization provenance.');
       return publicJob(job);
     }

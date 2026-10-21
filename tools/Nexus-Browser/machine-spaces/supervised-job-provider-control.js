@@ -4,6 +4,7 @@ const { cleanCommand, commandDigest } = require('./approval-broker');
 const { registeredPlan } = require('./playwright-job-plan');
 const { relativeFile } = require('./engineering-recovery-job-plan');
 const { createChatApproval, publicChatApproval } = require('./supervised-chat-approval');
+const { workflowEligible } = require('./engineering-workflow-authorization');
 
 const ACTIONS = new Set(['job_prepare', 'playwright_prepare', 'job_status', 'job_list']);
 
@@ -82,11 +83,13 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
         retrySafety, repairFiles, contextFiles, invariants,
         createdAt: job.createdAt
       };
-      if (playwright) stored.chatApproval = createChatApproval({ jobId: job.jobId, commandDigest: digest, now });
+      if (playwright || workflowEligible(job, stored)) {
+        stored.chatApproval = createChatApproval({ jobId: job.jobId, commandDigest: digest, kind, now });
+      }
       commandStore.set(job.jobId, stored);
     }
     const stored = commandStore.get(job.jobId);
-    return { ...job, commandAvailable: true,
+    return { ...job, commandAvailable: true, workflowEligible: workflowEligible(job, stored),
       commandPreview: command.length > 180 ? `${command.slice(0, 177)}...` : command,
       chatApproval: publicChatApproval(stored, now) };
   }
@@ -96,7 +99,7 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
     return jobs.snapshot().jobs.filter((job) => job.roomId === room.id && job.spaceId === space.id)
       .map((job) => {
         const stored = commandStore.get(job.jobId);
-        return { ...job, commandAvailable: !!stored,
+        return { ...job, commandAvailable: !!stored, workflowEligible: workflowEligible(job, stored),
           commandPreview: stored?.command ? (stored.command.length > 180 ? `${stored.command.slice(0, 177)}...` : stored.command) : null,
           chatApproval: publicChatApproval(stored, now) };
       });
@@ -116,7 +119,8 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
           throw machineError('MACHINE_JOB_NOT_AUTHORIZED', 'That supervised job is outside this authorized room and Machine Space.');
         const stored = commandStore.get(data.jobId);
         result = { ok: true, action, message: `Supervised job ${data.jobId} is ${data.state}.`,
-          data: { ...data, commandAvailable: !!stored, chatApproval: publicChatApproval(stored, now) } };
+          data: { ...data, commandAvailable: !!stored, workflowEligible: workflowEligible(data, stored),
+            chatApproval: publicChatApproval(stored, now) } };
       } else if (action === 'job_list') {
         const data = visibleJobs(input);
         result = { ok: true, action, message: `${data.length} supervised job(s) are visible in this Machine Space.`, data };

@@ -51,7 +51,7 @@ test('real pointer shorthand is contextual, Human-Input-gated and bound to one p
 
   await page.evaluate(() => {
     const payload = { type: 'machine_supervised_jobs', jobs: [{ jobId: 'machine-job-proof', roomId: 'room-one',
-      kind: 'playwright-acceptance', state: 'queued' }] };
+      kind: 'playwright-acceptance', state: 'queued', chatApproval: { requiredText: '/approve-playwright proof' } }] };
     window.__sockets[0].dispatchEvent(new MessageEvent('message', { data: JSON.stringify(payload) }));
   });
   await page.locator('#dexPrompt').fill('/approve');
@@ -64,7 +64,7 @@ test('real pointer shorthand is contextual, Human-Input-gated and bound to one p
   const approval = await page.evaluate(() => window.__sent.find((entry) => entry.type === 'machine_chat_approve_supervised_job'));
   assert.equal(approval.roomId, 'room-one');
   assert.equal(approval.approvalText, '/approve');
-  assert.equal(approval.approvalIntent, 'single-pending-playwright');
+  assert.equal(approval.approvalIntent, 'single-pending-supervised');
   assert.equal(approval.jobId, undefined);
   assert.equal(await page.locator('#dexPrompt').inputValue(), '');
   assert.equal(await page.evaluate(() => window.__ordinaryClicks), 2, 'approved shorthand is consumed by the dedicated bridge');

@@ -24,7 +24,7 @@ function createEngineeringCycle({ load, save, broadcastState = () => {}, machine
         && Array.isArray(stored.repairFiles) && stored.repairFiles.length) {
       failures.set(job.jobId, { job: structuredClone(job), command: stored.command,
         repairFiles: [...stored.repairFiles], contextFiles: [...(stored.contextFiles || stored.repairFiles)],
-        invariants: [...(stored.invariants || [])] });
+        invariants: [...(stored.invariants || [])], workflowAuthorization: job.authorization?.workflow || null });
     }
     return incidentBridge.handle({ ...job, engineeringPlan: failures.get(job?.jobId) || null });
   }
@@ -57,8 +57,15 @@ function createEngineeringCycle({ load, save, broadcastState = () => {}, machine
             incidentJobId: proposal.incidentJobId, proposalMessageId: message.id
           });
           receipt.state = 'approval-pending'; receipt.recoveryJobId = job.jobId; receipt.code = 'ENGINEERING_RECOVERY_PREPARED';
+          if (context.workflowAuthorization && typeof machineSpaces.startEngineeringRecovery === 'function') {
+            machineSpaces.startEngineeringRecovery(job.jobId, { authorization: context.workflowAuthorization,
+              incidentJob: context.job });
+            receipt.state = 'running'; receipt.code = 'ENGINEERING_WORKFLOW_RECOVERY_STARTED';
+          }
           const system = stateApi.addMessage(room, { senderKind: 'system', senderId: null,
-            senderName: 'Machine Spaces', text: `[ENGINEERING RECOVERY PREPARED]\nincident=${proposal.incidentJobId}\nproposal=${message.id}\nrecoveryJob=${job.jobId}\nThe exact repair remains inert until independent local-owner approval.` });
+            senderName: 'Machine Spaces', text: `[ENGINEERING RECOVERY PREPARED]\nincident=${proposal.incidentJobId}\nproposal=${message.id}\nrecoveryJob=${job.jobId}\n${receipt.state === 'running'
+              ? 'The exact repair started under the original bounded owner workflow approval.'
+              : 'The exact repair remains inert until independent local-owner approval.'}` });
           system.engineeringRecoveryPrepared = { incidentJobId: proposal.incidentJobId,
             proposalMessageId: message.id, recoveryJobId: job.jobId };
         } catch (error) {

@@ -51,6 +51,8 @@ test('agent may declare bounded idempotent recovery authority but still cannot l
   const result = control.route(request), stored = commandStore.get(result.data.jobId);
   assert.equal(result.ok, true); assert.equal(stored.retrySafety, 'idempotent');
   assert.deepEqual(stored.repairFiles, ['package.json']); assert.equal(control.owns('job_start'), false);
+  assert.equal(result.data.workflowEligible, true);
+  assert.match(result.data.chatApproval.requiredText, /^\/approve-workflow machine-job-/);
   const conflict = structuredClone(request); conflict.command.repairFiles = ['README.md'];
   assert.equal(control.route(conflict).code, 'MACHINE_JOB_REQUEST_CONFLICT');
 });

@@ -169,8 +169,9 @@
     if (!roomId || !spaceId || phase !== 'connected') { jobs = []; render(); return; }
     send({ type: 'machine_supervised_jobs', roomId, spaceId });
   }
-  function requestMutation(type, job) {
-    send({ type, requestId: `machine-supervised-ui-${globalThis.crypto?.randomUUID?.() || Date.now()}`, jobId: job.jobId });
+  function requestMutation(type, job, extra = {}) {
+    send({ type, requestId: `machine-supervised-ui-${globalThis.crypto?.randomUUID?.() || Date.now()}`,
+      jobId: job.jobId, ...extra });
   }
   function requestOutput(job, offset = 0) {
     if (!job.result?.outputId) return;
@@ -212,15 +213,19 @@
 
     const actions = document.createElement('div'); actions.className = 'machine-request-actions';
     if (job.state === 'queued') {
-      actions.append(button('Start supervised', async () => {
+      actions.append(button(job.workflowEligible ? 'Approve exact workflow' : 'Start supervised', async () => {
         const recoveryNotice = job.recovery
           ? `\n\nRecovery authority: TLO may edit only ${job.recovery.repairFiles.join(', ')}, run this same idempotent command again after a verified repair, and stop after ${job.recovery.maxAttempts} repair attempt(s).`
           : '';
+        const workflowNotice = job.workflowEligible
+          ? '\n\nThis single approval covers this command plus one automatic, TLO-proposed repair of the listed files and one verified retry. It expires after 30 minutes and stops if the room, terminal, Git HEAD, command, or file scope changes.'
+          : '';
         const terminalNotice = job.visibleTerminal ? '\n\nA visible read-only terminal will mirror the managed execution.' : '';
-        const ok = await confirmAction('Start this supervised job?',
-          'The exact prepared command will start in its pinned Nexus-managed terminal. It may remain running until stopped, completed, or the supervision ceiling is reached.' + recoveryNotice + terminalNotice,
-          'Start job');
-        if (ok) requestMutation('machine_start_supervised_job', job);
+        const ok = await confirmAction(job.workflowEligible ? 'Approve this exact engineering workflow?' : 'Start this supervised job?',
+          'The exact prepared command will start in its pinned Nexus-managed terminal. It may remain running until stopped, completed, or the supervision ceiling is reached.' + recoveryNotice + workflowNotice + terminalNotice,
+          job.workflowEligible ? 'Approve workflow' : 'Start job');
+        if (ok) requestMutation('machine_start_supervised_job', job,
+          job.workflowEligible ? { approveWorkflow: true } : {});
       }));
     } else if (job.state === 'deferred') {
       actions.append(button('Reattach supervision', async () => {

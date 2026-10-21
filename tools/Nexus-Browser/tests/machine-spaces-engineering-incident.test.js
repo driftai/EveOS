@@ -11,6 +11,8 @@ const { enhanceMachineSpacesSupervisedController } = require('../machine-spaces/
 const { SCHEMA, validateEngineeringProposal } = require('../dex/engineering-proposal');
 const { createEngineeringCycle } = require('../dex/engineering-cycle');
 const { validateEngineeringCompletion } = require('../dex/engineering-completion');
+const { commandDigest } = require('../machine-spaces/approval-broker');
+const { createWorkflowAuthorization, validateInheritedRecovery } = require('../machine-spaces/engineering-workflow-authorization');
 
 function store(seed) {
   let value = structuredClone(seed);
@@ -188,6 +190,51 @@ test('validated proposal prepares one inert scoped recovery job through the exis
   const receipt = state.value().rooms[0].engineeringCycleReceipts[0];
   assert.equal(receipt.state, 'approval-pending'); assert.equal(receipt.recoveryJobId, 'machine-job-recovery');
   assert.equal(cycle.reconcile().changed, false); assert.equal(prepared.length, 1);
+});
+
+test('one exact owner workflow approval inherits into one bounded matching recovery', () => {
+  const head = 'a'.repeat(40), original = 'node tools/fixture.js';
+  const incident = { ...job('failed'), kind: 'terminal-supervised', commandDigest: commandDigest(original) };
+  const initialStored = { command: original, retrySafety: 'idempotent', repairFiles: ['tools/fixture.js'],
+    contextFiles: ['tools/fixture.js'], invariants: ['preserve the passing branch'] };
+  const authorization = createWorkflowAuthorization({ job: incident, stored: initialStored,
+    expectedHead: head, now: () => 1000 });
+  incident.authorization = { sourceMessageId: 'owner-approval', workflow: authorization };
+  const recoveryJob = { ...incident, jobId: 'machine-job-recovery', kind: 'recovery', state: 'queued' };
+  const recoveryStored = { kind: 'recovery', displayCommand: original, recovery: {
+    incidentJobId: incident.jobId, expectedHead: head, retrySafety: 'idempotent', maxAttempts: 1,
+    repairFiles: ['tools/fixture.js'], contextFiles: ['tools/fixture.js'], invariants: ['preserve the passing branch'] } };
+  const inherited = validateInheritedRecovery({ authorization, incidentJob: incident,
+    recoveryJob, stored: recoveryStored, currentHead: head, now: () => 2000 });
+  assert.equal(inherited.method, 'inherited-owner-workflow');
+  assert.throws(() => validateInheritedRecovery({ authorization, incidentJob: incident,
+    recoveryJob: { ...recoveryJob, targetId: 'other-terminal' }, stored: recoveryStored,
+    currentHead: head, now: () => 2000 }), { code: 'MACHINE_WORKFLOW_TARGET_CHANGED' });
+  assert.throws(() => validateInheritedRecovery({ authorization, incidentJob: incident,
+    recoveryJob, stored: { ...recoveryStored, recovery: { ...recoveryStored.recovery,
+      repairFiles: ['README.md'] } }, currentHead: head, now: () => 2000 }),
+  { code: 'MACHINE_WORKFLOW_SCOPE_CHANGED' });
+});
+
+test('approved engineering cycle auto-starts matching recovery without a second owner prompt', () => {
+  const state = store(room([member('tlo')])), prepared = [], started = [];
+  const seeded = state.load(); seeded.rooms[0].messages.push({ id: 'proposal-workflow', senderKind: 'agent',
+    engineeringProposal: { ok: true, incidentJobId: 'machine-job-failed', retryIntent: 'after-verified-repair',
+      repair: { kind: 'source-patch', paths: ['tools/fixture.js'] } } }); state.save(seeded);
+  const workflowAuthorization = { schema: 'eveos.machine-spaces.engineering-workflow-authorization.v1' };
+  const cycle = createEngineeringCycle({ load: state.load, save: state.save, repoRoot: process.cwd(),
+    resolveHead: () => 'a'.repeat(40), broadcastState() {}, incidentBridge: { handle() { return { ok: true }; } },
+    machineSpaces: {
+      prepareEngineeringRecovery(input) { prepared.push(input); return { jobId: 'machine-job-recovery' }; },
+      startEngineeringRecovery(jobId, input) { started.push({ jobId, input }); return { state: 'running' }; }
+    } });
+  cycle.onJobSettled({ ...job('failed'), jobId: 'machine-job-failed', authorization: { workflow: workflowAuthorization } }, {
+    command: 'node tools/fixture.js', retrySafety: 'idempotent', repairFiles: ['tools/fixture.js'],
+    contextFiles: ['tools/fixture.js'], invariants: [] });
+  assert.equal(cycle.reconcile().changed, true);
+  assert.equal(prepared.length, 1); assert.equal(started.length, 1);
+  assert.equal(started[0].input.authorization, workflowAuthorization);
+  assert.equal(state.value().rooms[0].engineeringCycleReceipts[0].state, 'running');
 });
 
 test('scheduler rejects engineering DONE that is not bound to the authoritative receipt', async () => {

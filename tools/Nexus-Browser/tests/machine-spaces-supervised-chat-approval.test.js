@@ -7,7 +7,7 @@ const { EventEmitter } = require('node:events');
 const { commandDigest } = require('../machine-spaces/approval-broker');
 const { registeredPlan } = require('../machine-spaces/playwright-job-plan');
 const { createChatApproval, publicChatApproval, validateChatApproval,
-  validateChatApprovalIntent } = require('../machine-spaces/supervised-chat-approval');
+  validateChatApprovalIntent, validateWorkflowChatApproval } = require('../machine-spaces/supervised-chat-approval');
 const { createSupervisedJobCoordinator } = require('../machine-spaces/supervised-job');
 const { enhanceMachineSpacesSupervisedController } = require('../machine-spaces/server-controller-supervised');
 const { enhanceMachineSpacesHumanGateController } = require('../machine-spaces/server-controller-human-gate');
@@ -28,10 +28,10 @@ test('chat approval text is exact, expiring and bound to one registered Playwrig
   });
   assert.equal(chatUi.parse('yes'), null);
   assert.deepEqual(chatUi.parse('/approve'), {
-    approvalText: '/approve', approvalIntent: 'single-pending-playwright'
+    approvalText: '/approve', approvalIntent: 'single-pending-supervised'
   });
   assert.deepEqual(chatUi.parse('yes, go ahead'), {
-    approvalText: 'yes, go ahead', approvalIntent: 'single-pending-playwright'
+    approvalText: 'yes, go ahead', approvalIntent: 'single-pending-supervised'
   });
   const accepted = validateChatApproval({ message: { approvalText: approval.requiredText,
     jobId: job.jobId, roomId: job.roomId, challenge: approval.challenge }, job, stored, now: () => stamp });
@@ -60,6 +60,22 @@ test('short approval intent binds to the server-selected registered job without 
   assert.throws(() => validateChatApprovalIntent({ message: { approvalText: 'yes',
     approvalIntent: 'single-pending-playwright', roomId: job.roomId }, job, stored, now: () => stamp }),
   { code: 'MACHINE_PLAYWRIGHT_CHAT_INTENT_INVALID' });
+});
+
+test('workflow chat approval binds one exact engineering chain and supports shorthand', () => {
+  const stamp = Date.parse('2026-10-20T12:00:00.000Z');
+  const job = { jobId: 'machine-job-workflow', roomId: 'room-one', state: 'queued',
+    kind: 'terminal-supervised', commandDigest: 'abcdef0123456789' };
+  const chatApproval = createChatApproval({ jobId: job.jobId, commandDigest: job.commandDigest,
+    kind: job.kind, now: () => stamp, bytes: () => Buffer.from('abcdef012345', 'hex') });
+  const stored = { commandDigest: job.commandDigest, chatApproval };
+  assert.match(chatApproval.requiredText, /^\/approve-workflow machine-job-workflow/);
+  const exact = validateWorkflowChatApproval({ message: { approvalText: chatApproval.requiredText,
+    jobId: job.jobId, roomId: job.roomId, challenge: chatApproval.challenge }, job, stored, now: () => stamp });
+  assert.equal(exact.workflowApproval, true);
+  const short = validateWorkflowChatApproval({ message: { approvalText: '/approve',
+    approvalIntent: 'single-pending-supervised', roomId: job.roomId }, job, stored, now: () => stamp });
+  assert.equal(short.method, 'dex-owner-chat-workflow-shorthand');
 });
 
 function fixture() {
@@ -121,7 +137,7 @@ test('local shorthand starts exactly one pending room job and refuses ambiguity'
   await single.controller.handle(single.gate, { type: 'machine_set_human_input', enabled: true });
   await single.controller.handle(single.chat, { type: 'machine_chat_approve_supervised_job',
     requestId: 'approve-short', roomId: 'room-one', approvalText: '/approve',
-    approvalIntent: 'single-pending-playwright' });
+    approvalIntent: 'single-pending-supervised' });
   assert.equal(single.jobs.status(single.job.jobId).authorization.method, 'dex-owner-chat-shorthand');
   assert.equal(single.runs(), 1);
   assert.equal(single.snapshot().rooms[0].messages[0].text, '/approve');
@@ -137,7 +153,7 @@ test('local shorthand starts exactly one pending room job and refuses ambiguity'
   await ambiguous.controller.handle(ambiguous.chat, { type: 'machine_chat_approve_supervised_job',
     requestId: 'approve-ambiguous', roomId: 'room-one', approvalText: 'yes, go ahead',
     approvalIntent: 'single-pending-playwright' });
-  assert.equal(ambiguous.sent.get(ambiguous.chat).at(-1).code, 'MACHINE_PLAYWRIGHT_CHAT_APPROVAL_AMBIGUOUS');
+  assert.equal(ambiguous.sent.get(ambiguous.chat).at(-1).code, 'MACHINE_CHAT_APPROVAL_AMBIGUOUS');
   assert.equal(ambiguous.runs(), 0);
 });
 

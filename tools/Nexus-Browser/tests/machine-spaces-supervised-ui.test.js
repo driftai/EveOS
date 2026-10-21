@@ -62,6 +62,9 @@ test('supervised UI exposes local start/rebound/cancel but no provider control m
   assert.match(source, /It will not replay the command/);
   assert.match(source, /machine_prepare_recovery_job/);
   assert.match(source, /machine_prepare_room_recovery/);
+  assert.match(source, /Approve exact workflow/);
+  assert.match(source, /approveWorkflow: true/);
+  assert.match(source, /one automatic, TLO-proposed repair/);
   assert.match(source, /retrySafeConfirmed: true/);
   assert.match(source, /Confirm safe recovery for this script/);
   assert.match(source, /visible read-only terminal/);
