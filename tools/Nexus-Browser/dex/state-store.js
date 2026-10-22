@@ -9,9 +9,14 @@ function cleanSnapshot(value = {}) {
   const rooms = Array.isArray(value.rooms) ? value.rooms : [];
   const retiredProviderControlReceipts = Array.isArray(value.retiredProviderControlReceipts)
     ? value.retiredProviderControlReceipts.slice(-100) : [];
+  // Server-owned permanent ID fence: deleted Dex rooms must not reappear from stale viewers.
+  const retiredRoomIds = Array.isArray(value.retiredRoomIds) ? value.retiredRoomIds : [];
+  if (retiredRoomIds.length > 2048 || new Set(retiredRoomIds).size !== retiredRoomIds.length
+      || retiredRoomIds.some(id => typeof id !== 'string' || !/^room-[A-Za-z0-9-]{6,115}$/.test(id)))
+    throw new Error('DEX_ROOM_RETIREMENT_LEDGER_INVALID');
   const activeRoomId = typeof value.activeRoomId === 'string' ? value.activeRoomId : null;
   const savedAt = Number.isFinite(Date.parse(value.savedAt || '')) ? value.savedAt : new Date().toISOString();
-  return { version: 1, rooms, activeRoomId, retiredProviderControlReceipts, savedAt };
+  return { version: 1, rooms, activeRoomId, retiredProviderControlReceipts, retiredRoomIds, savedAt };
 }
 
 function readJson(filePath) {
@@ -52,8 +57,15 @@ function createDexStateStore({ filePath = DEFAULT_FILE } = {}) {
   }
 
   function save(snapshot) {
-    current = normalize(snapshot);
-    atomicWrite(filePath, current);
+    const next = normalize(snapshot);
+    // No caller (including a stale UI mirror) may erase a previous retirement.
+    const prior = current?.retiredRoomIds || [];
+    if (prior.some(id => !next.retiredRoomIds.includes(id)))
+      throw new Error('DEX_ROOM_RETIREMENT_LEDGER_REGRESSION');
+    if (next.rooms.some(room => next.retiredRoomIds.includes(room?.id)))
+      throw new Error('DEX_ROOM_RETIREMENT_RESURRECTION_DENIED');
+    atomicWrite(filePath, next);
+    current = next;
     return load();
   }
 

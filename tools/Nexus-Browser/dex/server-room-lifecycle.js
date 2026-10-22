@@ -42,6 +42,9 @@ function deleteRoom(snapshot, request = {}, {
   if (pending && providerControlActive(room, pending)) return { ok: false, code: 'DEX_PROVIDER_CONTROL_ACTIVE', message: 'A correlated provider-control request is still active; the room was not deleted.' };
   if (pending && request.retireUnresolved !== true) return { ok: false, code: 'DEX_UNRESOLVED_RECEIPT_CONFIRMATION_REQUIRED', message: 'This room has an unresolved provider-control receipt. Confirm archival before deleting it.' };
 
+  const retiredRoomIds = Array.isArray(value.retiredRoomIds) ? value.retiredRoomIds : [];
+  if (retiredRoomIds.length >= 2048) return { ok: false, code: 'DEX_ROOM_RETIREMENT_LEDGER_FULL', message: 'The durable retired-room ledger is full; deletion stopped.' };
+  if (retiredRoomIds.includes(room.id)) return { ok: false, code: 'DEX_ROOM_RETIREMENT_ID_CONFLICT', message: 'Room is already marked retired.' };
   const remaining = rooms.filter((entry) => entry?.id !== room.id);
   const archive = Array.isArray(value.retiredProviderControlReceipts)
     ? value.retiredProviderControlReceipts.slice(-(MAX_RETIRED_RECEIPTS - 1)) : [];
@@ -52,6 +55,7 @@ function deleteRoom(snapshot, request = {}, {
     snapshot: {
       ...value,
       rooms: remaining,
+      retiredRoomIds: [...retiredRoomIds, room.id],
       activeRoomId: remaining.some((entry) => entry.id === value.activeRoomId)
         ? value.activeRoomId : remaining[0]?.id || null,
       retiredProviderControlReceipts: archive,

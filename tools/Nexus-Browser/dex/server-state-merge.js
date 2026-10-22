@@ -117,6 +117,9 @@ function mergeClientSnapshot(serverSnapshot, clientSnapshot) {
   const client = clientSnapshot && typeof clientSnapshot === 'object' ? clientSnapshot : {};
   const serverRooms = Array.isArray(server.rooms) ? server.rooms : [];
   const clientRooms = Array.isArray(client.rooms) ? client.rooms : [];
+  // Canonical retirement fence: client snapshots cannot inject or remove these IDs.
+  const retiredRoomIds = Array.isArray(server.retiredRoomIds) ? server.retiredRoomIds : [];
+  const retiredSet = new Set(retiredRoomIds);
   const clientById = new Map(clientRooms.map((room) => [room?.id, room]));
   const serverIds = new Set(serverRooms.map((room) => room?.id).filter(Boolean));
   const rooms = [];
@@ -133,13 +136,14 @@ function mergeClientSnapshot(serverSnapshot, clientSnapshot) {
   }
 
   for (const clientRoom of clientRooms) {
-    if (!clientRoom?.id || serverIds.has(clientRoom.id)) continue;
+    if (!clientRoom?.id || serverIds.has(clientRoom.id) || retiredSet.has(clientRoom.id)) continue;
     rooms.push(clientRoom);
   }
 
   return {
     version: Number(server.version || client.version || 1),
     rooms,
+    retiredRoomIds: [...retiredRoomIds],
     // Receipt retirement is a localhost-owned audit ledger. Preserve the
     // canonical copy across ordinary viewer saves and ignore client injection.
     retiredProviderControlReceipts: Array.isArray(server.retiredProviderControlReceipts)
