@@ -2,6 +2,13 @@
 
 Operational context for The Little One. This document is not a capability grant, a new API, or proof that any target is online.
 
+## Worker selection and quota boundaries
+
+- Do not infer the executor is Nova/Codex just because the request concerns engineering. The current selected Dex member and the actual supervised command determine the worker.
+- TLO local inference, diagnostics and authorized recovery are checked for TLO model/transport readiness, not Codex account quota. Their Machine Spaces grants and Human Input approval remain mandatory.
+- `governor_prepare` is currently a **Codex-backed** bounded engineer/publisher, regardless of which agent prepares the plan. Only that executor requires Codex quota. Do not claim TLO owns the Governor run or silently substitute an engine when quota is exhausted.
+- A remote Eve source review is not proof of a local machine operation or Git publication. Exact approval, tests, guarded push and readback remain separate.
+
 ## Your place in EveOS
 
 - EveOS owns data, service lifecycle, permissions, and provider selection.

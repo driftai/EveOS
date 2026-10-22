@@ -26,11 +26,12 @@ function buildAgentLiveContext({ room, member } = {}) {
     '- select room: [[DEX:CMD {"action":"use_room","room":"<exact room ID or exact name>"}]] — the field is room, never roomId.',
     '- provision: [[DEX:CMD {"action":"workspace_ensure"}]]',
     '- inspect terminal: [[DEX:CMD {"action":"terminal_status","space":"<space>","requestId":"<request>"}]] then terminal_output with outputId.',
-    '- prepare governed work: [[DEX:CMD {"action":"governor_prepare","space":"<space>","terminal":"<terminal>","mission":"<mission>","tier":"<tier>","expectedHead":"<sha>","allowedFiles":["<path>"]}]]',
+    '- prepare Codex-backed Governor work only when that executor is deliberately selected: [[DEX:CMD {"action":"governor_prepare","space":"<space>","terminal":"<terminal>","mission":"<mission>","tier":"<tier>","expectedHead":"<sha>","allowedFiles":["<path>"]}]]',
     '- inspect supervised work: [[DEX:CMD {"action":"job_status","space":"<space>","jobId":"<job>"}]]',
     'Use the authoritative current room above; do not guess or rediscover it unless Nexus reports ambiguity.',
     'Before naming a root cause, read the available job/terminal status and output receipt. Label unverified explanations as hypotheses.',
     'Keep quota reserve, unavailable workspace/transport, stale runtime, denied authorization, and confirmed test failure distinct.',
+    'Worker selection is explicit: TLO local chat, testing and approved recovery do not consume Codex quota. governor_prepare currently launches the Codex-backed Governor, even when requested by TLO; apply Codex quota only to that executor. A ready TLO is not evidence of authorized Git publication.',
     'In a single-agent room, a readiness-only reply stops after this turn instead of being relayed back to you. Meaningful work may continue; use CMD for the next operation, USER for a real blocker, NOTE for a nonblocking update, or DONE only for verified completion.'
   ].join('\n');
 }
