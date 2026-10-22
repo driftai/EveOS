@@ -11,13 +11,30 @@ function runtimeBusy(room) {
   return executionBusy(room) || !!room?.pendingProviderControlReceipt;
 }
 
+// Historical engineering-cycle notices were accidentally persisted without an ID or
+// timestamp. Match ONLY that exact legacy notification shape when merging a browser
+// mirror; preserve other ID-less messages and every existing server record.
+function legacyPreparedNoticeKey(message) {
+  if (!message || message.id || message.at || message.senderKind !== 'system'
+      || message.senderName !== 'Machine Spaces' || typeof message.text !== 'string') return null;
+  const lines = message.text.split('\n');
+  if (lines[0] !== '[ENGINEERING RECOVERY PREPARED]'
+      || !/^incident=machine-job-[A-Za-z0-9-]+$/.test(lines[1] || '')
+      || !/^proposal=[A-Za-z0-9:_-]+$/.test(lines[2] || '')
+      || !/^recoveryJob=machine-job-[A-Za-z0-9-]+$/.test(lines[3] || '')) return null;
+  return JSON.stringify([message.text, message.engineeringRecoveryPrepared || null]);
+}
 function mergeMessages(serverMessages = [], clientMessages = []) {
   const merged = serverMessages.map((message) => ({ ...message }));
   const ids = new Set(merged.map((message) => message?.id).filter(Boolean));
+  const legacyKeys = new Set(merged.map(legacyPreparedNoticeKey).filter(Boolean));
   for (const message of clientMessages || []) {
     if (message?.id && ids.has(message.id)) continue;
+    const legacyKey = legacyPreparedNoticeKey(message);
+    if (legacyKey && legacyKeys.has(legacyKey)) continue;
     merged.push({ ...message });
     if (message?.id) ids.add(message.id);
+    if (legacyKey) legacyKeys.add(legacyKey);
   }
   return merged;
 }

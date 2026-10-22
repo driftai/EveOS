@@ -36,7 +36,7 @@ function createEngineeringCycle({ load, save, broadcastState = () => {}, machine
         ? room.engineeringCycleReceipts : [];
       for (const message of room.messages || []) {
         const proposal = message.engineeringProposal;
-        if (!proposal?.ok || room.engineeringCycleReceipts.some((entry) => entry.proposalMessageId === message.id)) continue;
+        if (!proposal?.ok || !message.id || room.engineeringCycleReceipts.some((entry) => entry.proposalMessageId === message.id)) continue;
         const context = failures.get(proposal.incidentJobId);
         const receipt = { proposalMessageId: message.id, incidentJobId: proposal.incidentJobId,
           createdAt: now(), state: 'safe-stopped', recoveryJobId: null, code: null };
@@ -62,7 +62,7 @@ function createEngineeringCycle({ load, save, broadcastState = () => {}, machine
               incidentJob: context.job });
             receipt.state = 'running'; receipt.code = 'ENGINEERING_WORKFLOW_RECOVERY_STARTED';
           }
-          const system = stateApi.addMessage(room, { senderKind: 'system', senderId: null,
+          const system = stateApi.addMessage(room, { id: `msg-engineering-recovery-${createHash('sha256').update(token(message.id)).digest('hex').slice(0, 24)}`, at: receipt.createdAt, senderKind: 'system', senderId: null,
             senderName: 'Machine Spaces', text: `[ENGINEERING RECOVERY PREPARED]\nincident=${proposal.incidentJobId}\nproposal=${message.id}\nrecoveryJob=${job.jobId}\n${receipt.state === 'running'
               ? 'The exact repair started under the original bounded owner workflow approval.'
               : 'The exact repair remains inert until independent local-owner approval.'}` });
