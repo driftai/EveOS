@@ -310,6 +310,20 @@ Start confirmation, then projected the shared engine's GREEN receipt into the
 exact Dex room with zero browser errors. Exact receipt and A-I evidence are in
 `docs/NEXUS-PHASE3-AUTONOMOUS-RECOVERY.md`.
 
+The local-owner room shortcut now recognizes explicit `/recover <script>` (and
+the documented equivalent phrases), binds the request to the room's selected TLO
+middle agent and sole EveOS-rooted PowerShell Machine Space target, and prepares
+the existing recovery plan without executing it. Human Input plus the existing
+second Start confirmation remain mandatory. Execution opens an optional visible
+read-only terminal mirror; the managed terminal remains the only execution owner.
+An exhausted recovery records `owner-required` evidence and stops without another
+agent turn. This TLO-bound shortcut does not make the underlying deterministic
+middle-agent selection or incident routing provider-specific.
+
+This shortcut is implemented and regression-qualified. The 2026-10-19 live
+acceptance above covers the detailed manual Machine Spaces recovery path; it is
+not evidence of a separate live `/recover` shortcut run.
+
 ## V0.7.1B — Scriptable TLO proof-room bootstrap (bounded candidate)
 
 A directly-loopback-bound terminal operator can now provision a *new*, disposable

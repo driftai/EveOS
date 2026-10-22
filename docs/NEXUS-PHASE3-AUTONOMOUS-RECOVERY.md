@@ -32,6 +32,36 @@ backups, applied paths and the final outcome.
 
 ## Dex room and Machine Spaces
 
+For the room-first path, select a room whose middle-agent slot is currently
+bound to TLO, enable **Human Input**, select its Machine Space, and send one of
+these explicit messages:
+
+```text
+/recover tools/path/to/script.js
+run this script with recovery: tools/path/to/script.ps1
+run tools/path/to/script.py with recovery
+```
+
+The message still enters the room normally so TLO and the other participants
+can see it. In parallel, localhost prepares one inert recovery job against the
+room's sole EveOS-rooted managed PowerShell target. Nothing executes until the
+local owner reviews the card and confirms **Start supervised**. Version 1 accepts
+one repository-relative `.js`, `.mjs`, `.cjs`, `.py`, `.ps1`, `.cmd`, or `.bat`
+script and no arbitrary arguments.
+
+By default, starting a room-issued job requests a visible read-only PowerShell
+view that mirrors the managed terminal's output. The Nexus-managed hidden process
+remains the sole execution, interruption, receipt, and retry owner; typing in the
+viewer cannot run commands. If the optional viewer cannot open, the managed job
+continues under the same authority and receipt contract. The viewer is optional
+for the detailed manual form.
+
+The room shortcut is implemented and regression-qualified. The live Scenario C
+receipt below proves the detailed manual Machine Spaces path; a separate live
+`/recover` shortcut run has not been recorded.
+
+The detailed manual path remains available:
+
 1. Open Nexus Browser in Dex Mode and select the exact engineering room.
 2. Enable **Human Input** and select its Machine Space.
 3. Open **Prepare TLO recovery job (local owner)**.
@@ -50,6 +80,9 @@ Machine Spaces event.
 If Nexus restarts before dispatch, the durable queued job becomes `cancelled`.
 If Nexus restarts after dispatch and cannot prove the exact process outcome, the
 job becomes `outcome-unknown`. Neither state is replayed automatically.
+If the bounded TLO repair budget is exhausted, the final receipt is marked
+`owner-required` and the room receives the bounded failure evidence. Nexus does
+not schedule another middle-agent turn or replay the command.
 
 ## Authority boundaries
 
