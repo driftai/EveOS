@@ -114,38 +114,54 @@
     socket.send(JSON.stringify(payload));
     return true;
   };
-  async function prepareRoomIntent() {
+  async function prepareRoomIntent(event) {
     const parsed = globalThis.BrowserAiBridgeRoomRecoveryIntent?.parse(dexPrompt?.value || '');
     if (!parsed) return;
+    // Synchronously stop Dex's ordinary click/Enter handlers before awaiting approval.
+    event?.preventDefault();
+    event?.stopImmediatePropagation();
     const roomId = activeRoomId(), spaceId = activeSpaceId();
     if (!editable() || !roomId || !spaceId || phase !== 'connected') {
-      recoveryStatus.textContent = 'Room message sent; preparation requires Human Input, an active Machine Space, and Nexus connectivity.';
+      recoveryStatus.textContent = 'Shortcut blocked: enable Human Input, select a Machine Space, and connect Nexus. No Dex relay started.';
       return;
     }
     const key = `${roomId}:${spaceId}:${parsed.scriptPath}`;
     const now = Date.now();
-    if (lastRoomIntent?.key === key && now - lastRoomIntent.at < 1500) return;
+    if (lastRoomIntent) { recoveryStatus.textContent = 'Recovery already pending. Inspect the exact request; do not resend.'; return; }
     // Lock during the confirmation dialog; Enter and Send may both fire.
+    const originalCommand = String(dexPrompt?.value || '');
     lastRoomIntent = { key, at: now };
     const approved = await confirmAction('Confirm safe recovery for this script',
       `Script: ${parsed.scriptPath}\n\nI confirm this script is idempotent, safe to run again after a verified repair, and TLO may edit only that script. Preparation is inert; Start supervised is a second, separate confirmation.`,
       'Confirm retry safety');
     if (!approved) { lastRoomIntent = null; return; }
-    if (activeRoomId() !== roomId || activeSpaceId() !== spaceId || !editable() || phase !== 'connected') {
+    if (activeRoomId() !== roomId || activeSpaceId() !== spaceId || !editable() || phase !== 'connected' || dexPrompt?.value !== originalCommand) {
+      lastRoomIntent = null;
       recoveryStatus.textContent = 'Room/space or Human Input state changed during confirmation; preparation cancelled.';
       return;
     }
     const id = globalThis.crypto?.randomUUID?.() || String(Date.now());
-    const ok = send({ type: 'machine_prepare_room_recovery', requestId: `room-recovery:${id}`,
+    const requestId = `room-recovery:${id}`;
+    const command = originalCommand;
+    const ok = send({ type: 'machine_prepare_room_recovery', requestId,
       runId: `room-${id}`, roomId, spaceId, scriptPath: parsed.scriptPath,
       visibleTerminal: true, retrySafeConfirmed: true });
+    lastRoomIntent = ok ? { key, at: now, requestId, roomId, command } : null;
     recoveryStatus.textContent = ok
-      ? `Room recovery requested for ${parsed.scriptPath}. Review the exact queued job and press Start supervised.`
-      : 'Room message continues normally, but Nexus disconnected before recovery preparation.';
+      ? `Preparation requested (${requestId}); await the matching job receipt. No Dex relay started.`
+      : 'Nexus disconnected before preparation. No Dex relay started.';
   }
-  dexSend?.addEventListener('click', prepareRoomIntent, true);
+  dexSend?.addEventListener('click', (event) => {
+    void prepareRoomIntent(event).catch(() => {
+      recoveryStatus.textContent = 'Uncertain preparation result; inspect jobs before any retry.';
+    });
+  }, true);
   dexPrompt?.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) prepareRoomIntent();
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      void prepareRoomIntent(event).catch(() => {
+        recoveryStatus.textContent = 'Uncertain preparation result; inspect jobs before any retry.';
+      });
+    }
   }, true);
   const short = (value, length = 12) => {
     const text = String(value || '');
@@ -304,6 +320,10 @@
       return;
     }
     if (payload.type === 'machine_recovery_job_prepared') {
+      if (lastRoomIntent?.requestId === payload.requestId) {
+        if (activeRoomId() === lastRoomIntent.roomId && dexPrompt?.value === lastRoomIntent.command) dexPrompt.value = '';
+        lastRoomIntent = null;
+      }
       recoveryStatus.textContent = `Queued TLO recovery job ${payload.job?.jobId || 'unknown'}. Review its command and repair authority, then click Start supervised.`;
       requestSnapshot(); return;
     }
@@ -339,6 +359,7 @@
       return;
     }
     if (payload.type === 'error' && String(payload.code || '').startsWith('MACHINE_')) {
+      if (lastRoomIntent?.requestId === payload.requestId) lastRoomIntent = null;
       const note = document.createElement('div'); note.className = 'machine-empty';
       note.textContent = `${payload.code}: ${payload.message}`; list.prepend(note);
     }

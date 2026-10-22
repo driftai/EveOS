@@ -42,9 +42,10 @@ run this script with recovery: tools/path/to/script.ps1
 run tools/path/to/script.py with recovery
 ```
 
-The message still enters the room normally so TLO and the other participants
-can see it. In parallel, localhost prepares one inert recovery job against the
-room's sole EveOS-rooted managed PowerShell target. Nothing executes until the
+The shortcut intercepts ordinary Dex Send/Enter handling, so it does not
+dispatch a chat/model turn. After the local owner confirms retry safety, localhost
+prepares one inert recovery job against the room's sole EveOS-rooted managed
+PowerShell target. Wait for the matching job receipt; do not blindly resend. Nothing executes until the
 local owner reviews the card and confirms **Start supervised**. Version 1 accepts
 one repository-relative `.js`, `.mjs`, `.cjs`, `.py`, `.ps1`, `.cmd`, or `.bat`
 script and no arbitrary arguments.
