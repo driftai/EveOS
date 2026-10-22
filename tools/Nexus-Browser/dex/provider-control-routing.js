@@ -2,7 +2,7 @@ const orchestrationPolicy = require('./provider-orchestration-policy'), controlR
 const { createAgentExtensionReload } = require('./agent-extension-reload');
 const directSend = require('./provider-control-direct-send');
 const { directRoomSend } = require('./direct-room-send-policy');
-const roomTools = require('./room-tools'), entryCheck = require('./provider-control-entry-check');
+const roomTools = require('./room-tools'), provenance = require('./provider-control-provenance');
 const { routeDoneWatch } = require('./provider-control-done-watch');
 const { createLocalProviderControlDelivery } = require('./local-provider-control-delivery');
 const POST_IDLE_ACTIONS = new Set(['arm_post_idle','post_idle_status','cancel_post_idle','report_post_idle']);
@@ -28,10 +28,10 @@ function sourceFingerprint(source = {}) {
     source.url || ''
   ].join('|');
 }
-function mutationKey(source, command = {}) {
+function mutationKey(source, command = {}, roomId = '') {
   const action = String(command.action || '').trim().toLowerCase();
   if (!MUTATING_ACTIONS.has(action)) return '';
-  return `${sourceFingerprint(source)}|${JSON.stringify(stableValue({ ...command, action }))}`;
+  return `${sourceFingerprint(source)}|${String(roomId || '')}|${JSON.stringify(stableValue({ ...command, action }))}`;
 }
 function createProviderControlRouting({
   uiSockets, safeSend, validateSource, ensureDexClient, getDexClient,
@@ -173,7 +173,7 @@ function createProviderControlRouting({
       message: `The provider-control command arrived before relay turn ${active.requestId || requestId || 'unknown'} finalized. Dex waited for exact origin correlation and refused to execute after timeout.`
     } };
   }
-  async function handleRequest(ws, msg) {
+  async function handleRequest(ws, msg, trustedProvenance = null) {
     const requestId = String(msg.requestId || '');
     const source = msg.source || {};
     const command = msg.command || {};
@@ -187,12 +187,14 @@ function createProviderControlRouting({
       return true;
     }
     safeSend(ws, { type: 'provider_control_received', requestId, clientActionId: msg.clientActionId || null });
-    let entryGate;
-    try { entryGate = entryCheck.authorize(getState?.(), source, command); }
-    catch { entryGate = { ok: false, code: 'DEX_ENTRY_STATE_UNAVAILABLE', message: 'Room state unavailable; no command executed.' }; }
-    if (!entryGate.ok) { fail(ws, requestId, source, entryGate.code, entryGate.message); return true; }
-    if (directRoomSend(command) && getState && saveState) {
-      let origin = null;
+    let admission;
+    try { admission = provenance.authorize({ snapshot: getState?.(), source, command, requestId, trusted: trustedProvenance }); }
+    catch { admission = { ok: false, code: 'DEX_ENTRY_STATE_UNAVAILABLE', message: 'Room state unavailable; no command executed.' }; }
+    if (!admission?.ok) { fail(ws, requestId, source, admission?.code || 'DEX_ENTRY_STATE_UNAVAILABLE', admission?.message || 'Room state unavailable; no command executed.', admission?.origin); return true; }
+    const { entry: entryGate, roomId: boundRoomId, origin: trustedOrigin } = admission;
+    let routedCommand = admission.routedCommand;
+    if (directRoomSend(routedCommand) && getState && saveState) {
+      let origin = trustedOrigin;
       if (String(source.targetClassId || '').trim().toLowerCase() === 'online-origin') {
         const settledOrigin = await settleOrigin(source, command, requestId, MAX_ORIGIN_WAIT_MS, entryGate.roomId || null);
         if (settledOrigin.error) {
@@ -206,16 +208,16 @@ function createProviderControlRouting({
           return true;
         }
       }
-      const run = admissionLane.then(() => directSend.route({ source, command, requestId, ws, origin },
+      const run = admissionLane.then(() => directSend.route({ source, command: routedCommand, requestId, ws, origin },
         { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt }));
       admissionLane = run.catch(() => {});
       return run.catch(() => (fail(ws, requestId, source, 'DEX_SEND_ADMISSION_UNCERTAIN',
         'Storage error: the outcome may be uncertain. Inspect the same request ID; do not create a new send.'), true));
     }
     if (['room_budget', 'room_log', 'tool_result_status'].includes(action)) return roomTools.route(
-      { source, command, requestId, ws, origin: null },
+      { source, command: routedCommand, requestId, ws, origin: trustedOrigin },
       { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt });
-    const settledOrigin = await settleOrigin(source, command, requestId, MAX_ORIGIN_WAIT_MS, entryGate.roomId || null);
+    const settledOrigin = trustedOrigin ? { origin: trustedOrigin } : await settleOrigin(source, command, requestId, MAX_ORIGIN_WAIT_MS, boundRoomId);
     if (settledOrigin.error) {
       fail(ws, requestId, source, settledOrigin.error.code, settledOrigin.error.message);
       return true;
@@ -227,12 +229,12 @@ function createProviderControlRouting({
         'Online-Origin state-changing provider-control requires an exact durable control origin; no mutation was executed.');
       return true;
     }
-    if (machineCommandRouter?.owns(action)) return machineCommandRouter.route({ source, command, requestId, ws, origin, boundRoomId: entryGate.roomId || null }, { sendResult, commitOriginReceipt });
+    if (machineCommandRouter?.owns(action)) return machineCommandRouter.route({ source, command: routedCommand, requestId, ws, origin, boundRoomId }, { sendResult, commitOriginReceipt });
     if (roomTools.ACTIONS.has(action)) return roomTools.route(
-      { source, command, requestId, ws, origin },
+      { source, command: routedCommand, requestId, ws, origin },
       { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt });
     if (POST_IDLE_ACTIONS.has(action)) {
-      const result = runPostIdleCommand(getMaintenance(), action, source, command);
+      const result = runPostIdleCommand(getMaintenance(), action, source, routedCommand);
       const receipt = commitOriginReceipt(origin, result, requestId);
       sendResult({ sourceSocket: ws, requestId, source }, result, receipt);
       return true;
@@ -244,19 +246,19 @@ function createProviderControlRouting({
     }
     if (action === 'watch_done' || action === 'unwatch_done') {
       return routeDoneWatch(
-        { action, source, command, requestId, ws, origin },
+        { action, source, command: routedCommand, requestId, ws, origin },
         { getState, saveState, broadcastState, sendResult, fail, commitOriginReceipt }
       );
     }
     if (action === 'reload_extension') {
-      const outcome = await agentExtensionReload.run({ source, command, requestId, transportRole: ws.role });
+      const outcome = await agentExtensionReload.run({ source, command: routedCommand, requestId, transportRole: ws?.role || 'local-origin' });
       const recipient = outcome.socket || ws;
       const receipt = commitOriginReceipt(origin, outcome.result, requestId);
       sendResult({ sourceSocket: recipient, requestId, source }, outcome.result, receipt);
       return true;
     }
     pruneRecent();
-    const key = mutationKey(source, command);
+    const key = mutationKey(source, routedCommand, boundRoomId);
     if (key) {
       const recent = recentMutations.get(key);
       if (recent) {
@@ -280,7 +282,7 @@ function createProviderControlRouting({
       fail(ws, requestId, source, 'DEX_UI_OFFLINE', 'Dex Mode UI could not be started automatically. Open Nexus Browser in EveOS once and retry.', origin);
       return true;
     }
-    const authorization = await settledOrchestrationAuthorization(action, source, command);
+    const authorization = await settledOrchestrationAuthorization(action, source, routedCommand);
     if (authorization?.ok && action === 'spawn_agent') {
       const snapshot = typeof getState === 'function' ? getState() : {};
       const committed = orchestrationPolicy.managedMembers(snapshot).length;
@@ -307,14 +309,13 @@ function createProviderControlRouting({
     };
     pending.set(requestId, entry);
     if (key) pendingMutations.set(key, requestId);
-    let routedCommand = command;
     if (action === 'spawn_agent') {
       if (typeof spawnTarget !== 'function') {
         finish(requestId, { result: { ok: false, code: 'DEX_CONTROL_SPAWN_UNAVAILABLE', message: 'Managed browser-agent spawning is unavailable in this runtime.' } });
         return true;
       }
       try {
-        const target = await spawnTarget({ requestId, providerId: command.providerId });
+        const target = await spawnTarget({ requestId, providerId: routedCommand.providerId });
         if (!pending.has(requestId)) {
           if (typeof closeTarget === 'function') {
             await closeTarget({ requestId: `${requestId}-late-cleanup`, targetId: target.id, providerId: target.providerId }).catch(() => {});
@@ -323,7 +324,7 @@ function createProviderControlRouting({
         }
         entry.spawnedTarget = target;
         routedCommand = {
-          ...command,
+          ...routedCommand,
           room: authorization.roomId,
           targetClassId: 'online-origin',
           targetId: target.id,
@@ -342,7 +343,7 @@ function createProviderControlRouting({
               roomId: authorization?.roomId || null,
               source: 'provider-control-spawn',
               evidence: {
-                providerId: command.providerId || null,
+                providerId: routedCommand.providerId || null,
                 sourceTargetClassId: source.targetClassId || null,
                 sourceProviderId: source.providerId || null,
                 sourceTargetId: source.targetId ?? null,
@@ -362,7 +363,7 @@ function createProviderControlRouting({
         return true;
       }
     } else if (action === 'despawn_agent') {
-      routedCommand = { ...command, room: authorization.roomId, member: authorization.memberId };
+      routedCommand = { ...routedCommand, room: authorization.roomId, member: authorization.memberId };
     }
     if (!safeSend(dex, { type: 'provider_control_request', requestId, source, command: routedCommand })) {
       if (entry.spawnedTarget && typeof closeTarget === 'function') {
@@ -421,7 +422,7 @@ function createProviderControlRouting({
 
   return {
     handle, dropSocket, pending, pendingMutations, recentMutations,
-    mutationKey: (source, command) => mutationKey(source, command), settleOrigin,
+    mutationKey: (source, command, roomId) => mutationKey(source, command, roomId), settleOrigin,
     flushLocalIntents: localDelivery.flush,
     observeExtension: agentExtensionReload.observeExtension, providerControlConnected: agentExtensionReload.providerControlConnected,
     agentExtensionReload

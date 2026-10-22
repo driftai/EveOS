@@ -28,7 +28,10 @@ function createLocalProviderControlDelivery({ getState, pending, handleRequest }
       flights.add(key);
       try {
         await handleRequest(null, { type: 'provider_control_request', requestId: candidate.requestId,
-          source: { ...candidate.intent.executorTarget }, command: candidate.command });
+          source: { ...candidate.intent.executorTarget }, command: candidate.command }, {
+          roomId: candidate.roomId, controlRequestId: candidate.intent.controlRequestId,
+          agentMessageId: candidate.intent.agentMessageId, executorMemberId: candidate.intent.executorMemberId
+        });
         dispatched += 1;
       } finally { flights.delete(key); }
     }
