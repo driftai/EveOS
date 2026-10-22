@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createDexServerScheduler } = require('../dex/server-scheduler.js');
-const inbox = require('../dex/recovery-mailbox.js');
+const inbox = require('../dex/recovery-mailbox.js'), finalControlEvidence = require('../dex/server-final-control-evidence.js');
 
 function memoryStore(seed) {
   let current = JSON.parse(JSON.stringify(seed));
@@ -154,7 +154,6 @@ test('extension outage parks the durable turn instead of browser-side retrying i
   assert.equal(h.sent.length, 0);
 });
 
-
 test('partial future provider fails closed before transport when send is undeclared', async () => {
   const h = harness({
     operations: {
@@ -169,7 +168,6 @@ test('partial future provider fails closed before transport when send is undecla
   assert.equal(room.relay.active, false);
   assert.match(room.messages.at(-1).text, /PROVIDER_OPERATION_UNSUPPORTED/);
 });
-
 
 test('recover-class failure after dispatch preserves journal for capture recovery', async () => {
   const h = harness();
@@ -197,7 +195,6 @@ test('recover-class failure after dispatch preserves journal for capture recover
   assert.match(room.relay.lastStopReason, /recovering interrupted turn/);
   assert.equal(room.messages.filter((item) => item.senderKind === 'system').length, 0);
 });
-
 
 test('stop relay records an already-dispatched reply but schedules no next turn', async () => {
   const h = harness();
@@ -231,7 +228,6 @@ test('stop relay records an already-dispatched reply but schedules no next turn'
   assert.equal(room.recovery, undefined);
   assert.equal(h.sent.filter((item) => item.type === 'send_prompt').length, 1);
 });
-
 
 test('transport failure after durable dispatch boundary never retries before provider acknowledgement', async () => {
   const h = harness();
@@ -306,8 +302,6 @@ test('completed member journal clears before next member receives a fresh journa
   assert.equal(room.relay.waitingFor, 'stress');
 });
 
-
-
 test('provider-control reply records durable correlation to the exact originating relay sender', async () => {
   const h = harness();
   const value = h.store.value();
@@ -332,10 +326,11 @@ test('provider-control reply records durable correlation to the exact originatin
   const current = h.scheduler.diagnostics().current;
   assert.equal(current.memberId, 'stress');
 
+  const finalText = 'Executing. [[DEX:CMD {"action":"status","room":"room-1"}]]';
   await h.scheduler.handleTransportEvent({
     type: 'response_final',
     requestId: current.requestId,
-    text: 'Executing. [[DEX:CMD {"action":"status","room":"room-1"}]]'
+    text: finalText, controlEvidence: finalControlEvidence.transport(finalText)
   });
 
   const saved = h.store.value().rooms[0];
@@ -347,6 +342,10 @@ test('provider-control reply records durable correlation to the exact originatin
   assert.equal(saved.pendingProviderControlReceipt.originMessageId, 'm1');
   assert.equal(saved.pendingProviderControlReceipt.originSenderId, 'eve');
   assert.equal(saved.pendingProviderControlReceipt.originTarget.targetId, 9);
+  assert.equal(h.incidents.at(-1).code, 'DEX_FINAL_CONTROL_DISPOSITION');
+  assert.deepEqual({ action: h.incidents.at(-1).evidence.parsedAction,
+    malformed: h.incidents.at(-1).evidence.malformed, roomId: h.incidents.at(-1).roomId },
+  { action: 'status', malformed: false, roomId: 'room-1' });
 });
 
 test('final scheduled reply can extend its physical budget and request extra context for next hop', async () => {

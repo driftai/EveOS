@@ -1,6 +1,7 @@
 'use strict';
 
 const { targetEvent } = require('./local-targets/service-chat-common');
+const finalControlEvidence = require('./dex/server-final-control-evidence');
 
 const SUPPORTED_TARGETS = new Set([
   'local:local-moe-chat:default',
@@ -168,8 +169,10 @@ function handleHostMessage(socket, message = {}) {
   }
 
   const text = String(message.text || '') || `${entry.target.providerName} completed without a visible response.`;
+  const controlEvidence = finalControlEvidence.transport(text);
   entry.emit?.(targetEvent(entry.target, requestId, 'response_final', {
-    text, ...(message.capabilityContext ? { capabilityContext: message.capabilityContext } : {})
+    text, ...(controlEvidence ? { controlEvidence } : {}),
+    ...(message.capabilityContext ? { capabilityContext: message.capabilityContext } : {})
   }));
   entry.resolve(text);
   return true;

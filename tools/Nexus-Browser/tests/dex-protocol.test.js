@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const protocol = require('../public/dex-protocol.js');
+const finalControlEvidence = require('../dex/server-final-control-evidence.js');
 const providerContent = require('../extension/content/dex-provider-control.js');
 const providerControl = require('../public/dex-provider-control.js');
 
@@ -270,6 +271,40 @@ test('consecutive return and done markers are extracted and stripped cleanly', (
   assert.equal(parsed.text, 'Report body.');
   assert.equal(parsed.done, true);
   assert.equal(parsed.returnRequestId, 'dex-turn-12345678-abcd-1234-ef01-123456789abc');
+});
+
+test('captured TLO control payload and unsafe variants have deterministic final evidence', () => {
+  const captured = 'Understood. Requesting internal read-only command list via `onboard`.\n\n[[DEX:CMD {"action":"onboard"}]]';
+  const transport = finalControlEvidence.transport(captured);
+  const accepted = finalControlEvidence.parse(captured, transport);
+  assert.equal(accepted.parsed.providerCommand, 'onboard');
+  assert.equal(accepted.parsed.malformedCommand, undefined);
+  assert.equal(accepted.transportMatch, true);
+
+  const malformed = finalControlEvidence.parse('Requesting.\n[[DEX:CMD {action:onboard}]]');
+  const quoted = finalControlEvidence.parse('Example:\n> [[DEX:CMD {"action":"onboard"}]]');
+  const fenced = finalControlEvidence.parse('Example:\n```\n[[DEX:CMD {"action":"onboard"}]]\n```');
+  const trailing = finalControlEvidence.parse('Requesting.\n[[DEX:CMD {"action":"onboard"}]] after');
+  assert.equal(malformed.parsed.malformedCommand, true);
+  assert.equal(quoted.parsed.providerCommand, undefined);
+  assert.equal(quoted.parsed.malformedCommand, undefined);
+  assert.equal(fenced.parsed.providerCommand, undefined);
+  assert.equal(fenced.parsed.malformedCommand, undefined);
+  assert.equal(trailing.parsed.malformedCommand, true);
+
+  const changed = finalControlEvidence.parse(`${captured} changed`, transport);
+  assert.equal(changed.transportMatch, false);
+  assert.equal(changed.parsed.providerCommand, undefined);
+  assert.equal(changed.parsed.malformedCommand, true);
+  const incidents = [];
+  finalControlEvidence.record((value) => incidents.push(value), {
+    roomId: 'room-a', memberId: 'tlo-a', requestId: 'dex-turn-a', text: captured,
+    disposition: { action: 'stop', kind: 'control' }, ...accepted
+  });
+  assert.equal(incidents[0].evidence.payloadSha256, transport.payloadSha256);
+  assert.equal(incidents[0].evidence.parsedAction, 'onboard');
+  assert.equal(incidents[0].evidence.dispositionKind, 'control');
+  assert.equal(JSON.stringify(incidents[0]).includes(captured), false);
 });
 
 test('quoted examples, code fences, blockquotes and ordinary prose cannot become executable trailing commands', () => {

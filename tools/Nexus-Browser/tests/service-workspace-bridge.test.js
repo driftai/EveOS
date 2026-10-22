@@ -69,8 +69,26 @@ test('routes TLO through the registered Search Monitor workspace and preserves s
     ['response_partial', 'same'],
     ['response_final', 'same conversation']
   ]);
+  assert.equal(events.at(-1).controlEvidence, undefined);
   assert.equal(bridge.snapshot(TLO_ID).busy, false);
   assert.equal(events.at(-1).capabilityContext.packs[0].id, 'machine-spaces');
+});
+
+test('server workspace boundary binds control-like final payloads to privacy-safe evidence', async () => {
+  configure();
+  const ws = socket(), events = [];
+  bridge.registerHost(ws, { workspaceId: 'search-monitor-control', targets: [TLO_ID] });
+  const turn = bridge.sendPrompt({ requestId: 'turn-control', text: 'request commands',
+    target: target(TLO_ID, 'tlo-chat', 'TLO'), emit: (event) => events.push(event), timeoutMs: 1000 });
+  const text = 'Requesting.\n[[DEX:CMD {"action":"onboard"}]]';
+  bridge.handleHostMessage(ws, { type: 'service_workspace_final', targetId: TLO_ID,
+    requestId: 'turn-control', workspaceId: 'search-monitor-control', text });
+  assert.equal(await turn, text);
+  const evidence = events.at(-1).controlEvidence;
+  assert.equal(evidence.schema, 'eveos.dex-final-control-evidence.v1');
+  assert.equal(evidence.payloadChars, text.length);
+  assert.match(evidence.payloadSha256, /^[a-f0-9]{64}$/);
+  assert.equal(JSON.stringify(evidence).includes(text), false);
 });
 
 test('fails closed instead of inventing a second Local MoE conversation', async () => {
