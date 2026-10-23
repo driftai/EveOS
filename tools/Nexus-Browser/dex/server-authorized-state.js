@@ -1,11 +1,12 @@
 'use strict';
 
 const merge = require('./server-state-merge');
+const { isDeepStrictEqual } = require('node:util');
 
 function failure(code, message) { return { ok: false, code, message }; }
 const roomsOf = (snapshot) => Array.isArray(snapshot?.rooms) ? snapshot.rooms : [];
 const roomMap = (snapshot) => new Map(roomsOf(snapshot).filter(room => room?.id).map(room => [room.id, room]));
-const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+const same = (left, right) => isDeepStrictEqual(left, right);
 
 function unchangedOutside(serverSnapshot, clientSnapshot, allowedIds = new Set()) {
   const server = roomMap(serverSnapshot), client = roomMap(clientSnapshot);

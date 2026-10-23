@@ -7,6 +7,12 @@ const { createDexServerRouting } = require('../dex/server-routing');
 const { routeTerminalOperator } = require('../dex/server-terminal-operator-route');
 
 const clone = value => JSON.parse(JSON.stringify(value));
+function reorderJsonKeys(value) {
+  if (Array.isArray(value)) return value.map(reorderJsonKeys);
+  if (value && typeof value === 'object')
+    return Object.fromEntries(Object.entries(value).reverse().map(([key, entry]) => [key, reorderJsonKeys(entry)]));
+  return value;
+}
 function room(id, text = '') {
   return { id, name: `Room ${id}`, userName: 'Drift', members: [{ id: 'eve', name: 'Eve' }],
     messages: text ? [{ id: `msg-${id}-saved`, senderKind: 'user', senderId: 'user', senderName: 'Drift', text, at: '2026-10-22T12:00:00.000Z' }] : [],
@@ -63,6 +69,51 @@ test('same-room lease succeeds while default, second-socket, cross-room and snap
   h.route.handle(h.first, { type: 'dex_state_put', requestId: 'snapshot-bypass', roomId: 'room-one', snapshot: bypass, authorization: lease });
   assert.equal(h.first.sent.at(-2).code, 'DEX_HUMAN_LEASE_SCOPE_MISMATCH');
   assert.equal(h.state().rooms[1].name, 'Room room-two');
+});
+
+
+test('room-scoped edits allow reordered keys in an untouched unrelated room', () => {
+  const h = harness(), originalOther = clone(h.state().rooms[1]);
+  const authorization = h.lease();
+  const edit = clone(h.state());
+  edit.rooms[0].name = 'Authorized with reordered neighbor';
+  edit.rooms[1] = reorderJsonKeys(edit.rooms[1]);
+  assert.deepEqual(edit.rooms[1], originalOther);
+  assert.notEqual(JSON.stringify(edit.rooms[1]), JSON.stringify(originalOther));
+  h.route.handle(h.first, { type: 'dex_state_put', requestId: 'order-only-room-edit',
+    roomId: 'room-one', snapshot: edit, authorization });
+  assert.equal(h.first.sent.at(-1).type, 'dex_state_saved');
+  assert.equal(h.state().rooms[0].name, 'Authorized with reordered neighbor');
+  assert.deepEqual(h.state().rooms[1], originalOther);
+});
+
+test('room-scoped edits reject real mutations hidden behind key reordering', () => {
+  const h = harness(), before = clone(h.state());
+  const authorization = h.lease();
+  const edit = clone(h.state());
+  edit.rooms[0].name = 'Unauthorized alongside other room mutation';
+  edit.rooms[1] = reorderJsonKeys(edit.rooms[1]);
+  edit.rooms[1].settings.maxTurns = 999;
+  h.route.handle(h.first, { type: 'dex_state_put', requestId: 'order-and-mutation',
+    roomId: 'room-one', snapshot: edit, authorization });
+  assert.equal(h.first.sent.at(-2).code, 'DEX_HUMAN_LEASE_SCOPE_MISMATCH');
+  assert.deepEqual(h.state(), before);
+});
+
+test('agent room-scoped rename accepts reordered keys but no unrelated mutations', () => {
+  const h = harness(), originalOther = clone(h.state().rooms[1]);
+  const grant = h.route.issueProviderAuthorization({ ws: h.first, requestId: 'order-agent',
+    action: 'rename_room', roomId: 'room-one' });
+  h.pending.set('order-agent', { requestId: 'order-agent', action: 'rename_room',
+    roomId: 'room-one', uiAuthorization: grant });
+  const edit = clone(h.state());
+  edit.rooms[0].name = 'Agent reorder-safe rename';
+  edit.rooms[1] = reorderJsonKeys(edit.rooms[1]);
+  h.route.handle(h.first, { type: 'dex_state_put', requestId: 'order-agent-edit',
+    roomId: 'room-one', snapshot: edit, authorization: grant });
+  assert.equal(h.first.sent.at(-1).type, 'dex_state_saved');
+  assert.equal(h.state().rooms[0].name, 'Agent reorder-safe rename');
+  assert.deepEqual(h.state().rooms[1], originalOther);
 });
 
 test('expiry, explicit revoke, controller handoff, disconnect/reconnect and server epoch fence stale leases', () => {
