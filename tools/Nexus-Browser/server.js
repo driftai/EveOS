@@ -7,7 +7,7 @@ const { createQualificationRestartHook } = require('./dex/qualification-restart'
 const { createDexStateStore } = require('./dex/state-store'), { createDexServerScheduler } = require('./dex/server-scheduler'), { createDoneWatchDelivery } = require('./dex/done-watch-delivery');
 const { startPostIdleMaintenance } = require('./dex/server-post-idle'), { startTaskCompletion } = require('./dex/server-task-completion'), { createServerStreamNudgeAuth } = require('./dex/server-stream-nudge-auth');
 const { createEnsureDexClient } = require('./dex/server-ensure-ui');
-const { mergeClientSnapshot } = require('./dex/server-state-merge'), finalState = require('./dex/server-scheduler-state'), { createRoomDeleteRoute } = require('./dex/server-room-delete-route');
+const finalState = require('./dex/server-scheduler-state');
 const finalReceiptDisposition = require('./dex/final-receipt-disposition');
 const { createServerDurability } = require('./dex/server-durability');
 const { createExtensionSessionArbiter } = require('./dex/extension-session-arbiter');
@@ -17,7 +17,7 @@ const { createDiagnosticsSnapshot } = require('./server-diagnostics'), { createS
 const { createServerLocalMessaging } = require('./server-local-messaging');
 const { createMachineSpacesController } = require('./machine-spaces/server-controller'), { createEngineeringIncidentBridge } = require('./dex/engineering-incident'), { createEngineeringCycle } = require('./dex/engineering-cycle'), { createSupervisedJobCoordinator } = require('./machine-spaces/supervised-job'), { createSupervisedJobStore } = require('./machine-spaces/supervised-job-store');
 const { createTerminalOperator } = require('./dex/terminal-operator'), { routeTerminalOperator } = require('./dex/server-terminal-operator-route'), { launchRoomTui } = require('./dex/room-tui-launch');
-const { attachWebSocketHeartbeat } = require('./dex/ws-heartbeat'), { createDisposableRoomCleanup } = require('./dex/disposable-room-cleanup');
+const { attachWebSocketHeartbeat } = require('./dex/ws-heartbeat'), { createDisposableRoomCleanup } = require('./dex/disposable-room-cleanup'), { createHumanInputLeaseAuthority } = require('./dex/human-input-leases'), { createHumanInputServerRoute } = require('./dex/server-human-input-route');
 const runtimeConfig = require('./runtime-config');
 const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
 const { createSafeSend, guardAsyncHandler, requestIdFromRaw } = require('./server-socket-safety');
@@ -46,7 +46,7 @@ let lastProviders = [];
 let lastTarget = null;
 let lastLocalTargets = [];
 let dexStateStore = createDexStateStore();
-let postIdleMaintenance = null, taskCompletion = null, engineeringIncidentBridge = null, engineeringCycle = null;
+let postIdleMaintenance = null, taskCompletion = null, engineeringIncidentBridge = null, engineeringCycle = null, humanInputRoute = null;
 let durability = createServerDurability();
 function configureDurability(o = {}) { const prev = { durability, dexStateStore }; if (o.durability) durability = o.durability; if (o.dexStateStore) dexStateStore = o.dexStateStore; return prev; }
 const safeSend = createSafeSend({
@@ -60,7 +60,9 @@ function syncExtensionAuthority(state = extensionSessions.current()) {
   return state;
 }
 function broadcastDexState(snapshot = dexStateStore.load()) { for (const ws of uiSockets) if (ws.clientKind === 'dex') safeSend(ws, { type: 'dex_state_snapshot', snapshot }); }
-const dexRouting = createDexServerRouting({ uiSockets, safeSend });
+const humanInputLeases = createHumanInputLeaseAuthority({ serverEpoch: SERVER_SESSION_ID });
+const dexRouting = createDexServerRouting({ uiSockets, safeSend,
+  onPrimaryChanged: ({ generation }) => humanInputLeases.setControllerGeneration(generation) });
 const supervisedJobs = createSupervisedJobCoordinator({ store: createSupervisedJobStore() }); const machineSpaces = createMachineSpacesController({ safeSend, uiSockets, supervisedJobs, getState: () => dexStateStore.load(), saveState: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, onSupervisedJobSettled: (job, plan) => engineeringCycle?.onJobSettled(job, plan) });
 const ensureDexClient = createEnsureDexClient({
   dexRouting, sendToExtension: (payload) => safeSend(extensionSocket, payload)
@@ -74,6 +76,8 @@ const providerControlRouting = createProviderControlRouting({
   machineCommandRouter: machineSpaces.providerControl,
   getDexClient: () => dexRouting.dexClient(), getScheduler: () => dexScheduler, getState: () => dexStateStore.load(), saveState: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState,
   getMaintenance: () => postIdleMaintenance, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), getExtension: () => { const s = extensionSessions.current(); return { socket: extensionSocket, ready: s.ready, epoch: s.primaryConnectionEpoch, sessionCount: s.sessionCount, targets: lastTabs }; }, spawnTarget: (input) => providerTargetSpawnRouting.spawn(input), closeTarget: (input) => providerTargetSpawnRouting.close(input), recordIncident: (input) => { const event = durability.recordIncident(input); console.log(`[bridge] incident ${event.code} [${event.requestId || 'n/a'}] source=${event.source || 'unknown'}`); return event; },
+  issueUiAuthorization: (input) => humanInputRoute?.issueProviderAuthorization(input) || null,
+  revokeUiAuthorization: (input) => humanInputRoute?.revokeProviderAuthorization(input) || false,
   async validateSource(source, ws) {
     if (ws?.role === 'provider-control-extension') {
       return source?.targetClassId === 'online-origin'
@@ -92,7 +96,6 @@ const streamNudgeAuth = createServerStreamNudgeAuth({ getState: () => dexStateSt
   extensionReady: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1,
   maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), reconcileFinal: (event) => dexScheduler.handleTransportEvent(event),
   expectedAdapterRevision: () => EXPECTED_ADAPTER_REVISION, reloadSafe: () => !!postIdleMaintenance?.readyRooms?.() && extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 });
-const roomDeleteRoute = createRoomDeleteRoute({ dexRouting, machineSpaces, providerControlRouting, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), stateStore: dexStateStore, broadcastState: broadcastDexState, safeSend });
 const doneWatchDelivery = createDoneWatchDelivery({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, safeSend, getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null, getTabs: () => lastTabs });
 const qualificationRouting = createQualificationRouting({ safeSend, getExtensionSocket: () => extensionSocket, getDurability: () => durability, getStateStore: () => dexStateStore, restartHook: qualificationRestart, serverSessionId: SERVER_SESSION_ID });
 const serverDexSource = { clientKind: 'dex' };
@@ -102,6 +105,7 @@ const { selectedLocalTarget, sendLocalStatus, sendLocalEvent, broadcastLocalStat
 const serverLocalRelay = createServerLocalRelay({ localTargets, mirrorPrompt: (targetId, msg, target) => mirrorPromptToConsoles(targetId, serverDexSource, msg, target), emitEvent: (targetId, payload) => sendLocalEvent(targetId, serverDexSource, payload), broadcastStatus: (targetId) => broadcastLocalStatus(targetId, serverDexSource) }); const appTargetController = createAppTargetServerController({ appTargets, safeSend, uiSockets, getDurability: () => durability, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive() });
 const dexScheduler = createDexServerScheduler({ stateStore: { load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot) }, durability: { beforeDispatch: (...args) => durability.beforeDispatch(...args), observe: (...args) => durability.observe(...args), markFailed: (...args) => durability.markFailed(...args), query: (...args) => durability.query(...args) }, getOnlineTargets: () => lastTabs, getProviders: () => lastProviders, getSelectedOnlineTarget: () => lastTarget, getLocalTargets: async (force = false) => { if (force) await refreshLocalTargets(null, { force: true }); return lastLocalTargets; }, getAppTargets: async (force = false) => appTargets.listAppTargets({ force }), isExtensionAvailable: () => !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN && extensionSessions.current().ready, sendExtension: (payload) => safeSend(extensionSocket, payload), sendLocalPrompt: serverLocalRelay.sendLocalPrompt, sendAppPrompt: appTargets.sendAppPrompt, captureLocalLatest: localTargets.captureLocalLatest, captureAppLatest: appTargets.captureAppLatest, broadcastState: broadcastDexState, broadcastEvent: (payload) => safeSend(dexRouting.dexClient(), payload), maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(),
   onTurnSettled: () => { doneWatchDelivery.flush(); taskCompletion?.flush(); engineeringCycle?.reconcile(); providerControlRouting.flushLocalIntents().catch((error) => console.log('[bridge] local provider-control delivery: ' + error.message)); postIdleMaintenance?.tick().catch((error) => console.log('[bridge] post-idle tick: ' + error.message)); }, recordIncident: (input) => durability.recordIncident(input) }); engineeringIncidentBridge = createEngineeringIncidentBridge({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), scheduler: dexScheduler, broadcastState: broadcastDexState }); engineeringCycle = createEngineeringCycle({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, machineSpaces, incidentBridge: engineeringIncidentBridge, repoRoot: runtimeConfig.EVEOS_ROOT }); for (const recovered of supervisedJobs.recovered()) engineeringCycle.onJobSettled(recovered);
+humanInputRoute = createHumanInputServerRoute({ authority: humanInputLeases, dexRouting, stateStore: { load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot) }, scheduler: dexScheduler, providerControlRouting, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), broadcastState: broadcastDexState, safeSend });
 const terminalOperator = createTerminalOperator({
   load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot),
   scheduler: dexScheduler, broadcastState: broadcastDexState,
@@ -244,6 +248,7 @@ wss.on('connection', (ws, req) => {
         uiSockets.add(ws);
         console.log(`[bridge] ui connected [${ws.clientKind}]`);
         if (ws.clientKind === 'dex') {
+          humanInputLeases.registerSocket(ws);
           const primary = dexRouting.registerDex(ws);
           safeSend(ws, { type: 'dex_runtime_role', role: primary ? 'primary' : 'standby' });
         }
@@ -268,7 +273,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (ws.role === 'ui') {
-      if (roomDeleteRoute.handle(ws, msg)) return;
+      if (humanInputRoute.handle(ws, msg)) return;
       if (ws.clientKind === 'tui-launch') { safeSend(ws, await launchRoomTui({ ws, msg, snapshot: dexStateStore.load(), port: PORT })); return; }
       if (ws.clientKind === 'terminal-operator') {
         safeSend(ws, routeTerminalOperator(ws, msg, terminalOperator));
@@ -276,25 +281,6 @@ wss.on('connection', (ws, req) => {
       }
       if (ws.clientKind === 'maintenance' && await taskCompletion.handleCommand(ws, msg)) return;
       if (ws.clientKind === 'maintenance' && ['cleanup_disposable_rooms', 'resolve_passive_recovery'].includes(msg.type)) { if (postIdleMaintenance.leaseActive()) { safeSend(ws, { type: 'error', code: 'POST_IDLE_LEASE_BUSY', message: 'Another maintenance operation owns the exclusive lease.' }); return; } const result = msg.type === 'cleanup_disposable_rooms' ? await disposableRoomCleanup.run(msg.requestId) : dexScheduler.resolvePassiveRecovery({ roomId: msg.roomId, requestId: msg.recoveryRequestId, reason: msg.reason }); if (msg.type === 'resolve_passive_recovery' && result.ok) broadcastDexState(dexStateStore.load()); safeSend(ws, msg.type === 'cleanup_disposable_rooms' ? result : { type: 'resolve_passive_recovery_result', requestId: msg.requestId || null, ...result }); return; }
-      if (msg.type === 'dex_state_put' && ws.clientKind === 'dex') {
-        if (postIdleMaintenance.leaseActive()) { safeSend(ws, { type: 'error', code: 'POST_IDLE_LEASE_BUSY', message: 'Post-idle maintenance blocks room mutations during local delivery.' }); return; }
-        if (!dexRouting.isPrimaryDex(ws)) {
-          safeSend(ws, { type: 'error', code: 'DEX_RUNTIME_STANDBY', message: 'This Dex tab is standby; the primary Dex controller owns room edits while localhost owns relay scheduling and recovery.' });
-          return;
-        }
-        try {
-          const snapshot = dexStateStore.save(mergeClientSnapshot(dexStateStore.load(), msg.snapshot || {})); dexScheduler.onStateChanged(); broadcastDexState(snapshot);
-          safeSend(ws, { type: 'dex_state_saved', savedAt: snapshot.savedAt });
-        } catch (error) {
-          safeSend(ws, { type: 'error', code: 'DEX_STATE_SAVE_FAILED', message: error.message });
-        }
-        return;
-      }
-      if (['dex_relay_start', 'dex_relay_stop', 'dex_relay_continue'].includes(msg.type) && ws.clientKind === 'dex') { if (postIdleMaintenance.leaseActive()) { safeSend(ws, { type: 'error', code: 'POST_IDLE_LEASE_BUSY', message: 'Post-idle task owns the relay mutation lease.' }); return; }
-        if (!dexRouting.isPrimaryDex(ws)) { safeSend(ws, { type: 'error', code: 'DEX_RUNTIME_STANDBY', message: 'Standby Dex tab cannot mutate room execution.' }); return; }
-        const result = msg.type === 'dex_relay_start' ? dexScheduler.startRelay(msg) : msg.type === 'dex_relay_stop' ? dexScheduler.stopRelay(msg) : dexScheduler.continueRelay(msg);
-        safeSend(ws, { type: 'dex_relay_result', requestId: msg.requestId || null, result }); return;
-      }
       if (await machineSpaces.handle(ws, msg) || await providerControlRouting.handle(ws, msg) || await appTargetController.handle(ws, msg)) return;
       if (ws.clientKind === 'dex' && ['select_target', 'ensure_target', 'send_prompt', 'capture_latest'].includes(msg.type)) {
         safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'DEX_SERVER_SCHEDULER_OWNS_TRANSPORT', message: 'Localhost scheduler owns Dex provider transport.' }); return;
@@ -415,7 +401,7 @@ wss.on('connection', (ws, req) => {
     }
     if (ws.role === 'ui') console.log(`[bridge] ui disconnected [${ws.clientKind}]`);
     uiSockets.delete(ws);
-    if (ws.clientKind === 'dex') dexRouting.unregisterDex(ws);
+    if (ws.clientKind === 'dex') { humanInputLeases.revokeSocket(ws); dexRouting.unregisterDex(ws); }
   }, { onError: (error) => console.error(`[bridge] websocket close cleanup failed: ${error.stack || error.message}`) }));
   ws.on('error', (err) => console.error('[bridge] websocket error:', err.message));
 });

@@ -95,7 +95,14 @@ async function main() {
       if (!livePort) {
         await pointerClick(page, '#dexModeTab');
         await pointerClick(page, '#dexHumanToggle');
+        await page.locator('#dexModePanel[data-human-input="enabled"]').waitFor({
+          state: 'attached', timeout: 10000
+        });
         await pointerClick(page, '#dexMachineSpaces > summary');
+        await page.waitForFunction(() => {
+          const button = document.getElementById('machineCreateSpace');
+          return button && !button.disabled;
+        }, null, { timeout: 10000 });
         await pointerClick(page, '#machineCreateSpace');
         await page.locator('.machine-dialog-input').fill('Browser Proof');
         await pointerClick(page, '.machine-dialog-actions button:last-child');

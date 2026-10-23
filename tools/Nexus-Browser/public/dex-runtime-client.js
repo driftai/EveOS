@@ -5,7 +5,6 @@
 
     function command(type, room, extra = {}) {
       if (!room?.id) return false;
-      persist?.({ immediate: true });
       const ok = send?.({ type, requestId: requestId(), roomId: room.id, ...extra });
       if (!ok) log?.('Bridge socket is not connected.');
       return !!ok;
@@ -18,8 +17,10 @@
         return false;
       }
       if (!sourceMessage?.id) return false;
+      if (sourceMessage.senderKind !== 'user') persist?.({ immediate: true });
       return command('dex_relay_start', room, {
         sourceMessageId: sourceMessage.id,
+        sourceMessage: { ...sourceMessage },
         ...(budget == null ? {} : { budget })
       });
     }

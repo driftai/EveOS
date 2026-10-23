@@ -101,3 +101,50 @@ EveOS inherits WatchFusion's output-efficient verification discipline.
 - Camoufox is available as a secondary environment for real-world anti-bot, media, and provider behavior without committing it as a required runtime dependency.
 - Test real pointer interactions (`mouse.move`, `mouse.down`, `mouse.up`, `mouse.click`) and DOM geometry rects (`getBoundingClientRect()`) rather than merely asserting DOM presence.
 
+
+
+## Quota-aware AI execution policy (2026-10-22)
+
+This is a standing EveOS agent orchestration requirement.
+
+Incident:
+- A broad Phase 2 Codex CLI execution consumed 241,826 tokens.
+- The five-hour allowance was exhausted before the task completed.
+- The run exited on quota limits, leaving useful uncommitted work.
+- Preserve that unfinished work; never repeat the entire mission to compensate.
+
+Execution defaults:
+- Prefer deterministic scripts and qualified local TLO tasks before spending hosted agent quota.
+- Never spawn Nova/Codex CLI automatically merely because a task is complex.
+- Prefer continuing the existing authorized agent context.
+- Every future Codex CLI launcher MUST explicitly select a reasoning effort.
+- Use LOW for bounded routine tasks and MEDIUM for normal coding.
+- HIGH requires a specific justification and user approval.
+- XHIGH, MAX, or ULTRA require explicit user approval for that run.
+- Never silently inherit an unknown elevated effort from global config.
+- For routine Codex CLI execution, pass:
+  -c 'model_reasoning_effort="medium"'
+- For simple work, explicitly use "low" instead.
+- Confirm model support for the selected effort.
+
+TLO-first delegation:
+- Give TLO local logs, read-only checks, test execution, and bounded
+  mechanical tasks when its runtime and permissions are sufficient.
+- TLO must preserve provenance, authorization and exact-once behavior.
+- Do not grant TLO unapproved terminal, file, Git or deployment authority.
+- Local computation also has resource costs; TLO is not unlimited.
+
+Quota protection:
+- Split large missions into independently verifiable checkpoints.
+- Inspect existing evidence before reading entire files or transcripts.
+- Never repeatedly rerun passing tests or duplicate agent investigations.
+- Report estimated scope before a substantial hosted-agent run.
+- Check remaining quota before authorizing expensive execution.
+- Stop at a bounded checkpoint and return an evidence handoff.
+- Prompt-level budgets are advisory, not platform-enforced spending caps.
+- Never sacrifice required security tests to conserve quota.
+- Preserve uncommitted work when quota or context runs out.
+
+Publication remains independently authorized:
+- No automatic commit, push, force-push, merge or service restart.
+- Protect unrelated dirty work and all existing Dex room data.

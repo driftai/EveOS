@@ -67,10 +67,12 @@
     value.relay = { ...base.relay, ...(room?.relay || {}) };
     return value;
   }
-  let stateSync = null;
-  let dexSocket = null;
+  let stateSync = null, dexSocket = null, humanInput = null, providerAuthorization = null;
+  const AUTHORIZED_TYPES = Object.freeze({ dex_state_put: 'state:edit', dex_room_delete: 'room:delete', dex_relay_stop: 'relay:stop', dex_relay_continue: 'relay:continue' });
   function send(payload) {
-    return dexSocket?.send(payload) || false;
+    const roomId = payload.roomId || providerAuthorization?.roomId || activeRoom()?.id || null;
+    const authorization = providerAuthorization || (AUTHORIZED_TYPES[payload.type] ? humanInput?.authorization(AUTHORIZED_TYPES[payload.type], roomId) : null);
+    return dexSocket?.send({ ...payload, ...(payload.type === 'dex_state_put' ? { roomId } : {}), ...(authorization ? { authorization } : {}) }) || false;
   }
   function loadRooms() {
     stateSync = stateSyncApi.createSync({
@@ -151,6 +153,7 @@
   }
 
   function handleSocketMessage(msg) {
+    if (humanInput?.handleMessage(msg)) return;
     if (runtime.handleMessage(msg)) return;
     if (msg.type === 'server_session') { handleServerSession(msg.id, msg.assetRevision); return; }
     if (msg.type === 'error') {
@@ -191,10 +194,10 @@
       memberController.clear(); log(msg.message || 'Room deleted.'); renderAll(); return;
     }
     if (msg.type === 'provider_control_request') {
-      const result = providerControl.handle(msg);
-      if (result?.ok && controlApi.MUTATING_ACTIONS.has(String(msg.command?.action || '').trim().toLowerCase())) {
-        stateSync?.flush();
-      }
+      providerAuthorization = msg.authorization || null;
+      let result;
+      try { result = providerControl.handle(msg); if (result?.ok && controlApi.MUTATING_ACTIONS.has(String(msg.command?.action || '').trim().toLowerCase())) stateSync?.flush(); }
+      finally { providerAuthorization = null; }
       send({ type: 'provider_control_result', requestId: msg.requestId, source: msg.source, result });
       return;
     }
@@ -258,6 +261,7 @@
       onPhase: ({ phase, closeCode, closeReason }) => {
         const previous = state.uiConnectionPhase;
         state.uiConnectionPhase = phase;
+        if (phase === 'reconnecting' || phase === 'disconnected') humanInput?.connectionLost();
         renderAll();
         if (phase === 'reconnecting' && previous === 'connected') {
           log(`Dex viewer/controller reconnecting · code ${closeCode ?? '?'}${closeReason ? ` · ${closeReason}` : ''}; relay controls paused.`);
@@ -267,15 +271,15 @@
     });
     dexSocket.connect();
   }
-
-  const humanInput = humanInputApi.createController({
+  humanInput = humanInputApi.createController({
     panel: el.dexModePanel,
     label: el.dexControlLabel,
     hint: el.dexControlHint,
     toggle: el.dexHumanToggle,
     controls: el,
     onRelock: () => memberController.clear(),
-    onChange: (enabled) => { if (enabled && state.runtimeRole !== 'controller') send({ type: 'dex_request_primary', requestId: uid('dex-primary') }); renderAll(); }
+    send, uid,
+    onRoomCreated: ({ snapshot, roomId }) => { stateSync?.applyRemote(snapshot); state.activeRoomId = roomId; memberController.clear(); renderAll(); }
   });
   const canHumanEdit = () => humanInput.isEnabled() && state.runtimeRole === 'controller' && state.uiConnectionPhase === 'connected';
 
@@ -302,6 +306,7 @@
     state, el, protocol,
     onRoomSelect(room) {
       memberController.clear();
+      humanInput.roomChanged(room.id);
       state.activeRoomId = room.id;
       renderAll();
     }
@@ -311,7 +316,7 @@
     const room = activeRoom();
     roomView.renderRooms();
     if (!room) {
-      humanInput.render({ connected: false, controller: false, hasRoom: false });
+      humanInput.render({ connected: false, controller: false, hasRoom: false, roomId: null });
       return;
     }
     const uiConnected = state.uiConnectionPhase === 'connected';
@@ -336,6 +341,7 @@
     humanInput.render({
       connected: uiConnected,
       controller: state.runtimeRole === 'controller',
+      roomId: room.id, bootstrap: humanInputApi.isBootstrapCandidate(state.rooms, room),
       hasRoom: !!room,
       busy: executionBusy,
       receiptPending,
@@ -349,13 +355,7 @@
   el.baseModeTab.addEventListener('click', () => setMode('base'));
   el.dexModeTab.addEventListener('click', () => setMode('dex'));
   el.dexNewRoom.addEventListener('click', () => {
-    if (!canHumanEdit()) return;
-    memberController.clear();
-    const room = defaultRoom();
-    state.rooms.push(room);
-    state.activeRoomId = room.id;
-    persist();
-    renderAll();
+    if (canHumanEdit()) humanInput.createRoom();
   });
   el.dexSaveRoom.addEventListener('click', () => {
     const room = activeRoom();

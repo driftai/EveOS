@@ -44,6 +44,10 @@
   animation: none;
 }
 #dexModePanel[data-human-input="enabled"] .dex-control-banner { border-color: #587d7f; }
+#dexModePanel[data-human-input="denied"] .dex-control-banner { border-color: #8d5560; }
+#dexModePanel[data-human-input="expired"] .dex-control-banner { border-color: #8a7447; }
+#dexModePanel[data-human-input="denied"] .dex-control-label { color: #ff9fac; }
+#dexModePanel[data-human-input="expired"] .dex-control-label { color: #e7c77e; }
 #dexModePanel[data-human-input="disabled"] .dex-card :is(button, input, select):disabled,
 #dexModePanel[data-human-input="disabled"] .dex-sidebar-head button:disabled,
 #dexModePanel[data-human-input="disabled"] .dex-relay-actions button:disabled {

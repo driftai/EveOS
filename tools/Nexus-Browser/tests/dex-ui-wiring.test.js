@@ -11,6 +11,8 @@ const dexMembers = fs.readFileSync(path.join(ROOT, 'public', 'dex-members.js'), 
 const providerControl = fs.readFileSync(path.join(ROOT, 'public', 'dex-provider-control.js'), 'utf8');
 const providerHealth = fs.readFileSync(path.join(ROOT, 'public', 'dex-provider-health.js'), 'utf8');
 const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+const humanInputServerRoute = fs.readFileSync(
+  path.join(ROOT, 'dex', 'server-human-input-route.js'), 'utf8');
 const scheduler = fs.readFileSync(path.join(ROOT, 'dex', 'server-scheduler.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(ROOT, 'dex', 'server-scheduler-recovery.js'), 'utf8');
 
@@ -62,9 +64,10 @@ test('browser Dex runtime is viewer/controller only and cannot own provider tran
 
 test('localhost server owns scheduling, exact target routing, timeout and recovery', () => {
   assert.match(server, /createDexServerScheduler/);
-  assert.match(server, /dexScheduler\.startRelay/);
-  assert.match(server, /dexScheduler\.stopRelay/);
-  assert.match(server, /dexScheduler\.continueRelay/);
+  assert.match(server, /scheduler: dexScheduler/);
+  assert.match(humanInputServerRoute, /scheduler\.startRelay\(msg\)/);
+  assert.match(humanInputServerRoute, /scheduler\.stopRelay\(msg\)/);
+  assert.match(humanInputServerRoute, /scheduler\.continueRelay\(msg\)/);
   assert.match(server, /dexScheduler\.handleTransportEvent/);
   assert.match(server, /DEX_SERVER_SCHEDULER_OWNS_TRANSPORT/);
   assert.match(scheduler, /protocol\.nextMemberIndex|stateApi\.enqueueNext/);
@@ -88,14 +91,19 @@ test('Dex treats server-process changes as soft resync and asset changes as the 
   assert.doesNotMatch(dexMode, /recover the already-dispatched reply after reconnect/);
 });
 
-test('server runtime state wins reconnect races while browser still mirrors room data locally', () => {
-  assert.match(server, /mergeClientSnapshot/);
+test('server-authorized edits stay room-scoped while the browser mirrors server state', () => {
+  assert.match(server, /humanInputRoute\.handle\(ws, msg\)/);
+  assert.match(humanInputServerRoute, /operation: 'state:edit', roomId, kind: 'human-input'/);
+  assert.match(humanInputServerRoute, /scopedState\.mergeRoomEdit\(stateStore\.load\(\), msg\.snapshot, roomId\)/);
+  assert.match(humanInputServerRoute, /stateStore\.save\(merged\.snapshot\)/);
   assert.match(dexMode, /Dex state synchronized from localhost scheduler/);
   assert.match(dexMode, /stateSync\?\.applyRemote/);
 });
 
 test('room deletion is a localhost-authorized operation and stopped receipt rooms remain editable', () => {
-  assert.match(server, /roomDeleteRoute\.handle\(ws, msg\)/);
+  assert.match(server, /humanInputRoute\.handle\(ws, msg\)/);
+  assert.match(humanInputServerRoute, /if \(msg\.type === 'dex_room_delete'\) return deleteRoom\(ws, msg\)/);
+  assert.match(humanInputServerRoute, /function deleteRoom\(ws, msg\) \{\s*const access = authorize\(ws, msg, \{ operation: 'room:delete', roomId: msg\.roomId, kind: 'human-input' \}\);\s*if \(!access\.ok\) return sendError\(ws, msg, access\);/);
   assert.match(dexMode, /type: 'dex_room_delete'/);
   assert.match(dexMode, /msg\.type === 'dex_room_delete_result'/);
   assert.match(dexMode, /roomExecutionBusy\(state, room\)/);

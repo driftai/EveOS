@@ -25,13 +25,22 @@ function harness() {
 test('browser controller starts relay with one localhost command and no provider transport', () => {
   const { runtime, room, sent, persisted } = harness();
   assert.equal(runtime.startRelay(room, room.messages[0], 4), true);
-  assert.equal(persisted[0].immediate, true);
+  assert.equal(persisted.length, 0, 'locked user messages are committed by the server additive path');
   assert.equal(sent.length, 1);
   assert.equal(sent[0].type, 'dex_relay_start');
   assert.equal(sent[0].roomId, 'room-1');
   assert.equal(sent[0].sourceMessageId, 'm1');
+  assert.deepEqual(sent[0].sourceMessage, room.messages[0]);
   assert.equal(sent[0].budget, 4);
   assert.equal(sent.some((item) => ['send_prompt', 'select_target', 'ensure_target', 'capture_latest'].includes(item.type)), false);
+});
+
+test('agent-origin relay starts still flush correlated state before dispatch', () => {
+  const { runtime, room, persisted } = harness();
+  const message = { id: 'agent-message-1', senderKind: 'agent', senderId: 'eve', text: 'provider control' };
+  room.messages.push(message);
+  assert.equal(runtime.startRelay(room, message, 1), true);
+  assert.equal(persisted[0].immediate, true);
 });
 
 test('browser controller stop and continue remain control-plane only', () => {

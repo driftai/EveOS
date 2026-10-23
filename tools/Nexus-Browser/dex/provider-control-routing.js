@@ -37,6 +37,7 @@ function createProviderControlRouting({
   uiSockets, safeSend, validateSource, ensureDexClient, getDexClient,
   getState, saveState, broadcastState, spawnTarget, closeTarget, machineCommandRouter, recordIncident, getExtension,
   getMaintenance = () => null, maintenanceBusy = () => false, getScheduler = () => null,
+  issueUiAuthorization = () => null, revokeUiAuthorization = () => false,
   now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 }) {
@@ -77,6 +78,7 @@ function createProviderControlRouting({
   function finish(requestId, payload) {
     const entry = pending.get(requestId);
     if (!entry) return false;
+    revokeUiAuthorization(entry.uiAuthorization);
     clearTimer(entry.timer);
     pending.delete(requestId);
     if (entry.key && pendingMutations.get(entry.key) === requestId) pendingMutations.delete(entry.key);
@@ -303,9 +305,10 @@ function createProviderControlRouting({
           : { ok: false, code: 'DEX_CONTROL_TIMEOUT', message: 'Dex Mode did not answer the provider-control request in time.' }
       });
     }, action === 'spawn_agent' || action === 'despawn_agent' ? 45000 : 15000);
+    const uiAuthorization = MUTATING_ACTIONS.has(action) ? issueUiAuthorization({ ws: dex, requestId, action, roomId: authorization?.roomId || boundRoomId || origin?.roomId || null }) : null;
     const entry = {
       sourceSocket: ws, source, requestId, timer, key, waiters: [],
-      action, origin, spawnedTarget: null, managedTarget: authorization?.target || null
+      action, origin, roomId: authorization?.roomId || boundRoomId || origin?.roomId || null, uiAuthorization, spawnedTarget: null, managedTarget: authorization?.target || null
     };
     pending.set(requestId, entry);
     if (key) pendingMutations.set(key, requestId);
@@ -365,7 +368,7 @@ function createProviderControlRouting({
     } else if (action === 'despawn_agent') {
       routedCommand = { ...routedCommand, room: authorization.roomId, member: authorization.memberId };
     }
-    if (!safeSend(dex, { type: 'provider_control_request', requestId, source, command: routedCommand })) {
+    if (!safeSend(dex, { type: 'provider_control_request', requestId, source, command: routedCommand, ...(uiAuthorization ? { authorization: uiAuthorization } : {}) })) {
       if (entry.spawnedTarget && typeof closeTarget === 'function') {
         await closeTarget({ requestId: `${requestId}-route-cleanup`, targetId: entry.spawnedTarget.id, providerId: entry.spawnedTarget.providerId }).catch(() => {});
       }
