@@ -51,6 +51,24 @@ test('TLO uses the same passive Search Monitor workspace bridge without a lifecy
   assert.equal(await pending, 'ready');
 });
 
+test('exclusive TLO route advertises and dispatches through only one authoritative owner', async t => {
+  const calls = [];
+  const backendTarget = { id: serviceChats.TLO_ID, providerId: 'tlo-chat',
+    transport: 'tlo-backend-owner', ownerGeneration: 2 };
+  serviceChats.configureExclusiveTloRoute({
+    async listTargets() { return [backendTarget]; },
+    status() { return { state: 'ready', ownerGeneration: 2 }; },
+    async sendPrompt(input) { calls.push(input.requestId); return 'backend'; }
+  });
+  t.after(() => serviceChats.configureExclusiveTloRoute(null));
+  const targets = await serviceChats.listTargets();
+  assert.equal(targets.filter(item => item.id === serviceChats.TLO_ID).length, 1);
+  assert.equal(targets.find(item => item.id === serviceChats.TLO_ID).transport, 'tlo-backend-owner');
+  assert.equal(await serviceChats.sendPrompt({ requestId: 'dex-turn-route-0001',
+    text: 'x', target: backendTarget, emit() {} }), 'backend');
+  assert.deepEqual(calls, ['dex-turn-route-0001']);
+});
+
 class FakeGeminiSocket extends EventEmitter {
   constructor(url) { super(); this.url = url; this.sent = []; queueMicrotask(() => this.emit('open')); }
   send(raw) {

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import io
+import hashlib
+import hmac
 import json
 import sys
 import tempfile
@@ -17,6 +19,10 @@ if str(ROOT) not in sys.path:
 
 from server_modules import agent_management_store as store  # noqa: E402
 from server_modules import tlo_chat, tlo_definition  # noqa: E402
+from server_modules.tlo_backend_transport_auth import (  # noqa: E402
+    AUTH_HEADER, AUTH_SCHEMA, BackendTransportAuthError,
+    BackendTransportAuthorizer, canonical,
+)
 
 
 def require(condition, message):
@@ -135,7 +141,50 @@ def expect_model_error(projection, harness, expected_state):
         require(exc.state == expected_state, f"Expected {expected_state}, got {exc.state}")
 
 
+def backend_auth_contract():
+    now = 1_700_000_000_000
+    secret = "s" * 32
+    authorizer = BackendTransportAuthorizer(secret=secret, server_session_id="nexus-session-0001",
+        owner_id="nexus-backend-owner-0001", owner_generation=2, now_ms=lambda: now)
+    history = [{"role": "user", "content": "prior"}]
+    payload = {"requestId": "dex-turn-auth-0001", "scopeId": "default",
+        "message": "hello", "history": history}
+    envelope = {"schema": AUTH_SCHEMA, "serverSessionId": "nexus-session-0001",
+        "scopeId": "default", "ownerId": "nexus-backend-owner-0001", "ownerGeneration": 2,
+        "requestId": payload["requestId"], "roomId": "room-auth-0001",
+        "sourceMessageId": "msg-source-auth-0001", "dispatchId": "tlo-dispatch-auth-0001",
+        "nonce": "nonce-auth-0001", "issuedAt": now,
+        "messageSha256": hashlib.sha256(b"hello").hexdigest(),
+        "historySha256": hashlib.sha256(json.dumps(history, separators=(",", ":")).encode()).hexdigest()}
+    payload["backendAuth"] = envelope
+    signature = hmac.new(secret.encode(), canonical(envelope).encode(), hashlib.sha256).hexdigest()
+    require(authorizer.authorize({AUTH_HEADER: signature}, payload)["requestId"] == payload["requestId"],
+            "Exact backend request was not authorized")
+    for headers, candidate in (({AUTH_HEADER: signature}, payload), ({"Authorization": "Bearer local-ui"}, payload)):
+        try:
+            authorizer.authorize(headers, candidate)
+            raise AssertionError("Backend authorization replay or generic UI credential was accepted")
+        except BackendTransportAuthError:
+            pass
+    cases = [
+        ({"scopeId": "other", "nonce": "nonce-auth-0002"}, {}),
+        ({"ownerGeneration": 3, "nonce": "nonce-auth-0003"}, {}),
+        ({"issuedAt": now - 30_001, "nonce": "nonce-auth-0004"}, {}),
+        ({"nonce": "nonce-auth-0005"}, {"requestId": "dex-turn-auth-wrong"}),
+    ]
+    for envelope_changes, payload_changes in cases:
+        rejected_envelope = {**envelope, **envelope_changes}
+        rejected_payload = {**payload, **payload_changes, "backendAuth": rejected_envelope}
+        rejected_signature = hmac.new(secret.encode(), canonical(rejected_envelope).encode(), hashlib.sha256).hexdigest()
+        try:
+            authorizer.authorize({AUTH_HEADER: rejected_signature}, rejected_payload)
+            raise AssertionError("Mismatched or expired backend authorization was accepted")
+        except BackendTransportAuthError:
+            pass
+
+
 def run():
+    backend_auth_contract()
     with tempfile.TemporaryDirectory(prefix="eveos-tlo-chat-") as temporary:
         live_path = Path(temporary) / "agents.json"
         backup_path = Path(temporary) / "agents.backup.json"
@@ -189,6 +238,16 @@ def run():
                     "Remote-origin TLO status route was not handled"
                 )
                 require(remote_status.status == 403, "Remote web origin could read TLO status")
+
+                tlo_chat.configure_phase3d_transport(browser_owner_check=lambda _scope: False)
+                fenced_browser = FakeHandler(origin="null")
+                tlo_chat.handle_get_request(fenced_browser, f"{tlo_chat.BASE_PATH}/status", {"scopeId": ["default"]})
+                require(fenced_browser.status == 403, "Stale browser owner retained TLO inference authority")
+                tlo_chat.configure_phase3d_transport()
+
+                backend_disabled = FakeHandler({"requestId": "tlo-backend-disabled-0001"})
+                tlo_chat.handle_post_request(backend_disabled, f"{tlo_chat.BASE_PATH}/backend/chat/stream")
+                require(backend_disabled.status == 503, "Backend TLO transport activated without its authenticator")
 
             with patch.object(tlo_chat.local_moe_control, "get_status", return_value=lifecycle()), \
                     patch.object(tlo_chat, "_harness_json", return_value=harness_status()), \

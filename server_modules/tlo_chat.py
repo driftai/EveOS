@@ -10,7 +10,7 @@ import threading
 from dataclasses import dataclass, field
 from http import HTTPStatus
 
-from server_modules import agent_capability_registry, agent_management_store, eveos_ports, gemini_control, local_moe_control, tlo_schema_cache
+from server_modules import agent_capability_registry, agent_management_store, eveos_ports, gemini_control, local_moe_control, tlo_backend_transport_route, tlo_schema_cache
 from server_modules.eve_state_store_api_helpers import query_value, send_json
 
 
@@ -37,8 +37,6 @@ class ActiveStream:
 
 
 _ACTIVE: dict[str, ActiveStream] = {}
-
-
 class TloChatError(ValueError):
     def __init__(self, message: str, *, status=HTTPStatus.BAD_REQUEST, state="invalid_request"):
         super().__init__(message)
@@ -46,9 +44,14 @@ class TloChatError(ValueError):
         self.state = state
 
 
+configure_phase3d_transport = tlo_backend_transport_route.configure
+
+
 def _authorize_tlo_ui(handler) -> bool:
     """Allow only loopback EveOS UI callers, including the supported file:// surface."""
-    if gemini_control.request_can_control(handler):
+    if gemini_control.request_can_control(handler) and (
+        tlo_backend_transport_route.browser_owner_allowed("default")
+    ):
         return True
     send_json(handler, HTTPStatus.FORBIDDEN, {
         "ok": False,
@@ -402,8 +405,20 @@ def handle_get_request(handler, path, query) -> bool:
 
 
 def handle_post_request(handler, path) -> bool:
-    if path not in {f"{BASE_PATH}/chat/stream", f"{BASE_PATH}/chat/cancel"}:
+    backend_path = f"{BASE_PATH}{tlo_backend_transport_route.BACKEND_PATH_SUFFIX}"
+    if path not in {f"{BASE_PATH}/chat/stream", f"{BASE_PATH}/chat/cancel", backend_path}:
         return False
+    if path == backend_path:
+        try:
+            return tlo_backend_transport_route.handle(handler, read_body=_read_body, stream_chat=_stream_chat)
+        except TloChatError as exc:
+            send_json(handler, exc.status, _error_payload(exc)); return True
+        except Exception:
+            logger.exception("TLO backend chat failed")
+            send_json(handler, HTTPStatus.INTERNAL_SERVER_ERROR, {
+                "ok": False, "state": "inference_failure", "error": "TLO backend chat failed."
+            })
+            return True
     if not _authorize_tlo_ui(handler):
         return True
     try:

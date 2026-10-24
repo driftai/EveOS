@@ -4,7 +4,8 @@ function createServerLocalRelay({
   localTargets,
   mirrorPrompt = () => {},
   emitEvent = () => {},
-  broadcastStatus = () => {}
+  broadcastStatus = () => {},
+  tloBackendOwnership = null
 } = {}) {
   async function sendLocalPrompt({ targetId, requestId, text, emit, correlation = null }) {
     const target = await localTargets.getLocalTarget(targetId);
@@ -18,19 +19,30 @@ function createServerLocalRelay({
     mirrorPrompt(targetId, { requestId, text, ...(exactCorrelation ? { correlation: exactCorrelation } : {}) }, target);
     broadcastStatus(targetId);
     let eventChain = Promise.resolve();
+    let ownershipContext = null;
     try {
+      ownershipContext = await tloBackendOwnership?.beforeSend?.({
+        target, requestId, correlation: exactCorrelation
+      });
       await localTargets.sendLocalPrompt({
         targetId,
         requestId,
         text,
         correlation: exactCorrelation,
+        dispatchCapability: ownershipContext?.dispatchCapability || null,
         emit(payload) {
           eventChain = eventChain
             .then(() => Promise.resolve(emit?.(payload)))
-            .then(() => emitEvent(targetId, payload));
+            .then(() => emitEvent(targetId, payload))
+            .then(() => tloBackendOwnership?.afterEvent?.(ownershipContext, payload));
         }
       });
       await eventChain;
+      await tloBackendOwnership?.afterReturn?.(ownershipContext);
+    } catch (error) {
+      try { await tloBackendOwnership?.afterFailure?.(ownershipContext, error); }
+      catch (ownershipError) { error.ownershipError = ownershipError; }
+      throw error;
     } finally {
       await eventChain.catch(() => {});
       stateApi.forgetTurnCorrelation(requestId);
