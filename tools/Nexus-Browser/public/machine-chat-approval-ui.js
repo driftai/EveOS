@@ -64,7 +64,8 @@
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
     socket = new WebSocket(`${scheme}://${location.host}/ws`);
     socket.addEventListener('open', () => {
-      send({ type: 'hello', role: 'ui', clientKind: 'machine-chat-approval' });
+      send({ type: 'hello', role: 'ui', clientKind: 'machine-chat-approval',
+        uiHolderId: globalThis.BrowserAiBridgeUiSocket?.uiHolderId });
       send({ type: 'machine_supervised_jobs' });
     });
     socket.addEventListener('message', (event) => {

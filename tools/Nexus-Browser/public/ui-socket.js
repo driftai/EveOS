@@ -1,5 +1,11 @@
 (() => {
   const GEMINI_ROOM_AUDIO_EVENT = 'nexus-gemini-link-room-audio';
+  const UI_HOLDER_ID = `nexus-viewer-${globalThis.crypto?.randomUUID?.()
+    || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+
+  function uiHello(value) {
+    return value?.role === 'ui' ? { ...value, uiHolderId: UI_HOLDER_ID } : value;
+  }
 
   function ensureGeminiLinkAudioModule() {
     if (globalThis.BrowserAiBridgeGeminiLinkAudio || typeof document === 'undefined') return;
@@ -66,7 +72,7 @@
         reconnectAttempt = 0;
         epoch += 1;
         transition('connected');
-        if (hello) send(typeof hello === 'function' ? hello() : hello);
+        if (hello) send(uiHello(typeof hello === 'function' ? hello() : hello));
         onOpen(snapshot());
       });
       next.addEventListener('message', (event) => {
@@ -122,7 +128,7 @@
     return { connect, send, stop, snapshot: () => snapshot() };
   }
 
-  const api = { createClient, GEMINI_ROOM_AUDIO_EVENT };
+  const api = { createClient, uiHolderId: UI_HOLDER_ID, uiHello, GEMINI_ROOM_AUDIO_EVENT };
   globalThis.BrowserAiBridgeUiSocket = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

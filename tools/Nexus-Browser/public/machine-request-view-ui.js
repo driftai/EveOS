@@ -263,7 +263,8 @@
     socket = new WebSocket(`${scheme}://${location.host}/ws`);
     socket.addEventListener('open', () => {
       phase = 'connected'; available = false; watchedContext = '';
-      send({ type: 'hello', role: 'ui', clientKind: 'machine-request-view' });
+      send({ type: 'hello', role: 'ui', clientKind: 'machine-request-view',
+        uiHolderId: globalThis.BrowserAiBridgeUiSocket?.uiHolderId });
       setTimeout(watchRoom, 50); render();
     });
     socket.addEventListener('message', (event) => { try { handle(JSON.parse(event.data)); } catch {} });

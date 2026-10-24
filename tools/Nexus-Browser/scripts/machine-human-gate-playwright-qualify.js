@@ -49,7 +49,8 @@ async function rawMutation(page, port, message, authorize = false) {
     const timer = setTimeout(() => { try { ws.close(); } catch {} reject(new Error('Raw viewer mutation timed out.')); }, 6000);
     let sent = false;
     const finish = (value) => { clearTimeout(timer); try { ws.close(); } catch {} resolve(value); };
-    ws.addEventListener('open', () => ws.send(JSON.stringify({ type: 'hello', role: 'ui', clientKind: 'browser' })));
+    ws.addEventListener('open', () => ws.send(JSON.stringify({ type: 'hello', role: 'ui', clientKind: 'browser',
+      uiHolderId: globalThis.BrowserAiBridgeUiSocket?.uiHolderId })));
     ws.addEventListener('message', (event) => {
       const payload = JSON.parse(event.data);
       if (!sent && payload.type === 'server_session') {
@@ -112,6 +113,15 @@ async function main() {
     if (borrowed.code !== 'MACHINE_HUMAN_INPUT_LOCKED')
       throw new Error(`Observer borrowed primary authority: ${JSON.stringify(borrowed)}`);
 
+    const copiedAuthorization = await primary.evaluate(() =>
+      globalThis.BrowserAiBridgeMachineHumanGate.authorize({}).machineAuthorization);
+    const copied = await rawMutation(observer, port, {
+      type: 'machine_create_space', requestId: 'viewer-copied-token-attempt',
+      roomId: 'room-viewer-one', name: 'Copied Token', machineAuthorization: copiedAuthorization
+    });
+    if (copied.code !== 'MACHINE_HUMAN_INPUT_HOLDER_MISMATCH')
+      throw new Error(`Observer reused copied authority: ${JSON.stringify(copied)}`);
+
     await pointerClick(primary, '#dexMachineSpaces > summary');
     await primary.waitForFunction(() => {
       const button = document.querySelector('#machineCreateSpace');
@@ -139,7 +149,8 @@ async function main() {
     const revoked = await primary.evaluate(({ portValue, auth }) => new Promise((resolve, reject) => {
       const ws = new WebSocket(`ws://127.0.0.1:${portValue}/ws`);
       const timer = setTimeout(() => reject(new Error('Revocation probe timed out.')), 6000);
-      ws.addEventListener('open', () => ws.send(JSON.stringify({ type: 'hello', role: 'ui' })));
+      ws.addEventListener('open', () => ws.send(JSON.stringify({ type: 'hello', role: 'ui',
+        uiHolderId: globalThis.BrowserAiBridgeUiSocket?.uiHolderId })));
       ws.addEventListener('message', (event) => {
         const payload = JSON.parse(event.data);
         if (payload.type === 'server_session') ws.send(JSON.stringify({ type: 'machine_create_space',
@@ -151,7 +162,7 @@ async function main() {
       throw new Error(`Revoked authority remained usable: ${JSON.stringify(revoked)}`);
     if (errors.length) throw new Error(`Browser exceptions: ${errors.join(' | ')}`);
 
-    console.log('MACHINE_HUMAN_GATE_PLAYWRIGHT_GREEN viewers=2 borrow=denied scope=exact revocation=immediate pointer=true');
+    console.log('MACHINE_HUMAN_GATE_PLAYWRIGHT_GREEN viewers=2 borrow=denied copiedToken=denied scope=exact revocation=immediate pointer=true');
   } catch (error) {
     console.error('MACHINE_HUMAN_GATE_PLAYWRIGHT_RED', error.stack || error.message);
     console.error('NEXUS_TAIL', tail.split(/\r?\n/).slice(-20).join('\n'));

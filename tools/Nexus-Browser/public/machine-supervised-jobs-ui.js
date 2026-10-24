@@ -371,7 +371,8 @@
     socket = new WebSocket(`${scheme}://${location.host}/ws`);
     socket.addEventListener('open', () => {
       phase = 'connected';
-      send({ type: 'hello', role: 'ui', clientKind: 'machine-supervised-jobs' });
+      send({ type: 'hello', role: 'ui', clientKind: 'machine-supervised-jobs',
+        uiHolderId: globalThis.BrowserAiBridgeUiSocket?.uiHolderId });
       setTimeout(requestSnapshot, 50);
       if (governorPanel.open) send({ type: 'machine_governor_receipts' });
       render();

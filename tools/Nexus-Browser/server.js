@@ -241,6 +241,8 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.role === 'ui') {
         ws.role = 'ui';
+        ws.uiHolderId = /^nexus-viewer-[A-Za-z0-9-]{8,160}$/.test(String(msg.uiHolderId || ''))
+          ? String(msg.uiHolderId) : null;
         ws.clientKind = msg.clientKind === 'console' ? 'console'
           : msg.clientKind === 'dex' ? 'dex'
             : msg.clientKind === 'provider-control' ? 'provider-control'

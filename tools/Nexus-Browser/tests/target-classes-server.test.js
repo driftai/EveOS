@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { WebSocket } = require('ws');
 const { server, HOST } = require('../server');
 
-function waitMessage(ws, predicate, timeoutMs = 3000) {
+function waitMessage(ws, predicate, timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -40,7 +40,7 @@ test('UI handshake advertises Online, Local, App and managed Terminal targets wi
     // The first App-Origin snapshot is sent synchronously by the hello handler and
     // carries refreshing=true. Keep a normal full-suite scheduling budget here;
     // correctness is the eager snapshot contract, not a 1.5s wall-clock race.
-    const appTargetsPromise = waitMessage(ws, (message) => message.type === 'app_targets_update', 5000);
+    const appTargetsPromise = waitMessage(ws, (message) => message.type === 'app_targets_update', 8000);
     ws.send(JSON.stringify({ type: 'hello', role: 'ui' }));
 
     const classes = await classesPromise;

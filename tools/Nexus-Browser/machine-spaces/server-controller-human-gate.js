@@ -92,6 +92,7 @@ function enhanceMachineSpacesHumanGateController(createBaseController, options =
     const expiresAtMs = Date.parse(access.lease.expiresAt);
     const grant = {
       token: tokenFactory(), controller: ws, roomId,
+      holderId: ws.uiHolderId || null,
       sourceAuthorization: msg.authorization,
       serverEpoch: access.lease.serverEpoch,
       generation: access.lease.generation,
@@ -123,6 +124,8 @@ function enhanceMachineSpacesHumanGateController(createBaseController, options =
     const token = String(msg.machineAuthorization?.token || '');
     const grant = grants.get(token);
     if (!grant) throw machineError('MACHINE_HUMAN_INPUT_LOCKED', 'Enable Human Input in this exact Dex viewer before changing Machine Spaces resources or supervised process state.');
+    if (!grant.holderId || ws.uiHolderId !== grant.holderId)
+      throw machineError('MACHINE_HUMAN_INPUT_HOLDER_MISMATCH', 'Machine Spaces authorization belongs to a different Nexus viewer.');
     const access = authority.validate(grant.controller, grant.sourceAuthorization, {
       operation: 'machine:control', roomId: grant.roomId, kind: 'human-input'
     });

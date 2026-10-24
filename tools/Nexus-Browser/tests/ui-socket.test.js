@@ -70,7 +70,9 @@ test('UI socket sends hello and permits dispatch only while connected', () => {
   assert.equal(client.send({ type: 'request_tabs' }), false);
   socket.emit('open');
   assert.equal(phases.at(-1).phase, 'connected');
-  assert.deepEqual(JSON.parse(socket.sent[0]), { type: 'hello', role: 'ui' });
+  const hello = JSON.parse(socket.sent[0]);
+  assert.deepEqual(hello, { type: 'hello', role: 'ui', uiHolderId: socketApi.uiHolderId });
+  assert.match(hello.uiHolderId, /^nexus-viewer-[A-Za-z0-9-]{8,160}$/);
   assert.equal(client.send({ type: 'request_tabs' }), true);
   assert.deepEqual(JSON.parse(socket.sent[1]), { type: 'request_tabs' });
 });

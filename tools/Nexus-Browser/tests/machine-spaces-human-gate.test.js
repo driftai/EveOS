@@ -12,6 +12,8 @@ function fixture() {
   const otherMutationWs = new EventEmitter();
   const outsider = new EventEmitter();
   gateWs.clientKind = 'dex';
+  gateWs.uiHolderId = mutationWs.uiHolderId = 'nexus-viewer-authorized-1234';
+  otherMutationWs.uiHolderId = 'nexus-viewer-other-5678';
   const uiSockets = new Set([gateWs, mutationWs, otherMutationWs]);
   const sent = new Map([[gateWs, []], [mutationWs, []], [otherMutationWs, []], [outsider, []]]);
   const handled = [];
@@ -80,6 +82,11 @@ test('one viewer cannot borrow another viewer Machine Spaces authority', async (
     roomId: 'room-one' });
   assert.equal(f.handled.length, 0);
   assert.equal(last(f.sent.get(f.otherMutationWs)).code, 'MACHINE_HUMAN_INPUT_LOCKED');
+  const copied = last(f.sent.get(f.gateWs)).authorization;
+  await f.controller.handle(f.otherMutationWs, { type: 'machine_create_space', requestId: 'copied-token',
+    roomId: 'room-one', machineAuthorization: copied });
+  assert.equal(f.handled.length, 0);
+  assert.equal(last(f.sent.get(f.otherMutationWs)).code, 'MACHINE_HUMAN_INPUT_HOLDER_MISMATCH');
 });
 
 test('Machine Spaces authority follows room scope, lease revocation, and expiry', async () => {
