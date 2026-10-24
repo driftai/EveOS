@@ -23,6 +23,7 @@ const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
 const { createSafeSend, guardAsyncHandler, requestIdFromRaw } = require('./server-socket-safety');
 const { attachSupervisorHealth } = require('./server-supervisor-health');
 const { createServerDexViewerLease } = require('./dex/viewer-lease');
+const { createTloProductionAssembly } = require('./dex/tlo-production-assembly');
 const HOST = process.env.HOST || '127.0.0.1', PORT = runtimeConfig.servicePort();
 const RUNTIME_URLS = runtimeConfig.urls(PORT);
 const PUBLIC_DIR = path.join(__dirname, 'public'), SERVER_SESSION_ID = `${process.pid}-${Date.now().toString(36)}`;
@@ -100,11 +101,12 @@ const streamNudgeAuth = createServerStreamNudgeAuth({ getState: () => dexStateSt
   expectedAdapterRevision: () => EXPECTED_ADAPTER_REVISION, reloadSafe: () => !!postIdleMaintenance?.readyRooms?.() && extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 });
 const doneWatchDelivery = createDoneWatchDelivery({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, safeSend, getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null, getTabs: () => lastTabs });
 const qualificationRouting = createQualificationRouting({ safeSend, getExtensionSocket: () => extensionSocket, getDurability: () => durability, getStateStore: () => dexStateStore, restartHook: qualificationRestart, serverSessionId: SERVER_SESSION_ID });
+const phase3dTlo = createTloProductionAssembly({ serverSessionId: SERVER_SESSION_ID, getDurability: () => durability, getStateStore: () => dexStateStore });
 const serverDexSource = { clientKind: 'dex' };
 const { selectedLocalTarget, sendLocalStatus, sendLocalEvent, broadcastLocalStatus, mirrorPromptToConsoles } = createServerLocalMessaging({
   safeSend, uiSockets, localTargets, dexRouting, getTargets: () => lastLocalTargets
 });
-const serverLocalRelay = createServerLocalRelay({ localTargets, mirrorPrompt: (targetId, msg, target) => mirrorPromptToConsoles(targetId, serverDexSource, msg, target), emitEvent: (targetId, payload) => sendLocalEvent(targetId, serverDexSource, payload), broadcastStatus: (targetId) => broadcastLocalStatus(targetId, serverDexSource) }); const appTargetController = createAppTargetServerController({ appTargets, safeSend, uiSockets, getDurability: () => durability, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive() });
+const serverLocalRelay = createServerLocalRelay({ localTargets, mirrorPrompt: (targetId, msg, target) => mirrorPromptToConsoles(targetId, serverDexSource, msg, target), emitEvent: (targetId, payload) => sendLocalEvent(targetId, serverDexSource, payload), broadcastStatus: (targetId) => broadcastLocalStatus(targetId, serverDexSource), tloBackendOwnership: phase3dTlo.ownershipSeam }); const appTargetController = createAppTargetServerController({ appTargets, safeSend, uiSockets, getDurability: () => durability, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive() });
 const dexScheduler = createDexServerScheduler({ stateStore: { load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot) }, durability: { beforeDispatch: (...args) => durability.beforeDispatch(...args), observe: (...args) => durability.observe(...args), markFailed: (...args) => durability.markFailed(...args), query: (...args) => durability.query(...args) }, getOnlineTargets: () => lastTabs, getProviders: () => lastProviders, getSelectedOnlineTarget: () => lastTarget, getLocalTargets: async (force = false) => { if (force) await refreshLocalTargets(null, { force: true }); return lastLocalTargets; }, getAppTargets: async (force = false) => appTargets.listAppTargets({ force }), isExtensionAvailable: () => !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN && extensionSessions.current().ready, sendExtension: (payload) => safeSend(extensionSocket, payload), sendLocalPrompt: serverLocalRelay.sendLocalPrompt, sendAppPrompt: appTargets.sendAppPrompt, captureLocalLatest: localTargets.captureLocalLatest, captureAppLatest: appTargets.captureAppLatest, broadcastState: broadcastDexState, broadcastEvent: (payload) => safeSend(dexRouting.dexClient(), payload), maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(),
   onTurnSettled: () => { doneWatchDelivery.flush(); taskCompletion?.flush(); engineeringCycle?.reconcile(); providerControlRouting.flushLocalIntents().catch((error) => console.log('[bridge] local provider-control delivery: ' + error.message)); postIdleMaintenance?.tick().catch((error) => console.log('[bridge] post-idle tick: ' + error.message)); }, recordIncident: (input) => durability.recordIncident(input) }); engineeringIncidentBridge = createEngineeringIncidentBridge({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), scheduler: dexScheduler, broadcastState: broadcastDexState }); engineeringCycle = createEngineeringCycle({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, machineSpaces, incidentBridge: engineeringIncidentBridge, repoRoot: runtimeConfig.EVEOS_ROOT }); for (const recovered of supervisedJobs.recovered()) engineeringCycle.onJobSettled(recovered);
 humanInputRoute = createHumanInputServerRoute({ authority: humanInputLeases, dexRouting, stateStore: { load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot) }, scheduler: dexScheduler, providerControlRouting, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), broadcastState: broadcastDexState, safeSend });
@@ -122,7 +124,7 @@ postIdleMaintenance = startPostIdleMaintenance({
 });
 taskCompletion = startTaskCompletion({ dexStateStore, localTargets, safeSend, getTabs: () => lastTabs,
   getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null });
-const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, appTargetController, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, taskCompletion, streamNudgeAuth, viewerLease, SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
+const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, appTargetController, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, taskCompletion, streamNudgeAuth, viewerLease, phase3dTlo: phase3dTlo.status(), SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
 function diagnosticsSnapshot() { return readDiagnostics(); }
 function extensionStatus() {
   return { type: 'bridge_status', connected: !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN, authorityReady: extensionSessions.current().ready };
@@ -421,7 +423,7 @@ server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
 wss.on('error', (error) => console.error('[bridge] websocket server error:', error.message));
-server.on('close', () => { heartbeat.stop(); localTargets.stopLocalTargets(); appTargetController.stop(); machineSpaces.stop(); });
+server.on('close', () => { heartbeat.stop(); localTargets.stopLocalTargets(); appTargetController.stop(); machineSpaces.stop(); phase3dTlo.close(); });
 if (require.main === module) {
   server.listen(PORT, HOST, () => {
     console.log(`[Nexus Browser] UI: http://${HOST}:${PORT}`);
@@ -429,4 +431,4 @@ if (require.main === module) {
     dexScheduler.resume(); providerControlRouting.flushLocalIntents().catch((error) => console.log('[bridge] local provider-control startup delivery: ' + error.message));
   });
 }
-module.exports = { server, wss, HOST, PORT, RUNTIME_URLS, SERVER_SESSION_ID, refreshLocalTargets, configureDurability, websocketOriginAllowed };
+module.exports = { server, wss, HOST, PORT, RUNTIME_URLS, SERVER_SESSION_ID, refreshLocalTargets, configureDurability, websocketOriginAllowed, phase3dTlo };

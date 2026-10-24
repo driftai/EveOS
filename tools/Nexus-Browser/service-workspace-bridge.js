@@ -2,6 +2,7 @@
 
 const { targetEvent } = require('./local-targets/service-chat-common');
 const finalControlEvidence = require('./dex/server-final-control-evidence');
+const { randomUUID } = require('node:crypto');
 
 const SUPPORTED_TARGETS = new Set([
   'local:local-moe-chat:default',
@@ -10,6 +11,7 @@ const SUPPORTED_TARGETS = new Set([
 const DEFAULT_TIMEOUT_MS = 180000;
 const hosts = new Map();
 const pending = new Map();
+const historyControls = new Map();
 let sendSocket = null;
 
 function socketOpen(socket) {
@@ -45,6 +47,12 @@ function failPendingForHost(socket, message, code = 'SEARCH_MONITOR_WORKSPACE_RE
     const error = new Error(message);
     error.code = code;
     entry.reject(error);
+  }
+  for (const [requestId, entry] of [...historyControls.entries()]) {
+    if (entry.host !== socket) continue;
+    historyControls.delete(requestId);
+    clearTimeout(entry.timer);
+    entry.reject(Object.assign(new Error(message), { code }));
   }
 }
 
@@ -144,6 +152,17 @@ function handleHostMessage(socket, message = {}) {
     }
     return true;
   }
+  if (type === 'service_workspace_tlo_history_result') {
+    const requestId = String(message.requestId || ''), entry = historyControls.get(requestId);
+    if (!entry || entry.host !== socket || String(message.workspaceId || '') !== entry.workspaceId
+        || String(message.challenge || '') !== entry.challenge) return true;
+    historyControls.delete(requestId); clearTimeout(entry.timer);
+    if (message.ok !== true || String(message.operation || '') !== entry.operation) {
+      entry.reject(Object.assign(new Error(String(message.error || 'TLO history control failed.')),
+        { code: String(message.code || 'TLO_HISTORY_CONTROL_FAILED') }));
+    } else entry.resolve(structuredClone(message.result || {}));
+    return true;
+  }
   if (!['service_workspace_partial', 'service_workspace_final', 'service_workspace_error'].includes(type)) return false;
 
   const requestId = String(message.requestId || '');
@@ -176,6 +195,38 @@ function handleHostMessage(socket, message = {}) {
   }));
   entry.resolve(text);
   return true;
+}
+
+function requestTloHistory(type, payload, { challenge, timeoutMs = 10_000 } = {}) {
+  const host = hostFor('local:tlo-chat:default');
+  if (!host) return Promise.reject(Object.assign(new Error('TLO workspace is unavailable.'),
+    { code: 'SEARCH_MONITOR_WORKSPACE_UNAVAILABLE' }));
+  const proof = String(challenge || '');
+  if (proof.length < 24) throw new TypeError('TLO history control requires a one-use challenge.');
+  const requestId = `tlo-history-${randomUUID()}`;
+  const operation = type.endsWith('_export') ? 'exportWorkspaceHistory' : 'hydrateWorkspaceHistory';
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      historyControls.delete(requestId);
+      reject(Object.assign(new Error('TLO history control timed out without acknowledgement.'),
+        { code: 'TLO_HISTORY_CONTROL_TIMEOUT' }));
+    }, Math.max(1000, Number(timeoutMs) || 10_000));
+    historyControls.set(requestId, { host: host.socket, workspaceId: host.workspaceId,
+      challenge: proof, operation, timer, resolve, reject });
+    if (!send(host.socket, { type, requestId, workspaceId: host.workspaceId,
+      challenge: proof, payload: structuredClone(payload || {}) })) {
+      historyControls.delete(requestId); clearTimeout(timer);
+      reject(Object.assign(new Error('TLO workspace disconnected before history control.'),
+        { code: 'SEARCH_MONITOR_WORKSPACE_DISCONNECTED' }));
+    }
+  });
+}
+
+function exportTloHistory(payload, options) {
+  return requestTloHistory('service_workspace_tlo_history_export', payload, options);
+}
+function hydrateTloHistory(payload, options) {
+  return requestTloHistory('service_workspace_tlo_history_hydrate', payload, options);
 }
 
 async function sendPrompt({ requestId, text, target, emit, timeoutMs = DEFAULT_TIMEOUT_MS }) {
@@ -253,6 +304,8 @@ async function sendPrompt({ requestId, text, target, emit, timeoutMs = DEFAULT_T
 function resetForTests() {
   for (const entry of pending.values()) clearTimeout(entry.timer);
   pending.clear();
+  for (const entry of historyControls.values()) clearTimeout(entry.timer);
+  historyControls.clear();
   hosts.clear();
   sendSocket = null;
 }
@@ -265,5 +318,7 @@ module.exports = {
   handleHostMessage,
   snapshot,
   sendPrompt,
+  exportTloHistory,
+  hydrateTloHistory,
   _resetForTests: resetForTests
 };

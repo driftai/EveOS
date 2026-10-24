@@ -16,6 +16,8 @@ test('HTTP diagnostics derive fresh state and preserve the source snapshot', () 
     dexScheduler: { diagnostics: () => ({ queued: 0 }) },
     providerControlRouting: { pending: new Map() },
     providerTargetSpawnRouting: { pending: new Map(), expiredSpawns: new Map() },
+    phase3dTlo: { deployment: { state: 'disabled', active: false },
+      owner: { kind: null, id: null, generation: 0 }, uncertain: false },
     SERVER_SESSION_ID: 'session', ASSET_REVISION: 'asset', WebSocket: { OPEN: 1 }
   };
   const read = createDiagnosticsSnapshot(() => ({ ...context, lastTabs: tabs }));
@@ -28,6 +30,7 @@ test('HTTP diagnostics derive fresh state and preserve the source snapshot', () 
   assert.equal(first.localDiscovery.antigravityExisting.rejected[0].pid, 10872);
   assert.equal(first.appPassive.ledger.pending, 0);
   assert.equal(first.appBinding.providerName, 'ChatGPT App');
+  assert.equal(first.tloBackend.deployment.state, 'disabled');
   tabs = [{ id: 5, providerId: 'chatgpt', health: { blocking: true } }];
   const second = read();
   assert.equal(second.onlineTargets, 1);

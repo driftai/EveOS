@@ -232,3 +232,36 @@ test('Gemini manifest keeps credential workflow while loading the Search Monitor
 });
 
 test.afterEach(() => bridge._resetForTests());
+
+test('TLO history control is exact-socket, challenge-bound and one-use', async () => {
+  let outbound;
+  const socket = { readyState: 1, send(raw) { outbound = JSON.parse(raw); } };
+  bridge.registerHost(socket, { workspaceId: 'search-monitor-history-test',
+    targets: ['local:tlo-chat:default'] });
+  const pending = bridge.exportTloHistory({ scopeId: 'default', generation: 1 },
+    { challenge: 'history-challenge-unit-test-0001', timeoutMs: 1000 });
+  assert.equal(outbound.type, 'service_workspace_tlo_history_export');
+  assert.equal(bridge.handleHostMessage({ readyState: 1 }, { type: 'service_workspace_tlo_history_result',
+    requestId: outbound.requestId, workspaceId: outbound.workspaceId,
+    challenge: outbound.challenge, operation: 'exportWorkspaceHistory', ok: true,
+    result: { history: [], digest: 'a'.repeat(64) } }), true);
+  bridge.handleHostMessage(socket, { type: 'service_workspace_tlo_history_result',
+    requestId: outbound.requestId, workspaceId: outbound.workspaceId,
+    challenge: 'wrong-challenge-unit-test-0001', operation: 'exportWorkspaceHistory', ok: true,
+    result: { history: [], digest: 'b'.repeat(64) } });
+  bridge.handleHostMessage(socket, { type: 'service_workspace_tlo_history_result',
+    requestId: outbound.requestId, workspaceId: outbound.workspaceId,
+    challenge: outbound.challenge, operation: 'exportWorkspaceHistory', ok: true,
+    result: { history: [], digest: 'a'.repeat(64) } });
+  assert.deepEqual(await pending, { history: [], digest: 'a'.repeat(64) });
+});
+
+test('TLO history control rejects lost host acknowledgement without fallback', async () => {
+  const socket = { readyState: 1, send() {} };
+  bridge.registerHost(socket, { workspaceId: 'search-monitor-history-loss',
+    targets: ['local:tlo-chat:default'] });
+  const pending = bridge.hydrateTloHistory({}, {
+    challenge: 'history-challenge-unit-test-0002', timeoutMs: 1000 });
+  bridge.unregisterHost(socket);
+  await assert.rejects(pending, { code: 'SEARCH_MONITOR_WORKSPACE_DISCONNECTED' });
+});

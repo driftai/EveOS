@@ -14,9 +14,14 @@
     const RECONNECT_MS = 2500;
     const LOCAL_MOE_MESSAGE_TYPE = 'eveos:local-moe-workspace-event';
     const RUNTIME_STATE_EVENT = 'eveos:nexus-browser-runtime';
-    const workspaceId = window.crypto?.randomUUID?.()
-        ? `search-monitor-${window.crypto.randomUUID()}`
-        : `search-monitor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const workspaceStorageKey = 'eveos:tlo-workspace-id:v1';
+    let workspaceId = '';
+    try { workspaceId = String(window.sessionStorage?.getItem(workspaceStorageKey) || ''); } catch {}
+    if (!/^search-monitor-[A-Za-z0-9-]{8,160}$/.test(workspaceId)) {
+        workspaceId = window.crypto?.randomUUID?.() ? `search-monitor-${window.crypto.randomUUID()}`
+            : `search-monitor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        try { window.sessionStorage?.setItem(workspaceStorageKey, workspaceId); } catch {}
+    }
 
     let socket = null;
     let registered = false;
@@ -165,6 +170,25 @@
         }
     }
 
+    async function handleTloHistoryControl(message) {
+        if (String(message.workspaceId || '') !== workspaceId) return;
+        const requestId = String(message.requestId || ''), challenge = String(message.challenge || '');
+        try {
+            const tlo = window.EveOSTloChat;
+            if (!requestId || challenge.length < 24 || !tlo) throw new Error('TLO history control is invalid.');
+            const operation = message.type === 'service_workspace_tlo_history_export'
+                ? 'exportWorkspaceHistory' : 'hydrateWorkspaceHistory';
+            if (typeof tlo[operation] !== 'function') throw new Error('TLO history control is unavailable.');
+            const result = await tlo[operation](message.payload || {});
+            send({ type: 'service_workspace_tlo_history_result', workspaceId, requestId,
+                challenge, operation, ok: true, result });
+        } catch (error) {
+            send({ type: 'service_workspace_tlo_history_result', workspaceId, requestId,
+                challenge, ok: false, code: error?.code || 'TLO_HISTORY_CONTROL_FAILED',
+                error: error?.message || String(error) });
+        }
+    }
+
     function handleSocketMessage(event) {
         let message;
         try { message = JSON.parse(String(event.data || '')); }
@@ -184,6 +208,10 @@
         }
         if (message.type === 'service_workspace_request') {
             handleWorkspaceRequest(message);
+            return;
+        }
+        if (['service_workspace_tlo_history_export', 'service_workspace_tlo_history_hydrate'].includes(message.type)) {
+            handleTloHistoryControl(message);
         }
     }
 
