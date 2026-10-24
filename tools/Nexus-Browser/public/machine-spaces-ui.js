@@ -37,7 +37,10 @@
   const connected = () => state.phase === 'connected';
   const isMachine = () => el.targetClassSelect?.value === 'terminal-origin';
   const activeTarget = () => state.targets.find((target) => target.id === state.selectedId) || null;
-  function send(payload) { return socket?.send(payload) || false; }
+  function send(payload) {
+    const authorized = globalThis.BrowserAiBridgeMachineHumanGate?.authorize?.(payload) || payload;
+    return socket?.send(authorized) || false;
+  }
 
   function message(role, text, id = '') {
     let node = id ? el.transcript?.querySelector(`[data-machine-message-id="${CSS.escape(id)}"]`) : null;
@@ -379,7 +382,8 @@
     if (space && targetId) send({ type: 'machine_attach_target', roomId: state.roomId, spaceId: space.id, targetId });
   });
   el.machineRefreshTerminals.addEventListener('click', () => send({ type: 'request_machine_targets', ownerId }));
-  el.machineNewTerminal.addEventListener('click', () => send({ type: 'machine_create_target', targetType: el.machineNewTerminalType.value, label: '', cwd: el.machineNewTerminalCwd.value }));
+  el.machineNewTerminal.addEventListener('click', () => send({ type: 'machine_create_target', roomId: state.roomId,
+    targetType: el.machineNewTerminalType.value, label: '', cwd: el.machineNewTerminalCwd.value }));
   new MutationObserver(() => requestRoom()).observe(el.dexRoomList, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
   new MutationObserver(renderRoom).observe(el.dexModePanel, { attributes: true, attributeFilter: ['data-human-input'] });
   const client = { snapshot: () => ({ selectedId: state.selectedId, roomId: state.roomId }),

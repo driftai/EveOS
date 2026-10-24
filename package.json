@@ -145,6 +145,7 @@
     "smoke:agent-nexus-surface": "node tools/smoke/agent_nexus_surface_smoke.js",
     "smoke:agent-nexus-browser": "node tools/smoke/agent_nexus_browser_smoke.js",
     "qualify:agent-nexus-acceptance": "node tools/qualification/agent_nexus_acceptance.mjs",
+    "qualify:nexus-machine-human-gate": "node tools/Nexus-Browser/scripts/machine-human-gate-playwright-qualify.js",
     "smoke:agent-nexus": "node tools/smoke/agent_nexus_integration_smoke.js",
     "smoke:nexus-browser": "node tools/smoke/nexus_browser_runtime_isolation_smoke.mjs && node tools/smoke/nexus_browser_integration_smoke.js && npm run --silent smoke:nexus-app-uia-info",
     "smoke:nexus-app-uia-info": "node tools/smoke/nexus_app_uia_info_smoke.js",

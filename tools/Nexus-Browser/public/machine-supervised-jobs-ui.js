@@ -111,7 +111,8 @@
   const editable = () => dexPanel.dataset.humanInput === 'enabled';
   const send = (payload) => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
-    socket.send(JSON.stringify(payload));
+    const authorized = globalThis.BrowserAiBridgeMachineHumanGate?.authorize?.(payload) || payload;
+    socket.send(JSON.stringify(authorized));
     return true;
   };
   async function prepareRoomIntent(event) {

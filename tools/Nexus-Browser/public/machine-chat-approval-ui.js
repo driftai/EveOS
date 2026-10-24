@@ -32,7 +32,8 @@
   }
   function send(payload) {
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
-    socket.send(JSON.stringify(payload)); return true;
+    const authorized = globalThis.BrowserAiBridgeMachineHumanGate?.authorize?.(payload) || payload;
+    socket.send(JSON.stringify(authorized)); return true;
   }
   function submit(event) {
     const parsed = parse(prompt.value);

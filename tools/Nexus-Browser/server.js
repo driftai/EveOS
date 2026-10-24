@@ -63,7 +63,7 @@ function broadcastDexState(snapshot = dexStateStore.load()) { for (const ws of u
 const humanInputLeases = createHumanInputLeaseAuthority({ serverEpoch: SERVER_SESSION_ID });
 const dexRouting = createDexServerRouting({ uiSockets, safeSend,
   onPrimaryChanged: ({ generation }) => humanInputLeases.setControllerGeneration(generation) });
-const supervisedJobs = createSupervisedJobCoordinator({ store: createSupervisedJobStore() }); const machineSpaces = createMachineSpacesController({ safeSend, uiSockets, supervisedJobs, getState: () => dexStateStore.load(), saveState: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, onSupervisedJobSettled: (job, plan) => engineeringCycle?.onJobSettled(job, plan) });
+const supervisedJobs = createSupervisedJobCoordinator({ store: createSupervisedJobStore() }); const machineSpaces = createMachineSpacesController({ safeSend, uiSockets, supervisedJobs, humanInputAuthority: humanInputLeases, isPrimaryDex: (ws) => dexRouting.isPrimaryDex(ws), getState: () => dexStateStore.load(), saveState: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, onSupervisedJobSettled: (job, plan) => engineeringCycle?.onJobSettled(job, plan) });
 const ensureDexClient = createEnsureDexClient({
   dexRouting, sendToExtension: (payload) => safeSend(extensionSocket, payload)
 });

@@ -33,17 +33,18 @@ test('Nexus index response injects Machine Spaces companions exactly once in dep
   ]);
 });
 
-test('Human Input gate companion mirrors the Dex toggle and scopes Dex terminal creation to the active room', () => {
+test('Human Input gate companion decorates mutations only with server-issued viewer authority', () => {
   const source = fs.readFileSync(path.join(root, 'public/machine-human-gate-ui.js'), 'utf8');
-  assert.match(source, /machine_set_human_input/);
-  assert.match(source, /data-human-input/);
-  assert.match(source, /clientKind: 'machine-human-gate'/);
-  assert.match(source, /machineNewTerminal/);
-  assert.match(source, /machine_create_target/);
+  const dexHuman = fs.readFileSync(path.join(root, 'public/dex-human-control.js'), 'utf8');
+  assert.match(source, /machine-human-input-state/);
+  assert.match(source, /machineAuthorization/);
+  assert.match(source, /authorize/);
   assert.match(source, /roomId/);
-  assert.match(source, /stopImmediatePropagation/);
-  assert.match(source, /addEventListener\('click', createDexTerminal, true\)/);
   assert.match(source, /pagehide/);
+  assert.match(dexHuman, /machine_set_human_input/);
+  assert.match(dexHuman, /machine:control/);
+  assert.match(dexHuman, /machine-human-input-state/);
+  assert.doesNotMatch(source, /new WebSocket/);
   assert.doesNotMatch(source, /\[\[DEX:CMD/);
 });
 

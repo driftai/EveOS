@@ -3,7 +3,7 @@
 const { randomBytes, randomUUID } = require('node:crypto');
 
 const HUMAN_OPERATIONS = Object.freeze([
-  'state:edit', 'room:delete', 'relay:stop', 'relay:continue'
+  'state:edit', 'room:delete', 'relay:stop', 'relay:continue', 'machine:control'
 ]);
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 const MAX_TTL_MS = 10 * 60 * 1000;

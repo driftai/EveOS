@@ -37,9 +37,18 @@
     let status = 'locked', lease = null, expiryTimer = null, context = {}, serverEpoch = null;
     const creationRequests = new Set(), enableRequests = new Set(), pendingCreates = new Set();
     const requestId = (prefix) => uid(prefix);
+    function syncMachine(value, grant = lease) {
+      if (!grant?.operations?.includes('machine:control')) return false;
+      const active = value === true && grant?.roomId && grant.operations?.includes('machine:control');
+      const authorization = active ? (({ token, actorId, serverEpoch, generation, kind }) =>
+        ({ token, actorId, serverEpoch, generation, kind }))(grant) : null;
+      send({ type: 'machine_set_human_input', enabled: !!active,
+        roomId: active ? grant.roomId : null, ...(authorization ? { authorization } : {}) });
+      return true;
+    }
     function clearExpiry() { if (expiryTimer != null) clearTimer?.(expiryTimer); expiryTimer = null; }
     function relock(next, detail = {}) {
-      clearExpiry(); lease = null; status = next; creationRequests.clear(); enableRequests.clear(); pendingCreates.clear(); onRelock?.(); onChange?.(status, detail); render(context);
+      clearExpiry(); if (lease) syncMachine(false); lease = null; status = next; creationRequests.clear(); enableRequests.clear(); pendingCreates.clear(); onRelock?.(); onChange?.(status, detail); render(context);
     }
     function scheduleExpiry() {
       clearExpiry();
@@ -48,7 +57,7 @@
       expiryTimer = setTimer?.(() => relock('expired', { code: 'DEX_HUMAN_LEASE_EXPIRED' }), Math.min(delay, 2147483647));
     }
     function accept(nextLease) {
-      lease = nextLease; status = 'active'; scheduleExpiry(); onChange?.(status, { lease }); render(context);
+      lease = nextLease; status = 'active'; syncMachine(true, lease); scheduleExpiry(); onChange?.(status, { lease }); render(context);
     }
     function isEnabled() { return gateStatus({ ...context, status, leaseRoomId: lease?.roomId }).ready; }
     function authorization(operation, roomId) {
@@ -89,6 +98,10 @@
       return true;
     }
     function handleMessage(msg = {}) {
+      if (msg.type === 'machine_human_input_state') {
+        globalThis.dispatchEvent?.(new CustomEvent('machine-human-input-state', { detail: msg }));
+        return true;
+      }
       if (msg.type === 'server_session') {
         if (serverEpoch && serverEpoch !== msg.id && lease) relock('expired', { code: 'DEX_HUMAN_LEASE_EPOCH_STALE' });
         serverEpoch = msg.id || serverEpoch; return false;

@@ -34,6 +34,8 @@ test('server owns managed terminal lifecycle and keeps room Machine Spaces serve
   const server = read('server.js');
   const merge = read('dex/server-state-merge.js');
   assert.match(server, /createMachineSpacesController/);
+  assert.match(server, /humanInputAuthority: humanInputLeases/);
+  assert.match(server, /isPrimaryDex: \(ws\) => dexRouting\.isPrimaryDex\(ws\)/);
   assert.match(server, /machineSpaces\.handle\(ws, msg\)/);
   assert.match(server, /machineCommandRouter: machineSpaces\.providerControl/);
   assert.match(server, /machineSpaces\.stop\(\)/);
