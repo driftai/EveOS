@@ -4,11 +4,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const bridge = require('../service-workspace-bridge');
 
 const TLO_ID = 'local:tlo-chat:default';
 const MOE_ID = 'local:local-moe-chat:default';
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+const HOST_SOURCE = fs.readFileSync(
+  path.join(REPO_ROOT, 'js', 'modules', 'gemini', 'search_monitor', 'nexusServiceChatBridge.js'),
+  'utf8'
+);
 
 function socket() {
   return { readyState: 1, sent: [] };
@@ -26,6 +31,51 @@ function configure() {
 
 function target(id, providerId, providerName) {
   return { id, providerId, providerName };
+}
+
+function hostLifecycleHarness() {
+  let mutation = null;
+  let runtime = { running: true, state: 'running', url: 'http://127.0.0.1:9088/' };
+  const listeners = new Map(), sockets = [];
+  const frame = {
+    nodeType: 1, src: runtime.url,
+    getAttribute(name) { return name === 'src' ? this.src : ''; },
+    matches(selector) { return selector === '[data-nexus-browser-frame]'; }
+  };
+  class FakeWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+    constructor(url) { this.url = url; this.readyState = 1; this.listeners = new Map(); sockets.push(this); }
+    addEventListener(type, fn) { this.listeners.set(type, fn); }
+    send() {}
+    close() { this.closed = true; this.readyState = 3; this.listeners.get('close')?.(); }
+  }
+  const window = {
+    crypto: { randomUUID: () => 'workspace-test' },
+    location: { href: 'file:///EveOS.html' },
+    EveOSPortRegistry: { url: () => runtime.url },
+    EveOSNexusBrowser: { runtimeSnapshot: () => runtime },
+    WebSocket: FakeWebSocket,
+    setTimeout(fn) { fn(); return 1; }, clearTimeout() {},
+    setInterval() { return 2; }, clearInterval() {},
+    addEventListener(type, fn) { listeners.set(type, fn); }
+  };
+  const document = { documentElement: {}, querySelector: () => frame };
+  class MutationObserver { constructor(fn) { mutation = fn; } observe() {} }
+  vm.runInNewContext(HOST_SOURCE, { window, document, WebSocket: FakeWebSocket, MutationObserver, URL },
+    { filename: 'nexusServiceChatBridge.js' });
+  return {
+    bridge: window.EveOSServiceChatBridge,
+    sockets,
+    blankFrame() {
+      frame.src = 'about:blank';
+      mutation([{ type: 'attributes', target: frame }]);
+    },
+    runtimeStopped() {
+      runtime = { running: false, state: 'stopped', url: runtime.url };
+      listeners.get('eveos:nexus-browser-runtime')?.({ detail: runtime });
+    }
+  };
 }
 
 test('routes TLO through the registered Search Monitor workspace and preserves streaming events', async () => {
@@ -114,6 +164,36 @@ test('newest Search Monitor host replaces the old owner and rejects its in-fligh
   bridge.registerHost(newHost, { workspaceId: 'new', targets: [TLO_ID] });
   await assert.rejects(turn, (error) => error.code === 'SEARCH_MONITOR_WORKSPACE_REPLACED');
   assert.equal(bridge.snapshot(TLO_ID).workspaceId, 'new');
+});
+
+test('embedded-to-detached iframe transitions preserve the service host until the runtime actually stops', () => {
+  const h = hostLifecycleHarness();
+  assert.equal(h.bridge.isEnabled(), true);
+  assert.equal(h.sockets.length, 1);
+  h.blankFrame();
+  assert.equal(h.bridge.isEnabled(), true);
+  assert.equal(h.sockets[0].closed, undefined);
+  h.runtimeStopped();
+  assert.equal(h.bridge.isEnabled(), false);
+  assert.equal(h.sockets[0].closed, true);
+});
+
+test('active request closure is terminal, late finals are ignored, and reconnect does not replay', async () => {
+  configure();
+  const first = socket();
+  bridge.registerHost(first, { workspaceId: 'stable-page', targets: [TLO_ID] });
+  const turn = bridge.sendPrompt({ requestId: 'turn-disconnected', text: 'once',
+    target: target(TLO_ID, 'tlo-chat', 'TLO'), timeoutMs: 1000 });
+  assert.equal(first.sent.filter((message) => message.type === 'service_workspace_request').length, 1);
+  bridge.unregisterHost(first);
+  await assert.rejects(turn, (error) => error.code === 'SEARCH_MONITOR_WORKSPACE_DISCONNECTED');
+
+  const replacement = socket();
+  bridge.registerHost(replacement, { workspaceId: 'stable-page', targets: [TLO_ID] });
+  assert.equal(replacement.sent.filter((message) => message.type === 'service_workspace_request').length, 0);
+  bridge.handleHostMessage(replacement, { type: 'service_workspace_final', targetId: TLO_ID,
+    requestId: 'turn-disconnected', workspaceId: 'stable-page', text: 'late' });
+  assert.equal(bridge.snapshot(TLO_ID).busy, false);
 });
 
 test('service-chat adapter has no shadow history or direct inference route', () => {

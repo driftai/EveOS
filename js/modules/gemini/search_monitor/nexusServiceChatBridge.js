@@ -13,6 +13,7 @@
     const HEARTBEAT_MS = 15000;
     const RECONNECT_MS = 2500;
     const LOCAL_MOE_MESSAGE_TYPE = 'eveos:local-moe-workspace-event';
+    const RUNTIME_STATE_EVENT = 'eveos:nexus-browser-runtime';
     const workspaceId = window.crypto?.randomUUID?.()
         ? `search-monitor-${window.crypto.randomUUID()}`
         : `search-monitor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -27,12 +28,16 @@
     function nexusBase() {
         const registry = window.EveOSPortRegistry?.url?.('NEXUS_BROWSER_PORT');
         if (registry) return registry;
+        const runtime = window.EveOSNexusBrowser?.runtimeSnapshot?.();
+        if (runtime?.url) return runtime.url;
         const frame = document.querySelector?.('[data-nexus-browser-frame]');
         const src = frame?.getAttribute?.('src') || '';
         return src && src !== 'about:blank' ? src : 'http://127.0.0.1:8768';
     }
 
     function runtimeOnline() {
+        const runtime = window.EveOSNexusBrowser?.runtimeSnapshot?.();
+        if (runtime && typeof runtime.running === 'boolean') return runtime.running;
         const frame = document.querySelector?.('[data-nexus-browser-frame]');
         const src = String(frame?.getAttribute?.('src') || '').trim();
         return !!src && src !== 'about:blank';
@@ -277,6 +282,7 @@
     }
 
     window.addEventListener?.('message', handleLocalMoeMessage);
+    window.addEventListener?.(RUNTIME_STATE_EVENT, syncRuntimeState);
     window.addEventListener?.('beforeunload', disconnect, { once: true });
 
     const runtimeObserver = new MutationObserver(function (records) {
@@ -308,7 +314,7 @@
         isEnabled: () => enabled
     });
 
-    // Passive on Search Monitor boot. Nexus Browser mounting/unmounting its runtime iframe
-    // is the authority that enables or tears down this service-chat WebSocket.
+    // Passive on Search Monitor boot. The lifecycle controller's verified runtime state is
+    // authoritative; embedded/detached iframe presentation must not tear down active turns.
     window.setTimeout(syncRuntimeState, 0);
 })();

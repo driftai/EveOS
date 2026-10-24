@@ -16,6 +16,7 @@
     const DETACHED_WINDOW_NAME = 'eveos-nexus-browser-detached';
     const DETACHED_HEARTBEAT_MS = 4500;
     const WORKSPACE_CONTROL_TYPE = 'eveos:nexus-workspace-control';
+    const RUNTIME_STATE_EVENT = 'eveos:nexus-browser-runtime';
     let root = null;
     let status = null;
     let busy = false;
@@ -243,6 +244,9 @@
                 frame.setAttribute('src', 'about:blank');
             }
         }
+        window.dispatchEvent?.(new CustomEvent(RUNTIME_STATE_EVENT, {
+            detail: { running, state: snapshot?.state || 'unavailable', url: runtimeUrl(snapshot) }
+        }));
     }
 
     async function controlRequest(path, options, timeoutMs) {
@@ -336,5 +340,8 @@
         return snapshot;
     }
 
-    window.EveOSNexusBrowser = Object.freeze({ markup, bind, activate, refresh });
+    window.EveOSNexusBrowser = Object.freeze({
+        markup, bind, activate, refresh,
+        runtimeSnapshot: () => status ? { ...status } : null
+    });
 })();
