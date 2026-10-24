@@ -38,6 +38,14 @@ test('user-origin message is committed before exact one-turn Dex scheduler dispa
   assert.equal(f.state().rooms[0].messages[0].senderKind,'user');
   assert.equal(f.state().rooms[0].messages[0].clientRequestId,ID);
 });
+test('viewer standby is delegated to the server-owned bounded lease before room lookup',()=>{
+  const calls=[];
+  const core=createTerminalOperator({load:()=>({rooms:[]}),save:x=>x,scheduler:{startRelay:()=>({ok:true})},
+    viewerLease:{begin:value=>{calls.push(value);return {ok:true,leaseId:'lease-proof'};}}});
+  const result=core.handle({type:'dex_terminal_viewer_standby',requestId:ID,durationSeconds:45});
+  assert.equal(result.leaseId,'lease-proof');
+  assert.deepEqual(calls,[{requestId:ID,durationSeconds:45}]);
+});
 test('repeat request is idempotent; conflicting content is never overwritten',()=>{
   const f=fixture();f.run('dex_terminal_send',{text:'Hello'});
   const d=f.run('dex_terminal_send',{text:'Hello'});

@@ -1,7 +1,7 @@
 'use strict';
 // Dedicated routing boundary for local user-origin Dex/TLO terminal controls.
 // Other UI and provider-control commands are deliberately inaccessible.
-const ALLOWED = new Set(['dex_terminal_bootstrap', 'dex_terminal_rooms', 'dex_terminal_inspect', 'dex_terminal_send', 'dex_terminal_room_send', 'dex_terminal_check']);
+const ALLOWED = new Set(['dex_terminal_bootstrap', 'dex_terminal_rooms', 'dex_terminal_inspect', 'dex_terminal_send', 'dex_terminal_room_send', 'dex_terminal_check', 'dex_terminal_viewer_standby']);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 function routeTerminalOperator(ws, msg, operator) {
   const requestId = msg?.requestId || null;

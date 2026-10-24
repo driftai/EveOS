@@ -22,6 +22,7 @@ const runtimeConfig = require('./runtime-config');
 const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
 const { createSafeSend, guardAsyncHandler, requestIdFromRaw } = require('./server-socket-safety');
 const { attachSupervisorHealth } = require('./server-supervisor-health');
+const { createServerDexViewerLease } = require('./dex/viewer-lease');
 const HOST = process.env.HOST || '127.0.0.1', PORT = runtimeConfig.servicePort();
 const RUNTIME_URLS = runtimeConfig.urls(PORT);
 const PUBLIC_DIR = path.join(__dirname, 'public'), SERVER_SESSION_ID = `${process.pid}-${Date.now().toString(36)}`;
@@ -46,7 +47,7 @@ let lastProviders = [];
 let lastTarget = null;
 let lastLocalTargets = [];
 let dexStateStore = createDexStateStore();
-let postIdleMaintenance = null, taskCompletion = null, engineeringIncidentBridge = null, engineeringCycle = null, humanInputRoute = null;
+let postIdleMaintenance = null, taskCompletion = null, engineeringIncidentBridge = null, engineeringCycle = null, humanInputRoute = null, viewerLease = null;
 let durability = createServerDurability();
 function configureDurability(o = {}) { const prev = { durability, dexStateStore }; if (o.durability) durability = o.durability; if (o.dexStateStore) dexStateStore = o.dexStateStore; return prev; }
 const safeSend = createSafeSend({
@@ -111,7 +112,9 @@ const terminalOperator = createTerminalOperator({
   load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot),
   scheduler: dexScheduler, broadcastState: broadcastDexState,
   maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(),
-  targetAvailable: (id) => !!machineSpaces.broker.target(id), machineBroker: machineSpaces.broker, repoRoot: runtimeConfig.EVEOS_ROOT
+  targetAvailable: (id) => !!machineSpaces.broker.target(id), machineBroker: machineSpaces.broker,
+  viewerLease: viewerLease = createServerDexViewerLease({ uiSockets, safeSend, loadRooms: () => dexStateStore.load()?.rooms || [], scheduler: dexScheduler, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive?.(), providerControlPending: () => !!providerControlRouting.pending?.size || !!providerTargetSpawnRouting.pending?.size }),
+  repoRoot: runtimeConfig.EVEOS_ROOT
 });
 postIdleMaintenance = startPostIdleMaintenance({
   dexStateStore, providerControlRouting, providerTargetSpawnRouting, dexScheduler,
@@ -119,7 +122,7 @@ postIdleMaintenance = startPostIdleMaintenance({
 });
 taskCompletion = startTaskCompletion({ dexStateStore, localTargets, safeSend, getTabs: () => lastTabs,
   getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null });
-const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, appTargetController, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, taskCompletion, streamNudgeAuth, SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
+const readDiagnostics = createDiagnosticsSnapshot(() => ({ dexStateStore, durability, localTargets, appTargetController, extensionSocket, extensionSessions, uiSockets, lastTabs, lastLocalTargets, dexScheduler, providerControlRouting, providerTargetSpawnRouting, postIdleMaintenance, taskCompletion, streamNudgeAuth, viewerLease, SERVER_SESSION_ID, ASSET_REVISION, WebSocket }));
 function diagnosticsSnapshot() { return readDiagnostics(); }
 function extensionStatus() {
   return { type: 'bridge_status', connected: !!extensionSocket && extensionSocket.readyState === WebSocket.OPEN, authorityReady: extensionSessions.current().ready };

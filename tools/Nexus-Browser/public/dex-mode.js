@@ -151,8 +151,8 @@
   function hostAccessUiMessage(msg) {
     return hostAccessUiApi.message(msg, { retryAction: 'retry the Dex relay' });
   }
-
   function handleSocketMessage(msg) {
+    if (msg.type === 'dex_viewer_lease' && msg.action === 'standby') { queueMicrotask(() => { if (!dexSocket?.suspendUntil?.(Number(msg.expiresAt || 0))) log('Rejected an invalid Dex viewer standby lease.'); }); return; }
     if (humanInput?.handleMessage(msg)) return;
     if (runtime.handleMessage(msg)) return;
     if (msg.type === 'server_session') { handleServerSession(msg.id, msg.assetRevision); return; }

@@ -66,7 +66,7 @@ function projection(room, { limit = 10, targetAvailable } = {}) {
     ...engineeringEvidence(m)
   })) };
 }
-function createTerminalOperator({ load, save, scheduler, broadcastState = () => {}, maintenanceBusy = () => false, targetAvailable = () => true, machineBroker = null, repoRoot = null, now = () => new Date().toISOString(), uid = randomUUID } = {}) {
+function createTerminalOperator({ load, save, scheduler, broadcastState = () => {}, maintenanceBusy = () => false, targetAvailable = () => true, machineBroker = null, viewerLease = null, repoRoot = null, now = () => new Date().toISOString(), uid = randomUUID } = {}) {
   if (typeof load !== 'function' || typeof save !== 'function' || !scheduler?.startRelay)
     throw new TypeError('terminal operator requires the existing Dex state store and scheduler');
   function exactRoom(snapshot, roomId) {
@@ -77,6 +77,10 @@ function createTerminalOperator({ load, save, scheduler, broadcastState = () => 
     const action = String(msg.type || '');
     const requestId = String(msg.requestId || '');
     if (!ID.test(requestId)) return failure('DEX_TERMINAL_BAD_ID', 'Use one stable opaque request ID (8-128 characters).');
+    if (action === 'dex_terminal_viewer_standby') {
+      if (!viewerLease?.begin) return failure('DEX_VIEWER_LEASE_UNAVAILABLE', 'The server-owned Dex viewer lease is unavailable.');
+      return viewerLease.begin({ requestId, durationSeconds: msg.durationSeconds });
+    }
     const snapshot = load();
     if (action === 'dex_terminal_bootstrap') return bootstrap({ requestId, roomName: Object.hasOwn(msg, 'roomName') ? msg.roomName : undefined,
       load, save, broker: machineBroker, repoRoot, broadcastState, now });
