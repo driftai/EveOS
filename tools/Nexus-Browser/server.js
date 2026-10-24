@@ -75,6 +75,7 @@ const providerControlRouting = createProviderControlRouting({
   ensureDexClient,
   machineCommandRouter: machineSpaces.providerControl,
   getDexClient: () => dexRouting.dexClient(), getScheduler: () => dexScheduler, getState: () => dexStateStore.load(), saveState: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState,
+  getRuntimeState: () => ({ tabs: lastTabs, localTargets: lastLocalTargets, providers: lastProviders }),
   getMaintenance: () => postIdleMaintenance, maintenanceBusy: () => !!postIdleMaintenance?.leaseActive(), getExtension: () => { const s = extensionSessions.current(); return { socket: extensionSocket, ready: s.ready, epoch: s.primaryConnectionEpoch, sessionCount: s.sessionCount, targets: lastTabs }; }, spawnTarget: (input) => providerTargetSpawnRouting.spawn(input), closeTarget: (input) => providerTargetSpawnRouting.close(input), recordIncident: (input) => { const event = durability.recordIncident(input); console.log(`[bridge] incident ${event.code} [${event.requestId || 'n/a'}] source=${event.source || 'unknown'}`); return event; },
   issueUiAuthorization: (input) => humanInputRoute?.issueProviderAuthorization(input) || null,
   revokeUiAuthorization: (input) => humanInputRoute?.revokeProviderAuthorization(input) || false,

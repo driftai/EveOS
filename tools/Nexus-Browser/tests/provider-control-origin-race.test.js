@@ -67,8 +67,7 @@ test('control waits for relay correlation before routing', async () => {
     }
   });
   await routing.handle(caller, { type: 'provider_control_request', requestId: 'race-ok', source, command });
-  assert.equal(dex.sent.length, 1);
-  await routing.handle(dex, { type: 'provider_control_result', requestId: 'race-ok', source, result: { ok: true, action: 'status', message: 'ok' } });
+  assert.equal(dex.sent.length, 0, 'settled provider control is executed by localhost, not the viewer');
   assert.equal(caller.sent.find((entry) => entry.type === 'provider_control_result').originReceipt.roomId, 'coord');
 });
 

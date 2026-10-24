@@ -1,18 +1,15 @@
 const orchestrationPolicy = require('./provider-orchestration-policy'), controlReceiptApi = require('./provider-control-receipt');
-const { createAgentExtensionReload } = require('./agent-extension-reload');
-const directSend = require('./provider-control-direct-send');
-const { directRoomSend } = require('./direct-room-send-policy');
+const { createAgentExtensionReload } = require('./agent-extension-reload'), directSend = require('./provider-control-direct-send');
+const { directRoomSend } = require('./direct-room-send-policy'), { routeDoneWatch } = require('./provider-control-done-watch');
 const roomTools = require('./room-tools'), provenance = require('./provider-control-provenance');
-const { routeDoneWatch } = require('./provider-control-done-watch');
-const { createLocalProviderControlDelivery } = require('./local-provider-control-delivery');
+const { createLocalProviderControlDelivery } = require('./local-provider-control-delivery'), { createServerProviderControl } = require('./server-provider-control');
+const serverControlDispatch = require('./server-provider-control-dispatch'), { runPostIdleCommand } = require('./post-idle-control');
+const { createProviderControlUiFallback } = require('./provider-control-ui-fallback');
 const POST_IDLE_ACTIONS = new Set(['arm_post_idle','post_idle_status','cancel_post_idle','report_post_idle']);
-const { runPostIdleCommand } = require('./post-idle-control');
 const MUTATING_ACTIONS = new Set([
-  'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent',
-  'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
-  'stop_relay', 'continue_relay', 'set_room_budget', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done',
-  'arm_post_idle', 'cancel_post_idle', 'report_post_idle', 'workspace_ensure', 'terminal_exec', 'job_prepare', 'playwright_prepare', 'governor_prepare',
-  'quorum_presence', 'quorum_open', 'quorum_vote', 'quorum_close'
+  'checkpoint', 'create_room', 'rename_room', 'configure_room', 'add_agent', 'spawn_agent', 'despawn_agent', 'rename_agent', 'set_agent_relay', 'remove_agent', 'rename_self', 'set_self_relay',
+  'stop_relay', 'continue_relay', 'set_room_budget', 'clear_chat', 'delete_room', 'send', 'handoff_room', 'reload_extension', 'watch_done', 'unwatch_done', 'arm_post_idle', 'cancel_post_idle', 'report_post_idle',
+  'workspace_ensure', 'terminal_exec', 'job_prepare', 'playwright_prepare', 'governor_prepare', 'quorum_presence', 'quorum_open', 'quorum_vote', 'quorum_close'
 ]);
 const DEDUPE_TTL_MS = 120000, MAX_ORIGIN_WAIT_MS = 4 * 60 * 1000, ORIGIN_POLL_MS = 250, LATE_ORIGIN_GRACE_MS = 5000;
 function stableValue(value) {
@@ -35,7 +32,7 @@ function mutationKey(source, command = {}, roomId = '') {
 }
 function createProviderControlRouting({
   uiSockets, safeSend, validateSource, ensureDexClient, getDexClient,
-  getState, saveState, broadcastState, spawnTarget, closeTarget, machineCommandRouter, recordIncident, getExtension,
+  getState, saveState, broadcastState, spawnTarget, closeTarget, machineCommandRouter, recordIncident, getExtension, getRuntimeState = () => ({}),
   getMaintenance = () => null, maintenanceBusy = () => false, getScheduler = () => null,
   issueUiAuthorization = () => null, revokeUiAuthorization = () => false,
   now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout,
@@ -45,12 +42,15 @@ function createProviderControlRouting({
   const pendingMutations = new Map();
   const recentMutations = new Map();
   let admissionLane = Promise.resolve();
+  const serverControl = typeof getState === 'function' && typeof saveState === 'function'
+    ? createServerProviderControl({ getState, saveState, broadcastState, getScheduler, getRuntimeState,
+      now: () => new Date(now()).toISOString() })
+    : { owns: () => false };
+  const uiFallback = createProviderControlUiFallback({ uiSockets, safeSend, ensureDexClient, getDexClient, getState,
+    spawnTarget, closeTarget, recordIncident, issueUiAuthorization, revokeUiAuthorization, now, setTimer, clearTimer,
+    orchestrationPolicy, settledOrchestrationAuthorization, mutationKey, pruneRecent, recentMutations, sendResult,
+    commitOriginReceipt, fail, mutatingActions: MUTATING_ACTIONS, pending, pendingMutations });
   const agentExtensionReload = createAgentExtensionReload({ getState, getExtension, hasPending: () => pending.size > 0, safeSend, recordIncident, now, sleep });
-  function dexClient() {
-    return typeof getDexClient === 'function'
-      ? getDexClient()
-      : ([...uiSockets].find((peer) => peer.clientKind === 'dex') || null);
-  }
   function pruneRecent() {
     const stamp = now();
     for (const [key, entry] of recentMutations) {
@@ -75,22 +75,6 @@ function createProviderControlRouting({
     if (typeof broadcastState === 'function') broadcastState(saved);
     return applied.receipt;
   }
-  function finish(requestId, payload) {
-    const entry = pending.get(requestId);
-    if (!entry) return false;
-    revokeUiAuthorization(entry.uiAuthorization);
-    clearTimer(entry.timer);
-    pending.delete(requestId);
-    if (entry.key && pendingMutations.get(entry.key) === requestId) pendingMutations.delete(entry.key);
-    const result = payload?.result || { ok: false, code: 'DEX_CONTROL_FAILED', message: 'Dex provider-control returned no result.' };
-    if (entry.key && (result.ok || result.code === 'DEX_CONTROL_OUTCOME_UNKNOWN')) {
-      recentMutations.set(entry.key, { at: now(), result });
-    }
-    const originReceipt = commitOriginReceipt(entry.origin, result, requestId);
-    sendResult(entry, result, originReceipt);
-    for (const waiter of entry.waiters) sendResult(waiter, result);
-    return true;
-  }
   function fail(sourceSocket, requestId, source, code, message, origin = null) {
     const result = { ok: false, code, message };
     sendResult({ sourceSocket, requestId, source }, result, commitOriginReceipt(origin, result, requestId));
@@ -110,6 +94,19 @@ function createProviderControlRouting({
       authorization = orchestrationAuthorization(action, source, command);
     }
     return authorization;
+  }
+  function routeServerOwned(ws, requestId, source, command, action, origin, roomId) {
+    const run = admissionLane.then(() => serverControlDispatch.execute({ ws, requestId, source, command, action, origin, roomId },
+      { serverControl, orchestrationPolicy, getState, spawnTarget, closeTarget, recentMutations, pruneRecent,
+        mutationKey, now, settledOrchestrationAuthorization, sendResult, commitOriginReceipt }));
+    admissionLane = run.catch(() => {});
+    return run.catch(() => {
+      const mutation = MUTATING_ACTIONS.has(action);
+      fail(ws, requestId, source, mutation ? 'DEX_CONTROL_OUTCOME_UNKNOWN' : 'DEX_CONTROL_FAILED', mutation
+        ? 'Server-owned Dex control did not confirm its durable outcome. Inspect state before retrying.'
+        : 'Server-owned Dex control failed before producing a result.', origin);
+      return true;
+    });
   }
   async function settleOrigin(source, command, requestId, timeoutMs = MAX_ORIGIN_WAIT_MS, roomIdHint = null) {
     if (typeof getState !== 'function') return { origin: null };
@@ -259,170 +256,24 @@ function createProviderControlRouting({
       sendResult({ sourceSocket: recipient, requestId, source }, outcome.result, receipt);
       return true;
     }
-    pruneRecent();
-    const key = mutationKey(source, routedCommand, boundRoomId);
-    if (key) {
-      const recent = recentMutations.get(key);
-      if (recent) {
-        sendResult({ sourceSocket: ws, requestId, source }, recent.result, commitOriginReceipt(origin, recent.result, requestId));
-        return true;
-      }
-      const canonicalId = pendingMutations.get(key);
-      const canonical = canonicalId ? pending.get(canonicalId) : null;
-      if (canonical) {
-        if (!canonical.origin && origin) canonical.origin = origin;
-        canonical.waiters.push({ sourceSocket: ws, requestId, source });
-        return true;
-      }
+    if (serverControl.owns(action)) {
+      return routeServerOwned(ws, requestId, source, routedCommand, action, origin,
+        boundRoomId || origin?.roomId || null);
     }
-    let dex = dexClient();
-    if (!dex && typeof ensureDexClient === 'function') {
-      try { await ensureDexClient(); } catch {}
-      dex = dexClient();
-    }
-    if (!dex) {
-      fail(ws, requestId, source, 'DEX_UI_OFFLINE', 'Dex Mode UI could not be started automatically. Open Nexus Browser in EveOS once and retry.', origin);
-      return true;
-    }
-    const authorization = await settledOrchestrationAuthorization(action, source, routedCommand);
-    if (authorization?.ok && action === 'spawn_agent') {
-      const snapshot = typeof getState === 'function' ? getState() : {};
-      const committed = orchestrationPolicy.managedMembers(snapshot).length;
-      const inFlight = [...pending.values()].filter((entry) => entry.action === 'spawn_agent').length;
-      if (committed + inFlight >= orchestrationPolicy.MAX_MANAGED_AGENTS) {
-        fail(ws, requestId, source, 'DEX_CONTROL_SPAWN_LIMIT', `Dex already has ${committed} managed browser worker(s) and ${inFlight} spawn(s) in flight; the current limit is ${orchestrationPolicy.MAX_MANAGED_AGENTS}.`, origin);
-        return true;
-      }
-    }
-    if (authorization && !authorization.ok) {
-      fail(ws, requestId, source, authorization.code, authorization.message, origin);
-      return true;
-    }
-    const timer = setTimer(() => {
-      finish(requestId, {
-        result: key
-          ? { ok: false, code: 'DEX_CONTROL_OUTCOME_UNKNOWN', message: 'Dex Mode did not confirm this state-changing provider-control request. Its outcome is unknown; inspect room status before retrying.', data: { commitState: 'unknown', commitId: null } }
-          : { ok: false, code: 'DEX_CONTROL_TIMEOUT', message: 'Dex Mode did not answer the provider-control request in time.' }
-      });
-    }, action === 'spawn_agent' || action === 'despawn_agent' ? 45000 : 15000);
-    const uiAuthorization = MUTATING_ACTIONS.has(action) ? issueUiAuthorization({ ws: dex, requestId, action, roomId: authorization?.roomId || boundRoomId || origin?.roomId || null }) : null;
-    const entry = {
-      sourceSocket: ws, source, requestId, timer, key, waiters: [],
-      action, origin, roomId: authorization?.roomId || boundRoomId || origin?.roomId || null, uiAuthorization, spawnedTarget: null, managedTarget: authorization?.target || null
-    };
-    pending.set(requestId, entry);
-    if (key) pendingMutations.set(key, requestId);
-    if (action === 'spawn_agent') {
-      if (typeof spawnTarget !== 'function') {
-        finish(requestId, { result: { ok: false, code: 'DEX_CONTROL_SPAWN_UNAVAILABLE', message: 'Managed browser-agent spawning is unavailable in this runtime.' } });
-        return true;
-      }
-      try {
-        const target = await spawnTarget({ requestId, providerId: routedCommand.providerId });
-        if (!pending.has(requestId)) {
-          if (typeof closeTarget === 'function') {
-            await closeTarget({ requestId: `${requestId}-late-cleanup`, targetId: target.id, providerId: target.providerId }).catch(() => {});
-          }
-          return true;
-        }
-        entry.spawnedTarget = target;
-        routedCommand = {
-          ...routedCommand,
-          room: authorization.roomId,
-          targetClassId: 'online-origin',
-          targetId: target.id,
-          providerId: target.providerId,
-          spawnedTarget: target
-        };
-      } catch (error) {
-        const code = error.code || 'DEX_CONTROL_SPAWN_FAILED';
-        const detail = error.detail || null;
-        if (typeof recordIncident === 'function') {
-          try {
-            recordIncident({
-              code,
-              message: error.message,
-              requestId,
-              roomId: authorization?.roomId || null,
-              source: 'provider-control-spawn',
-              evidence: {
-                providerId: routedCommand.providerId || null,
-                sourceTargetClassId: source.targetClassId || null,
-                sourceProviderId: source.providerId || null,
-                sourceTargetId: source.targetId ?? null,
-                detail
-              }
-            });
-          } catch {}
-        }
-        finish(requestId, {
-          result: {
-            ok: false,
-            code,
-            message: error.message,
-            data: detail ? { failureDetail: detail } : undefined
-          }
-        });
-        return true;
-      }
-    } else if (action === 'despawn_agent') {
-      routedCommand = { ...routedCommand, room: authorization.roomId, member: authorization.memberId };
-    }
-    if (!safeSend(dex, { type: 'provider_control_request', requestId, source, command: routedCommand, ...(uiAuthorization ? { authorization: uiAuthorization } : {}) })) {
-      if (entry.spawnedTarget && typeof closeTarget === 'function') {
-        await closeTarget({ requestId: `${requestId}-route-cleanup`, targetId: entry.spawnedTarget.id, providerId: entry.spawnedTarget.providerId }).catch(() => {});
-      }
-      finish(requestId, { result: { ok: false, code: 'DEX_UI_OFFLINE', message: 'Dex controller disconnected before the managed worker mutation could be committed.' } });
-    }
-    return true;
+    return uiFallback.route({ ws, requestId, source, command: routedCommand, action, origin, roomId: boundRoomId });
   }
-
   const localDelivery = createLocalProviderControlDelivery({ getState, pending, handleRequest });
-
-  async function handleResult(ws, msg) {
-    if (msg?.type !== 'provider_control_result' || ws?.clientKind !== 'dex' || ws !== dexClient()) return false;
-    const requestId = String(msg.requestId || '');
-    const entry = pending.get(requestId);
-    if (!entry) return false;
-    let result = msg.result || { ok: false, code: 'DEX_CONTROL_FAILED', message: 'Dex provider-control returned no result.' };
-    if (entry.action === 'spawn_agent' && entry.spawnedTarget && !result.ok && typeof closeTarget === 'function') {
-      try {
-        await closeTarget({ requestId: `${requestId}-rollback`, targetId: entry.spawnedTarget.id, providerId: entry.spawnedTarget.providerId });
-      } catch (error) {
-        result = { ...result, data: { ...(result.data || {}), cleanupWarning: error.message } };
-      }
-    }
-    if (entry.action === 'despawn_agent' && result.ok && entry.managedTarget && typeof closeTarget === 'function') {
-      try {
-        const cleanup = await closeTarget({ requestId, targetId: entry.managedTarget.targetId, providerId: entry.managedTarget.providerId });
-        result = { ...result, data: { ...(result.data || {}), targetClosed: true, alreadyClosed: !!cleanup?.alreadyClosed } };
-      } catch (error) {
-        result = { ...result, data: { ...(result.data || {}), targetClosed: false, cleanupWarning: error.message } };
-      }
-    }
-    finish(requestId, { ...msg, result });
-    return true;
-  }
-
   async function handle(ws, msg) {
-    if (await handleResult(ws, msg)) return true;
+    if (await uiFallback.handleResult(ws, msg)) return true;
     if (msg?.type !== 'provider_control_request') return false;
     const allowedSource = ws?.role === 'provider-control-extension' || ws?.clientKind === 'provider-control';
     if (!allowedSource) return false;
     return handleRequest(ws, msg);
   }
-
   function dropSocket(ws) {
     agentExtensionReload.dropSocket(ws);
-    for (const [requestId, entry] of pending) {
-      entry.waiters = entry.waiters.filter((waiter) => waiter.sourceSocket !== ws);
-      if (entry.sourceSocket !== ws) continue;
-      if (entry.key) { entry.sourceSocket = null; continue; }
-      clearTimer(entry.timer);
-      pending.delete(requestId);
-    }
+    uiFallback.dropSocket(ws);
   }
-
   return {
     handle, dropSocket, pending, pendingMutations, recentMutations,
     mutationKey: (source, command, roomId) => mutationKey(source, command, roomId), settleOrigin,
@@ -431,7 +282,6 @@ function createProviderControlRouting({
     agentExtensionReload
   };
 }
-
 module.exports = {
   MUTATING_ACTIONS, DEDUPE_TTL_MS, MAX_ORIGIN_WAIT_MS, ORIGIN_POLL_MS, LATE_ORIGIN_GRACE_MS, stableValue, sourceFingerprint, mutationKey,
   createProviderControlRouting

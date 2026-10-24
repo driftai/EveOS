@@ -38,13 +38,14 @@ test('background entry composes provider-control bridge around unchanged main se
   assert.match(bridge, /dex_provider_command/);
 });
 
-test('server routes provider-control extension or local requests through the Dex client', () => {
+test('server routes provider-control extension or local requests through the server owner', () => {
   assert.match(server, /createProviderControlRouting/);
   assert.match(server, /msg\.role === 'provider-control-extension'/);
   assert.match(server, /clientKind === 'provider-control'/);
   assert.match(server, /providerControlRouting\.handle\(ws, msg\)/);
   assert.match(server, /providerControlRouting\.dropSocket\(ws\)/);
   assert.match(server, /providerControlRouting\.flushLocalIntents\(\)/);
+  assert.match(server, /getRuntimeState: \(\) => \(\{ tabs: lastTabs, localTargets: lastLocalTargets, providers: lastProviders \}\)/);
 });
 
 test('Dex UI loads provider-control before runtime and handles routed requests', () => {

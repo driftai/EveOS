@@ -114,7 +114,9 @@ test('provider-control routing returns one correlated receipt to the executor br
     validateSource: async () => true,
     getState: () => value,
     saveState(next) { value = next; return value; },
-    broadcastState(next) { broadcasts.push(next); }
+    broadcastState(next) { broadcasts.push(next); },
+    getRuntimeState: () => ({ tabs: [{ id: 99, targetId: 99, providerId: 'chatgpt',
+      providerName: 'ChatGPT', url: 'https://chatgpt.com/c/new-agent' }] })
   });
   const source = {
     targetClassId: 'online-origin',
@@ -125,18 +127,12 @@ test('provider-control routing returns one correlated receipt to the executor br
   };
 
   await routing.handle(executor, { type: 'provider_control_request', requestId: 'control-route-1', source, command });
-  assert.equal(dex.sent.length, 1);
-  await routing.handle(dex, {
-    type: 'provider_control_result',
-    requestId: 'control-route-1',
-    source,
-    result: { ok: true, action: 'add_agent', message: 'Added Eve Engineering 3.', data: { addedMemberId: 'agent-3' } }
-  });
+  assert.equal(dex.sent.length, 0, 'server-owned room mutation must not depend on the Dex viewer');
 
   assert.equal(executor.sent.filter((entry) => entry.type === 'provider_control_received').length, 1);
   assert.equal(executor.sent.filter((entry) => entry.type === 'provider_control_result').length, 1);
   assert.equal(executor.sent.find((entry) => entry.type === 'provider_control_result').originReceipt.originTarget.targetId, 10);
-  assert.equal(broadcasts.length, 1);
+  assert.ok(broadcasts.length >= 2, 'state mutation and origin receipt are both durably broadcast');
   assert.equal(receipt.pendingCount(value), 0);
   assert.equal(value.rooms[0].messages.at(-1).senderKind, 'system');
 });

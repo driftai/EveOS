@@ -8,7 +8,7 @@ const ROOT = path.resolve(__dirname, '..');
 const OUT_DIR = path.join(dataDir(), 'qualification');
 const AREA_TESTS = {
   muse: ['tests/muse-input.test.js', 'tests/muse-submit.test.js', 'tests/muse-answer.test.js'],
-  dex: ['tests/dex-protocol.test.js', 'tests/dex-provider-control.test.js', 'tests/dex-provider-control-bootstrap.test.js', 'tests/provider-control-receipt.test.js', 'tests/local-provider-control-delivery.test.js', 'tests/provider-control-origin-race.test.js', 'tests/dex-provider-control-nested.test.js', 'tests/provider-adapter-freshness.test.js', 'tests/dex-state-sync.test.js', 'tests/dex-state-store.test.js', 'tests/dex-runtime-client.test.js', 'tests/server-scheduler.test.js', 'tests/engineering-recovery-job-plan.test.js', 'tests/engineering-recovery-result.test.js', 'tests/machine-spaces-recovery-supervision.test.js', 'tests/machine-spaces-supervised-persistence.test.js'],
+  dex: ['tests/dex-protocol.test.js', 'tests/dex-provider-control.test.js', 'tests/dex-provider-control-bootstrap.test.js', 'tests/dex-server-provider-control.test.js', 'tests/provider-control-receipt.test.js', 'tests/local-provider-control-delivery.test.js', 'tests/provider-control-origin-race.test.js', 'tests/dex-provider-control-nested.test.js', 'tests/provider-adapter-freshness.test.js', 'tests/dex-state-sync.test.js', 'tests/dex-state-store.test.js', 'tests/dex-runtime-client.test.js', 'tests/server-scheduler.test.js', 'tests/engineering-recovery-job-plan.test.js', 'tests/engineering-recovery-result.test.js', 'tests/machine-spaces-recovery-supervision.test.js', 'tests/machine-spaces-supervised-persistence.test.js'],
   recovery: ['tests/server-scheduler-recovery.test.js', 'tests/server-state-merge.test.js', 'tests/antigravity-recovery-capture.test.js', 'tests/online-target-recovery.test.js'],
   extension: ['tests/extension-wiring.test.js', 'tests/online-target-recovery.test.js', 'tests/target-state.test.js', 'tests/dex-ui-ensure.test.js'],
   local: ['tests/local-targets.test.js', 'tests/service-chat-targets.test.js', 'tests/antigravity-existing.test.js', 'tests/antigravity-recovery-capture.test.js'],
@@ -38,7 +38,7 @@ const AREA_TESTS = {
     'tests/muse-input.test.js', 'tests/muse-submit.test.js', 'tests/chatgpt-input.test.js',
     'tests/server-scheduler.test.js', 'tests/server-scheduler-recovery.test.js', 'tests/server-scheduler-state.test.js',
     'tests/server-state-merge.test.js', 'tests/server-local-relay.test.js', 'tests/dex-runtime-client.test.js', 'tests/dex-state-sync.test.js', 'tests/dex-state-store.test.js',
-    'tests/dex-provider-control-routing.test.js', 'tests/dex-provider-control-handoff.test.js', 'tests/provider-control-receipt.test.js', 'tests/local-provider-control-delivery.test.js', 'tests/provider-control-origin-race.test.js', 'tests/dex-provider-control-nested.test.js', 'tests/online-target-recovery.test.js',
+    'tests/dex-provider-control-routing.test.js', 'tests/dex-provider-control-handoff.test.js', 'tests/dex-server-provider-control.test.js', 'tests/provider-control-receipt.test.js', 'tests/local-provider-control-delivery.test.js', 'tests/provider-control-origin-race.test.js', 'tests/dex-provider-control-nested.test.js', 'tests/online-target-recovery.test.js',
     'tests/target-state.test.js', 'tests/target-resurrection.test.js', 'tests/adapter-readiness-cache.test.js',
     'tests/dex-ui-ensure.test.js', 'tests/dex-failure-policy.test.js', 'tests/dex-turn-ledger.test.js',
     'tests/dex-state-repair.test.js', 'tests/server-durability.test.js', 'tests/dex-server-routing.test.js',

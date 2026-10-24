@@ -74,13 +74,12 @@ test('multi-room TLO onboarding is scoped to the durable origin and receipts nev
     { id: 'room-b', name: 'room-b', members: [{ id: 'tlo-room-b', name: 'TLO', binding: { ...source } }], messages: [] }] };
   const h = routedHarness(state, source);
   await h.routing.flushLocalIntents();
-  const request = h.outbound.find((item) => item.type === 'provider_control_request');
-  assert.equal(request.command.room, 'room-a');
-  await h.routing.handle(h.dex, { type: 'provider_control_result', requestId: request.requestId,
-    result: { ok: true, action: 'onboard', message: 'Room A onboarded.' } });
-  assert.match(state.rooms[0].messages.at(-1).text, /Room A onboarded/);
+  assert.equal(h.outbound.some((item) => item.type === 'provider_control_request'), false,
+    'localhost owns onboarding without a headed Dex viewer');
+  assert.match(state.rooms[0].messages.at(-1).text, /Dex onboarding/);
   assert.equal(state.rooms[1].messages.length, 0);
-  assert.equal(state.rooms[0].localToolResults.at(-1).requestId, request.requestId,
+  assert.equal(state.rooms[0].localToolResults.at(-1).requestId,
+    state.rooms[0].messages.at(-1).controlReceipt.requestId,
     'the committed result remains inspectable after the controller transport closes');
   h.routing.dropSocket(h.dex);
   assert.equal(state.rooms[0].localToolResults.at(-1).state, 'queued');
@@ -124,18 +123,17 @@ test('authenticated local provenance scopes room-tool mutations to their origin'
   assert.equal(state.rooms[1].messages.length, 0);
 });
 
-test('identical local mutations in different rooms keep separate flights and receipts', async () => {
+test('identical local mutations in different rooms commit separately without a headed viewer', async () => {
   const source = { targetClassId: 'local-origin', targetId: 'local:tlo-chat:shared', providerId: 'tlo-chat' };
   const command = { action: 'checkpoint', note: 'same command' };
   const state = { rooms: [roomWithIntent('room-a', source, command, 'turn-a'),
     roomWithIntent('room-b', source, command, 'turn-b')] };
   const h = routedHarness(state, source);
   await h.routing.flushLocalIntents();
-  const requests = h.outbound.filter((item) => item.type === 'provider_control_request');
-  assert.deepEqual(requests.map((item) => item.command.room).sort(), ['room-a', 'room-b']);
-  assert.equal(h.routing.pendingMutations.size, 2);
-  for (const request of requests) await h.routing.handle(h.dex, { type: 'provider_control_result',
-    requestId: request.requestId, result: { ok: true, action: 'checkpoint', message: `Saved ${request.command.room}.` } });
-  assert.match(state.rooms[0].messages.at(-1).text, /Saved room-a/);
-  assert.match(state.rooms[1].messages.at(-1).text, /Saved room-b/);
+  assert.equal(h.outbound.some((item) => item.type === 'provider_control_request'), false);
+  assert.equal(h.routing.pendingMutations.size, 0);
+  assert.equal(state.rooms[0].agentCheckpoints[`tlo-room-a`].note, 'same command');
+  assert.equal(state.rooms[1].agentCheckpoints[`tlo-room-b`].note, 'same command');
+  assert.match(state.rooms[0].messages.at(-1).text, /Saved durable checkpoint/);
+  assert.match(state.rooms[1].messages.at(-1).text, /Saved durable checkpoint/);
 });
