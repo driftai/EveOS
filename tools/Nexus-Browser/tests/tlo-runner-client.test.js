@@ -17,7 +17,8 @@ const old=Module._load;
 Module._load=function(request,parent,isMain){
  if(parent?.filename?.endsWith('tlo-activation-runner.js')){
  if(request==='ws')return {WebSocket:Socket};
- if(request==='../runtime-config')return {EVEOS_ROOT:'/tmp',urls:()=>({websocket:'ws://127.0.0.1:12'}),dataDir:()=>'/tmp'};
+ if(request==='../runtime-config')return {EVEOS_ROOT:'/tmp',urls:()=>({websocket:'ws://127.0.0.1:12'}),
+  dataDir:()=>'/tmp',portFor:(key)=>key==='GEMINI_CONTROL_PORT'?9082:8765};
  if(request==='../dex/post-idle-maintenance')return {gitState:()=>({head:'0'.repeat(40)})};
  if(request==='../dex/task-completion-local-auth')return {readLocalAuth:()=> 'a'.repeat(64)};
  if(request==='../dex/tlo-production-activation')return {sourceIdentity:()=>({fingerprint:'c'.repeat(64)})};
@@ -45,4 +46,81 @@ test('client treats mismatched session as changed without crashing',async()=>{
 test('client handles timeout with explicit error code',async()=>{
  Socket.onDispatch=()=>{};
  await assert.rejects(client.connectAndExecute(command,'ws://dummy',25),{code:'TLO_ACTIVATION_TIMEOUT'});
+});
+test('deployment uses the qualified local coordinator without a WebSocket dispatch',async()=>{
+ const modularRoot=path.resolve('/tmp/modular-root');
+ const inventory={readyForDeployment:true,head:'b'.repeat(40),sourceFingerprint:'c'.repeat(64),
+  serverSessionId:'session-1000',serverPid:10,supervisorPid:9,dexRooms:14,
+  roomIdentityDigest:'d'.repeat(64),control:{instanceId:'control-instance-1000',
+   sourceFingerprint:'f'.repeat(64),pid:8},
+  web:{instanceId:'web-instance-1000',sourceFingerprint:'e'.repeat(64),pids:[20],port:8765,modularRoot},
+  durableTloDormancy:{proven:true,state:'uninitialized',digest:'9'.repeat(64)}};
+ let received=null;Socket.exec=null;
+ const coordinator={execute:async(intent)=>{received=intent;return {ok:true,record:{requestId:intent.requestId}};}};
+ const args={authorize:client.approvalText('deployment',inventory),'expected-head':inventory.head,
+  'expected-fingerprint':inventory.sourceFingerprint,'expected-session':inventory.serverSessionId,
+  'expected-pid':'10','expected-rooms':'14','request-id':'deployment-request-1000'};
+ const result=await client.executeStage('deployment',args,inventory,{deploymentCoordinator:coordinator});
+ assert.equal(result.result.ok,true);assert.equal(received.serverSessionId,'session-1000');
+ assert.equal(Socket.exec,null);
+});
+test('runtime inventory correlates branded control, web, and listener identities',async()=>{
+ const payloads=new Map([
+  ['http://127.0.0.1:9082/api/control-plane/health',{ok:true,service:'eveos-control-plane',running:true,instanceId:'control-instance-1000',sourceFingerprint:'a'.repeat(64)}],
+  ['http://127.0.0.1:9082/api/eveos-server/status?port=8765',{ok:true,running:true,instanceId:'web-instance-1000',sourceFingerprint:'b'.repeat(64),pids:[20]}],
+  ['http://127.0.0.1:9082/api/nexus-browser/status',{ok:true,running:true,owned:true,supervisorPid:9}],
+  ['http://127.0.0.1:8765/api/status',{ok:true,service:'eveos-local-server',instanceId:'web-instance-1000',sourceFingerprint:'b'.repeat(64)}],
+  ['http://127.0.0.1:8765/api/eve-state/modular/path',{ok:true,rootPath:path.resolve('/tmp/modular-root')}]
+ ]);
+ const fetchImpl=async(url)=>({ok:payloads.has(String(url)),status:payloads.has(String(url))?200:404,
+  json:async()=>payloads.get(String(url))||{ok:false}});
+ const value=await client.localRuntimeInventory({fetchImpl,listeners:()=>[8],
+  inspectProcess:(pid,platform,kind)=>({present:true,commandMatches:(pid===8&&kind==='control')||(pid===20&&kind==='web')})});
+ assert.equal(value.control.pid,8);assert.equal(value.control.identityVerified,true);
+ assert.equal(value.web.identityVerified,true);assert.equal(value.web.modularRoot,path.resolve('/tmp/modular-root'));
+});
+test('room snapshot digest rejects duplicate identities',()=>{
+ const fs=require('node:fs'),os=require('node:os');const folder=fs.mkdtempSync(path.join(os.tmpdir(),'room-digest-'));
+ const file=path.join(folder,'dex-state.json');fs.writeFileSync(file,JSON.stringify({rooms:[{id:'room-alpha-1000'},{id:'room-beta-1000'}]}));
+ const first=client.readRoomSnapshot(file);assert.equal(first.count,2);assert.match(first.digest,/^[a-f0-9]{64}$/);
+ fs.writeFileSync(file,JSON.stringify({rooms:[{id:'room-alpha-1000'},{id:'room-alpha-1000'}]}));
+ assert.throws(()=>client.readRoomSnapshot(file),{code:'TLO_DEPLOYMENT_ROOM_IDENTITY_INVALID'});
+});
+test('durable dormancy proves only absent or internally consistent state',()=>{
+ const fs=require('node:fs'),os=require('node:os');const root=fs.mkdtempSync(path.join(os.tmpdir(),'tlo-dormancy-'));
+ const empty=client.inspectDurableTloDormancy(root);assert.equal(empty.proven,true);
+ assert.equal(empty.state,'uninitialized');assert.match(empty.digest,/^[a-f0-9]{64}$/);
+ fs.writeFileSync(path.join(root,'tlo-backend-activation.json'),'{}');
+ assert.deepEqual(client.inspectDurableTloDormancy(root),{proven:false,state:'unsafe',code:'TLO_DEPLOYMENT_DURABLE_ACTIVATION_PRESENT'});
+ fs.rmSync(path.join(root,'tlo-backend-activation.json'));fs.mkdirSync(path.join(root,'tlo-ownership'),{recursive:true});
+ fs.mkdirSync(path.join(root,'tlo-ownership','default.lock'));
+ assert.equal(client.inspectDurableTloDormancy(root).code,'TLO_DEPLOYMENT_DURABLE_STATE_LOCKED');
+});
+test('durable dormancy accepts only a matched idle browser conversation',()=>{
+ const fs=require('node:fs'),os=require('node:os');const root=fs.mkdtempSync(path.join(os.tmpdir(),'tlo-browser-idle-'));
+ const {createDurableTloOwnershipStore}=require('../dex/tlo-ownership-durable-store');
+ const {createTloOwnershipFence}=require('../dex/tlo-ownership-fence');
+ const {createTloConversationStore,historyDigest}=require('../dex/tlo-conversation-store');
+ const owners=createDurableTloOwnershipStore({dirPath:path.join(root,'tlo-ownership')});
+ createTloOwnershipFence(owners).claimInitialBrowser({workspaceId:'browser-workspace-1000'});
+ const conversations=createTloConversationStore({dirPath:path.join(root,'tlo-conversations')});
+ conversations.initialize({generation:1,history:[],expectedDigest:historyDigest({scopeId:'default',generation:1,history:[]})});
+ const idle=client.inspectDurableTloDormancy(root);assert.equal(idle.proven,true);assert.equal(idle.state,'browser-idle');
+ fs.rmSync(path.join(root,'tlo-conversations','default.json'));
+ assert.equal(client.inspectDurableTloDormancy(root).code,'TLO_DEPLOYMENT_DURABLE_STATE_NOT_DORMANT');
+});
+test('legacy null runtime state is safe only with unloaded source and durable proof',()=>{
+ const proof={proven:true,digest:'8'.repeat(64)};
+ assert.equal(client.deploymentDormant({deployment:null,uncertain:false,handoff:null},false,proof),true);
+ assert.equal(client.deploymentDormant({deployment:null,uncertain:false,handoff:null},true,proof),false);
+ assert.equal(client.deploymentDormant({deployment:{state:'disabled'},uncertain:false,handoff:null},true,proof),true);
+ assert.equal(client.deploymentDormant({deployment:null,uncertain:false,handoff:null},false,{proven:false}),false);
+});
+test('Local Control restart request is branded by exact origin and service',async()=>{
+ let seen=null;const fetchImpl=async(url,options)=>{seen={url:String(url),options};return {ok:true,status:200,
+  json:async()=>({ok:true,serviceRestarted:true})};};
+ const result=await client.restartViaLocalControl('web',8765,fetchImpl);
+ assert.equal(result.serviceRestarted,true);assert.match(seen.url,/api\/services\/restart\?port=8765$/);
+ assert.equal(seen.options.headers.Origin,'http://127.0.0.1:8765');
+ assert.deepEqual(JSON.parse(seen.options.body),{service:'web'});
 });
