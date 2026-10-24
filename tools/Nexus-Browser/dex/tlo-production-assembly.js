@@ -14,6 +14,7 @@ const { createTloProductionActivation, sourceIdentity } = require('./tlo-product
 
 const TLO_TARGET = 'local:tlo-chat:default';
 const TLO_PROVIDER = 'tlo-chat';
+const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/;
 function failure(code, message) { return Object.assign(new Error(message), { code }); }
 function token() { return randomBytes(32).toString('base64url'); }
 function browserTarget() {
@@ -36,6 +37,7 @@ function createTloProductionAssembly({ serverSessionId, getDurability, getStateS
   const durability = { query: (...args) => getDurability().query(...args) };
   const stateStore = { load: (...args) => getStateStore().load(...args) };
   let runtime = null, startupError = null, leaseTimer = null;
+  let firstInference = { state: 'required', permit: null };
 
   function ownerState() { return ownerFence.snapshot('default').state; }
   function deployment() { return activation.status(); }
@@ -133,13 +135,41 @@ function createTloProductionAssembly({ serverSessionId, getDurability, getStateS
         return null;
       }
       if (!runtime) throw failure('TLO_BACKEND_DISABLED', 'Browser-independent TLO is disabled.');
-      const context = await runtime.ownershipSeam.beforeSend(input);
-      if (context) Object.defineProperty(context, '__productionSeam', { value: runtime.ownershipSeam });
+      let first = false;
+      if (firstInference.state !== 'completed') {
+        const permit = firstInference.permit, correlation = input.correlation || {};
+        if (!permit || Date.now() > permit.expiresAt || permit.requestId !== input.requestId
+            || permit.roomId !== correlation.roomId || permit.sourceMessageId !== correlation.sourceMessageId) {
+          firstInference = { state: 'required', permit: null };
+          throw failure('TLO_FIRST_INFERENCE_AUTH_REQUIRED', 'The first backend TLO turn requires exact one-use owner authorization.');
+        }
+        firstInference = { state: 'dispatched', permit: null }; first = true;
+      }
+      let context;
+      try { context = await runtime.ownershipSeam.beforeSend(input); }
+      catch (error) {
+        if (first) firstInference = { state: 'uncertain', permit: null };
+        throw error;
+      }
+      if (context) {
+        Object.defineProperty(context, '__productionSeam', { value: runtime.ownershipSeam });
+        if (first) Object.defineProperty(context, '__firstInference', { value: true });
+      }
       return context;
     },
-    afterEvent: (context, payload) => context?.__productionSeam?.afterEvent(context, payload),
-    afterReturn: (context) => context?.__productionSeam?.afterReturn(context),
-    afterFailure: (context, error) => context?.__productionSeam?.afterFailure(context, error)
+    async afterEvent(context, payload) {
+      const result = await context?.__productionSeam?.afterEvent(context, payload);
+      if (context?.__firstInference && payload?.type === 'response_final') firstInference = { state: 'completed', permit: null };
+      return result;
+    },
+    async afterReturn(context) {
+      if (context?.__firstInference && firstInference.state !== 'completed') firstInference = { state: 'uncertain', permit: null };
+      return context?.__productionSeam?.afterReturn(context);
+    },
+    async afterFailure(context, error) {
+      if (context?.__firstInference && firstInference.state !== 'completed') firstInference = { state: 'uncertain', permit: null };
+      return context?.__productionSeam?.afterFailure(context, error);
+    }
   });
 
   async function ensureBrowserJournal() {
@@ -196,6 +226,22 @@ function createTloProductionAssembly({ serverSessionId, getDurability, getStateS
         throw failure('TLO_ACTIVATION_PREFLIGHT_FAILED', 'Backend owner is not durably idle and ready.');
       const result = activation.activate(); refreshRuntime(); return result;
     },
+    authorizeFirstInference(input = {}) {
+      const state = ownerState(), configured = activation.status();
+      if (!configured.active || state.owner?.kind !== 'backend' || state.handoff || state.turn
+          || firstInference.state !== 'required') {
+        throw failure('TLO_FIRST_INFERENCE_NOT_READY', 'First inference authorization requires an idle active backend owner.');
+      }
+      const requestId = String(input.requestId || ''), roomId = String(input.roomId || '');
+      const sourceMessageId = String(input.sourceMessageId || '');
+      if (![requestId, roomId, sourceMessageId].every((value) => ID.test(value))) {
+        throw failure('TLO_FIRST_INFERENCE_BINDING_INVALID', 'First inference authorization requires exact request, room, and source message IDs.');
+      }
+      firstInference = { state: 'armed', permit: { requestId, roomId, sourceMessageId,
+        expiresAt: Date.now() + 60_000 } };
+      return { state: 'armed', requestId, roomId, sourceMessageId,
+        expiresAt: firstInference.permit.expiresAt };
+    },
     async rollback() {
       const configured = activation.credentials(), state = ownerState();
       if (!configured || !['handed_off', 'active'].includes(configured.mode)
@@ -227,11 +273,13 @@ function createTloProductionAssembly({ serverSessionId, getDurability, getStateS
     },
     status() {
       let owner; try { owner = ownerState(); } catch (error) { return { state: 'invalid', code: error.code, message: error.message }; }
-      return { deployment: deployment(), owner: { kind: owner.owner?.kind || null,
+      return { source: { protocolVersion: activation.source.protocolVersion,
+        fingerprint: activation.source.fingerprint }, deployment: deployment(), owner: { kind: owner.owner?.kind || null,
         id: owner.owner?.id || null, generation: owner.generation }, uncertain: owner.turn?.phase === 'unknown',
         handoff: owner.handoff ? { id: owner.handoff.id, status: owner.handoff.status,
           to: owner.handoff.to, toGeneration: owner.handoff.toGeneration } : null,
-        readiness: route.status() };
+        firstInference: { state: firstInference.state,
+          expiresAt: firstInference.permit?.expiresAt || null }, readiness: route.status() };
     }
   });
   serviceChats.configureExclusiveTloRoute(route);

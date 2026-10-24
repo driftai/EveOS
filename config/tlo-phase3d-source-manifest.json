@@ -1,10 +1,12 @@
 {
   "schema": "eveos.tlo-phase3d-source-manifest.v1",
-  "protocolVersion": "phase3d-gate3b-v1",
+  "protocolVersion": "phase3d-gate3c0-v1",
   "paths": [
     "config/tlo-phase3d-source-manifest.json",
     "tools/Nexus-Browser/dex/tlo-production-activation.js",
     "tools/Nexus-Browser/dex/tlo-production-assembly.js",
+    "tools/Nexus-Browser/dex/tlo-activation-runner-gate.js",
+    "tools/Nexus-Browser/scripts/tlo-activation-runner.js",
     "tools/Nexus-Browser/server.js",
     "tools/Nexus-Browser/server-diagnostics.js",
     "tools/Nexus-Browser/service-workspace-bridge.js",

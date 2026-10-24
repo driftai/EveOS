@@ -23,7 +23,7 @@ const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
 const { createSafeSend, guardAsyncHandler, requestIdFromRaw } = require('./server-socket-safety');
 const { attachSupervisorHealth } = require('./server-supervisor-health');
 const { createServerDexViewerLease } = require('./dex/viewer-lease');
-const { createTloProductionAssembly } = require('./dex/tlo-production-assembly');
+const { createTloProductionAssembly } = require('./dex/tlo-production-assembly'), { createSafeTloActivationRunnerGate: createTloActivationRunnerGate, inspectPrivateStorage } = require('./dex/tlo-activation-runner-gate'), { readLocalAuth } = require('./dex/task-completion-local-auth'), { gitState } = require('./dex/post-idle-maintenance');
 const HOST = process.env.HOST || '127.0.0.1', PORT = runtimeConfig.servicePort();
 const RUNTIME_URLS = runtimeConfig.urls(PORT);
 const PUBLIC_DIR = path.join(__dirname, 'public'), SERVER_SESSION_ID = `${process.pid}-${Date.now().toString(36)}`;
@@ -102,6 +102,7 @@ const streamNudgeAuth = createServerStreamNudgeAuth({ getState: () => dexStateSt
 const doneWatchDelivery = createDoneWatchDelivery({ load: () => dexStateStore.load(), save: (snapshot) => dexStateStore.save(snapshot), broadcastState: broadcastDexState, safeSend, getSocket: () => extensionSessions.current().ready && extensionSessions.current().sessionCount === 1 && doneWatchControlSocket?.doneWatchVersion === 1 ? doneWatchControlSocket : null, getTabs: () => lastTabs });
 const qualificationRouting = createQualificationRouting({ safeSend, getExtensionSocket: () => extensionSocket, getDurability: () => durability, getStateStore: () => dexStateStore, restartHook: qualificationRestart, serverSessionId: SERVER_SESSION_ID });
 const phase3dTlo = createTloProductionAssembly({ serverSessionId: SERVER_SESSION_ID, getDurability: () => durability, getStateStore: () => dexStateStore });
+const phase3dActivationGate = createSafeTloActivationRunnerGate({ readSecret: () => readLocalAuth(), readInventory: () => { const snapshot = dexStateStore.load(), rooms = snapshot?.rooms || [], orchestration = dexScheduler?.diagnostics?.() || {}; return { serverSessionId: SERVER_SESSION_ID, serverPid: process.pid, gitHead: gitState().head, gitClean: !gitState().dirty, sourceFingerprint: phase3dTlo.source.fingerprint, dexRooms: rooms.length, privateStorage: inspectPrivateStorage(runtimeConfig.dataDir()), pending: { providerControls: providerControlRouting.pending?.size || 0, targetOperations: providerTargetSpawnRouting.pending?.size || 0, controlReceipts: rooms.filter((room) => !!room.pendingProviderControlReceipt).length, recoveryRooms: orchestration.recoveryRooms?.length || 0, pendingRooms: orchestration.pendingRooms?.length || 0, queuedIncoming: (orchestration.queuedIncoming || []).reduce((sum, item) => sum + Number(item.queued || 0), 0), activeTurn: orchestration.active ? 1 : 0 }, tlo: phase3dTlo.status() }; }, operations: { 'history-export': () => phase3dTlo.control.preflight(), handoff: () => phase3dTlo.control.handoff(), activation: () => phase3dTlo.control.activate(), rollback: () => phase3dTlo.control.rollback(), 'first-inference': (payload) => phase3dTlo.control.authorizeFirstInference(payload) } });
 const serverDexSource = { clientKind: 'dex' };
 const { selectedLocalTarget, sendLocalStatus, sendLocalEvent, broadcastLocalStatus, mirrorPromptToConsoles } = createServerLocalMessaging({
   safeSend, uiSockets, localTargets, dexRouting, getTargets: () => lastLocalTargets
@@ -231,6 +232,7 @@ wss.on('connection', (ws, req) => {
     catch { safeSend(ws, { type: 'error', code: 'BAD_JSON', message: 'Bridge received invalid JSON.' }); return; }
     if (msg.type === 'hello') {
       if (msg.role === 'qualification') { qualificationRouting.accept(ws); return; }
+      if (msg.role === 'tlo-activation-runner') { if (!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(ws.remoteAddress)) { safeSend(ws, { type: 'error', code: 'TLO_ACTIVATION_LOCAL_ONLY', message: 'Runner requires a local socket.' }); return; } ws.role = msg.role; safeSend(ws, { type: 'tlo_activation_hello', serverSessionId: SERVER_SESSION_ID, serverPid: process.pid, sourceFingerprint: phase3dTlo.source.fingerprint }); return; }
       if (msg.role === 'extension') {
         ws.role = 'extension';
         const state = syncExtensionAuthority(extensionSessions.register(ws));
@@ -275,6 +277,7 @@ wss.on('connection', (ws, req) => {
     }
     if (msg.type === 'ping') { safeSend(ws, { type: 'pong', at: Date.now() }); return; }
     if (ws.role === 'qualification') { await qualificationRouting.handle(ws, msg); return; }
+    if (ws.role === 'tlo-activation-runner') { safeSend(ws, await phase3dActivationGate.handle(msg)); return; }
     if (ws.role === 'provider-control-extension') {
       if ((ws === doneWatchControlSocket && await streamNudgeAuth.handle(ws, msg, safeSend)) || doneWatchDelivery.handleAck(ws, msg) || taskCompletion.handleAck(ws, msg) || await providerControlRouting.handle(ws, msg)) return;
       safeSend(ws, { type: 'error', requestId: msg.requestId || null, code: 'BAD_PROVIDER_CONTROL_COMMAND', message: `Unsupported provider-control command: ${msg.type}` });
