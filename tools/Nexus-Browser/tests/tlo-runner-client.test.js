@@ -152,3 +152,15 @@ test('Local Control restart request is branded by exact origin and service',asyn
  assert.equal(seen.options.headers.Origin,'http://127.0.0.1:8765');
  assert.deepEqual(JSON.parse(seen.options.body),{service:'web'});
 });
+
+test('supervisor process command matcher is role-specific', () => {
+  assert.equal(client.processCommandMatches('node scripts\\bridge-supervisor.js', 'supervisor'), true);
+  assert.equal(client.processCommandMatches('node C:\\EveOS\\scripts\\bridge-supervisor.js', 'supervisor'), true);
+  assert.equal(client.processCommandMatches('node scripts/server.js', 'supervisor'), false);
+  assert.equal(client.processCommandMatches('node scripts/bridge-supervisor.js', 'nexus'), false);
+  assert.equal(client.processCommandMatches('node scripts/server.js', 'nexus'), true);
+  assert.equal(client.processCommandMatches('node --eval bridge-supervisor.js', 'supervisor'), false);
+
+  const source = require('node:fs').readFileSync(CLIENT, 'utf8');
+  assert.match(source, /processIdentity\(report\.supervisorPid, process\.platform, 'supervisor'\)/);
+});

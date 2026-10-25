@@ -57,6 +57,13 @@ async function jsonEndpoint(url, { fetchImpl = fetch, method = 'GET', body = nul
     return { ok: response.ok && payload?.ok !== false, status: response.status, payload };
   } finally { clearTimeout(timer); }
 }
+function processCommandMatches(command, kind = 'nexus') {
+  const patterns = { nexus: /(?:^|[\\/])server\.js(?:\s|$|\")/i,
+    control: /(?:^|[\\/])eveos-control-helper\.py(?:\s|$|\")/i,
+    supervisor: /(?:^|[\\/])bridge-supervisor\.js(?:\s|$|")/i,
+    web: /(?:^|[\\/])python-server\.py(?:\s|$|\")/i };
+  return (patterns[kind] || patterns.nexus).test(String(command || ''));
+}
 function processIdentity(pid, platform = process.platform, kind = 'nexus') {
   if (!Number.isSafeInteger(Number(pid)) || Number(pid) <= 1) return { present: false };
   if (platform !== 'win32') {
@@ -69,12 +76,9 @@ function processIdentity(pid, platform = process.platform, kind = 'nexus') {
     { encoding: 'utf8', timeout: 5_000, windowsHide: true });
   if (result.status !== 0 || !String(result.stdout || '').trim()) return { present: false, pid: Number(pid) };
   const info = JSON.parse(String(result.stdout).trim());
-  const patterns = { nexus: /(?:^|[\\/])server\.js(?:\s|$|\")/i,
-    control: /(?:^|[\\/])eveos-control-helper\.py(?:\s|$|\")/i,
-    web: /(?:^|[\\/])python-server\.py(?:\s|$|\")/i };
   return { present: true, pid: info.pid, parentPid: info.parentPid,
     executable: path.basename(info.name || ''), created: info.created || null,
-    commandMatches: (patterns[kind] || patterns.nexus).test(String(info.command || '')) };
+    commandMatches: processCommandMatches(info.command, kind) };
 }
 function listenerPids(port, platform = process.platform) {
   if (platform === 'win32') {
@@ -200,7 +204,7 @@ function runtimeOwnersValid(local, report) {
 async function collectInventory({ fetchImpl = fetch } = {}) {
   const source = sourceIdentity(), repo = gitState(), remote = git('rev-parse', `origin/${BRANCH}`);
   const report = await diagnostics(fetchImpl), pending = pendingFrom(report);
-  const server = processIdentity(report.serverPid), supervisor = processIdentity(report.supervisorPid);
+  const server = processIdentity(report.serverPid), supervisor = processIdentity(report.supervisorPid, process.platform, 'supervisor');
   const privateStorage = inspectPrivateStorage(runtimeConfig.dataDir());
   const local = await localRuntimeInventory({ fetchImpl });
   const rooms = readRoomSnapshot();
@@ -346,7 +350,7 @@ if (require.main === module) main().catch((error) => {
   process.exitCode = 1;
 });
 
-module.exports = { BRANCH, NEXUS_STATUS_TIMEOUT_MS, parseArgs, diagnostics, processIdentity, pendingFrom,
+module.exports = { processCommandMatches, BRANCH, NEXUS_STATUS_TIMEOUT_MS, parseArgs, diagnostics, processIdentity, pendingFrom,
   listenerPids, readRoomSnapshot, inspectDurableTloDormancy, deploymentDormant,
   localRuntimeInventory, runtimeOwnersValid, collectInventory, approvalText,
   connectAndExecute, restartViaLocalControl, executeStage };
