@@ -7,10 +7,32 @@ It is intentionally an integration ledger, not a competing framework.
 
 - Working lane: `eve/nexus-machine-spaces`.
 - Phase 0 inspection baseline: `606210ce23b9af4749c8dedaa97c9a56106a46b3`.
-- `main` remains untouched unless Drift explicitly requests otherwise.
+- V0.7.4-pre shared source baseline: `51f970cf9ed31deafeb4b06094345465c9cba96e`.
+- Drift explicitly authorized the exact fast-forward of `main` to that shared
+  source baseline. This does not create standing authority for later `main`
+  mutations.
+- The documentation-only deferral checkpoint remains on the Machine Spaces lane,
+  leaving it intentionally one commit ahead of `main` with no runtime-code
+  difference.
 - Publication is non-force only. Re-read the remote branch immediately before publication and require the expected old SHA to match.
 - A source result is not published merely because an earlier SHA was green. Required evidence must apply to the exact source being published.
 - Generated evidence, credentials, PIDs, tab IDs and machine-local state remain under ignored runtime storage; do not commit them.
+
+## V0.7.4-pre prioritization checkpoint
+
+The existing autonomy infrastructure is preserved as a usable EveOS foundation,
+but further V0.7.5 De-Middleman expansion is now `DEFERRED`. This is a priority
+shift, not abandonment or a blanket completion claim. Accepted implementation
+and evidence remain valid at their recorded scope; outstanding live, failover,
+browser-independent, provider-neutral, and cross-subsystem objectives remain
+explicitly deferred.
+
+Development attention moves to broader EveOS functionality, integration,
+reliability, data durability, diagnostics, recovery, and responsive UI work.
+Dex, Machine Spaces, Navigator, Governor, and registered Playwright should be
+reused selectively when they materially help those priorities. The canonical
+checkpoint and preservation boundaries are recorded in
+`docs/EVEOS-V0.7.4-PRE-CHECKPOINT.md`.
 
 ## Initiative invariant
 
@@ -150,23 +172,24 @@ Extend Machine Spaces with a versioned discovery protocol. First implementation 
 
 Status vocabulary is only `DONE`, `BLOCKED`, `DEFERRED`, or `UNQUALIFIED`.
 
-Current checkpoint: `9c4c61e428ff0a582321ce314ea6d775f371cc5f` on
-`eve/nexus-machine-spaces`. Phase 0 was published and read back successfully.
-V0.7.1A's deterministic owner family and captured-final/Dex-ACK boundary are
-green, but a real extension-worker restart/reconnect pass has not yet been
-recorded for this exact checkpoint, so the milestone remains `UNQUALIFIED`
-rather than being promoted from unit evidence alone.
+Current shared source checkpoint:
+`51f970cf9ed31deafeb4b06094345465c9cba96e`. `main` and
+`eve/nexus-machine-spaces` were independently read back at that exact commit
+with identical trees and a `0/0` relationship before the documentation-only
+deferral checkpoint. Historical evidence below remains scoped to the behavior
+it actually proved. Remaining initiative work is deferred rather than promoted
+from partial evidence.
 
 | Milestone | Acceptance | Status |
 |---|---|---|
 | Phase 0 owner inventory | Existing execution, authority, delivery, qualification, handoff and diagnostics owners are mapped without introducing duplicate frameworks. | `DONE` |
 | Phase 0 publication-path proof | This ledger is committed to `eve/nexus-machine-spaces` from the exact inspected baseline using a non-force expected-SHA lease, then read back from the resulting remote SHA. | `DONE` at `3b389f2eb3ce0df80bcc20be5cc2af1034fb4e74` |
-| V0.7.1A | Durable per-command stage/outcome observability survives extension worker/runtime restart and distinguishes execution from result notification. | `UNQUALIFIED`; deterministic lifecycle/correlation/watchdog/captured-ACK coverage is green through `9c4c61e42`, live extension restart remains |
-| V0.7.1B | One versioned execution plan + receipt contract composes existing handoff, task-completion and Machine Spaces owners; exact-head green publication is proven. | `UNQUALIFIED` |
-| V0.7.2 | One authorized real task completes the golden execution -> browser evidence -> receipt -> commit -> non-force push -> remote readback loop without Drift as command/output relay. | `UNQUALIFIED` |
-| V0.7.3 | Navigator is integrated into Machine Spaces with freshness/auth/revalidation/degraded-mode guarantees and Windows nasty-path/restart/corrupt-index proof. | `UNQUALIFIED` |
-| V0.7.4 | Provider-agnostic per-room middle-agent role and Nexus traffic/TUI controls operate over deterministic existing authority; middle-agent loss degrades safely. | `UNQUALIFIED` |
-| V0.7.5 | Shared patterns are adopted/proven in AudioFlix, Nexus/Dex, Machine Spaces, WatchFusion, Bookmarks/INSITE and at least one data/content surface. | `UNQUALIFIED` |
+| V0.7.1A | Durable per-command stage/outcome observability survives extension worker/runtime restart and distinguishes execution from result notification. | `DEFERRED`; substantial deterministic/live reliability evidence exists, but remaining exact-scope acceptance is not declared complete |
+| V0.7.1B | One versioned execution plan + receipt contract composes existing handoff, task-completion and Machine Spaces owners; exact-head green publication is proven. | `DEFERRED`; bounded plans, receipts, recovery, Governor and publication paths exist, while the complete repeatable contract remains open |
+| V0.7.2 | One authorized real task completes the golden execution -> browser evidence -> receipt -> commit -> non-force push -> remote readback loop without Drift as command/output relay. | `DEFERRED`; genuine TLO-originated registered Playwright execution is live-proven, but the full productized golden loop remains open |
+| V0.7.3 | Navigator is integrated into Machine Spaces with freshness/auth/revalidation/degraded-mode guarantees and Windows nasty-path/restart/corrupt-index proof. | `DEFERRED`; the grant-scoped discovery foundation is preserved and remaining acceptance is paused |
+| V0.7.4 | Provider-agnostic per-room middle-agent role and Nexus traffic/TUI controls operate over deterministic existing authority; middle-agent loss degrades safely. | `DEFERRED`; provider-neutral foundations exist, while additional live providers, loss/failover and stress acceptance remain open |
+| V0.7.5 | Shared patterns are adopted/proven in AudioFlix, Nexus/Dex, Machine Spaces, WatchFusion, Bookmarks/INSITE and at least one data/content surface. | `DEFERRED`; cross-subsystem propagation and acceptance are future work |
 
 ## Proliferation review
 
