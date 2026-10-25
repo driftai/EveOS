@@ -13,7 +13,7 @@ const ledgerApi = require('./operation-ledger');
 const TERMINAL_ACTIONS = new Set(['terminal_targets', 'terminal_exec', 'terminal_status', 'terminal_output']);
 const FILE_ACTIONS = new Set([
   'files_grants', 'files_status', 'files_list', 'files_tree', 'files_stat', 'files_read', 'files_search',
-  'files_create', 'files_write', 'files_patch', 'files_move', 'files_delete'
+  'nav_status', 'nav_search', 'files_create', 'files_write', 'files_patch', 'files_move', 'files_delete'
 ]);
 const PROVIDER_ACTIONS = new Set([...TERMINAL_ACTIONS, ...FILE_ACTIONS]);
 const FILE_CAPABILITY_BY_ACTION = Object.freeze({
@@ -22,6 +22,8 @@ const FILE_CAPABILITY_BY_ACTION = Object.freeze({
   files_stat: 'files.stat',
   files_read: 'files.read',
   files_search: 'files.search',
+  nav_status: 'files.search',
+  nav_search: 'files.search',
   files_create: 'files.create',
   files_write: 'files.write',
   files_patch: 'files.patch',
@@ -58,6 +60,9 @@ function fileOperation(action, command = {}) {
   if (action === 'files_read') return { action, path: command.path || '', offset: command.offset || 0, limit: command.limit || 8000 };
   if (action === 'files_search') return { action, query: command.query || '', path: command.path || '', caseSensitive: command.caseSensitive === true,
     maxFiles: command.maxFiles || 250, maxResults: command.maxResults || 50 };
+  if (action === 'nav_status') return { action };
+  if (action === 'nav_search') return { action, query: command.query || '', path: command.path || '',
+    depth: command.depth || 8, maxEntries: command.maxEntries || 2000, maxResults: command.maxResults || 30 };
   if (action === 'files_create') return { action, path: command.path || '', content: String(command.content ?? '') };
   if (action === 'files_write') return { action, path: command.path || '', content: String(command.content ?? ''), expectedSha256: command.expectedSha256 || '' };
   if (action === 'files_patch') return { action, path: command.path || '', before: String(command.before ?? ''), after: String(command.after ?? ''), expectedSha256: command.expectedSha256 || '' };
@@ -77,6 +82,9 @@ function runFileOperation(files, root, operation) {
   if (operation.action === 'files_read') return files.read(root, operation.path, { offset: operation.offset, limit: boundedInt(operation.limit, 1, 8000, 8000) });
   if (operation.action === 'files_search') return files.search(root, operation.query, { path: operation.path,
     caseSensitive: operation.caseSensitive, maxFiles: boundedInt(operation.maxFiles, 1, 800, 250), maxResults: boundedInt(operation.maxResults, 1, 50, 50) });
+  if (operation.action === 'nav_status') return files.navStatus(root);
+  if (operation.action === 'nav_search') return files.navSearch(root, operation.query, {
+    path: operation.path, depth: operation.depth, maxEntries: operation.maxEntries, maxResults: operation.maxResults });
   if (operation.action === 'files_create') return files.create(root, operation.path, operation.content);
   if (operation.action === 'files_write') return files.write(root, operation.path, operation.content, operation.expectedSha256);
   if (operation.action === 'files_patch') return files.patch(root, operation.path, operation.before, operation.after, operation.expectedSha256);
@@ -85,6 +93,8 @@ function runFileOperation(files, root, operation) {
   throw Object.assign(new Error('Unknown filesystem operation.'), { code: 'MACHINE_FILE_ACTION_UNKNOWN' });
 }
 function resultSummary(action, data) {
+  if (action === 'nav_status') return 'Navigator live scan is available';
+  if (action === 'nav_search') return `${data.results.length} name match(es) across ${data.examined} entries`;
   if (action === 'files_read') return `${data.bytes} byte(s) read from ${data.path}`;
   if (action === 'files_search') return `${data.results.length} match(es) across ${data.scannedFiles} file(s)`;
   if (action === 'files_list' || action === 'files_tree') return `${data.entries.length} entr${data.entries.length === 1 ? 'y' : 'ies'} from ${data.path}`;

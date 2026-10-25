@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
+const navigator = require('./navigator-path-search');
 
 const MAX_PATH_CHARS = 2048;
 const MAX_READ_BYTES = 64 * 1024;
@@ -286,6 +287,14 @@ function createFilesystemBroker({ fsImpl = fs } = {}) {
       truncated: queue.length > 0 || scannedFiles >= maxFiles || results.length >= maxResults, results };
   }
 
+  function navStatus(repoRoot) {
+    resolveScopedPath(repoRoot, '', { fsImpl, mustExist: true });
+    return navigator.status();
+  }
+  function navSearch(repoRoot, query, options = {}) {
+    return navigator.searchPaths({ repoRoot, query, options, fsImpl, resolveScopedPath });
+  }
+
   function create(repoRoot, relativePath, content) {
     const resolved = resolveScopedPath(repoRoot, relativePath, { fsImpl, mustExist: false, allowRoot: false });
     if (fsImpl.existsSync(resolved.absolute)) throw fileError('MACHINE_FILE_EXISTS', 'Create requires an absent destination.');
@@ -377,7 +386,7 @@ function createFilesystemBroker({ fsImpl = fs } = {}) {
       preview: { kind: 'delete', path: toSlash(resolved.relative), before: { sha256: digest, bytes: item.isFile() ? item.size : null }, after: null } };
   }
 
-  return { stat, list, tree, read, search, create, write, patch, move, remove };
+  return { stat, list, tree, read, search, navStatus, navSearch, create, write, patch, move, remove };
 }
 
 module.exports = {

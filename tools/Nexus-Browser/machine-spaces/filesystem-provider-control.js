@@ -10,6 +10,8 @@ const FILE_CAPABILITY_BY_ACTION = Object.freeze({
   files_stat: 'files.stat',
   files_read: 'files.read',
   files_search: 'files.search',
+  nav_status: 'files.search',
+  nav_search: 'files.search',
   files_create: 'files.create',
   files_write: 'files.write',
   files_patch: 'files.patch',
@@ -69,6 +71,9 @@ function operationFor(action, command = {}) {
   if (action === 'files_read') return { action, path: command.path || '', offset: command.offset || 0, limit: command.limit || 8000 };
   if (action === 'files_search') return { action, query: command.query || '', path: command.path || '',
     caseSensitive: command.caseSensitive === true, maxFiles: command.maxFiles || 250, maxResults: command.maxResults || 50 };
+  if (action === 'nav_status') return { action };
+  if (action === 'nav_search') return { action, query: command.query || '', path: command.path || '',
+    depth: command.depth || 8, maxEntries: command.maxEntries || 2000, maxResults: command.maxResults || 30 };
   if (action === 'files_create') return { action, path: command.path || '', content: String(command.content ?? '') };
   if (action === 'files_write') return { action, path: command.path || '', content: String(command.content ?? ''), expectedSha256: command.expectedSha256 || '' };
   if (action === 'files_patch') return { action, path: command.path || '', before: String(command.before ?? ''), after: String(command.after ?? ''), expectedSha256: command.expectedSha256 || '' };
@@ -77,6 +82,8 @@ function operationFor(action, command = {}) {
   return { action };
 }
 function operationSummary(operation = {}) {
+  if (operation.action === 'nav_search') return `discover ${JSON.stringify(operation.query).slice(0, 80)} in ${operation.path || '.'}`;
+  if (operation.action === 'nav_status') return 'navigator status';
   if (operation.action === 'files_search') return `search ${JSON.stringify(operation.query).slice(0, 80)} in ${operation.path || '.'}`;
   if (operation.action === 'files_move') return `move ${operation.source} -> ${operation.destination}`;
   return `${String(operation.action || '').replace(/^files_/, '')} ${operation.path || '.'}`.trim();
@@ -89,6 +96,9 @@ function run(broker, root, operation) {
     case 'files_read': return broker.read(root, operation.path, { offset: operation.offset, limit: boundedInt(operation.limit, 1, 8000, 8000) });
     case 'files_search': return broker.search(root, operation.query, { path: operation.path, caseSensitive: operation.caseSensitive,
       maxFiles: boundedInt(operation.maxFiles, 1, 800, 250), maxResults: boundedInt(operation.maxResults, 1, 100, 50) });
+    case 'nav_status': return broker.navStatus(root);
+    case 'nav_search': return broker.navSearch(root, operation.query, { path: operation.path,
+      depth: operation.depth, maxEntries: operation.maxEntries, maxResults: operation.maxResults });
     case 'files_create': return broker.create(root, operation.path, operation.content);
     case 'files_write': return broker.write(root, operation.path, operation.content, operation.expectedSha256);
     case 'files_patch': return broker.patch(root, operation.path, operation.before, operation.after, operation.expectedSha256);
@@ -98,6 +108,8 @@ function run(broker, root, operation) {
   }
 }
 function summarize(action, data) {
+  if (action === 'nav_status') return 'Navigator live scan is available';
+  if (action === 'nav_search') return `${data.results.length} name match(es) across ${data.examined} entries`;
   if (action === 'files_read') return `${data.bytes} byte(s) read from ${data.path}`;
   if (action === 'files_search') return `${data.results.length} match(es) across ${data.scannedFiles} file(s)`;
   if (action === 'files_list' || action === 'files_tree') return `${data.entries.length} entr${data.entries.length === 1 ? 'y' : 'ies'} from ${data.path}`;
