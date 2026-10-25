@@ -31,6 +31,13 @@ Module._load=function(request,parent,isMain){
 };
 const client=require(CLIENT);Module._load=old;
 const command={requestId:'request-1000',serverSessionId:'session-1000',serverPid:10,sourceFingerprint:'c'.repeat(64)};
+function runtimePayloads(){return new Map([
+ ['http://127.0.0.1:9082/api/control-plane/health',{ok:true,service:'eveos-control-plane',running:true,instanceId:'control-instance-1000',sourceFingerprint:'a'.repeat(64)}],
+ ['http://127.0.0.1:9082/api/eveos-server/status?port=8765',{ok:true,running:true,instanceId:'web-instance-1000',sourceFingerprint:'b'.repeat(64),pids:[20]}],
+ ['http://127.0.0.1:9082/api/nexus-browser/status',{ok:true,running:true,owned:true,supervisorPid:9}],
+ ['http://127.0.0.1:8765/api/status',{ok:true,service:'eveos-local-server',instanceId:'web-instance-1000',sourceFingerprint:'b'.repeat(64)}],
+ ['http://127.0.0.1:8765/api/eve-state/modular/path',{ok:true,rootPath:path.resolve('/tmp/modular-root')}]
+]);}
 test('client handles signed-command server failure without throwing event handler',async()=>{
  Socket.onDispatch=(ws)=>queueMicrotask(()=>ws.emit('message',JSON.stringify({type:'tlo_activation_result',requestId:command.requestId,ok:false,code:'DENIED',message:'Nope'})));
  await assert.rejects(client.connectAndExecute(command,'ws://dummy',1000),{code:'DENIED'});
@@ -65,19 +72,40 @@ test('deployment uses the qualified local coordinator without a WebSocket dispat
  assert.equal(Socket.exec,null);
 });
 test('runtime inventory correlates branded control, web, and listener identities',async()=>{
- const payloads=new Map([
-  ['http://127.0.0.1:9082/api/control-plane/health',{ok:true,service:'eveos-control-plane',running:true,instanceId:'control-instance-1000',sourceFingerprint:'a'.repeat(64)}],
-  ['http://127.0.0.1:9082/api/eveos-server/status?port=8765',{ok:true,running:true,instanceId:'web-instance-1000',sourceFingerprint:'b'.repeat(64),pids:[20]}],
-  ['http://127.0.0.1:9082/api/nexus-browser/status',{ok:true,running:true,owned:true,supervisorPid:9}],
-  ['http://127.0.0.1:8765/api/status',{ok:true,service:'eveos-local-server',instanceId:'web-instance-1000',sourceFingerprint:'b'.repeat(64)}],
-  ['http://127.0.0.1:8765/api/eve-state/modular/path',{ok:true,rootPath:path.resolve('/tmp/modular-root')}]
- ]);
+ const payloads=runtimePayloads();
  const fetchImpl=async(url)=>({ok:payloads.has(String(url)),status:payloads.has(String(url))?200:404,
   json:async()=>payloads.get(String(url))||{ok:false}});
  const value=await client.localRuntimeInventory({fetchImpl,listeners:()=>[8],
   inspectProcess:(pid,platform,kind)=>({present:true,commandMatches:(pid===8&&kind==='control')||(pid===20&&kind==='web')})});
  assert.equal(value.control.pid,8);assert.equal(value.control.identityVerified,true);
  assert.equal(value.web.identityVerified,true);assert.equal(value.web.modularRoot,path.resolve('/tmp/modular-root'));
+});
+test('delayed valid Nexus lifecycle status uses its independent bounded budget',async()=>{
+ const payloads=runtimePayloads(),calls=[];
+ const fetchImpl=(url,options={})=>{const key=String(url);calls.push({url:key,method:options.method});
+  if(!key.endsWith('/api/nexus-browser/status'))return Promise.resolve({ok:payloads.has(key),status:200,json:async()=>payloads.get(key)});
+  return new Promise((resolve,reject)=>{const timer=setTimeout(()=>resolve({ok:true,status:200,json:async()=>payloads.get(key)}),25);
+   options.signal.addEventListener('abort',()=>{clearTimeout(timer);const error=new Error('aborted');error.name='AbortError';reject(error);},{once:true});});};
+ const value=await client.localRuntimeInventory({fetchImpl,nexusStatusTimeoutMs:100,listeners:()=>[8],
+  inspectProcess:(pid,platform,kind)=>({present:true,commandMatches:(pid===8&&kind==='control')||(pid===20&&kind==='web')})});
+ assert.equal(value.nexus.owned,true);assert.equal(calls.find((item)=>item.url.endsWith('/api/nexus-browser/status')).method,'GET');
+});
+test('excessively slow Nexus lifecycle status times out without a mutation request',async()=>{
+ const payloads=runtimePayloads(),methods=[];
+ const fetchImpl=(url,options={})=>{const key=String(url);methods.push(options.method);
+  if(!key.endsWith('/api/nexus-browser/status'))return Promise.resolve({ok:true,status:200,json:async()=>payloads.get(key)});
+  return new Promise((resolve,reject)=>{options.signal.addEventListener('abort',()=>{const error=new Error('aborted');error.name='AbortError';reject(error);},{once:true});});};
+ await assert.rejects(client.localRuntimeInventory({fetchImpl,nexusStatusTimeoutMs:15,listeners:()=>[8],
+  inspectProcess:()=>({present:true,commandMatches:true})}),{name:'AbortError'});
+ assert.deepEqual([...new Set(methods)],['GET']);
+});
+test('runtime ownership and process identity mismatches remain fail closed',()=>{
+ const valid={control:{verified:true,identityVerified:true},web:{identityVerified:true},nexus:{owned:true,supervisorPid:9}};
+ assert.equal(client.runtimeOwnersValid(valid,{supervisorPid:9}),true);
+ assert.equal(client.runtimeOwnersValid({...valid,nexus:{owned:false,supervisorPid:9}},{supervisorPid:9}),false);
+ assert.equal(client.runtimeOwnersValid({...valid,nexus:{owned:true,supervisorPid:10}},{supervisorPid:9}),false);
+ assert.equal(client.runtimeOwnersValid({...valid,control:{verified:true,identityVerified:false}},{supervisorPid:9}),false);
+ assert.equal(client.runtimeOwnersValid({...valid,web:{identityVerified:false}},{supervisorPid:9}),false);
 });
 test('room snapshot digest rejects duplicate identities',()=>{
  const fs=require('node:fs'),os=require('node:os');const folder=fs.mkdtempSync(path.join(os.tmpdir(),'room-digest-'));

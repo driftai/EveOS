@@ -17,6 +17,7 @@ const { roomIdentity, signDeploymentIntent,
   createDeploymentCoordinator } = require('../dex/tlo-deployment-coordinator');
 
 const BRANCH = 'eve/nexus-machine-spaces';
+const NEXUS_STATUS_TIMEOUT_MS = 15_000;
 function fail(code, message) { throw Object.assign(new Error(message), { code }); }
 function parseArgs(argv) {
   const args = { _: [] };
@@ -157,7 +158,7 @@ function deploymentDormant(tlo, sourceLoaded, durableTloDormancy) {
     && durableTloDormancy?.proven === true;
 }
 async function localRuntimeInventory({ fetchImpl = fetch, listeners = listenerPids,
-  inspectProcess = processIdentity } = {}) {
+  inspectProcess = processIdentity, nexusStatusTimeoutMs = NEXUS_STATUS_TIMEOUT_MS } = {}) {
   const controlPort = runtimeConfig.portFor('GEMINI_CONTROL_PORT');
   const webPort = runtimeConfig.portFor('EVEOS_WEB_PORT');
   const controlBase = `http://127.0.0.1:${controlPort}`;
@@ -165,7 +166,8 @@ async function localRuntimeInventory({ fetchImpl = fetch, listeners = listenerPi
   const [control, webStatus, nexus] = await Promise.all([
     jsonEndpoint(`${controlBase}/api/control-plane/health`, { fetchImpl }),
     jsonEndpoint(`${controlBase}/api/eveos-server/status?port=${webPort}`, { fetchImpl }),
-    jsonEndpoint(`${controlBase}/api/nexus-browser/status`, { fetchImpl }),
+    jsonEndpoint(`${controlBase}/api/nexus-browser/status`, { fetchImpl,
+      timeoutMs: nexusStatusTimeoutMs }),
   ]);
   const before = await jsonEndpoint(`${webBase}/api/status`, { fetchImpl });
   const modular = await jsonEndpoint(`${webBase}/api/eve-state/modular/path`, { fetchImpl, timeoutMs: 5_000 });
@@ -189,6 +191,12 @@ async function localRuntimeInventory({ fetchImpl = fetch, listeners = listenerPi
     nexus: nexus.payload || {},
   };
 }
+function runtimeOwnersValid(local, report) {
+  return local?.control?.verified === true && local.control.identityVerified === true
+    && local?.web?.identityVerified === true && local?.nexus?.owned === true
+    && Number.isSafeInteger(report?.supervisorPid)
+    && local.nexus.supervisorPid === report.supervisorPid;
+}
 async function collectInventory({ fetchImpl = fetch } = {}) {
   const source = sourceIdentity(), repo = gitState(), remote = git('rev-parse', `origin/${BRANCH}`);
   const report = await diagnostics(fetchImpl), pending = pendingFrom(report);
@@ -202,10 +210,7 @@ async function collectInventory({ fetchImpl = fetch } = {}) {
   const readyForDeployment = repo.branch === BRANCH && repo.head === remote && !repo.dirty
     && report.dexRooms === 14 && cleanPending && server.present && server.commandMatches
     && supervisor.present && privateStorage.secure === true
-    && rooms.count === report.dexRooms && local.control.verified === true
-    && local.control.identityVerified === true
-    && local.web.identityVerified === true && local.nexus.owned === true
-    && local.nexus.supervisorPid === report.supervisorPid
+    && rooms.count === report.dexRooms && runtimeOwnersValid(local, report)
     && deploymentDormant(tlo, sourceLoaded, durableTloDormancy);
   return { schema: 'eveos.tlo-activation-inventory.v1', branch: repo.branch, head: repo.head,
     remoteHead: remote, clean: !repo.dirty, protocolVersion: source.protocolVersion,
@@ -341,7 +346,7 @@ if (require.main === module) main().catch((error) => {
   process.exitCode = 1;
 });
 
-module.exports = { BRANCH, parseArgs, diagnostics, processIdentity, pendingFrom,
+module.exports = { BRANCH, NEXUS_STATUS_TIMEOUT_MS, parseArgs, diagnostics, processIdentity, pendingFrom,
   listenerPids, readRoomSnapshot, inspectDurableTloDormancy, deploymentDormant,
-  localRuntimeInventory, collectInventory, approvalText,
+  localRuntimeInventory, runtimeOwnersValid, collectInventory, approvalText,
   connectAndExecute, restartViaLocalControl, executeStage };
