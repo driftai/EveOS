@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const readline = require('node:readline');
 const { randomUUID } = require('node:crypto');
 const urls = () => require('../runtime-config').urls();
+const WAIT_POLL_MS = 10000;
 
 function argumentsFor(argv = []) {
   const [command, ...tokens] = argv;
@@ -75,15 +76,20 @@ function payload(p) {
     ...(p.command === 'inspect' ? { limit: Number(p.limit || 10) } : {}),
     ...(p.command === 'check' || p.command === 'wait' ? { lookupId: p.lookupId || p.requestId } : {}) };
 }
-async function waitFor(p, tx = transact) {
+async function waitFor(p, tx = transact, {
+  now = () => Date.now(),
+  pause = (ms) => new Promise(resolve => setTimeout(resolve, ms)),
+  pollMs = WAIT_POLL_MS
+} = {}) {
   if (!p.lookupId && !p.requestId) throw Error('wait requires --lookup-id EXACT_SEND_REQUEST_ID.');
   const lookupId = p.lookupId || p.requestId;
-  const deadline = Date.now() + Number(p.timeout || 195) * 1000;
+  const deadline = now() + Number(p.timeout || 195) * 1000;
   let result;
-  while (Date.now() < deadline) {
+  while (now() < deadline) {
     result = await tx(payload({ ...p, command: 'check', requestId: id(), lookupId }));
     if (!result.ok || ['FINAL_RECEIPT_CONFIRMED', 'TURN_FAILED', 'TURN_OUTCOME_UNKNOWN'].includes(result.status)) return result;
-    await new Promise(r => setTimeout(r, 1500));
+    const remaining = deadline - now();
+    if (remaining > 0) await pause(Math.min(pollMs, remaining));
   }
   return { ok: false, code: 'DEX_TERMINAL_NOT_PROVEN', message: 'No authoritative TLO final receipt before deadline. Inspect the room and existing request; do not resend.', last: result?.status };
 }
@@ -122,4 +128,4 @@ async function main(argv = process.argv.slice(2)) {
   if (!result.ok || p.command === 'wait' && result.status !== 'FINAL_RECEIPT_CONFIRMED') process.exitCode = 2;
 }
 if (require.main === module) main().catch(err => { console.error('DEX_TERMINAL_STOP', err.code || '', err.message); process.exitCode = 2; });
-module.exports = { argumentsFor, endpoint, transact, payload, waitFor, confirmViewerStandby, tui, main };
+module.exports = { WAIT_POLL_MS, argumentsFor, endpoint, transact, payload, waitFor, confirmViewerStandby, tui, main };

@@ -79,6 +79,8 @@ test('START.bat uses visible deterministic supervisor and keeps raw server escap
   assert.match(supervisor, /spawned\.stderr\?\.on\('data'/);
   assert.match(supervisor, /runtimeLog\.append/);
   assert.match(supervisor, /health failed/);
+  assert.match(supervisor, /if \(stopping \|\| checkInFlight\) return/);
+  assert.match(supervisor, /finally \{\s*checkInFlight = false;/);
 });
 
 test('localhost coordinates headed Dex UI runtime and manages client roles', () => {

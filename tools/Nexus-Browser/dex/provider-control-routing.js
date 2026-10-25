@@ -191,7 +191,14 @@ function createProviderControlRouting({
     catch { admission = { ok: false, code: 'DEX_ENTRY_STATE_UNAVAILABLE', message: 'Room state unavailable; no command executed.' }; }
     if (!admission?.ok) { fail(ws, requestId, source, admission?.code || 'DEX_ENTRY_STATE_UNAVAILABLE', admission?.message || 'Room state unavailable; no command executed.', admission?.origin); return true; }
     const { entry: entryGate, roomId: boundRoomId, origin: trustedOrigin } = admission;
-    let routedCommand = admission.routedCommand;
+    const machineOwned = !!machineCommandRouter?.owns(action);
+    // The provenance gate carries the authoritative room separately. Its legacy
+    // routedCommand adds `room` for browser-owned room controls, but Machine
+    // Spaces commands have strict action-specific schemas and must not receive
+    // an unrequested field. An explicitly supplied room remains intact so the
+    // downstream schema can reject it rather than silently widening scope.
+    let routedCommand = machineOwned && !String(command.room || '').trim()
+      ? command : admission.routedCommand;
     if (directRoomSend(routedCommand) && getState && saveState) {
       let origin = trustedOrigin;
       if (String(source.targetClassId || '').trim().toLowerCase() === 'online-origin') {
@@ -228,7 +235,7 @@ function createProviderControlRouting({
         'Online-Origin state-changing provider-control requires an exact durable control origin; no mutation was executed.');
       return true;
     }
-    if (machineCommandRouter?.owns(action)) return machineCommandRouter.route({ source, command: routedCommand, requestId, ws, origin, boundRoomId }, { sendResult, commitOriginReceipt });
+    if (machineOwned) return machineCommandRouter.route({ source, command: routedCommand, requestId, ws, origin, boundRoomId }, { sendResult, commitOriginReceipt });
     if (roomTools.ACTIONS.has(action)) return roomTools.route(
       { source, command: routedCommand, requestId, ws, origin },
       { getState, saveState, broadcastState, getScheduler, now, sendResult, commitOriginReceipt });

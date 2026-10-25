@@ -30,9 +30,12 @@ test('client hello uses terminal-operator rather than spoofing TLO provider-cont
   assert.ok(frames.every(f=>f.type!=='provider_control_request'));
 });
 test('wait proof rejects missing receipt and never issues a second send',async()=>{
-  let types=[];
-  const r=await cli.waitFor({room:ROOM,lookupId:'terminal-proof-01',timeout:'2'}, async x=>{types.push(x.type);return {ok:true,status:'AWAITING_REPLY_OR_RECOVERY'};});
+  let types=[],clock=0,sleeps=[];
+  const r=await cli.waitFor({room:ROOM,lookupId:'terminal-proof-01',timeout:'2'}, async x=>{types.push(x.type);return {ok:true,status:'AWAITING_REPLY_OR_RECOVERY'};},{
+    now:()=>clock,pause:async ms=>{sleeps.push(ms);clock+=ms;}
+  });
   assert.equal(r.code,'DEX_TERMINAL_NOT_PROVEN');assert.ok(types.every(x=>x==='dex_terminal_check'));
+  assert.equal(cli.WAIT_POLL_MS,10000);assert.deepEqual(sleeps,[2000]);assert.equal(types.length,1);
 });
 test('wait --request-id preserves the original send identity while polling with fresh request IDs',async()=>{
   const calls=[];

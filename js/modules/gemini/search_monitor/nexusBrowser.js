@@ -5,6 +5,7 @@
     if (window.EveOSNexusBrowser) return;
 
     const STATUS_PATH = '/api/nexus-browser/status';
+    const STATUS_TIMEOUT_MS = 15000;
     const ACTION_PATHS = Object.freeze({
         start: '/api/nexus-browser/start',
         stop: '/api/nexus-browser/stop',
@@ -260,7 +261,7 @@
         if (busy) return null;
         const generation = ++statusGeneration;
         try {
-            const snapshot = await controlRequest(STATUS_PATH, null, 5000);
+            const snapshot = await controlRequest(STATUS_PATH, null, STATUS_TIMEOUT_MS);
             if (generation !== statusGeneration) return null;
             render(snapshot);
             return snapshot;

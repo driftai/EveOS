@@ -36,4 +36,13 @@ function buildAgentLiveContext({ room, member } = {}) {
   ].join('\n');
 }
 
-module.exports = { buildAgentLiveContext, readinessOnlyReply };
+function buildRelayCapabilityPrompt({ room, member, capabilityPrompt = '' } = {}) {
+  const liveContext = buildAgentLiveContext({ room, member });
+  // TLO's streaming endpoint injects the same capability packs into its system
+  // prompt, so repeating them here can overflow the bounded relay envelope.
+  return member?.binding?.providerId === 'tlo-chat'
+    ? liveContext
+    : [liveContext, capabilityPrompt].filter(Boolean).join('\n\n');
+}
+
+module.exports = { buildAgentLiveContext, buildRelayCapabilityPrompt, readinessOnlyReply };

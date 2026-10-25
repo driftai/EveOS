@@ -72,3 +72,31 @@ test('scheduler injects server-selected context and ignores spoofed response pro
   assert.equal(incidents.at(-1).code, 'AGENT_CAPABILITY_CONTEXT_MISMATCH');
   assert.match(value.rooms[0].relay.lastStopReason, /readiness-only turn/);
 });
+
+test('TLO relay keeps live Dex context but leaves capability pack injection to its backend', async () => {
+  const sourceText = 'Use the Machine Space terminal to run the registered Playwright browser verification.';
+  let value = { version: 1, activeRoomId: 'room-tlo', rooms: [{ id: 'room-tlo', name: 'TLO Mission',
+    members: [{ id: 'agent-tlo', name: 'TLO', binding: { targetClassId: 'local-origin',
+      providerId: 'tlo-chat', targetId: 'local:tlo-chat:default' } }],
+    messages: [
+      { id: 'prior-tlo', senderKind: 'agent', senderId: 'agent-tlo', senderName: 'TLO',
+        text: 'I inspected the room and will continue from the durable control receipt.' },
+      { id: 'source-tlo', senderKind: 'user', senderId: 'user', senderName: 'Drift', text: sourceText }
+    ], settings: { maxTurns: 1 }, relay: { active: false, remaining: 0, waitingFor: null } }] };
+  const store = { load: () => structuredClone(value), save: (next) => (value = structuredClone(next)) };
+  const sent = [], timers = [];
+  const target = { id: 'local:tlo-chat:default', providerId: 'tlo-chat' };
+  const scheduler = createDexServerScheduler({ stateStore: store,
+    durability: { beforeDispatch: async () => ({ ok: true }), query: () => ({ reliable: true }) },
+    getLocalTargets: async () => [target],
+    sendLocalPrompt: async (payload) => { sent.push(payload); },
+    setTimer: (fn) => (timers.push(fn), timers.length), clearTimer() {} });
+  assert.equal(scheduler.startRelay({ roomId: 'room-tlo', sourceMessageId: 'source-tlo', budget: 1 }).ok, true);
+  await timers.shift()();
+  const prompt = sent[0]?.text || '';
+  assert.match(prompt, /DEX LIVE CONTROL CONTRACT/);
+  assert.match(prompt, /Current room: TLO Mission \(room-tlo\)/);
+  assert.doesNotMatch(prompt, /\[\[EVEOS:CAPABILITIES/);
+  assert.ok(prompt.length < 16_000, `TLO relay prompt exceeded its backend envelope: ${prompt.length}`);
+  assert.ok(capability.resolve(sourceText).packs.some((pack) => pack.id === 'playwright-browser'));
+});

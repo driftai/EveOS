@@ -34,6 +34,35 @@ test('durable local provider intent enters the existing router once without a br
   assert.deepEqual(await routing.flushLocalIntents(), { dispatched: 0, waiting: 0, candidates: 0 });
 });
 
+test('durable local Machine Spaces intent keeps room provenance out of the strict command schema', async () => {
+  const source = { targetClassId: 'local-origin', targetId: 'local:tlo-chat:default', providerId: 'tlo-chat' };
+  const command = { action: 'playwright_prepare', space: 'space-one', terminal: 'terminal-one',
+    scenario: 'agent-nexus-browser' };
+  const state = { rooms: [{ id: 'room-local', name: 'Local Engineering',
+    members: [{ id: 'tlo', name: 'TLO', binding: { ...source } }],
+    messages: [{ id: 'source-local', senderKind: 'user', senderId: 'user', text: 'Run the registered proof.' },
+      { id: 'reply-local', senderKind: 'agent', senderId: 'tlo', text: 'Preparing the proof.' }] }] };
+  receipt.rememberIntent(state.rooms[0], { executorMember: state.rooms[0].members[0],
+    sourceMessage: state.rooms[0].messages[0], command, agentMessage: state.rooms[0].messages[1],
+    turnRequestId: 'turn-local-playwright', at: '2026-10-25T19:00:00.000Z' });
+  let routed = null;
+  const routing = createProviderControlRouting({ uiSockets: new Set(), safeSend: () => false,
+    validateSource: async (candidate) => candidate.targetId === source.targetId,
+    getState: () => structuredClone(state), saveState: (next) => Object.assign(state, structuredClone(next)),
+    machineCommandRouter: { owns: (action) => action === 'playwright_prepare', route(input, helpers) {
+      routed = input;
+      const result = { ok: true, action: 'playwright_prepare', message: 'Prepared safely.' };
+      helpers.commitOriginReceipt(input.origin, result, input.requestId);
+      return true;
+    } } });
+
+  assert.deepEqual(await routing.flushLocalIntents(), { dispatched: 1, waiting: 0, candidates: 1 });
+  assert.deepEqual(routed.command, command);
+  assert.equal(Object.hasOwn(routed.command, 'room'), false);
+  assert.equal(routed.origin.roomId, 'room-local');
+  assert.equal(routed.boundRoomId, 'room-local');
+});
+
 test('dispatcher skips online origins and coalesces concurrent local flushes', async () => {
   const { command, state } = intentFixture();
   state.rooms.push({ id: 'online', pendingProviderControlReceipt: { action: 'job_prepare', command,

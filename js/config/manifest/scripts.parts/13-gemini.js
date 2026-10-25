@@ -5,7 +5,7 @@ window.EveModuleManifestScriptChunks = window.EveModuleManifestScriptChunks || [
 window.EveModuleManifestScriptChunks.push([
     // Gemini Integration
     "js/modules/gemini/search_monitor/tloChat.js?v=3d8fd9523b44",
-    "js/modules/gemini/search_monitor/nexusBrowser.js?v=0dc12d5dc64a",
+    "js/modules/gemini/search_monitor/nexusBrowser.js?v=1aac9e870556",
     "js/modules/gemini/search_monitor/nexusServiceChatBridge.js?v=28943fe7908d",
     "js/modules/gemini/search_monitor/agentNexus.docs.js?v=5f163f3cb0e9",
     "js/modules/gemini/search_monitor/agentNexus.js?v=de13d993cff5",

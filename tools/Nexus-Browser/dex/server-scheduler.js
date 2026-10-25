@@ -2,7 +2,7 @@ const { randomUUID } = require('node:crypto');
 const protocol = require('../public/dex-protocol');
 const healthApi = require('../public/dex-provider-health');
 const failurePolicy = require('../public/dex-failure-policy');
-const stateApi = require('./server-scheduler-state'), controlReceiptApi = require('./provider-control-receipt'), doneWatchApi = require('../public/dex-done-watch'), capabilityApi = require('./agent-capability-context'), { buildAgentLiveContext, readinessOnlyReply } = require('./agent-live-context');
+const stateApi = require('./server-scheduler-state'), controlReceiptApi = require('./provider-control-receipt'), doneWatchApi = require('../public/dex-done-watch'), capabilityApi = require('./agent-capability-context'), { buildAgentLiveContext, buildRelayCapabilityPrompt, readinessOnlyReply } = require('./agent-live-context');
 const { createServerSchedulerRecovery } = require('./server-scheduler-recovery');
 const recoveryMailbox = require('./recovery-mailbox'), promptSend = require('./prompt-send-recovery');
 const { directRoomSend } = require('./direct-room-send-policy');
@@ -128,7 +128,7 @@ function createDexServerScheduler({
     current.prompt = protocol.buildRelayPrompt({
       room, member, recipient: member, sourceMessage: source,
       requestId: current.requestId, inboxMessageIds: current.inboxMessageIds || [],
-      providerHealth: healthApi.roomContext(room, getOnlineTargets() || []), capabilityPrompt: [buildAgentLiveContext({ room, member }), capabilityApi.promptText(capabilityContext)].filter(Boolean).join('\n\n')
+      providerHealth: healthApi.roomContext(room, getOnlineTargets() || []), capabilityPrompt: buildRelayCapabilityPrompt({ room, member, capabilityPrompt: capabilityApi.promptText(capabilityContext) })
     }); if (room.recovery) { room.recovery.expectedPrompt = current.prompt; save(snapshot); }
     if (member.binding?.targetClassId === 'local-origin') {
       const target = await localTarget(member);

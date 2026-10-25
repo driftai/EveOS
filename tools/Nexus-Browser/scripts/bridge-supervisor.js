@@ -18,6 +18,7 @@ runtimeLog.append(`\n--- supervisor session ${new Date().toISOString()} ---\n`);
 
 let child = null;
 let stopping = false;
+let checkInFlight = false;
 let failures = 0;
 let restartTimer = null;
 const childHealth = createChildHealthProbe();
@@ -115,41 +116,46 @@ async function healthy() {
 }
 
 async function check() {
-  if (stopping) return;
-  if (await healthy()) {
-    if (failures) log('health recovered');
-    failures = 0;
-    if (!child) log('bridge is healthy under another visible server process; supervisor will not duplicate it');
-    return;
-  }
-  if (child) {
-    const ipc = await childHealth.probe(child);
-    if (ipc.ok && ipc.listening) {
-      const current = Date.now();
-      if (current - lastIpcPreserveLogAt >= 30000) {
-        log('HTTP health missed; server PID ' + child.pid
-          + ' confirmed listening over IPC'
-          + (ipc.sessionId ? ' session=' + ipc.sessionId : '')
-          + '; preserving in-flight work');
-        lastIpcPreserveLogAt = current;
-      }
+  if (stopping || checkInFlight) return;
+  checkInFlight = true;
+  try {
+    if (await healthy()) {
+      if (failures) log('health recovered');
       failures = 0;
+      if (!child) log('bridge is healthy under another visible server process; supervisor will not duplicate it');
       return;
     }
-  }
-  failures += 1;
-  if (!child) {
-    log('bridge is offline; starting server');
-    spawnServer();
-    return;
-  }
-  if (failures >= FAIL_LIMIT) {
-    log(`health failed ${failures} consecutive checks; restarting server PID ${child.pid}`);
-    const doomed = child;
-    child = null;
-    try { doomed.kill(); } catch {}
-    failures = 0;
-    scheduleRestart();
+    if (child) {
+      const ipc = await childHealth.probe(child);
+      if (ipc.ok && ipc.listening) {
+        const current = Date.now();
+        if (current - lastIpcPreserveLogAt >= 30000) {
+          log('HTTP health missed; server PID ' + child.pid
+            + ' confirmed listening over IPC'
+            + (ipc.sessionId ? ' session=' + ipc.sessionId : '')
+            + '; preserving in-flight work');
+          lastIpcPreserveLogAt = current;
+        }
+        failures = 0;
+        return;
+      }
+    }
+    failures += 1;
+    if (!child) {
+      log('bridge is offline; starting server');
+      spawnServer();
+      return;
+    }
+    if (failures >= FAIL_LIMIT) {
+      log(`health failed ${failures} consecutive checks; restarting server PID ${child.pid}`);
+      const doomed = child;
+      child = null;
+      try { doomed.kill(); } catch {}
+      failures = 0;
+      scheduleRestart();
+    }
+  } finally {
+    checkInFlight = false;
   }
 }
 

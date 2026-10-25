@@ -84,6 +84,11 @@ function assert(condition, message) { if (!condition) throw new Error(message); 
         && source.includes('EveOSTloChat?.refreshStatus?.()')
         && source.includes('EveOSNexusBrowser?.refresh?.()'),
         'Search Monitor runtime peers no longer recover from the control-plane heartbeat');
+    assert(nexusBrowserSource.includes('const STATUS_TIMEOUT_MS = 15000;')
+        && nexusBrowserSource.includes('controlRequest(STATUS_PATH, null, STATUS_TIMEOUT_MS)'),
+        'Nexus Browser status reads no longer allow the bounded Windows lifecycle-status budget');
+    assert(nexusBrowserSource.includes("action === 'setup' ? 10 * 60 * 1000 : action === 'stop' ? 30000 : 15000"),
+        'Nexus Browser lifecycle action timeout isolation changed unexpectedly');
     assert(tloChatSource.includes('api_unreachable') && tloChatSource.includes('EveOSControlPlane?.getState?.()'),
         'TLO no longer distinguishes API reachability from EveOS server state');
     assert(markup.includes('data-local-moe-frame') && markup.includes('Local MoE models and chat'),

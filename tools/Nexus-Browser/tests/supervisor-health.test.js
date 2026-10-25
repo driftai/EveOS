@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { createChildHealthProbe } = require('../scripts/supervisor-child-health');
+const { DEFAULT_TIMEOUT_MS, createChildHealthProbe } = require('../scripts/supervisor-child-health');
 const { attachSupervisorHealth } = require('../server-supervisor-health');
 
 test('owned Nexus child confirms listening state over IPC when HTTP health misses', async () => {
@@ -52,6 +52,24 @@ test('supervisor IPC health probe fails closed for an unresponsive child', async
   assert.equal(result.listening, false);
   assert.equal(result.reason, 'ipc-timeout');
   assert.equal(probe.pendingCount(), 0);
+});
+
+test('supervisor IPC health default allows bounded busy-turn response latency', async () => {
+  let scheduled = null;
+  const timers = {
+    setTimeout(fn, ms) { scheduled = { fn, ms }; return 1; },
+    clearTimeout() {}
+  };
+  const probe = createChildHealthProbe({ timers, now: () => 1234 });
+  const child = { connected: true, killed: false, send() {} };
+  const pending = probe.probe(child);
+  assert.equal(scheduled.ms, DEFAULT_TIMEOUT_MS);
+  assert.equal(DEFAULT_TIMEOUT_MS, 4000);
+  assert.equal(probe.handle(child, {
+    type: 'supervisor_health_ack', nonce: 'health-' + process.pid + '-1-1234',
+    listening: true, sessionId: 'busy-turn'
+  }), true);
+  assert.equal((await pending).sessionId, 'busy-turn');
 });
 
 test('supervisor IPC health rejects unavailable or exited children immediately', async () => {

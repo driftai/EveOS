@@ -1,7 +1,9 @@
 'use strict';
 
+const DEFAULT_TIMEOUT_MS = 4000;
+
 function createChildHealthProbe({
-  timeoutMs = 750,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
   timers = globalThis,
   now = () => Date.now()
 } = {}) {
@@ -59,4 +61,4 @@ function createChildHealthProbe({
   return { probe, handle, clearChild, pendingCount: () => pending.size };
 }
 
-module.exports = { createChildHealthProbe };
+module.exports = { DEFAULT_TIMEOUT_MS, createChildHealthProbe };
