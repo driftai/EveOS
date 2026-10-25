@@ -96,6 +96,7 @@ async function main() {
                 root,
                 indicator,
                 summaryPane,
+                summaryTextLength: (document.querySelector('#search-monitor-assistant-pane')?.innerText || '').trim().length,
                 serverControl,
                 serverStatus: document.querySelector('[data-eveos-control-status]')?.textContent || '',
                 serverAction: document.querySelector('[data-eveos-control-action-label]')?.textContent || '',
@@ -119,7 +120,7 @@ async function main() {
             throw new Error(`Search Monitor should default to compact summary mode: ${JSON.stringify(result)}`);
         }
         if (!result.summaryPane || result.summaryPane.display === 'none'
-            || result.summaryPane.width < 260 || result.summaryPane.height < 180) {
+            || result.summaryPane.width < 260 || result.summaryPane.height < 120 || result.summaryTextLength < 30) {
             throw new Error(`Gemini summary pane did not render stably: ${JSON.stringify(result)}`);
         }
         if (!result.serverControl || result.serverControl.display === 'none' || result.serverControl.height < 28) {

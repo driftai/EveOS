@@ -157,3 +157,27 @@ test('service worker routes AI Studio through exactly one unfocused window trans
   assert.match(worker, /startAiStudioResponsePoll/);
   assert.doesNotMatch(worker, /minimizeOnFinish: false/);
 });
+
+test('expired polling budget still inspects once, proves one committed Run, and never tries a fallback', async () => {
+  let inspected = 0, clicked = 0, alternates = 0;
+  const ops = {
+    inspect: async () => {
+      inspected++;
+      return { composerFound: true, runFound: true, userTurns: clicked ? 2 : 1,
+        lastUserText: clicked ? 'hello' : 'previous', generating: false };
+    },
+    setPrompt: async (text) => ({ ok: true, value: text }),
+    clickRun: async () => { clicked++; return { ok: true }; },
+    enter: async () => { alternates++; return { ok: true }; },
+    shortcut: async () => { alternates++; return { ok: true }; }
+  };
+  const result = await submit.submitAiStudioPrompt({
+    tabId: 42, text: 'hello', ops, delay: async () => {},
+    composerTimeoutMs: 0, runTimeoutMs: 0, verifyTimeoutMs: 0
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.method, 'run');
+  assert.equal(clicked, 1);
+  assert.equal(alternates, 0);
+  assert.equal(inspected, 3);
+});

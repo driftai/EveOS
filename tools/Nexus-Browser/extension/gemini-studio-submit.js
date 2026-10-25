@@ -188,7 +188,9 @@
   async function waitFor(predicate, { timeoutMs, intervalMs, delay = sleep }) {
     const started = Date.now();
     let last = null;
-    while (Date.now() - started < timeoutMs) {
+    let firstProbe = true;
+    while (firstProbe || Date.now() - started < timeoutMs) {
+      firstProbe = false;
       last = await predicate();
       if (last?.ok) return last.value;
       await delay(intervalMs);
