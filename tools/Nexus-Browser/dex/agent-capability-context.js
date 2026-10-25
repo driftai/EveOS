@@ -47,7 +47,7 @@ function effectiveText(root, relative, fsImpl) {
   const override = path.join(root, 'data', 'runtime', 'agent-management', 'documents', ...relative.split('/'));
   const source = fsImpl.existsSync(override) ? safeFile(root, path.relative(root, override).replaceAll('\\', '/'), fsImpl)
     : safeFile(root, relative, fsImpl);
-  const text = fsImpl.readFileSync(source, 'utf8');
+  const text = fsImpl.readFileSync(source, 'utf8').replace(/\r\n?/g, '\n');
   if (!text.trim() || text.length > 64000) throw fault(`Capability document has an invalid size: ${relative}`);
   return text;
 }

@@ -74,7 +74,8 @@ function createSupervisedJobProviderControl({ jobs, commandStore, broker, getSta
       throw machineError('MACHINE_JOB_REQUEST_CONFLICT', 'This request ID already owns a different immutable supervised job.');
     if (!prior) {
       const stored = {
-        ...(playwright ? { kind, scenario: plan.scenario, runnerSha256: plan.runnerSha256 } : {}),
+        ...(playwright ? { kind, scenario: plan.scenario, runnerSha256: plan.runnerSha256,
+          evidenceSha256: plan.evidenceSha256, mode: plan.mode } : {}),
         command,
         commandDigest: digest,
         actorMemberId: input.origin.executorMemberId,

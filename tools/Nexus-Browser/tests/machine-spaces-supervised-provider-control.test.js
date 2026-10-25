@@ -104,6 +104,8 @@ test('agent can queue only a registered Playwright smoke, with a reviewable job 
   const stored = commandStore.get(result.data.jobId);
   assert.equal(stored.command, 'node tools/smoke/agent_nexus_browser_smoke.js');
   assert.equal(stored.kind, 'playwright-acceptance');
+  assert.equal(stored.mode, 'qualification');
+  assert.match(stored.evidenceSha256, /^[a-f0-9]{64}$/);
   assert.match(result.data.chatApproval.requiredText, new RegExp(`^/approve-playwright ${result.data.jobId} [a-f0-9]{12} [A-F0-9]{12}$`));
   assert.equal(result.data.chatApproval.expired, false);
   assert.ok(verifyPrepared({ stored, target, repoRoot: root }));

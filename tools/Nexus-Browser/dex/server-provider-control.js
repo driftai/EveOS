@@ -11,7 +11,8 @@ const SERVER_ROUTED_ACTIONS = new Set([
   'room_budget', 'set_room_budget', 'room_log', 'tool_result_status',
   'workspace_ensure', 'terminal_targets', 'terminal_exec', 'terminal_status', 'terminal_output',
   'job_prepare', 'playwright_prepare', 'governor_prepare', 'job_status', 'job_list',
-  'quorum_presence', 'quorum_open', 'quorum_vote', 'quorum_close'
+  'quorum_presence', 'quorum_open', 'quorum_vote', 'quorum_close',
+  'nav_status', 'nav_search'
 ]);
 const ACTIONS = new Set([...controlApi.ACTIONS].filter((action) => !SERVER_ROUTED_ACTIONS.has(action)));
 

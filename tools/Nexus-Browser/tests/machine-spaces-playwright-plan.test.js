@@ -4,13 +4,17 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { registeredPlan, verifyPrepared } = require('../machine-spaces/playwright-job-plan');
+const { registeredPlan, verifyPrepared, SCENARIOS } = require('../machine-spaces/playwright-job-plan');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-playwright-plan-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  fs.mkdirSync(path.join(root, 'tools', 'smoke'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'tools', 'smoke', 'agent_nexus_browser_smoke.js'), 'console.log("TEST")\n');
+  const scenario = SCENARIOS['agent-nexus-browser'];
+  for (const relative of [scenario.runner, ...scenario.dependencies]) {
+    const full = path.join(root, ...relative.split('/'));
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, 'console.log("TEST")\n');
+  }
   return { root, target: { type: 'cmd', cwd: root } };
 }
 
