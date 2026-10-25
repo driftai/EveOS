@@ -22,6 +22,7 @@ const TESTS = Object.freeze([
   'tests/tlo-production-assembly.test.js',
   'tests/tlo-runner-client.test.js',
   'tests/tlo-runner-gate.test.js',
+  'tests/server-startup-isolation.test.js',
 ]);
 function selectedLines(text) {
   const lines = String(text || '').split(/\r?\n/);

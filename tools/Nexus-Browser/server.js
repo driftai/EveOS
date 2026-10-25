@@ -23,7 +23,7 @@ const { createHttpHandler, websocketOriginAllowed } = require('./server-http');
 const { createSafeSend, guardAsyncHandler, requestIdFromRaw } = require('./server-socket-safety');
 const { attachSupervisorHealth } = require('./server-supervisor-health');
 const { createServerDexViewerLease } = require('./dex/viewer-lease');
-const { createTloProductionAssembly } = require('./dex/tlo-production-assembly'), { createSafeTloActivationRunnerGate: createTloActivationRunnerGate, inspectPrivateStorage } = require('./dex/tlo-activation-runner-gate'), { readLocalAuth } = require('./dex/task-completion-local-auth'), { gitState } = require('./dex/post-idle-maintenance');
+const { createTloProductionAssembly } = require('./dex/tlo-production-assembly'), { createSafeTloActivationRunnerGate, inspectPrivateStorage } = require('./dex/tlo-activation-runner-gate'), { readLocalAuth } = require('./dex/task-completion-local-auth'), { gitState } = require('./dex/post-idle-maintenance');
 const HOST = process.env.HOST || '127.0.0.1', PORT = runtimeConfig.servicePort();
 const RUNTIME_URLS = runtimeConfig.urls(PORT);
 const PUBLIC_DIR = path.join(__dirname, 'public'), SERVER_SESSION_ID = `${process.pid}-${Date.now().toString(36)}`;
