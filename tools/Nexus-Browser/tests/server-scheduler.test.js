@@ -33,9 +33,9 @@ function baseSnapshot(health = null) {
   };
 }
 
-function harness({ selected = true, health = null, extensionAvailable = true, operations = null } = {}) {
+function harness({ selected = true, health = null, extensionAvailable = true, operations = null, local = false } = {}) {
   const store = memoryStore(baseSnapshot());
-  const sent = [], broadcasts = [], incidents = [], timers = [];
+  const sent = [], direct = [], broadcasts = [], incidents = [], timers = [];
   const tab = { id: 9, providerId: 'future-provider', providerName: 'Future Provider', url: 'https://future.example/chat/1', health };
   const provider = {
     id: 'future-provider',
@@ -54,7 +54,7 @@ function harness({ selected = true, health = null, extensionAvailable = true, op
       ledger.set(msg.requestId, { requestId: msg.requestId, state: 'dispatching', ...meta });
       return { ok: true };
     },
-    query(id) { return { reliable: true, entry: ledger.get(id) || null }; },
+    async observe() {}, query(id) { return { reliable: true, entry: ledger.get(id) || null }; },
     recordIncident(input) { incidents.push(input); },
     diagnostics() { return {}; }
   };
@@ -64,17 +64,17 @@ function harness({ selected = true, health = null, extensionAvailable = true, op
     getOnlineTargets: () => [tab],
     getProviders: () => [provider],
     getSelectedOnlineTarget: () => selected ? tab : null,
-    getLocalTargets: async () => [],
+    getLocalTargets: async () => local ? [{ id: 'local:tlo-chat:default', providerId: 'tlo-chat', targetClassId: 'local-origin' }] : [],
     isExtensionAvailable: () => extensionAvailable,
     sendExtension(payload) { sent.push(payload); return extensionAvailable; },
-    sendLocalPrompt: async () => {},
+    sendLocalPrompt: async (input) => { direct.push(input); },
     captureLocalLatest: async () => ({ text: '' }),
     broadcastState(snapshot) { broadcasts.push(snapshot); },
     recordIncident(input) { incidents.push(input); },
     setTimer(fn, delay) { timers.push({ fn, delay }); return timers.length; },
     clearTimer() {}
   });
-  return { scheduler, store, sent, broadcasts, incidents, timers, ledger, tab };
+  return { scheduler, store, sent, direct, broadcasts, incidents, timers, ledger, tab };
 }
 
 async function runNextTimer(h) {
@@ -303,7 +303,7 @@ test('completed member journal clears before next member receives a fresh journa
 });
 
 test('provider-control reply records durable correlation to the exact originating relay sender', async () => {
-  const h = harness();
+  const h = harness({ local: true });
   const value = h.store.value();
   const room = value.rooms[0];
   room.messages[0] = { id: 'm1', senderKind: 'agent', senderId: 'eve', senderName: 'Eve', text: 'Do one admin action.' };
@@ -312,22 +312,22 @@ test('provider-control reply records durable correlation to the exact originatin
     name: 'Eve Stress',
     relayEnabled: true,
     binding: {
-      targetClassId: 'online-origin',
-      providerId: 'future-provider',
-      providerName: 'Future Provider',
-      targetId: 9,
-      url: 'https://future.example/chat/1'
+      targetClassId: 'local-origin',
+      providerId: 'tlo-chat',
+      providerName: 'TLO',
+      targetId: 'local:tlo-chat:default',
+      transport: 'search-monitor-workspace'
     }
   });
   h.store.save(value);
 
-  assert.equal(h.scheduler.startRelay({ roomId: 'room-1', sourceMessageId: 'm1', budget: 1 }).ok, true);
+  assert.equal(h.scheduler.startRelay({ roomId: 'room-1', sourceMessageId: 'm1', budget: 2 }).ok, true);
   await runNextTimer(h);
   const current = h.scheduler.diagnostics().current;
   assert.equal(current.memberId, 'stress');
 
   const finalText = 'Executing. [[DEX:CMD {"action":"status","room":"room-1"}]]';
-  await h.scheduler.handleTransportEvent({
+  await h.direct[0].emit({
     type: 'response_final',
     requestId: current.requestId,
     text: finalText, controlEvidence: finalControlEvidence.transport(finalText)
@@ -342,6 +342,7 @@ test('provider-control reply records durable correlation to the exact originatin
   assert.equal(saved.pendingProviderControlReceipt.originMessageId, 'm1');
   assert.equal(saved.pendingProviderControlReceipt.originSenderId, 'eve');
   assert.equal(saved.pendingProviderControlReceipt.originTarget.targetId, 9);
+  assert.deepEqual(saved.pendingProviderControlReceipt.relayContinuation, { version: 1, remaining: 1, scheduledTurns: 1, turnBudgetTotal: 2 });
   assert.equal(h.incidents.at(-1).code, 'DEX_FINAL_CONTROL_DISPOSITION');
   assert.deepEqual({ action: h.incidents.at(-1).evidence.parsedAction,
     malformed: h.incidents.at(-1).evidence.malformed, roomId: h.incidents.at(-1).roomId },

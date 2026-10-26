@@ -77,22 +77,23 @@ test('dispatcher skips online origins and coalesces concurrent local flushes', a
   assert.equal(second.waiting, 1); assert.equal(validations, 1); release(); await first;
 });
 
-function roomWithIntent(id, source, command, turn) {
+function roomWithIntent(id, source, command, turn, relay = null) {
   const room = { id, name: id, members: [{ id: `tlo-${id}`, name: 'TLO', binding: { ...source } }],
     messages: [{ id: `source-${id}`, senderKind: 'user', senderId: 'user', text: 'Continue.' },
-      { id: `reply-${id}`, senderKind: 'agent', senderId: `tlo-${id}`, text: 'Working.' }] };
+      { id: `reply-${id}`, senderKind: 'agent', senderId: `tlo-${id}`, text: 'Working.' }],
+    ...(relay ? { relay: { ...relay } } : {}) };
   receipt.rememberIntent(room, { executorMember: room.members[0], sourceMessage: room.messages[0],
     command, agentMessage: room.messages[1], turnRequestId: turn, at: '2026-10-22T12:00:00.000Z' });
   return room;
 }
 
-function routedHarness(state, source) {
+function routedHarness(state, source, getScheduler = () => null) {
   const dex = { clientKind: 'dex' }, outbound = [];
   const routing = createProviderControlRouting({ uiSockets: new Set([dex]), getDexClient: () => dex,
     safeSend(ws, payload) { if (ws === dex) outbound.push(payload); return true; },
     validateSource: async (candidate) => candidate.targetId === source.targetId,
     getState: () => structuredClone(state), saveState: (next) => Object.assign(state, structuredClone(next)),
-    broadcastState() {} });
+    broadcastState() {}, getScheduler });
   return { dex, outbound, routing };
 }
 
@@ -112,6 +113,26 @@ test('multi-room TLO onboarding is scoped to the durable origin and receipts nev
     'the committed result remains inspectable after the controller transport closes');
   h.routing.dropSocket(h.dex);
   assert.equal(state.rooms[0].localToolResults.at(-1).state, 'queued');
+});
+
+test('a committed local control receipt schedules its exact pre-authorized continuation once', async () => {
+  const source = { targetClassId: 'local-origin', targetId: 'local:tlo-chat:shared', providerId: 'tlo-chat' };
+  const room = roomWithIntent('room-a', source, { action: 'onboard' }, 'turn-a',
+    { active: true, remaining: 1, scheduledTurns: 1, turnBudgetTotal: 2, waitingFor: 'tlo-room-a' });
+  room.relay = { ...room.relay, active: false, remaining: 0, waitingFor: null };
+  const state = { rooms: [room] }, scheduled = [];
+  const h = routedHarness(state, source, () => ({ startMemberTurn(input) {
+    scheduled.push(input); return { ok: true };
+  } }));
+  assert.deepEqual(await h.routing.flushLocalIntents(), { dispatched: 1, waiting: 0, candidates: 1 });
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].roomId, 'room-a');
+  assert.equal(scheduled[0].memberId, 'tlo-room-a');
+  assert.match(scheduled[0].sourceMessageId, /^msg-control-receipt-/);
+  assert.deepEqual(scheduled[0].relayContinuation,
+    { version: 1, remaining: 1, scheduledTurns: 1, turnBudgetTotal: 2 });
+  assert.deepEqual(await h.routing.flushLocalIntents(), { dispatched: 0, waiting: 0, candidates: 0 });
+  assert.equal(scheduled.length, 1, 'the consumed durable origin cannot schedule a duplicate continuation');
 });
 
 test('forged cross-room command is rejected against its durable origin', async () => {

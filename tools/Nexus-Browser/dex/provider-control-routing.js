@@ -73,6 +73,15 @@ function createProviderControlRouting({
     if (!applied.receipt) return null;
     const saved = saveState(applied.snapshot);
     if (typeof broadcastState === 'function') broadcastState(saved);
+    const continuation = applied.receipt.relayContinuation;
+    if (continuation && applied.receipt.executorTarget?.targetClassId === 'local-origin') {
+      const resumed = getScheduler?.()?.startMemberTurn?.({ roomId: applied.receipt.roomId,
+        sourceMessageId: applied.receipt.sourceMessageId, memberId: applied.receipt.executorMemberId,
+        purpose: 'provider-control-receipt', relayContinuation: continuation });
+      applied.receipt.continuation = resumed?.ok
+        ? { scheduled: true, memberId: applied.receipt.executorMemberId }
+        : { scheduled: false, code: resumed?.code || 'DEX_RELAY_UNAVAILABLE' };
+    }
     return applied.receipt;
   }
   function fail(sourceSocket, requestId, source, code, message, origin = null) {

@@ -70,6 +70,15 @@ test('the last already-scheduled reply may extend the room before budget-stop di
   assert.equal(stateApi.extendBudget(r, { budgetIncrease: 10 }), 1);
   assert.equal(r.relay.turnBudgetTotal, 500);
 });
+test('a final-turn command may explicitly fund only its bounded receipt continuation', () => {
+  const r = room();
+  const parsed = protocol.parseAgentReply('Inspect the result next. [[DEX:BUDGET:+1]] [[DEX:CMD {"action":"onboard"}]]');
+  assert.equal(parsed.providerCommand, 'onboard');
+  assert.equal(stateApi.extendBudget(r, parsed), 1);
+  assert.equal(r.relay.turnBudgetTotal, 9);
+  assert.equal(r.relay.remaining, 1);
+  assert.equal(protocol.relayDisposition(parsed, 'TLO', false, r.relay).kind, 'control');
+});
 test('room_budget and room_log are exact-member scoped, read-only and cursor paginated', () => {
   const r = room(); const snapshot = { rooms: [r], savedAt: '2026-09-26T00:00:00Z' };
   const status = tools.execute(snapshot, { source, command: { action: 'room_budget' } });

@@ -19,6 +19,8 @@ test('live context binds the exact room, transport and provider-control schemas'
     assert.match(value, new RegExp(action));
   }
   assert.match(value, /Label unverified explanations as hypotheses/);
+  assert.match(value, /BUDGET:\+1/);
+  assert.match(value, /receipt-processing turn/);
 });
 
 test('readiness guard is narrow and never consumes meaningful work', () => {

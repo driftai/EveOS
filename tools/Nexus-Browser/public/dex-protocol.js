@@ -308,7 +308,7 @@
         `If more agent exchanges are genuinely needed, choose N (1–${headroom}) and append [[DEX:BUDGET:+N]]`,
         'before RETURN/other trailing markers. Example: [[DEX:BUDGET:+4]] adds four turns to this run.',
         'You decide; no automatic extension or extra nudge turn is generated. Do not append DONE, USER,',
-        'NOTE or CMD if you intend the budget extension to continue this relay.',
+        'or NOTE if you intend continuation. If a CMD result is needed, put BUDGET immediately before CMD.',
         'If finished, reply normally with DONE. If no extension is needed, omit the budget flag.',
         'This extension changes only the current run, not the room default; change the default while idle.'
       ].join(' ') : [
@@ -357,7 +357,7 @@
       '- Recent room context defaults to one latest prior message PER room agent, excluding the current source. Fresh authorized incoming messages queued during another turn appear separately in FIFO order. Older room history remains durable.',
        '- Current message is the authoritative unabridged source for this relay turn; earlier context is projected, while NEW INCOMING updates remain independently authoritative.',
       '- For THIS outgoing reply only, put [[DEX:CONTEXT:12]] BEFORE RETURN/DONE to attach up to 12 prior room messages to the next recipient; valid range 1–40. Read your own backlog without a new room message: [[DEX:CMD {"action":"room_log","limit":10}]] (a CMD pauses relay).',
-      '- To extend a still-running relay before it runs out, put [[DEX:BUDGET:+4]] BEFORE RETURN/DONE to add four more unscheduled turns (up to 500 allocated per run). To inspect/change the idle room budget, use [[DEX:CMD {"action":"room_budget"}]] or [[DEX:CMD {"action":"set_room_budget","turns":12,"resume":true}]]; CMD pauses the current relay.',
+      '- To extend a still-running relay before it runs out, put [[DEX:BUDGET:+4]] BEFORE RETURN/DONE to add four more unscheduled turns (up to 500 allocated per run). Before a trailing CMD, BUDGET preserves authorized turns so the exact requesting agent can process the durable result. To inspect/change the idle room budget, use [[DEX:CMD {"action":"room_budget"}]] or [[DEX:CMD {"action":"set_room_budget","turns":12,"resume":true}]]; CMD pauses the current relay.',
       '- Do not rewrite Room/Recipient routing in prose.',
       '- If you need Dex room/worker controls, end with [[DEX:CMD {"action":"onboard"}]] to receive the current self-service command set. A trailing provider-control command pauses this relay before the control action runs.',
       '- If this exact chat is also bound to another Dex room, an intentional transfer may end with [[DEX:CMD {"action":"handoff_room","room":"<authorized room id or exact name>","text":"<message>","turns":8}]]. Dex stops this room before starting the authorized target room.',

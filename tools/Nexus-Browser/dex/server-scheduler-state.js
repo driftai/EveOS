@@ -274,7 +274,7 @@ function priorReply(room, member, sourceMessageId) {
 
 function extendBudget(room, parsed = {}) {
   if (!room?.relay?.active || !Number.isInteger(parsed.budgetIncrease)
-      || parsed.done || parsed.needsUser || parsed.note || parsed.providerCommand
+      || parsed.done || parsed.needsUser || parsed.note
       || parsed.malformedCommand) return 0;
   const relay = room.relay;
   const used = Math.max(0, Number(relay.scheduledTurns || 0));

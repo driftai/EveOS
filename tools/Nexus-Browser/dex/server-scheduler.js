@@ -340,10 +340,10 @@ function createDexServerScheduler({
     const completion = sourceMessage?.engineeringVerification
       ? validateEngineeringCompletion(parsed.text, sourceMessage.engineeringVerification, parsed.done) : null;
     if (completion) message.engineeringCompletion = completion;
+    stateApi.extendBudget(room, parsed);
     if (!sourceMessage?.engineeringIncident && parsed.providerControlCommand && !directRoomSend(parsed.providerControlCommand)) controlReceiptApi.rememberIntent(room, { executorMember: member, sourceMessage, command: parsed.providerControlCommand, agentMessage: message, turnRequestId: current.requestId, at: now() });
     delete room.recovery;
     room.relay.waitingFor = null;
-    stateApi.extendBudget(room, parsed);
     const disposition = protocol.relayDisposition(parsed, member.name, repeated, { ...room.relay, singleAgentIdle: (room.members || []).filter((entry) => entry.relayEnabled !== false).length === 1 && readinessOnlyReply(parsed.text) });
     finalControlEvidence.record(recordIncident, { roomId: room.id, memberId: member.id, requestId: current.requestId, text, disposition, ...finalized });
     if (parsed.done && (!completion || completion.ok)) doneWatchApi.consume(room, { completedMemberId: member.id, message, at: now() });

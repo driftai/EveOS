@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const receipt = require('../dex/provider-control-receipt');
 const { createProviderControlRouting } = require('../dex/provider-control-routing');
+const { continuationState } = require('../dex/server-scheduler-member-turn');
 const bridge = require('../extension/dex-provider-control-bridge');
 
 function snapshot() {
@@ -99,6 +100,29 @@ test('applying a result writes a transport-only system receipt and clears pendin
   assert.match(last.text, /Added Eve Engineering 3/);
   assert.equal(last.controlReceipt.requestId, 'control-1');
   assert.equal(applied.receipt.originTarget.targetId, 10);
+  assert.equal(applied.receipt.relayContinuation, null);
+});
+
+test('a local executor receipt retains only valid pre-authorized physical turns', () => {
+  const value = snapshot(), room = value.rooms[0];
+  room.members[1].binding = { targetClassId: 'local-origin', targetId: 'local:tlo',
+    providerId: 'tlo-chat', transport: 'search-monitor-workspace' };
+  room.relay = { active: true, remaining: 1, scheduledTurns: 1, turnBudgetTotal: 2, waitingFor: 'executor' };
+  const command = { action: 'onboard' }, pending = remember(value, command);
+  assert.deepEqual(pending.relayContinuation,
+    { version: 1, remaining: 1, scheduledTurns: 1, turnBudgetTotal: 2 });
+  const applied = receipt.applyResult(value, { roomId: room.id, roomName: room.name, ...pending },
+    { ok: true, action: 'onboard', message: 'Onboarding ready.' }, 'control-local');
+  assert.equal(applied.receipt.sourceMessageId, 'msg-control-receipt-control-local');
+  assert.equal(applied.receipt.executorMemberId, 'executor');
+  assert.equal(applied.receipt.executorTarget.targetClassId, 'local-origin');
+  assert.deepEqual(applied.receipt.relayContinuation, pending.relayContinuation);
+  const resumed = continuationState(applied.receipt.relayContinuation,
+    applied.snapshot.rooms[0].messages.at(-1), room.members[1]);
+  assert.deepEqual(resumed, { active: true, remaining: 0, scheduledTurns: 2,
+    turnBudgetTotal: 2, lastStopReason: 'Running provider-control receipt continuation' });
+  assert.equal(continuationState(applied.receipt.relayContinuation,
+    applied.snapshot.rooms[0].messages.at(-1), room.members[0]), null);
 });
 
 test('provider-control routing returns one correlated receipt to the executor bridge and persists it in the origin room', async () => {
