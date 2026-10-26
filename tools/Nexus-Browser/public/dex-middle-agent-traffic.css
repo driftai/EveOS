@@ -1,0 +1,101 @@
+.middle-agent-traffic .nexus-collapsible__actions {
+  align-items: center;
+  display: flex;
+  gap: .5rem;
+  justify-content: space-between;
+}
+
+.middle-traffic-status {
+  color: var(--muted, #9aabc1);
+  font-size: .78rem;
+  font-weight: 600;
+}
+
+.middle-traffic-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin: .65rem 0;
+}
+
+.middle-traffic-filters button {
+  min-height: 1.9rem;
+  padding: .3rem .65rem;
+}
+
+.middle-traffic-filters button.active {
+  border-color: var(--accent, #55b9ff);
+  color: var(--accent, #55b9ff);
+}
+
+.middle-traffic-list {
+  display: grid;
+  gap: .65rem;
+  max-height: min(34rem, 55vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: .2rem;
+}
+
+.middle-traffic-event,
+.middle-traffic-empty {
+  background: rgba(7, 13, 23, .56);
+  border: 1px solid var(--border, #252e3b);
+  border-left: 3px solid #6783a8;
+  border-radius: .65rem;
+  padding: .7rem .8rem;
+}
+
+.middle-traffic-event.tone-success { border-left-color: #4dd49a; }
+.middle-traffic-event.tone-decision { border-left-color: #55b9ff; }
+.middle-traffic-event.tone-attention { border-left-color: #ffb454; }
+
+.middle-traffic-event-head {
+  align-items: start;
+  display: flex;
+  gap: .5rem;
+  justify-content: space-between;
+}
+
+.middle-traffic-kind {
+  background: rgba(104, 146, 194, .14);
+  border: 1px solid rgba(104, 146, 194, .35);
+  border-radius: 999px;
+  color: var(--muted, #9aabc1);
+  flex: none;
+  font-size: .68rem;
+  padding: .12rem .4rem;
+  text-transform: uppercase;
+}
+
+.middle-traffic-summary {
+  line-height: 1.45;
+  margin: .45rem 0 .3rem;
+  overflow-wrap: anywhere;
+}
+
+.middle-traffic-meta,
+.middle-traffic-empty {
+  color: var(--muted, #9aabc1);
+  font-size: .76rem;
+}
+
+.middle-traffic-rows {
+  display: grid;
+  gap: .25rem .7rem;
+  grid-template-columns: minmax(7rem, .35fr) minmax(0, 1fr);
+  margin: .65rem 0 0;
+}
+
+.middle-traffic-rows dt { color: var(--muted, #9aabc1); }
+.middle-traffic-rows dd { margin: 0; overflow-wrap: anywhere; }
+
+.middle-traffic-technical { margin-top: .55rem; }
+.middle-traffic-technical summary { color: var(--muted, #9aabc1); cursor: pointer; font-size: .76rem; }
+.middle-traffic-technical pre { margin-bottom: 0; max-height: 12rem; overflow: auto; white-space: pre-wrap; }
+
+@media (max-width: 720px) {
+  .middle-traffic-list { max-height: 28rem; }
+  .middle-traffic-rows { grid-template-columns: 1fr; }
+  .middle-traffic-rows dd { margin-bottom: .3rem; }
+}

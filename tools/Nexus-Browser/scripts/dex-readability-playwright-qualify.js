@@ -9,7 +9,7 @@ function fail(message) { throw new Error(message); }
 async function main() {
   const server = http.createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end('<!doctype html><main><div id="rooms"></div><div id="transcript"></div></main>');
+    res.end('<!doctype html><main><details id="dexMiddleAgentTraffic" open><summary>Middle Agent Traffic</summary><span id="dexMiddleAgentTrafficStatus"></span><div id="dexMiddleAgentTrafficFilters"></div><div id="dexMiddleAgentTrafficList"></div></details><div id="rooms"></div><div id="transcript"></div></main>');
   });
   await new Promise((resolve, reject) => server.listen(0, '127.0.0.1', resolve).once('error', reject));
   const origin = `http://127.0.0.1:${server.address().port}`;
@@ -19,19 +19,27 @@ async function main() {
     const page = await context.newPage();
     await page.goto(origin);
     await page.addStyleTag({ path: path.join(root, 'public', 'dex-mode.css') });
+    await page.addStyleTag({ path: path.join(root, 'public', 'dex-middle-agent-traffic.css') });
     await page.addScriptTag({ path: path.join(root, 'public', 'dex-receipt-presentation.js') });
+    await page.addScriptTag({ path: path.join(root, 'public', 'dex-middle-agent-traffic.js') });
     await page.addScriptTag({ path: path.join(root, 'public', 'dex-room-view.js') });
     await page.evaluate(() => {
-      const room = { id: 'room-readable', name: 'Release Repair', members: [{ id: 'agent-tlo', name: 'TLO' }], messages: [
+      const room = { id: 'room-readable', name: 'Release Repair', settings: { middleAgentMode: 'manual', middleAgentMemberId: 'agent-tlo' },
+        members: [{ id: 'agent-tlo', name: 'TLO', relayEnabled: true, binding: { targetClassId: 'local-origin', providerId: 'tlo-chat' } }],
+        engineeringIncidentReceipts: [{ messageId: 'success', middleAgentMemberId: 'agent-tlo', dispatch: 'scheduled' }], messages: [
         { id: 'success', senderKind: 'system', senderName: 'Machine Spaces', text: 'raw success receipt',
           engineeringIncident: { jobId: 'machine-job-exact', requestId: 'request-exact', roomId: 'room-readable',
             spaceId: 'space-exact', targetId: 'terminal-exact', outputId: 'output-exact', state: 'completed',
             classification: 'completed', exitCode: 0 },
           engineeringVerification: { state: 'completed', exitCode: 0, outcome: 'GREEN', receipt: 'data/runtime/receipt.json' } },
         { id: 'queued', senderKind: 'system', senderName: 'Dex', text: 'raw queued receipt',
-          controlReceipt: { requestId: 'prepare-exact', roomId: 'room-readable', action: 'governor_prepare', ok: true } },
+          controlReceipt: { requestId: 'prepare-exact', roomId: 'room-readable', action: 'governor_prepare', ok: true, executorMemberId: 'agent-tlo' } },
         { id: 'failure', senderKind: 'system', senderName: 'Dex', text: 'transport failed', relayFailure: true,
-          sourceMessageId: 'source-exact', turnRequestId: 'turn-exact' }
+          sourceMessageId: 'source-exact', turnRequestId: 'turn-exact' },
+        { id: 'decision', senderKind: 'agent', senderId: 'agent-tlo', senderName: 'TLO', text: 'The failed assertion is isolated to the state transition.',
+          engineeringProposal: { ok: true, schema: 'eveos.machine-spaces.engineering-proposal.v1', incidentJobId: 'machine-job-exact',
+            summary: 'The failed assertion is isolated to the state transition.', confidence: .9, requestedEvidence: ['terminal output'],
+            repair: { kind: 'source-patch', paths: ['src/state.js'] }, retryIntent: 'after-verified-repair' } }
       ] };
       const state = { rooms: [room], activeRoomId: room.id };
       const list = document.getElementById('rooms'), transcript = document.getElementById('transcript');
@@ -43,7 +51,7 @@ async function main() {
       view.renderRooms(); view.renderTranscript(room);
     });
     const cards = page.locator('.dex-message');
-    if (await cards.count() !== 3) fail('Expected three rendered semantic notifications.');
+    if (await cards.count() !== 4) fail('Expected four rendered semantic notifications.');
     if (!await cards.nth(0).getByText('Verified success', { exact: true }).isVisible()) fail('Verified success label is not visible.');
     if (!await cards.nth(1).getByText('Prepared', { exact: true }).isVisible()) fail('Prepared label is not visible.');
     if (!await cards.nth(2).getByText('Delivery failure', { exact: true }).isVisible()) fail('Failure label is not visible.');
@@ -56,7 +64,12 @@ async function main() {
     const tones = await cards.evaluateAll((nodes) => nodes.map((node) => node.className));
     if (!tones[0].includes('engineering-success') || !tones[1].includes('engineering-warning')
         || !tones[2].includes('engineering-danger')) fail('Semantic notification tones are incorrect.');
-    console.log('DEX_READABILITY_PLAYWRIGHT_OK cards=3 labels=true details=true copy=true tones=true');
+    const traffic = page.locator('#dexMiddleAgentTraffic');
+    if (!await traffic.getByText('TLO · available', { exact: true }).isVisible()) fail('Selected middle-agent status is missing.');
+    if (!await traffic.getByText('Middle-agent engineering decision', { exact: true }).isVisible()) fail('Public middle-agent reasoning is missing.');
+    await traffic.getByRole('button', { name: 'Receipts', exact: true }).click();
+    if (await traffic.locator('.middle-traffic-event').count() !== 1) fail('Traffic filters did not isolate receipts.');
+    console.log('DEX_READABILITY_PLAYWRIGHT_OK cards=4 labels=true details=true copy=true tones=true middleTraffic=true');
   } finally {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));

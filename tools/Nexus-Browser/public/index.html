@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/activity-code.css">
   <link rel="stylesheet" href="/target-classes.css">
   <link rel="stylesheet" href="/dex-mode.css">
+  <link rel="stylesheet" href="/dex-middle-agent-traffic.css">
   <link rel="stylesheet" href="/machine-spaces.css">
   <link rel="stylesheet" href="/codex-quota.css">
   <link rel="stylesheet" href="/codex-burn.css">
@@ -359,6 +360,14 @@
             <div id="machineSpaceRequests" class="machine-request-list"></div>
           </details>
 
+          <details id="dexMiddleAgentTraffic" class="dex-card nexus-collapsible middle-agent-traffic" data-nexus-collapsible open>
+            <summary>Middle Agent Traffic</summary>
+            <div class="nexus-collapsible__actions"><span id="dexMiddleAgentTrafficStatus" class="middle-traffic-status">No room selected</span></div>
+            <p class="dex-note">Visible evidence, public reasoning summaries, decisions, actions and receipts. Private model chain-of-thought and sensitive terminal output are never exposed.</p>
+            <div id="dexMiddleAgentTrafficFilters" class="middle-traffic-filters" aria-label="Middle agent traffic filters"></div>
+            <div id="dexMiddleAgentTrafficList" class="middle-traffic-list" aria-live="polite"></div>
+          </details>
+
           <section id="dexTranscript" class="dex-transcript" aria-live="polite"></section>
 
           <section class="dex-composer">
@@ -412,6 +421,7 @@
   <script src="/dex-session-policy.js"></script>
   <script src="/dex-human-control.js"></script>
   <script src="/dex-receipt-presentation.js"></script>
+  <script src="/dex-middle-agent-traffic.js"></script>
   <script src="/dex-room-view.js"></script>
   <script src="/dex-relay-timing.js"></script>
   <script src="/dex-mode.js"></script>

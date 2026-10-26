@@ -6,11 +6,21 @@ function clean(value, fallback = 'unknown') {
 }
 const READINESS_ONLY = /^(?:i(?:'m| am)\s+)?(?:ready(?:\s+(?:to\s+(?:begin|continue|proceed)|for\s+(?:the\s+)?next\s+step))?|standing by|awaiting (?:instructions|your input|the next step))[.! ]*$/i;
 function readinessOnlyReply(value) { return READINESS_ONLY.test(clean(value, '')); }
+function selectedMiddle(room) {
+  const settings = room?.settings || {}, members = (room?.members || [])
+    .filter((entry) => entry?.relayEnabled !== false && entry?.binding);
+  if (settings.middleAgentMode === 'disabled') return null;
+  if (settings.middleAgentMemberId) return members.find((entry) => entry.id === settings.middleAgentMemberId) || null;
+  if (settings.middleAgentMode === 'manual') return null;
+  const declared = members.filter((entry) => entry.engineeringRole === 'middle-agent');
+  return declared.length === 1 ? declared[0] : members.length === 1 ? members[0] : null;
+}
 
 function buildAgentLiveContext({ room, member } = {}) {
   const binding = member?.binding || {};
   const transport = clean(binding.transport || binding.sessionOrigin || binding.targetClassId);
   const searchMonitor = transport.includes('search-monitor');
+  const isMiddle = selectedMiddle(room)?.id === member?.id;
   return [
     'DEX LIVE CONTROL CONTRACT (authoritative for this turn):',
     `Current room: ${clean(room?.name, 'Dex Room')} (${clean(room?.id)}).`,
@@ -29,6 +39,11 @@ function buildAgentLiveContext({ room, member } = {}) {
     '- prepare Codex-backed Governor work only when that executor is deliberately selected: [[DEX:CMD {"action":"governor_prepare","space":"<space>","terminal":"<terminal>","mission":"<mission>","tier":"<tier>","expectedHead":"<sha>","allowedFiles":["<path>"]}]]',
     '- inspect supervised work: [[DEX:CMD {"action":"job_status","space":"<space>","jobId":"<job>"}]]',
     '- if a command is on your final scheduled turn and you must interpret its receipt, put [[DEX:BUDGET:+1]] immediately before the trailing CMD. This explicitly funds one receipt-processing turn; Dex never adds one silently.',
+    ...(isMiddle ? [
+      'MIDDLE-AGENT PUBLIC DECISION TRACE:',
+      '- Make your visible response explain evidence considered, a concise reasoning summary, the decision, confidence or uncertainty, and the next action. Do not expose private hidden chain-of-thought.',
+      '- When an exact JSON schema is required, put that trace into its summary, requestedEvidence, repair, confidence, and retryIntent fields instead of adding prose.'
+    ] : []),
     'Use the authoritative current room above; do not guess or rediscover it unless Nexus reports ambiguity.',
     'Before naming a root cause, read the available job/terminal status and output receipt. Label unverified explanations as hypotheses.',
     'Keep quota reserve, unavailable workspace/transport, stale runtime, denied authorization, and confirmed test failure distinct.',
@@ -48,4 +63,4 @@ function buildRelayCapabilityPrompt({ room, member, capabilityPrompt = '', capab
     : [liveContext, capabilityPrompt].filter(Boolean).join('\n\n');
 }
 
-module.exports = { buildAgentLiveContext, buildRelayCapabilityPrompt, readinessOnlyReply };
+module.exports = { selectedMiddle, buildAgentLiveContext, buildRelayCapabilityPrompt, readinessOnlyReply };

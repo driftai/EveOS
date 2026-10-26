@@ -5,6 +5,8 @@
   const MAX_ROOM_AUDIO_ATTACHMENTS = 48;
   const receiptApi = globalThis.BrowserAiBridgeDexReceiptPresentation
     || (typeof module !== 'undefined' && module.exports ? require('./dex-receipt-presentation.js') : null);
+  const trafficApi = globalThis.BrowserAiBridgeDexMiddleAgentTraffic
+    || (typeof module !== 'undefined' && module.exports ? require('./dex-middle-agent-traffic.js') : null);
 
 
   function engineeringNotice(raw) {
@@ -31,6 +33,7 @@
 
   function createView({ state, el, protocol, onRoomSelect }) {
   const roomAudio = new Map();
+  const middleTraffic = trafficApi?.create?.({ root: globalThis.document }) || { render() {} };
 
   function audioKey(roomId, requestId) {
     return `${String(roomId || '')}:${String(requestId || '')}`;
@@ -114,6 +117,7 @@
     const oldTop = el.dexTranscript.scrollTop;
     const nearBottom = el.dexTranscript.scrollHeight - oldTop - el.dexTranscript.clientHeight < 48;
     el.dexTranscript.replaceChildren();
+    middleTraffic.render(room);
     if (!room) return;
     for (const message of room.messages) {
       const article = document.createElement('article');

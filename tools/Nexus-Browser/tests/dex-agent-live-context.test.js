@@ -23,6 +23,19 @@ test('live context binds the exact room, transport and provider-control schemas'
   assert.match(value, /receipt-processing turn/);
 });
 
+test('middle-agent trace guidance is injected only for the room-selected participant', () => {
+  const room = { id: 'room-exact', name: 'Engineering', settings: {
+    middleAgentMode: 'manual', middleAgentMemberId: 'tlo' }, members: [
+    { id: 'tlo', relayEnabled: true, binding: { targetClassId: 'local-origin' } },
+    { id: 'worker', relayEnabled: true, binding: { targetClassId: 'online-origin' } }
+  ] };
+  const middle = buildAgentLiveContext({ room, member: room.members[0] });
+  const worker = buildAgentLiveContext({ room, member: room.members[1] });
+  assert.match(middle, /MIDDLE-AGENT PUBLIC DECISION TRACE/);
+  assert.match(middle, /private hidden chain-of-thought/);
+  assert.doesNotMatch(worker, /MIDDLE-AGENT PUBLIC DECISION TRACE/);
+});
+
 test('readiness guard is narrow and never consumes meaningful work', () => {
   assert.equal(readinessOnlyReply("I'm ready."), true);
   assert.equal(readinessOnlyReply('I am ready to proceed.'), true);
