@@ -249,8 +249,8 @@
             error.code = 'TLO_WORKSPACE_BUSY';
             throw error;
         }
-        const priorHistory = conversation.slice(-40);
-        conversation.push({ role: 'user', content: message });
+        const priorHistory = external ? [] : conversation.slice(-8);
+        if (!external) conversation.push({ role: 'user', content: message });
         bubble('user', message);
         if (!external && input) input.value = '';
         const assistant = bubble('assistant', '');
@@ -287,7 +287,7 @@
             });
             if (run.cancelled) throw new Error('TLO generation was canceled.');
             const finalText = run.text || 'TLO completed without a visible response.';
-            if (!run.cancelled) conversation.push({ role: 'assistant', content: finalText });
+            if (!run.cancelled && !external) conversation.push({ role: 'assistant', content: finalText });
             return finalText;
         } catch (error) {
             if (run.cancelled || error?.name === 'AbortError') {

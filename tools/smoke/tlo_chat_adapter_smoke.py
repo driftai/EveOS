@@ -185,6 +185,18 @@ def backend_auth_contract():
 
 def run():
     backend_auth_contract()
+    require(len(tlo_chat._history([{"role": "user", "content": "short"}] * 8)) == 8,
+            "Bounded TLO history rejected the supported message count")
+    try:
+        tlo_chat._history([{"role": "user", "content": "extra"}] * 9)
+        raise AssertionError("Oversized TLO history message count was accepted")
+    except tlo_chat.TloChatError:
+        pass
+    try:
+        tlo_chat._history([{"role": "user", "content": "x" * 13000}] * 2)
+        raise AssertionError("Oversized aggregate TLO history was accepted")
+    except tlo_chat.TloChatError:
+        pass
     with tempfile.TemporaryDirectory(prefix="eveos-tlo-chat-") as temporary:
         live_path = Path(temporary) / "agents.json"
         backup_path = Path(temporary) / "agents.backup.json"

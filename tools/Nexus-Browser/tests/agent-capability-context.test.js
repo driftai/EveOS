@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const capability = require('../dex/agent-capability-context');
+const { buildRelayCapabilityPrompt } = require('../dex/agent-live-context');
 const stateApi = require('../dex/server-scheduler-state');
 const { createDexServerScheduler } = require('../dex/server-scheduler');
 
@@ -23,15 +24,29 @@ test('provider-neutral capability selection expands dependencies and requires ve
 test('explicit capability selection is bounded and suppresses incidental relay vocabulary', () => {
   const context = capability.resolve('[[EVEOS:CAPABILITIES playwright-browser]] git terminal repair');
   assert.deepEqual(ids(context), ['machine-spaces', 'playwright-browser']);
+  assert.deepEqual(ids(capability.resolve('[[EVEOS:CAPABILITIES none]] terminal git repair')), []);
+  assert.throws(() => capability.resolve('[[EVEOS:CAPABILITIES none git-workflow]]'), /cannot combine none/);
   assert.throws(() => capability.resolve('[[EVEOS:CAPABILITIES unrestricted-shell]]'), /Unknown registered capability/);
 });
 
+test('TLO relay preserves an authoritative empty capability selection', () => {
+  const prompt = buildRelayCapabilityPrompt({
+    room: { id: 'room-tlo', name: 'TLO Mission' },
+    member: { id: 'agent-tlo', name: 'TLO', binding: { providerId: 'tlo-chat' } },
+    capabilityIds: []
+  });
+  assert.match(prompt, /\[\[EVEOS:CAPABILITIES none\]\]/);
+  assert.deepEqual(ids(capability.resolve(prompt)), []);
+});
+
 test('Node and Python resolve the shared registry to identical public provenance', () => {
-  const message = 'Run Playwright browser verification, repair failures, then commit the tested change.';
-  const expected = capability.publicContext(capability.resolve(message));
-  const code = 'import json; from server_modules import agent_capability_registry as r; print(json.dumps(r.public_context(r.resolve(' + JSON.stringify(message) + ')), separators=(",",":")))';
-  const actual = JSON.parse(execFileSync('python', ['-c', code], { cwd: capability.ROOT, encoding: 'utf8', windowsHide: true }));
-  assert.deepEqual(actual, expected);
+  for (const message of ['Run Playwright browser verification, repair failures, then commit the tested change.',
+    '[[EVEOS:CAPABILITIES none]] terminal git repair']) {
+    const expected = capability.publicContext(capability.resolve(message));
+    const code = 'import json; from server_modules import agent_capability_registry as r; print(json.dumps(r.public_context(r.resolve(' + JSON.stringify(message) + ')), separators=(",",":")))';
+    const actual = JSON.parse(execFileSync('python', ['-c', code], { cwd: capability.ROOT, encoding: 'utf8', windowsHide: true }));
+    assert.deepEqual(actual, expected);
+  }
 });
 
 test('scheduler provenance accepts the registry maximum and rejects overflow', () => {
@@ -94,9 +109,11 @@ test('TLO relay keeps live Dex context but leaves capability pack injection to i
   assert.equal(scheduler.startRelay({ roomId: 'room-tlo', sourceMessageId: 'source-tlo', budget: 1 }).ok, true);
   await timers.shift()();
   const prompt = sent[0]?.text || '';
+  const selectedIds = ids(capability.resolve(sourceText));
   assert.match(prompt, /DEX LIVE CONTROL CONTRACT/);
   assert.match(prompt, /Current room: TLO Mission \(room-tlo\)/);
-  assert.doesNotMatch(prompt, /\[\[EVEOS:CAPABILITIES/);
+  assert.match(prompt, new RegExp(`\\[\\[EVEOS:CAPABILITIES ${selectedIds.join(' ')}\\]\\]`));
+  assert.doesNotMatch(prompt, /Qualification does not authorize mutation of real user data/);
   assert.ok(prompt.length < 16_000, `TLO relay prompt exceeded its backend envelope: ${prompt.length}`);
   assert.ok(capability.resolve(sourceText).packs.some((pack) => pack.id === 'playwright-browser'));
 });

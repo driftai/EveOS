@@ -55,7 +55,12 @@ function createRegistry({ root = ROOT, fsImpl = fs } = {}) {
   const resolvedRoot = fsImpl.realpathSync(root), registry = loadRegistry(resolvedRoot, fsImpl);
   function selected(message = '') {
     const text = String(message), requested = [], explicit = [...text.matchAll(EXPLICIT)];
-    for (const match of explicit) for (const raw of match[1].trim().toLowerCase().split(/[\s,]+/)) {
+    const tokens = explicit.flatMap((match) => match[1].trim().toLowerCase().split(/[\s,]+/).filter(Boolean));
+    if (tokens.includes('none')) {
+      if (tokens.length !== 1) throw fault('Capability selection cannot combine none with registered capabilities.');
+      return [];
+    }
+    for (const raw of tokens) {
       if (!registry.byId.has(raw)) throw fault(`Unknown registered capability: ${raw}`);
       if (!requested.includes(raw)) requested.push(raw);
     }

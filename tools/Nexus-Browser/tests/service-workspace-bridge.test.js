@@ -217,9 +217,11 @@ test('TLO Nexus path calls the mounted Search Monitor TLO chat instead of its ow
   assert.match(host, /EveOSTloChat/);
   assert.match(host, /sendWorkspaceMessage/);
   assert.doesNotMatch(host, /\/api\/eve-state\/modular\/tlo\/chat\/stream/);
-  assert.match(tlo, /const priorHistory = conversation\.slice\(-40\)/);
+  assert.match(tlo, /const priorHistory = external \? \[\] : conversation\.slice\(-8\)/);
   assert.match(tlo, /external: true/);
-  assert.match(tlo, /conversation\.push\(\{ role: 'assistant'/);
+  assert.match(tlo, /if \(!external\) conversation\.push\(\{ role: 'user'/);
+  assert.match(tlo, /if \(!run\.cancelled && !external\) conversation\.push\(\{ role: 'assistant'/);
+  assert.doesNotMatch(tlo, /conversation\.slice\(-40\)/);
 });
 
 test('Gemini manifest keeps credential workflow while loading the Search Monitor service-chat host', () => {

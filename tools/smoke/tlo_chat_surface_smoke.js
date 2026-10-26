@@ -63,6 +63,33 @@ async function assertSendRaces() {
     requireContract(!api.workspaceSnapshot().busy, 'Cancellation retained an active request');
 }
 
+async function assertWorkspaceContextIsolation() {
+    const requests = [];
+    const mock = { ...windowMock };
+    delete mock.EveOSTloChat;
+    vm.runInNewContext(source, {
+        window: mock, console, AbortController, TextDecoder, Uint32Array, Date,
+        fetch: async (url, options = {}) => {
+            if (url.includes('/status')) return { ok: true, json: async () => ({ ok: true, canChat: true }) };
+            requests.push(JSON.parse(options.body));
+            return { ok: true, body: new ReadableStream({ start(controller) {
+                controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n'));
+                controller.close();
+            } }) };
+        }
+    });
+    const api = mock.EveOSTloChat;
+    api.bind({ addEventListener() {}, querySelector(selector) {
+        return selector === '[data-tlo-form]' ? { querySelector() { return null; } } : null;
+    } });
+    await api.sendWorkspaceMessage('[DEX ROOM RELAY]\nRoom ID: room-one\nCurrent message: first');
+    await api.sendWorkspaceMessage('[DEX ROOM RELAY]\nRoom ID: room-two\nCurrent message: second');
+    requireContract(requests.length === 2 && requests.every((request) => request.history.length === 0),
+        'Dex workspace envelopes leaked into shared TLO inference history');
+    requireContract(api.workspaceSnapshot().historyMessages === 0,
+        'Dex workspace envelopes polluted the standalone Search Monitor conversation');
+}
+
 async function run() {
     const api = windowMock.EveOSTloChat;
     const markup = api?.markup?.() || '';
@@ -101,6 +128,7 @@ async function run() {
     requireContract(text === 'AB', `Streaming deltas were not ordered: ${text}`);
     requireContract(finalized === 1, `Streaming finalized ${finalized} times`);
     await assertSendRaces();
+    await assertWorkspaceContextIsolation();
     console.log('TLO_CHAT_SURFACE_SMOKE_OK');
 }
 

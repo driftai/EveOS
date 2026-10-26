@@ -128,7 +128,7 @@ function createDexServerScheduler({
     current.prompt = protocol.buildRelayPrompt({
       room, member, recipient: member, sourceMessage: source,
       requestId: current.requestId, inboxMessageIds: current.inboxMessageIds || [],
-      providerHealth: healthApi.roomContext(room, getOnlineTargets() || []), capabilityPrompt: buildRelayCapabilityPrompt({ room, member, capabilityPrompt: capabilityApi.promptText(capabilityContext) })
+      providerHealth: healthApi.roomContext(room, getOnlineTargets() || []), capabilityPrompt: buildRelayCapabilityPrompt({ room, member, capabilityPrompt: capabilityApi.promptText(capabilityContext), capabilityIds: capabilityContext.packs.map((pack) => pack.id) })
     }); if (room.recovery) { room.recovery.expectedPrompt = current.prompt; save(snapshot); }
     if (member.binding?.targetClassId === 'local-origin') {
       const target = await localTarget(member);

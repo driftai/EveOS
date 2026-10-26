@@ -19,8 +19,9 @@ HARNESS_HOST = "127.0.0.1"
 HARNESS_PORT = eveos_ports.service_port("LOCAL_MOE_HARNESS_PORT")
 MAX_BODY_BYTES = 256 * 1024
 MAX_MESSAGE_CHARS = 16_000
-MAX_HISTORY_MESSAGES = 40
-MAX_HISTORY_CHARS = 32_000
+MAX_HISTORY_MESSAGES = 8
+MAX_HISTORY_CHARS = 16_000
+MAX_HISTORY_TOTAL_CHARS = 24_000
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{8,96}$")
 _ACTIVE_LOCK = threading.RLock()
 _SCHEMA_CACHE_LOCK = tlo_schema_cache.SCHEMA_CACHE_LOCK
@@ -100,10 +101,9 @@ def _history(value) -> list[dict]:
     for index, item in enumerate(value):
         if not isinstance(item, dict) or item.get("role") not in {"user", "assistant"}:
             raise TloChatError(f"history[{index}] has an invalid role")
-        normalized.append({
-            "role": item["role"],
-            "content": _clean_text(item.get("content"), f"history[{index}].content", MAX_HISTORY_CHARS, required=True),
-        })
+        normalized.append({"role": item["role"], "content": _clean_text(item.get("content"), f"history[{index}].content", MAX_HISTORY_CHARS, required=True)})
+    if sum(len(item["content"]) for item in normalized) > MAX_HISTORY_TOTAL_CHARS:
+        raise TloChatError(f"history must contain at most {MAX_HISTORY_TOTAL_CHARS} characters")
     return normalized
 
 

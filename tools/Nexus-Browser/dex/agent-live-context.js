@@ -36,12 +36,14 @@ function buildAgentLiveContext({ room, member } = {}) {
   ].join('\n');
 }
 
-function buildRelayCapabilityPrompt({ room, member, capabilityPrompt = '' } = {}) {
+function buildRelayCapabilityPrompt({ room, member, capabilityPrompt = '', capabilityIds = [] } = {}) {
   const liveContext = buildAgentLiveContext({ room, member });
   // TLO's streaming endpoint injects the same capability packs into its system
-  // prompt, so repeating them here can overflow the bounded relay envelope.
+  // prompt. Send only the authoritative selection, including an explicit empty
+  // selection so words in transport instructions cannot activate extra packs.
+  const ids = capabilityIds.filter((id) => /^[a-z0-9-]{1,48}$/.test(String(id)));
   return member?.binding?.providerId === 'tlo-chat'
-    ? liveContext
+    ? `${liveContext}\n\n[[EVEOS:CAPABILITIES ${ids.join(' ') || 'none'}]]`
     : [liveContext, capabilityPrompt].filter(Boolean).join('\n\n');
 }
 

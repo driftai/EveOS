@@ -21,10 +21,13 @@ def catalog():
 def _selected(message):
     selected = []
     explicit = _EXPLICIT.findall(message)
-    for match in explicit:
-        for raw in re.split(r"[\s,]+", match.strip().lower()):
-            if raw and raw not in _BY_ID: raise CapabilityContextError(f"Unknown registered capability: {raw}")
-            if raw and raw not in selected: selected.append(raw)
+    tokens = [raw for match in explicit for raw in re.split(r"[\s,]+", match.strip().lower()) if raw]
+    if "none" in tokens:
+        if len(tokens) != 1: raise CapabilityContextError("Capability selection cannot combine none with registered capabilities")
+        return []
+    for raw in tokens:
+        if raw not in _BY_ID: raise CapabilityContextError(f"Unknown registered capability: {raw}")
+        if raw not in selected: selected.append(raw)
     if not explicit:
         lowered = message.lower()
         for item in _PACKS:
