@@ -31,7 +31,6 @@ goto :local
 :local
 powershell -NoProfile -ExecutionPolicy Bypass -File "%BOOT_DIR%\set-exposure-state.ps1" -Service piano -Mode local >nul 2>nul
 echo Starting privately on http://127.0.0.1:8771
-start "" "http://127.0.0.1:8771"
 %PY% run.py --host 127.0.0.1 --port 8771
 if errorlevel 1 goto :fail
 exit /b 0
@@ -61,7 +60,7 @@ echo [ERROR] Piano origin did not become ready on port 8771.
 goto :fail
 
 :piano_ready
-powershell -NoProfile -ExecutionPolicy Bypass -File "%BOOT_DIR%\start-quick-tunnel.ps1" -Service piano -OriginPort 8771 -PublicPath "/" -OpenBrowser
+powershell -NoProfile -ExecutionPolicy Bypass -File "%BOOT_DIR%\start-quick-tunnel.ps1" -Service piano -OriginPort 8771 -PublicPath "/"
 exit /b %ERRORLEVEL%
 
 :fail

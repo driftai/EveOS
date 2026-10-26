@@ -340,12 +340,15 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, FileNotFoundError):
             return self._json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
         content_type = mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(body)
+        except (ConnectionError, OSError):
+            pass
 
     def log_message(self, fmt: str, *args) -> None:
         if self.command == "GET" and urlparse(self.path).path == "/api/status" and len(args) > 1 and str(args[1]) == "200":

@@ -47,6 +47,5 @@
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') signal('visible');
     });
-    window.addEventListener('focus', () => signal('focus'));
     window.addEventListener('online', () => signal('online'));
 })(window);
