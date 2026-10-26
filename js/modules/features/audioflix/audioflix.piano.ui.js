@@ -131,7 +131,7 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
     function afterRender(host) {
         root = host;
         const frame = root?.querySelector?.('[data-piano-frame]');
-        frame?.addEventListener('load', () => sendContext(frame), { once: true });
+        frame?.addEventListener('load', () => sendContext(frame));
         patch(host);
     }
 

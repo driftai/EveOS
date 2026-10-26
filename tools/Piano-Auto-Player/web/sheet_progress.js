@@ -270,16 +270,7 @@ function setup(textarea) {
   window.addEventListener("piano:sheet-progress-seek", event => { const index = Number(event.detail?.index || 0); if (index > 0) { currentIndex = index; queueRender(true); } });
   window.addEventListener("piano:sheet-rebuild", () => rebuild(textarea.dataset.timingProfile || "expressive", runtimeTotal, true));
 
-  const statusLoop = async () => {
-    try {
-      const response = await fetch("/api/status", { cache:"no-store" });
-      if (response.ok) applyStatus(await response.json());
-    } catch (_) {}
-    window.setTimeout(statusLoop, 500);
-  };
-
   rebuild();
-  statusLoop();
 }
 
 function boot() {

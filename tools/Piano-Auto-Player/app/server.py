@@ -348,6 +348,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, fmt: str, *args) -> None:
+        if self.command == "GET" and urlparse(self.path).path == "/api/status" and len(args) > 1 and str(args[1]) == "200":
+            return
         print(f"[PianoAutoPlayer] {self.address_string()} - {fmt % args}")
 
 

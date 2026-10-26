@@ -110,6 +110,7 @@ function queueStats() {
   clearTimeout(parseTimer);
   parseTimer = setTimeout(refreshStats, 180);
 }
+function statusPollDelay() { return document.hidden ? 2000 : ["countdown", "playing", "paused", "stopping"].includes(lastStatus.status) ? 300 : lastStatus.status === "error" ? 2500 : 1000; }
 function internalMode() { return els.internalPlay.checked; }
 async function internalTimeline(performance = null) {
   const payload = { ...playbackPayload(), countdown_seconds: 0 };
@@ -195,9 +196,8 @@ async function pollStatus() {
   } catch (_) {
     els.statusChip.dataset.state = "error";
     els.statusText.textContent = "Local server disconnected";
-  } finally { setTimeout(pollStatus, 300); }
+  } finally { setTimeout(pollStatus, statusPollDelay()); }
 }
-
 function currentSeekTotal() {
   const runtimeTotal = Number(lastStatus.total_events || 0);
   if (["countdown", "playing", "paused", "stopping"].includes(lastStatus.status) && runtimeTotal > 0) return runtimeTotal;
@@ -205,7 +205,6 @@ function currentSeekTotal() {
   if (activePerformance.length) return activePerformance.length;
   return Math.max(runtimeTotal, 0);
 }
-
 function renderSeekProgress(index, total) {
   const safeTotal = Math.max(Number(total) || 0, 0);
   const safeIndex = safeTotal ? Math.max(1, Math.min(Number(index) || 1, safeTotal)) : 0;
@@ -214,7 +213,6 @@ function renderSeekProgress(index, total) {
   els.progressText.textContent = `${safeIndex} / ${safeTotal} events`;
   els.seekTotal.textContent = `/ ${safeTotal}`;
 }
-
 function setSeekTarget(value, fromStatus = false, forcedTotal = 0) {
   const total = Math.max(Number(forcedTotal) || currentSeekTotal() || 0, 0);
   seekTarget = total ? Math.max(1, Math.min(Math.round(Number(value) || 1), total)) : 1;
@@ -225,7 +223,6 @@ function setSeekTarget(value, fromStatus = false, forcedTotal = 0) {
   renderSeekProgress(seekTarget, total);
   if (fromStatus) return;
 }
-
 async function applySeek(value) {
   const total = currentSeekTotal();
   if (!total) return;
@@ -244,13 +241,11 @@ async function applySeek(value) {
   } catch (error) { queuedSeekTarget = 0; toast(error.message, "error"); }
   finally { seekInFlight = false; seekSettlingUntil = Date.now() + 250; }
 }
-
 function nudgeSeek(delta) {
   const total = currentSeekTotal();
   setSeekTarget(seekTarget + Number(delta || 0), false, total);
   applySeek(seekTarget);
 }
-
 async function refreshWindows() {
   try {
     const current = els.window.value;
@@ -267,7 +262,6 @@ async function refreshWindows() {
     if (match) els.window.value = match.value;
   } catch (error) { toast(error.message, "error"); }
 }
-
 async function loadProviders() {
   try {
     const data = await api.providers();
@@ -281,11 +275,9 @@ async function loadProviders() {
     }
   } catch (_) {}
 }
-
 function selectedProviders() {
   return [...els.providerFilters.querySelectorAll("input:checked")].map(input => input.value);
 }
-
 async function searchSheets(event) {
   event?.preventDefault();
   const query = els.search.value.trim();
@@ -313,7 +305,6 @@ async function searchSheets(event) {
     }
   } catch (error) { els.searchMessage.textContent = error.message; }
 }
-
 function applyPlaybackOverrides(song) {
   const c = song?.identifiers?.custom || {};
   if (c.override_speed) els.globalSpeed.value = String(c.override_speed);
