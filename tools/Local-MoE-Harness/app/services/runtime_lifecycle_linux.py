@@ -523,10 +523,18 @@ class RuntimeLifecycle:
         if not result.get("started"):
             return result
 
+        # A non-blocking start request must return after the owned process is
+        # launched. The former busy-profile path waited 45 seconds first, then
+        # treated an actively loading large model as failed and launched it a
+        # second time. Callers that request readiness still retain the guarded
+        # graph-to-eager recovery below.
+        if not wait_until_ready:
+            return result
+
         startup_timeout = float(profile["startup_timeout"])
         if selected_profile == "busy" and graph > 0:
             graph_ok = await self._wait_for_startup_health(
-                record, min(45.0, startup_timeout)
+                record, startup_timeout
             )
             if graph_ok:
                 return {**self.local_status(), "started": True, "ready": True}
@@ -543,20 +551,6 @@ class RuntimeLifecycle:
             result = await self._start_process(record, environment)
             if not result.get("started"):
                 return result
-
-            if not wait_until_ready:
-                eager_ok = await self._wait_for_startup_health(
-                    record, min(45.0, startup_timeout)
-                )
-                return {
-                    **self.local_status(),
-                    "started": True,
-                    "ready": eager_ok,
-                    **({"error": self.last_error} if not eager_ok else {}),
-                }
-
-        if not wait_until_ready:
-            return result
 
         ready = await self._wait_for_startup_health(record, startup_timeout)
         return {

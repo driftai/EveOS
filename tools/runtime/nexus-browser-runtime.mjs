@@ -10,6 +10,7 @@ import {
 const command = String(process.argv[2] || 'help').toLowerCase();
 
 function printStatus(status = {}) {
+  status = status || {};
   console.log('NEXUS_BROWSER_RUNTIME_STATUS');
   console.log(`STATE ${status.state || 'unavailable'}`);
   console.log(`RUNNING ${status.running === true}`);

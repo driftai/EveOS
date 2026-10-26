@@ -39,7 +39,7 @@ export const SEARCH_MONITOR_SERVICES = Object.freeze({
     statusPath: '/api/nexus-browser/status',
     startPath: '/api/nexus-browser/start',
     stopPath: '/api/nexus-browser/stop',
-    port: PORTS.NEXUS_BROWSER_PORT,
+    port: PORTS.NEXUS_BROWSER_PORT, statusTimeoutMs: 15_000,
   },
   gemini: {
     key: 'gemini',
@@ -211,7 +211,7 @@ export async function configureHeadedServices(serviceNames) {
 export async function serviceStatus(name) {
   const service = SEARCH_MONITOR_SERVICES[name];
   if (!service) throw new Error(`Unknown Search Monitor service: ${name}`);
-  return (await safeJson(`${CONTROL_BASE}${service.statusPath}`, { timeoutMs: 6000 })).payload;
+  return (await safeJson(`${CONTROL_BASE}${service.statusPath}`, { timeoutMs: service.statusTimeoutMs || 6000 })).payload;
 }
 
 export async function directIdentity(name) {
@@ -407,7 +407,7 @@ export async function runtimeSnapshot(extra = {}) {
       identity: await directIdentity(name),
     };
   }
-  const localMoe = await safeJson(`http://127.0.0.1:${PORTS.LOCAL_MOE_HARNESS_PORT}/api/status`, { timeoutMs: 5000 });
+  const localMoe = await safeJson(`http://127.0.0.1:${PORTS.LOCAL_MOE_HARNESS_PORT}/api/runtime/status`, { timeoutMs: 5000 });
   const nexus = await safeJson(`http://127.0.0.1:${PORTS.NEXUS_BROWSER_PORT}/diagnostics`, { timeoutMs: 2500 });
   return {
     timestamp: new Date().toISOString(),

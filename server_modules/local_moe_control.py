@@ -297,7 +297,7 @@ def start_server(*, start_runtime: bool = True) -> dict:
         )
         _write_pid(_PROCESS.pid)
 
-    deadline = time.monotonic() + 5.0
+    deadline = time.monotonic() + 20.0
     health = _harness_health()
     while time.monotonic() < deadline and health is None and _PROCESS.poll() is None:
         time.sleep(0.15)

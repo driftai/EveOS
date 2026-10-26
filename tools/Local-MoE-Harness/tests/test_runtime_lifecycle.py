@@ -117,6 +117,37 @@ class RuntimeLifecycleTests(unittest.IsolatedAsyncioTestCase):
             name, _sample = await self.lifecycle._select_profile_name(record)
         self.assertEqual(name, "busy")
 
+    async def test_nonblocking_busy_start_returns_without_readiness_wait_or_retry(self):
+        record = self.registry.require("qwen36-nvfp4")
+        self.lifecycle._start_process = AsyncMock(
+            return_value={"started": True, "health_status": "starting"}
+        )
+        self.lifecycle._wait_for_startup_health = AsyncMock(return_value=False)
+        with patch.object(
+            self.registry, "require_selectable_installed", return_value=record
+        ):
+            result = await self.lifecycle.start_model(
+                record.id, wait_until_ready=False, profile_name="busy"
+            )
+        self.assertTrue(result["started"])
+        self.lifecycle._start_process.assert_awaited_once()
+        self.lifecycle._wait_for_startup_health.assert_not_awaited()
+
+    async def test_waiting_busy_start_uses_model_startup_budget(self):
+        record = self.registry.require("qwen36-nvfp4")
+        self.lifecycle._start_process = AsyncMock(
+            return_value={"started": True, "health_status": "starting"}
+        )
+        self.lifecycle._wait_for_startup_health = AsyncMock(return_value=True)
+        with patch.object(
+            self.registry, "require_selectable_installed", return_value=record
+        ):
+            result = await self.lifecycle.start_model(
+                record.id, wait_until_ready=True, profile_name="busy"
+            )
+        self.assertTrue(result["ready"])
+        self.lifecycle._wait_for_startup_health.assert_awaited_once_with(record, 240.0)
+
 
 class RuntimeStatusTests(unittest.IsolatedAsyncioTestCase):
     async def test_concurrent_status_reads_share_one_probe(self):

@@ -123,6 +123,40 @@ class FreeTokenAdapter(RuntimeAdapter):
 
         return result
 
+    async def lifecycle_status(self) -> dict:
+        """Probe only authoritative readiness for lifecycle/status callers."""
+        started = time.perf_counter()
+        health: dict = {}
+        error: str | None = None
+        timeout = httpx.Timeout(2.0, connect=1.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(f"{self.base_url}/health")
+                response.raise_for_status()
+                health = response.json()
+        except Exception as exc:
+            error = str(exc)
+
+        health_status = health.get("status")
+        result = {
+            "ready": health_status == "ok",
+            "reachable": bool(health),
+            "runtime": self.runtime_provider() if self.runtime_provider else "freetoken",
+            "base_url": self.base_url,
+            "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+            "health_status": health_status or ("unknown" if health else "offline"),
+            "models": [],
+        }
+        if health_status != "ok":
+            result["phase"] = health.get("phase", "unknown")
+            if "progress" in health:
+                result["progress"] = health["progress"]
+        if error:
+            result["health_error"] = error
+        if not health:
+            result["error"] = error or "Local model runtime is unreachable."
+        return result
+
     async def models(self) -> list[dict]:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(f"{self.base_url}/v1/models")

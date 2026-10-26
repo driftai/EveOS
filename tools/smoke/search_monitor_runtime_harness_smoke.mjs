@@ -35,6 +35,11 @@ for (const name of requiredServices) {
   requireCondition(/^\/api\//.test(SEARCH_MONITOR_SERVICES[name].startPath), `${name} start path is not control-plane backed`);
   requireCondition(/^\/api\//.test(SEARCH_MONITOR_SERVICES[name].stopPath), `${name} stop path is not control-plane backed`);
 }
+requireCondition(
+  SEARCH_MONITOR_SERVICES.nexusBrowser.statusTimeoutMs === 15_000
+    && !SEARCH_MONITOR_SERVICES.localMoe.statusTimeoutMs,
+  'slow Windows Nexus ownership checks no longer have an isolated status budget'
+);
 
 requireCondition(
   SEARCH_MONITOR_SERVICES.web.stopPath.includes('/api/eveos-server/stop-web'),

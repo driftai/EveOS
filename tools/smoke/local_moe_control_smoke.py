@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import sys
 import tempfile
@@ -48,6 +49,66 @@ def check_config_ports() -> None:
         settings = module.load_settings()
     require(settings["harness_port"] == 15180, "Harness ignored the EveOS port environment")
     require(settings["runtime_base_url"] == "http://127.0.0.1:11919", "Runtime ignored EveOS port environment")
+
+
+def check_runtime_status_endpoint_is_lightweight() -> None:
+    source = (ROOT / "tools" / "Local-MoE-Harness" / "app" / "services" / "runtime_status.py").read_text(
+        encoding="utf-8"
+    )
+    tree = ast.parse(source)
+    function = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "lightweight_runtime_status"
+        ),
+        None,
+    )
+    require(function is not None, "Harness is missing the lightweight runtime status endpoint")
+    calls = {
+        node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, (ast.Attribute, ast.Name))
+    }
+    require("system_snapshot" not in calls, "Runtime status still performs system storage scans")
+    require("public_models" not in calls, "Runtime status still scans every model location")
+    require("status" not in calls and "lifecycle_status" in calls,
+            "Runtime status still uses the full two-request adapter probe")
+
+
+def check_live_details_uses_lightweight_runtime_status() -> None:
+    calls = []
+
+    def fake_http(port, path, **kwargs):
+        calls.append((port, path, kwargs))
+        return {
+            "runtime": {"ready": False, "reachable": True, "health_status": "loading"},
+            "runtime_lifecycle": {
+                "managed_running": True,
+                "startup_stage": "loading_weights",
+                "last_error": None,
+            },
+            "active_model": {
+                "id": "qwen36-nvfp4",
+                "display_name": "Qwen",
+                "validation": "validated",
+            },
+            "settings": {
+                "active_model_id": "qwen36-nvfp4",
+                "active_profile_label": "Fast 8K",
+            },
+        }
+
+    details = local_moe_control.local_moe_runtime_bootstrap.live_details(fake_http, 5180)
+    require(calls == [(5180, "/api/runtime/status", {"timeout": 4.5})],
+            "Local Control still uses the heavyweight Harness status endpoint")
+    require(details["runtimeManagedRunning"] is True
+            and details["runtimeStartupStage"] == "loading_weights",
+            "Lightweight lifecycle status was not projected correctly")
+    require(details["activeModel"]["label"] == "Qwen",
+            "Lightweight active-model metadata was not projected correctly")
 
 
 def check_status_is_passive() -> None:
@@ -158,7 +219,7 @@ def check_start_passes_canonical_ports() -> None:
                 and launch["stderr"] == local_moe_control.subprocess.DEVNULL,
                 "Headless Local MoE did not suppress its terminal streams")
     runtime_start.assert_called_once_with(
-        local_moe_control.HARNESS_PORT, "/api/runtime/start", method="POST", timeout=8.0
+        local_moe_control.HARNESS_PORT, "/api/runtime/start", method="POST", timeout=30.0
     )
     require(result.get("runtimeStartAccepted") is True,
             "Explicit Local MoE start did not request the selected model runtime")
@@ -184,7 +245,7 @@ def check_online_harness_start_bootstraps_stopped_runtime() -> None:
         result = local_moe_control.start_server()
     popen.assert_not_called()
     runtime_start.assert_called_once_with(
-        local_moe_control.HARNESS_PORT, "/api/runtime/start", method="POST", timeout=8.0
+        local_moe_control.HARNESS_PORT, "/api/runtime/start", method="POST", timeout=30.0
     )
     require(result.get("runtimeStartAccepted") is True
             and result.get("runtimeManagedRunning") is True,
@@ -296,6 +357,8 @@ def check_control_plane_wiring() -> None:
 def main() -> None:
     checks = (
         check_config_ports,
+        check_runtime_status_endpoint_is_lightweight,
+        check_live_details_uses_lightweight_runtime_status,
         check_status_is_passive,
         check_healthy_status_skips_slow_windows_ownership_lookup,
         check_transient_health_miss_retains_verified_session,

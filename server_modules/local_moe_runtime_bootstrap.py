@@ -38,7 +38,11 @@ class StatusGraceCache:
 
 
 def live_details(http_json: Callable, harness_port: int) -> dict:
-    payload = http_json(harness_port, "/api/status", timeout=4.5) or {}
+    # The full Harness status includes storage metrics and availability checks for
+    # every registered model. Some model roots live behind WSL UNC paths, so that
+    # endpoint can take tens of seconds during a cold boot and block the Harness's
+    # single event loop. Lifecycle callers need only the lightweight runtime view.
+    payload = http_json(harness_port, "/api/runtime/status", timeout=4.5) or {}
     runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
     lifecycle = (
         payload.get("runtime_lifecycle")
@@ -47,13 +51,17 @@ def live_details(http_json: Callable, harness_port: int) -> dict:
     )
     settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
     active_id = str(settings.get("active_model_id") or "")
-    active_model = next(
-        (
-            item
-            for item in payload.get("model_registry") or []
-            if isinstance(item, dict) and item.get("id") == active_id
-        ),
-        {},
+    active_model = (
+        payload.get("active_model")
+        if isinstance(payload.get("active_model"), dict)
+        else next(
+            (
+                item
+                for item in payload.get("model_registry") or []
+                if isinstance(item, dict) and item.get("id") == active_id
+            ),
+            {},
+        )
     )
     return {
         "runtimeReady": runtime.get("ready") is True,
@@ -95,7 +103,7 @@ def start_runtime_for_explicit_request(
         harness_port,
         "/api/runtime/start",
         method="POST",
-        timeout=8.0,
+        timeout=30.0,
     )
     refreshed = refresh_status()
     if accepted is None:

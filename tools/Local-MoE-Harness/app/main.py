@@ -25,6 +25,7 @@ from .services.gpu_coexistence import GpuCoexistenceManager
 from .services.model_registry import ModelRegistry, ModelRegistryError
 from .services.model_switching import ModelSwitchCoordinator, ModelSwitchError
 from .services.runtime_lifecycle import RuntimeLifecycle
+from .services.runtime_status import full_runtime_status, lightweight_runtime_status
 from .services.system_metrics import system_snapshot
 
 settings = load_settings()
@@ -424,59 +425,25 @@ async def index():
 
 @app.get("/api/status")
 async def api_status():
-    runtime = await adapter.status()
-    lifecycle_status = runtime_lifecycle.local_status()
-    if runtime.get("ready") and model_switching.snapshot()["status"] != "switching":
-        lifecycle_status["startup_stage"] = "ready"
-    return {
-        "harness": "ready",
-        "runtime": runtime,
-        "runtime_lifecycle": lifecycle_status,
-        "system": system_snapshot(settings["model_root"]),
-        "gpu_coexistence": gpu_coexistence.snapshot(),
-        "model_switch": model_switching.snapshot(),
-        "model_registry": model_registry.public_models(
-            active_model_id=runtime_lifecycle.active_model_id
-        ),
-        "settings": {
-            "runtime": runtime_lifecycle.active_runtime_backend(),
-            "runtime_base_url": settings["runtime_base_url"],
-            "model_root": settings["model_root"],
-            "runtime_autostart": settings.get("runtime_autostart", True),
-            "default_reasoning_effort": runtime_lifecycle.active_record().data.get(
-                "default_reasoning_effort"
-            ),
-            "default_max_tokens": settings.get("default_max_tokens", 1024),
-            "conversation_kv_floor_tokens": context_capacity_tokens(),
-            "active_model_id": runtime_lifecycle.active_model_id,
-            "active_profile": runtime_lifecycle.active_profile_name or "normal",
-            "active_profile_label": runtime_lifecycle.active_profile().get("label"),
-            "max_prefill_length": runtime_lifecycle.active_profile().get(
-                "prefill_tokens"
-            ),
-            "prefill_hit_d2d": runtime_lifecycle.active_profile().get("d2d"),
-            "conversation_context_margin_tokens": settings.get(
-                "conversation_context_margin_tokens", 128
-            ),
-            "conversation_raw_history_max_messages": settings.get(
-                "conversation_raw_history_max_messages", 38
-            ),
-            "conversation_memory_max_items": settings.get(
-                "conversation_memory_max_items", 24
-            ),
-            "conversation_memory_max_chars": settings.get(
-                "conversation_memory_max_chars", 2200
-            ),
-            "gpu_coexistence_enabled": settings.get("gpu_coexistence_enabled", True),
-        },
-    }
+    return await full_runtime_status(
+        adapter, runtime_lifecycle, model_switching, gpu_coexistence,
+        model_registry, settings, system_snapshot, context_capacity_tokens,
+    )
+
+
+@app.get("/api/runtime/status")
+async def api_runtime_status():
+    """Return lifecycle state without model-root or system-storage scans."""
+    return await lightweight_runtime_status(
+        adapter, runtime_lifecycle, model_switching, gpu_coexistence
+    )
 
 
 @app.post("/api/runtime/start")
 async def api_runtime_start():
     lifecycle = await runtime_lifecycle.ensure_started()
     configure_gpu_for_active_model()
-    runtime = await adapter.status()
+    runtime = await adapter.lifecycle_status()
     return {
         "lifecycle": lifecycle,
         "runtime": runtime,

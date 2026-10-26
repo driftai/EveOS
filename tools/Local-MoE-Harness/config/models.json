@@ -20,9 +20,9 @@
       "notes": "Current validated default, general-purpose Qwen, and ultimate recovery model.",
       "default_reasoning_effort": "none",
       "profiles": {
-        "normal": {"label": "Balanced 12K", "kv_tokens": 12288, "prefill_tokens": 2048, "d2d": 1, "memory_ratio": 0.92, "graph": 1, "moe_slots": 569, "startup_timeout": 150, "request_timeout": 300},
-        "busy": {"label": "Fast 8K", "kv_tokens": 8192, "prefill_tokens": 2048, "d2d": 1, "memory_ratio": 0.92, "graph": 1, "moe_slots": 736, "startup_timeout": 150, "request_timeout": 1200},
-        "recovery": {"label": "Recovery 4K", "kv_tokens": 4096, "prefill_tokens": 1024, "d2d": 0, "memory_ratio": 0.90, "graph": 0, "moe_slots": 736, "startup_timeout": 150, "request_timeout": 1200}
+        "normal": {"label": "Balanced 12K", "kv_tokens": 12288, "prefill_tokens": 2048, "d2d": 1, "memory_ratio": 0.92, "graph": 1, "moe_slots": 569, "startup_timeout": 240, "request_timeout": 300},
+        "busy": {"label": "Fast 8K", "kv_tokens": 8192, "prefill_tokens": 2048, "d2d": 1, "memory_ratio": 0.92, "graph": 1, "moe_slots": 736, "startup_timeout": 240, "request_timeout": 1200},
+        "recovery": {"label": "Recovery 4K", "kv_tokens": 4096, "prefill_tokens": 1024, "d2d": 0, "memory_ratio": 0.90, "graph": 0, "moe_slots": 736, "startup_timeout": 240, "request_timeout": 1200}
       }
     },
     {
