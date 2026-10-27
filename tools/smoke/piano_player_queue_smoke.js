@@ -40,6 +40,8 @@ for (const token of [
   'getSongEntries',
   'piano:preserve-playback-scroll',
   'Library song did not finish loading before playback',
+  'waitForLibraryLoadButton',
+  'refreshLibraryBtn',
 ]) assert(queue.includes(token), `queue contract missing: ${token}`);
 
 for (const token of ['sheet-workspace-queue', 'player-queue-now', 'player-queue-item', '@media (max-width: 760px)']) {
@@ -47,6 +49,7 @@ for (const token of ['sheet-workspace-queue', 'player-queue-now', 'player-queue-
 }
 
 assert(queue.includes('if (!loaded) throw new Error'), 'queue must refuse playback when a requested library song never finishes loading');
+assert(queue.includes('const loadButton = await waitForLibraryLoadButton(song.id)') && queue.includes('document.getElementById("refreshLibraryBtn")?.click()'), 'queue must self-repair a temporarily missing library Load control through the canonical fresh refresh');
 assert(queue.includes('playButton.click();'), 'queue playback must enter through the same main Play control as manual playback');
 assert(queue.includes('pauseButton.click();'), 'Play Queue must resume the stopped current song through the proven Resume control');
 assert(queue.includes('emitUpdate();') && !queue.includes('list.append(empty); return;'), 'empty queue rendering must still notify every derived view');

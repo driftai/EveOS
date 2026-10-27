@@ -270,7 +270,8 @@ function buildHeader(planner) {
   });
   head.querySelector('[data-u-export]')?.addEventListener('click', () => proxyButton('exportLibraryBtn'));
   head.querySelector('[data-u-refresh]')?.addEventListener('click', () => {
-    proxyButton('refreshLibraryBtn');
+    setStatus('Reloading Piano workspace…', 'countdown');
+    window.location.reload();
   });
   now.querySelector('[data-u-view-player]')?.addEventListener('click', () => {
     document.querySelector('.progress-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'center' });

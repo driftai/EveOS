@@ -192,6 +192,19 @@ function installPlayerQueue() {
       return card ? [...card.querySelectorAll("button")].find(button => button.textContent.trim() === "Load") || null : null;
     }
 
+    async function waitForLibraryLoadButton(songId, timeout = 5000) {
+      let button = findLibraryLoadButton(songId);
+      if (button) return button;
+      document.getElementById("refreshLibraryBtn")?.click();
+      const deadline = Date.now() + timeout;
+      while (Date.now() < deadline) {
+        await wait(60);
+        button = findLibraryLoadButton(songId);
+        if (button) return button;
+      }
+      return null;
+    }
+
     function titleMatches(item) {
       const currentTitle = normalize(titleInput?.value);
       return currentTitle && currentTitle.startsWith(normalize(item.label.split(" — ")[0]));
@@ -207,8 +220,8 @@ function installPlayerQueue() {
       const song = songs.find(entry => String(entry.id) === String(item.songId));
       if (!song) throw new Error("That queued library song no longer exists.");
       syncLibraryCards(songs);
-      const loadButton = findLibraryLoadButton(song.id);
-      if (!loadButton || !playButton) throw new Error("Player controls are unavailable. Refresh My Songs and try again.");
+      const loadButton = await waitForLibraryLoadButton(song.id);
+      if (!loadButton || !playButton) throw new Error("Player controls remain unavailable after a fresh library repair. Reload Piano and try again.");
       window.dispatchEvent(new CustomEvent("piano:preserve-playback-scroll", { detail: { top: window.scrollY } }));
       suppressCancel = true;
       try {

@@ -117,6 +117,7 @@ assert(UNIFIED.includes("dataset.compatibilityBridge = 'player-queue'") && UNIFI
 assert(UNIFIED.includes('const queue = await waitForQueueApi();') && UNIFIED.includes('queue?.render?.();'), 'unified workspace must force a live queue render after controller readiness');
 assert(UNIFIED.includes('queue.toggleQueue?.()') && UNIFIED.includes('queue.previous?.()') && UNIFIED.includes('queue.next?.()'), 'unified transport must use the canonical queue toggle and history navigation');
 assert(UNIFIED.includes("saveCollapsed('library-browser', collapsed)"), 'library browser disclosure state must persist with the existing Piano disclosure store');
+assert(UNIFIED.includes("setStatus('Reloading Piano workspace…', 'countdown')") && UNIFIED.includes('window.location.reload();'), 'unified Refresh must reload the actual Piano runtime and its UI assets');
 assert(UNIFIED.includes("['.planner-pills', '.planner-filters', '.planner-actions', '.planner-grid']"), 'unified workspace must move the complete collapsed filter disclosure, not detach its controls');
 assert(UNIFIED_CSS.includes('grid-template-columns: minmax(0, 1fr) clamp(250px, 24vw, 360px)')
   && /width:\s*100%/.test(stackedControlsLayout) && /justify-self:\s*stretch/.test(stackedControlsLayout),
