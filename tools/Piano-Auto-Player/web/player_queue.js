@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import {
   MODES, TRANSITIONS, restoreQueueState, queueSnapshot, currentIndex, nextIndex, normalizeQueueState,
-  activateQueueId, activateNext, stepQueue, completeCurrent, removeQueueIds, removeSongIds,
+  activateQueueId, activateNext, activateRandomNext, stepQueue, completeCurrent, removeQueueIds, removeLatestSongIds,
   moveQueueId, shuffleRemaining as shuffleQueueRemainder, shuffleSelected, entryStatus, entriesForSong
 } from "./player_queue_state.js";
 
@@ -108,7 +108,7 @@ function installPlayerQueue() {
       transition.value = String(state.transitionMs);
       count.textContent = `${state.items.length} timeline item${state.items.length === 1 ? "" : "s"}`;
       current.textContent = currentAt >= 0 ? state.items[currentAt].label : "Nothing playing from queue";
-      next.textContent = nextAt < state.items.length ? state.items[nextAt].label : "Nothing next";
+      next.textContent = state.mode === "shuffle" && nextAt < state.items.length ? "Random unplayed song" : nextAt < state.items.length ? state.items[nextAt].label : "Nothing next";
       play.textContent = state.active ? "Stop queue" : "Play queue";
       play.dataset.action = state.active ? "stop" : "play";
       list.replaceChildren();
@@ -159,7 +159,7 @@ function installPlayerQueue() {
 
     function clearQueue() { state = restoreQueueState({ mode: state.mode, transitionMs: state.transitionMs }); render(); toast("Player Queue cleared.", "idle"); }
     function removeItem(queueId) { removeQueueIds(state, [queueId]); render(); }
-    function removeSongs(songIds) { const removed = removeSongIds(state, songIds); render(); return removed; }
+    function removeSongs(songIds) { const removed = removeLatestSongIds(state, songIds); render(); return removed; }
     function move(queueId, delta) { if (moveQueueId(state, queueId, delta)) render(); }
     function shuffleRemaining() { const changed = shuffleQueueRemainder(state); if (changed) render(); return changed; }
     function shuffleSelectedSongs(songIds) { const changed = shuffleSelected(state, songIds); if (changed) render(); return changed; }
@@ -202,6 +202,7 @@ function installPlayerQueue() {
       syncLibraryCards(songs);
       const loadButton = findLibraryLoadButton(song.id);
       if (!loadButton || !playButton) throw new Error("Player controls are unavailable. Refresh My Songs and try again.");
+      window.dispatchEvent(new CustomEvent("piano:preserve-playback-scroll", { detail: { top: window.scrollY } }));
       suppressCancel = true;
       try {
         loadButton.click(); await wait(80);
@@ -234,7 +235,7 @@ function installPlayerQueue() {
     async function playQueue() {
       if (busy || !state.items.length) { if (!state.items.length) toast("Player Queue is empty", "error"); return false; }
       if (!state.currentId && state.cursor >= state.items.length) state.cursor = 0;
-      const item = state.currentId ? state.items[currentIndex(state)] : activateNext(state);
+      const item = state.currentId ? state.items[currentIndex(state)] : state.mode === "shuffle" ? activateRandomNext(state) : activateNext(state);
       if (!item) return false;
       state.active = true;
       return playActivated(item, { resume: true });
@@ -259,7 +260,7 @@ function installPlayerQueue() {
 
     async function step(delta) {
       if (busy) return false;
-      const item = stepQueue(state, delta);
+      const item = state.mode === "shuffle" && delta > 0 ? activateRandomNext(state) : stepQueue(state, delta);
       if (!item) { toast(delta < 0 ? "No earlier queue song." : "End of Player Queue.", "idle"); return false; }
       return playActivated(item);
     }
@@ -271,8 +272,8 @@ function installPlayerQueue() {
       completeCurrent(state);
       if (state.cursor >= state.items.length) { state.active = false; render(); toast("Player Queue finished.", "complete"); return true; }
       if (state.mode === "manual") { state.active = false; render(); toast("Song finished — Player Queue is waiting for Play Queue.", "complete"); return false; }
-      if (state.mode === "shuffle") shuffleQueueRemainder(state);
-      const itemNext = activateNext(state); render(); await wait(state.transitionMs); return playActivated(itemNext);
+      const itemNext = state.mode === "shuffle" ? activateRandomNext(state) : activateNext(state);
+      render(); await wait(state.transitionMs); return playActivated(itemNext);
     }
 
     async function playSongNow(songId) {
@@ -313,6 +314,7 @@ function installPlayerQueue() {
     const publicApi = Object.freeze({
       addSong, addSongs, playQueue, toggleQueue, stopQueue, playAllLibrary, clearQueue, shuffleRemaining, advanceAfterComplete, render,
       previous: () => step(-1), next: () => step(1), shuffleSelected: shuffleSelectedSongs, removeSongs,
+      playQueueId: queueId => playNow(queueId),
       getState: () => queueSnapshot(state), getSongEntries: songId => entriesForSong(state, songId),
       hasSong: songId => entriesForSong(state, songId).length > 0,
       getSongPosition: songId => entriesForSong(state, songId).find(item => item.status !== "played")?.index ?? entriesForSong(state, songId)[0]?.index ?? -1,

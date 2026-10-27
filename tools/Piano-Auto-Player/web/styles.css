@@ -46,6 +46,8 @@ h2 { margin: 3px 0 0; font-size: 22px; }
 .status-chip[data-state="countdown"] .dot { background: var(--amber); box-shadow: 0 0 16px var(--amber); }
 .status-chip[data-state="error"] .dot { background: var(--red); box-shadow: 0 0 16px var(--red); }
 .status-chip[data-state="complete"] .dot { background: var(--blue); box-shadow: 0 0 16px var(--blue); }
+.piano-reattach { margin-left: auto; border-color: rgba(67,165,255,.55); color: #bfe3ff; background: rgba(24,83,132,.2); }
+.eveos-piano-detached .topbar { align-items: center; }
 .progress-wrap { margin-bottom: 14px; }
 .progress-track { height: 6px; border-radius: 99px; overflow: hidden; background: #0c0e10; border: 1px solid #22272c; }
 .progress-bar { width: 0; height: 100%; background: linear-gradient(90deg, var(--blue-2), var(--blue)); transition: width .18s linear; }
@@ -64,7 +66,7 @@ button.ghost { background: transparent; color: var(--muted); }
 button.small { padding: 7px 10px; border-radius: 9px; font-size: 12px; }
 .emergency { color: var(--muted); margin: 14px 0 0; font-size: 12px; }
 kbd { padding: 2px 6px; background: #090b0d; border: 1px solid #343a41; border-bottom-width: 2px; border-radius: 5px; color: var(--text); }
-.controls-panel { display: flex; flex-direction: column; gap: 17px; }
+.controls-panel { display: flex; flex-direction: column; gap: 13px; }
 .field { display: grid; gap: 9px; color: var(--muted); font-size: 12px; }
 .field span { display: flex; justify-content: space-between; }
 .field b { color: var(--text); font-weight: 650; }
@@ -73,7 +75,8 @@ kbd { padding: 2px 6px; background: #090b0d; border: 1px solid #343a41; border-b
 select, input[type="text"], input:not([type]) { color: var(--text); background: #0f1215; border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; outline: 0; }
 input[type="range"] { width: 100%; accent-color: var(--blue); }
 .check { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
-.check.wide { padding: 9px 0; }
+.check.wide { display: grid; grid-template-columns: 18px minmax(0, 1fr); justify-content: start; padding: 10px 12px; border: 1px solid rgba(83, 103, 121, .28); border-radius: 11px; background: rgba(10, 15, 20, .42); line-height: 1.35; }
+.check.wide input { width: 14px !important; height: 14px; margin: 0; align-self: center; justify-self: start; }
 .check input { accent-color: var(--blue); }
 .hint-card { background: #101419; border: 1px solid #27303a; border-radius: 14px; padding: 14px; margin-top: auto; }
 .hint-card strong { font-size: 13px; }
@@ -131,8 +134,14 @@ button.record:hover { border-color: #a84654; }
 
 /* v0.2.4 global speed presets */
 .speed-presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: -3px; }
-.speed-presets button { padding: 8px 6px; font-size: 11px; }
+.speed-presets button { min-width: 0; min-height: 34px; padding: 8px 5px; font-size: 11px; }
 .speed-presets button.active { border-color: var(--blue); color: #fff; background: rgba(49, 164, 255, .16); }
+
+/* Compact control cards keep detached and embedded Piano layouts readable at the same scale. */
+.controls-panel > .field { gap: 7px; padding: 10px 12px; border: 1px solid rgba(83, 103, 121, .24); border-radius: 11px; background: rgba(10, 15, 20, .34); }
+.controls-panel > .field > span { gap: 10px; align-items: baseline; }
+.controls-panel > .field input[type="range"] { height: 18px; margin: 0; }
+.controls-panel > .field small { margin-top: -1px; }
 
 
 /* v0.2.6 event seek transport */

@@ -221,7 +221,7 @@ function buildHeader(planner) {
   now.className = 'piano-now-playing';
   now.innerHTML = `
     <div class="piano-now-copy">
-      <span>NOW PLAYING</span>
+      <div class="piano-now-kicker"><span>NOW PLAYING</span><button type="button" class="ghost" data-u-view-player>View player</button></div>
       <strong data-u-current>Nothing playing</strong>
       <div class="piano-next-wrap" tabindex="0" aria-label="Show complete queue timeline">
         <small data-u-next>Queue is empty</small>
@@ -266,6 +266,9 @@ function buildHeader(planner) {
   head.querySelector('[data-u-refresh]')?.addEventListener('click', () => {
     proxyButton('refreshLibraryBtn');
   });
+  now.querySelector('[data-u-view-player]')?.addEventListener('click', () => {
+    document.querySelector('.progress-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
 
   const workspaceToggle = head.querySelector('[data-u-workspace-toggle]');
   if (workspaceToggle) {
@@ -308,8 +311,9 @@ function bindQueueStrip(planner) {
     const nextIndex = currentIndex >= 0 ? currentIndex + 1 : Math.min(Number(state.cursor) || 0, state.items.length);
     const activeItem = currentIndex >= 0 ? state.items[currentIndex] : null;
     const nextItem = state.items[nextIndex] || null;
+    const shuffleMode = state.mode === 'shuffle';
     current.textContent = activeItem ? labelForQueueItem(activeItem) : (state.items.length ? 'Ready to play' : 'Nothing playing');
-    next.textContent = nextItem ? `Next: ${labelForQueueItem(nextItem)}` : (state.items.length ? 'End of queue · hover for timeline' : 'Queue is empty');
+    next.textContent = shuffleMode && nextItem ? 'Next: Random · hover for possibilities' : nextItem ? `Next: ${labelForQueueItem(nextItem)}` : (state.items.length ? 'End of queue · hover for timeline' : 'Queue is empty');
     position.textContent = state.items.length ? `${currentIndex >= 0 ? currentIndex + 1 : Math.min(Number(state.cursor) || 0, state.items.length)} / ${state.items.length}` : '0 / 0';
     mode.value = ['manual', 'ordered', 'shuffle'].includes(state.mode) ? state.mode : 'ordered';
     if (transition) transition.value = String(state.transitionMs || 750);
@@ -321,14 +325,16 @@ function bindQueueStrip(planner) {
     if (preview) {
       preview.replaceChildren();
       state.items.forEach((item, itemIndex) => {
-        const row = document.createElement('div');
-        const status = itemIndex === currentIndex ? 'current' : itemIndex < (Number(state.cursor) || 0) ? 'played' : itemIndex === nextIndex ? 'next' : 'queued';
+        const row = document.createElement('button'); row.type = 'button';
+        const status = itemIndex === currentIndex ? 'current' : itemIndex < (Number(state.cursor) || 0) ? 'played' : shuffleMode ? 'candidate' : itemIndex === nextIndex ? 'next' : 'queued';
         row.className = `piano-queue-preview-row ${status}`;
         row.dataset.queuePreviewStatus = status;
         row.setAttribute('role', 'listitem');
         const number = document.createElement('span'); number.textContent = `#${itemIndex + 1}`;
         const label = document.createElement('strong'); label.textContent = labelForQueueItem(item);
-        const stateLabel = document.createElement('small'); stateLabel.textContent = status === 'current' ? 'NOW' : status === 'played' ? 'PLAYED' : status === 'next' ? 'NEXT' : 'UPCOMING';
+        const stateLabel = document.createElement('small'); stateLabel.textContent = status === 'current' ? 'NOW' : status === 'played' ? 'PLAYED' : status === 'next' ? 'NEXT' : status === 'candidate' ? 'POSSIBLE' : 'UPCOMING';
+        row.title = status === 'played' ? 'Go back to this song' : status === 'current' ? 'Resume this song' : 'Jump to this song';
+        row.addEventListener('click', () => void withQueue(live => live.playQueueId?.(item.queueId)));
         row.append(number, label, stateLabel); preview.append(row);
       });
     }
@@ -355,7 +361,10 @@ function bindQueueStrip(planner) {
   shuffle?.addEventListener('click', () => void withQueue(queue => queue.shuffleRemaining?.()));
   nextButton?.addEventListener('click', () => void withQueue(queue => queue.next?.()));
   clear?.addEventListener('click', () => void withQueue(queue => queue.clearQueue?.()));
-  const revealCurrent = () => preview?.querySelector('.current, .next')?.scrollIntoView({ block: 'center' });
+  const revealCurrent = () => {
+    const row = preview?.querySelector('.current, .next, .candidate');
+    if (row && preview) preview.scrollTop = Math.max(0, row.offsetTop - (preview.clientHeight - row.offsetHeight) / 2);
+  };
   planner.querySelector('.piano-next-wrap')?.addEventListener('pointerenter', revealCurrent);
   planner.querySelector('.piano-next-wrap')?.addEventListener('focus', revealCurrent);
   window.addEventListener('piano:queue-updated', render);

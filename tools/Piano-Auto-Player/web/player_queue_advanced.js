@@ -59,10 +59,10 @@ function htmlFor(host) {
       </div></details>
       <div class="planner-actions">
         <div class="planner-selection-head"><span data-p-selection>0 selected</span><small>Selections keep the order you click them.</small></div>
-        <div class="planner-selection-tools"><button type="button" data-p-select-all>Select visible</button><button type="button" class="ghost" data-p-clear-selection>Clear selection</button></div>
-        <div class="planner-action-pair"><button type="button" class="primary" data-p-add>Send to Queue</button><button type="button" data-p-remove>Remove from Queue</button></div>
-        <div class="planner-action-pair"><button type="button" data-p-replace>Replace Queue</button><button type="button" data-p-go-queue>Go to Queue</button></div>
-        <button type="button" data-p-play>Play selected</button><button type="button" data-p-shuffle>Shuffle Queue</button>
+        <div class="planner-action-block"><small>Selection</small><div class="planner-action-pair"><button type="button" data-p-select-all>Select visible</button><button type="button" class="ghost" data-p-clear-selection>Clear selection</button></div></div>
+        <div class="planner-action-block"><small>Queue membership</small><div class="planner-action-pair"><button type="button" class="primary" data-p-add>Send to Queue</button><button type="button" data-p-remove>Remove from Queue</button></div></div>
+        <div class="planner-action-block"><small>Queue set</small><div class="planner-action-pair"><button type="button" data-p-replace>Replace Queue</button><button type="button" data-p-go-queue>Go to Queue</button></div></div>
+        <div class="planner-action-block"><small>Playback &amp; order</small><div class="planner-action-pair"><button type="button" data-p-play>Play selected</button><button type="button" data-p-shuffle>Shuffle Queue</button></div></div>
       </div>
       <div class="planner-grid">
         <div class="planner-results"><div class="planner-list" data-p-list></div></div>
@@ -264,9 +264,12 @@ async function installPlanner() {
 
       const actions = document.createElement("div"); actions.className = "planner-song-actions";
       const playBtn = document.createElement("button"); playBtn.type = "button"; playBtn.textContent = "Play"; playBtn.addEventListener("click", () => void withQueue(live => live.hasSong(song.id) ? live.playSongNow(song.id) : sendToQueue([song], { replace: true, play: true })));
+      const queueActions = document.createElement("div"); queueActions.className = "planner-song-queue-actions";
       const qBtn = document.createElement("button"); qBtn.type = "button"; qBtn.textContent = "+ Queue"; qBtn.title = inQueue ? "Add another copy to the queue" : "Add to queue"; qBtn.addEventListener("click", () => void withQueue(live => live.addSongs([song], { announce: false })));
+      const qRemove = document.createElement("button"); qRemove.type = "button"; qRemove.textContent = "− Queue"; qRemove.disabled = !inQueue; qRemove.title = "Remove the most recently added copy"; qRemove.addEventListener("click", () => void withQueue(live => live.removeSongs?.([song.id])));
+      queueActions.append(qBtn, qRemove);
       const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => openEditor(song));
-      actions.append(playBtn, qBtn, edit);
+      actions.append(playBtn, queueActions, edit);
       row.append(checkbox, favBtn, copy, actions); els.list.append(row);
     });
   }

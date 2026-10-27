@@ -33,7 +33,9 @@ for (const token of [
   'clearQueue',
   'toggleQueue',
   'shuffleSelected',
+  'playQueueId',
   'getSongEntries',
+  'piano:preserve-playback-scroll',
   'Library song did not finish loading before playback',
 ]) assert(queue.includes(token), `queue contract missing: ${token}`);
 
@@ -74,7 +76,14 @@ async function verifyTimeline() {
 
   const duplicates = timeline.restoreQueueState({ items: [item('a1', 'a'), item('a2', 'a'), item('b1', 'b')] });
   assert(timeline.entriesForSong(duplicates, 'a').length === 2, 'one song must support multiple independent queue entries');
-  assert(timeline.removeSongIds(duplicates, ['a']) === 2 && duplicates.items.length === 1, 'Remove from Queue must remove all selected-song occurrences');
+  assert(timeline.removeLatestSongIds(duplicates, ['a']) === 1 && duplicates.items.map(entry => entry.queueId).join(',') === 'a1,b1', 'Remove from Queue must remove only the latest selected-song occurrence');
+  assert(timeline.removeLatestSongIds(duplicates, ['a']) === 1 && duplicates.items.length === 1, 'repeated removal must peel duplicate queue entries one at a time');
+
+  const random = timeline.restoreQueueState({ items: ['a', 'b', 'c', 'd'].map(id => item(id)), mode: 'shuffle' });
+  timeline.activateRandomNext(random, () => 0.99);
+  assert(random.currentId === 'd' && random.items.slice(1).every((_, index) => timeline.entryStatus(random, index + 1) === 'candidate'), 'Shuffle mode must randomly choose from every unplayed candidate without publishing a fixed next song');
+  timeline.completeCurrent(random); timeline.activateRandomNext(random, () => 0); timeline.stepQueue(random, -1); timeline.completeCurrent(random); timeline.activateRandomNext(random, () => 0);
+  assert(random.currentId === 'c' && timeline.entriesForSong(random, 'b')[0].status === 'candidate', 'going back in Shuffle must return the song left behind to the unplayed pool while avoiding an immediate replay');
 
   const selected = timeline.restoreQueueState({ items: ['a', 'b', 'c', 'd'].map(id => item(id)) });
   timeline.activateQueueId(selected, 'a', { discardSkipped: false });

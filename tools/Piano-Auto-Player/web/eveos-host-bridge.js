@@ -37,11 +37,25 @@
   try { context = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (_) {}
   window.addEventListener('message', accept);
   window.PianoEveOS = Object.freeze({ getContext: () => context ? { ...context } : null });
-  if (window.parent && window.parent !== window) {
-    window.parent.postMessage({ type: 'piano:eveos-ready' }, '*');
+  const eveHost = window.parent && window.parent !== window ? window.parent : window.opener;
+  eveHost?.postMessage?.({ type: 'piano:eveos-ready' }, '*');
+
+  function installReattachControl() {
+    const detached = new URL(window.location.href).searchParams.get('eveosDetached') === '1';
+    const topbar = document.querySelector('.topbar');
+    if (!detached || !window.opener || !topbar || document.getElementById('reattachEveOSBtn')) return;
+    document.documentElement.classList.add('eveos-piano-detached');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'reattachEveOSBtn';
+    button.className = 'ghost piano-reattach';
+    button.textContent = 'Reattach to EveOS';
+    button.addEventListener('click', () => window.opener?.postMessage?.({ type: 'piano:eveos-reattach-request' }, '*'));
+    topbar.append(button);
   }
 
   function loadWorkspaceModules() {
+    installReattachControl();
     import('./player_queue.js')
       .then(() => import('./player_queue_advanced.js'))
       .then(() => import('./piano_unified_workspace.js'))

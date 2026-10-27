@@ -79,12 +79,14 @@
   gap: 2px;
 }
 
-.piano-now-copy > span {
+.piano-now-kicker { display: flex; align-items: center; gap: 7px; }
+.piano-now-kicker > span {
   color: var(--accent, #51d8ff);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: .08em;
 }
+.piano-now-kicker button { min-height: 22px !important; padding: 4px 7px !important; color: #9fdff5; font-size: 7px !important; }
 
 .piano-now-copy strong {
   overflow: hidden;
@@ -115,12 +117,14 @@
 .piano-next-wrap:hover .piano-queue-preview,
 .piano-next-wrap:focus-within .piano-queue-preview { display: grid; }
 .piano-queue-preview:empty::before { content: 'Queue is empty'; padding: 8px; color: var(--muted, #94a6b5); font-size: 9px; text-align: center; }
-.piano-queue-preview-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 7px; align-items: center; padding: 7px 8px; border: 1px solid rgba(127, 221, 255, .08); border-radius: 8px; }
+.piano-queue-preview-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 7px; align-items: center; width: 100%; min-height: 0 !important; padding: 7px 8px !important; border: 1px solid rgba(127, 221, 255, .08); border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
 .piano-queue-preview-row span, .piano-queue-preview-row small { color: var(--muted, #94a6b5); font-size: 8px; }
 .piano-queue-preview-row strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.piano-queue-preview-row:hover, .piano-queue-preview-row:focus-visible { transform: none; border-color: rgba(127, 221, 255, .5); outline: none; }
 .piano-queue-preview-row.played { opacity: .62; }
 .piano-queue-preview-row.current { border-color: rgba(81, 216, 255, .72); background: rgba(81, 216, 255, .14); }
 .piano-queue-preview-row.next { border-color: rgba(92, 230, 176, .64); background: rgba(92, 230, 176, .12); }
+.piano-queue-preview-row.candidate { border-color: rgba(92, 230, 176, .22); background: rgba(92, 230, 176, .055); }
 
 .piano-now-settings label {
   display: flex;

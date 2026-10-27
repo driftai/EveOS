@@ -20,6 +20,7 @@
 .player-queue-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; align-items: center; min-width: 0; padding: 8px 9px; border: 1px solid #292c35; border-radius: 10px; background: #101318; }
 .player-queue-item[data-status="current"] { border-color: rgba(81,216,255,.72); background: rgba(81,216,255,.13); }
 .player-queue-item[data-status="next"] { border-color: rgba(92,230,176,.56); background: rgba(92,230,176,.1); }
+.player-queue-item[data-status="candidate"] { border-color: rgba(92,230,176,.2); background: rgba(92,230,176,.04); }
 .player-queue-item[data-status="played"] { opacity: .62; }
 .player-queue-item-copy { display: grid; gap: 2px; min-width: 0; }
 .player-queue-item-copy span { color: #9d8cbf; font-size: 8px; font-weight: 800; letter-spacing: .1em; }

@@ -12,6 +12,7 @@ function restoreQueueState(raw = {}) {
     items,
     cursor,
     currentId: currentIndex >= 0 ? items[currentIndex].queueId : null,
+    shuffleAvoidId: items.some(item => item.queueId === raw?.shuffleAvoidId) ? raw.shuffleAvoidId : null,
     active: currentIndex >= 0 && Boolean(raw?.active),
     mode: MODES.has(raw?.mode) ? raw.mode : "ordered",
     transitionMs: TRANSITIONS.has(Number(raw?.transitionMs)) ? Number(raw.transitionMs) : 750
@@ -50,11 +51,17 @@ function normalizeQueueState(state) {
 function activateQueueId(state, queueId, { discardSkipped = true } = {}) {
   let target = state.items.findIndex(item => item.queueId === queueId);
   if (target < 0) return null;
+  const previous = currentIndex(state);
   const start = nextIndex(state);
-  if (discardSkipped && target > start) {
+  if (state.mode === "shuffle" && target >= start) {
+    [state.items[start], state.items[target]] = [state.items[target], state.items[start]];
+    target = start;
+  } else if (discardSkipped && target > start) {
     state.items.splice(start, target - start);
     target = start;
   }
+  state.shuffleAvoidId = state.mode === "shuffle" && previous >= 0 && target < previous
+    ? state.items[previous]?.queueId || null : null;
   state.cursor = target;
   state.currentId = state.items[target].queueId;
   state.active = true;
@@ -66,8 +73,21 @@ function activateNext(state) {
   if (target < 0 || target >= state.items.length) return null;
   state.cursor = target;
   state.currentId = state.items[target].queueId;
+  state.shuffleAvoidId = null;
   state.active = true;
   return state.items[target];
+}
+
+function activateRandomNext(state, random = Math.random) {
+  const start = nextIndex(state);
+  if (start < 0 || start >= state.items.length) return null;
+  const all = state.items.map((_, index) => index).filter(index => index >= start);
+  const withoutAvoid = all.filter(index => state.items[index].queueId !== state.shuffleAvoidId);
+  const candidates = withoutAvoid.length ? withoutAvoid : all;
+  const pick = Math.min(candidates.length - 1, Math.floor(random() * candidates.length));
+  const target = candidates[Math.max(0, pick)];
+  [state.items[start], state.items[target]] = [state.items[target], state.items[start]];
+  return activateNext(state);
 }
 
 function stepQueue(state, delta) {
@@ -76,6 +96,8 @@ function stepQueue(state, delta) {
   if (target < 0 || target >= state.items.length) return null;
   state.cursor = target;
   state.currentId = state.items[target].queueId;
+  state.shuffleAvoidId = state.mode === "shuffle" && delta < 0 && current >= 0
+    ? state.items[current].queueId : null;
   state.active = true;
   return state.items[target];
 }
@@ -115,6 +137,16 @@ function removeSongIds(state, songIds) {
   const before = state.items.length;
   removeMatching(state, item => ids.has(songKey(item.songId)));
   return before - state.items.length;
+}
+
+function removeLatestSongIds(state, songIds) {
+  let removed = 0;
+  [...new Set((songIds || []).map(songKey))].forEach(id => {
+    const index = state.items.findLastIndex(item => songKey(item.songId) === id);
+    if (index < 0) return;
+    removed += removeQueueIds(state, [state.items[index].queueId]);
+  });
+  return removed;
 }
 
 function moveQueueId(state, queueId, delta) {
@@ -166,6 +198,7 @@ function entryStatus(state, index) {
   const current = currentIndex(state);
   if (index === current) return "current";
   if (index < boundedCursor(state)) return "played";
+  if (state.mode === "shuffle") return "candidate";
   if (index === nextIndex(state)) return "next";
   return "queued";
 }
@@ -178,5 +211,5 @@ function entriesForSong(state, songId) {
 export {
   MODES, TRANSITIONS, restoreQueueState, queueSnapshot, currentIndex, nextIndex, normalizeQueueState,
   activateQueueId, activateNext, stepQueue, completeCurrent, removeQueueIds, removeSongIds,
-  moveQueueId, shuffleRemaining, shuffleSelected, entryStatus, entriesForSong
+  activateRandomNext, removeLatestSongIds, moveQueueId, shuffleRemaining, shuffleSelected, entryStatus, entriesForSong
 };

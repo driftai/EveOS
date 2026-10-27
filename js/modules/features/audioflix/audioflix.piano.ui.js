@@ -181,8 +181,27 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         watchDetached();
         patch();
         renderDetachedMessage(target, 'Opening Piano-Auto-Player...');
-        target.location.replace(status.url || window.EveAudioflixPiano.serviceUrl());
+        const destination = new URL(status.url || window.EveAudioflixPiano.serviceUrl());
+        destination.searchParams.set('eveosDetached', '1');
+        target.location.replace(destination.toString());
         target.focus();
+    }
+
+    function reattach() {
+        const target = detachedWindow;
+        if (!target || target.closed) return false;
+        if (detachedTimer) clearInterval(detachedTimer);
+        detachedTimer = 0;
+        detachedWindow = null;
+        try { target.close(); } catch (_) {}
+        if (window.EveAudioflix) {
+            window.EveAudioflix.activeTab = 'piano';
+            window.EveAudioflix.open?.();
+            window.EveAudioflix.render?.();
+        }
+        patch();
+        setTimeout(() => root?.querySelector?.('[data-piano-frame]')?.focus(), 0);
+        return true;
     }
 
     async function handleAction(target) {
@@ -206,10 +225,14 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
     }
 
     window.addEventListener('message', (event) => {
+        if (event.data?.type === 'piano:eveos-reattach-request' && event.source === detachedWindow) {
+            reattach();
+            return;
+        }
         if (event.data?.type === 'piano:eveos-ready') {
             sendContext(root?.querySelector?.('[data-piano-frame]'));
         }
     });
     window.addEventListener('eve:audioflix-piano-status', () => patch());
-    Object.assign(ns, { ready: true, render, afterRender, setVisible, handleAction });
+    Object.assign(ns, { ready: true, render, afterRender, setVisible, handleAction, reattach });
 })(window.EveAudioflixPianoUi);

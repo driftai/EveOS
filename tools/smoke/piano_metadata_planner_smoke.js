@@ -53,6 +53,7 @@ for (const token of [
   "document.getElementById('importLibraryInput')", 'waitForQueueApi',
   'data-u-queue-preview', 'data-u-previous', 'data-u-next-button', 'Player Queue controller is unavailable'
 ]) assert(UNIFIED.includes(token), `unified Piano workspace contract missing: ${token}`);
+assert(UNIFIED.includes('data-u-view-player') && UNIFIED.includes('playQueueId') && UNIFIED.includes("status === 'candidate'"), 'Now Playing must navigate to the player and expose clickable ordered/shuffle timeline entries');
 
 for (const token of [
   '.piano-unified-workspace', '.piano-now-playing', '.piano-unified-head',

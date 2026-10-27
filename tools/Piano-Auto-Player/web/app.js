@@ -7,6 +7,7 @@ import { setupYoutubePiano } from "./youtube_piano.js";
 import { setupLibraryTransfer } from "./library_transfer.js";
 import { setupSheetWorkspace } from "./sheet_workspace.js";
 import { setupBulkConversion } from "./bulk_conversion.js";
+import { setupPlaybackScrollRestore } from "./playback_scroll_restore.js";
 const $ = (id) => document.getElementById(id);
 const els = {
   title: $("titleInput"), sheet: $("sheetInput"), stats: $("sheetStats"),
@@ -38,7 +39,7 @@ let lastStatus = { status: "idle", current_index: 0, total_events: 0 };
 let stoppedResumeEvent = 0;
 let playShouldRestart = false;
 const recorder = new PerformanceRecorder(updateRecordingUI);
-const internalPreview = new InternalPreviewPlayer(els.piano);
+const internalPreview = new InternalPreviewPlayer(els.piano), playbackScroll = setupPlaybackScrollRestore();
 const pianoControls = setupPianoControls({ layoutSelect: els.pianoLayout, soundSelect: els.pianoSound, soundStatus: els.pianoSoundStatus, visualMeta: els.pianoVisualMeta, piano: els.piano, recorder, preview: internalPreview });
 bindPhysicalPiano(recorder, els.piano, () => els.pianoLayout.value);
 const resultNode = (...args) => buildResultNode(els.template, ...args);
@@ -169,6 +170,7 @@ async function pollStatus() {
     const status = internalMode() ? internalPreview.status() : await api.status();
     const previousStatus = lastStatus.status;
     lastStatus = status;
+    playbackScroll.onStatus(status.status, previousStatus);
     window.dispatchEvent(new CustomEvent("piano:sheet-progress-status", { detail: { ...status, timing_profile: status.timing_profile || els.sheet.dataset.timingProfile || "expressive", sheet_total: sheetEventTotal } }));
     els.statusChip.dataset.state = status.status || "idle";
     els.statusText.textContent = status.message || "Ready";

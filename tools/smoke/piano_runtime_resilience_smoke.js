@@ -7,6 +7,8 @@ const clientPath = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'au
 const uiPath = path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.piano.ui.js');
 const appPath = path.join(ROOT, 'tools', 'Piano-Auto-Player', 'web', 'app.js');
 const progressPath = path.join(ROOT, 'tools', 'Piano-Auto-Player', 'web', 'sheet_progress.js');
+const scrollPath = path.join(ROOT, 'tools', 'Piano-Auto-Player', 'web', 'playback_scroll_restore.js');
+const bridgePath = path.join(ROOT, 'tools', 'Piano-Auto-Player', 'web', 'eveos-host-bridge.js');
 const serverPath = path.join(ROOT, 'tools', 'Piano-Auto-Player', 'app', 'server.py');
 const launcherPath = path.join(ROOT, 'tools', 'Piano-Auto-Player', 'start.bat');
 const resumePath = path.join(ROOT, 'js', 'modules', 'core', 'eveos-resume.js');
@@ -17,6 +19,8 @@ async function main() {
   const ui = fs.readFileSync(uiPath, 'utf8');
   const app = fs.readFileSync(appPath, 'utf8');
   const progress = fs.readFileSync(progressPath, 'utf8');
+  const scrollRestore = fs.readFileSync(scrollPath, 'utf8');
+  const bridge = fs.readFileSync(bridgePath, 'utf8');
   const server = fs.readFileSync(serverPath, 'utf8');
   const launcher = fs.readFileSync(launcherPath, 'utf8');
   const resume = fs.readFileSync(resumePath, 'utf8');
@@ -33,6 +37,9 @@ async function main() {
   assert((audioUi.match(/if \(!refreshMountedTool\(\)\) rerender\(\);/g) || []).length >= 2, 'Audioflix state refreshes must preserve mounted tool workspaces');
   assert(!launcher.includes('start "" "http://127.0.0.1:8771"'), 'localhost boot must not open a standalone Piano browser');
   assert(!launcher.includes('-OpenBrowser'), 'shared Piano boot must leave opening/detaching under explicit user control');
+  assert(app.includes('playbackScroll.onStatus(status.status, previousStatus)'), 'playback start must restore the pre-load viewport only after authoritative playing status');
+  assert(scrollRestore.includes('piano:preserve-playback-scroll') && scrollRestore.includes('status !== "playing"'), 'queue viewport restoration must be bounded to a real playing transition');
+  assert(bridge.includes('piano:eveos-reattach-request') && bridge.includes("eveosDetached") && ui.includes("event.source === detachedWindow"), 'detached Piano must offer an exact-window reattach path back into EveOS');
 
   const browser = await chromium.launch({ headless: true });
   try {
@@ -84,7 +91,7 @@ async function main() {
   } finally {
     await browser.close();
   }
-  console.log('PIANO_RUNTIME_RESILIENCE_SMOKE_OK tests=17');
+  console.log('PIANO_RUNTIME_RESILIENCE_SMOKE_OK tests=20');
 }
 
 function assert(condition, message) {
