@@ -161,7 +161,7 @@ async function stopPlayback() {
     const data = internalMode() ? internalPreview.stop() : await api.stop();
     stoppedResumeEvent = Number(data.resume_event || lastStatus.current_index || seekTarget || 0);
     playShouldRestart = true;
-    setSeekTarget(1, false, currentSeekTotal());
+    setSeekTarget(stoppedResumeEvent > 0 ? stoppedResumeEvent : 1, false, currentSeekTotal());
     els.pause.textContent = stoppedResumeEvent > 0 ? "▶ Resume" : "Ⅱ Pause";
   } catch (error) { toast(error.message, "error"); }
 }

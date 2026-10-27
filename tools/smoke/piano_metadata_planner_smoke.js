@@ -16,6 +16,7 @@ const CSS = fs.readFileSync(path.join(WEB, 'player_queue_advanced.css'), 'utf8')
 const BRIDGE = fs.readFileSync(path.join(WEB, 'eveos-host-bridge.js'), 'utf8');
 const UNIFIED = fs.readFileSync(path.join(WEB, 'piano_unified_workspace.js'), 'utf8');
 const UNIFIED_CSS = fs.readFileSync(path.join(WEB, 'piano_unified_workspace.css'), 'utf8');
+const SHEET_PROGRESS = fs.readFileSync(path.join(WEB, 'sheet_progress.js'), 'utf8');
 const QUEUE_PREVIEW = fs.readFileSync(path.join(WEB, 'piano_queue_preview.js'), 'utf8');
 const TRANSFER = fs.readFileSync(path.join(APP, 'library_transfer.py'), 'utf8');
 
@@ -73,10 +74,11 @@ for (const token of [
 
 assert(UNIFIED.includes("panel.closest('.hero-grid')?.classList.toggle('piano-controls-collapsed', collapsed)"),
   'Playback disclosure must own the hero-grid collapsed state');
-assert(UNIFIED_CSS.includes('.hero-grid.piano-controls-collapsed')
-  && UNIFIED_CSS.includes('grid-template-columns: minmax(0, 1fr) max-content')
-  && UNIFIED_CSS.includes('.controls-panel[data-u-collapsed="1"]'),
-  'collapsed Playback must reclaim the player grid width and avoid vertical stretching');
+const collapsedHeroRule = UNIFIED_CSS.match(/\.hero-grid\.piano-controls-collapsed\s*\{([^}]*)\}/)?.[1] || '';
+assert(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+(?:minmax\(|clamp\(|fit-content\(|auto\b|\d)/.test(collapsedHeroRule)
+  && !/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+max-content\s*;/.test(collapsedHeroRule)
+  && UNIFIED_CSS.includes('.hero-grid.piano-controls-collapsed > .controls-panel[data-u-collapsed="1"]'),
+  'collapsed Playback must give the player flexible width and retain a responsive Controls card');
 assert(UNIFIED.includes('const QUEUE_PREVIEW_CLOSE_MS = 550;')
   && UNIFIED.includes("nextWrap.addEventListener('pointerleave', schedulePreviewClose)")
   && UNIFIED.includes("nextWrap.addEventListener('pointerenter', () => { keepPreviewOpen(); revealCurrent(); })")
@@ -111,6 +113,13 @@ assert(UNIFIED.includes('const queue = await waitForQueueApi();') && UNIFIED.inc
 assert(UNIFIED.includes('queue.toggleQueue?.()') && UNIFIED.includes('queue.previous?.()') && UNIFIED.includes('queue.next?.()'), 'unified transport must use the canonical queue toggle and history navigation');
 assert(UNIFIED.includes("saveCollapsed('library-browser', collapsed)"), 'library browser disclosure state must persist with the existing Piano disclosure store');
 assert(UNIFIED.includes("['.planner-pills', '.planner-filters', '.planner-actions', '.planner-grid']"), 'unified workspace must move the complete collapsed filter disclosure, not detach its controls');
+assert(UNIFIED_CSS.includes('grid-template-columns: minmax(0, 1fr) clamp(250px, 24vw, 360px)')
+  && UNIFIED_CSS.includes('width: min(100%, clamp(250px, 30vw, 360px))'), 'collapsed Playback card must retain responsive usable width');
+assert(MAIN_APP.includes('setSeekTarget(stoppedResumeEvent > 0 ? stoppedResumeEvent : 1, false, currentSeekTotal())'),
+  'Stop must display the authoritative resume position instead of resetting to event one');
+assert(SHEET_PROGRESS.includes('status?.status === "idle" && Number(status?.resume_index || 0) > 0')
+  && SHEET_PROGRESS.includes('currentIndexFromStatus(status, currentIndex ||'),
+  'sheet event marker must persist during stopping and reflect idle resume position');
 assert(MAIN_APP.includes('els.play.addEventListener("click", startPlayback)') && MAIN_APP.includes('els.pause.addEventListener("click", togglePause)') && MAIN_APP.includes('els.stop.addEventListener("click", stopPlayback)'), 'core Play/Pause/Stop bindings must remain intact');
 assert(PLANNER.split(/\r?\n/).length < 450, 'advanced planner exceeds the 450-line first-party cap');
 assert(UNIFIED.split(/\r?\n/).length < 450, 'unified workspace adapter exceeds the 450-line first-party cap');

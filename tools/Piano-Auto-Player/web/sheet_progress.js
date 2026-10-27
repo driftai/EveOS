@@ -153,6 +153,7 @@ function currentIndexFromStatus(status, fallback = 0) {
   const current = Number(status?.current_index || 0);
   if (["playing", "countdown", "paused"].includes(status?.status) && current > 0) return current;
   if (status?.status === "complete") return 0;
+  if (status?.status === "idle" && Number(status?.resume_index || 0) > 0) return Number(status.resume_index);
   if (["idle", "stopped", "error"].includes(status?.status)) return 0;
   return Math.max(0, Number(fallback || 0));
 }
@@ -251,7 +252,7 @@ function setup(textarea) {
     const totalChanged = nextTotal > 0 && nextTotal !== ranges.length;
     if (profileChanged || totalChanged) rebuild(statusProfile, nextTotal, true);
     runtimeTotal = nextTotal || runtimeTotal;
-    currentIndex = currentIndexFromStatus(status, Number(textarea.dataset.seekFallback || 0));
+    currentIndex = currentIndexFromStatus(status, currentIndex || Number(textarea.dataset.seekFallback || 0));
     queueRender(currentIndex !== lastIndex && currentIndex > 0);
     if (status?.status === "complete") {
       requestAnimationFrame(() => {
