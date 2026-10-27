@@ -1,3 +1,5 @@
+import { renderQueuePreview } from './piano_queue_preview.js';
+
 const STYLE_ID = 'pianoUnifiedWorkspaceStyles';
 const LEGACY_QUEUE = '.sheet-workspace-queue';
 const LEGACY_LIBRARY = '.library-panel';
@@ -322,22 +324,13 @@ function bindQueueStrip(planner) {
     play.dataset.action = state.active ? 'stop' : 'play';
     if (previous) previous.disabled = (currentIndex >= 0 ? currentIndex : Number(state.cursor) || 0) <= 0;
     if (nextButton) nextButton.disabled = nextIndex >= state.items.length;
-    if (preview) {
-      preview.replaceChildren();
-      state.items.forEach((item, itemIndex) => {
-        const row = document.createElement('button'); row.type = 'button';
-        const status = itemIndex === currentIndex ? 'current' : itemIndex < (Number(state.cursor) || 0) ? 'played' : shuffleMode ? 'candidate' : itemIndex === nextIndex ? 'next' : 'queued';
-        row.className = `piano-queue-preview-row ${status}`;
-        row.dataset.queuePreviewStatus = status;
-        row.setAttribute('role', 'listitem');
-        const number = document.createElement('span'); number.textContent = `#${itemIndex + 1}`;
-        const label = document.createElement('strong'); label.textContent = labelForQueueItem(item);
-        const stateLabel = document.createElement('small'); stateLabel.textContent = status === 'current' ? 'NOW' : status === 'played' ? 'PLAYED' : status === 'next' ? 'NEXT' : status === 'candidate' ? 'POSSIBLE' : 'UPCOMING';
-        row.title = status === 'played' ? 'Go back to this song' : status === 'current' ? 'Resume this song' : 'Jump to this song';
-        row.addEventListener('click', () => void withQueue(live => live.playQueueId?.(item.queueId)));
-        row.append(number, label, stateLabel); preview.append(row);
-      });
-    }
+    if (preview) renderQueuePreview(preview, {
+      state, currentIndex, nextIndex, labelFor: labelForQueueItem,
+      onPlay: queueId => void withQueue(live => live.playQueueId?.(queueId)),
+      onMove: (queueId, targetId, after) => void withQueue(live => live.reorderQueueId?.(queueId, targetId, after)),
+      onDuplicate: queueId => void withQueue(live => live.duplicateQueueIdAfter?.(queueId)),
+      onRemove: queueId => void withQueue(live => live.removeQueueId?.(queueId))
+    });
   };
 
   const withQueue = async action => {

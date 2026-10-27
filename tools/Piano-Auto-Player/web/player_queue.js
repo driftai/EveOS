@@ -1,8 +1,8 @@
 import { api } from "./api.js";
 import {
   MODES, TRANSITIONS, restoreQueueState, queueSnapshot, currentIndex, nextIndex, normalizeQueueState,
-  activateQueueId, activateNext, activateRandomNext, stepQueue, completeCurrent, removeQueueIds, removeLatestSongIds,
-  moveQueueId, shuffleRemaining as shuffleQueueRemainder, shuffleSelected, entryStatus, entriesForSong
+  activateQueueId, activateNext, activateRandomNext, stepQueue, completeCurrent, removeQueueIds, removeSongIds, removeLatestSongIds,
+  moveQueueId, moveQueueIdTo, shuffleRemaining as shuffleQueueRemainder, shuffleSelected, entryStatus, entriesForSong
 } from "./player_queue_state.js";
 
 const STORAGE_KEY = "piano_player_queue_v1";
@@ -160,7 +160,14 @@ function installPlayerQueue() {
     function clearQueue() { state = restoreQueueState({ mode: state.mode, transitionMs: state.transitionMs }); render(); toast("Player Queue cleared.", "idle"); }
     function removeItem(queueId) { removeQueueIds(state, [queueId]); render(); }
     function removeSongs(songIds) { const removed = removeLatestSongIds(state, songIds); render(); return removed; }
+    function removeAllSongs(songIds) { const removed = removeSongIds(state, songIds); render(); return removed; }
     function move(queueId, delta) { if (moveQueueId(state, queueId, delta)) render(); }
+    function reorder(queueId, targetQueueId, after = false) { if (state.mode !== "manual") return false; const changed = moveQueueIdTo(state, queueId, targetQueueId, after); if (changed) render(); return changed; }
+    function duplicateAfter(queueId) {
+      if (state.mode !== "manual") return false;
+      const index = state.items.findIndex(item => item.queueId === queueId); if (index < 0) return false;
+      state.items.splice(index + 1, 0, { ...state.items[index], queueId: makeItem({ id: state.items[index].songId }).queueId }); render(); return true;
+    }
     function shuffleRemaining() { const changed = shuffleQueueRemainder(state); if (changed) render(); return changed; }
     function shuffleSelectedSongs(songIds) { const changed = shuffleSelected(state, songIds); if (changed) render(); return changed; }
 
@@ -313,8 +320,9 @@ function installPlayerQueue() {
 
     const publicApi = Object.freeze({
       addSong, addSongs, playQueue, toggleQueue, stopQueue, playAllLibrary, clearQueue, shuffleRemaining, advanceAfterComplete, render,
-      previous: () => step(-1), next: () => step(1), shuffleSelected: shuffleSelectedSongs, removeSongs,
+      previous: () => step(-1), next: () => step(1), shuffleSelected: shuffleSelectedSongs, removeSongs, removeAllSongs,
       playQueueId: queueId => playNow(queueId),
+      reorderQueueId: reorder, duplicateQueueIdAfter: duplicateAfter, removeQueueId: queueId => { const before = state.items.length; removeItem(queueId); return before - state.items.length; },
       getState: () => queueSnapshot(state), getSongEntries: songId => entriesForSong(state, songId),
       hasSong: songId => entriesForSong(state, songId).length > 0,
       getSongPosition: songId => entriesForSong(state, songId).find(item => item.status !== "played")?.index ?? entriesForSong(state, songId)[0]?.index ?? -1,

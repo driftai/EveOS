@@ -57,13 +57,15 @@ function htmlFor(host) {
           <option value="duration-short">Shortest first</option><option value="duration-long">Longest first</option><option value="events-low">Fewest events first</option><option value="events-high">Most events first</option>
         </select>
       </div></details>
-      <div class="planner-actions">
-        <div class="planner-selection-head"><span data-p-selection>0 selected</span><small>Selections keep the order you click them.</small></div>
+      <details class="planner-actions">
+        <summary class="planner-selection-head"><span data-p-selection>0 selected</span><small>Selections keep the order you click them.</small></summary>
+        <div class="planner-actions-body">
         <div class="planner-action-block"><small>Selection</small><div class="planner-action-pair"><button type="button" data-p-select-all>Select visible</button><button type="button" class="ghost" data-p-clear-selection>Clear selection</button></div></div>
-        <div class="planner-action-block"><small>Queue membership</small><div class="planner-action-pair"><button type="button" class="primary" data-p-add>Send to Queue</button><button type="button" data-p-remove>Remove from Queue</button></div></div>
+        <div class="planner-action-block"><small>Queue membership</small><div class="planner-action-pair planner-action-trio"><button type="button" class="primary" data-p-add>Send to Queue</button><button type="button" data-p-remove>Remove from Queue</button><button type="button" data-p-remove-all>Remove Entirely</button></div></div>
         <div class="planner-action-block"><small>Queue set</small><div class="planner-action-pair"><button type="button" data-p-replace>Replace Queue</button><button type="button" data-p-go-queue>Go to Queue</button></div></div>
         <div class="planner-action-block"><small>Playback &amp; order</small><div class="planner-action-pair"><button type="button" data-p-play>Play selected</button><button type="button" data-p-shuffle>Shuffle Queue</button></div></div>
-      </div>
+        </div>
+      </details>
       <div class="planner-grid">
         <div class="planner-results"><div class="planner-list" data-p-list></div></div>
         <aside class="planner-editor">
@@ -112,7 +114,9 @@ async function installPlanner() {
     ovSpeed: section.querySelector("[data-p-ov-speed]"), ovInterval: section.querySelector("[data-p-ov-interval]"), ovHold: section.querySelector("[data-p-ov-hold]"), ovGate: section.querySelector("[data-p-ov-gate]"),
     queueStatus: section.querySelector("[data-p-queue-status]"), qPlay: section.querySelector("[data-p-q-play]"), qToggle: section.querySelector("[data-p-q-toggle]"), qUp: section.querySelector("[data-p-q-up]"), qDown: section.querySelector("[data-p-q-down]")
   };
-  const state = { songs: [], prefs: safePrefs(), selected: new Set(), editingId: "" };
+  const state = { songs: [], prefs: safePrefs(), selected: new Set(), editingId: "", lastPill: "all" };
+  state.lastPill = state.prefs.pill === "queued" ? "all" : state.prefs.pill;
+  const goQueue = section.querySelector("[data-p-go-queue]"), playSelected = section.querySelector("[data-p-play]");
   const favoritePending = new Set();
   let busy = false;
 
@@ -131,6 +135,11 @@ async function installPlanner() {
   function syncPrefsToControls() {
     Object.entries(state.prefs).forEach(([key, value]) => { if (els[key]) els[key].value = value; });
     section.querySelectorAll("[data-pill]").forEach(btn => btn.classList.toggle("active", btn.dataset.pill === state.prefs.pill));
+  }
+  function syncActionLabels() {
+    if (goQueue) goQueue.textContent = state.prefs.pill === "queued" ? "Go back" : "Go to Queue";
+    const active = !!window.PianoPlayerQueue?.getState?.().active;
+    if (playSelected) { playSelected.textContent = active ? "Stop playback" : "Play selected"; playSelected.dataset.action = active ? "stop" : "play"; }
   }
   function savePrefs() {
     state.prefs = { ...state.prefs, ...Object.fromEntries(Object.keys(state.prefs).filter(k => els[k]).map(key => [key, els[key]?.value || ""])) };
@@ -231,7 +240,7 @@ async function installPlanner() {
   function renderResults() {
     const queue = window.PianoPlayerQueue;
     const visible = filteredSongs(state.songs, state.prefs);
-    els.count.textContent = `${visible.length} matches`; els.selection.textContent = `${state.selected.size} selected`; els.list.replaceChildren();
+    els.count.textContent = `${visible.length} matches`; els.selection.textContent = `${state.selected.size} selected`; els.list.replaceChildren(); syncActionLabels();
     if (!visible.length) { const empty = document.createElement("div"); empty.className = "planner-empty"; empty.textContent = "No songs match the current plan."; els.list.append(empty); return; }
     visible.forEach(song => {
       const row = document.createElement("article"); row.className = "planner-song";
@@ -304,6 +313,14 @@ async function installPlanner() {
     state.selected.clear(); renderResults(); toast(`${removed} queue entr${removed === 1 ? "y" : "ies"} removed.`, "complete");
   }
 
+  async function removeAllSelected() {
+    const ids = [...state.selected];
+    if (!ids.length) return toast("Select queued songs to remove entirely.", "error");
+    const removed = await withQueue(queue => queue.removeAllSongs?.(ids) || 0);
+    if (!removed) return toast("None of the selected songs are in the queue.", "error");
+    state.selected.clear(); renderResults(); toast(`${removed} queue entr${removed === 1 ? "y" : "ies"} removed entirely.`, "complete");
+  }
+
   async function shuffleSelectedQueue() {
     const ids = [...state.selected];
     if (!ids.length) return toast("Select queued songs to reposition.", "error");
@@ -313,9 +330,18 @@ async function installPlanner() {
   }
 
   function setPill(value) {
+    if (value === "queued" && state.prefs.pill !== "queued") state.lastPill = state.prefs.pill;
+    else if (value !== "queued") state.lastPill = value;
     state.prefs.pill = value;
     section.querySelectorAll("[data-pill]").forEach(button => button.classList.toggle("active", button.dataset.pill === value));
     persistPrefs(state.prefs); renderResults();
+  }
+
+  async function toggleSelectedPlayback() {
+    const queue = await waitForQueueApi();
+    if (!queue) return toast("Player Queue controller is unavailable. Reload the Piano workspace and try again.", "error");
+    if (queue.getState?.().active) { queue.stopQueue?.(); syncActionLabels(); return; }
+    await sendToQueue(selectedSongs(), { replace: true, play: true });
   }
 
   async function saveEditor() {
@@ -344,9 +370,10 @@ async function installPlanner() {
     section.querySelector("[data-p-clear-selection]").addEventListener("click", () => { state.selected.clear(); renderResults(); });
     section.querySelector("[data-p-add]").addEventListener("click", () => void sendToQueue(selectedSongs()));
     section.querySelector("[data-p-remove]").addEventListener("click", () => void removeSelected());
+    section.querySelector("[data-p-remove-all]").addEventListener("click", () => void removeAllSelected());
     section.querySelector("[data-p-replace]").addEventListener("click", () => void sendToQueue(selectedSongs(), { replace: true }));
-    section.querySelector("[data-p-go-queue]").addEventListener("click", () => setPill("queued"));
-    section.querySelector("[data-p-play]").addEventListener("click", () => void sendToQueue(selectedSongs(), { replace: true, play: true }));
+    goQueue.addEventListener("click", () => setPill(state.prefs.pill === "queued" ? state.lastPill || "all" : "queued"));
+    playSelected.addEventListener("click", () => void toggleSelectedPlayback());
     section.querySelector("[data-p-shuffle]").addEventListener("click", () => void shuffleSelectedQueue());
     els.saveMeta.addEventListener("click", () => void saveEditor());
     els.qPlay?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s) void withQueue(queue => queue.hasSong(s.id) ? queue.playSongNow(s.id) : sendToQueue([s], { replace: true, play: true })); });

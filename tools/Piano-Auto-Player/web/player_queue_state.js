@@ -159,6 +159,18 @@ function moveQueueId(state, queueId, delta) {
   return true;
 }
 
+function moveQueueIdTo(state, queueId, targetQueueId, after = false) {
+  const source = state.items.findIndex(item => item.queueId === queueId);
+  let target = state.items.findIndex(item => item.queueId === targetQueueId);
+  if (source < 0 || target < 0 || source === target) return false;
+  const [item] = state.items.splice(source, 1);
+  if (source < target) target -= 1;
+  if (after) target += 1;
+  state.items.splice(Math.max(0, Math.min(target, state.items.length)), 0, item);
+  normalizeQueueState(state);
+  return true;
+}
+
 function shuffleRange(items, start, random = Math.random) {
   for (let index = items.length - 1; index > start; index -= 1) {
     const target = start + Math.floor(random() * (index - start + 1));
@@ -211,5 +223,5 @@ function entriesForSong(state, songId) {
 export {
   MODES, TRANSITIONS, restoreQueueState, queueSnapshot, currentIndex, nextIndex, normalizeQueueState,
   activateQueueId, activateNext, stepQueue, completeCurrent, removeQueueIds, removeSongIds,
-  activateRandomNext, removeLatestSongIds, moveQueueId, shuffleRemaining, shuffleSelected, entryStatus, entriesForSong
+  activateRandomNext, removeLatestSongIds, moveQueueId, moveQueueIdTo, shuffleRemaining, shuffleSelected, entryStatus, entriesForSong
 };

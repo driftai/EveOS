@@ -34,6 +34,9 @@ for (const token of [
   'toggleQueue',
   'shuffleSelected',
   'playQueueId',
+  'removeAllSongs',
+  'reorderQueueId',
+  'duplicateQueueIdAfter',
   'getSongEntries',
   'piano:preserve-playback-scroll',
   'Library song did not finish loading before playback',
@@ -78,6 +81,13 @@ async function verifyTimeline() {
   assert(timeline.entriesForSong(duplicates, 'a').length === 2, 'one song must support multiple independent queue entries');
   assert(timeline.removeLatestSongIds(duplicates, ['a']) === 1 && duplicates.items.map(entry => entry.queueId).join(',') === 'a1,b1', 'Remove from Queue must remove only the latest selected-song occurrence');
   assert(timeline.removeLatestSongIds(duplicates, ['a']) === 1 && duplicates.items.length === 1, 'repeated removal must peel duplicate queue entries one at a time');
+
+  const removeAll = timeline.restoreQueueState({ items: [item('a1', 'a'), item('a2', 'a'), item('b1', 'b')] });
+  assert(timeline.removeSongIds(removeAll, ['a']) === 2 && removeAll.items.map(entry => entry.queueId).join(',') === 'b1', 'Remove Entirely must clear every occurrence of each selected song');
+
+  const reordered = timeline.restoreQueueState({ items: ['a', 'b', 'c', 'd'].map(id => item(id)), mode: 'manual' });
+  assert(timeline.moveQueueIdTo(reordered, 'd', 'b', false) && reordered.items.map(entry => entry.queueId).join(',') === 'a,d,b,c', 'manual drag ordering must persist an exact before-target move');
+  assert(timeline.moveQueueIdTo(reordered, 'a', 'c', true) && reordered.items.map(entry => entry.queueId).join(',') === 'd,b,c,a', 'manual drag ordering must persist an exact after-target move');
 
   const random = timeline.restoreQueueState({ items: ['a', 'b', 'c', 'd'].map(id => item(id)), mode: 'shuffle' });
   timeline.activateRandomNext(random, () => 0.99);

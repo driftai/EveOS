@@ -16,6 +16,7 @@ const CSS = fs.readFileSync(path.join(WEB, 'player_queue_advanced.css'), 'utf8')
 const BRIDGE = fs.readFileSync(path.join(WEB, 'eveos-host-bridge.js'), 'utf8');
 const UNIFIED = fs.readFileSync(path.join(WEB, 'piano_unified_workspace.js'), 'utf8');
 const UNIFIED_CSS = fs.readFileSync(path.join(WEB, 'piano_unified_workspace.css'), 'utf8');
+const QUEUE_PREVIEW = fs.readFileSync(path.join(WEB, 'piano_queue_preview.js'), 'utf8');
 const TRANSFER = fs.readFileSync(path.join(APP, 'library_transfer.py'), 'utf8');
 
 for (const token of [
@@ -25,7 +26,7 @@ for (const token of [
 ]) assert(LIBRARY.includes(token), `library metadata contract missing: ${token}`);
 
 for (const token of [
-  'Send to Queue', 'Remove from Queue', 'Replace Queue', 'Go to Queue', 'Play selected', 'Shuffle Queue',
+  'Send to Queue', 'Remove from Queue', 'Remove Entirely', 'Replace Queue', 'Go to Queue', 'Go back', 'Play selected', 'Stop playback', 'Shuffle Queue',
   'Save identifiers', 'automatic_identifiers', 'personal_rating', 'conversion_rating',
   'Required tag', 'Min events', 'Max events', 'Custom identifiers',
   'api.updateSongIdentifiers', 'PianoPlayerQueue', 'addSongs', 'document.createTextNode',
@@ -33,6 +34,8 @@ for (const token of [
 ]) assert(PLANNER.includes(token), `planner contract missing: ${token}`);
 assert(PLANNER_STATE.includes('piano_player_planner_v1') && PLANNER_STATE.includes('filteredSongs'), 'planner preference and filtering owner must remain durable');
 assert(!PLANNER.includes('<details class="planner-filters" open'), 'advanced filters must default collapsed');
+assert(PLANNER.includes('<details class="planner-actions">') && !PLANNER.includes('<details class="planner-actions" open'), 'selection and queue actions must default collapsed');
+assert(PLANNER.includes('removeAllSongs') && PLANNER.includes('state.lastPill'), 'planner must expose complete queue removal and reversible queue-tab navigation');
 
 for (const token of ['sheet-workspace-planner', 'planner-filters[open]', 'planner-filterbar', 'planner-grid', 'planner-editor', '@media (max-width: 760px)']) {
   assert(CSS.includes(token), `planner CSS contract missing: ${token}`);
@@ -53,7 +56,8 @@ for (const token of [
   "document.getElementById('importLibraryInput')", 'waitForQueueApi',
   'data-u-queue-preview', 'data-u-previous', 'data-u-next-button', 'Player Queue controller is unavailable'
 ]) assert(UNIFIED.includes(token), `unified Piano workspace contract missing: ${token}`);
-assert(UNIFIED.includes('data-u-view-player') && UNIFIED.includes('playQueueId') && UNIFIED.includes("status === 'candidate'"), 'Now Playing must navigate to the player and expose clickable ordered/shuffle timeline entries');
+assert(UNIFIED.includes('data-u-view-player') && UNIFIED.includes('playQueueId') && QUEUE_PREVIEW.includes("status === 'candidate'"), 'Now Playing must navigate to the player and expose clickable ordered/shuffle timeline entries');
+for (const token of ['draggable = true', 'onMove(source, item.queueId, after)', 'onDuplicate(item.queueId)', 'onRemove(item.queueId)']) assert(QUEUE_PREVIEW.includes(token), `manual queue preview contract missing: ${token}`);
 
 for (const token of [
   '.piano-unified-workspace', '.piano-now-playing', '.piano-unified-head',
