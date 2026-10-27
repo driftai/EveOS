@@ -301,7 +301,8 @@
 @media (max-width: 1180px) {
   .hero-grid.piano-controls-collapsed { grid-template-columns: minmax(0, 1fr); }
   .hero-grid.piano-controls-collapsed > .controls-panel[data-u-collapsed="1"] {
-    width: min(100%, clamp(250px, 30vw, 360px));
+    width: 100%;
+    justify-self: stretch;
   }
 }
 

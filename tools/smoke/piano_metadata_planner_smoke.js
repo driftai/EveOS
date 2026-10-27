@@ -79,6 +79,11 @@ assert(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+(?:minmax\(|clamp\(|fit-co
   && !/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+max-content\s*;/.test(collapsedHeroRule)
   && UNIFIED_CSS.includes('.hero-grid.piano-controls-collapsed > .controls-panel[data-u-collapsed="1"]'),
   'collapsed Playback must give the player flexible width and retain a responsive Controls card');
+const stackedControlsLayout = UNIFIED_CSS.split('@media (max-width: 1180px) {')[1]?.split('@media (max-width: 900px) {')[0] || '';
+assert(/grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(stackedControlsLayout)
+  && /width:\s*100%/.test(stackedControlsLayout)
+  && /justify-self:\s*stretch/.test(stackedControlsLayout),
+  'stacked collapsed Playback must fill its column and retain compact height');
 assert(UNIFIED.includes('const QUEUE_PREVIEW_CLOSE_MS = 550;')
   && UNIFIED.includes("nextWrap.addEventListener('pointerleave', schedulePreviewClose)")
   && UNIFIED.includes("nextWrap.addEventListener('pointerenter', () => { keepPreviewOpen(); revealCurrent(); })")
@@ -114,7 +119,8 @@ assert(UNIFIED.includes('queue.toggleQueue?.()') && UNIFIED.includes('queue.prev
 assert(UNIFIED.includes("saveCollapsed('library-browser', collapsed)"), 'library browser disclosure state must persist with the existing Piano disclosure store');
 assert(UNIFIED.includes("['.planner-pills', '.planner-filters', '.planner-actions', '.planner-grid']"), 'unified workspace must move the complete collapsed filter disclosure, not detach its controls');
 assert(UNIFIED_CSS.includes('grid-template-columns: minmax(0, 1fr) clamp(250px, 24vw, 360px)')
-  && UNIFIED_CSS.includes('width: min(100%, clamp(250px, 30vw, 360px))'), 'collapsed Playback card must retain responsive usable width');
+  && /width:\s*100%/.test(stackedControlsLayout) && /justify-self:\s*stretch/.test(stackedControlsLayout),
+  'collapsed Playback must retain responsive wide layout and full-width stacked layout');
 assert(MAIN_APP.includes('setSeekTarget(stoppedResumeEvent > 0 ? stoppedResumeEvent : 1, false, currentSeekTotal())'),
   'Stop must display the authoritative resume position instead of resetting to event one');
 assert(SHEET_PROGRESS.includes('status?.status === "idle" && Number(status?.resume_index || 0) > 0')
