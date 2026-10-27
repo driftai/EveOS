@@ -11,6 +11,7 @@ const API = fs.readFileSync(path.join(WEB, 'api.js'), 'utf8');
 const MAIN_APP = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
 const QUEUE = fs.readFileSync(path.join(WEB, 'player_queue.js'), 'utf8');
 const PLANNER = fs.readFileSync(path.join(WEB, 'player_queue_advanced.js'), 'utf8');
+const PLANNER_STATE = fs.readFileSync(path.join(WEB, 'player_queue_planner_state.js'), 'utf8');
 const CSS = fs.readFileSync(path.join(WEB, 'player_queue_advanced.css'), 'utf8');
 const BRIDGE = fs.readFileSync(path.join(WEB, 'eveos-host-bridge.js'), 'utf8');
 const UNIFIED = fs.readFileSync(path.join(WEB, 'piano_unified_workspace.js'), 'utf8');
@@ -24,12 +25,13 @@ for (const token of [
 ]) assert(LIBRARY.includes(token), `library metadata contract missing: ${token}`);
 
 for (const token of [
-  'Send to Queue', 'Replace Queue', 'Play selected', 'Shuffle selected',
+  'Send to Queue', 'Remove from Queue', 'Replace Queue', 'Go to Queue', 'Play selected', 'Shuffle Queue',
   'Save identifiers', 'automatic_identifiers', 'personal_rating', 'conversion_rating',
-  'Required tag', 'Min events', 'Max events', 'Custom identifiers', 'piano_player_planner_v1',
+  'Required tag', 'Min events', 'Max events', 'Custom identifiers',
   'api.updateSongIdentifiers', 'PianoPlayerQueue', 'addSongs', 'document.createTextNode',
   'async function withQueue(action)', '<details class="planner-filters">', 'FILTERS &amp; SORTING'
 ]) assert(PLANNER.includes(token), `planner contract missing: ${token}`);
+assert(PLANNER_STATE.includes('piano_player_planner_v1') && PLANNER_STATE.includes('filteredSongs'), 'planner preference and filtering owner must remain durable');
 assert(!PLANNER.includes('<details class="planner-filters" open'), 'advanced filters must default collapsed');
 
 for (const token of ['sheet-workspace-planner', 'planner-filters[open]', 'planner-filterbar', 'planner-grid', 'planner-editor', '@media (max-width: 760px)']) {
@@ -49,7 +51,7 @@ for (const token of [
   "enhancePanelDisclosure('.notation-panel', 'compatibility', true)",
   "savedCollapsed('song-details', true)", "savedCollapsed('my-songs', false)",
   "document.getElementById('importLibraryInput')", 'waitForQueueApi',
-  "proxyButton('stopBtn')", 'Player Queue controller is unavailable'
+  'data-u-queue-preview', 'data-u-previous', 'data-u-next-button', 'Player Queue controller is unavailable'
 ]) assert(UNIFIED.includes(token), `unified Piano workspace contract missing: ${token}`);
 
 for (const token of [
@@ -85,7 +87,7 @@ assert(!UNIFIED.includes("dispatchEvent(new CustomEvent('piano:unified-refresh-r
 assert(TRANSFER.includes('json.dumps({"format": _FORMAT_SONG, "schema": _SCHEMA, "song": song}'), 'library export must continue carrying the full song record');
 assert(UNIFIED.includes("dataset.compatibilityBridge = 'player-queue'") && UNIFIED.includes("dataset.compatibilityBridge = 'local-library'"), 'old queue/library panels must remain compatibility bridges rather than separate visible workspaces');
 assert(UNIFIED.includes('const queue = await waitForQueueApi();') && UNIFIED.includes('queue?.render?.();'), 'unified workspace must force a live queue render after controller readiness');
-assert(UNIFIED.includes("if (!proxyButton('stopBtn'))"), 'unified Stop must route through the proven main Stop control before queue-only fallback');
+assert(UNIFIED.includes('queue.toggleQueue?.()') && UNIFIED.includes('queue.previous?.()') && UNIFIED.includes('queue.next?.()'), 'unified transport must use the canonical queue toggle and history navigation');
 assert(UNIFIED.includes("saveCollapsed('library-browser', collapsed)"), 'library browser disclosure state must persist with the existing Piano disclosure store');
 assert(UNIFIED.includes("['.planner-pills', '.planner-filters', '.planner-actions', '.planner-grid']"), 'unified workspace must move the complete collapsed filter disclosure, not detach its controls');
 assert(MAIN_APP.includes('els.play.addEventListener("click", startPlayback)') && MAIN_APP.includes('els.pause.addEventListener("click", togglePause)') && MAIN_APP.includes('els.stop.addEventListener("click", stopPlayback)'), 'core Play/Pause/Stop bindings must remain intact');

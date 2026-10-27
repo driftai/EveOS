@@ -18,7 +18,9 @@
 .player-queue-actions button { padding: 7px 9px; font-size: 9px; white-space: nowrap; }
 .player-queue-list { display: grid; gap: 6px; max-height: 320px; overflow: auto; }
 .player-queue-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; align-items: center; min-width: 0; padding: 8px 9px; border: 1px solid #292c35; border-radius: 10px; background: #101318; }
-.player-queue-item[data-current="true"] { border-color: rgba(162,125,255,.72); background: rgba(79,48,120,.16); }
+.player-queue-item[data-status="current"] { border-color: rgba(81,216,255,.72); background: rgba(81,216,255,.13); }
+.player-queue-item[data-status="next"] { border-color: rgba(92,230,176,.56); background: rgba(92,230,176,.1); }
+.player-queue-item[data-status="played"] { opacity: .62; }
 .player-queue-item-copy { display: grid; gap: 2px; min-width: 0; }
 .player-queue-item-copy span { color: #9d8cbf; font-size: 8px; font-weight: 800; letter-spacing: .1em; }
 .player-queue-item-copy strong, .player-queue-item-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -28,6 +30,7 @@
 .player-queue-item-actions button { min-width: 28px; padding: 5px 7px; font-size: 8px; white-space: nowrap; }
 .player-queue-empty { padding: 12px; border: 1px dashed #332a43; border-radius: 10px; color: var(--muted); font-size: 9px; text-align: center; }
 [data-add-player-queue] { border-color: #5f4b80; }
+[data-queue-play][data-action="play"] { border-color: #249ee8; background: #187fc7; color: #fff; }
 @media (max-width: 760px) {
   .player-queue-now { grid-template-columns: minmax(0, 1fr); }
   .player-queue-toolbar { grid-template-columns: minmax(0, 1fr); }

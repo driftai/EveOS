@@ -1,27 +1,5 @@
 import { api } from "./api.js";
-
-const PREFS_KEY = "piano_player_planner_v1";
-const clean = value => String(value || "").trim();
-const norm = value => clean(value).toLowerCase();
-const listValue = value => [...new Set((Array.isArray(value) ? value : String(value || "").split(",")).map(clean).filter(Boolean))];
-const durationText = ms => `${(Number(ms || 0) / 60000).toFixed(1)} min`;
-const ratingText = value => value == null ? "—" : `${Number(value).toFixed(1)}/5`;
-function safePrefs() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
-    return {
-      search: clean(raw.search), genre: clean(raw.genre), author: clean(raw.author), host: clean(raw.host), kind: clean(raw.kind),
-      tags: clean(raw.tags), minRating: clean(raw.minRating), minConversion: clean(raw.minConversion), minDuration: clean(raw.minDuration),
-      maxDuration: clean(raw.maxDuration), minEvents: clean(raw.minEvents), maxEvents: clean(raw.maxEvents), sort: clean(raw.sort) || "updated",
-      pill: clean(raw.pill) || "all"
-    };
-  } catch (_) {
-    return { search: "", genre: "", author: "", host: "", kind: "", tags: "", minRating: "", minConversion: "", minDuration: "", maxDuration: "", minEvents: "", maxEvents: "", sort: "updated", pill: "all" };
-  }
-}
-function persistPrefs(prefs) {
-  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (_) {}
-}
+import { clean, listValue, durationText, ratingText, safePrefs, persistPrefs, labelFor, isFavorite, filteredSongs } from "./player_queue_planner_state.js";
 const fetchSongs = () => api.songs().then(body => Array.isArray(body.songs) ? body.songs : []);
 const saveIdentifiers = (songId, identifiers) => api.updateSongIdentifiers(songId, identifiers).then(body => body.song || null);
 
@@ -80,9 +58,11 @@ function htmlFor(host) {
         </select>
       </div></details>
       <div class="planner-actions">
-        <span data-p-selection>0 selected</span>
-        <button type="button" data-p-select-all>Select visible</button><button type="button" class="ghost" data-p-clear-selection>Clear selection</button>
-        <button type="button" class="primary" data-p-add>Send to Queue</button><button type="button" data-p-replace>Replace Queue</button><button type="button" data-p-play>Play selected</button><button type="button" data-p-shuffle>Shuffle selected</button>
+        <div class="planner-selection-head"><span data-p-selection>0 selected</span><small>Selections keep the order you click them.</small></div>
+        <div class="planner-selection-tools"><button type="button" data-p-select-all>Select visible</button><button type="button" class="ghost" data-p-clear-selection>Clear selection</button></div>
+        <div class="planner-action-pair"><button type="button" class="primary" data-p-add>Send to Queue</button><button type="button" data-p-remove>Remove from Queue</button></div>
+        <div class="planner-action-pair"><button type="button" data-p-replace>Replace Queue</button><button type="button" data-p-go-queue>Go to Queue</button></div>
+        <button type="button" data-p-play>Play selected</button><button type="button" data-p-shuffle>Shuffle Queue</button>
       </div>
       <div class="planner-grid">
         <div class="planner-results"><div class="planner-list" data-p-list></div></div>
@@ -114,61 +94,6 @@ function htmlFor(host) {
     </div>`;
   host.append(section);
   return section;
-}
-
-function tagsFor(song) {
-  const custom = song.identifiers || {};
-  return [...listValue(custom.tags), ...listValue(song.automatic_identifiers?.tags)];
-}
-
-function labelFor(song) {
-  const artist = clean(song.identifiers?.author || song.artist || "");
-  return artist && !clean(song.title).includes(artist) ? `${song.title} — ${artist}` : clean(song.title) || "Untitled sheet";
-}
-
-function isFavorite(song) {
-  const custom = song.identifiers?.custom || {};
-  if (custom.favorite === "true") return true;
-  if (custom.favorite === "false") return false;
-  return listValue(song.identifiers?.tags).some(t => norm(t) === "favorite") || Number(song.identifiers?.personal_rating) >= 4.5;
-}
-
-function filteredSongs(songs, prefs) {
-  const queue = window.PianoPlayerQueue;
-  const filtered = songs.filter(song => {
-    const auto = song.automatic_identifiers || {}, custom = song.identifiers || {};
-    if (prefs.pill === "favorites" && !isFavorite(song)) return false;
-    if (prefs.pill === "sheets" && (auto.kind === "performance" || song.kind === "performance" || (song.performance?.length))) return false;
-    if (prefs.pill === "recordings" && !(auto.kind === "performance" || song.kind === "performance" || (song.performance?.length))) return false;
-    if (prefs.pill === "queued" && !(queue?.hasSong && queue.hasSong(song.id))) return false;
-    const haystack = [song.title, song.artist, custom.author, ...listValue(custom.genre), ...tagsFor(song), song.source, auto.kind].map(norm).join(" ");
-    if (prefs.search && !haystack.includes(norm(prefs.search))) return false;
-    if (prefs.genre && !listValue(custom.genre).some(value => norm(value) === norm(prefs.genre))) return false;
-    if (prefs.author && norm(custom.author || song.artist) !== norm(prefs.author)) return false;
-    if (prefs.host && norm(auto.source_host) !== norm(prefs.host)) return false;
-    if (prefs.kind && norm(auto.kind) !== norm(prefs.kind)) return false;
-    if (prefs.tags && !tagsFor(song).some(value => norm(value).includes(norm(prefs.tags)))) return false;
-    const rating = Number(custom.personal_rating), conversion = Number(auto.conversion_rating);
-    const duration = Number(auto.duration_ms || song.duration_ms || 0) / 60000, events = Number(auto.event_count || 0);
-    if (prefs.minRating && !(Number.isFinite(rating) && rating >= Number(prefs.minRating))) return false;
-    if (prefs.minConversion && !(Number.isFinite(conversion) && conversion >= Number(prefs.minConversion))) return false;
-    if (prefs.minDuration && duration < Number(prefs.minDuration)) return false;
-    if (prefs.maxDuration && duration > Number(prefs.maxDuration)) return false;
-    if (prefs.minEvents && events < Number(prefs.minEvents)) return false;
-    if (prefs.maxEvents && events > Number(prefs.maxEvents)) return false;
-    return true;
-  });
-  return filtered.sort((a, b) => {
-    const aa = a.automatic_identifiers || {}, bb = b.automatic_identifiers || {}, ac = a.identifiers || {}, bc = b.identifiers || {};
-    if (prefs.sort === "title") return labelFor(a).localeCompare(labelFor(b));
-    if (prefs.sort === "rating") return (Number(bc.personal_rating) || 0) - (Number(ac.personal_rating) || 0);
-    if (prefs.sort === "conversion") return (Number(bb.conversion_rating) || -1) - (Number(aa.conversion_rating) || -1);
-    if (prefs.sort === "duration-short") return Number(aa.duration_ms || 0) - Number(bb.duration_ms || 0);
-    if (prefs.sort === "duration-long") return Number(bb.duration_ms || 0) - Number(aa.duration_ms || 0);
-    if (prefs.sort === "events-low") return Number(aa.event_count || 0) - Number(bb.event_count || 0);
-    if (prefs.sort === "events-high") return Number(bb.event_count || 0) - Number(aa.event_count || 0);
-    return Number(bb.updated_at || 0) - Number(aa.updated_at || 0);
-  });
 }
 
 async function installPlanner() {
@@ -239,23 +164,17 @@ async function installPlanner() {
     }));
   }
 
-  function currentQueueIndex(qState) {
-    if (!qState?.currentId || !Array.isArray(qState.items)) return -1;
-    return qState.items.findIndex(item => String(item.queueId) === String(qState.currentId));
-  }
-
   function updateEditorQueueUI() {
     const song = state.songs.find(item => String(item.id) === String(state.editingId));
     if (!song || !els.queueStatus) return;
     const queue = window.PianoPlayerQueue;
     const pos = queue?.getSongPosition ? queue.getSongPosition(song.id) : -1;
     const qState = queue?.getState ? queue.getState() : null;
-    const currIdx = currentQueueIndex(qState);
-    const isCurrent = pos >= 0 && currIdx >= 0 && String(qState.items[currIdx]?.songId) === String(song.id);
-    if (isCurrent) els.queueStatus.textContent = "NOW PLAYING";
-    else if (pos >= 0) els.queueStatus.textContent = `Queued position #${pos + 1}`;
+    const entries = queue?.getSongEntries?.(song.id) || [];
+    if (entries.some(entry => entry.status === "current")) els.queueStatus.textContent = `NOW PLAYING · ${entries.map(entry => `#${entry.position}`).join(", ")}`;
+    else if (entries.length) els.queueStatus.textContent = entries.map(entry => `${entry.status === "played" ? "Played" : "Queue"} #${entry.position}`).join(" · ");
     else els.queueStatus.textContent = "Not queued";
-    if (els.qToggle) els.qToggle.textContent = pos >= 0 ? "− Queue" : "+ Queue";
+    if (els.qToggle) els.qToggle.textContent = "+ Queue";
     if (els.qUp) els.qUp.disabled = pos <= 0;
     if (els.qDown) els.qDown.disabled = pos < 0 || (qState && pos >= qState.items.length - 1);
   }
@@ -311,20 +230,17 @@ async function installPlanner() {
 
   function renderResults() {
     const queue = window.PianoPlayerQueue;
-    const qState = queue?.getState ? queue.getState() : null;
-    const currIdx = currentQueueIndex(qState);
     const visible = filteredSongs(state.songs, state.prefs);
     els.count.textContent = `${visible.length} matches`; els.selection.textContent = `${state.selected.size} selected`; els.list.replaceChildren();
     if (!visible.length) { const empty = document.createElement("div"); empty.className = "planner-empty"; empty.textContent = "No songs match the current plan."; els.list.append(empty); return; }
     visible.forEach(song => {
       const row = document.createElement("article"); row.className = "planner-song";
       const custom = song.identifiers?.custom || {};
-      const pos = queue?.getSongPosition ? queue.getSongPosition(song.id) : -1;
-      const inQueue = pos >= 0;
-      const isCurrent = inQueue && currIdx >= 0 && String(qState.items[currIdx]?.songId) === String(song.id);
-      const isNext = inQueue && currIdx >= 0 && String(qState.items[currIdx + 1]?.songId) === String(song.id);
+      const entries = queue?.getSongEntries?.(song.id) || [];
+      const inQueue = entries.length > 0;
 
-      const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = state.selected.has(song.id); checkbox.addEventListener("change", () => { checkbox.checked ? state.selected.add(song.id) : state.selected.delete(song.id); renderResults(); });
+      const key = String(song.id);
+      const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = state.selected.has(key); checkbox.addEventListener("change", () => { checkbox.checked ? state.selected.add(key) : state.selected.delete(key); renderResults(); });
       const favorite = isFavorite(song);
       const favoriteBusy = favoritePending.has(String(song.id));
       const favBtn = document.createElement("button");
@@ -342,15 +258,13 @@ async function installPlanner() {
       const sub = document.createElement("small"); sub.textContent = `${song.identifiers?.genre?.join(", ") || "No genre"} · ${song.automatic_identifiers?.event_count || 0} events · ${durationText(song.automatic_identifiers?.duration_ms || song.duration_ms)}`;
       const chips = document.createElement("div"); chips.className = "planner-song-chips";
       [song.identifiers?.personal_rating == null ? "Unrated" : `★ ${ratingText(song.identifiers.personal_rating)}`, song.automatic_identifiers?.conversion_rating == null ? "Conversion —" : `Conv ${ratingText(song.automatic_identifiers.conversion_rating)}`, ...listValue(song.identifiers?.tags).slice(0, 3)].forEach(value => { const chip = document.createElement("span"); chip.textContent = value; chips.append(chip); });
-      if (isCurrent) { const qChip = document.createElement("span"); qChip.className = "planner-qtag now"; qChip.textContent = "NOW PLAYING"; chips.append(qChip); }
-      else if (isNext) { const qChip = document.createElement("span"); qChip.className = "planner-qtag next"; qChip.textContent = "NEXT"; chips.append(qChip); }
-      else if (inQueue) { const qChip = document.createElement("span"); qChip.className = "planner-qtag queued"; qChip.textContent = `#${pos + 1} QUEUED`; chips.append(qChip); }
+      entries.forEach(entry => { const qChip = document.createElement("span"); qChip.className = `planner-qtag ${entry.status === "current" ? "now" : entry.status}`; qChip.textContent = entry.status === "current" ? `NOW #${entry.position}` : entry.status === "played" ? `PLAYED #${entry.position}` : entry.status === "next" ? `NEXT #${entry.position}` : `#${entry.position} QUEUED`; chips.append(qChip); });
       if (custom.override_speed || custom.override_interval) { const ovChip = document.createElement("span"); ovChip.className = "planner-qtag override"; ovChip.textContent = `⚡ ${custom.override_speed ? `${custom.override_speed}×` : "Custom"}`; chips.append(ovChip); }
       copy.append(title, sub, chips);
 
       const actions = document.createElement("div"); actions.className = "planner-song-actions";
       const playBtn = document.createElement("button"); playBtn.type = "button"; playBtn.textContent = "Play"; playBtn.addEventListener("click", () => void withQueue(live => live.hasSong(song.id) ? live.playSongNow(song.id) : sendToQueue([song], { replace: true, play: true })));
-      const qBtn = document.createElement("button"); qBtn.type = "button"; qBtn.className = inQueue ? "ghost" : ""; qBtn.textContent = inQueue ? "− Queue" : "+ Queue"; qBtn.addEventListener("click", () => void withQueue(live => { if (live.hasSong(song.id)) live.removeSong(song.id); else live.addSongs([song], { announce: false }); }));
+      const qBtn = document.createElement("button"); qBtn.type = "button"; qBtn.textContent = "+ Queue"; qBtn.title = inQueue ? "Add another copy to the queue" : "Add to queue"; qBtn.addEventListener("click", () => void withQueue(live => live.addSongs([song], { announce: false })));
       const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => openEditor(song));
       actions.append(playBtn, qBtn, edit);
       row.append(checkbox, favBtn, copy, actions); els.list.append(row);
@@ -361,7 +275,7 @@ async function installPlanner() {
 
   function selectedSongs() {
     const byId = new Map(state.songs.map(song => [String(song.id), song]));
-    return filteredSongs(state.songs, state.prefs).filter(song => state.selected.has(song.id)).map(song => byId.get(String(song.id))).filter(Boolean);
+    return [...state.selected].map(id => byId.get(String(id))).filter(Boolean);
   }
 
   async function sendToQueue(songs, { replace = false, play = false, shuffle = false } = {}) {
@@ -373,9 +287,32 @@ async function installPlanner() {
       if (!queue) throw new Error("Player Queue controller is unavailable. Reload the Piano workspace and try again.");
       const added = await queue.addSongs(songs, { replace, play, shuffle, announce: false });
       if (!added) throw new Error("No selected songs could be added to Player Queue.");
+      state.selected.clear(); renderResults();
       toast(`${added} song${added === 1 ? "" : "s"} sent to Player Queue`, "complete");
     } catch (error) { toast(error.message, "error"); }
     finally { busy = false; }
+  }
+
+  async function removeSelected() {
+    const ids = [...state.selected];
+    if (!ids.length) return toast("Select queued songs to remove.", "error");
+    const removed = await withQueue(queue => queue.removeSongs?.(ids) || 0);
+    if (!removed) return toast("None of the selected songs are in the queue.", "error");
+    state.selected.clear(); renderResults(); toast(`${removed} queue entr${removed === 1 ? "y" : "ies"} removed.`, "complete");
+  }
+
+  async function shuffleSelectedQueue() {
+    const ids = [...state.selected];
+    if (!ids.length) return toast("Select queued songs to reposition.", "error");
+    const moved = await withQueue(queue => queue.shuffleSelected?.(ids) || 0);
+    if (!moved) return toast("Select songs that are still ahead in the queue.", "error");
+    toast(`${moved} selected queue entr${moved === 1 ? "y" : "ies"} repositioned.`, "complete");
+  }
+
+  function setPill(value) {
+    state.prefs.pill = value;
+    section.querySelectorAll("[data-pill]").forEach(button => button.classList.toggle("active", button.dataset.pill === value));
+    persistPrefs(state.prefs); renderResults();
   }
 
   async function saveEditor() {
@@ -397,22 +334,20 @@ async function installPlanner() {
 
   function bind() {
     syncPrefsToControls();
-    section.querySelectorAll("[data-pill]").forEach(btn => btn.addEventListener("click", () => {
-      state.prefs.pill = btn.dataset.pill || "all";
-      section.querySelectorAll("[data-pill]").forEach(b => b.classList.toggle("active", b === btn));
-      persistPrefs(state.prefs); renderResults();
-    }));
+    section.querySelectorAll("[data-pill]").forEach(btn => btn.addEventListener("click", () => setPill(btn.dataset.pill || "all")));
     const controls = [els.search, els.genre, els.author, els.host, els.kind, els.tags, els.minRating, els.minConversion, els.minDuration, els.maxDuration, els.minEvents, els.maxEvents, els.sort];
     controls.forEach(control => control.addEventListener("input", () => { savePrefs(); renderResults(); }));
-    section.querySelector("[data-p-select-all]").addEventListener("click", () => { filteredSongs(state.songs, state.prefs).forEach(song => state.selected.add(song.id)); renderResults(); });
+    section.querySelector("[data-p-select-all]").addEventListener("click", () => { filteredSongs(state.songs, state.prefs).forEach(song => state.selected.add(String(song.id))); renderResults(); });
     section.querySelector("[data-p-clear-selection]").addEventListener("click", () => { state.selected.clear(); renderResults(); });
     section.querySelector("[data-p-add]").addEventListener("click", () => void sendToQueue(selectedSongs()));
+    section.querySelector("[data-p-remove]").addEventListener("click", () => void removeSelected());
     section.querySelector("[data-p-replace]").addEventListener("click", () => void sendToQueue(selectedSongs(), { replace: true }));
+    section.querySelector("[data-p-go-queue]").addEventListener("click", () => setPill("queued"));
     section.querySelector("[data-p-play]").addEventListener("click", () => void sendToQueue(selectedSongs(), { replace: true, play: true }));
-    section.querySelector("[data-p-shuffle]").addEventListener("click", () => void sendToQueue(selectedSongs(), { replace: true, shuffle: true }));
+    section.querySelector("[data-p-shuffle]").addEventListener("click", () => void shuffleSelectedQueue());
     els.saveMeta.addEventListener("click", () => void saveEditor());
     els.qPlay?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s) void withQueue(queue => queue.hasSong(s.id) ? queue.playSongNow(s.id) : sendToQueue([s], { replace: true, play: true })); });
-    els.qToggle?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s) void withQueue(queue => { if (queue.hasSong(s.id)) queue.removeSong(s.id); else queue.addSongs([s], { announce: false }); updateEditorQueueUI(); renderResults(); }); });
+    els.qToggle?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s) void withQueue(queue => queue.addSongs([s], { announce: false })); });
     els.qUp?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s) void withQueue(queue => { queue.moveSong(s.id, -1); updateEditorQueueUI(); renderResults(); }); });
     els.qDown?.addEventListener("click", () => { const s = state.songs.find(item => String(item.id) === String(state.editingId)); if (s) void withQueue(queue => { queue.moveSong(s.id, 1); updateEditorQueueUI(); renderResults(); }); });
     window.addEventListener("piano:queue-updated", () => { renderResults(); updateEditorQueueUI(); });

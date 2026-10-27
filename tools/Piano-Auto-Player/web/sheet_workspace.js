@@ -71,7 +71,7 @@ function buildHost() {
         <button type="button" data-workspace-forward title="Next loaded sheet">Forward →</button>
       </div>
     </details>
-    <details class="sheet-workspace-staging" open>
+    <details class="sheet-workspace-staging">
       <summary>
         <span><strong>SOURCE INBOX</strong><small>From Sheet Finder and AI-converted results wait here before entering the same Auto Player timeline.</small></span>
         <b data-workspace-staging-count>0 waiting</b>
