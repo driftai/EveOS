@@ -163,7 +163,7 @@ function enhanceEditorDisclosure(planner) {
 function enhanceLibraryBrowserDisclosure(planner) {
   const body = planner.querySelector('.planner-body');
   if (!body || body.querySelector('.piano-library-browser')) return;
-  const nodes = ['.planner-pills', '.planner-filterbar', '.planner-actions', '.planner-grid']
+  const nodes = ['.planner-pills', '.planner-filters', '.planner-actions', '.planner-grid']
     .map(selector => planner.querySelector(selector));
   if (nodes.some(node => !node)) return;
 

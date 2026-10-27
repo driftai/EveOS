@@ -27,10 +27,11 @@ for (const token of [
   'Save identifiers', 'automatic_identifiers', 'personal_rating', 'conversion_rating',
   'Required tag', 'Min events', 'Max events', 'Custom identifiers', 'piano_player_planner_v1',
   '/api/songs/identifiers', 'PianoPlayerQueue', 'addSongs', 'document.createTextNode',
-  'async function withQueue(action)'
+  'async function withQueue(action)', '<details class="planner-filters">', 'FILTERS &amp; SORTING'
 ]) assert(PLANNER.includes(token), `planner contract missing: ${token}`);
+assert(!PLANNER.includes('<details class="planner-filters" open'), 'advanced filters must default collapsed');
 
-for (const token of ['sheet-workspace-planner', 'planner-filterbar', 'planner-grid', 'planner-editor', '@media (max-width: 760px)']) {
+for (const token of ['sheet-workspace-planner', 'planner-filters[open]', 'planner-filterbar', 'planner-grid', 'planner-editor', '@media (max-width: 760px)']) {
   assert(CSS.includes(token), `planner CSS contract missing: ${token}`);
 }
 
@@ -80,6 +81,7 @@ assert(UNIFIED.includes("dataset.compatibilityBridge = 'player-queue'") && UNIFI
 assert(UNIFIED.includes('const queue = await waitForQueueApi();') && UNIFIED.includes('queue?.render?.();'), 'unified workspace must force a live queue render after controller readiness');
 assert(UNIFIED.includes("if (!proxyButton('stopBtn'))"), 'unified Stop must route through the proven main Stop control before queue-only fallback');
 assert(UNIFIED.includes("saveCollapsed('library-browser', collapsed)"), 'library browser disclosure state must persist with the existing Piano disclosure store');
+assert(UNIFIED.includes("['.planner-pills', '.planner-filters', '.planner-actions', '.planner-grid']"), 'unified workspace must move the complete collapsed filter disclosure, not detach its controls');
 assert(MAIN_APP.includes('els.play.addEventListener("click", startPlayback)') && MAIN_APP.includes('els.pause.addEventListener("click", togglePause)') && MAIN_APP.includes('els.stop.addEventListener("click", stopPlayback)'), 'core Play/Pause/Stop bindings must remain intact');
 assert(PLANNER.split(/\r?\n/).length < 450, 'advanced planner exceeds the 450-line first-party cap');
 assert(UNIFIED.split(/\r?\n/).length < 450, 'unified workspace adapter exceeds the 450-line first-party cap');

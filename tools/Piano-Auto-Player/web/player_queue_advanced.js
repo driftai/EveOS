@@ -4,7 +4,6 @@ const norm = value => clean(value).toLowerCase();
 const listValue = value => [...new Set((Array.isArray(value) ? value : String(value || "").split(",")).map(clean).filter(Boolean))];
 const durationText = ms => `${(Number(ms || 0) / 60000).toFixed(1)} min`;
 const ratingText = value => value == null ? "—" : `${Number(value).toFixed(1)}/5`;
-
 function safePrefs() {
   try {
     const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
@@ -18,18 +17,15 @@ function safePrefs() {
     return { search: "", genre: "", author: "", host: "", kind: "", tags: "", minRating: "", minConversion: "", minDuration: "", maxDuration: "", minEvents: "", maxEvents: "", sort: "updated", pill: "all" };
   }
 }
-
 function persistPrefs(prefs) {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (_) {}
 }
-
 async function fetchSongs() {
   const response = await fetch("/api/songs", { cache: "no-store" });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || `Library request failed (${response.status})`);
   return Array.isArray(body.songs) ? body.songs : [];
 }
-
 async function saveIdentifiers(songId, identifiers) {
   const response = await fetch("/api/songs/identifiers", {
     method: "POST",
@@ -83,7 +79,7 @@ function htmlFor(host) {
       <div class="planner-pills" data-p-pills>
         <button type="button" class="planner-pill" data-pill="all">All</button><button type="button" class="planner-pill" data-pill="favorites">★ Favorites</button><button type="button" class="planner-pill" data-pill="sheets">Sheets</button><button type="button" class="planner-pill" data-pill="recordings">Recordings</button><button type="button" class="planner-pill" data-pill="queued">Queued</button>
       </div>
-      <div class="planner-filterbar">
+      <details class="planner-filters"><summary><span>FILTERS &amp; SORTING</span><small>Search, ratings, duration, events, and order</small></summary><div class="planner-filterbar">
         <input data-p-search placeholder="Search title, author, tags…" aria-label="Search library metadata">
         <select data-p-genre aria-label="Genre"><option value="">All genres</option></select><select data-p-author aria-label="Author"><option value="">All authors</option></select><select data-p-host aria-label="Source"><option value="">All sources</option></select><select data-p-kind aria-label="Song type"><option value="">All types</option></select>
         <input data-p-tags placeholder="Required tag" aria-label="Required tag">
@@ -94,7 +90,7 @@ function htmlFor(host) {
           <option value="updated">Recently updated</option><option value="title">Title A–Z</option><option value="rating">Personal rating ↓</option><option value="conversion">Conversion rating ↓</option>
           <option value="duration-short">Shortest first</option><option value="duration-long">Longest first</option><option value="events-low">Fewest events first</option><option value="events-high">Most events first</option>
         </select>
-      </div>
+      </div></details>
       <div class="planner-actions">
         <span data-p-selection>0 selected</span>
         <button type="button" data-p-select-all>Select visible</button><button type="button" class="ghost" data-p-clear-selection>Clear selection</button>
