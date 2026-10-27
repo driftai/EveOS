@@ -4,6 +4,7 @@ const STYLE_ID = 'pianoUnifiedWorkspaceStyles';
 const LEGACY_QUEUE = '.sheet-workspace-queue';
 const LEGACY_LIBRARY = '.library-panel';
 const DISCLOSURE_KEY = 'piano_ui_disclosure_v1';
+const QUEUE_PREVIEW_CLOSE_MS = 550;
 
 function loadStyles() {
   if (document.getElementById(STYLE_ID)) return;
@@ -91,6 +92,9 @@ function proxyButton(id) {
 
 function setPanelCollapsed(panel, key, collapsed, button) {
   panel.dataset.uCollapsed = collapsed ? '1' : '0';
+  if (key === 'playback-controls') {
+    panel.closest('.hero-grid')?.classList.toggle('piano-controls-collapsed', collapsed);
+  }
   button.textContent = collapsed ? 'Expand' : 'Collapse';
   button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   saveCollapsed(key, collapsed);
@@ -358,8 +362,31 @@ function bindQueueStrip(planner) {
     const row = preview?.querySelector('.current, .next, .candidate');
     if (row && preview) preview.scrollTop = Math.max(0, row.offsetTop - (preview.clientHeight - row.offsetHeight) / 2);
   };
-  planner.querySelector('.piano-next-wrap')?.addEventListener('pointerenter', revealCurrent);
-  planner.querySelector('.piano-next-wrap')?.addEventListener('focus', revealCurrent);
+  const nextWrap = planner.querySelector('.piano-next-wrap');
+  if (nextWrap && preview) {
+    let closeTimer = null;
+    const keepPreviewOpen = () => {
+      if (closeTimer != null) clearTimeout(closeTimer);
+      closeTimer = null;
+      nextWrap.dataset.previewOpen = '1';
+    };
+    const schedulePreviewClose = () => {
+      if (closeTimer != null) clearTimeout(closeTimer);
+      closeTimer = setTimeout(() => {
+        closeTimer = null;
+        if (!nextWrap.matches(':hover') && !nextWrap.contains(document.activeElement)) {
+          delete nextWrap.dataset.previewOpen;
+        }
+      }, QUEUE_PREVIEW_CLOSE_MS);
+    };
+    nextWrap.addEventListener('pointerenter', () => { keepPreviewOpen(); revealCurrent(); });
+    nextWrap.addEventListener('pointerleave', schedulePreviewClose);
+    nextWrap.addEventListener('focusin', event => {
+      keepPreviewOpen();
+      if (event.target === nextWrap) revealCurrent();
+    });
+    nextWrap.addEventListener('focusout', schedulePreviewClose);
+  }
   window.addEventListener('piano:queue-updated', render);
   window.addEventListener('piano:player-queue-ready', render);
   render();

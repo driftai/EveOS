@@ -71,6 +71,22 @@ for (const token of [
   '.planner-queue-btns [data-p-q-up]', '.planner-queue-btns [data-p-q-down]'
 ]) assert(UNIFIED_CSS.includes(token), `unified Piano workspace CSS contract missing: ${token}`);
 
+assert(UNIFIED.includes("panel.closest('.hero-grid')?.classList.toggle('piano-controls-collapsed', collapsed)"),
+  'Playback disclosure must own the hero-grid collapsed state');
+assert(UNIFIED_CSS.includes('.hero-grid.piano-controls-collapsed')
+  && UNIFIED_CSS.includes('grid-template-columns: minmax(0, 1fr) max-content')
+  && UNIFIED_CSS.includes('.controls-panel[data-u-collapsed="1"]'),
+  'collapsed Playback must reclaim the player grid width and avoid vertical stretching');
+assert(UNIFIED.includes('const QUEUE_PREVIEW_CLOSE_MS = 550;')
+  && UNIFIED.includes("nextWrap.addEventListener('pointerleave', schedulePreviewClose)")
+  && UNIFIED.includes("nextWrap.addEventListener('pointerenter', () => { keepPreviewOpen(); revealCurrent(); })")
+  && UNIFIED.includes("nextWrap.addEventListener('focusin', event =>")
+  && UNIFIED.includes("nextWrap.addEventListener('focusout', schedulePreviewClose)")
+  && UNIFIED.includes("!nextWrap.matches(':hover') && !nextWrap.contains(document.activeElement)"),
+  'queue preview must retain focus, cancel delayed close on reentry, and close when idle');
+assert(UNIFIED_CSS.includes('.piano-next-wrap[data-preview-open="1"] .piano-queue-preview'),
+  'delayed-open queue preview must remain visible across the pointer gap');
+
 assert(SERVER.includes('if path == "/api/songs/identifiers"'), 'server must expose a metadata-only update route');
 assert(SERVER.includes('LIBRARY.update_identifiers(song_id, identifiers)'), 'metadata-only route must not use the full-song save path');
 assert(API.includes('updateSongIdentifiers') && API.includes('/api/songs/identifiers'), 'web API must expose metadata-only updates');

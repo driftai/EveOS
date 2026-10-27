@@ -115,7 +115,8 @@
   box-shadow: 0 16px 44px rgba(0, 0, 0, .55);
 }
 .piano-next-wrap:hover .piano-queue-preview,
-.piano-next-wrap:focus-within .piano-queue-preview { display: grid; }
+.piano-next-wrap:focus-within .piano-queue-preview,
+.piano-next-wrap[data-preview-open="1"] .piano-queue-preview { display: grid; }
 .piano-queue-preview:empty::before { content: 'Queue is empty'; padding: 8px; color: var(--muted, #94a6b5); font-size: 9px; text-align: center; }
 .piano-queue-preview-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; align-items: center; width: 100%; min-height: 0; padding: 3px; border: 1px solid rgba(127, 221, 255, .08); border-radius: 8px; background: transparent; }
 .piano-queue-preview-row[draggable="true"] { cursor: grab; }
@@ -273,11 +274,32 @@
 .piano-collapsible-panel[data-u-collapsed="1"] > :not(.panel-head) {
   display: none !important;
 }
+.hero-grid.piano-controls-collapsed {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: start;
+}
+.hero-grid.piano-controls-collapsed > .controls-panel[data-u-collapsed="1"] {
+  width: max-content;
+  max-width: 100%;
+  height: auto;
+  min-height: 0;
+  align-self: start;
+  justify-self: end;
+  gap: 0;
+  padding: 12px 14px;
+}
+.hero-grid.piano-controls-collapsed > .controls-panel[data-u-collapsed="1"] > .panel-head {
+  margin: 0;
+}
 .recorder-panel[data-u-collapsed="1"] .record-actions {
   display: none !important;
 }
 .piano-collapsible-panel[data-u-collapsed="1"] > .panel-head {
   margin-bottom: 0;
+}
+
+@media (max-width: 1180px) {
+  .hero-grid.piano-controls-collapsed { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 900px) {
