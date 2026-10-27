@@ -1,3 +1,5 @@
+import { api } from "./api.js";
+
 const STORAGE_KEY = "piano_player_queue_v1";
 const MODES = new Set(["manual", "ordered", "shuffle"]);
 const TRANSITIONS = new Set([250, 500, 750, 1000, 1500]);
@@ -33,12 +35,7 @@ function shuffle(items) {
   return copy;
 }
 
-async function fetchSongs() {
-  const response = await fetch("/api/songs", { cache: "no-store" });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Library request failed (${response.status})`);
-  return Array.isArray(body.songs) ? body.songs : [];
-}
+const fetchSongs = () => api.songs().then(body => Array.isArray(body.songs) ? body.songs : []);
 
 function loadStyles() {
   if (document.getElementById("pianoPlayerQueueStyles")) return;

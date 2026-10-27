@@ -262,7 +262,6 @@ function buildHeader(planner) {
   head.querySelector('[data-u-export]')?.addEventListener('click', () => proxyButton('exportLibraryBtn'));
   head.querySelector('[data-u-refresh]')?.addEventListener('click', () => {
     proxyButton('refreshLibraryBtn');
-    window.dispatchEvent(new CustomEvent('piano:unified-refresh-requested'));
   });
 
   const workspaceToggle = head.querySelector('[data-u-workspace-toggle]');

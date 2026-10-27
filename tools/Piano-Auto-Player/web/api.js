@@ -9,6 +9,34 @@ async function request(path, options = {}) {
   return body;
 }
 
+let songsSnapshot = null;
+let songsRequest = null;
+let songsGeneration = 0;
+
+function invalidateSongs() {
+  songsGeneration += 1;
+  songsSnapshot = null;
+}
+
+function loadSongs({ fresh = false } = {}) {
+  if (songsRequest) return songsRequest;
+  if (!fresh && songsSnapshot) return Promise.resolve(songsSnapshot);
+  const generation = songsGeneration;
+  songsRequest = request("/api/songs")
+    .then(body => {
+      if (generation === songsGeneration) songsSnapshot = body;
+      return body;
+    })
+    .finally(() => { songsRequest = null; });
+  return songsRequest;
+}
+
+async function mutateSongs(path, options) {
+  const result = await request(path, options);
+  invalidateSongs();
+  return result;
+}
+
 export const api = {
   status: () => request("/api/status"),
   windows: () => request("/api/windows"),
@@ -43,8 +71,8 @@ export const api = {
   },
   alternateSources: (query) => request(`/api/alternate-sources?q=${encodeURIComponent(query)}`),
   youtubeStatus: (job) => request(`/api/youtube/status?job=${encodeURIComponent(job)}`),
-  songs: () => request("/api/songs"),
-  saveSong: (payload) => request("/api/songs", { method: "POST", body: JSON.stringify(payload) }),
-  updateSongIdentifiers: (id, identifiers) => request("/api/songs/identifiers", { method: "POST", body: JSON.stringify({ id, identifiers }) }),
-  deleteSong: (id) => request(`/api/songs/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  songs: (options) => loadSongs(options),
+  saveSong: (payload) => mutateSongs("/api/songs", { method: "POST", body: JSON.stringify(payload) }),
+  updateSongIdentifiers: (id, identifiers) => mutateSongs("/api/songs/identifiers", { method: "POST", body: JSON.stringify({ id, identifiers }) }),
+  deleteSong: (id) => mutateSongs(`/api/songs/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };

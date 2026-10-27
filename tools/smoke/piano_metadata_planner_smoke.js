@@ -9,6 +9,7 @@ const LIBRARY = fs.readFileSync(path.join(APP, 'library.py'), 'utf8');
 const SERVER = fs.readFileSync(path.join(APP, 'server.py'), 'utf8');
 const API = fs.readFileSync(path.join(WEB, 'api.js'), 'utf8');
 const MAIN_APP = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
+const QUEUE = fs.readFileSync(path.join(WEB, 'player_queue.js'), 'utf8');
 const PLANNER = fs.readFileSync(path.join(WEB, 'player_queue_advanced.js'), 'utf8');
 const CSS = fs.readFileSync(path.join(WEB, 'player_queue_advanced.css'), 'utf8');
 const BRIDGE = fs.readFileSync(path.join(WEB, 'eveos-host-bridge.js'), 'utf8');
@@ -26,7 +27,7 @@ for (const token of [
   'Send to Queue', 'Replace Queue', 'Play selected', 'Shuffle selected',
   'Save identifiers', 'automatic_identifiers', 'personal_rating', 'conversion_rating',
   'Required tag', 'Min events', 'Max events', 'Custom identifiers', 'piano_player_planner_v1',
-  '/api/songs/identifiers', 'PianoPlayerQueue', 'addSongs', 'document.createTextNode',
+  'api.updateSongIdentifiers', 'PianoPlayerQueue', 'addSongs', 'document.createTextNode',
   'async function withQueue(action)', '<details class="planner-filters">', 'FILTERS &amp; SORTING'
 ]) assert(PLANNER.includes(token), `planner contract missing: ${token}`);
 assert(!PLANNER.includes('<details class="planner-filters" open'), 'advanced filters must default collapsed');
@@ -66,7 +67,7 @@ for (const token of [
 assert(SERVER.includes('if path == "/api/songs/identifiers"'), 'server must expose a metadata-only update route');
 assert(SERVER.includes('LIBRARY.update_identifiers(song_id, identifiers)'), 'metadata-only route must not use the full-song save path');
 assert(API.includes('updateSongIdentifiers') && API.includes('/api/songs/identifiers'), 'web API must expose metadata-only updates');
-assert(PLANNER.includes('JSON.stringify({ id: songId, identifiers })'), 'planner must send only song id + identifiers');
+assert(PLANNER.includes('api.updateSongIdentifiers(songId, identifiers)'), 'planner must use the shared metadata mutation owner');
 assert(!PLANNER.includes('JSON.stringify({ ...song, identifiers })'), 'planner must not write a stale full-song snapshot during metadata edits');
 assert(!PLANNER.includes('node.innerHTML = `<b>${key}</b>${String(value)}`'), 'automatic metadata values must not flow through innerHTML');
 assert(!PLANNER.includes('pianoSongId'), 'planner must not couple queue operations to library-card array order');
@@ -76,6 +77,11 @@ assert(LIBRARY.includes('if "custom" in patch:'), 'explicit custom metadata upda
 assert(BRIDGE.includes("import('./player_queue.js')") && BRIDGE.includes("import('./player_queue_advanced.js')") && BRIDGE.includes("import('./piano_unified_workspace.js')"), 'bridge must load queue, metadata controller, then the unified visible workspace');
 assert(BRIDGE.indexOf("import('./player_queue.js')") < BRIDGE.indexOf("import('./player_queue_advanced.js')") && BRIDGE.indexOf("import('./player_queue_advanced.js')") < BRIDGE.indexOf("import('./piano_unified_workspace.js')"), 'unified Piano workspace must load only after proven queue and metadata controllers');
 assert(BRIDGE.includes('piano:module-error') && !BRIDGE.includes('.catch(() => {})'), 'bridge must surface module load failures');
+assert(BRIDGE.includes("addEventListener('DOMContentLoaded', loadWorkspaceModules") && !BRIDGE.includes("addEventListener('load'"), 'workspace modules must not wait for optional page resources');
+assert(API.includes('if (songsRequest) return songsRequest') && API.includes('songsGeneration'), 'song API must coalesce reads and fence stale snapshots');
+assert(QUEUE.includes('api.songs()') && PLANNER.includes('api.songs()'), 'queue and planner must share the canonical song snapshot owner');
+assert(!QUEUE.includes('fetch("/api/songs"') && !PLANNER.includes('fetch("/api/songs"'), 'workspace modules must not duplicate the large song-library request');
+assert(!UNIFIED.includes("dispatchEvent(new CustomEvent('piano:unified-refresh-requested'"), 'unified Refresh must not emit a second refresh beside the canonical control');
 assert(TRANSFER.includes('json.dumps({"format": _FORMAT_SONG, "schema": _SCHEMA, "song": song}'), 'library export must continue carrying the full song record');
 assert(UNIFIED.includes("dataset.compatibilityBridge = 'player-queue'") && UNIFIED.includes("dataset.compatibilityBridge = 'local-library'"), 'old queue/library panels must remain compatibility bridges rather than separate visible workspaces');
 assert(UNIFIED.includes('const queue = await waitForQueueApi();') && UNIFIED.includes('queue?.render?.();'), 'unified workspace must force a live queue render after controller readiness');
@@ -86,7 +92,27 @@ assert(MAIN_APP.includes('els.play.addEventListener("click", startPlayback)') &&
 assert(PLANNER.split(/\r?\n/).length < 450, 'advanced planner exceeds the 450-line first-party cap');
 assert(UNIFIED.split(/\r?\n/).length < 450, 'unified workspace adapter exceeds the 450-line first-party cap');
 assert(LIBRARY.split(/\r?\n/).length < 450, 'song library exceeds the 450-line first-party cap');
-console.log('PIANO_METADATA_PLANNER_SMOKE_OK');
+verifySongSnapshot().then(() => console.log('PIANO_METADATA_PLANNER_SMOKE_OK')).catch(error => { console.error(error); process.exitCode = 1; });
+
+async function verifySongSnapshot() {
+  const previousFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async (url) => ({ ok: true, status: 200, json: async () => {
+    calls += 1;
+    return String(url).includes('/identifiers') ? { song: { id: 'song-1' } } : { songs: [{ id: 'song-1' }] };
+  } });
+  try {
+    const source = `data:text/javascript;base64,${Buffer.from(API).toString('base64')}#piano-snapshot`;
+    const { api } = await import(source);
+    const [first, second] = await Promise.all([api.songs(), api.songs()]);
+    assert(first === second && calls === 1, 'concurrent song reads must share one response');
+    await api.songs();
+    assert(calls === 1, 'trusted song snapshot must serve repeated workspace hydration');
+    await api.updateSongIdentifiers('song-1', { tags: ['updated'] });
+    await api.songs();
+    assert(calls === 3, 'successful song mutation must invalidate the shared snapshot');
+  } finally { global.fetch = previousFetch; }
+}
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);

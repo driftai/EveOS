@@ -41,12 +41,15 @@
     window.parent.postMessage({ type: 'piano:eveos-ready' }, '*');
   }
 
-  window.addEventListener('load', () => {
+  function loadWorkspaceModules() {
     import('./player_queue.js')
       .then(() => import('./player_queue_advanced.js'))
       .then(() => import('./piano_unified_workspace.js'))
       .catch(error => reportModuleFailure('My Songs workspace', error));
     import('./sheet_progress.js?v=bc691cc2')
       .catch(error => reportModuleFailure('Sheet Progress', error));
-  });
+  }
+
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', loadWorkspaceModules, { once: true });
+  else loadWorkspaceModules();
 })();

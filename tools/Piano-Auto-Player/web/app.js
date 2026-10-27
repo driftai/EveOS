@@ -361,10 +361,10 @@ async function saveRecording() {
   } catch (error) { toast(error.message, "error"); }
 }
 
-async function refreshLibrary() {
+async function refreshLibrary({ fresh = false } = {}) {
   els.library.innerHTML = "";
   try {
-    const data = await api.songs();
+    const data = await api.songs({ fresh });
     const songs = data.songs || [];
     if (!songs.length) return els.library.innerHTML = '<div class="empty">No saved songs or recordings yet.</div>';
     for (const song of songs) {
@@ -416,7 +416,7 @@ function setGlobalSpeed(value) {
 
 function bind() {
   els.play.addEventListener("click", startPlayback); els.pause.addEventListener("click", togglePause); els.stop.addEventListener("click", stopPlayback);
-  els.save.addEventListener("click", saveCurrentSong); els.refreshLibrary.addEventListener("click", refreshLibrary); els.refreshWindows.addEventListener("click", refreshWindows);
+  els.save.addEventListener("click", saveCurrentSong); els.refreshLibrary.addEventListener("click", () => refreshLibrary({ fresh: true })); els.refreshWindows.addEventListener("click", refreshWindows);
   els.searchForm.addEventListener("submit", searchSheets); els.sheet.addEventListener("input", () => { activeSongId = null; activePerformance = []; activeTranscriptionDiagnostics = null; youtubePiano.showDiagnostics(null); internalPreview.reset(); seekTarget = 1; stoppedResumeEvent = 0; playShouldRestart = false; els.sheet.dataset.timingProfile = "expressive"; queueStats(); });
   els.seekRange.addEventListener("pointerdown", () => { seekInteracting = true; });
   els.seekRange.addEventListener("input", () => { seekInteracting = true; setSeekTarget(els.seekRange.value); });

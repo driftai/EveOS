@@ -1,3 +1,5 @@
+import { api } from "./api.js";
+
 const PREFS_KEY = "piano_player_planner_v1";
 const clean = value => String(value || "").trim();
 const norm = value => clean(value).toLowerCase();
@@ -20,22 +22,8 @@ function safePrefs() {
 function persistPrefs(prefs) {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (_) {}
 }
-async function fetchSongs() {
-  const response = await fetch("/api/songs", { cache: "no-store" });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Library request failed (${response.status})`);
-  return Array.isArray(body.songs) ? body.songs : [];
-}
-async function saveIdentifiers(songId, identifiers) {
-  const response = await fetch("/api/songs/identifiers", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: songId, identifiers })
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Metadata save failed (${response.status})`);
-  return body.song || null;
-}
+const fetchSongs = () => api.songs().then(body => Array.isArray(body.songs) ? body.songs : []);
+const saveIdentifiers = (songId, identifiers) => api.updateSongIdentifiers(songId, identifiers).then(body => body.song || null);
 
 function loadStyles() {
   if (document.getElementById("pianoPlayerPlannerStyles")) return;
