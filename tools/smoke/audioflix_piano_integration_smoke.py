@@ -112,6 +112,8 @@ def assert_static_contract() -> None:
     assert 'min-height: 32px;' in unified_css
     assert '> .panel-head > div > .eyebrow' in unified_css
     assert '> .panel-head h2' in unified_css
+    assert '.piano-now-controls { grid-column: 2; justify-content: flex-end; flex-wrap: nowrap; }' in unified_css
+    assert '.piano-now-controls { grid-column: 1; justify-content: flex-start; flex-wrap: wrap;' in unified_css
 
     helper = (ROOT / "server_modules" / "eveos_control_helper.py").read_text(encoding="utf-8")
     assert '"/api/piano-player/status"' in helper
