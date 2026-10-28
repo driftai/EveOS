@@ -84,6 +84,13 @@ def assert_static_contract() -> None:
     assert "piano-setup" in piano_ui and "Setup / Repair" in piano_ui
     assert "padding: 10px 14px;" in piano_css and "font-size: clamp(19px, 2vw, 27px);" in piano_css
     assert "min-height: 30px;" in piano_css
+    assert 'data-piano-view-title' in piano_ui and 'Piano Auto Player - Backend' in piano_ui
+    assert 'data-piano-backend' in piano_ui and 'data-piano-frontend' in piano_ui
+    assert "EveAudioflixPianoViews?.apply?.(panel)" in piano_ui
+    assert "EveAudioflixPianoViews?.toggle?.(" in piano_ui
+    assert 'audioflix.piano.views.js' in html and html.index('audioflix.piano.views.js') < html.index('audioflix.piano.ui.js')
+    assert 'data-piano-view="frontend"' in piano_css
+    assert 'Piano Auto Player - Backend' in (PIANO / 'web' / 'index.html').read_text(encoding='utf-8')
     assert "sessionStorage" in bridge and "localStorage" not in bridge
     assert "pianoPlayerPort: 8771" in state
 

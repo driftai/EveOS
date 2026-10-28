@@ -100,6 +100,7 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         }
         if (offline) offline.hidden = running;
         if (detachedOverlay) detachedOverlay.hidden = !detached;
+        window.EveAudioflixPianoViews?.apply?.(panel);
         if (setupState) {
             const conversion = status.youtubeSetup ? 'Media conversion installed' : 'Media conversion optional';
             const hifi = status.hifiSetup ? 'Hi-Fi installed' : 'Hi-Fi optional';
@@ -150,12 +151,15 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         const running = status.running === true;
         const selecting = status.phase === 'selecting';
         return `<section class="audioflix-piano" data-audioflix-piano>
-            <header class="audioflix-piano-header"><div><span>PIANO AUTOMATION</span><h3>Piano-Auto-Player</h3><p>Search sheets, record exact performances, audition internally, or send timed keys to a selected piano window.</p></div><div class="audioflix-piano-actions"><b data-piano-status data-state="${status.phase || 'checking'}">${running ? 'Online' : selecting ? 'Choosing mode' : 'Checking'}</b><button type="button" data-af-action="piano-refresh">Refresh</button><button type="button" data-af-action="piano-setup">Setup / Repair</button><button type="button" data-af-action="piano-toggle" data-piano-toggle>${selecting ? 'Choose mode in terminal…' : running ? 'Stop Piano' : 'Start Piano'}</button><button type="button" data-af-action="piano-detach">Detach</button></div></header>
-            <p class="audioflix-piano-message" data-piano-message>${status.message || 'Checking the local Piano service...'}</p>
+            <header class="audioflix-piano-header"><div><span>PIANO AUTOMATION</span><h3 data-piano-view-title>Piano Auto Player - Backend</h3><p>Search sheets, record exact performances, audition internally, or send timed keys to a selected piano window.</p></div><div class="audioflix-piano-actions"><b data-piano-status data-state="${status.phase || 'checking'}">${running ? 'Online' : selecting ? 'Choosing mode' : 'Checking'}</b><button type="button" data-af-action="piano-refresh">Refresh</button><button type="button" data-af-action="piano-setup">Setup / Repair</button><button type="button" data-af-action="piano-toggle" data-piano-toggle>${selecting ? 'Choose mode in terminal…' : running ? 'Stop Piano' : 'Start Piano'}</button><button type="button" data-af-action="piano-detach">Detach</button></div></header>
+            <div class="audioflix-piano-meta"><p class="audioflix-piano-message" data-piano-message>${status.message || 'Checking the local Piano service...'}</p><button type="button" class="audioflix-piano-view-switch" data-af-action="piano-view-switch" data-piano-view-switch aria-label="Switch to Piano frontend">Frontend</button></div>
             <div class="audioflix-piano-stage">
+                <div class="audioflix-piano-backend" data-piano-backend aria-hidden="false">
                 <iframe data-piano-frame title="Piano Auto Player" src="${running ? status.url : 'about:blank'}" ${running ? '' : 'hidden'}></iframe>
                 <div class="audioflix-piano-detached" data-piano-detached hidden><strong>Detached Piano window active</strong><span>This embedded copy is dimmed and interaction-locked so the detached window is the primary Piano workspace.</span><button type="button" data-af-action="piano-refocus">Focus detached window</button></div>
                 <div class="audioflix-piano-offline" data-piano-offline ${running ? 'hidden' : ''}><strong>${selecting ? 'Choose Piano exposure mode' : 'Piano is resting'}</strong><span>${selecting ? 'Use the terminal that just opened to choose Localhost, LAN, or Cloudflare Router.' : 'Start it only when you want sheet playback, recording, or conversion tools.'}</span><small data-piano-setup-state>${selecting ? 'Waiting for terminal selection' : 'Core ready - optional engines not checked'}</small><div><button type="button" data-af-action="piano-toggle">${selecting ? 'Choose mode in terminal…' : 'Start Piano-Auto-Player'}</button><button type="button" data-af-action="piano-setup">Setup / Repair</button></div></div>
+                </div>
+                <div class="audioflix-piano-frontend" data-piano-frontend role="region" aria-label="Blank Piano frontend workspace" hidden></div>
             </div>
         </section>`;
     }
@@ -216,6 +220,10 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
 
     async function handleAction(target) {
         const action = target?.dataset?.afAction || '';
+        if (action === 'piano-view-switch') {
+            window.EveAudioflixPianoViews?.toggle?.(root?.querySelector?.('[data-audioflix-piano]'));
+            return { handled: true };
+        }
         if (action === 'piano-refresh') await refresh({ reloadWorkspace: true });
         if (action === 'piano-toggle') {
             const status = snapshot();

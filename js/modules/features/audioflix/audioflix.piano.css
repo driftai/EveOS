@@ -66,6 +66,15 @@
 .audioflix-piano-actions b[data-state="error"], .audioflix-piano-actions b[data-state="blocked"] { color: #ff8e86; }
 .audioflix-piano-message { margin: 0; color: #9fb0b5; font-size: 12px; }
 
+/* Both Piano views share one service and one mounted backend iframe. */
+.audioflix-piano-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.audioflix-piano-meta .audioflix-piano-message { min-width: 0; }
+.audioflix-piano-view-switch { flex: 0 0 auto; padding: 3px 7px; border: 1px solid rgba(111, 144, 151, .22); border-radius: 7px; background: transparent; color: #839da4; font-size: 10px; cursor: pointer; }
+.audioflix-piano-view-switch:hover, .audioflix-piano-view-switch:focus-visible { color: #bdebf0; border-color: rgba(86, 211, 222, .52); }
+.audioflix-piano-frontend { position: absolute; inset: 0; z-index: 2; background: #071116; }
+.audioflix-piano-frontend[hidden] { display: none !important; }
+.audioflix-piano[data-piano-view="frontend"] .audioflix-piano-backend { position: absolute; inset: 0; width: 100%; opacity: 0; pointer-events: none; }
+
 .audioflix-piano-stage {
     position: relative;
     min-width: 0;
