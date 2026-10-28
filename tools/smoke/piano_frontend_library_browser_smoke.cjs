@@ -201,7 +201,7 @@ async function opaqueRealAppTest(browser) {
    await page.locator('.piano-pxp-controls > summary').click();
    assert.equal(await page.locator('.piano-pxp-controls').getAttribute('open'),'','Playback setup must open when requested');
     const internalGeometry=await page.locator('.piano-pxp-toggle').evaluate(node=>{const label=node.querySelector('span').getBoundingClientRect(),toggle=node.querySelector('input').getBoundingClientRect();return{labelRight:label.right,toggleLeft:toggle.left,labelY:label.top+label.height/2,toggleY:toggle.top+toggle.height/2};});
-    assert(internalGeometry.toggleLeft>=internalGeometry.labelRight-2&&Math.abs(internalGeometry.toggleY-internalGeometry.labelY)<12,'Internal Play toggle must sit beside its label');
+    assert(internalGeometry.toggleLeft>=internalGeometry.labelRight-2&&internalGeometry.toggleLeft-internalGeometry.labelRight<=14&&Math.abs(internalGeometry.toggleY-internalGeometry.labelY)<12,'Internal Play toggle must sit compactly beside its label');
    await page.locator('[data-pxp-layout]').selectOption('88');
    await realChild.waitForFunction(()=>document.getElementById('pianoLayout')?.value==='88');
    assert.equal(await realChild.evaluate(()=>localStorage.getItem('eveos:piano:layout:v1')),'88');
