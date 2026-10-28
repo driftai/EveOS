@@ -2,7 +2,12 @@
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const net = require('node:net');
+const http = require('node:http');
+const { spawn } = require('node:child_process');
+const { pathToFileURL } = require('node:url');
 const { chromium } = require('playwright');
 const repo = path.resolve(__dirname, '../..');
 const read = p => fs.readFileSync(path.join(repo, p), 'utf8');
@@ -13,14 +18,23 @@ const css = read('js/modules/features/audioflix/audioflix.piano.css') + '\n' + r
 const port = read('tools/Piano-Auto-Player/web/piano_frontend_port.js');
 const app = read('tools/Piano-Auto-Player/web/app.js');
 assert(app.includes('setupPianoFrontendPort({ api, play:'), 'real player must install the bridge');
+assert(app.lastIndexOf('setupPianoFrontendPort({ api, play:') < app.lastIndexOf('bind(); updateInputModeUI()'), 'bridge must install before nonessential Piano UI boot calls');
 assert(app.includes('return sheetWorkspace.load('), 'front-end song loading must await existing workspace');
+assert(port.includes("const replyTarget = parentOrigin || '*'"), 'opaque EveOS parents must have a safe reply path');
+assert(port.includes('window.__eveosPianoFrontendPortReady = true'), 'real Piano page must expose bridge-install evidence');
+assert(port.includes('pulseReady();'), 'bridge must briefly reannounce readiness during startup');
+assert(port.includes('event.source !== parent'), 'bridge must pin commands to the actual embedding parent');
+assert(port.includes("data?.type === 'eveos:audioflix-context'"), 'bridge must reannounce after host context');
+assert(frontend.includes("directJson('/api/songs')"), 'frontend must have direct library fallback');
+assert(frontend.includes('if (!bridgeReady) applyLibrary'), 'direct fallback must not overwrite bridge-owned library');
+assert(css.includes('> .audioflix-piano-header { display: none; }'), 'frontend must use its own header and controls');
 
 const childHtml = `<!doctype html><html><body><script type="module">
 import { setupPianoFrontendPort } from '/port.js';
 window.__calls = [];
 window.__songs = [
-  { id: 'one', title: 'Moonlight', artist: 'Composer', sheet: 'abc' },
-  { id: 'two', title: 'Danger <img src=x onerror=alert(1)>', performance: [{key:'a'}] }
+  { id: 'one', title: 'Moonlight', artist: 'Composer', sheet: 'abc', updated_at: 100 },
+  { id: 'two', title: 'Danger <img src=x onerror=alert(1)>', performance: [{key:'a'}], updated_at: 200 }
 ];
 setupPianoFrontendPort({
  api: { songs: async () => ({ songs: window.__songs }) },
@@ -32,13 +46,26 @@ setupPianoFrontendPort({
 window.__keep = 1147;
 </script></body></html>`;
 
-async function test(browser, width) {
+function installHost(page, serviceUrl) {
+  return page.evaluate(url => {
+    window.EveAudioflixPiano = {state:{running:true, installed:true, phase:'running', url, message:'Piano online'}, serviceUrl: ()=>url, refresh:async()=>{}};
+    window.EveAudioflixState = {getSnapshot:()=>({})};
+    const root=document.querySelector('#test-root');root.innerHTML=window.EveAudioflixPianoUi.render();
+    root.addEventListener('click',e=>{const b=e.target.closest('[data-af-action]');if(b)void window.EveAudioflixPianoUi.handleAction(b);});
+    window.EveAudioflixPianoUi.afterRender(root);
+    window.__iframe=root.querySelector('[data-piano-frame]');
+  }, serviceUrl);
+}
+
+async function syntheticTest(browser, width) {
  const page = await browser.newPage({ viewport: { width, height: 860 } });
  await page.route('**/*', route => {
    const url = route.request().url();
    if (url === 'http://127.0.0.1:8765/test') return route.fulfill({status:200,contentType:'text/html',body:'<!doctype html><html><head></head><body><main id="test-root"></main></body></html>'});
    if (url === 'http://127.0.0.1:8771/piano') return route.fulfill({status:200,contentType:'text/html',body:childHtml});
    if (url === 'http://127.0.0.1:8771/port.js') return route.fulfill({status:200,contentType:'application/javascript',body:port});
+   if (url === 'http://127.0.0.1:8771/api/songs') return route.fulfill({status:200,contentType:'application/json',headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'},body:JSON.stringify({songs:[{id:'one',title:'Moonlight',artist:'Composer',updated_at:100},{id:'two',title:'Danger <img src=x onerror=alert(1)>',performance:[{key:'a'}],updated_at:200}]})});
+   if (url === 'http://127.0.0.1:8771/api/status') return route.fulfill({status:200,contentType:'application/json',headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'},body:JSON.stringify({status:'idle'})});
    return route.abort();
  });
  try {
@@ -47,51 +74,92 @@ async function test(browser, width) {
   await page.addScriptTag({content:views});
   await page.addScriptTag({content:frontend});
   await page.addScriptTag({content:ui});
-  await page.evaluate(() => {
-    window.EveAudioflixPiano = {state:{running:true, installed:true, phase:'running', url:'http://127.0.0.1:8771/piano', message:'Piano online'}, serviceUrl: ()=>'http://127.0.0.1:8771/piano', refresh:async()=>{}};
-    window.EveAudioflixState = {getSnapshot:()=>({})};
-    const root=document.querySelector('#test-root');root.innerHTML=window.EveAudioflixPianoUi.render();
-    root.addEventListener('click',e=>{const b=e.target.closest('[data-af-action]');if(b)void window.EveAudioflixPianoUi.handleAction(b);});
-    window.EveAudioflixPianoUi.afterRender(root);
-    window.__iframe=root.querySelector('[data-piano-frame]');
-  });
-  await page.waitForFunction(()=>document.querySelector('[data-piano-frame]')?.getAttribute('src')==='http://127.0.0.1:8771/piano');
+  await installHost(page, 'http://127.0.0.1:8771/piano');
   let child = null;
-  for (let attempt = 0; attempt < 80 && !child; attempt++) {
-    child = page.frame({url:'http://127.0.0.1:8771/piano'});
-    if (!child) await page.waitForTimeout(50);
-  }
+  for (let attempt = 0; attempt < 80 && !child; attempt++) { child = page.frame({url:'http://127.0.0.1:8771/piano'}); if (!child) await page.waitForTimeout(50); }
   assert(child,'Piano iframe must exist');
   await child.waitForFunction(()=>window.__keep===1147);
   await page.click('[data-piano-view-switch]');
   await page.waitForSelector('.piano-frontend-song-play');
+  await page.waitForFunction(()=>document.querySelector('[data-pf-playback]')?.textContent !== 'Connecting…');
+  assert(await page.locator('[data-af-action=\"piano-frontend-pause\"]').isEnabled(),'bridge must recover even if the first ready signal races host setup');
   const songs=await page.locator('.piano-frontend-song-info strong').allTextContents();
-  assert.equal(songs.length,2);
-  assert(songs[0].includes('Moonlight'));
+  assert.equal(songs.length,2); assert(songs.includes('Moonlight'));
   assert.equal(await page.locator('.piano-frontend-song-info img').count(),0,'titles must not be parsed as HTML');
-  assert.equal(await page.locator('[data-piano-frontend] [data-pf-count]').textContent(),'2 songs');
+  assert.equal(await page.locator('[data-pf-count]').textContent(),'2 songs');
+  assert.equal(await page.locator('.audioflix-piano-header').evaluate(el=>getComputedStyle(el).display),'none');
+  assert(await page.locator('[data-af-action="piano-frontend-stop"]').isEnabled(),'stop must enable after bridge handshake');
   await page.locator('[data-af-action="piano-frontend-play"][data-song-id="one"]').click();
   await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='play'&&x[1]==='one'));
   await page.waitForFunction(()=>document.querySelector('[data-pf-message]')?.textContent?.includes('Song sent'));
-  await page.click('[data-af-action="piano-frontend-pause"]');
-  await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='pause'));
-  await page.click('[data-af-action="piano-frontend-stop"]');
-  await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='stop'));
-  await page.locator('[data-pf-search]').fill('Moon');
-  assert.equal(await page.locator('.piano-frontend-song').count(),1,'search must filter songs without mutating server data');
+  await page.click('[data-af-action="piano-frontend-pause"]'); await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='pause'));
+  await page.click('[data-af-action="piano-frontend-stop"]'); await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='stop'));
+  await page.locator('[data-pf-search]').fill('Moon'); assert.equal(await page.locator('.piano-frontend-song').count(),1);
   await page.locator('[data-pf-search]').fill('');
-  await child.evaluate(()=>window.__songs.push({id:'three',title:'Third Song'}));
+  await page.locator('[data-pf-sort]').selectOption('az');
+  assert.equal((await page.locator('.piano-frontend-song-info strong').allTextContents())[0].startsWith('Danger'),true,'A-Z sort must work');
+  await child.evaluate(()=>window.__songs.push({id:'three',title:'Third Song',updated_at:300}));
   await page.click('[data-af-action="piano-frontend-refresh"]');
   await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===3);
-  await page.click('[data-piano-view-switch]');
-  await page.click('[data-piano-view-switch]');
-  const stable=await page.evaluate(()=>({same:document.querySelector('[data-piano-frame]')===window.__iframe,view:document.querySelector('[data-audioflix-piano]').dataset.pianoView,source:document.querySelector('[data-piano-frame]').getAttribute('src')}));
+  await page.click('[data-piano-view-switch]'); await page.click('[data-piano-view-switch]');
+  const stable=await page.evaluate(()=>({same:document.querySelector('[data-piano-frame]')===window.__iframe,view:document.querySelector('[data-audioflix-piano]').dataset.pianoView}));
   assert(stable.same && stable.view==='frontend','backend document must be preserved on view change');
   assert.equal(await child.evaluate(()=>window.__keep),1147);
   await page.evaluate(()=>{window.EveAudioflixPiano.state.running=false;window.EveAudioflixPiano.state.phase='stopped';window.EveAudioflixPiano.state.url='';window.dispatchEvent(new Event('eve:audioflix-piano-status'));});
   await page.waitForFunction(()=>document.querySelector('[data-pf-playback]')?.textContent==='Piano offline');
   assert.equal(await page.locator('.piano-frontend-song').count(),0,'do not show stale playable entries when service stops');
-  console.log(`PIANO_FRONTEND_LIBRARY_BROWSER_OK viewport=${width} songs=PASS play=PASS pause=PASS stop=PASS search=PASS refresh=PASS iframe-preserved=PASS offline=PASS`);
+  console.log(`PIANO_FRONTEND_LIBRARY_BROWSER_OK viewport=${width} songs=PASS controls=PASS sort=PASS play=PASS search=PASS refresh=PASS iframe-preserved=PASS offline=PASS`);
  } finally { await page.close(); }
 }
-(async()=>{const browser=await chromium.launch({headless:true});try{for(const width of [1440,760,480])await test(browser,width);console.log('EVEOS_PIANO_FRONTEND_LIBRARY_BROWSER_PASS');}finally{await browser.close();}})().catch(e=>{console.error(e.stack||e);process.exitCode=1;});
+
+function freePort() {
+ return new Promise((resolve,reject)=>{const s=net.createServer();s.unref();s.on('error',reject);s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});
+}
+function waitHttp(url, timeout=10000) {
+ const start=Date.now();
+ return new Promise((resolve,reject)=>{const tick=()=>{const req=http.get(url,res=>{res.resume();if(res.statusCode===200)return resolve();setTimeout(tick,80);});req.on('error',()=>{if(Date.now()-start>timeout)return reject(new Error(`Timed out waiting for ${url}`));setTimeout(tick,80);});};tick();});
+}
+
+async function opaqueRealAppTest(browser) {
+ const temp=fs.mkdtempSync(path.join(os.tmpdir(),'eveos-piano-front-'));
+ const portNumber=await freePort();
+ const songFile=path.join(temp,'songs.json');
+ const launcher=path.join(temp,'server.py');
+ const tool=path.join(repo,'tools','Piano-Auto-Player');
+ fs.writeFileSync(launcher, `import sys, pathlib\nsys.path.insert(0, ${JSON.stringify(tool)})\nfrom app import server\nfrom app.library import SongLibrary\nserver.LIBRARY=SongLibrary(pathlib.Path(${JSON.stringify(songFile)}))\nserver.LIBRARY.save({'id':'opaque-one','title':'Opaque One','sheet':'a b c'})\nserver.LIBRARY.save({'id':'opaque-two','title':'Opaque Two','sheet':'d e f'})\nserver.run('127.0.0.1', ${portNumber})\n`);
+ const parentFile=path.join(temp,'parent.html');
+ fs.writeFileSync(parentFile,'<!doctype html><html><head></head><body style="margin:0;background:#090f12"><main id="test-root"></main></body></html>');
+ const python=process.env.PYTHON || 'python';
+ const child=spawn(python,[launcher],{cwd:repo,stdio:['ignore','pipe','pipe']});
+ let stderr=''; child.stderr.on('data',chunk=>{stderr+=String(chunk);});
+ try {
+  await waitHttp(`http://127.0.0.1:${portNumber}/api/status`);
+  const page=await browser.newPage({viewport:{width:1180,height:860}});
+  const consoleLines=[]; const pageErrors=[];
+  page.on('console',msg=>consoleLines.push(`[${msg.type()}] ${msg.text()}`));
+  page.on('pageerror',error=>pageErrors.push(String(error?.stack||error)));
+  try {
+   await page.goto(pathToFileURL(parentFile).href);
+   await page.addStyleTag({content:css}); await page.addScriptTag({content:views}); await page.addScriptTag({content:frontend}); await page.addScriptTag({content:ui});
+   await installHost(page,`http://127.0.0.1:${portNumber}/`);
+   let realChild=null;
+   for(let attempt=0;attempt<100&&!realChild;attempt++){realChild=page.frames().find(frame=>frame.url()===`http://127.0.0.1:${portNumber}/`);if(!realChild)await page.waitForTimeout(50);}
+   assert(realChild,'real Piano iframe must load under file-origin parent');
+   await realChild.waitForFunction(()=>window.__eveosPianoFrontendPortReady===true,{timeout:10000});
+   const bridgeEvidence=await realChild.evaluate(()=>({ready:window.__eveosPianoFrontendPortReady===true,announcements:Number(window.__eveosPianoFrontendPortAnnouncements||0),status:document.getElementById('statusText')?.textContent||'',href:location.href}));
+   assert(bridgeEvidence.ready,`real Piano bridge did not install: ${JSON.stringify(bridgeEvidence)}`);
+   await page.click('[data-piano-view-switch]');
+   await page.waitForFunction(()=>document.querySelector('[data-pf-count]')?.textContent==='2 songs',{timeout:10000});
+   await page.waitForFunction(()=>document.querySelector('[data-pf-playback]')?.textContent!=='Connecting…',{timeout:10000});
+   assert(await page.locator('[data-af-action="piano-frontend-pause"]').isEnabled(),`opaque/file parent must establish playback bridge; child=${JSON.stringify(bridgeEvidence)} console=${consoleLines.join(' | ')} errors=${pageErrors.join(' | ')}`);
+   const titles=await page.locator('.piano-frontend-song-info strong').allTextContents();
+   assert.deepEqual(new Set(titles),new Set(['Opaque One','Opaque Two']));
+   console.log(`PIANO_FRONTEND_OPAQUE_REAL_APP_OK origin=file library=PASS bridge=PASS controls=PASS announcements=${bridgeEvidence.announcements}`);
+  } catch (error) {
+    throw new Error(`${error.message}\nReal Piano browser console:\n${consoleLines.slice(-40).join(' | ')}\nReal Piano page errors:\n${pageErrors.slice(-20).join(' | ')}`);
+  } finally { await page.close(); }
+ } catch (error) { throw new Error(`${error.message}\nPiano server stderr:\n${stderr}`); }
+ finally { child.kill(); fs.rmSync(temp,{recursive:true,force:true}); }
+}
+
+(async()=>{const browser=await chromium.launch({headless:true});try{await opaqueRealAppTest(browser);for(const width of [1440,760,480])await syntheticTest(browser,width);console.log('EVEOS_PIANO_FRONTEND_LIBRARY_BROWSER_PASS');}finally{await browser.close();}})().catch(error=>{console.error(error.stack||error);process.exitCode=1;});
