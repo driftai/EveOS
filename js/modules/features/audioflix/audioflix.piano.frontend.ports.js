@@ -19,6 +19,11 @@
   const kind = song => song.kind === 'recording' || song.automatic_identifiers?.kind === 'performance' ? 'recording' : 'sheet';
   const durationMs = song => Number(song.automatic_identifiers?.duration_ms || song.duration_ms || 0);
   const eventCount = song => Number(song.automatic_identifiers?.event_count || 0);
+  const sourceLabel = song => {
+    const raw = String(song.automatic_identifiers?.source_host || song.source || '').trim();
+    if (!raw) return '';
+    try { return new URL(raw).hostname.replace(/^www\./, ''); } catch (_) { return raw.slice(0, 40); }
+  };
 
   function matches(song, search) {
     if (scope === 'favorites' && !favorite(song)) return false;
@@ -122,6 +127,7 @@
         const authorText = id.author || song.artist;
         if (authorText && authorText !== song.artist) details.append(badge(authorText));
         list(id.genre).slice(0, 2).forEach(v => details.append(badge(v)));
+        if (sourceLabel(song)) details.append(badge(sourceLabel(song)));
         list(id.tags).slice(0, 3).forEach(v => details.append(badge(`#${v}`)));
         if (eventCount(song)) details.append(badge(`${eventCount(song)} events`));
         if (durationMs(song)) details.append(badge(`${(durationMs(song) / 60000).toFixed(1)} min`));
@@ -154,7 +160,10 @@
     return true;
   }
   function note(message) { const node = $('[data-pxp-notice]'); if (node) node.textContent = message; }
-  function publish() { for (const listener of subscribers) { try { listener({ controls, queue, progress, media }); } catch (_) {} } }
+  function publish() {
+    front.syncPlayback?.();
+    for (const listener of subscribers) { try { listener({ controls, queue, progress, media }); } catch (_) {} }
+  }
   function updateControls() {
     const internal = $('[data-pxp-internal]'), target = $('[data-pxp-target]');
     if (internal) internal.disabled = !active() || !controls;
@@ -389,6 +398,7 @@
     if (data.error) {
       note(data.error);
       if (action?.startsWith('queue:')) { const count = $('[data-pxp-queue-count]'); if (count) count.textContent = 'Queue unavailable · Refresh'; }
+      if (action === 'song:update') { front.requestLibrary?.(); send('media:get'); }
     }
     else {
       if (data.controls) { controls=data.controls; updateControls(); }
@@ -397,6 +407,7 @@
       if (data.media) media=data.media;
       if (!data.queue && action === 'queue:get') note('Player Queue is starting…');
       else note('');
+      if (action === 'song:update') front.requestLibrary?.();
       publish();
     }
   });

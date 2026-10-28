@@ -106,7 +106,16 @@
   }
   function updateSong(song, overrides={}) {
     const ids=song?.identifiers||{};
-    ports.command?.('song:update',{songId:song.id,title:overrides.title??song.title,artist:overrides.artist??ids.author??song.artist,genre:overrides.genre??ids.genre,tags:overrides.tags??ids.tags,rating:overrides.rating??ids.personal_rating,favorite:overrides.favorite??isFavorite(song)});
+    const nextFavorite=overrides.favorite??isFavorite(song);
+    if(Object.prototype.hasOwnProperty.call(overrides,'favorite')){
+      front.setSongFavorite?.(song.id,nextFavorite);
+      if(String(state.media?.current?.id||'')===String(song.id)){
+        const current=state.media.current,identifiers=current.identifiers||{},custom=identifiers.custom||{};
+        state={...state,media:{...state.media,current:{...current,identifiers:{...identifiers,custom:{...custom,favorite:nextFavorite?'true':'false'}}}}};render();
+      }
+    }
+    const sent=ports.command?.('song:update',{songId:song.id,title:overrides.title??song.title,artist:overrides.artist??ids.author??song.artist,genre:overrides.genre??ids.genre,tags:overrides.tags??ids.tags,rating:overrides.rating??ids.personal_rating,favorite:nextFavorite});
+    if(sent===false)front.requestLibrary?.();
   }
   function handleAction(target) {
     const action=target?.dataset?.afAction||'';if(!action.startsWith('piano-frontend-media-'))return false;

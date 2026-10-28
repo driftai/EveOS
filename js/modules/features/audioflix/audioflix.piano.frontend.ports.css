@@ -9,7 +9,9 @@
 .piano-pxp-control-grid label { min-width:0; display:flex; flex-direction:column; gap:6px; font-size:12px; font-weight:650; color:#c8e9ed; }
 .piano-pxp-control-grid select { background:#0a2228; color:#e0f3f5; border:1px solid #345b62; min-height:37px; padding:6px 10px; border-radius:9px; width:100%; min-width:0; }
 .piano-pxp-control-grid select:disabled { color:#73858b; background:#162329; border-color:#374347; opacity:.57; cursor:not-allowed; }
-.piano-pxp-toggle input { width:19px; height:19px; accent-color:#67d7df; margin:8px 0 5px; }
+.piano-pxp-control-grid label.piano-pxp-toggle { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:10px; }
+.piano-pxp-toggle input { grid-column:2; grid-row:1; width:19px; height:19px; accent-color:#67d7df; margin:0; }
+.piano-pxp-toggle small { grid-column:1 / -1; }
 .piano-pxp-control-grid small { font-weight:400; line-height:1.3; }
 .piano-pxp-mini { margin-top:11px; display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
 .piano-pxp-mini [data-pxp-notice] { font-size:11px; color:#95bcc3; }

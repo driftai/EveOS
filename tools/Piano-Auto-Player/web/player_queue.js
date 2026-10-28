@@ -211,14 +211,20 @@ function installPlayerQueue() {
     }
 
     async function playLibrarySong(item, { resume = false } = {}) {
+      const songs = await fetchSongs();
+      const song = songs.find(entry => String(entry.id) === String(item.songId));
+      if (!song) throw new Error("That queued library song no longer exists.");
+      const owner = window.PianoPlaybackOwner;
+      if (typeof owner?.playSong === "function") {
+        suppressCancel = true;
+        try { await owner.playSong(song, { resume }); } finally { suppressCancel = false; }
+        return;
+      }
       if (resume && titleMatches(item) && /resume/i.test(pauseButton?.textContent || "")) {
         suppressCancel = true;
         try { pauseButton.click(); } finally { suppressCancel = false; }
         return;
       }
-      const songs = await fetchSongs();
-      const song = songs.find(entry => String(entry.id) === String(item.songId));
-      if (!song) throw new Error("That queued library song no longer exists.");
       syncLibraryCards(songs);
       const loadButton = await waitForLibraryLoadButton(song.id);
       if (!loadButton || !playButton) throw new Error("Player controls remain unavailable after a fresh library repair. Reload Piano and try again.");
@@ -261,9 +267,15 @@ function installPlayerQueue() {
       return playActivated(item, { resume: true });
     }
 
-    function stopQueue() {
+    async function stopQueue() {
       state.active = false; render();
-      if (state.currentId && stopButton) { suppressCancel = true; try { stopButton.click(); } finally { suppressCancel = false; } }
+      if (state.currentId) {
+        suppressCancel = true;
+        try {
+          if (typeof window.PianoPlaybackOwner?.stop === "function") await window.PianoPlaybackOwner.stop();
+          else stopButton?.click();
+        } finally { suppressCancel = false; }
+      }
       toast("Player Queue stopped. Play Queue will resume the current song.", "idle");
     }
 

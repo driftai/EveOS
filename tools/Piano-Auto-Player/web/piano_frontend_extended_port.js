@@ -70,8 +70,10 @@ async function performQueue(data, api) {
   } else if (action === 'queue:mode') {
     if (!['manual', 'ordered', 'shuffle'].includes(data.value)) throw new Error('Invalid queue mode.');
     queue.setMode(data.value);
-  } else if (action === 'queue:play') await queue.playQueue();
-  else if (action === 'queue:stop') queue.stopQueue();
+  } else if (action === 'queue:play') {
+    if (!await queue.playQueue()) throw new Error('Player Queue could not start. Check the Piano status and try again.');
+  }
+  else if (action === 'queue:stop') await queue.stopQueue();
   else if (action === 'queue:next') await queue.next();
   else if (action === 'queue:previous') await queue.previous();
   else if (action === 'queue:shuffle') queue.shuffleRemaining();
@@ -225,6 +227,9 @@ export function setupExtendedPianoFrontendPort({ api, parent, parentOrigin, repl
   document.addEventListener('change', event => {
     if (['internalPlay', 'windowSelect', 'pianoLayout', 'pianoSound'].includes(event.target?.id)) updates();
   });
+  updates();
+  reply({ type: 'piano:eveos-port-update', progress: progressSnapshot() });
+  void mediaUpdates();
 }
 
 export function summarizeFrontendSong(song) {

@@ -22,7 +22,14 @@ export function setupPianoFrontendAppBridge(options) {
     else if (name !== 'custom') throw new Error('Unknown Piano playback preset.');
     return { name, speed: speed() };
   };
+  const playbackOwner = Object.freeze({
+    playSong: (song, playbackOptions = {}) => options.play(song, playbackOptions),
+    pause: () => options.pause(),
+    stop: () => options.stop(),
+    status: () => options.status()
+  });
+  window.PianoPlaybackOwner = playbackOwner;
 
   setupPianoFrontendPort({ ...options, media, preset });
-  return { persistInternalMode };
+  return { persistInternalMode, playbackOwner };
 }

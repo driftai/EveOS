@@ -62,6 +62,7 @@
             : 'Library is empty. Add songs from Backend tools.';
         else message = songs.length ? 'Your saved Piano songs.' : 'No saved songs yet. Add songs from Backend tools.';
         displayStatus();
+        displaySongs();
     }
     function send(action, songId = '') {
         const target = frame()?.contentWindow;
@@ -114,11 +115,41 @@
             const subtitle = document.createElement('small'); subtitle.textContent = [song.artist, song.kind === 'recording' ? 'Recording' : 'Song'].filter(Boolean).join(' · ');
             info.append(title, subtitle);
             const play = document.createElement('button'); play.type = 'button'; play.className = 'piano-frontend-song-play';
-            play.dataset.afAction = 'piano-frontend-play'; play.dataset.songId = song.id; play.textContent = 'Play';
-            play.setAttribute('aria-label', `Play ${song.title}`); play.disabled = !isRunning() || !bridgeReady || !!busy;
+            play.dataset.songId = song.id;
             row.append(art, info, play); target.append(row);
         }
         window.EveAudioflixPianoFrontendPorts?.decorateSongs?.(target, matching, songs);
+        updateSongTransportButtons();
+    }
+    function activeSongPlayback() {
+        const snapshot = window.EveAudioflixPianoFrontendPorts?.snapshot?.() || {};
+        const playback = String(snapshot.progress?.status || snapshot.media?.status || state || 'idle');
+        return {
+            songId: String(snapshot.media?.current?.id || ''),
+            active: ['countdown', 'playing', 'paused'].includes(playback)
+        };
+    }
+    function updateSongTransportButtons() {
+        const playback = activeSongPlayback();
+        canvas()?.querySelectorAll('.piano-frontend-song-play[data-song-id]').forEach(button => {
+            const song = songs.find(item => item.id === button.dataset.songId);
+            if (!song) return;
+            const stopping = playback.active && playback.songId === song.id;
+            button.dataset.afAction = stopping ? 'piano-frontend-stop-song' : 'piano-frontend-play';
+            button.textContent = stopping ? 'Stop' : 'Play';
+            button.setAttribute('aria-label', `${stopping ? 'Stop' : 'Play'} ${song.title}`);
+            button.classList.toggle('is-stop', stopping);
+            button.disabled = !isRunning() || !bridgeReady || !!busy;
+        });
+    }
+    function setSongFavorite(songId, value) {
+        const song = songs.find(item => item.id === String(songId));
+        if (!song) return false;
+        const identifiers = song.identifiers && typeof song.identifiers === 'object' ? song.identifiers : {};
+        const custom = identifiers.custom && typeof identifiers.custom === 'object' ? identifiers.custom : {};
+        song.identifiers = { ...identifiers, custom: { ...custom, favorite: value ? 'true' : 'false' } };
+        displaySongs();
+        return true;
     }
     function displayStatus() {
         const c = canvas(); if (!c) return;
@@ -139,17 +170,17 @@
             button.disabled = !isRunning() || !!busy || (action !== 'refresh' && !bridgeReady);
         }
         setNotice(message);
-        displaySongs();
+        updateSongTransportButtons();
     }
     function reset() {
         pending.clear(); songs = []; bridgeReady = false; libraryReady = false; lastLibrary = lastStatus = 0; busy = ''; state = 'idle';
         message = isRunning() ? 'Connecting to Piano library…' : 'Start Piano to browse your songs.';
-        displayStatus();
+        displayStatus(); displaySongs();
     }
     function invalidate(messageText = 'Refreshing Piano library…') {
         pending.clear(); bridgeReady = false; lastLibrary = lastStatus = 0; busy = '';
         if (isRunning()) message = messageText;
-        displayStatus();
+        displayStatus(); displaySongs();
     }
     async function loadLibraryDirect() {
         try {
@@ -218,10 +249,12 @@
         const command = action.slice('piano-frontend-'.length);
         if (command === 'refresh') { lastLibrary = lastStatus = 0; refresh(true); return true; }
         if (command === 'play' && !songs.some(song => song.id === target.dataset.songId)) return true;
-        if (!['play', 'pause', 'stop'].includes(command)) return true;
+        if (command === 'stop-song' && activeSongPlayback().songId !== target.dataset.songId) return true;
+        const wireCommand = command === 'stop-song' ? 'stop' : command;
+        if (!['play', 'pause', 'stop'].includes(wireCommand)) return true;
         if (!bridgeReady) { setNotice('Playback controls are still connecting. Your library is available.'); return true; }
-        busy = command; setNotice(command === 'play' ? 'Loading song and starting playback…' : 'Sending playback command…');
-        if (!send(command, command === 'play' ? target.dataset.songId : '')) {
+        busy = wireCommand; setNotice(wireCommand === 'play' ? 'Loading song and starting playback…' : 'Sending playback command…');
+        if (!send(wireCommand, wireCommand === 'play' ? target.dataset.songId : '')) {
             busy = ''; setNotice('Piano playback controls are not connected. Try Refresh.');
         }
         displayStatus(); return true;
@@ -248,7 +281,9 @@
     });
     Object.assign(ns, {
         ready: true, mount, sync, refresh, invalidate, handleAction, repaint: displaySongs,
+        syncPlayback: updateSongTransportButtons, setSongFavorite,
         bridgeReady: () => bridgeReady, serviceOrigin: origin,
+        pendingCount: () => pending.size,
         getSongs: () => songs.map(song => ({ ...song, identifiers: { ...(song.identifiers || {}) }, automatic_identifiers: { ...(song.automatic_identifiers || {}) } })),
         requestLibrary: () => { lastLibrary = 0; refresh(true); }
     });

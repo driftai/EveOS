@@ -33,6 +33,8 @@
 .piano-frontend-song-info small { color: #7899a1; font-size: 11px; }
 .audioflix-piano-frontend .piano-frontend-song-play { min-width: 68px; color: #071b20; background: #74dce8; border-color: #74dce8; font-weight: 800; }
 .audioflix-piano-frontend .piano-frontend-song-play:hover:not(:disabled) { background: #a2edf5; }
+.audioflix-piano-frontend .piano-frontend-song-play.is-stop { color:#ffe7e9; background:#7a323b; border-color:#a9505d; }
+.audioflix-piano-frontend .piano-frontend-song-play.is-stop:hover:not(:disabled) { background:#98404c; }
 .piano-frontend-empty { border: 1px dashed #244950; border-radius: 12px; color: #8ca7ae; padding: 38px 14px; text-align: center; font-size: 13px; }
 @media (max-width: 650px) {
   .piano-frontend-inner { padding: 16px; }
