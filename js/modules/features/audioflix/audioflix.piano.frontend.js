@@ -223,7 +223,7 @@
         c.setAttribute('aria-label', 'Piano songs frontend');
         c.innerHTML = `<div class="piano-frontend-inner">
           <header class="piano-frontend-header">
-            <div class="piano-frontend-title"><span class="piano-frontend-kicker">PIANO LIBRARY</span><h2>My Piano Music</h2><p>Choose a song and play it here.</p></div>
+            <div class="piano-frontend-title"><span class="piano-frontend-kicker">PIANO LIBRARY</span><h2>Piano Auto Player - Frontend</h2><p>Choose a song and play it here.</p></div>
             <div class="piano-frontend-transport" aria-label="Piano playback controls"><span class="piano-frontend-state" data-pf-playback role="status">Connecting…</span><button type="button" data-af-action="piano-toggle" data-pf-service-start hidden>Start Piano</button><button type="button" data-af-action="piano-frontend-pause">Pause / Resume</button><button type="button" data-af-action="piano-frontend-stop">Stop</button></div>
           </header>
           <section class="piano-frontend-library">

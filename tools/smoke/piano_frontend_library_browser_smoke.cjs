@@ -99,7 +99,7 @@ async function syntheticTest(browser, width) {
   assert.equal(await page.locator('.piano-frontend-song-info img').count(),0,'titles must not be parsed as HTML');
   assert.equal(await page.locator('[data-pf-count]').textContent(),'2 songs');
   assert.equal(await page.locator('.audioflix-piano-header').evaluate(el=>getComputedStyle(el).display),'none','technical Piano Automation toolbar must stay in Backend');
-  assert.equal(await page.locator('.piano-frontend-title h2').textContent(),'My Piano Music');
+  assert.equal(await page.locator('.piano-frontend-title h2').textContent(),'Piano Auto Player - Frontend');
   assert.equal(await page.locator('[data-piano-view-title]').textContent(),'Piano Library');
   assert(await page.locator('[data-af-action="piano-frontend-stop"]').isEnabled(),'stop must enable after bridge handshake');
   await page.locator('[data-af-action="piano-frontend-play"][data-song-id="one"]').click();
@@ -185,7 +185,7 @@ async function opaqueRealAppTest(browser) {
    const bridgeConnectStarted=Date.now();
    await page.click('[data-piano-view-switch]');
    assert.equal(await page.locator('.audioflix-piano-header').evaluate(el=>getComputedStyle(el).display),'none','real file-origin frontend must hide technical launcher controls');
-   assert.equal(await page.locator('.piano-frontend-title h2').textContent(),'My Piano Music');
+   assert.equal(await page.locator('.piano-frontend-title h2').textContent(),'Piano Auto Player - Frontend');
    assert.equal(await page.locator('[data-piano-view-title]').textContent(),'Piano Library');
    await page.waitForFunction(()=>document.querySelector('[data-pf-count]')?.textContent==='2 songs',{timeout:10000});
    await page.waitForFunction(()=>document.querySelector('[data-pf-playback]')?.textContent!=='Connecting…',{timeout:10000});
