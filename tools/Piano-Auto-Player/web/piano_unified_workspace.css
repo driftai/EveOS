@@ -196,6 +196,14 @@
 .piano-library-browser[data-u-collapsed="1"] .piano-library-browser-body {
   display: none !important;
 }
+.piano-unified-workspace .planner-pills { gap: 7px; padding: 2px 0; }
+.piano-unified-workspace .planner-pill { min-height: 32px; padding: 7px 12px; font-size: 9px; }
+.piano-song-list-panel { display: grid; gap: 7px; min-width: 0; padding: 8px; border: 1px solid rgba(95, 211, 197, .18); border-radius: 11px; background: rgba(7, 16, 16, .58); }
+.piano-song-list-head { display: flex; align-items: center; justify-content: space-between; gap: 9px; min-width: 0; }
+.piano-song-list-copy { display: grid; gap: 2px; min-width: 0; }
+.piano-song-list-copy strong { color: #8fded5; font-size: 9px; letter-spacing: .1em; }
+.piano-song-list-copy small { overflow: hidden; color: var(--muted, #94a6b5); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.piano-song-list-panel[data-u-collapsed="1"] > [data-p-list] { display: none !important; }
 
 .piano-unified-workspace[data-u-collapsed="1"] > .planner-body > :not(.piano-unified-head) {
   display: none !important;

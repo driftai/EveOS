@@ -1,4 +1,5 @@
 import { renderQueuePreview } from './piano_queue_preview.js';
+import { enhanceSongListDisclosure } from './piano_unified_song_list.js';
 
 const STYLE_ID = 'pianoUnifiedWorkspaceStyles';
 const LEGACY_QUEUE = '.sheet-workspace-queue';
@@ -411,6 +412,7 @@ async function installUnifiedWorkspace() {
   hideLegacyPanels();
   buildHeader(planner);
   enhanceLibraryBrowserDisclosure(planner);
+  enhanceSongListDisclosure(planner, savedCollapsed, saveCollapsed);
   markVisibleContract(planner);
   bindQueueStrip(planner);
 

@@ -107,6 +107,8 @@ def assert_static_contract() -> None:
     assert '.sheet-workspace > .sheet-workspace-queue' in workspace_css
 
     unified_css = (ROOT / "tools" / "Piano-Auto-Player" / "web" / "piano_unified_workspace.css").read_text(encoding="utf-8")
+    unified_js = (ROOT / "tools" / "Piano-Auto-Player" / "web" / "piano_unified_workspace.js").read_text(encoding="utf-8")
+    song_list_js = (ROOT / "tools" / "Piano-Auto-Player" / "web" / "piano_unified_song_list.js").read_text(encoding="utf-8")
     assert '.search-panel.piano-collapsible-panel[data-u-collapsed="1"]' in unified_css
     assert '.notation-panel.piano-collapsible-panel[data-u-collapsed="1"]' in unified_css
     assert 'min-height: 32px;' in unified_css
@@ -114,6 +116,10 @@ def assert_static_contract() -> None:
     assert '> .panel-head h2' in unified_css
     assert '.piano-now-controls { grid-column: 2; justify-content: flex-end; flex-wrap: nowrap; }' in unified_css
     assert '.piano-now-controls { grid-column: 1; justify-content: flex-start; flex-wrap: wrap;' in unified_css
+    assert "from './piano_unified_song_list.js'" in unified_js and 'enhanceSongListDisclosure(planner' in unified_js
+    assert "saveCollapsed('song-list', collapsed)" in song_list_js
+    assert '.piano-song-list-panel[data-u-collapsed="1"] > [data-p-list]' in unified_css
+    assert '.piano-unified-workspace .planner-pill { min-height: 32px;' in unified_css
 
     helper = (ROOT / "server_modules" / "eveos_control_helper.py").read_text(encoding="utf-8")
     assert '"/api/piano-player/status"' in helper
