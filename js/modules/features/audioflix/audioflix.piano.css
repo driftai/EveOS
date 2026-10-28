@@ -7,10 +7,10 @@
 
 .audioflix-piano-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
-    gap: 20px;
-    padding: 16px 18px;
+    gap: 14px;
+    padding: 10px 14px;
     border: 1px solid rgba(61, 213, 224, 0.24);
     border-radius: 18px;
     background: linear-gradient(125deg, rgba(6, 36, 43, 0.88), rgba(18, 22, 27, 0.92));
@@ -24,19 +24,19 @@
     letter-spacing: .16em;
 }
 
-.audioflix-piano-header h3 { margin: 5px 0; font-size: clamp(21px, 2.4vw, 34px); }
-.audioflix-piano-header p { margin: 0; max-width: 760px; color: #a9b9bd; }
+.audioflix-piano-header h3 { margin: 3px 0; font-size: clamp(19px, 2vw, 27px); }
+.audioflix-piano-header p { margin: 0; max-width: 760px; color: #a9b9bd; font-size: 13px; line-height: 1.35; }
 
 .audioflix-piano-actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
 
 .audioflix-piano-actions b {
-    padding: 7px 11px;
+    padding: 6px 9px;
     border: 1px solid rgba(255,255,255,.14);
     border-radius: 999px;
     color: #aeb9bc;
@@ -44,8 +44,8 @@
 }
 
 .audioflix-piano-actions button {
-    min-height: 34px;
-    padding: 7px 11px;
+    min-height: 30px;
+    padding: 6px 9px;
     border: 1px solid rgba(111, 144, 151, .34);
     border-radius: 10px;
     color: #dce7e8;

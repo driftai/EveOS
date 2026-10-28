@@ -82,6 +82,8 @@ def assert_static_contract() -> None:
     assert "data-piano-detached" in piano_ui and "detachedWindow" in piano_ui and "Focus Detached" in piano_ui
     assert ".audioflix-piano.is-detached" in piano_css and "pointer-events: none" in piano_css
     assert "piano-setup" in piano_ui and "Setup / Repair" in piano_ui
+    assert "padding: 10px 14px;" in piano_css and "font-size: clamp(19px, 2vw, 27px);" in piano_css
+    assert "min-height: 30px;" in piano_css
     assert "sessionStorage" in bridge and "localStorage" not in bridge
     assert "pianoPlayerPort: 8771" in state
 
