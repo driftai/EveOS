@@ -3,6 +3,7 @@
 
   const KEY = 'eveos:piano-host-context';
   let context = null;
+  const eveHost = window.parent && window.parent !== window ? window.parent : window.opener;
 
   // Prevent the three legacy Piano surfaces from flashing as separate workspaces while the
   // queue/metadata controllers hydrate. Their DOM remains available as a compatibility bridge;
@@ -14,7 +15,17 @@
 
   function accept(event) {
     const payload = event?.data;
-    if (!payload || payload.type !== 'eveos:audioflix-context') return;
+    if (!payload) return;
+    if (payload.type === 'eveos:piano-refresh') {
+      if (!eveHost || event.source !== eveHost) return;
+      const text = document.getElementById('statusText');
+      const chip = document.getElementById('statusChip');
+      if (text) text.textContent = 'Reloading Piano workspace…';
+      if (chip) chip.dataset.state = 'countdown';
+      window.location.reload();
+      return;
+    }
+    if (payload.type !== 'eveos:audioflix-context') return;
     context = payload.context && typeof payload.context === 'object' ? payload.context : null;
     try {
       if (context) sessionStorage.setItem(KEY, JSON.stringify(context));
@@ -37,7 +48,6 @@
   try { context = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (_) {}
   window.addEventListener('message', accept);
   window.PianoEveOS = Object.freeze({ getContext: () => context ? { ...context } : null });
-  const eveHost = window.parent && window.parent !== window ? window.parent : window.opener;
   eveHost?.postMessage?.({ type: 'piano:eveos-ready' }, '*');
 
   function installReattachControl() {

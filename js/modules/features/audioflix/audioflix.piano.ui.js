@@ -109,9 +109,19 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         }
     }
 
-    async function refresh() {
+    function reloadWorkspace() {
+        const target = isDetached()
+            ? detachedWindow
+            : root?.querySelector?.('[data-piano-frame]')?.contentWindow;
+        if (!target) return false;
+        target.postMessage({ type: 'eveos:piano-refresh' }, '*');
+        return true;
+    }
+
+    async function refresh({ reloadWorkspace: shouldReloadWorkspace = false } = {}) {
         await window.EveAudioflixPiano?.refresh?.();
         patch();
+        if (shouldReloadWorkspace && snapshot().running) reloadWorkspace();
     }
 
     function syncPoll() {
@@ -206,7 +216,7 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
 
     async function handleAction(target) {
         const action = target?.dataset?.afAction || '';
-        if (action === 'piano-refresh') await refresh();
+        if (action === 'piano-refresh') await refresh({ reloadWorkspace: true });
         if (action === 'piano-toggle') {
             const status = snapshot();
             if (status.phase === 'selecting') return { handled: true };
