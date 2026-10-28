@@ -1,4 +1,5 @@
 // Minimal message port for the EveOS song-first surface. The existing Piano app owns playback.
+import { setupExtendedPianoFrontendPort, summarizeFrontendSong } from "./piano_frontend_extended_port.js";
 export function setupPianoFrontendPort({ api, play, pause, stop, status }) {
   if (window.parent === window) return;
   const parent = window.parent;
@@ -38,10 +39,7 @@ export function setupPianoFrontendPort({ api, play, pause, stop, status }) {
     try {
       if (data.action === 'list') {
         const body = await api.songs({ fresh: true });
-        result.songs = (Array.isArray(body.songs) ? body.songs : []).map(song => ({
-          id: String(song.id || ''), title: String(song.title || 'Untitled'), artist: String(song.artist || ''),
-          kind: song.performance?.length ? 'recording' : 'song', updated_at: Number(song.updated_at || 0)
-        }));
+        result.songs = (Array.isArray(body.songs) ? body.songs : []).map(summarizeFrontendSong);
       } else if (data.action === 'status') result.status = String(status()?.status || 'idle');
       else {
         if (inFlight) throw new Error('Piano is processing another command.');
@@ -61,5 +59,6 @@ export function setupPianoFrontendPort({ api, play, pause, stop, status }) {
     reply(result);
   });
   window.addEventListener('piano:unified-refresh-requested', () => reply({ type: 'piano:eveos-library-changed' }));
+  setupExtendedPianoFrontendPort({ api, parent, parentOrigin, reply });
   pulseReady();
 }

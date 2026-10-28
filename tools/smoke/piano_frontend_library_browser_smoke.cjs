@@ -14,7 +14,9 @@ const read = p => fs.readFileSync(path.join(repo, p), 'utf8');
 const ui = read('js/modules/features/audioflix/audioflix.piano.ui.js');
 const views = read('js/modules/features/audioflix/audioflix.piano.views.js');
 const frontend = read('js/modules/features/audioflix/audioflix.piano.frontend.js');
-const css = read('js/modules/features/audioflix/audioflix.piano.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.css');
+const presentationPorts = read('js/modules/features/audioflix/audioflix.piano.frontend.ports.js');
+const extendedPort = read('tools/Piano-Auto-Player/web/piano_frontend_extended_port.js');
+const css = read('js/modules/features/audioflix/audioflix.piano.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.ports.css');
 const port = read('tools/Piano-Auto-Player/web/piano_frontend_port.js');
 const app = read('tools/Piano-Auto-Player/web/app.js');
 assert(app.includes('setupPianoFrontendPort({ api, play:'), 'real player must install the bridge');
@@ -27,7 +29,7 @@ assert(port.includes('event.source !== parent'), 'bridge must pin commands to th
 assert(port.includes("data?.type === 'eveos:audioflix-context'"), 'bridge must reannounce after host context');
 assert(frontend.includes("directJson('/api/songs')"), 'frontend must have direct library fallback');
 assert(frontend.includes('if (!bridgeReady) applyLibrary'), 'direct fallback must not overwrite bridge-owned library');
-assert(css.includes('> .audioflix-piano-header { display: none; }'), 'frontend must use its own header and controls');
+assert(css.includes('> .audioflix-piano-header { display:flex; }'), 'frontend must display the shared Piano Automation toolbar');
 
 const childHtml = `<!doctype html><html><body><script type="module">
 import { setupPianoFrontendPort } from '/port.js';
@@ -64,6 +66,7 @@ async function syntheticTest(browser, width) {
    if (url === 'http://127.0.0.1:8765/test') return route.fulfill({status:200,contentType:'text/html',body:'<!doctype html><html><head></head><body><main id="test-root"></main></body></html>'});
    if (url === 'http://127.0.0.1:8771/piano') return route.fulfill({status:200,contentType:'text/html',body:childHtml});
    if (url === 'http://127.0.0.1:8771/port.js') return route.fulfill({status:200,contentType:'application/javascript',body:port});
+   if (url === 'http://127.0.0.1:8771/piano_frontend_extended_port.js') return route.fulfill({status:200,contentType:'application/javascript',body:extendedPort});
    if (url === 'http://127.0.0.1:8771/api/songs') return route.fulfill({status:200,contentType:'application/json',headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'},body:JSON.stringify({songs:[{id:'one',title:'Moonlight',artist:'Composer',updated_at:100},{id:'two',title:'Danger <img src=x onerror=alert(1)>',performance:[{key:'a'}],updated_at:200}]})});
    if (url === 'http://127.0.0.1:8771/api/status') return route.fulfill({status:200,contentType:'application/json',headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'},body:JSON.stringify({status:'idle'})});
    return route.abort();
@@ -73,6 +76,7 @@ async function syntheticTest(browser, width) {
   await page.addStyleTag({content:css});
   await page.addScriptTag({content:views});
   await page.addScriptTag({content:frontend});
+  await page.addScriptTag({content:presentationPorts});
   await page.addScriptTag({content:ui});
   await installHost(page, 'http://127.0.0.1:8771/piano');
   let child = null;
@@ -87,7 +91,8 @@ async function syntheticTest(browser, width) {
   assert.equal(songs.length,2); assert(songs.includes('Moonlight'));
   assert.equal(await page.locator('.piano-frontend-song-info img').count(),0,'titles must not be parsed as HTML');
   assert.equal(await page.locator('[data-pf-count]').textContent(),'2 songs');
-  assert.equal(await page.locator('.audioflix-piano-header').evaluate(el=>getComputedStyle(el).display),'none');
+  assert.notEqual(await page.locator('.audioflix-piano-header').evaluate(el=>getComputedStyle(el).display),'none','the shared Piano Automation toolbar must remain visible');
+  assert.equal(await page.locator('[data-piano-view-title]').textContent(),'Piano Auto Player - Frontend');
   assert(await page.locator('[data-af-action="piano-frontend-stop"]').isEnabled(),'stop must enable after bridge handshake');
   await page.locator('[data-af-action="piano-frontend-play"][data-song-id="one"]').click();
   await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='play'&&x[1]==='one'));
@@ -104,6 +109,7 @@ async function syntheticTest(browser, width) {
   await page.click('[data-piano-view-switch]'); await page.click('[data-piano-view-switch]');
   const stable=await page.evaluate(()=>({same:document.querySelector('[data-piano-frame]')===window.__iframe,view:document.querySelector('[data-audioflix-piano]').dataset.pianoView}));
   assert(stable.same && stable.view==='frontend','backend document must be preserved on view change');
+  assert.equal(await page.locator('[data-piano-view-title]').textContent(),'Piano Auto Player - Frontend');
   assert.equal(await child.evaluate(()=>window.__keep),1147);
   await page.evaluate(()=>{window.EveAudioflixPiano.state.running=false;window.EveAudioflixPiano.state.phase='stopped';window.EveAudioflixPiano.state.url='';window.dispatchEvent(new Event('eve:audioflix-piano-status'));});
   await page.waitForFunction(()=>document.querySelector('[data-pf-playback]')?.textContent==='Piano offline');
@@ -126,7 +132,7 @@ async function opaqueRealAppTest(browser) {
  const songFile=path.join(temp,'songs.json');
  const launcher=path.join(temp,'server.py');
  const tool=path.join(repo,'tools','Piano-Auto-Player');
- fs.writeFileSync(launcher, `import sys, pathlib\nsys.path.insert(0, ${JSON.stringify(tool)})\nfrom app import server\nfrom app.library import SongLibrary\nserver.LIBRARY=SongLibrary(pathlib.Path(${JSON.stringify(songFile)}))\nserver.LIBRARY.save({'id':'opaque-one','title':'Opaque One','sheet':'a b c'})\nserver.LIBRARY.save({'id':'opaque-two','title':'Opaque Two','sheet':'d e f'})\nserver.run('127.0.0.1', ${portNumber})\n`);
+ fs.writeFileSync(launcher, `import sys, pathlib\nsys.path.insert(0, ${JSON.stringify(tool)})\nfrom app import server\nfrom app.library import SongLibrary\nserver.LIBRARY=SongLibrary(pathlib.Path(${JSON.stringify(songFile)}))\nserver.LIBRARY.save({'id':'opaque-one','title':'Opaque One','sheet':'a b c','identifiers':{'genre':['Classical'],'tags':['warm'],'author':'Piano Author','personal_rating':4.5}})\nserver.LIBRARY.save({'id':'opaque-two','title':'Opaque Two','sheet':'d e f'})\nserver.run('127.0.0.1', ${portNumber})\n`);
  const parentFile=path.join(temp,'parent.html');
  fs.writeFileSync(parentFile,'<!doctype html><html><head></head><body style="margin:0;background:#090f12"><main id="test-root"></main></body></html>');
  const python=process.env.PYTHON || 'python';
@@ -140,7 +146,7 @@ async function opaqueRealAppTest(browser) {
   page.on('pageerror',error=>pageErrors.push(String(error?.stack||error)));
   try {
    await page.goto(pathToFileURL(parentFile).href);
-   await page.addStyleTag({content:css}); await page.addScriptTag({content:views}); await page.addScriptTag({content:frontend}); await page.addScriptTag({content:ui});
+   await page.addStyleTag({content:css}); await page.addScriptTag({content:views}); await page.addScriptTag({content:frontend}); await page.addScriptTag({content:presentationPorts}); await page.addScriptTag({content:ui});
    await installHost(page,`http://127.0.0.1:${portNumber}/`);
    let realChild=null;
    for(let attempt=0;attempt<100&&!realChild;attempt++){realChild=page.frames().find(frame=>frame.url()===`http://127.0.0.1:${portNumber}/`);if(!realChild)await page.waitForTimeout(50);}
@@ -149,11 +155,63 @@ async function opaqueRealAppTest(browser) {
    const bridgeEvidence=await realChild.evaluate(()=>({ready:window.__eveosPianoFrontendPortReady===true,announcements:Number(window.__eveosPianoFrontendPortAnnouncements||0),status:document.getElementById('statusText')?.textContent||'',href:location.href}));
    assert(bridgeEvidence.ready,`real Piano bridge did not install: ${JSON.stringify(bridgeEvidence)}`);
    await page.click('[data-piano-view-switch]');
+   assert.notEqual(await page.locator('.audioflix-piano-header').evaluate(el=>getComputedStyle(el).display),'none','real file-origin frontend must retain shared Piano Automation header');
+   assert.equal(await page.locator('[data-piano-view-title]').textContent(),'Piano Auto Player - Frontend');
    await page.waitForFunction(()=>document.querySelector('[data-pf-count]')?.textContent==='2 songs',{timeout:10000});
    await page.waitForFunction(()=>document.querySelector('[data-pf-playback]')?.textContent!=='Connecting…',{timeout:10000});
    assert(await page.locator('[data-af-action="piano-frontend-pause"]').isEnabled(),`opaque/file parent must establish playback bridge; child=${JSON.stringify(bridgeEvidence)} console=${consoleLines.join(' | ')} errors=${pageErrors.join(' | ')}`);
    const titles=await page.locator('.piano-frontend-song-info strong').allTextContents();
    assert.deepEqual(new Set(titles),new Set(['Opaque One','Opaque Two']));
+   await page.waitForSelector('[data-pxp-layout] option[value="88"]',{timeout:10000,state:'attached'});
+   assert.equal(await page.locator('[data-pxp-target]').count(),1,'target selector must be surfaced');
+   assert.equal(await page.locator('[data-pxp-internal]').count(),1,'Internal Play must be surfaced');
+   assert.equal(await page.locator('.piano-pxp-controls').getAttribute('open'),null,'Playback setup must start collapsed');
+   await page.locator('.piano-pxp-controls > summary').click();
+   assert.equal(await page.locator('.piano-pxp-controls').getAttribute('open'),'','Playback setup must open when requested');
+   await page.locator('[data-pxp-layout]').selectOption('88');
+   await realChild.waitForFunction(()=>document.getElementById('pianoLayout')?.value==='88');
+   assert.equal(await realChild.evaluate(()=>localStorage.getItem('eveos:piano:layout:v1')),'88');
+   await page.locator('[data-pxp-sound]').selectOption('legacy_synth');
+   await realChild.waitForFunction(()=>document.getElementById('pianoSound')?.value==='legacy_synth');
+   await page.locator('[data-pxp-internal]').check();
+   await realChild.waitForFunction(()=>document.getElementById('internalPlay')?.checked===true);
+   await page.waitForFunction(()=>document.querySelector('[data-pxp-target]')?.disabled === true);
+   await page.locator('[data-pxp-internal]').uncheck();
+   await realChild.waitForFunction(()=>document.getElementById('internalPlay')?.checked===false);
+   await page.waitForFunction(()=>document.querySelector('[data-pxp-target]')?.disabled === false);
+   await page.waitForFunction(()=>document.querySelector('[data-pxp-queue-count]')?.textContent !== 'Queue connecting…',{timeout:10000});
+   await page.locator('[data-af-action="piano-frontend-port-queue-add"][data-song-id="opaque-one"]').click();
+   await realChild.waitForFunction(()=>window.PianoPlayerQueue?.getState?.().items?.some(item=>item.songId==='opaque-one'));
+   await page.waitForFunction(()=>document.querySelector('[data-pxp-queue-count]')?.textContent==='1 queued');
+    // The Backend queue is intentionally a disclosure: expand it before using transport.
+    assert.equal(await page.locator('.piano-pxp-queue').getAttribute('open'),null,'queue starts collapsed');
+   await page.locator('.piano-pxp-queue > summary').click();
+    await page.waitForFunction(()=>document.querySelector('.piano-pxp-queue')?.open===true);
+   await page.locator('[data-pxp-mode]').selectOption('manual');
+   await realChild.waitForFunction(()=>window.PianoPlayerQueue?.getState?.().mode==='manual');
+   await page.locator('[data-pxp-mode]').selectOption('ordered');
+   await realChild.waitForFunction(()=>window.PianoPlayerQueue?.getState?.().mode==='ordered');
+   await page.locator('[data-pxp-scope="queued"]').click();
+   await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===1);
+   assert.equal((await page.locator('.piano-frontend-song-info strong').allTextContents())[0],'Opaque One');
+   await page.locator('[data-pxp-scope="all"]').click();
+    // Advanced metadata filters are likewise hidden until the user expands them.
+   await page.locator('.piano-pxp-advanced > summary').click();
+    await page.waitForFunction(()=>document.querySelector('.piano-pxp-advanced')?.open===true);
+   await page.locator('[data-pxp-genre]').selectOption('Classical');
+   await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===1);
+   await page.locator('[data-af-action="piano-frontend-port-filters-clear"]').click();
+   await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===2);
+   await realChild.evaluate(() => window.dispatchEvent(new CustomEvent('piano:sheet-progress-status',
+     { detail: { status:'playing', current_index:3, total_events:12, current_token:'[4q]' } })));
+   await page.waitForFunction(() => document.querySelector('[data-pxp-event-count]')?.textContent === '3 / 12 events', { timeout: 5000 });
+   assert.equal(await page.locator('[data-pxp-event-token]').textContent(),'[4q]','current note must mirror the Backend event view');
+   assert.equal(await page.locator('[data-pxp-event-rail]').getAttribute('aria-valuenow'),'3');
+   assert.equal(await page.locator('[data-pxp-event-rail]').getAttribute('aria-valuemax'),'12');
+   await page.locator('[data-af-action="piano-frontend-port-queue-clear"]').click();
+   await realChild.waitForFunction(()=>window.PianoPlayerQueue?.getState?.().items?.length===0);
+   assert.equal(await realChild.evaluate(()=>window.__eveosPianoFrontendPortReady),true,'existing playback port must survive');
+   console.log(`PIANO_FRONTEND_PORTS_REAL_APP_OK origin=file targets=PASS internal=PASS layout=PASS sound=PASS metadata=PASS scope=PASS queue=PASS header=PASS disclosure=PASS events=PASS`);
    console.log(`PIANO_FRONTEND_OPAQUE_REAL_APP_OK origin=file library=PASS bridge=PASS controls=PASS announcements=${bridgeEvidence.announcements}`);
   } catch (error) {
     throw new Error(`${error.message}\nReal Piano browser console:\n${consoleLines.slice(-40).join(' | ')}\nReal Piano page errors:\n${pageErrors.slice(-20).join(' | ')}`);

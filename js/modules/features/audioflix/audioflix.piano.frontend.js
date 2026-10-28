@@ -47,7 +47,11 @@
             title: String(song.title || 'Untitled').slice(0, 180),
             artist: String(song.artist || '').slice(0, 90),
             kind: song.kind === 'recording' || Array.isArray(song.performance) && song.performance.length ? 'recording' : 'song',
-            updatedAt: Number(song.updated_at || song.updatedAt || 0)
+            updatedAt: Number(song.updated_at || song.updatedAt || 0),
+            source: String(song.source || '').slice(0, 120),
+            duration_ms: Number(song.duration_ms || 0),
+            identifiers: song.identifiers && typeof song.identifiers === 'object' ? song.identifiers : {},
+            automatic_identifiers: song.automatic_identifiers && typeof song.automatic_identifiers === 'object' ? song.automatic_identifiers : {}
         }));
     }
     function applyLibrary(items, source = 'bridge') {
@@ -80,7 +84,8 @@
     }
     function setNotice(text) { message = text; const node = canvas()?.querySelector('[data-pf-message]'); if (node) node.textContent = message; }
     function sortedSongs() {
-        const matching = songs.filter(song => `${song.title} ${song.artist}`.toLowerCase().includes(filter));
+        const matching = songs.filter(song => window.EveAudioflixPianoFrontendPorts?.matches?.(song, filter) ?? `${song.title} ${song.artist}`.toLowerCase().includes(filter));
+        if (window.EveAudioflixPianoFrontendPorts?.sortSongs) return window.EveAudioflixPianoFrontendPorts.sortSongs(matching, sortMode);
         return matching.sort((a, b) => {
             if (sortMode === 'az') return a.title.localeCompare(b.title);
             if (sortMode === 'za') return b.title.localeCompare(a.title);
@@ -113,6 +118,7 @@
             play.setAttribute('aria-label', `Play ${song.title}`); play.disabled = !isRunning() || !bridgeReady || !!busy;
             row.append(art, info, play); target.append(row);
         }
+        window.EveAudioflixPianoFrontendPorts?.decorateSongs?.(target, matching, songs);
     }
     function displayStatus() {
         const c = canvas(); if (!c) return;
@@ -225,5 +231,5 @@
         else if (busy === action) { busy = ''; message = action === 'play' ? 'Song sent to Piano player.' : 'Playback command completed.'; lastStatus = 0; }
         displayStatus();
     });
-    Object.assign(ns, { ready: true, mount, sync, refresh, handleAction });
+    Object.assign(ns, { ready: true, mount, sync, refresh, handleAction, repaint: displaySongs, bridgeReady: () => bridgeReady, serviceOrigin: origin });
 })(window.EveAudioflixPianoFrontend = window.EveAudioflixPianoFrontend || {});
