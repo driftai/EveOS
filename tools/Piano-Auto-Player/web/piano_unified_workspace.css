@@ -278,7 +278,7 @@
   grid-template-columns: minmax(0, 1fr) clamp(250px, 24vw, 360px);
   align-items: start;
 }
-.hero-grid.piano-controls-collapsed > .controls-panel[data-u-collapsed="1"] {
+.hero-grid.piano-controls-collapsed > .piano-workflow-sidecar > .controls-panel[data-u-collapsed="1"] {
   width: 100%;
   max-width: 100%;
   height: auto;
@@ -288,7 +288,7 @@
   gap: 0;
   padding: 12px 14px;
 }
-.hero-grid.piano-controls-collapsed > .controls-panel[data-u-collapsed="1"] > .panel-head {
+.hero-grid.piano-controls-collapsed > .piano-workflow-sidecar > .controls-panel[data-u-collapsed="1"] > .panel-head {
   margin: 0;
 }
 .recorder-panel[data-u-collapsed="1"] .record-actions {
@@ -340,7 +340,7 @@
 
 @media (max-width: 1180px) {
   .hero-grid.piano-controls-collapsed { grid-template-columns: minmax(0, 1fr); }
-  .hero-grid.piano-controls-collapsed > .controls-panel[data-u-collapsed="1"] {
+  .hero-grid.piano-controls-collapsed > .piano-workflow-sidecar > .controls-panel[data-u-collapsed="1"] {
     width: 100%;
     justify-self: stretch;
   }

@@ -79,6 +79,16 @@ function buildHost() {
       <div class="sheet-workspace-inbox" data-workspace-staging></div>
     </details>`;
   player.querySelector(".panel-head")?.insertAdjacentElement("afterend", host);
+  const flow = host.querySelector(".sheet-workspace-flow");
+  const controls = document.querySelector(".controls-panel");
+  const hero = controls?.parentElement;
+  if (flow && hero?.classList.contains("hero-grid")) {
+    const sidecar = document.createElement("div");
+    sidecar.className = "piano-workflow-sidecar";
+    hero.classList.add("piano-workflow-organized");
+    hero.insertBefore(sidecar, controls);
+    sidecar.append(flow, controls);
+  }
   return host;
 }
 

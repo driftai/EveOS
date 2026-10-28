@@ -97,6 +97,11 @@ def assert_static_contract() -> None:
     assert 'api.youtubeDependencies()' in bulk and 'Blocked —' in bulk and 'Failed —' in bulk
     assert '@media (max-width: 1180px)' in workspace_css and '.hero-grid, .lower-grid' in workspace_css
     assert '.controls-panel select' in workspace_css and '.seek-controls' in workspace_css
+    assert 'piano-workflow-organized' in workspace and 'sidecar.append(flow, controls)' in workspace
+    assert '.hero-grid.piano-workflow-organized > .piano-workflow-sidecar' in workspace_css
+    assert '.sheet-workspace-cache { grid-column: 1; grid-row: 1' in workspace_css
+    assert '.sheet-workspace-staging { grid-column: 2; grid-row: 1' in workspace_css
+    assert '.sheet-workspace > .sheet-workspace-queue' in workspace_css
 
     helper = (ROOT / "server_modules" / "eveos_control_helper.py").read_text(encoding="utf-8")
     assert '"/api/piano-player/status"' in helper

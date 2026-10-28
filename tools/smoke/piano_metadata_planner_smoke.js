@@ -79,7 +79,7 @@ assert(UNIFIED.includes("panel.closest('.hero-grid')?.classList.toggle('piano-co
 const collapsedHeroRule = UNIFIED_CSS.match(/\.hero-grid\.piano-controls-collapsed\s*\{([^}]*)\}/)?.[1] || '';
 assert(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+(?:minmax\(|clamp\(|fit-content\(|auto\b|\d)/.test(collapsedHeroRule)
   && !/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+max-content\s*;/.test(collapsedHeroRule)
-  && UNIFIED_CSS.includes('.hero-grid.piano-controls-collapsed > .controls-panel[data-u-collapsed="1"]'),
+  && UNIFIED_CSS.includes('.hero-grid.piano-controls-collapsed > .piano-workflow-sidecar > .controls-panel[data-u-collapsed="1"]'),
   'collapsed Playback must give the player flexible width and retain a responsive Controls card');
 const stackedControlsLayout = UNIFIED_CSS.split('@media (max-width: 1180px) {')[1]?.split('@media (max-width: 900px) {')[0] || '';
 assert(/grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(stackedControlsLayout)
