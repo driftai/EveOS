@@ -228,6 +228,17 @@ async function opaqueRealAppTest(browser) {
    await realChild.evaluate(()=>window.dispatchEvent(new CustomEvent('piano:sheet-progress-status',{detail:{status:'playing',current_index:2,total_events:3,sheet_total:3,timing_profile:'expressive',current_token:'b'}})));
    await page.waitForFunction(()=>document.querySelector('.piano-pxm-sheet-current')?.textContent==='b');
    assert.equal(await page.locator('.piano-pxm-sheet-current').textContent(),'b','Frontend sheet details must project the Backend current-event range');
+    assert.equal(await page.locator('[data-pxm-sheet-preview]').evaluate(node=>getComputedStyle(node).overflowY),'visible','Song & sheet details must expand without a nested scrollbar');
+    await realChild.evaluate(()=>window.dispatchEvent(new CustomEvent('piano:sheet-progress-status',{detail:{status:'playing',current_index:40,total_events:100,sheet_total:100,current_token:'x'}})));
+    await page.waitForFunction(()=>document.querySelector('[data-pxm-seek]')?.value==='40');
+    await realChild.evaluate(()=>window.dispatchEvent(new CustomEvent('piano:sheet-progress-status',{detail:{status:'playing',current_index:0,total_events:100,sheet_total:100,current_token:''}})));
+    assert.equal(await page.locator('[data-pxm-seek]').inputValue(),'40','transient active zero progress must not reset the same-song timeline');
+    await page.locator('[data-pxm-seek]').evaluate(node=>{node.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));node.value='75';node.dispatchEvent(new Event('input',{bubbles:true}));});
+    await realChild.evaluate(()=>window.dispatchEvent(new CustomEvent('piano:sheet-progress-status',{detail:{status:'playing',current_index:41,total_events:100,sheet_total:100,current_token:'y'}})));
+    assert.equal(await page.locator('[data-pxm-seek]').inputValue(),'75','live progress must not fight the user while the seek thumb is being dragged');
+    await page.locator('[data-pxm-seek]').dispatchEvent('change');
+    await realChild.evaluate(()=>window.dispatchEvent(new CustomEvent('piano:sheet-progress-status',{detail:{status:'playing',current_index:75,total_events:100,sheet_total:100,current_token:'z'}})));
+    await page.waitForFunction(()=>document.querySelector('[data-pxm-seek]')?.value==='75');
    await page.locator('.piano-pxm-history > summary').click();
    await page.waitForFunction(()=>document.querySelectorAll('[data-pxm-history-list] button').length===1);
    await page.locator('[data-af-action="piano-frontend-media-current-favorite"]').click();

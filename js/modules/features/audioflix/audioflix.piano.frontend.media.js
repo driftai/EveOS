@@ -6,6 +6,8 @@
   let host = null;
   let state = { controls: null, queue: null, progress: null, media: null };
   let editingId = '';
+  let timeline = { songId: '', index: 0, total: 0, status: 'idle' };
+  let seekDragging = false, seekDraft = 0, seekHold = 0, seekHoldUntil = 0;
   const canvas = () => host?.querySelector('[data-piano-frontend]');
   const $ = selector => canvas()?.querySelector(selector);
   const text = (selector, value) => { const node=$(selector); if(node)node.textContent=value; };
@@ -57,6 +59,23 @@
     const current=document.createElement('mark');current.className='piano-pxm-sheet-current';current.textContent=value.slice(start,end);node.append(current);
     node.append(document.createTextNode(value.slice(end)));
   }
+  function timelineProjection(media, current) {
+    const progress=state.progress||{},songId=String(current?.id||''),changed=songId!==timeline.songId;
+    const status=String(progress.status||media.status||'idle');
+    const observedTotal=Math.max(0,Number(progress.total||0),Number(media.total||0));
+    const total=observedTotal||(!changed?Number(timeline.total||0):0);
+    const observedIndex=changed?Number(media.index||0):Number(progress.total?progress.index:media.index||0);
+    let index=Math.max(0,Math.min(total||observedIndex,observedIndex));
+    if(changed){timeline={songId,index:0,total,status};seekDragging=false;seekDraft=0;seekHold=0;seekHoldUntil=0;}
+    if(status==='complete'&&total)index=total;
+    if(index>0||timeline.index===0)timeline.index=index;
+    if(total)timeline.total=total;
+    timeline.status=status;
+    if(seekDragging)return{...timeline,index:seekDraft,total:timeline.total||total};
+    if(seekHold&&Date.now()<seekHoldUntil&&Math.abs(index-seekHold)>1)return{...timeline,index:seekHold,total:timeline.total||total};
+    if(seekHold&&Math.abs(index-seekHold)<=1){seekHold=0;seekHoldUntil=0;}
+    return timeline;
+  }
   function render() {
     const media=state.media || {}, current=media.current;
     text('[data-pxm-current]',current?.title || 'Nothing playing');
@@ -65,10 +84,11 @@
     text('[data-pxm-current-meta]',meta || 'Choose a song from your Piano library.');
     text('[data-pxm-instrument]',state.controls?.sound?.label ? `Instrument: ${state.controls.sound.label}` : 'Instrument follows Playback setup');
     renderSheetPreview(media);
+    const projected=timelineProjection(media,current),positionMs=projected.total?Math.round(Number(media.durationMs||0)*projected.index/projected.total):0;
     const seek=$('[data-pxm-seek]');
-    if(seek){seek.max=String(Math.max(1,Number(media.total||1)));seek.value=String(Math.max(0,Number(media.index||0)));seek.disabled=!media.total;}
-    text('[data-pxm-elapsed]',duration(media.positionMs));
-    text('[data-pxm-remaining]',`−${duration(Math.max(0,Number(media.durationMs||0)-Number(media.positionMs||0)))}`);
+    if(seek&&!seekDragging){seek.max=String(Math.max(1,projected.total||1));seek.value=String(Math.max(0,projected.index||0));seek.disabled=!projected.total;}
+    text('[data-pxm-elapsed]',duration(positionMs));
+    text('[data-pxm-remaining]',`−${duration(Math.max(0,Number(media.durationMs||0)-positionMs))}`);
     const preset=$('[data-pxm-preset]'); if(preset && media.preset)preset.value=media.preset;
     const favorite=$('[data-af-action="piano-frontend-media-current-favorite"]');
     if(favorite){favorite.disabled=!current?.id;favorite.textContent=isFavorite(current)?'★ Favorite':'☆ Favorite';favorite.dataset.songId=current?.id||'';}
@@ -100,7 +120,11 @@
     const panel=document.createElement('section');panel.className='piano-pxm-listener';
     panel.innerHTML=`<details class="piano-pxm-now"><summary class="piano-pxm-now-summary"><span>SONG CONTROLS</span><strong data-pxm-current>Nothing playing</strong><small>Seek, presets, favorites, and details</small></summary><div class="piano-pxm-now-body"><div class="piano-pxm-now-head"><small data-pxm-current-meta>Choose a song from your Piano library.</small><div class="piano-pxm-now-actions"><button type="button" data-af-action="piano-frontend-media-current-favorite" disabled>☆ Favorite</button><button type="button" data-af-action="piano-frontend-media-edit-backend" disabled>Edit in Backend</button></div></div><div class="piano-pxm-timeline"><span data-pxm-elapsed>0:00</span><input data-pxm-seek type="range" min="1" max="1" value="1" step="1" aria-label="Seek through the current Piano song" disabled><span data-pxm-remaining>−0:00</span></div><div class="piano-pxm-listener-tools"><label>Playback preset <select data-pxm-preset><option value="natural">Natural</option><option value="fast">Fast Practice</option><option value="slow">Slow Practice</option><option value="custom">Custom</option></select></label><span data-pxm-instrument>Instrument follows Playback setup</span><button type="button" data-af-action="piano-frontend-media-import">Add Songs</button><button type="button" data-af-action="piano-frontend-media-recordings">My Recordings</button></div><details class="piano-pxm-preview"><summary>Song & sheet details</summary><pre data-pxm-sheet-preview>Load a sheet to preview its notation here.</pre></details></div></details><details class="piano-pxm-history"><summary><strong>Recently Played</strong><span>Replay from your shared Auto Player history</span></summary><div data-pxm-history-list></div></details><details class="piano-pxm-inbox"><summary><strong>Incoming Songs</strong><span data-pxm-inbox-count>0 incoming</span></summary><div data-pxm-inbox-list></div></details><details class="piano-pxm-editor"><summary><strong>Song details editor</strong><span>Library metadata is saved by the Backend</span></summary><div class="piano-pxm-editor-grid"><label>Title<input data-pxm-edit-title maxlength="180"></label><label>Artist / author<input data-pxm-edit-artist maxlength="90"></label><label>Genres<input data-pxm-edit-genre placeholder="genre, genre"></label><label>Tags<input data-pxm-edit-tags placeholder="tag, tag"></label><label>Rating<input data-pxm-edit-rating type="number" min="0" max="5" step="0.5"></label><label class="piano-pxm-check"><input data-pxm-edit-favorite type="checkbox"> Favorite</label></div><button type="button" data-af-action="piano-frontend-media-save">Save details</button></details>`;
     const queue=c.querySelector('.piano-pxp-queue');(queue||c.querySelector('.piano-frontend-header'))?.after(panel);
-    panel.querySelector('[data-pxm-seek]')?.addEventListener('change',event=>ports.command?.('progress:seek',{eventIndex:Math.round(Number(event.target.value))}));
+    const seek=panel.querySelector('[data-pxm-seek]');
+    seek?.addEventListener('pointerdown',event=>{seekDragging=true;seekDraft=Math.round(Number(event.target.value)||1);});
+    seek?.addEventListener('input',event=>{seekDragging=true;seekDraft=Math.round(Number(event.target.value)||1);render();});
+    seek?.addEventListener('change',event=>{seekDragging=false;seekHold=Math.round(Number(event.target.value)||1);seekHoldUntil=Date.now()+2200;if(ports.command?.('progress:seek',{eventIndex:seekHold})===false){seekHold=0;seekHoldUntil=0;}render();});
+    seek?.addEventListener('pointercancel',()=>{seekDragging=false;render();});
     panel.querySelector('[data-pxm-preset]')?.addEventListener('change',event=>ports.command?.('playback:preset',{value:event.target.value}));
     render();
   }
