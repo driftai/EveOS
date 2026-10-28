@@ -73,7 +73,7 @@ export class LocalPianoOutput {
     this.sound = sound;
   }
 
-  unlock() { this.sound.ensure(); }
+  unlock() { return this.sound.unlock(); }
   setSound(soundId) { this.sound.setSound(soundId); }
   prepareSound() { return this.sound.prepare(); }
   soundLabel() { return this.sound.label(); }

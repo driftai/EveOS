@@ -21,7 +21,7 @@ export class InternalPreviewPlayer {
     this.resumeIndex = 0;
   }
 
-  unlock() { this.output.unlock(); }
+  unlock() { return this.output.unlock(); }
   setSound(soundId) { this.output.setSound(soundId); }
   prepareSound() { return this.output.prepareSound(); }
   soundLabel() { return this.output.soundLabel(); }

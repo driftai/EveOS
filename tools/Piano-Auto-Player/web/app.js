@@ -121,7 +121,7 @@ async function internalTimeline(performance = null) {
 }
 async function startPlayback(options = {}) {
   try {
-    if (internalMode()) { internalPreview.unlock(); await pianoControls.prepareSound(); }
+    if (internalMode()) { await internalPreview.unlock(); await pianoControls.prepareSound(); }
     const resumeEvent = Number(options.resumeEvent || 0);
     if (resumeEvent > 0) setSeekTarget(resumeEvent, false, currentSeekTotal());
     else if (playShouldRestart) setSeekTarget(1, false, currentSeekTotal());
@@ -140,7 +140,7 @@ async function replayRecording() {
   const performance = recorder.snapshot().events.length ? recorder.snapshot().events : activePerformance;
   if (!performance.length) return toast("Record or load a performance first", "error");
   try {
-    if (internalMode()) { internalPreview.unlock(); await pianoControls.prepareSound(); }
+    if (internalMode()) { await internalPreview.unlock(); await pianoControls.prepareSound(); }
     toast("Starting recorded performance…", "countdown");
     if (internalMode()) { await api.stop().catch(() => {}); internalPreview.start(await internalTimeline(performance), seekTarget, Number(els.countdown.value)); }
     else { internalPreview.reset(); await api.playPerformance({ ...playbackPayload(), performance }); }

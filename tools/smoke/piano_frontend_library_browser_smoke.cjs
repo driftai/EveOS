@@ -333,9 +333,12 @@ async function opaqueRealAppTest(browser) {
    assert.equal(await realChild.evaluate(()=>document.getElementById('internalPlay')?.checked),true,'Internal Play must restore after reload');
    await page.click('[data-piano-view-switch]');
    await page.waitForFunction(()=>window.EveAudioflixPianoFrontend?.bridgeReady?.()===true,null,{timeout:10000});
+   assert.match(await page.locator('[data-piano-frame]').getAttribute('allow'),/\bautoplay\b/,'Piano iframe must receive autoplay delegation for restored Internal Play');
    assert.equal(await page.evaluate(()=>window.EveAudioflixPianoFrontendPorts.command('song:load',{songId:'opaque-one'})),true,'Frontend command port must accept work after Backend Refresh');
    await realChild.waitForFunction(()=>document.getElementById('titleInput')?.value.includes('Opaque One'),null,{timeout:10000});
    await page.waitForFunction(()=>document.querySelector('[data-pxm-current]')?.textContent==='Opaque One',null,{timeout:10000});
+   await page.locator('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play').click();
+   await realChild.waitForFunction(()=>window.PianoPlaybackOwner?.status?.().internal_preview===true&&['countdown','playing'].includes(window.PianoPlaybackOwner.status().status),null,{timeout:10000});
    console.log(`PIANO_FRONTEND_PORTS_REAL_APP_OK origin=file targets=PASS internal=PASS layout=PASS sound=PASS metadata=PASS scope=PASS queue=PASS queue-sync=PASS module-retry=PASS layout-order=PASS events=PASS`);
    console.log(`PIANO_FRONTEND_OPAQUE_REAL_APP_OK origin=file library=PASS bridge=PASS controls=PASS announcements=${bridgeEvidence.announcements}`);
   } catch (error) {

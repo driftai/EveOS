@@ -209,6 +209,7 @@ export class PianoSoundEngine {
   isSampled() { return Boolean(SOUNDS[this.soundId]?.sampled); }
 
   ensure() { return audioContext(true); }
+  async unlock() { const ctx=audioContext(false); if(ctx.state === "suspended") await ctx.resume(); if(ctx.state !== "running") throw new Error("Internal piano audio is waiting for browser playback permission."); return ctx; }
 
   setSound(soundId) {
     const next = SOUNDS[soundId] ? soundId : "acoustic_grand";
