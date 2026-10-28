@@ -121,6 +121,7 @@ async function mediaSnapshot(api, workspace, media) {
     durationMs,
     sheetPreview: preview.text,
     sheetHighlight: { start: preview.currentStart, end: preview.currentEnd },
+    sheetEvents: preview.events || [],
     preset: presetForSpeed(Number(context.speed || 1)),
     workspace: workspace?.snapshot?.() || { cursor: -1, history: [], staging: [] },
     recordings: songs.filter(song => Array.isArray(song.performance) && song.performance.length).length
@@ -182,7 +183,8 @@ export function setupExtendedPianoFrontendPort({ api, parent, parentOrigin, repl
     return { status: String(p.status || byId('statusChip')?.dataset.state || 'idle').slice(0, 30),
       index: total ? Math.max(0, Math.min(total, index)) : 0, total,
       token: String(p.current_token || byId('currentToken')?.textContent || '').slice(0, 120),
-      sheetPreview: preview.text, sheetHighlight: { start: preview.currentStart, end: preview.currentEnd } };
+      sheetPreview: preview.text, sheetHighlight: { start: preview.currentStart, end: preview.currentEnd },
+      sheetEvents: preview.events || [] };
   };
   const supported = new Set(['controls:get', 'controls:set', 'controls:refresh', 'queue:get',
     'queue:add', 'queue:remove', 'queue:reorder', 'queue:duplicate', 'queue:play-item', 'queue:mode', 'queue:play', 'queue:stop',

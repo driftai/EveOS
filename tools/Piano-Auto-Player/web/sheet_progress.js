@@ -160,8 +160,13 @@ export function buildSheetProgressPreview(text, requestedProfile, currentIndex, 
     start = Math.max(0, Math.min(value.length - boundedLimit, current.start - Math.floor(boundedLimit * 0.38)));
   }
   const end = Math.min(value.length, start + boundedLimit);
+  // These are the Backend parser's event indices, never an EveOS reparse.
+  // A mismatched runtime count cannot be used as a seek target.
+  const mapped = Number(runtimeTotal) > 0 && ranges.length === Number(runtimeTotal);
+  const events = mapped ? ranges.filter(event => event.kind !== "pause" && event.start >= start && event.end <= end)
+    .slice(0, 160).map(event => ({ index: event.index, start: event.start - start, end: event.end - start, kind: event.kind })) : [];
   return {
-    text: value.slice(start, end),
+    text: value.slice(start, end), events, mapped,
     currentStart: current && current.start < end ? Math.max(0, current.start - start) : -1,
     currentEnd: current && current.start < end ? Math.min(end - start, current.end - start) : -1,
     index,
