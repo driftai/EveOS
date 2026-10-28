@@ -1,7 +1,21 @@
 import { renderPiano } from "./piano.js";
 import { pianoSoundCatalog } from "./piano_sound.js";
 
+const LAYOUT_PREFERENCE_KEY = "eveos:piano:layout:v1";
+function savedPianoLayout() {
+  try {
+    const value = window.localStorage.getItem(LAYOUT_PREFERENCE_KEY);
+    return value === "61" || value === "88" ? value : null;
+  } catch (_) { return null; }
+}
+function savePianoLayout(value) {
+  if (value !== "61" && value !== "88") return;
+  try { window.localStorage.setItem(LAYOUT_PREFERENCE_KEY, value); } catch (_) {}
+}
+
 export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, visualMeta, piano, recorder, preview }) {
+  const savedLayout = savedPianoLayout();
+  if (savedLayout) layoutSelect.value = savedLayout;
   function render() {
     renderPiano(piano, recorder, layoutSelect.value || "61");
     updateMeta();
@@ -49,6 +63,7 @@ export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, vis
 
   layoutSelect.addEventListener("change", () => {
     preview.stop();
+    savePianoLayout(layoutSelect.value);
     render();
   });
   soundSelect.addEventListener("change", () => {
