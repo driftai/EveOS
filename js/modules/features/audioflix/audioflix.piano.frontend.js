@@ -195,7 +195,7 @@
         catch (_) {}
     }
     function refresh(force = false) {
-        if (!isShowing() || !isRunning()) return;
+        if ((!isShowing() && !force) || !isRunning()) return;
         const now = Date.now();
         if (force || now - lastLibrary > 15000) {
             send('list');

@@ -122,8 +122,9 @@ async function syntheticTest(browser, width) {
   await page.click('[data-piano-view-switch]');
   await child.evaluate(()=>window.__songs.push({id:'four',title:'Backend Refresh Song',updated_at:400}));
   await page.click('[data-af-action="piano-refresh"]');
-  await page.click('[data-piano-view-switch]');
   await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===4);
+  assert.equal(await page.locator('[data-piano-frontend]').isHidden(),true,'Backend Refresh must update the shared Frontend while that view remains hidden');
+  await page.click('[data-piano-view-switch]');
   assert((await page.locator('.piano-frontend-song-info strong').allTextContents()).includes('Backend Refresh Song'),'Backend Refresh must invalidate and update the shared Frontend library');
   await page.evaluate(()=>{window.EveAudioflixPiano.state.running=false;window.EveAudioflixPiano.state.phase='stopped';window.EveAudioflixPiano.state.url='';window.dispatchEvent(new Event('eve:audioflix-piano-status'));});
   await page.waitForFunction(()=>document.querySelector('[data-pf-playback]')?.textContent==='Piano offline');
