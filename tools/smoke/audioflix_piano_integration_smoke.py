@@ -106,6 +106,13 @@ def assert_static_contract() -> None:
     assert 'height: 62px;' in workspace_css
     assert '.sheet-workspace > .sheet-workspace-queue' in workspace_css
 
+    unified_css = (ROOT / "tools" / "Piano-Auto-Player" / "web" / "piano_unified_workspace.css").read_text(encoding="utf-8")
+    assert '.search-panel.piano-collapsible-panel[data-u-collapsed="1"]' in unified_css
+    assert '.notation-panel.piano-collapsible-panel[data-u-collapsed="1"]' in unified_css
+    assert 'min-height: 32px;' in unified_css
+    assert '> .panel-head > div > .eyebrow' in unified_css
+    assert '> .panel-head h2' in unified_css
+
     helper = (ROOT / "server_modules" / "eveos_control_helper.py").read_text(encoding="utf-8")
     assert '"/api/piano-player/status"' in helper
     assert '"/api/piano-player/start"' in helper and '"/api/piano-player/stop"' in helper

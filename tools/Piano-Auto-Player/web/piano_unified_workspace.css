@@ -286,7 +286,7 @@
   align-self: start;
   justify-self: end;
   gap: 0;
-  padding: 12px 14px;
+  padding: 8px 12px;
 }
 .hero-grid.piano-controls-collapsed > .piano-workflow-sidecar > .controls-panel[data-u-collapsed="1"] > .panel-head {
   margin: 0;
@@ -315,6 +315,31 @@
 }
 .piano-collapsible-panel[data-u-collapsed="1"] > .panel-head {
   margin-bottom: 0;
+}
+.search-panel.piano-collapsible-panel[data-u-collapsed="1"],
+.notation-panel.piano-collapsible-panel[data-u-collapsed="1"] {
+  min-height: 0;
+  gap: 0;
+  padding: 8px 12px;
+}
+.controls-panel.piano-collapsible-panel[data-u-collapsed="1"] > .panel-head,
+.search-panel.piano-collapsible-panel[data-u-collapsed="1"] > .panel-head,
+.notation-panel.piano-collapsible-panel[data-u-collapsed="1"] > .panel-head {
+  min-height: 32px;
+  align-items: center;
+  margin: 0;
+}
+.controls-panel.piano-collapsible-panel[data-u-collapsed="1"] > .panel-head > div > .eyebrow,
+.search-panel.piano-collapsible-panel[data-u-collapsed="1"] > .panel-head > div > .eyebrow,
+.notation-panel.piano-collapsible-panel[data-u-collapsed="1"] > .panel-head > div > .eyebrow {
+  display: none;
+}
+.controls-panel.piano-collapsible-panel[data-u-collapsed="1"] > .panel-head h2,
+.search-panel.piano-collapsible-panel[data-u-collapsed="1"] > .panel-head h2,
+.notation-panel.piano-collapsible-panel[data-u-collapsed="1"] > .panel-head h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.15;
 }
 
 .piano-unified-workspace .planner-action-block > small {
