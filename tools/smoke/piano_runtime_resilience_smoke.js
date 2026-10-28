@@ -40,7 +40,9 @@ async function main() {
   assert(app.includes('playbackScroll.onStatus(status.status, previousStatus)'), 'playback start must restore the pre-load viewport only after authoritative playing status');
   assert(scrollRestore.includes('piano:preserve-playback-scroll') && scrollRestore.includes('status !== "playing"'), 'queue viewport restoration must be bounded to a real playing transition');
   assert(bridge.includes('piano:eveos-reattach-request') && bridge.includes("eveosDetached") && ui.includes("event.source === detachedWindow"), 'detached Piano must offer an exact-window reattach path back into EveOS');
+  assert(bridge.includes('MODULE_RETRY_DELAYS') && bridge.includes("addEventListener('piano:eveos-context', loadWorkspaceModules)"), 'preserved Piano frames must retry missing queue/progress modules after a transient service interruption');
   assert(ui.includes("await refresh({ reloadWorkspace: true })") && ui.includes("target.postMessage({ type: 'eveos:piano-refresh' }"), 'EveOS Piano Refresh must reload the active embedded or detached workspace');
+  assert(ui.includes("EveAudioflixPianoFrontend?.invalidate?.()") && ui.includes("EveAudioflixPianoFrontendPorts?.invalidate?.()"), 'Backend Refresh must invalidate every shared Frontend projection before reloading the one Piano workspace');
   assert(bridge.includes("payload.type === 'eveos:piano-refresh'") && bridge.includes('event.source !== eveHost') && bridge.includes('window.location.reload()'), 'Piano refresh messages must come from the exact EveOS host window before reloading');
 
   const browser = await chromium.launch({ headless: true });
@@ -93,7 +95,7 @@ async function main() {
   } finally {
     await browser.close();
   }
-  console.log('PIANO_RUNTIME_RESILIENCE_SMOKE_OK tests=22');
+  console.log('PIANO_RUNTIME_RESILIENCE_SMOKE_OK tests=23');
 }
 
 function assert(condition, message) {

@@ -116,6 +116,8 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
             ? detachedWindow
             : root?.querySelector?.('[data-piano-frame]')?.contentWindow;
         if (!target) return false;
+        window.EveAudioflixPianoFrontend?.invalidate?.();
+        window.EveAudioflixPianoFrontendPorts?.invalidate?.();
         target.postMessage({ type: 'eveos:piano-refresh' }, '*');
         return true;
     }
@@ -143,7 +145,10 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
     function afterRender(host) {
         root = host;
         const frame = root?.querySelector?.('[data-piano-frame]');
-        frame?.addEventListener('load', () => { sendContext(frame); window.EveAudioflixPianoFrontend?.refresh?.(true); });
+        frame?.addEventListener('load', () => {
+            sendContext(frame);
+            window.EveAudioflixPianoFrontend?.refresh?.(true);
+        });
         window.EveAudioflixPianoFrontend?.mount?.(host);
         patch(host);
     }
@@ -161,7 +166,7 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
                 <div class="audioflix-piano-detached" data-piano-detached hidden><strong>Detached Piano window active</strong><span>This embedded copy is dimmed and interaction-locked so the detached window is the primary Piano workspace.</span><button type="button" data-af-action="piano-refocus">Focus detached window</button></div>
                 <div class="audioflix-piano-offline" data-piano-offline ${running ? 'hidden' : ''}><strong>${selecting ? 'Choose Piano exposure mode' : 'Piano is resting'}</strong><span>${selecting ? 'Use the terminal that just opened to choose Localhost, LAN, or Cloudflare Router.' : 'Start it only when you want sheet playback, recording, or conversion tools.'}</span><small data-piano-setup-state>${selecting ? 'Waiting for terminal selection' : 'Core ready - optional engines not checked'}</small><div><button type="button" data-af-action="piano-toggle">${selecting ? 'Choose mode in terminal…' : 'Start Piano-Auto-Player'}</button><button type="button" data-af-action="piano-setup">Setup / Repair</button></div></div>
                 </div>
-                <div class="audioflix-piano-frontend" data-piano-frontend role="region" aria-label="Blank Piano frontend workspace" hidden></div>
+                <div class="audioflix-piano-frontend" data-piano-frontend role="region" aria-label="Piano library and player" hidden></div>
             </div>
         </section>`;
     }

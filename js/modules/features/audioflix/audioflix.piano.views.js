@@ -22,13 +22,13 @@
             canvas.setAttribute('aria-hidden', String(!frontend));
         }
         const heading = panel.querySelector('[data-piano-view-title]');
-        if (heading) heading.textContent = frontend ? 'Piano Auto Player - Frontend' : 'Piano Auto Player - Backend';
+        if (heading) heading.textContent = frontend ? 'Piano Library' : 'Piano Auto Player - Backend';
         const toggle = panel.querySelector('[data-piano-view-switch]');
         if (toggle) {
             toggle.textContent = frontend ? 'Backend tools' : 'Frontend';
             toggle.setAttribute('aria-label', frontend ? 'Switch to Piano backend tools' : 'Switch to Piano frontend');
             toggle.setAttribute('aria-pressed', String(frontend));
-            toggle.title = frontend ? 'Return to the existing Piano tools' : 'Open the blank Piano frontend';
+            toggle.title = frontend ? 'Open Piano setup and engineering tools' : 'Open the simple Piano library and player';
         }
     }
 

@@ -149,6 +149,27 @@ function buildRuntimeRanges(text, requestedProfile, runtimeTotal) {
   return { ranges:buildSheetEventRanges(text, profile), profile };
 }
 
+export function buildSheetProgressPreview(text, requestedProfile, currentIndex, runtimeTotal, limit = 600) {
+  const value = String(text || "");
+  const boundedLimit = Math.max(80, Math.min(1200, Number(limit) || 600));
+  const { ranges, profile } = buildRuntimeRanges(value, requestedProfile, runtimeTotal);
+  const index = Math.max(0, Math.min(ranges.length, Number(currentIndex) || 0));
+  const current = index > 0 ? ranges[index - 1] : null;
+  let start = 0;
+  if (current && value.length > boundedLimit) {
+    start = Math.max(0, Math.min(value.length - boundedLimit, current.start - Math.floor(boundedLimit * 0.38)));
+  }
+  const end = Math.min(value.length, start + boundedLimit);
+  return {
+    text: value.slice(start, end),
+    currentStart: current && current.start < end ? Math.max(0, current.start - start) : -1,
+    currentEnd: current && current.start < end ? Math.min(end - start, current.end - start) : -1,
+    index,
+    total: ranges.length,
+    profile
+  };
+}
+
 function currentIndexFromStatus(status, fallback = 0) {
   const current = Number(status?.current_index || 0);
   if (["playing", "countdown", "paused"].includes(status?.status) && current > 0) return current;
@@ -281,6 +302,7 @@ function boot() {
 }
 
 if (typeof document !== "undefined") {
+  window.PianoSheetProgressProjection = Object.freeze({ buildPreview:buildSheetProgressPreview });
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once:true });
   else boot();
 }

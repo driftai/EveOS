@@ -1,12 +1,13 @@
 // Minimal message port for the EveOS song-first surface. The existing Piano app owns playback.
 import { setupExtendedPianoFrontendPort, summarizeFrontendSong } from "./piano_frontend_extended_port.js";
-export function setupPianoFrontendPort({ api, play, pause, stop, status }) {
+export function setupPianoFrontendPort({ api, play, pause, stop, status, workspace, media, seek, preset, importSongs, loadSong }) {
   if (window.parent === window) return;
   const parent = window.parent;
   let parentOrigin = '';
   try {
-    const candidate = new URL(document.referrer).origin;
-    if (candidate && candidate !== 'null' && /^https?:/.test(candidate)) parentOrigin = candidate;
+    const ancestor = window.location.ancestorOrigins?.[0] || '';
+    const candidate = ancestor || new URL(document.referrer).origin;
+    if (candidate && candidate !== 'null' && /^https?:/.test(candidate) && (ancestor || candidate !== window.location.origin)) parentOrigin = candidate;
   } catch (_) {}
   const replyTarget = parentOrigin || '*';
   const reply = payload => parent.postMessage(payload, replyTarget);
@@ -59,6 +60,6 @@ export function setupPianoFrontendPort({ api, play, pause, stop, status }) {
     reply(result);
   });
   window.addEventListener('piano:unified-refresh-requested', () => reply({ type: 'piano:eveos-library-changed' }));
-  setupExtendedPianoFrontendPort({ api, parent, parentOrigin, reply });
+  setupExtendedPianoFrontendPort({ api, parent, parentOrigin, reply, workspace, media, seek, preset, importSongs, loadSong });
   pulseReady();
 }

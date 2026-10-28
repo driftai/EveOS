@@ -34,6 +34,18 @@ function sourceFor(song, meta = {}) {
   return String(meta.provider_name || song?.source || "Sheet Finder").trim() || "Sheet Finder";
 }
 
+function entrySummary(entry) {
+  const song = entry?.song || {};
+  return {
+    id: String(entry?.id || ""),
+    label: String(entry?.label || labelFor(song)).slice(0, 220),
+    source: String(entry?.source || sourceFor(song, entry?.meta)).slice(0, 120),
+    kind: Array.isArray(song.performance) && song.performance.length ? "recording" : "sheet",
+    eventCount: Array.isArray(song.performance) ? song.performance.length : 0,
+    durationMs: Number(song.duration_ms || 0)
+  };
+}
+
 function ensureStylesheet() {
   if (document.getElementById("pianoWorkspaceStyles")) return;
   const link = document.createElement("link");
@@ -122,6 +134,7 @@ export function setupSheetWorkspace({ onLoad, getCurrent, toast }) {
       if (!warnedQuota) toast?.("Auto Player history is full; current items remain available in this window.", "error");
       warnedQuota = true;
     }
+    window.dispatchEvent(new CustomEvent("piano:workspace-updated"));
   }
 
   function updateCurrentHistory() {
@@ -234,6 +247,32 @@ export function setupSheetWorkspace({ onLoad, getCurrent, toast }) {
     await loadEntry(entry, { removeStage: false, remember: true });
   }
 
+  function snapshot() {
+    return {
+      cursor: state.cursor,
+      history: state.history.map(entrySummary),
+      staging: state.staging.map(entrySummary)
+    };
+  }
+
+  async function loadHistory(entryId) {
+    const index = state.history.findIndex(entry => entry.id === entryId);
+    if (index < 0) throw new Error("That recent Piano item is no longer available.");
+    await navigate(index);
+  }
+
+  async function loadStaged(entryId) {
+    const entry = state.staging.find(item => item.id === entryId);
+    if (!entry) throw new Error("That incoming Piano item is no longer available.");
+    await loadEntry(entry);
+  }
+
+  function discardStaged(entryId) {
+    if (!state.staging.some(item => item.id === entryId)) throw new Error("That incoming Piano item is no longer available.");
+    state.staging = state.staging.filter(item => item.id !== entryId);
+    persist(); render();
+  }
+
   back.addEventListener("click", () => navigate(state.cursor - 1));
   forward.addEventListener("click", () => navigate(state.cursor + 1));
   historySelect.addEventListener("change", () => navigate(Number(historySelect.value)));
@@ -243,5 +282,5 @@ export function setupSheetWorkspace({ onLoad, getCurrent, toast }) {
   });
 
   render();
-  return { stage, load, rememberCurrent, countStaged: () => state.staging.length, render };
+  return { stage, load, rememberCurrent, countStaged: () => state.staging.length, render, snapshot, loadHistory, loadStaged, discardStaged };
 }

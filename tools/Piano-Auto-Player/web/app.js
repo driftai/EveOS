@@ -1,4 +1,4 @@
-import { api } from "./api.js"; import { setupPianoFrontendPort } from "./piano_frontend_port.js";
+import { api } from "./api.js"; import { setupPianoFrontendAppBridge } from "./piano_frontend_app_bridge.js";
 import { PerformanceRecorder, bindPhysicalPiano } from "./piano.js";
 import { setupPianoControls } from "./piano_controls.js";
 import { InternalPreviewPlayer } from "./internal_preview.js";
@@ -38,6 +38,7 @@ let seekSettlingUntil = 0;
 let lastStatus = { status: "idle", current_index: 0, total_events: 0 };
 let stoppedResumeEvent = 0;
 let playShouldRestart = false;
+let frontendBridge = null;
 const recorder = new PerformanceRecorder(updateRecordingUI);
 const internalPreview = new InternalPreviewPlayer(els.piano), playbackScroll = setupPlaybackScrollRestore();
 const pianoControls = setupPianoControls({ layoutSelect: els.pianoLayout, soundSelect: els.pianoSound, soundStatus: els.pianoSoundStatus, visualMeta: els.pianoVisualMeta, piano: els.piano, recorder, preview: internalPreview });
@@ -362,7 +363,6 @@ async function saveRecording() {
     await refreshLibrary();
   } catch (error) { toast(error.message, "error"); }
 }
-
 async function refreshLibrary({ fresh = false } = {}) {
   els.library.innerHTML = "";
   try {
@@ -376,11 +376,9 @@ async function refreshLibrary({ fresh = false } = {}) {
   } catch (error) { els.library.innerHTML = `<div class="empty">${error.message}</div>`; }
   window.dispatchEvent(new CustomEvent("piano:unified-refresh-requested"));
 }
-
 function loadSong(song) {
   return sheetWorkspace.load({ ...song, _activeSongId: song.id }, { provider_name: song.source || "Local library", url: song.source_url || "" });
 }
-
 async function deleteSong(song) {
   if (!confirm(`Delete “${song.title}” from the local library?`)) return;
   try { await api.deleteSong(song.id); if (activeSongId === song.id) activeSongId = null; await refreshLibrary(); } catch (error) { toast(error.message, "error"); }
@@ -406,6 +404,7 @@ function updateInputModeUI() {
 
 async function changeInternalMode() {
   const internal = internalMode();
+  frontendBridge?.persistInternalMode();
   const data = internal ? await api.stop().catch(() => ({ resume_event: 0 })) : internalPreview.stop();
   if (data.resume_event) { if (!internal) stoppedResumeEvent = data.resume_event; setSeekTarget(data.resume_event, false, currentSeekTotal()); }
   toast(internal ? "Internal play enabled — output stays inside this tool" : "External playback route restored", "idle"); updateInputModeUI();
@@ -436,5 +435,6 @@ function bind() {
   els.clearRecording.addEventListener("click", clearRecording); els.saveRecording.addEventListener("click", saveRecording);
   window.addEventListener("keydown", event => { if (event.key === "F7" && internalMode()) { event.preventDefault(); stopPlayback(); } });
 }
-
-setupPianoFrontendPort({ api, play: async song => { await loadSong(song); if (activeSongId !== song.id) throw new Error("Piano could not load that song."); await startPlayback(); if (els.statusChip.dataset.state === "error") throw new Error(els.statusText.textContent || "Playback failed."); }, pause: togglePause, stop: stopPlayback, status: () => internalMode() ? internalPreview.status() : lastStatus }); bind(); updateInputModeUI(); updateSliderLabels(); refreshStats(); refreshLibrary(); refreshWindows(); loadProviders(); pollStatus();
+frontendBridge = setupPianoFrontendAppBridge({
+  api, els, internalMode, play: async song => { await loadSong(song); if (activeSongId !== song.id) throw new Error("Piano could not load that song."); await startPlayback(); if (els.statusChip.dataset.state === "error") throw new Error(els.statusText.textContent || "Playback failed."); }, pause: togglePause, stop: stopPlayback, status: () => internalMode() ? internalPreview.status() : lastStatus, current: currentSheetSnapshot, activeSongId: () => activeSongId, progress: () => ({ index: Math.max(0, Number(lastStatus.current_index || seekTarget || 0)), total: currentSeekTotal() }), speed: () => Number(els.globalSpeed.value || 1), setSpeed: setGlobalSpeed, workspace: sheetWorkspace, seek: applySeek, importSongs: () => $("importLibraryBtn")?.click(), loadSong
+}); bind(); updateInputModeUI(); updateSliderLabels(); refreshStats(); refreshLibrary(); refreshWindows(); loadProviders(); pollStatus();

@@ -73,7 +73,7 @@ async function probe(browser, width) {
         await page.locator('[data-piano-view-switch]').click();
         let front = await state();
         assert.equal(front.view, 'frontend');
-        assert.match(front.title, /Frontend$/);
+        assert.equal(front.title, 'Piano Library');
         assert.equal(front.frontendHidden, false);
         assert.equal(front.frontendVisible, true);
         assert.ok(front.frontendChildren > 0, 'frontend must contain the new library surface');
@@ -86,7 +86,7 @@ async function probe(browser, width) {
         assert.equal(front.frameSource, initial.frameSource);
         assert.equal(front.buttonText, 'Backend tools');
         assert(front.pageScroll <= front.pageWidth + 2, `horizontal overflow at ${width}px`);
-        // Service changes must still be reflected while viewing the blank canvas.
+        // Service changes must still be reflected while viewing the song-first frontend.
         await page.evaluate(() => {
             window.EveAudioflixPiano.state = {
                 running: false, installed: true, phase: 'stopped', message: 'Piano Auto Player is stopped.'
@@ -120,7 +120,7 @@ async function probe(browser, width) {
         let remount = await state();
         assert.equal(remount.view, 'frontend', 'view state must survive an ordinary Audioflix rerender');
         assert.ok(remount.frontendChildren > 0);
-        console.log(`PIANO_VIEW_SPLIT_BROWSER_OK viewport=${width} backend=PASS blank-frontend=PASS iframe-preserved=PASS offline=PASS remount=PASS`);
+        console.log(`PIANO_VIEW_SPLIT_BROWSER_OK viewport=${width} backend=PASS song-frontend=PASS iframe-preserved=PASS offline=PASS remount=PASS`);
     } finally {
         await page.close();
     }

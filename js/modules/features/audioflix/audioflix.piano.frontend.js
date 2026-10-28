@@ -107,7 +107,7 @@
             target.append(empty); return;
         }
         for (const song of matching) {
-            const row = document.createElement('div'); row.className = 'piano-frontend-song';
+            const row = document.createElement('div'); row.className = 'piano-frontend-song'; row.dataset.songId = song.id;
             const art = document.createElement('span'); art.className = 'piano-frontend-note'; art.textContent = song.kind === 'recording' ? '●' : '♪'; art.setAttribute('aria-hidden', 'true');
             const info = document.createElement('div'); info.className = 'piano-frontend-song-info';
             const title = document.createElement('strong'); title.textContent = song.title;
@@ -127,6 +127,12 @@
             status.dataset.state = !isRunning() ? 'offline' : !bridgeReady ? (libraryReady ? 'library' : 'connecting') : state;
             status.textContent = !isRunning() ? 'Piano offline' : !bridgeReady ? (libraryReady ? 'Library ready' : 'Connecting…') : state === 'playing' ? 'Playing' : state === 'paused' ? 'Paused' : state === 'countdown' ? 'Starting…' : state === 'complete' ? 'Finished' : 'Ready';
         }
+        const serviceStart = c.querySelector('[data-pf-service-start]');
+        if (serviceStart) {
+            const lifecycle = panel()?.querySelector('.audioflix-piano-actions [data-piano-toggle]');
+            serviceStart.hidden = isRunning();
+            serviceStart.disabled = isRunning() || lifecycle?.disabled === true;
+        }
         for (const action of ['pause', 'stop', 'refresh']) {
             const button = c.querySelector(`[data-af-action="piano-frontend-${action}"]`);
             if (!button) continue;
@@ -138,6 +144,11 @@
     function reset() {
         pending.clear(); songs = []; bridgeReady = false; libraryReady = false; lastLibrary = lastStatus = 0; busy = ''; state = 'idle';
         message = isRunning() ? 'Connecting to Piano library…' : 'Start Piano to browse your songs.';
+        displayStatus();
+    }
+    function invalidate(messageText = 'Refreshing Piano library…') {
+        pending.clear(); bridgeReady = false; lastLibrary = lastStatus = 0; busy = '';
+        if (isRunning()) message = messageText;
         displayStatus();
     }
     async function loadLibraryDirect() {
@@ -181,8 +192,8 @@
         c.setAttribute('aria-label', 'Piano songs frontend');
         c.innerHTML = `<div class="piano-frontend-inner">
           <header class="piano-frontend-header">
-            <div class="piano-frontend-title"><span class="piano-frontend-kicker">PIANO AUTO PLAYER</span><h2>Piano</h2><p>Your songs, ready to play.</p></div>
-            <div class="piano-frontend-transport" aria-label="Piano playback controls"><span class="piano-frontend-state" data-pf-playback role="status">Connecting…</span><button type="button" data-af-action="piano-frontend-pause">Pause / Resume</button><button type="button" data-af-action="piano-frontend-stop">Stop</button></div>
+            <div class="piano-frontend-title"><span class="piano-frontend-kicker">PIANO LIBRARY</span><h2>My Piano Music</h2><p>Choose a song and play it here.</p></div>
+            <div class="piano-frontend-transport" aria-label="Piano playback controls"><span class="piano-frontend-state" data-pf-playback role="status">Connecting…</span><button type="button" data-af-action="piano-toggle" data-pf-service-start hidden>Start Piano</button><button type="button" data-af-action="piano-frontend-pause">Pause / Resume</button><button type="button" data-af-action="piano-frontend-stop">Stop</button></div>
           </header>
           <section class="piano-frontend-library">
             <div class="piano-frontend-library-head"><div><span>LIBRARY</span><h3>Songs <small data-pf-count>0 songs</small></h3></div>
@@ -217,6 +228,10 @@
     }
     window.addEventListener('message', event => {
         if (!root || event.source !== frame()?.contentWindow || event.origin !== origin()) return;
+        if (event.data?.type === 'piano:eveos-port-update' || event.data?.type === 'piano:eveos-frontend-port-response') {
+            if (!bridgeReady) { bridgeReady = true; displayStatus(); }
+            return;
+        }
         if (event.data?.type === 'piano:eveos-frontend-ready') {
             bridgeReady = true; lastLibrary = lastStatus = 0; message = libraryReady ? 'Your saved Piano songs.' : 'Loading Piano library…'; displayStatus(); refresh(true); return;
         }
@@ -231,5 +246,10 @@
         else if (busy === action) { busy = ''; message = action === 'play' ? 'Song sent to Piano player.' : 'Playback command completed.'; lastStatus = 0; }
         displayStatus();
     });
-    Object.assign(ns, { ready: true, mount, sync, refresh, handleAction, repaint: displaySongs, bridgeReady: () => bridgeReady, serviceOrigin: origin });
+    Object.assign(ns, {
+        ready: true, mount, sync, refresh, invalidate, handleAction, repaint: displaySongs,
+        bridgeReady: () => bridgeReady, serviceOrigin: origin,
+        getSongs: () => songs.map(song => ({ ...song, identifiers: { ...(song.identifiers || {}) }, automatic_identifiers: { ...(song.automatic_identifiers || {}) } })),
+        requestLibrary: () => { lastLibrary = 0; refresh(true); }
+    });
 })(window.EveAudioflixPianoFrontend = window.EveAudioflixPianoFrontend || {});
