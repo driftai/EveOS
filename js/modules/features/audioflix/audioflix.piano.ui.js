@@ -101,6 +101,7 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         if (offline) offline.hidden = running;
         if (detachedOverlay) detachedOverlay.hidden = !detached;
         window.EveAudioflixPianoViews?.apply?.(panel);
+        window.EveAudioflixPianoFrontend?.sync?.(host);
         if (setupState) {
             const conversion = status.youtubeSetup ? 'Media conversion installed' : 'Media conversion optional';
             const hifi = status.hifiSetup ? 'Hi-Fi installed' : 'Hi-Fi optional';
@@ -142,7 +143,8 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
     function afterRender(host) {
         root = host;
         const frame = root?.querySelector?.('[data-piano-frame]');
-        frame?.addEventListener('load', () => sendContext(frame));
+        frame?.addEventListener('load', () => { sendContext(frame); window.EveAudioflixPianoFrontend?.refresh?.(true); });
+        window.EveAudioflixPianoFrontend?.mount?.(host);
         patch(host);
     }
 
@@ -222,8 +224,10 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         const action = target?.dataset?.afAction || '';
         if (action === 'piano-view-switch') {
             window.EveAudioflixPianoViews?.toggle?.(root?.querySelector?.('[data-audioflix-piano]'));
+            window.EveAudioflixPianoFrontend?.sync?.(root);
             return { handled: true };
         }
+        if (action.startsWith('piano-frontend-')) return { handled: window.EveAudioflixPianoFrontend?.handleAction?.(target) === true };
         if (action === 'piano-refresh') await refresh({ reloadWorkspace: true });
         if (action === 'piano-toggle') {
             const status = snapshot();

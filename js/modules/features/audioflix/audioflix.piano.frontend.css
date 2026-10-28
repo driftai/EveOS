@@ -1,0 +1,31 @@
+/* The frontend is a song-first surface, with all technical controls left in Backend. */
+.audioflix-piano-frontend { overflow: auto; }
+.piano-frontend-inner { padding: clamp(16px, 3vw, 32px); min-height: 100%; color: #e6f4f5; }
+.piano-frontend-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 5px 2px 22px; border-bottom: 1px solid rgba(95, 188, 201, .22); }
+.piano-frontend-kicker,.piano-frontend-library-head span { color: #56d8e7; letter-spacing: .14em; font-weight: 800; font-size: 10px; }
+.piano-frontend-header h2 { margin: 4px 0; font-size: clamp(24px, 3vw, 38px); }
+.piano-frontend-header p { margin: 0; color: #91aeb4; font-size: 12px; }
+.piano-frontend-transport,.piano-frontend-library-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.piano-frontend-transport [data-pf-playback] { color: #acd6dd; font-size: 12px; margin-right: 6px; }
+.audioflix-piano-frontend button { padding: 9px 14px; border: 1px solid rgba(93, 151, 164, .3); border-radius: 9px; background: #11242a; color: #dcf4f6; cursor: pointer; }
+.audioflix-piano-frontend button:hover:not(:disabled) { background: #1d3d45; border-color: #51c8d5; }
+.audioflix-piano-frontend button:disabled { opacity: .45; cursor: not-allowed; }
+.piano-frontend-library { padding-top: 25px; }
+.piano-frontend-library-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-bottom: 14px; }
+.piano-frontend-library-head h3 { margin: 4px 0 0; font-size: 21px; }
+.piano-frontend-library-head small { color: #77979f; font-weight: 400; font-size: 12px; margin-left: 7px; }
+.piano-frontend-search-label input { color: #d6f2f6; background: #08191e; border: 1px solid #244950; border-radius: 9px; padding: 9px 12px; min-width: 180px; max-width: 100%; }
+.piano-frontend-notice { color: #819fa7; margin: 3px 0 14px; font-size: 12px; }
+.piano-frontend-song-list { display: grid; gap: 8px; }
+.piano-frontend-song { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px; background: #0b1b20; border: 1px solid #203b42; border-radius: 12px; }
+.piano-frontend-note { display: grid; place-items: center; color: #74deeb; background: #11343b; border-radius: 9px; width: 38px; height: 38px; font-size: 20px; }
+.piano-frontend-song-info { min-width: 0; display: grid; gap: 3px; }
+.piano-frontend-song-info strong,.piano-frontend-song-info small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.piano-frontend-song-info strong { font-size: 14px; }
+.piano-frontend-song-info small { color: #7899a1; font-size: 11px; }
+.audioflix-piano-frontend .piano-frontend-song-play { color: #071b20; background: #74dce8; border-color: #74dce8; font-weight: 800; }
+.audioflix-piano-frontend .piano-frontend-song-play:hover:not(:disabled) { background: #a2edf5; }
+.piano-frontend-empty { border: 1px dashed #244950; border-radius: 12px; color: #8ca7ae; padding: 38px 14px; text-align: center; font-size: 13px; }
+@media (max-width: 550px) { .piano-frontend-inner { padding: 15px; } .piano-frontend-transport { width: 100%; } .piano-frontend-library-tools { width: 100%; } .piano-frontend-search-label { flex: 1; min-width: 0; } .piano-frontend-search-label input { width: 100%; min-width: 0; } .piano-frontend-song { gap: 8px; padding: 10px 8px; grid-template-columns: 31px minmax(0, 1fr) auto; } .piano-frontend-note { width: 31px; height: 31px; } }
+/* Service lifecycle and setup live in Backend; playback transport lives here. */
+.audioflix-piano[data-piano-view="frontend"] .audioflix-piano-header p,.audioflix-piano[data-piano-view="frontend"] .audioflix-piano-header .audioflix-piano-actions button { display: none; }

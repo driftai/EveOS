@@ -20,6 +20,7 @@ async function probe(browser, width) {
         await page.setContent('<!doctype html><html><head></head><body style="background:#090f12;margin:0"><main id="test-root"></main></body></html>');
         await page.addStyleTag({ content: css });
         await page.addScriptTag({ content: mode });
+        await page.addScriptTag({ content: fs.readFileSync(path.join(repo, 'js/modules/features/audioflix/audioflix.piano.frontend.js'), 'utf8') });
         await page.addScriptTag({ content: ui });
         await page.evaluate(() => {
             window.EveAudioflixPiano = {
@@ -75,7 +76,7 @@ async function probe(browser, width) {
         assert.match(front.title, /Frontend$/);
         assert.equal(front.frontendHidden, false);
         assert.equal(front.frontendVisible, true);
-        assert.equal(front.frontendChildren, 0, 'frontend must start genuinely blank');
+        assert.ok(front.frontendChildren > 0, 'frontend must contain the new library surface');
         assert.equal(front.backendHidden, 'true');
         assert.equal(front.backendInert, true);
         assert.equal(front.backendOpacity, '0');
@@ -118,7 +119,7 @@ async function probe(browser, width) {
         });
         let remount = await state();
         assert.equal(remount.view, 'frontend', 'view state must survive an ordinary Audioflix rerender');
-        assert.equal(remount.frontendChildren, 0);
+        assert.ok(remount.frontendChildren > 0);
         console.log(`PIANO_VIEW_SPLIT_BROWSER_OK viewport=${width} backend=PASS blank-frontend=PASS iframe-preserved=PASS offline=PASS remount=PASS`);
     } finally {
         await page.close();

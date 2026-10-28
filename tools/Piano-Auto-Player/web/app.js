@@ -1,4 +1,4 @@
-import { api } from "./api.js";
+import { api } from "./api.js"; import { setupPianoFrontendPort } from "./piano_frontend_port.js";
 import { PerformanceRecorder, bindPhysicalPiano } from "./piano.js";
 import { setupPianoControls } from "./piano_controls.js";
 import { InternalPreviewPlayer } from "./internal_preview.js";
@@ -378,7 +378,7 @@ async function refreshLibrary({ fresh = false } = {}) {
 }
 
 function loadSong(song) {
-  void sheetWorkspace.load({ ...song, _activeSongId: song.id }, { provider_name: song.source || "Local library", url: song.source_url || "" });
+  return sheetWorkspace.load({ ...song, _activeSongId: song.id }, { provider_name: song.source || "Local library", url: song.source_url || "" });
 }
 
 async function deleteSong(song) {
@@ -437,4 +437,4 @@ function bind() {
   window.addEventListener("keydown", event => { if (event.key === "F7" && internalMode()) { event.preventDefault(); stopPlayback(); } });
 }
 
-bind(); updateInputModeUI(); updateSliderLabels(); refreshStats(); refreshLibrary(); refreshWindows(); loadProviders(); pollStatus();
+bind(); updateInputModeUI(); updateSliderLabels(); refreshStats(); refreshLibrary(); refreshWindows(); loadProviders(); pollStatus(); setupPianoFrontendPort({ api, play: async song => { await loadSong(song); if (activeSongId !== song.id) throw new Error("Piano could not load that song."); await startPlayback(); if (els.statusChip.dataset.state === "error") throw new Error(els.statusText.textContent || "Playback failed."); }, pause: togglePause, stop: stopPlayback, status: () => internalMode() ? internalPreview.status() : lastStatus });
