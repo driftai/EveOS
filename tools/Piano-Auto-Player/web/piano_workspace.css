@@ -26,6 +26,8 @@
 .sheet-workspace-copy > span { color: var(--blue); font-size: 9px; font-weight: 800; letter-spacing: .14em; }
 .sheet-workspace-copy strong { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .sheet-workspace-copy small { color: var(--muted); font-size: 9px; line-height: 1.35; }
+.sheet-workspace-cache:not([open]) .sheet-workspace-copy small { display: none; }
+.sheet-workspace-cache:not([open]) > summary, .sheet-workspace-staging:not([open]) > summary { box-sizing: border-box; height: 62px; }
 .sheet-workspace-cache-toggle { flex: 0 0 auto; color: #9bcfff; font-size: 9px; font-weight: 750; }
 .sheet-workspace-cache-toggle::after { content: "Expand"; }
 .sheet-workspace-cache[open] .sheet-workspace-cache-toggle::after { content: "Collapse"; }

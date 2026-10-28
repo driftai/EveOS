@@ -101,6 +101,9 @@ def assert_static_contract() -> None:
     assert '.hero-grid.piano-workflow-organized > .piano-workflow-sidecar' in workspace_css
     assert '.sheet-workspace-cache { grid-column: 1; grid-row: 1' in workspace_css
     assert '.sheet-workspace-staging { grid-column: 2; grid-row: 1' in workspace_css
+    assert '.sheet-workspace-cache:not([open]) .sheet-workspace-copy small { display: none; }' in workspace_css
+    assert '.sheet-workspace-cache:not([open]) > summary, .sheet-workspace-staging:not([open]) > summary' in workspace_css
+    assert 'height: 62px;' in workspace_css
     assert '.sheet-workspace > .sheet-workspace-queue' in workspace_css
 
     helper = (ROOT / "server_modules" / "eveos_control_helper.py").read_text(encoding="utf-8")
