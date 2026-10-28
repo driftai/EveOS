@@ -23,23 +23,28 @@
           <div><p class="eyebrow">SHEET PLAYER</p><input id="titleInput" class="title-input" value="Untitled sheet" aria-label="Song title"></div>
           <button class="ghost" id="saveSongBtn">Save song</button>
         </div>
-        <div class="progress-wrap">
-          <div class="progress-track" title="Drag to seek to an event">
-            <div id="progressBar" class="progress-bar"></div>
-            <input id="eventSeekRange" class="progress-seek" type="range" min="1" max="1" value="1" step="1" aria-label="Seek by event">
+        <details class="event-view-disclosure">
+          <summary><span><strong>EVENT VIEW + SHEET</strong><small>Seek, inspect, or edit this performance.</small></span></summary>
+          <div class="event-view-body">
+            <div class="progress-wrap">
+              <div class="progress-track" title="Drag to seek to an event">
+                <div id="progressBar" class="progress-bar"></div>
+                <input id="eventSeekRange" class="progress-seek" type="range" min="1" max="1" value="1" step="1" aria-label="Seek by event">
+              </div>
+              <div class="progress-meta"><span id="progressText">0 / 0 events</span><span id="currentToken">—</span></div>
+              <div class="seek-controls">
+                <button type="button" id="seekStartBtn" title="First event">↤</button>
+                <button type="button" data-seek-delta="-100">−100</button><button type="button" data-seek-delta="-10">−10</button><button type="button" data-seek-delta="-1">−1</button>
+                <label class="seek-number"><span>Event</span><input id="eventSeekInput" type="number" min="1" value="1" step="1"><b id="eventSeekTotal">/ 0</b></label>
+                <button type="button" id="seekGoBtn" class="primary">Go</button>
+                <button type="button" data-seek-delta="1">+1</button><button type="button" data-seek-delta="10">+10</button><button type="button" data-seek-delta="100">+100</button>
+                <button type="button" id="seekEndBtn" title="Last event">↦</button>
+              </div>
+            </div>
+            <textarea id="sheetInput" spellcheck="false" placeholder="Paste a piano sheet here…\n\nExample: t r w [4o] p s g f d -- [1o] u i o"></textarea>
+            <div class="sheet-stats" id="sheetStats"><span>0 events</span><span>0 notes</span><span>0 chords</span><span>0 pauses</span></div>
           </div>
-          <div class="progress-meta"><span id="progressText">0 / 0 events</span><span id="currentToken">—</span></div>
-          <div class="seek-controls">
-            <button type="button" id="seekStartBtn" title="First event">↤</button>
-            <button type="button" data-seek-delta="-100">−100</button><button type="button" data-seek-delta="-10">−10</button><button type="button" data-seek-delta="-1">−1</button>
-            <label class="seek-number"><span>Event</span><input id="eventSeekInput" type="number" min="1" value="1" step="1"><b id="eventSeekTotal">/ 0</b></label>
-            <button type="button" id="seekGoBtn" class="primary">Go</button>
-            <button type="button" data-seek-delta="1">+1</button><button type="button" data-seek-delta="10">+10</button><button type="button" data-seek-delta="100">+100</button>
-            <button type="button" id="seekEndBtn" title="Last event">↦</button>
-          </div>
-        </div>
-        <textarea id="sheetInput" spellcheck="false" placeholder="Paste a piano sheet here…\n\nExample: t r w [4o] p s g f d -- [1o] u i o"></textarea>
-        <div class="sheet-stats" id="sheetStats"><span>0 events</span><span>0 notes</span><span>0 chords</span><span>0 pauses</span></div>
+        </details>
         <div class="transport">
           <button class="primary" id="playBtn">▶ Play</button><button id="pauseBtn">Ⅱ Pause</button><button class="danger" id="stopBtn">■ Stop</button>
           <label class="check"><input type="checkbox" id="dryRun"> Dry run</label>

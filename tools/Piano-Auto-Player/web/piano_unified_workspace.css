@@ -294,8 +294,48 @@
 .recorder-panel[data-u-collapsed="1"] .record-actions {
   display: none !important;
 }
+.recorder-panel[data-u-collapsed="1"] {
+  min-height: 0;
+  padding: 10px 12px;
+}
+.recorder-panel[data-u-collapsed="1"] > .recorder-head {
+  min-height: 0;
+  align-items: center;
+  flex-direction: row;
+  gap: 8px;
+}
+.recorder-panel[data-u-collapsed="1"] > .recorder-head > div > .eyebrow,
+.recorder-panel[data-u-collapsed="1"] > .recorder-head > div > .muted {
+  display: none;
+}
+.recorder-panel[data-u-collapsed="1"] > .recorder-head > div > h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.15;
+}
 .piano-collapsible-panel[data-u-collapsed="1"] > .panel-head {
   margin-bottom: 0;
+}
+
+.piano-unified-workspace .planner-action-block > small {
+  font-size: clamp(7px, .65vw, 9px);
+  line-height: 1.25;
+}
+.piano-unified-workspace .planner-action-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  overflow: visible;
+}
+.piano-unified-workspace .planner-action-pair button {
+  flex: 1 1 108px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+  font-size: clamp(8px, .65vw, 9px);
+  line-height: 1.2;
+  white-space: normal;
+  text-wrap: balance;
 }
 
 @media (max-width: 1180px) {

@@ -49,6 +49,17 @@ h2 { margin: 3px 0 0; font-size: 22px; }
 .piano-reattach { margin-left: auto; border-color: rgba(67,165,255,.55); color: #bfe3ff; background: rgba(24,83,132,.2); }
 .eveos-piano-detached .topbar { align-items: center; }
 .progress-wrap { margin-bottom: 14px; }
+.event-view-disclosure { overflow: hidden; margin-bottom: 14px; border: 1px solid var(--line); border-radius: 13px; background: rgba(10,13,16,.52); }
+.event-view-disclosure > summary { display: flex; align-items: center; gap: 10px; padding: 10px 12px; list-style: none; cursor: pointer; }
+.event-view-disclosure > summary::-webkit-details-marker { display: none; }
+.event-view-disclosure > summary > span { display: grid; gap: 2px; min-width: 0; }
+.event-view-disclosure > summary strong { color: #bce4ff; font-size: 10px; letter-spacing: .12em; }
+.event-view-disclosure > summary small { color: var(--muted); font-size: 10px; }
+.event-view-disclosure > summary::after { content: "▸"; margin-left: auto; color: var(--blue); transition: transform .15s ease; }
+.event-view-disclosure[open] > summary::after { transform: rotate(90deg); }
+.event-view-disclosure:not([open]) > .event-view-body { display: none; }
+.event-view-body { padding: 12px; border-top: 1px solid var(--line); }
+.event-view-body > .sheet-stats { margin-bottom: 0; }
 .progress-track { height: 6px; border-radius: 99px; overflow: hidden; background: #0c0e10; border: 1px solid #22272c; }
 .progress-bar { width: 0; height: 100%; background: linear-gradient(90deg, var(--blue-2), var(--blue)); transition: width .18s linear; }
 .progress-meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 7px; }

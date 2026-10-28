@@ -18,6 +18,8 @@ const UNIFIED = fs.readFileSync(path.join(WEB, 'piano_unified_workspace.js'), 'u
 const UNIFIED_CSS = fs.readFileSync(path.join(WEB, 'piano_unified_workspace.css'), 'utf8');
 const SHEET_PROGRESS = fs.readFileSync(path.join(WEB, 'sheet_progress.js'), 'utf8');
 const QUEUE_PREVIEW = fs.readFileSync(path.join(WEB, 'piano_queue_preview.js'), 'utf8');
+const INDEX = fs.readFileSync(path.join(WEB, 'index.html'), 'utf8');
+const BASE_CSS = fs.readFileSync(path.join(WEB, 'styles.css'), 'utf8');
 const TRANSFER = fs.readFileSync(path.join(APP, 'library_transfer.py'), 'utf8');
 
 for (const token of [
@@ -93,6 +95,20 @@ assert(UNIFIED.includes('const QUEUE_PREVIEW_CLOSE_MS = 550;')
   'queue preview must retain focus, cancel delayed close on reentry, and close when idle');
 assert(UNIFIED_CSS.includes('.piano-next-wrap[data-preview-open="1"] .piano-queue-preview'),
   'delayed-open queue preview must remain visible across the pointer gap');
+assert(INDEX.includes('<details class="event-view-disclosure">')
+  && !INDEX.includes('<details class="event-view-disclosure" open>')
+  && INDEX.includes('<div class="event-view-body">'),
+  'event view and sheet editor must use a default-collapsed disclosure');
+for (const token of ['.event-view-disclosure > summary', '.event-view-disclosure[open] > summary::after', '.event-view-disclosure:not([open]) > .event-view-body']) {
+  assert(BASE_CSS.includes(token), `event disclosure CSS contract missing: ${token}`);
+}
+assert(UNIFIED_CSS.includes('.recorder-panel[data-u-collapsed="1"] > .recorder-head > div > .muted')
+  && UNIFIED_CSS.includes('.recorder-panel[data-u-collapsed="1"] > .recorder-head > div > h2'),
+  'collapsed custom performance panel must hide its description and retain a compact title');
+assert(UNIFIED_CSS.includes('.piano-unified-workspace .planner-action-pair button')
+  && UNIFIED_CSS.includes('flex: 1 1 108px')
+  && UNIFIED_CSS.includes('white-space: normal'),
+  'planner action labels and buttons must adapt without clipped text');
 
 assert(SERVER.includes('if path == "/api/songs/identifiers"'), 'server must expose a metadata-only update route');
 assert(SERVER.includes('LIBRARY.update_identifiers(song_id, identifiers)'), 'metadata-only route must not use the full-song save path');
