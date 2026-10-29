@@ -15,13 +15,20 @@ window.EveAudioflixLayerVoices = window.EveAudioflixLayerVoices || {};
         const safe = Math.max(0, Number(seconds) || 0);
         return `${Math.floor(safe / 60)}:${String(Math.floor(safe % 60)).padStart(2, '0')}`;
     };
+    const formatRemaining = (seconds) => {
+        const totalMilliseconds = Math.ceil(Math.max(0, Number(seconds) || 0) * 1000);
+        const wholeSeconds = Math.floor(totalMilliseconds / 1000);
+        const milliseconds = totalMilliseconds % 1000;
+        return `-${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, '0')}`
+            + `.${String(milliseconds).padStart(3, '0')}`;
+    };
 
     function voiceModel(voice, index) {
         const progress = Math.max(0, Math.min(1, Number(voice.progress) || 0));
         const elapsed = formatTime(voice.currentTime);
         const duration = voice.duration > 0 ? formatTime(voice.duration) : '--:--';
         const pending = voice.pending === true;
-        const remaining = pending ? 'starting' : voice.duration > 0 ? `-${formatTime(voice.remaining)}` : 'live';
+        const remaining = pending ? 'starting' : voice.duration > 0 ? formatRemaining(voice.remaining) : 'live';
         const number = index + 1;
         return { key: String(voice.id || voice.sequence || `layer-${index}`), elapsed, remaining, pending,
             label: `Layer ${number}: ${elapsed} of ${duration}, ${remaining} remaining`, number,
@@ -31,14 +38,14 @@ window.EveAudioflixLayerVoices = window.EveAudioflixLayerVoices || {};
     function renderFallback(host, active) {
         host.innerHTML = active.map((voice, index) => {
             const model = voiceModel(voice, index);
-            return `<div class="audioflix-layer-voice" data-state="${model.pending ? 'starting' : 'playing'}" title="${escapeHtml(model.label)}" style="--af-layer-progress:${model.progress}"><span>Layer ${model.number}</span><b>${model.elapsed}</b><em>${model.remaining}</em></div>`;
+            return `<div class="audioflix-layer-voice" data-state="${model.pending ? 'starting' : 'playing'}" title="${escapeHtml(model.label)}" style="--af-layer-progress:${model.progress}"><span>Layer ${model.number}</span><em>${model.remaining}</em></div>`;
         }).join('');
     }
 
     function createRow(host, key) {
         const row = host.ownerDocument.createElement('div');
         row.className = 'audioflix-layer-voice'; row.dataset.afLayerVoice = key;
-        row.innerHTML = '<span></span><b></b><em></em>';
+        row.innerHTML = '<span></span><em></em>';
         return row;
     }
 
@@ -55,7 +62,7 @@ window.EveAudioflixLayerVoices = window.EveAudioflixLayerVoices || {};
             existing.delete(model.key); row.title = model.label;
             row.dataset.state = model.pending ? 'starting' : 'playing';
             row.style.setProperty('--af-layer-progress', model.progress);
-            const values = [`Layer ${model.number}`, model.elapsed, model.remaining];
+            const values = [`Layer ${model.number}`, model.remaining];
             [...row.children].forEach((node, childIndex) => { if (node.textContent !== values[childIndex]) node.textContent = values[childIndex]; });
             if (host.children[index] !== row) host.insertBefore(row, host.children[index] || null);
         });

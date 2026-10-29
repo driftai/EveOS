@@ -15,7 +15,7 @@
 
 .audioflix-layer-voice {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
     min-height: var(--af-layer-height, 22px);
@@ -38,7 +38,6 @@
     white-space: nowrap;
 }
 
-.audioflix-layer-voice b,
 .audioflix-layer-voice em {
     font: inherit;
     font-variant-numeric: tabular-nums;
@@ -51,10 +50,4 @@
 .audioflix-layer-voice[data-state="starting"] {
     border-style: dashed;
     color: rgba(255, 235, 170, 0.68);
-}
-
-@media (max-width: 620px) {
-    .audioflix-layer-voice em {
-        display: none;
-    }
 }

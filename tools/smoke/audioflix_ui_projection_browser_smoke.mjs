@@ -213,7 +213,7 @@ try {
             duration: 90, remaining: 35, progress: 55 / 90 }));
         window.dispatchEvent(new CustomEvent('eve:audioflix-layer-voices', { detail: { itemId: 'burst-sound', voices } }));
     });
-    await page.waitForFunction(() => document.querySelector('[data-af-layer-voices="burst-sound"] b')?.textContent === '0:55');
+    await page.waitForFunction(() => document.querySelector('[data-af-layer-voices="burst-sound"] em')?.textContent === '-0:35.000');
     await page.evaluate(() => { window.requestAnimationFrame = window.__savedRaf; delete window.__savedRaf; });
     checks.push('layer-progress-falls-back-when-frame-stalls');
     const geometry = await qualifyAudioflixProjectionGeometry(page, ROOT, checks);
