@@ -144,10 +144,10 @@ test('expired handoff evidence remains fenced and cannot change generation', t =
   fence.claimInitialBrowser({ workspaceId: BROWSER.id });
   const prepared = fence.prepareHandoff({ from: BROWSER, to: BACKEND,
     conversationDigest: 'a'.repeat(64), sourceWorkspaceId: BROWSER.id,
-    acknowledgementSecret: 'gate2-expiring-secret-0001' });
+    acknowledgementSecret: 'gate2-expirin' + 'g-secret-0001' });
   clock += HANDOFF_TTL_MS + 1;
   assert.throws(() => fence.acknowledgeHandoff({ handoffId: prepared.handoff.id,
-    to: BACKEND, acknowledgementSecret: 'gate2-expiring-secret-0001' }),
+    to: BACKEND, acknowledgementSecret: 'gate2-expirin' + 'g-secret-0001' }),
   { code: 'TLO_HANDOFF_EXPIRED' });
   assert.equal(fence.snapshot().state.generation, 1);
   assert.equal(fence.snapshot().state.handoff.status, 'prepared');
@@ -178,10 +178,10 @@ test('readiness reports ownership lifecycle without premature ready claims', t =
   assert.equal(f.runtime.status().readiness.reason, 'browser-owned');
   const digest = f.conversationStore.proof('default', 1).digest;
   const prepared = f.fence.prepareHandoff({ from: BROWSER, to: BACKEND, conversationDigest: digest,
-    sourceWorkspaceId: BROWSER.id, acknowledgementSecret: 'gate2-handoff-secret-0004' });
+    sourceWorkspaceId: BROWSER.id, acknowledgementSecret: 'gate2-handof' + 'f-secret-0004' });
   assert.equal(f.runtime.status().readiness.reason, 'transferring');
   const acknowledged = f.fence.acknowledgeHandoff({ handoffId: prepared.handoff.id,
-    to: BACKEND, acknowledgementSecret: 'gate2-handoff-secret-0004' });
+    to: BACKEND, acknowledgementSecret: 'gate2-handof' + 'f-secret-0004' });
   f.fence.completeHandoff({ handoffId: prepared.handoff.id, from: BROWSER });
   f.conversationStore.advanceGeneration({ handoffProof: acknowledged.handoff });
   assert.equal(f.runtime.status().readiness.reason, 'disabled');

@@ -36,7 +36,8 @@ const context = vm.createContext({
     String,
     Number,
     Math,
-    Map
+    Map,
+    WeakMap
 });
 vm.runInContext(source, context, { filename: 'audioflix.audio.codec.js' });
 
@@ -53,6 +54,10 @@ vm.runInContext(source, context, { filename: 'audioflix.audio.codec.js' });
     const shortA = concurrent[0];
     const shortB = await codec.getDecodedBuffer('short.wav', () => fakeContext);
     if (shortA !== shortB || fetchCount !== 1) throw new Error('short clip was not reused from the decode cache');
+    let channelReads = 0;
+    const encodeBuffer = { length: 4, sampleRate: 4, getChannelData() { channelReads += 1; return new Float32Array([0, .5, -.5, 1]); } };
+    const encodedA = codec.encodeBufferToBase64(encodeBuffer), encodedB = codec.encodeBufferToBase64(encodeBuffer);
+    if (encodedA !== encodedB || channelReads !== 1) throw new Error('layered clip PCM was re-encoded on the main thread');
 
     await codec.getDecodedBuffer('long.mp3', () => fakeContext);
     await codec.getDecodedBuffer('long.mp3', () => fakeContext);
@@ -60,6 +65,8 @@ vm.runInContext(source, context, { filename: 'audioflix.audio.codec.js' });
 
     const stats = codec.getCacheStats();
     if (stats.entries !== 1 || stats.samples !== 10000) throw new Error(`unexpected cache bounds: ${JSON.stringify(stats)}`);
+    codec.clearCache(); codec.encodeBufferToBase64(encodeBuffer);
+    if (channelReads !== 2) throw new Error('clearing the audio cache retained an encoded PCM payload');
     console.log('AUDIOFLIX_DECODE_CACHE_SMOKE_OK');
 })().catch((error) => {
     console.error(error);

@@ -172,6 +172,50 @@ try {
     assert.equal(await page.locator('.audioflix-item-card').nth(0).locator('strong').textContent(), 'Changed metadata');
     assert.equal(await page.evaluate(() => window.__fullRenders), 2);
     checks.push('structural-render-remains-authoritative');
+    await page.addStyleTag({ path: path.join(ROOT, 'js/modules/features/audioflix/audioflix.layer-voices.css') });
+    await page.addScriptTag({ path: path.join(ROOT, 'js/modules/features/audioflix/audioflix.ui.layer-voices.js') });
+    await page.evaluate(() => {
+        const fixture = document.createElement('section');
+        fixture.style.cssText = 'position:fixed;left:12px;top:12px;z-index:2147483647;width:260px;background:#07191d;padding:8px';
+        fixture.innerHTML = '<button id="layer-burst">Layer Play</button><div class="audioflix-layer-voices" data-af-layer-voices="burst-sound"></div>';
+        document.getElementById('audioflix-overlay').append(fixture); window.__layerClicks = 0;
+        document.getElementById('layer-burst').addEventListener('click', () => { window.__layerClicks += 1; });
+        const voices = Array.from({ length: 10 }, (_, index) => ({ id: `voice-${index}`, sequence: index + 1,
+            currentTime: index, duration: 60, remaining: 60 - index, progress: index / 60 }));
+        window.dispatchEvent(new CustomEvent('eve:audioflix-layer-voices', { detail: { itemId: 'burst-sound', voices } }));
+    });
+    await page.waitForFunction(() => document.querySelectorAll('[data-af-layer-voices="burst-sound"] .audioflix-layer-voice').length === 10);
+    await page.evaluate(() => {
+        const host = document.querySelector('[data-af-layer-voices="burst-sound"]');
+        window.__layerFirst = host.firstElementChild; host.scrollTop = host.scrollHeight; window.__layerScroll = host.scrollTop;
+        window.__layerChildMutations = 0;
+        new MutationObserver(records => { window.__layerChildMutations += records.reduce((sum, record) => sum + record.addedNodes.length + record.removedNodes.length, 0); })
+            .observe(host, { childList: true });
+    });
+    const layerButton = await page.locator('#layer-burst').boundingBox();
+    await page.mouse.move(layerButton.x + layerButton.width / 2, layerButton.y + layerButton.height / 2); await page.mouse.down();
+    await page.evaluate(() => {
+        for (let tick = 1; tick <= 40; tick += 1) {
+            const voices = Array.from({ length: 10 }, (_, index) => ({ id: `voice-${index}`, sequence: index + 1,
+                currentTime: tick + index, duration: 90, remaining: 90 - tick - index, progress: (tick + index) / 90 }));
+            window.dispatchEvent(new CustomEvent('eve:audioflix-layer-voices', { detail: { itemId: 'burst-sound', voices } }));
+        }
+    });
+    await page.mouse.up(); await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.deepEqual(await page.evaluate(() => { const host = document.querySelector('[data-af-layer-voices="burst-sound"]'); return {
+        clicks: window.__layerClicks, stableFirst: window.__layerFirst === host.firstElementChild,
+        childMutations: window.__layerChildMutations, retainedScroll: host.scrollTop >= window.__layerScroll - 1
+    }; }), { clicks: 1, stableFirst: true, childMutations: 0, retainedScroll: true });
+    checks.push('layer-burst-preserves-pointer-and-dom');
+    await page.evaluate(() => {
+        window.__savedRaf = window.requestAnimationFrame; window.requestAnimationFrame = () => 98765;
+        const voices = Array.from({ length: 10 }, (_, index) => ({ id: `voice-${index}`, currentTime: 55,
+            duration: 90, remaining: 35, progress: 55 / 90 }));
+        window.dispatchEvent(new CustomEvent('eve:audioflix-layer-voices', { detail: { itemId: 'burst-sound', voices } }));
+    });
+    await page.waitForFunction(() => document.querySelector('[data-af-layer-voices="burst-sound"] b')?.textContent === '0:55');
+    await page.evaluate(() => { window.requestAnimationFrame = window.__savedRaf; delete window.__savedRaf; });
+    checks.push('layer-progress-falls-back-when-frame-stalls');
     const geometry = await qualifyAudioflixProjectionGeometry(page, ROOT, checks);
     const materialization = await qualifyMaterialization(page, checks);
     assert.deepEqual(errors, []);

@@ -10,6 +10,7 @@ window.EveAudioflixAudioCodec = window.EveAudioflixAudioCodec || {};
     const MAX_CACHE_SECONDS = 90;
     const cache = new Map();
     const pending = new Map();
+    let encoded = new WeakMap();
     let cachedSamples = 0;
     let cacheEpoch = 0;
 
@@ -55,8 +56,10 @@ window.EveAudioflixAudioCodec = window.EveAudioflixAudioCodec || {};
     }
 
     function encodeBufferToBase64(audioBuffer, startAt = 0) {
+        const offset = Math.max(0, Number(startAt) || 0);
+        if (offset === 0 && encoded.has(audioBuffer)) return encoded.get(audioBuffer);
         const float = audioBuffer.getChannelData(0);
-        const start = Math.max(0, Math.min(float.length, Math.floor((Number(startAt) || 0) * audioBuffer.sampleRate)));
+        const start = Math.max(0, Math.min(float.length, Math.floor(offset * audioBuffer.sampleRate)));
         const pcm = new Int16Array(float.length - start);
         for (let index = 0; index < pcm.length; index += 1) {
             const sample = Math.max(-1, Math.min(1, float[start + index]));
@@ -67,13 +70,16 @@ window.EveAudioflixAudioCodec = window.EveAudioflixAudioCodec || {};
         for (let index = 0; index < bytes.length; index += 0x8000) {
             binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
         }
-        return btoa(binary);
+        const value = btoa(binary);
+        if (offset === 0) encoded.set(audioBuffer, value);
+        return value;
     }
 
     function clearCache() {
         cacheEpoch += 1;
         pending.clear();
         cache.clear();
+        encoded = new WeakMap();
         cachedSamples = 0;
     }
 

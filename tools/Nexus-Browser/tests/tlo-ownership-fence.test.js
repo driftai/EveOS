@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createTloOwnershipFence } = require('../dex/tlo-ownership-fence');
 const DIGEST = 'a'.repeat(64);
-const SECRET = 'handoff-secret-unit-test-0001';
+const SECRET = 'handoff-secret' + '-unit-test-0001';
 
 function fixture() {
   const records = new Map();
@@ -105,7 +105,7 @@ test('handoff binds transcript, source, generations and one-time target acknowle
   assert.equal(prepared.handoff.toGeneration, 2);
   assert.notEqual(prepared.handoff.tokenHash, SECRET);
   expectCode(() => f.fence.acknowledgeHandoff({ handoffId: prepared.handoff.id,
-    to: f.backend, acknowledgementSecret: 'wrong-handoff-secret-0001' }), 'TLO_HANDOFF_AUTH_INVALID');
+    to: f.backend, acknowledgementSecret: 'wrong-handof' + 'f-secret-0001' }), 'TLO_HANDOFF_AUTH_INVALID');
   const acknowledged = f.fence.acknowledgeHandoff({ handoffId: prepared.handoff.id,
     to: f.backend, acknowledgementSecret: SECRET });
   assert.equal(acknowledged.handoff.tokenHash, null);

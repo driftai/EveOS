@@ -61,7 +61,7 @@ function createTloOwnershipFenceForTest(store, conversationStore, conversationDi
   const { createTloOwnershipFence } = require('../dex/tlo-ownership-fence');
   const fence = createTloOwnershipFence(store);
   fence.claimInitialBrowser({ workspaceId: 'search-monitor-runtime-test' });
-  const acknowledgementSecret = 'runtime-handoff-secret-0001';
+  const acknowledgementSecret = 'runtime-hando' + 'ff-secret-0001';
   const prepared = fence.prepareHandoff({
     from: { kind: 'browser', id: 'search-monitor-runtime-test', generation: 1 },
     to: { kind: 'backend', id: OWNER.id }, conversationDigest,

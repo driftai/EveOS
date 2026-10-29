@@ -4,6 +4,8 @@
     gap: 3px;
     max-height: 150px;
     overflow: auto;
+    scrollbar-gutter: stable;
+    contain: layout paint;
 }
 
 .audioflix-layer-voices:empty,
@@ -17,6 +19,7 @@
     align-items: center;
     gap: 8px;
     min-height: var(--af-layer-height, 22px);
+    height: var(--af-layer-height, 22px);
     padding: 1px 7px;
     overflow: hidden;
     border: 1px solid rgba(255, 202, 95, 0.22);
@@ -43,6 +46,11 @@
 
 .audioflix-layer-voice em {
     color: rgba(0, 212, 255, 0.78);
+}
+
+.audioflix-layer-voice[data-state="starting"] {
+    border-style: dashed;
+    color: rgba(255, 235, 170, 0.68);
 }
 
 @media (max-width: 620px) {

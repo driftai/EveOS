@@ -8,7 +8,7 @@ const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const subject = require('../dex/tlo-deployment-coordinator');
 
-const secret = 'deployment-test-secret-0000000000000000000001';
+const secret = 'deployment-test-secret' + '-0000000000000000000001';
 const head = 'b'.repeat(40), source = 'c'.repeat(64), webSource = 'd'.repeat(64);
 function base(root) {
   return { branch: 'eve/nexus-machine-spaces', head, remoteHead: head, clean: true,

@@ -8,9 +8,12 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
 
     function createController(deps) {
         const activeLayers = new Map();
+        const layerQueues = new Map();
+        const pendingLayers = new Map();
         const itemEpochs = new Map();
         let globalEpoch = 0;
         let layerSequence = 0;
+        let pendingSequence = 0;
         let progressTimer = 0;
         let pendingTotal = 0;
         const pendingByItem = new Map();
@@ -55,8 +58,10 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
                 native: record.native === true
             };
         };
-        const itemSnapshot = (id) => (activeLayers.get(String(id ?? '')) || [])
-            .map(record => layerSnapshot(record));
+        const itemSnapshot = (id) => {
+            const key = String(id ?? '');
+            return (activeLayers.get(key) || []).map(record => layerSnapshot(record)).concat(pendingLayers.get(key) || []);
+        };
 
         function emit(id) {
             const detail = { itemId: String(id ?? ''), voices: itemSnapshot(id) };
@@ -65,6 +70,21 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
                 window.dispatchEvent(new window.CustomEvent('eve:audioflix-layer-voices', { detail }));
             }
             return detail;
+        }
+
+        function addPending(id, item) {
+            const duration = Number(item?.duration) || 0;
+            const record = { id: `${id}::pending:${++pendingSequence}`, sequence: pendingSequence, itemId: id,
+                title: String(item?.title || 'Layered sound'), currentTime: 0, duration,
+                remaining: duration, progress: 0, pending: true };
+            if (!pendingLayers.has(id)) pendingLayers.set(id, []);
+            pendingLayers.get(id).push(record); emit(id); return record;
+        }
+
+        function removePending(id, record) {
+            const pending = pendingLayers.get(id); if (!pending) return;
+            const index = pending.indexOf(record); if (index >= 0) pending.splice(index, 1);
+            if (!pending.length) pendingLayers.delete(id); emit(id);
         }
 
         function stopProgressTimer() {
@@ -172,17 +192,14 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             try { await deps.stopUrlPlayback?.(id); } catch {}
         }
 
-        async function layerPlay(item) {
-            if (!item?.url) return false;
-            let safeItem = typeof item === 'object' ? { ...item } : { url: item };
-            const id = itemId(safeItem);
+        async function startLayer(safeItem, id, itemStartEpoch, globalStartEpoch) {
             if (!reserveStart(id)) return false;
             try {
-            const itemStartEpoch = epoch(id);
-            const globalStartEpoch = globalEpoch;
             const cancelled = () => isCancelled(id, itemStartEpoch, globalStartEpoch);
 
-            if (deps.shouldPreferUrl?.(safeItem)) {
+            const provider = window.EveAudioflixUrlProviders?.providerFor?.(safeItem.url) || '';
+            const independentSound = safeItem.type === 'sound' && (provider === 'direct' || /^(?:file:|blob:|data:audio\/)/i.test(safeItem.url));
+            if (deps.shouldPreferUrl?.(safeItem) && !independentSound) {
                 const played = await deps.playUrlItem(safeItem);
                 if (!cancelled()) return played;
                 await cancelStartedUrl(id);
@@ -250,27 +267,28 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             player.src = safeItem.url;
             player.loop = false;
             player.volume = outputVolume(safeItem.volume);
-            window.EveAudioflixAudio?.getWaveformController?.()?.attachPlayer?.(player);
+            const releaseWaveform = window.EveAudioflixAudio?.getWaveformController?.()?.attachLayerPlayer?.(player);
             const sinkId = deps.state().preferredSinkId;
             if (sinkId && typeof player.setSinkId === 'function') {
                 try { await player.setSinkId(sinkId); } catch {}
             }
-            if (cancelled()) return false;
+            if (cancelled()) { releaseWaveform?.(); return false; }
             const record = makeRecord(id, safeItem, {
                 player,
                 stop() {
                     player.pause();
                     player.currentTime = 0;
+                    releaseWaveform?.();
                 }
             });
             addLayer(id, record);
             player.addEventListener('loadedmetadata', () => emit(id));
             player.addEventListener('durationchange', () => emit(id));
-            player.addEventListener('timeupdate', () => emit(id));
-            player.addEventListener('ended', () => removeLayer(id, record));
+            player.addEventListener('ended', () => { releaseWaveform?.(); removeLayer(id, record); });
             try {
                 await player.play();
             } catch (error) {
+                releaseWaveform?.();
                 removeLayer(id, record);
                 throw error;
             }
@@ -283,6 +301,28 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             } finally {
                 releaseStart(id);
             }
+        }
+
+        async function layerPlay(item) {
+            if (!item?.url) return false;
+            const safeItem = typeof item === 'object' ? { ...item } : { url: item };
+            const id = itemId(safeItem), itemStartEpoch = epoch(id), globalStartEpoch = globalEpoch;
+            const queue = layerQueues.get(id) || { tail: Promise.resolve(false), pending: 0 };
+            if (queue.pending >= MAX_LAYERS_PER_ITEM) return false;
+            const followsPending = queue.pending > 0;
+            const pendingRecord = addPending(id, safeItem);
+            queue.pending += 1;
+            const run = () => {
+                if (isCancelled(id, itemStartEpoch, globalStartEpoch)) return false;
+                return startLayer(safeItem, id, itemStartEpoch, globalStartEpoch);
+            };
+            const operation = followsPending ? queue.tail.catch(() => false).then(run) : Promise.resolve(run());
+            queue.tail = operation.catch(() => false); layerQueues.set(id, queue);
+            return operation.finally(() => {
+                removePending(id, pendingRecord);
+                queue.pending = Math.max(0, queue.pending - 1);
+                if (!queue.pending && layerQueues.get(id) === queue) layerQueues.delete(id);
+            });
         }
 
         function stopLayer(layer) {
@@ -299,7 +339,7 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             itemEpochs.set(id, epoch(id) + 1);
             const layers = activeLayers.get(id) || [];
             const pending = layers.map(stopLayer).filter(result => result?.then);
-            activeLayers.delete(id);
+            activeLayers.delete(id); pendingLayers.delete(id);
             emit(id);
             if (!activeLayers.size) stopProgressTimer();
             return pending;
@@ -308,13 +348,14 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
         function stopAll() {
             globalEpoch += 1;
             itemEpochs.clear();
-            const ids = [...activeLayers.keys()];
+            const ids = [...new Set([...activeLayers.keys(), ...pendingLayers.keys()])];
             const pending = [];
             activeLayers.forEach(layers => layers.forEach(layer => {
                 const result = stopLayer(layer);
                 if (result?.then) pending.push(result);
             }));
             activeLayers.clear();
+            pendingLayers.clear();
             stopProgressTimer();
             ids.forEach(emit);
             return pending;

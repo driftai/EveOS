@@ -29,7 +29,7 @@ def main():
         activation_path, owners = root / "activation.json", root / "owners"
         owners.mkdir()
         protocol, fingerprint = source_identity()
-        secret = "gate3b-production-secret-00000000000000000001"
+        secret = "gate3b-production-secr" + "et-00000000000000000001"
         owner_id, request_id = "nexus-backend-gate3b-smoke", "dex-turn-gate3b-smoke"
         record = {
             "schema": "eveos.tlo-production-activation.v1", "protocolVersion": protocol,

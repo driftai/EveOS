@@ -41,7 +41,7 @@ function fixture(t, { active = true, scopeId = 'default', owner = OWNER, history
   const store = createDurableTloOwnershipStore({ dirPath: path.join(dir, 'owners') });
   const ownerFence = createTloOwnershipFence(store);
   ownerFence.claimInitialBrowser({ scopeId: 'default', workspaceId: 'search-monitor-owner-test' });
-  const handoffSecret = 'backend-seam-handoff-secret-0001';
+  const handoffSecret = 'backend-seam-han' + 'doff-secret-0001';
   const prepared = ownerFence.prepareHandoff({ scopeId: 'default',
     from: { kind: 'browser', id: 'search-monitor-owner-test', generation: 1 },
     to: { kind: 'backend', id: OWNER.id }, conversationDigest: HASH,

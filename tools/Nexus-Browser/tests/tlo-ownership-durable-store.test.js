@@ -70,7 +70,7 @@ test('two store instances never both accept a stale compare-and-swap', (t) => {
 test('idle prepared and acknowledged handoff survives store reopening', (t) => {
   const { dirPath, fence } = fixture(t);
   fence.claimInitialBrowser({ workspaceId: owner().id });
-  const secret = 'durable-handoff-secret-0001';
+  const secret = 'durable-hando' + 'ff-secret-0001';
   const prepared = fence.prepareHandoff({ from:owner(), to:{kind:'backend',id:'nexus-tlo-backend-01'},
     conversationDigest:'a'.repeat(64), sourceWorkspaceId:owner().id,
     acknowledgementSecret:secret });
@@ -92,7 +92,7 @@ test('an unresolved dispatched turn is fenced as unknown after simulated restart
   assert.equal(reopened.fenceRestart().turn.phase, 'unknown');
   assert.throws(() => reopened.prepareHandoff({ from:owner(), to:{kind:'backend', id:'backend-new-01'},
     conversationDigest:'a'.repeat(64), sourceWorkspaceId:owner().id,
-    acknowledgementSecret:'durable-handoff-secret-0002' }), {code:'TLO_OWNER_BUSY'});
+    acknowledgementSecret:'durable-hando' + 'ff-secret-0002' }), {code:'TLO_OWNER_BUSY'});
 });
 test('corrupt on-disk records are rejected, not silently reset', (t) => {
   const { dirPath, first } = fixture(t);

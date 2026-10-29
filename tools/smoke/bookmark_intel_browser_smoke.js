@@ -50,7 +50,8 @@ async function main() {
 
         await page.waitForSelector('#categorySettingsModal .scraper-ui-wrapper', { timeout: 10000 });
 
-        const biButton = await page.waitForSelector('.source-toggle-btn[data-source="bookmark-intel"]', { timeout: 10000 });
+        const biButton = page.locator('.source-toggle-btn[data-source="bookmark-intel"]');
+        await biButton.waitFor({ state: 'visible', timeout: 10000 });
         if (!biButton) {
             throw new Error('Bookmark Intel source toggle button missing from Knowledge Bases');
         }
@@ -129,7 +130,8 @@ async function main() {
             throw new Error(`Bookmark Intel container geometry collapsed: ${JSON.stringify(containerBox)}`);
         }
 
-        const popoutButton = await page.waitForSelector('#bookmark-intel-scraper-panel-container .btn-bi-popout');
+        const popoutButton = page.locator('#bookmark-intel-scraper-panel-container .btn-bi-popout');
+        await popoutButton.waitFor({ state: 'visible' });
         const popoutBox = await popoutButton.boundingBox();
         if (!popoutBox || popoutBox.width < 30) {
             throw new Error(`Detached button geometry collapsed: ${JSON.stringify(popoutBox)}`);

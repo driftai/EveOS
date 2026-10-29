@@ -91,6 +91,8 @@ async function main() {
     const spamAttempts = Array.from({ length: 40 }, () => spamController.layerPlay({
         id: 'autoclick-spam', title: 'Autoclick Spam', type: 'sound', url: 'spam.wav'
     }));
+    assert(spamController.getSnapshot('autoclick-spam').length === 12
+        && spamController.getSnapshot('autoclick-spam').every(layer => layer.pending), 'accepted mass presses project immediately as bounded pending layers');
     await tick();
     assert(spamDecodeCalls <= 2,
         'autoclick storms keep at most two in-flight starts for one layered sound');
@@ -139,6 +141,12 @@ async function main() {
         'each active voice reports duration and remaining time');
     assert(layerEvents.at(-1)?.voices?.length === 2,
         'the UI receives the complete layered voice stack');
+    const massPresses = await Promise.all(Array.from({ length: 20 }, () => layeredNativeController.layerPlay({
+        id: 'mass-stack', title: 'Mass Stack', url: 'mass.wav'
+    })));
+    assert(massPresses.filter(Boolean).length === 12 && layeredNativeController.getSnapshot('mass-stack').length === 12,
+        'mass Layer Play accepts an ordered bounded stack instead of dropping pending clicks');
+    await Promise.allSettled(layeredNativeController.stopItemLayers('mass-stack'));
     const stackVoiceIds = playedVoiceIds.filter((id) => id.startsWith('layer-stack::layer:'));
     await Promise.allSettled(layeredNativeController.stopItemLayers('layer-stack'));
     assert(stackVoiceIds.length === 2 && stackVoiceIds.every((id) => clearedVoices.includes(id)),
@@ -244,8 +252,7 @@ async function main() {
     assert(actionPlayCount === 1, 'one normal Play click creates exactly one playback owner');
     assert(actionPlayItem?.type === 'sound', 'normal Play preserves the UI sound type on file://');
 
-    // Same-item Play/Layer Play requests are coalesced while their async start is still pending,
-    // so a high-rate autoclicker cannot queue hundreds of overlapping decode/route operations.
+    // Same-item normal Play coalesces; Layer Play forwards each press to its bounded transport owner.
     const playStormGate = deferred();
     let playStormCalls = 0;
     actionWindow.EveAudioflixAudio.playItem = async () => {
@@ -272,7 +279,7 @@ async function main() {
     await tick();
     const secondLayerStorm = actionHandler({ dataset: { afAction: 'layer-play', afId: 'file-sound', afType: 'sound' } });
     await tick();
-    assert(layerStormCalls === 1, 'overlapping Layer Play starts for one sound coalesce to one async start');
+    assert(layerStormCalls === 2, 'overlapping Layer Play presses both reach the bounded layer owner');
     layerStormGate.resolve(true);
     await Promise.all([firstLayerStorm, secondLayerStorm]);
     const analysers = [], mediaSources = [];

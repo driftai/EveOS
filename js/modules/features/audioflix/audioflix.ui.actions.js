@@ -15,7 +15,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
             window.EveAudioflixSpotifyUi?.createActions?.(ctx),
             window.EveAudioflixInstagramUi?.createActions?.(ctx)
         ].filter(Boolean);
-        const playRequests = new Set(), layerRequests = new Set();
+        const playRequests = new Set();
         const stopItemPlayback = (id, preserveProvider = false) => Promise.allSettled([window.EveAudioflixAudio?.stopItemLayers?.(id, preserveProvider), window.EveAudioflixNative?.clearVoices?.(id), window.EveAudioflixNative?.clearVoices?.('hk:' + id)]);
         async function deleteStoredItem(item, type, id) {
             if (!item) return false;
@@ -57,10 +57,8 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 return;
             }
             if (action === 'layer-play') {
-                if (!item || layerRequests.has(id)) return false;
-                layerRequests.add(id);
-                try { return await window.EveAudioflixAudio?.layerPlay?.({ ...item, type: type || item.type }); }
-                finally { layerRequests.delete(id); }
+                if (!item) return false;
+                return window.EveAudioflixAudio?.layerPlay?.({ ...item, type: type || item.type });
             }
             if (action === 'internal-view') { if (item) try { await window.EveAudioflixAudio?.openInternalView?.(item); } catch (err) { ctx.playbackStatus = err.message || 'Internal player failed'; ctx.rerender(); } return; }
             if (action === 'item-info') {

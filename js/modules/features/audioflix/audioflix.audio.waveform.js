@@ -334,6 +334,33 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
             }
         }
 
+        // Layered soundboard voices are independent media routes. An attached
+        // MediaElementAudioSourceNode no longer plays directly to the browser sink:
+        // disconnecting it silences that voice, even while its clock advances.
+        // Do not make layered voices the singleton visual owner or detach prior layers.
+        function attachLayerPlayer(player) {
+            if (!player) return () => {};
+            ensureGraph(player);
+            let released = false;
+            const release = () => {
+                if (released) return;
+                released = true;
+                disconnectPlayerSource(player);
+            };
+            if (typeof player.addEventListener === 'function') {
+                player.addEventListener('play', () => {
+                    if (released) return;
+                    ensureGraph(player);
+                    if (context?.state === 'suspended') context.resume().catch?.(() => {});
+                    if (canvas) start();
+                });
+                for (const eventName of ['pause', 'ended', 'error']) {
+                    player.addEventListener(eventName, release);
+                }
+            }
+            return release;
+        }
+
         function attachPlayer(player) {
             if (!player) return;
             if (activePlayer && activePlayer !== player) disconnectPlayerSource(activePlayer);
@@ -365,7 +392,7 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
             attachPlayer(player);
         }
 
-        return { attach, attachPlayer, playBufferWaveform, start, stop, getContext: ensureGraph, ensureGraph,
+        return { attach, attachPlayer, attachLayerPlayer, playBufferWaveform, start, stop, getContext: ensureGraph, ensureGraph,
             setSpeakerMuted, acquireSpeakerMute, setFrameTap, createLiveTap, releasePlayer,
             getActivePlayer: () => activePlayer || ensureAudio() };
     }
