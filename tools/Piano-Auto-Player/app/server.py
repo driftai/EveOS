@@ -34,6 +34,13 @@ ALTERNATE_SOURCES = AlternateSourceFinder(ROOT)
 MEDIA_REFERENCE = MediaReferenceResolver()
 
 
+class PianoHTTPServer(ThreadingHTTPServer):
+    """Local UI server sized for the browser's parallel ES-module burst."""
+
+    daemon_threads = True
+    request_queue_size = 128
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = SERVER_ID
 
@@ -374,7 +381,7 @@ def _number(value, default: float, minimum: float, maximum: float) -> float:
 
 # Previous checkpoint compatibility: Piano Auto Player v0.5.3 running
 def run(host: str = "127.0.0.1", port: int = 8771) -> None:
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = PianoHTTPServer((host, port), Handler)
     print(f"{STARTUP_LABEL} at http://{host}:{port}")
     print("Press Ctrl+C here, or F7 during playback, to stop safely.")
     try:

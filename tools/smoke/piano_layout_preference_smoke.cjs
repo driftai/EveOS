@@ -50,6 +50,7 @@ const fixture = `<!doctype html><html><head><meta charset="utf-8"></head><body>
 <script type="module">
 import { setupPianoControls } from '/assets/piano_controls.js';
 import { InternalPreviewPlayer } from '/assets/internal_preview.js';
+import { PianoSoundEngine } from '/assets/piano_sound.js';
 window.__previewStops = 0;
 const recorder = { setSound() {}, noteDownMidi() {}, noteUpMidi() {}, unlock() {}, prepareSound: async () => {} };
 const preview = { setSound() {}, stop() { window.__previewStops += 1; }, prepareSound: async () => {} };
@@ -84,6 +85,52 @@ window.__runBackgroundProof = () => {
  const deduplicated = scheduled.length;
  player.stop();
  return { foreground, background, deduplicated, scheduled };
+};
+window.__runBackgroundCountdownProof = () => {
+ const scheduled = [];
+ const output = {
+   unlock: async () => {}, setSound() {}, prepareSound: async () => true,
+   soundLabel: () => 'Fixture', allOff() {}, audioTime: () => 200,
+   scheduleMidi: (midi, id, at, duration) => scheduled.push({ midi, id, at, duration }),
+   scheduleToken() {}, highlightMidi() {}, unhighlightMidi() {},
+   highlightToken() {}, unhighlightToken() {}
+ };
+ const player = new InternalPreviewPlayer(document.getElementById('backgroundPreview'), output);
+ player._isBackgrounded = () => true;
+ player.start({ duration_ms: 5000, total_events: 2, events: [
+   { event_index: 1, at_ms: 0, duration_ms: 80, midi_notes: [60] },
+   { event_index: 2, at_ms: 4000, duration_ms: 80, midi_notes: [62] }
+ ] }, 1, 3);
+ const result = { state: player.state, scheduled: scheduled.length };
+ player.stop();
+ return result;
+};
+window.__runSampleOrderProof = async () => {
+ const operations = [];
+ const parameter = { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {}, cancelScheduledValues() {} };
+ const node = () => ({ connect() { return this; } });
+ class FixtureAudioContext {
+   constructor() { this.currentTime = 10; this.state = 'running'; this.destination = node(); }
+   createBufferSource() {
+     let started = false;
+     return { playbackRate: { value: 1 }, connect() { return this; }, addEventListener() {},
+       start(at) { started = true; operations.push(['start', at]); },
+       stop(at) { if (!started) throw new DOMException('stop before start', 'InvalidStateError'); operations.push(['stop', at]); } };
+   }
+   createGain() { return { gain: { ...parameter }, connect() { return this; } }; }
+   createDynamicsCompressor() {
+     return { threshold: {}, knee: {}, ratio: {}, attack: {}, release: {}, connect() { return this; } };
+   }
+ }
+ window.AudioContext = FixtureAudioContext;
+ window._tone_0000_GeneralUserGS_sf2_file = { zones: [{
+   keyRangeLow: 0, keyRangeHigh: 127, originalPitch: 6000,
+   coarseTune: 0, fineTune: 0, loopStart: 0, loopEnd: 0, sampleRate: 44100, buffer: {}
+ }] };
+ const engine = new PianoSoundEngine('acoustic_grand');
+ await engine.prepare();
+ engine.scheduleMidi(60, 'sample:1', 11, 0.4);
+ return operations;
 };
 window.__ready = true;
 </script></body></html>`;
@@ -142,6 +189,12 @@ async function check(browser, url, width) {
     assert.equal(new Set(background.scheduled.map(row => row.id)).size, 3, 'Scheduled notes use unique identities');
     assert.ok(background.scheduled[2].at - background.scheduled[1].at > 9,
       'Background notes retain their original audio-clock spacing');
+    const backgroundCountdown = await page.evaluate(() => window.__runBackgroundCountdownProof());
+    assert.deepEqual(backgroundCountdown, { state: 'playing', scheduled: 2 },
+      'A background page must start immediately instead of freezing in the countdown');
+    const sampleOrder = await page.evaluate(() => window.__runSampleOrderProof());
+    assert.deepEqual(sampleOrder.map(row => row[0]), ['start', 'stop'],
+      'Sampled voices must start before a finite-duration stop is scheduled');
     await page.reload();
     await page.waitForFunction(() => window.__ready === true, null, { timeout: 10000 });
     s = await state();

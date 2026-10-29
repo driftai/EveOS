@@ -12,6 +12,7 @@ import tempfile
 import textwrap
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -155,7 +156,11 @@ def assert_static_contract() -> None:
 
 
 def assert_http_contract() -> None:
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), piano_server.Handler)
+    class QuietHandler(piano_server.Handler):
+        def log_message(self, _fmt: str, *_args) -> None:
+            pass
+
+    server = piano_server.PianoHTTPServer(("127.0.0.1", 0), QuietHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -168,6 +173,14 @@ def assert_http_contract() -> None:
         for asset in ("sheet_workspace.js", "bulk_conversion.js", "piano_workspace.css"):
             status, body, _ = request(server.server_port, "GET", f"/assets/{asset}")
             assert status == 200 and body
+        assets = ("app.js", "internal_preview.js", "piano.js", "piano_sound.js")
+        with ThreadPoolExecutor(max_workers=24) as pool:
+            burst = list(pool.map(
+                lambda index: request(server.server_port, "GET", f"/assets/{assets[index % len(assets)]}?burst={index}")[0],
+                range(48),
+            ))
+        assert burst == [200] * 48, "parallel browser module burst must not lose connections"
+        assert server.request_queue_size >= 64
         status, _, cors = request(server.server_port, "OPTIONS", "/api/status", "https://example.com")
         assert status == 204 and not cors
     finally:

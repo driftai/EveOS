@@ -24,7 +24,10 @@ export class InternalPreviewPlayer {
     this.currentIndex = 0;
     this.currentToken = "";
     this.resumeIndex = 0;
-    this._backgroundSchedule = () => this._scheduleAudio(true);
+    this._backgroundSchedule = () => {
+      if (this.state === "countdown") this._beginPlaying();
+      this._scheduleAudio(true);
+    };
     window.addEventListener("blur", this._backgroundSchedule);
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) this._backgroundSchedule();
@@ -62,7 +65,7 @@ export class InternalPreviewPlayer {
     this.currentToken = "";
     this.resumeIndex = 0;
     const countdownMs = Math.max(0, Number(countdownSeconds || 0) * 1000);
-    if (countdownMs > 0) {
+    if (countdownMs > 0 && !this._isBackgrounded()) {
       this.state = "countdown";
       this.countdownDeadline = performance.now() + countdownMs;
       this._countdownTick();
@@ -148,6 +151,7 @@ export class InternalPreviewPlayer {
   }
 
   _beginPlaying() {
+    this._clearMainTimer();
     const row = this.rows[this.cursor];
     this.state = "playing";
     this.message = "Internal preview — built-in piano";

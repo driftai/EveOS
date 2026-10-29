@@ -173,16 +173,18 @@ function sampledVoice(ctx, preset, midi, volume = 1, startAt = ctx.currentTime, 
   }
   const now = Math.max(ctx.currentTime, Number(startAt) || ctx.currentTime);
   const peak = Math.max(0.02, Math.min(0.9, volume));
+  let stopAt = null;
   gain.gain.setValueAtTime(0.0001, now);
   gain.gain.exponentialRampToValueAtTime(peak, now + 0.008);
   if (Number.isFinite(durationSeconds)) {
     const releaseAt = now + Math.max(0.002, Number(durationSeconds));
     gain.gain.setValueAtTime(peak, releaseAt);
     gain.gain.exponentialRampToValueAtTime(0.0001, releaseAt + 0.18);
-    source.stop(releaseAt + 0.21);
+    stopAt = releaseAt + 0.21;
   }
   source.connect(gain).connect(outputNode(ctx));
   source.start(now);
+  if (stopAt !== null) source.stop(stopAt);
   return { source, gain, sampled: true };
 }
 
