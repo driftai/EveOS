@@ -275,6 +275,9 @@
       progress.status === 'countdown' ? 'Starting…' : progress.status === 'complete' ? 'Finished' : 'Ready';
     if (rail) { rail.setAttribute('aria-valuenow', String(current)); rail.setAttribute('aria-valuemax', String(Math.max(1, total))); }
     if (fill) fill.style.width = `${total ? (100 * current / total).toFixed(2) : 0}%`;
+    const input = c.querySelector('[data-pxp-event-input]');
+    if (input) { input.max=String(Math.max(1,total)); if(document.activeElement!==input)input.value=String(current||1); input.disabled=!active()||!total; }
+    c.querySelectorAll('[data-pxp-event-seek]').forEach(button=>{button.disabled=!active()||!total;});
   }
   function invalidate() {
     controls = null; queue = null; progress = null; media = null;
@@ -291,6 +294,9 @@
   }
   function mount() {
     const c = canvas(); if (!c || c.querySelector('.piano-pxp-controls')) return;
+    const workspace=document.createElement('details');workspace.className='piano-pxp-workspace';
+    workspace.innerHTML='<summary><strong>Player controls &amp; library tools</strong><span>Playback, queue, song controls, history, inbox, and metadata</span></summary><div data-pxp-workspace-body></div>';
+    c.querySelector('.piano-frontend-header')?.after(workspace);
     const settings = document.createElement('details'); settings.className = 'piano-pxp-controls';
     settings.innerHTML = `<summary class="piano-pxp-heading"><strong>Playback setup</strong><span>Optional controls · expand to configure</span></summary>
       <div class="piano-pxp-control-grid">
@@ -299,13 +305,14 @@
         <label><span>Piano Layout</span><select data-pxp-layout aria-label="Piano layout" disabled><option>Connecting…</option></select><small>Choose the keyboard range</small></label>
         <label><span>Internal Piano Sound</span><select data-pxp-sound aria-label="Internal Piano Sound" disabled><option>Connecting…</option></select><small data-pxp-sound-note>Choose the built-in instrument</small></label>
       </div><div class="piano-pxp-mini"><button type="button" data-af-action="piano-frontend-port-controls-refresh">Refresh target windows</button><span data-pxp-notice role="status"></span></div>`;
-    c.querySelector('.piano-frontend-header')?.after(settings);
+    workspace.querySelector('[data-pxp-workspace-body]')?.append(settings);
     const events = document.createElement('details'); events.className = 'piano-pxp-events';
     events.setAttribute('aria-label', 'Live Piano event progress');
     events.innerHTML = `<summary class="piano-pxp-events-head"><strong>Event view</strong><span data-pxp-event-state>Connecting…</span></summary>
       <div class="piano-pxp-events-data"><span data-pxp-event-count>0 / 0 events</span><span>Current note <b data-pxp-event-token>—</b></span></div>
+      <div class="piano-pxp-event-nav" aria-label="Piano event navigation"><button type="button" data-pxp-event-seek="start" title="First event">↤</button><button type="button" data-pxp-event-seek="-100">−100</button><button type="button" data-pxp-event-seek="-10">−10</button><button type="button" data-pxp-event-seek="-1">−1</button><label>Event <input data-pxp-event-input type="number" min="1" value="1" aria-label="Piano event number"></label><button type="button" data-pxp-event-seek="go">Go</button><button type="button" data-pxp-event-seek="1">+1</button><button type="button" data-pxp-event-seek="10">+10</button><button type="button" data-pxp-event-seek="100">+100</button><button type="button" data-pxp-event-seek="end" title="Last event">↦</button></div>
       <div class="piano-pxp-event-rail" data-pxp-event-rail role="progressbar" aria-label="Piano song event progression" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"><span data-pxp-event-fill></span></div>`;
-    settings.before(events);
+    workspace.before(events);
     const filter = document.createElement('section'); filter.className = 'piano-pxp-filters';
     filter.innerHTML = `<div class="piano-pxp-pills" role="group" aria-label="Piano library scope">
        <button type="button" class="active" data-pxp-scope="all">All</button><button type="button" data-pxp-scope="favorites">★ Favorites</button>
@@ -329,7 +336,7 @@
       <button type="button" data-af-action="piano-frontend-port-queue-previous">Previous</button><button type="button" data-af-action="piano-frontend-port-queue-next">Next</button>
       <button type="button" data-af-action="piano-frontend-port-queue-shuffle">Shuffle</button><button type="button" data-af-action="piano-frontend-port-queue-play-all">Play all</button>
       <button type="button" data-af-action="piano-frontend-port-queue-clear">Clear queue</button></div><div data-pxp-queue-list class="piano-pxp-queue-list"></div>`;
-    settings.after(queuePanel);
+    workspace.querySelector('[data-pxp-workspace-body]')?.append(queuePanel);
     const sort = c.querySelector('[data-pf-sort]'); if (sort) for (const [value,text] of [['rating','Personal rating'],['conversion','Conversion rating'],['longest','Longest'],['shortest','Shortest'],['events','Most events']]) { const op=document.createElement('option');op.value=value;op.textContent=text;sort.append(op); }
     c.addEventListener('change', event => {
       const el = event.target;
@@ -353,6 +360,13 @@
       else if (el.matches('[data-pxp-events]')) events=el.value;
       else return;
       front.repaint?.();
+    });
+    c.addEventListener('click',event=>{
+      const button=event.target.closest?.('[data-pxp-event-seek]');if(!button||!c.contains(button))return;
+      const total=Math.max(0,Number(progress?.total||0)),current=Math.max(1,Number(progress?.index||1));if(!total)return;
+      const kind=button.dataset.pxpEventSeek,input=c.querySelector('[data-pxp-event-input]');
+      const target=kind==='start'?1:kind==='end'?total:kind==='go'?Number(input?.value||current):current+Number(kind||0);
+      send('progress:seek',{eventIndex:Math.max(1,Math.min(total,Math.round(target)||1))});
     });
     c.querySelectorAll('[data-pxp-scope]').forEach(button => button.addEventListener('click', () => {
       scope = button.dataset.pxpScope;

@@ -20,4 +20,5 @@
 [data-pxm-event-index]{cursor:pointer;border-radius:3px;white-space:inherit}
 [data-pxm-event-index]:hover{background:rgba(87,216,231,.23)}
 [data-pxm-event-index]:focus-visible{outline:2px solid #87ebf1;outline-offset:1px;background:rgba(87,216,231,.23)}
+.piano-pxm-editor-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding-top:10px}.piano-pxm-editor-actions>span{margin-right:auto;color:#8eadb4;font-size:11px}.audioflix-piano-frontend .piano-pxm-editor-actions button{min-height:30px;padding:4px 9px;font-size:11px}
 @media(max-width:520px){.piano-pxm-timeline{grid-template-columns:auto minmax(80px,1fr) auto;gap:6px}.piano-pxm-compact-pause{grid-column:2;justify-self:end}}

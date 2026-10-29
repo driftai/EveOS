@@ -9,6 +9,7 @@ const net = require('node:net');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
+const { assertTransportContinuity } = require('./piano_frontend_transport_real_app.cjs');
 
 function freePort() {
  return new Promise((resolve,reject)=>{const s=net.createServer();s.unref();s.on('error',reject);s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});
@@ -72,6 +73,10 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
    await page.waitForSelector('[data-pxp-layout] option[value="88"]',{timeout:10000,state:'attached'});
    assert.equal(await page.locator('[data-pxp-target]').count(),1,'target selector must be surfaced');
    assert.equal(await page.locator('[data-pxp-internal]').count(),1,'Internal Play must be surfaced');
+   assert.equal(await page.locator('.piano-pxp-workspace').getAttribute('open'),null,'combined player tools must start collapsed');
+   assert.equal(await page.evaluate(()=>!document.querySelector('.piano-pxp-workspace')?.contains(document.querySelector('.piano-pxp-events'))),true,'Event view must remain outside the combined player tools');
+   await page.locator('.piano-pxp-workspace > summary').click();
+   assert.equal(await page.locator('.piano-pxp-workspace').getAttribute('open'),'','combined player tools must open on request');
    assert.equal(await page.locator('.piano-pxp-controls').getAttribute('open'),null,'Playback setup must start collapsed');
    assert.equal(await page.evaluate(()=>document.querySelector('.piano-pxp-controls')?.nextElementSibling?.classList.contains('piano-pxp-queue')),true,'Player Queue must sit directly below Playback setup');
    await page.locator('.piano-pxp-controls > summary').click();
@@ -99,6 +104,10 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
    await page.evaluate(()=>window.EveAudioflixPianoFrontendPorts.command('song:load',{songId:'opaque-one'}));
    await page.waitForFunction(()=>document.querySelector('[data-pxm-current]')?.textContent==='Opaque One',{timeout:10000});
    assert.equal(await page.locator('[data-af-action="piano-frontend-media-current-favorite"]').isEnabled(),true,'current-song metadata controls must follow the Backend current song');
+   await page.locator('.piano-pxm-editor > summary').click();
+   assert.equal(await page.locator('[data-af-action="piano-frontend-media-edit-current"]').isEnabled(),true,'current library song must be available to the metadata editor');
+   await page.locator('[data-af-action="piano-frontend-media-edit-current"]').click();
+   assert.equal(await page.locator('[data-pxm-edit-title]').inputValue(),'Opaque One','editor must load the current Backend-owned song');
    assert.equal(await page.locator('.piano-pxm-now').getAttribute('open'),null,'song controls must start collapsed');
    await page.locator('.piano-pxm-now > summary').click();
    const trueSheetTotal=await realChild.evaluate(()=>{const el=document.getElementById('sheetInput');return window.PianoSheetProgressProjection?.buildPreview?.(el?.value,el?.dataset.timingProfile||'expressive',0,0,600)?.total;});
@@ -291,6 +300,24 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
    assert.equal(await page.locator('[data-pxp-event-token]').textContent(),'[4q]','current note must mirror the Backend event view');
    assert.equal(await page.locator('[data-pxp-event-rail]').getAttribute('aria-valuenow'),'3');
    assert.equal(await page.locator('[data-pxp-event-rail]').getAttribute('aria-valuemax'),'12');
+    await page.locator('.piano-pxp-events > summary').click();
+    assert.equal(await page.locator('[data-pxp-event-seek]').count(),9,'Event view must port the complete Backend navigation control set');
+    assert.equal(await page.locator('[data-pxp-event-input]').inputValue(),'3');
+    assert.equal(await page.locator('[data-pxp-event-input]').getAttribute('max'),'12');
+    try {
+      await page.waitForFunction(()=>document.querySelector('[data-pxp-event-seek="start"]')?.disabled===false,null,{timeout:8000});
+    } catch(error) {
+      const state=await page.evaluate(()=>({
+        view:document.querySelector('[data-audioflix-piano]')?.dataset.pianoView,
+        running:document.querySelector('[data-audioflix-piano]')?.dataset.running,
+        bridge:window.EveAudioflixPianoFrontend?.bridgeReady?.(),
+        progress:window.EveAudioflixPianoFrontendPorts?.snapshot?.()?.progress,
+        button:document.querySelector('[data-pxp-event-seek="start"]')?.outerHTML
+      }));
+      throw new Error(`Event navigation did not become active: ${JSON.stringify(state)}; ${error.message}`);
+    }
+    await page.locator('[data-pxp-event-seek="start"]').click();
+    await realChild.waitForFunction(()=>document.getElementById('eventSeekRange')?.value==='1');
    await realChild.evaluate(() => window.dispatchEvent(new CustomEvent('piano:sheet-progress-status',
      { detail: { status:'playing', current_index:0, total_events:12, current_token:'a' } })));
    await page.waitForFunction(() => document.querySelector('[data-pxp-event-count]')?.textContent === '0 / 12 events');
@@ -345,89 +372,7 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
    await page.locator('[data-af-action="piano-frontend-port-queue-clear"]').click();
    await realChild.waitForFunction(()=>window.PianoPlayerQueue?.getState?.().items?.length===0);
    assert.equal(await realChild.evaluate(()=>window.__eveosPianoFrontendPortReady),true,'existing playback port must survive');
-    const songPlay=page.locator('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play');
-    // Queue stop/clear can finish before the next owner progress projection.
-    // Clicking during that window would send Stop, NOT Play. Wait for the
-    // actual Backend to be idle and for the Frontend row to reconcile.
-    await realChild.waitForFunction(()=>window.PianoPlaybackOwner?.status?.().status==='idle',null,{timeout:10000});
-    try {
-      await page.waitForFunction(()=>{
-        const b=document.querySelector('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play');
-        return b?.dataset.afAction==='piano-frontend-play' && b?.disabled===false && b.textContent==='Play';
-      },null,{timeout:8000});
-    } catch (error) {
-      const owner=await realChild.evaluate(()=>({status:window.PianoPlaybackOwner?.status?.(),queue:window.PianoPlayerQueue?.getState?.()}));
-      const projection=await page.evaluate(()=>{const b=document.querySelector('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play'),s=window.EveAudioflixPianoFrontendPorts?.snapshot?.()||{};
-        return {button:b?.outerHTML,progress:s.progress,media:{id:s.media?.current?.id,status:s.media?.status}};});
-      throw new Error(`Queue stop must reconcile row to Play: ${JSON.stringify({owner,projection})}; ${error.message}`);
-    }
-    // The earlier event-mapping assertions require the exact 5-event song.
-    // For live transport assertions, extend only this temporary test library
-    // entry, so 3 Pause/Resume clicks cannot outrun song completion.
-    const expandedSheet='a b c '.repeat(130).trim();
-    const updatedSong=await realChild.evaluate(async sheet=>{
-      const {api}=await import('/assets/api.js');
-      const saved=await api.saveSong({id:'opaque-one',title:'Opaque One',sheet});
-      const cached=await api.songs();
-      return {id:saved.song?.id,length:saved.song?.sheet?.length,
-        cachedLength:cached.songs?.find(song=>song.id==='opaque-one')?.sheet?.length};
-    },expandedSheet);
-    assert.equal(updatedSong.id,'opaque-one','test fixture must update the same Backend library song');
-    assert.equal(updatedSong.length,expandedSheet.length,'long-playing test fixture must retain all notes');
-    assert.equal(updatedSong.cachedLength,expandedSheet.length,'Backend cached library must expose extended song to normal Play');
-    await songPlay.click();
-    await realChild.waitForFunction(()=>{
-      const p=window.PianoPlaybackOwner?.status?.();return p?.internal_preview===true && p.total_events>500 && ['countdown','playing'].includes(p.status);
-    },null,{timeout:10000});
-    await page.waitForFunction(()=>document.querySelector('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play')?.textContent==='Stop',null,{timeout:10000});
-    // Compact transport uses the existing pause/resume owner, never a new state machine.
-    const compactPause=page.locator('[data-pxm-compact-pause]');
-    await page.waitForFunction(()=>window.EveAudioflixPianoFrontend?.pendingCount?.()===0,null,{timeout:10000});
-    await page.waitForFunction(()=>document.querySelector('[data-pxm-compact-pause]')?.disabled===false,null,{timeout:10000});
-    const beforePause=await realChild.evaluate(()=>window.PianoPlaybackOwner.status());
-    await compactPause.click();
-    await realChild.waitForFunction(()=>window.PianoPlaybackOwner.status().status==='paused',null,{timeout:10000});
-    await page.waitForFunction(()=>document.querySelector('[data-pxm-compact-pause]')?.textContent==='Resume',null,{timeout:10000});
-    const pausedAt=await realChild.evaluate(()=>window.PianoPlaybackOwner.status());
-    assert.equal(pausedAt.current_index>=beforePause.current_index,true,'pause cannot rewind');
-    await compactPause.click();
-    await realChild.waitForFunction(()=>['playing','countdown'].includes(window.PianoPlaybackOwner.status().status),null,{timeout:10000});
-    await page.waitForFunction(()=>document.querySelector('[data-pxm-compact-pause]')?.textContent==='Pause',null,{timeout:10000});
-    const unchangedQueue=await realChild.evaluate(()=>window.PianoPlayerQueue.getState());
-    await compactPause.click();
-    await realChild.waitForFunction(()=>window.PianoPlaybackOwner.status().status==='paused',null,{timeout:10000});
-    const beforeSwitch=await realChild.evaluate(()=>window.PianoPlaybackOwner.status());
-    await page.evaluate(()=>{window.__transitionCalls=[];const p=window.EveAudioflixPianoFrontendPorts;const original=p.command;p.command=function(action,fields){window.__transitionCalls.push(action);return original.apply(this,arguments);};});
-    await page.locator('[data-af-action="piano-frontend-media-edit-backend"]').click();
-    await page.waitForFunction(()=>document.querySelector('[data-audioflix-piano]')?.dataset.pianoView==='backend');
-    assert.deepEqual(await page.evaluate(()=>window.__transitionCalls.filter(x=>x==='song:load'||x.startsWith('queue:')||x==='progress:seek')),[],'Edit in Backend must emit no load/queue/seek command');
-    assert.equal(await realChild.evaluate(()=>window.PianoPlayerQueue.getState().currentId),unchangedQueue.currentId,'view switch must preserve queue entry');
-    assert.equal(await realChild.evaluate(()=>document.getElementById('internalPlay').checked),true,'view switch must preserve Internal Play');
-    const afterSwitch=await realChild.evaluate(()=>window.PianoPlaybackOwner.status());
-    assert.equal(afterSwitch.status,'paused','Edit in Backend must preserve paused playback');
-    assert.equal(afterSwitch.current_index,beforeSwitch.current_index,'Edit in Backend must preserve paused event position');
-    await page.click('[data-piano-view-switch]');
-    await compactPause.click();
-    await realChild.waitForFunction(()=>['playing','countdown'].includes(window.PianoPlaybackOwner.status().status),null,{timeout:10000});
-    await songPlay.click();
-    await realChild.waitForFunction(()=>document.getElementById('statusChip')?.dataset.state==='idle',null,{timeout:10000});
-    await page.waitForFunction(()=>document.querySelector('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play')?.textContent==='Play');
-    await realChild.evaluate(()=>{const node=document.getElementById('internalPlay');node.checked=true;node.dispatchEvent(new Event('change',{bubbles:true}));});
-   await realChild.waitForFunction(()=>localStorage.getItem('eveos:piano:internal-play:v1')==='true');
-   await realChild.evaluate(()=>{window.__pianoRefreshMarker='stale-runtime';});
-   await page.click('[data-piano-view-switch]');
-   await page.click('[data-af-action="piano-refresh"]');
-   await realChild.waitForFunction(()=>window.__pianoRefreshMarker===undefined,null,{timeout:10000});
-   await realChild.waitForFunction(()=>window.__eveosPianoFrontendPortReady===true&&document.getElementById('internalPlay')?.checked===true,{timeout:10000});
-   assert.equal(await realChild.evaluate(()=>document.getElementById('internalPlay')?.checked),true,'Internal Play must restore after reload');
-   await page.click('[data-piano-view-switch]');
-   await page.waitForFunction(()=>window.EveAudioflixPianoFrontend?.bridgeReady?.()===true,null,{timeout:10000});
-   assert.match(await page.locator('[data-piano-frame]').getAttribute('allow'),/\bautoplay\b/,'Piano iframe must receive autoplay delegation for restored Internal Play');
-   assert.equal(await page.evaluate(()=>window.EveAudioflixPianoFrontendPorts.command('song:load',{songId:'opaque-one'})),true,'Frontend command port must accept work after Backend Refresh');
-   await realChild.waitForFunction(()=>document.getElementById('titleInput')?.value.includes('Opaque One'),null,{timeout:10000});
-   await page.waitForFunction(()=>document.querySelector('[data-pxm-current]')?.textContent==='Opaque One',null,{timeout:10000});
-   await page.locator('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play').click();
-   await realChild.waitForFunction(()=>window.PianoPlaybackOwner?.status?.().internal_preview===true&&['countdown','playing'].includes(window.PianoPlaybackOwner.status().status),null,{timeout:10000});
+    await assertTransportContinuity(page,realChild);
    console.log(`PIANO_FRONTEND_PORTS_REAL_APP_OK origin=file targets=PASS internal=PASS layout=PASS sound=PASS metadata=PASS scope=PASS queue=PASS queue-sync=PASS module-retry=PASS layout-order=PASS events=PASS`);
    console.log(`PIANO_FRONTEND_OPAQUE_REAL_APP_OK origin=file library=PASS bridge=PASS controls=PASS announcements=${bridgeEvidence.announcements}`);
   } catch (error) {

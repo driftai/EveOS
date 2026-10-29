@@ -62,12 +62,14 @@ export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, vis
   }
 
   layoutSelect.addEventListener("change", () => {
-    preview.stop();
+    // Layout only changes the visible/manual key range. Keep the active song
+    // timeline and internal voices alive, just as an instrument change does.
     savePianoLayout(layoutSelect.value);
     render();
   });
   soundSelect.addEventListener("change", () => {
-    preview.stop();
+    // Keep the playback timeline alive while the sound engine releases the
+    // current voices and routes subsequent notes through the new instrument.
     applySound();
     recorder.unlock();
     prepareSound().catch(() => {});

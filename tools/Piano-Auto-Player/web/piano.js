@@ -77,6 +77,8 @@ export class LocalPianoOutput {
   setSound(soundId) { this.sound.setSound(soundId); }
   prepareSound() { return this.sound.prepare(); }
   soundLabel() { return this.sound.label(); }
+  isSampled() { return this.sound.isSampled(); }
+  audioTime() { return this.sound.audioTime(); }
 
   down(token) {
     const midi = TOKEN_MIDI.get(token);
@@ -99,6 +101,20 @@ export class LocalPianoOutput {
     this.sound.upMidi(id);
     setKeyState(this.container, midi, "preview-active", false);
   }
+
+  scheduleMidi(midi, id, startAt, durationSeconds) {
+    return this.sound.scheduleMidi(Number(midi), id, startAt, durationSeconds);
+  }
+
+  scheduleToken(token, id, startAt, durationSeconds) {
+    const midi = TOKEN_MIDI.get(token);
+    return midi === undefined ? false : this.scheduleMidi(midi, id, startAt, durationSeconds);
+  }
+
+  highlightMidi(midi) { setKeyState(this.container, midi, "preview-active", true); }
+  unhighlightMidi(midi) { setKeyState(this.container, midi, "preview-active", false); }
+  highlightToken(token) { const midi = TOKEN_MIDI.get(token); if (midi !== undefined) this.highlightMidi(midi); }
+  unhighlightToken(token) { const midi = TOKEN_MIDI.get(token); if (midi !== undefined) this.unhighlightMidi(midi); }
 
   downToken(token = "") { for (const key of String(token)) this.down(key); }
   upToken(token = "") { for (const key of String(token)) this.up(key); }
