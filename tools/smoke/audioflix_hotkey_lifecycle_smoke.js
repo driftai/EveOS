@@ -129,8 +129,13 @@ const controller = window.EveAudioflixUiHotkeys.create(ctx);
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.deepStrictEqual(calls.play, ['two', 'one'], 're-armed page-local fallback must play the configured sound');
 
-    assert(!/beforeunload[\s\S]{0,120}clearHotkeys/.test(fs.readFileSync(path.join(root, 'js/modules/features/audioflix/audioflix.ui.js'), 'utf8')),
+    const uiSource = fs.readFileSync(path.join(root, 'js/modules/features/audioflix/audioflix.ui.js'), 'utf8');
+    assert(!/beforeunload[\s\S]{0,120}clearHotkeys/.test(uiSource),
         'page unload must not clear durable global registrations');
+    const queueDetails = uiSource.match(/const openQueueDetails\s*=\s*\(\)\s*=>\s*\{([\s\S]*?)\};/)?.[1] || '';
+    assert(queueDetails.includes("activeTab = 'music'") && queueDetails.includes("lastAudioflixTab: activeTab")
+        && queueDetails.includes('pushHotkeysToBridge()'),
+        'opening Music queue details must persist Music tab and disarm Soundboard');
     assert(fs.readFileSync(path.join(root, 'js/modules/features/audioflix/audioflix.ui.panel.js'), 'utf8').includes('data-af-action="toggle-hotkey-bypass"'),
         'settings panel must expose the manual bypass button');
     console.log('AUDIOFLIX_HOTKEY_LIFECYCLE_OK visibleGroup=true coalesced=true conflictFallback=true durable=true');

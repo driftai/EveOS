@@ -65,6 +65,35 @@ async function main() {
     assert.equal(restored.soundboard.filter(item => item.hotkey).length, 100,
         '100 assignments must survive higher-revision partial core config');
     assert.equal(Object.keys(restored.portHotkeys).length, 100);
+    // A scoped workspace backup must carry every hotkey, and restoring it must not
+    // discard assignments outside the imported scope.
+    reload.win.EveAudioflixLinks = {
+        normalizeScope: value => value,
+        captureForScope: () => ({ bindings: originals.map(item => ({
+            scopeType: 'bookmark', workspaceId: 'workspace-1', categoryName: 'Sounds',
+            bookmarkId: 'bookmark-1', audioType: 'sound', audioId: item.id
+        })) })
+    };
+    vm.runInContext(read('audioflix.links.backup.js'), reload.context);
+    const scoped = reload.win.EveAudioflixLinks.captureScopedBackup({
+        scopeType: 'workspace', workspaceId: 'workspace-1'
+    });
+    assert.equal(scoped.soundboard.length, 100, 'workspace backup retains all sounds');
+    assert.equal(Object.keys(scoped.portHotkeys).length, 100, 'workspace backup retains every assignment');
+    const outside = { id: 'outside-scope', type: 'sound', title: 'Untouched',
+        hotkey: 'ctrl+alt+p', url: 'outside.wav' };
+    let restoredScope;
+    reload.win.EveAudioflixState = {
+        ensure: () => ({ soundboard: [outside], music: [], portHotkeys: { [outside.id]: outside.hotkey },
+            scopeBindings: [] }),
+        replaceState: next => { restoredScope = next; }
+    };
+    const scopeResult = reload.win.EveAudioflixLinks.mergeScopedBackup(scoped);
+    assert.equal(scopeResult.ok, true);
+    assert.equal(restoredScope.soundboard.length, 101, 'scoped restore preserves outside sounds');
+    assert.equal(Object.keys(restoredScope.portHotkeys).length, 101,
+        'scoped restore preserves all imported and outside assignments');
+    assert.equal(restoredScope.portHotkeys[outside.id], outside.hotkey);
     const guard = reload.win.EveAudioflixStateRecovery;
     const partial = guard.restoreStructure(key, { soundboard: [], music: [], portHotkeys: {} });
     assert.equal(Object.keys(partial.portHotkeys).length, 100,

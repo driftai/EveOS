@@ -173,7 +173,10 @@ window.EveAudioflix = window.EveAudioflix || {};
         });
         return queueTransition;
     };
-    const openQueueDetails = () => { const track = queueTrackAt(activeMusicQueue.currentIndex) || window.EveAudioflixAudio?.getPlaybackState?.()?.item; if (!track?.id) return false; activeTab = 'music'; activeInfoItem = findItem('music', track.id) || track; activeInfoType = 'music'; deleteConfirmId = ''; open(); overlay?.classList.add('audioflix-info-over-internal'); rerenderModal(); return true; };
+    const openQueueDetails = () => { const track = queueTrackAt(activeMusicQueue.currentIndex) || window.EveAudioflixAudio?.getPlaybackState?.()?.item; if (!track?.id) return false; activeTab = 'music';
+        window.EveAudioflixState?.update?.({ lastAudioflixTab: activeTab }, 'audioflix-active-tab');
+        pushHotkeysToBridge(); // Queue Details is a tab transition too: unarm Soundboard immediately.
+        activeInfoItem = findItem('music', track.id) || track; activeInfoType = 'music'; deleteConfirmId = ''; open(); overlay?.classList.add('audioflix-info-over-internal'); rerenderModal(); return true; };
     window.EveAudioflixUiPicker.instance = window.EveAudioflixUiPicker.create({
         rerender: () => rerender(),
         view: {
