@@ -19,7 +19,7 @@ function waitHttp(url, timeout=10000) {
  return new Promise((resolve,reject)=>{const tick=()=>{const req=http.get(url,res=>{res.resume();if(res.statusCode===200)return resolve();setTimeout(tick,80);});req.on('error',()=>{if(Date.now()-start>timeout)return reject(new Error(`Timed out waiting for ${url}`));setTimeout(tick,80);});};tick();});
 }
 
-async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentationPorts, mediaFrontend, organizeFrontend, ui, installHost}) {
+async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentationPorts, mediaFrontend, organizeFrontend, settingsFrontend, ui, installHost}) {
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'eveos-piano-front-'));
  const portNumber=await freePort();
  const songFile=path.join(temp,'songs.json');
@@ -45,7 +45,7 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
   page.on('pageerror',error=>pageErrors.push(String(error?.stack||error)));
   try {
    await page.goto(pathToFileURL(parentFile).href);
-   await page.addStyleTag({content:css}); await page.addScriptTag({content:views}); await page.addScriptTag({content:frontend}); await page.addScriptTag({content:presentationPorts}); await page.addScriptTag({content:mediaFrontend}); await page.addScriptTag({content:organizeFrontend}); await page.addScriptTag({content:ui});
+    await page.addStyleTag({content:css}); await page.addScriptTag({content:views}); await page.addScriptTag({content:frontend}); await page.addScriptTag({content:presentationPorts}); await page.addScriptTag({content:mediaFrontend}); await page.addScriptTag({content:organizeFrontend}); await page.addScriptTag({content:settingsFrontend}); await page.addScriptTag({content:ui});
    await installHost(page,`http://127.0.0.1:${portNumber}/`);
    let realChild=null;
    for(let attempt=0;attempt<100&&!realChild;attempt++){realChild=page.frames().find(frame=>frame.url()===`http://127.0.0.1:${portNumber}/`);if(!realChild)await page.waitForTimeout(50);}
@@ -155,11 +155,12 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
    await page.evaluate(()=>window.EveAudioflixPianoFrontendPorts.command('song:load',{songId:'opaque-one'}));
    await page.waitForFunction(()=>document.querySelector('[data-pxm-current]')?.textContent==='Opaque One',{timeout:10000});
    assert.equal(await page.locator('[data-af-action="piano-frontend-media-current-favorite"]').isEnabled(),true,'current-song metadata controls must follow the Backend current song');
-   await page.locator('.piano-pxm-editor > summary').click();
+    const editorEvidence=await page.evaluate(()=>({editors:document.querySelectorAll('.piano-pxm-editor').length,titleInputs:document.querySelectorAll('[data-pxm-edit-title]').length})); assert.equal(editorEvidence.titleInputs,1,`metadata editor must remain mounted: ${JSON.stringify(editorEvidence)}`); await page.locator('[data-af-action="piano-frontend-media-details"][data-song-id="opaque-one"]').click();
    assert.equal(await page.locator('[data-af-action="piano-frontend-media-edit-current"]').isEnabled(),true,'current library song must be available to the metadata editor');
-   await page.locator('[data-af-action="piano-frontend-media-edit-current"]').click();
+    assert.equal(await page.locator('.piano-pxm-editor').getAttribute('open'),'','Details must reveal the editor inside Nexus Piano Link');
    assert.equal(await page.locator('[data-pxm-edit-title]').inputValue(),'Opaque One','editor must load the current Backend-owned song');
    assert.equal(await page.locator('.piano-pxm-now').getAttribute('open'),null,'song controls must start collapsed');
+    if (await page.locator('.piano-pxp-events').getAttribute('open') === null) await page.locator('.piano-pxp-events > summary').click();
    await page.locator('.piano-pxm-now > summary').click();
    const trueSheetTotal=await realChild.evaluate(()=>{const el=document.getElementById('sheetInput');return window.PianoSheetProgressProjection?.buildPreview?.(el?.value,el?.dataset.timingProfile||'expressive',0,0,600)?.total;});
    assert.equal(trueSheetTotal,5,'Backend expressive event parser must define the timeline: a b c = five events including pauses');
@@ -263,7 +264,7 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
     assert.deepEqual(await page.evaluate(()=>window.__seekAcks),[{error:''},{error:''},{error:''}],'drag seek must be accepted by Backend');
     await realChild.evaluate(()=>window.dispatchEvent(new CustomEvent('piano:sheet-progress-status',{detail:{status:'playing',current_index:4,total_events:5,sheet_total:5,timing_profile:'expressive',current_token:' '}})));
     await page.waitForFunction(()=>document.querySelector('[data-pxm-seek]')?.value==='4',null,{timeout:8000});
-   await page.locator('.piano-pxm-history > summary').click();
+   if (await page.locator('[data-pfo-player-panel]').isHidden()) await page.locator('[data-pfo-action="player"]').click(); await page.locator('.piano-pxm-history > summary').click();
    await page.waitForFunction(()=>document.querySelectorAll('[data-pxm-history-list] button').length===1);
    const favoriteBefore=await page.locator('[data-af-action="piano-frontend-media-current-favorite"]').textContent();
    assert(favoriteBefore.includes('☆'),`Piano fixture must begin unfavorited; got ${JSON.stringify(favoriteBefore)}`);
@@ -353,7 +354,7 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
    assert.equal(await page.locator('[data-pxp-event-token]').textContent(),'[4q]','current note must mirror the Backend event view');
    assert.equal(await page.locator('[data-pxp-event-rail]').getAttribute('aria-valuenow'),'3');
    assert.equal(await page.locator('[data-pxp-event-rail]').getAttribute('aria-valuemax'),'12');
-    await page.locator('.piano-pxp-events > summary').click();
+    if (await page.locator('.piano-pxp-events').getAttribute('open') === null) await page.locator('.piano-pxp-events > summary').click();
     assert.equal(await page.locator('[data-pxp-event-seek]').count(),9,'Event view must port the complete Backend navigation control set');
     assert.equal(await page.locator('[data-pxp-event-input]').inputValue(),'3');
     assert.equal(await page.locator('[data-pxp-event-input]').getAttribute('max'),'12');

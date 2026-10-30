@@ -13,9 +13,9 @@ const source = fs.readFileSync(path.join(web, 'piano_controls.js'), 'utf8');
 const soundSource = fs.readFileSync(path.join(web, 'piano_sound.js'), 'utf8');
 const indexSource = fs.readFileSync(path.join(web, 'index.html'), 'utf8');
 assert(source.includes('eveos:piano:layout:v1'), 'Layout preference must use the dedicated key');
-assert(source.includes('savePianoLayout(layoutSelect.value)'), 'Changes must save the selected layout');
+assert(source.includes('setLayout(layoutSelect.value, { persist: true })'), 'Changes must save the selected layout');
 assert(source.includes('eveos:piano:sound:v1'), 'Sound preference must use the dedicated key');
-assert(source.includes('savePianoSound(soundSelect.value)'), 'Changes must save the selected sound');
+assert(source.includes('setSound(soundSelect.value, { persist: true })'), 'Changes must save the selected sound');
 for (const [id, preset] of [
   ['fluid_studio_grand', '0000_FluidR3_GM_sf2_file'],
   ['fluid_electric_piano_1', '0040_FluidR3_GM_sf2_file'],
@@ -53,6 +53,7 @@ const fixture = `<!doctype html><html><head><meta charset="utf-8"></head><body>
 <script type="module">
 import { setupPianoControls } from '/assets/piano_controls.js';
 import { setupPianoFrontendAppBridge } from '/assets/piano_frontend_app_bridge.js';
+import { setupPianoPlaybackOverrides } from '/assets/piano_playback_overrides.js';
 import { InternalPreviewPlayer } from '/assets/internal_preview.js';
 import { PianoSoundEngine } from '/assets/piano_sound.js';
 window.__previewStops = 0;
@@ -72,6 +73,18 @@ window.__bridge = setupPianoFrontendAppBridge({
  progress: () => ({ index: 0, total: 0 }), speed: () => 1, setSpeed() {}, play() {}, pause() {}, stop() {}
 });
 window.__bridge.restoreTargetWindow('');
+window.__runOverrideProof = async () => {
+ const events=[];
+ const overrideEls={internalPlay:{checked:false},window:document.getElementById('windowSelect')};
+ const override=setupPianoPlaybackOverrides({
+  els:overrideEls,api:{stop:async()=>({})},preview:{stop:()=>({})},
+  controls:{restorePreferences:async()=>events.push('restore'),setLayout:value=>(events.push('layout:'+value),true),setSound:async value=>(events.push('sound:'+value),true),setVolume:value=>events.push('volume:'+value)},
+  internalMode:()=>overrideEls.internalPlay.checked,refreshWindows:async()=>events.push('refresh'),currentSeekTotal:()=>1,setSeekTarget(){},toast(){},updateInputModeUI(){},
+  bridge:()=>({preferredInternalMode:()=>false,persistInternalMode:()=>events.push('persist'),restoreTargetWindow:()=>null}),onResumeEvent(){}
+ });
+ await override.applySongSettings({identifiers:{custom:{piano_playback_v1:{route:'internal',layout:'88',instrumentId:'fluid_studio_grand',internalVolumePercent:0}}}});
+ return {internal:overrideEls.internalPlay.checked,events};
+};
 window.__runBackgroundProof = () => {
  const scheduled = [];
  const output = {
@@ -196,6 +209,8 @@ async function check(browser, url, width) {
     assert.equal(s.value, '61'); assert.equal(s.rendered, '61'); assert.equal(s.keys, 61);
     assert.equal(s.saved, null, 'Loading a default must not write a preference');
     assert.equal(s.sound, 'acoustic_grand'); assert.equal(s.soundSaved, null);
+    assert.deepEqual(await page.evaluate(() => window.__runOverrideProof()), { internal:true, events:['layout:88','sound:fluid_studio_grand','volume:0'] },
+      'Per-song playback overrides must apply through the shared owner without rewriting global preferences');
     await changeSound('legacy_synth');
     s = await state(); assert.equal(s.sound, 'legacy_synth'); assert.equal(s.soundSaved, 'legacy_synth');
     await page.evaluate(() => { const target=document.getElementById('windowSelect'); target.value='202'; window.__bridge.persistTargetWindow(); });

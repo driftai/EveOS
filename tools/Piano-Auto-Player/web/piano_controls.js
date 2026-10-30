@@ -1,5 +1,5 @@
 import { renderPiano } from "./piano.js";
-import { pianoSoundCatalog } from "./piano_sound.js";
+import { pianoSoundCatalog, setPianoMasterVolume } from "./piano_sound.js";
 
 const LAYOUT_PREFERENCE_KEY = "eveos:piano:layout:v1";
 const SOUND_PREFERENCE_KEY = "eveos:piano:sound:v1";
@@ -38,6 +38,24 @@ export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, vis
     updateMeta();
   }
 
+  function setLayout(value, { persist = false } = {}) {
+    if (value !== "61" && value !== "88") return false;
+    layoutSelect.value = value;
+    if (persist) savePianoLayout(value);
+    render();
+    return true;
+  }
+
+  async function setSound(value, { persist = false } = {}) {
+    if (![...soundSelect.options].some(option => option.value === value)) return false;
+    soundSelect.value = value;
+    if (persist) savePianoSound(value);
+    applySound();
+    recorder.unlock();
+    await prepareSound();
+    return true;
+  }
+
   async function prepareSound() {
     applySound();
     if (soundSelect.value === "legacy_synth") return { fallback: false };
@@ -73,16 +91,12 @@ export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, vis
   layoutSelect.addEventListener("change", () => {
     // Layout only changes the visible/manual key range. Keep the active song
     // timeline and internal voices alive, just as an instrument change does.
-    savePianoLayout(layoutSelect.value);
-    render();
+    setLayout(layoutSelect.value, { persist: true });
   });
   soundSelect.addEventListener("change", () => {
     // Keep the playback timeline alive while the sound engine releases the
     // current voices and routes subsequent notes through the new instrument.
-    savePianoSound(soundSelect.value);
-    applySound();
-    recorder.unlock();
-    prepareSound().catch(() => {});
+    setSound(soundSelect.value, { persist: true }).catch(() => {});
   });
 
   const ids = new Set(pianoSoundCatalog().map(item => item.id));
@@ -92,5 +106,10 @@ export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, vis
   applySound();
   render();
   warmSelectedSound();
-  return { render, applySound, prepareSound, updateMeta };
+  const restorePreferences = async () => {
+    setLayout(savedPianoLayout() || layoutSelect.value || "61");
+    await setSound(savedPianoSound() || soundSelect.value || "acoustic_grand");
+  };
+  return { render, applySound, prepareSound, updateMeta, setLayout, setSound,
+    restorePreferences, setVolume: setPianoMasterVolume };
 }

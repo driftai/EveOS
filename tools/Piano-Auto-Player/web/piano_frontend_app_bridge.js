@@ -5,9 +5,15 @@ const TARGET_WINDOW_KEY = 'eveos:piano:target-window:v1';
 
 export function setupPianoFrontendAppBridge(options) {
   const { els, internalMode, current, activeSongId, status, progress, speed, setSpeed } = options;
+  const preferredInternalMode = () => {
+    try {
+      const saved = localStorage.getItem(INTERNAL_PLAY_KEY);
+      if (saved === 'true' || saved === 'false') return saved === 'true';
+    } catch (_) {}
+    return internalMode();
+  };
   try {
-    const saved = localStorage.getItem(INTERNAL_PLAY_KEY);
-    if (saved === 'true' || saved === 'false') els.internalPlay.checked = saved === 'true';
+    els.internalPlay.checked = preferredInternalMode();
   } catch (_) {}
 
   const persistInternalMode = () => {
@@ -42,13 +48,17 @@ export function setupPianoFrontendAppBridge(options) {
     return { name, speed: speed() };
   };
   const playbackOwner = Object.freeze({
-    playSong: (song, playbackOptions = {}) => options.play(song, playbackOptions),
+    playSong: async (song, playbackOptions = {}) => {
+      const effectiveSettings = typeof options.applySongSettings === 'function'
+        ? await options.applySongSettings(song) : null;
+      return options.play(song, { ...playbackOptions, effectiveSettings });
+    },
     pause: () => options.pause(),
     stop: () => options.stop(),
     status: () => options.status()
   });
   window.PianoPlaybackOwner = playbackOwner;
 
-  setupPianoFrontendPort({ ...options, media, preset });
-  return { persistInternalMode, persistTargetWindow, restoreTargetWindow, playbackOwner };
+  setupPianoFrontendPort({ ...options, play: playbackOwner.playSong, media, preset });
+  return { persistInternalMode, persistTargetWindow, restoreTargetWindow, preferredInternalMode, playbackOwner };
 }

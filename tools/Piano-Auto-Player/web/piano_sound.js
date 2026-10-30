@@ -57,6 +57,7 @@ const SOUNDS = {
 
 let sharedContext = null;
 let sharedOutput = null;
+let sharedOutputVolume = 1;
 const scriptLoads = new Map();
 const presetLoads = new Map();
 
@@ -75,11 +76,23 @@ function outputNode(ctx) {
   compressor.ratio.value = 7;
   compressor.attack.value = 0.003;
   compressor.release.value = 0.22;
-  master.gain.value = 0.62;
+  master.gain.value = 0.62 * sharedOutputVolume;
   master.connect(compressor).connect(ctx.destination);
   sharedOutput = master;
   return sharedOutput;
 }
+
+export function setPianoMasterVolume(percent = 100) {
+  const value = Math.max(0, Math.min(100, Number(percent)));
+  sharedOutputVolume = Number.isFinite(value) ? value / 100 : 1;
+  if (sharedOutput && sharedContext) {
+    sharedOutput.gain.cancelScheduledValues(sharedContext.currentTime);
+    sharedOutput.gain.setTargetAtTime(0.62 * sharedOutputVolume, sharedContext.currentTime, 0.012);
+  }
+  return Math.round(sharedOutputVolume * 100);
+}
+
+export function pianoMasterVolume() { return Math.round(sharedOutputVolume * 100); }
 
 function loadScript(meta) {
   if (window[meta.variable]) return Promise.resolve(window[meta.variable]);

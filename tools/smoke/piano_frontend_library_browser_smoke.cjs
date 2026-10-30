@@ -13,9 +13,10 @@ const frontend = read('js/modules/features/audioflix/audioflix.piano.frontend.js
 const presentationPorts = read('js/modules/features/audioflix/audioflix.piano.frontend.ports.js');
 const mediaFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.media.js');
 const organizeFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.organize.js');
+const settingsFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.settings.js');
 const extendedPort = read('tools/Piano-Auto-Player/web/piano_frontend_extended_port.js');
 const frontendAppBridge = read('tools/Piano-Auto-Player/web/piano_frontend_app_bridge.js');
-const css = read('js/modules/features/audioflix/audioflix.piano.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.ports.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.media.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.organize.css');
+const css = read('js/modules/features/audioflix/audioflix.piano.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.ports.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.media.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.organize.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.settings.css');
 const port = read('tools/Piano-Auto-Player/web/piano_frontend_port.js');
 const app = read('tools/Piano-Auto-Player/web/app.js');
 assert(app.includes('setupPianoFrontendAppBridge({'), 'real player must install the frontend app bridge');
@@ -35,13 +36,15 @@ assert(frontendAppBridge.includes('eveos:piano:target-window:v1'), 'Target Windo
 assert(organizeFrontend.includes("ports.command?.('song:update'"), 'Piano organization must use the Backend song owner');
 assert(mediaFrontend.includes("ports.command?.('song:update'"), 'listener metadata must use the shared Backend port');
 assert(mediaFrontend.includes("ports.command?.('progress:seek'"), 'listener seek must use the existing Backend progress owner');
+assert(settingsFrontend.includes("ports.command?.('queue:reorder'"), 'Piano Internal View must reorder the shared Backend queue');
+assert(organizeFrontend.includes("ports.command?.('queue:add-many'"), 'filtered group queueing must use one Backend queue command');
 
 const childHtml = `<!doctype html><html><body><script type="module">
 import { setupPianoFrontendPort } from '/port.js';
 window.__calls = [];
 window.__songs = [
-  { id: 'one', title: 'Moonlight', artist: 'Composer', sheet: 'abc', updated_at: 100 },
-  { id: 'two', title: 'Danger <img src=x onerror=alert(1)>', performance: [{key:'a'}], updated_at: 200 }
+  { id: 'one', title: 'Moonlight', artist: 'Composer', sheet: 'abc', source_url:'https://example.test/shared', identifiers:{custom:{piano_group:'Study',piano_playback_v1:{route:'internal',layout:'88'}}}, updated_at: 100 },
+  { id: 'two', title: 'Danger <img src=x onerror=alert(1)>', source_url:'https://example.test/shared', identifiers:{custom:{piano_group:'Concert',piano_playback_v1:{route:'target'}}}, performance: [{key:'a'}], updated_at: 200 }
 ];
 setupPianoFrontendPort({
  api: { songs: async () => ({ songs: window.__songs }) },
@@ -84,6 +87,7 @@ async function syntheticTest(browser, width) {
   await page.addScriptTag({content:presentationPorts});
   await page.addScriptTag({content:mediaFrontend});
   await page.addScriptTag({content:organizeFrontend});
+  await page.addScriptTag({content:settingsFrontend});
   await page.addScriptTag({content:ui});
   await installHost(page, 'http://127.0.0.1:8771/piano');
   let child = null;
@@ -101,14 +105,25 @@ async function syntheticTest(browser, width) {
   assert.equal(await page.locator('.audioflix-piano-header').evaluate(el=>getComputedStyle(el).display),'none','technical Piano Automation toolbar must stay in Backend');
   assert.equal(await page.locator('.piano-frontend-title h2').textContent(),'Piano Auto Player - Frontend');
   assert.equal(await page.locator('[data-piano-view-title]').textContent(),'Piano Library');
+  if (width === 1440) {
+   assert.equal(await page.locator('[data-pfs-settings-button]').count(),2,'Music-style Piano cards expose song settings');
+   await page.locator('.piano-frontend-song[data-song-id="one"] [data-pfs-settings-button]').click();
+   assert.equal(await page.locator('[data-pfs-route]').inputValue(),'internal','card settings project the Backend-owned playback override');
+   assert((await page.locator('[data-pfs-duplicates] > div').count())>=1,'exact source matches are shown as non-destructive duplicate suggestions');
+   await page.locator('[data-pfs-action="close"]').click();
+   await page.locator('[data-pfo-action="groups"]').click();
+   await page.locator('[data-pfo-route-filter]').selectOption('internal');
+   assert.equal(await page.locator('.piano-frontend-song').count(),1,'route filters operate over the shared Backend library');
+   await page.locator('[data-pfo-route-filter]').selectOption('all');
+  }
   assert(await page.locator('[data-af-action="piano-frontend-stop"]').isEnabled(),'stop must enable after bridge handshake');
   await page.locator('[data-af-action="piano-frontend-play"][data-song-id="one"]').click();
   await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='play'&&x[1]==='one'));
   await page.waitForFunction(()=>document.querySelector('[data-pf-message]')?.textContent?.includes('Song sent'));
   await page.click('.piano-frontend-transport [data-af-action="piano-frontend-pause"]'); await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='pause'));
   await page.click('[data-af-action="piano-frontend-stop"]'); await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='stop'));
-  await page.locator('[data-pf-search]').fill('Moon'); assert.equal(await page.locator('.piano-frontend-song').count(),1);
-  await page.locator('[data-pf-search]').fill('');
+  await page.locator('[data-pfo-action="nexus"]').click(); await page.locator('[data-pfo-search]').fill('Moon'); await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===1); assert.equal(await page.locator('.piano-frontend-song').count(),1);
+  await page.locator('[data-pfo-search]').fill('');
   await page.locator('[data-pf-sort]').selectOption('az');
   assert.equal((await page.locator('.piano-frontend-song-info strong').allTextContents())[0].startsWith('Danger'),true,'A-Z sort must work');
   await child.evaluate(()=>window.__songs.push({id:'three',title:'Third Song',updated_at:300}));
@@ -137,4 +152,4 @@ async function syntheticTest(browser, width) {
  } finally { await page.close(); }
 }
 
-(async()=>{const browser=await chromium.launch({headless:true});try{await opaqueRealAppTest(browser,{repo,css,views,frontend,presentationPorts,mediaFrontend,organizeFrontend,ui,installHost});for(const width of [1440,760,480])await syntheticTest(browser,width);console.log('EVEOS_PIANO_FRONTEND_LIBRARY_BROWSER_PASS');}finally{await browser.close();}})().catch(error=>{console.error(error.stack||error);process.exitCode=1;});
+(async()=>{const browser=await chromium.launch({headless:true});try{await opaqueRealAppTest(browser,{repo,css,views,frontend,presentationPorts,mediaFrontend,organizeFrontend,settingsFrontend,ui,installHost});for(const width of [1440,760,480])await syntheticTest(browser,width);console.log('EVEOS_PIANO_FRONTEND_LIBRARY_BROWSER_PASS');}finally{await browser.close();}})().catch(error=>{console.error(error.stack||error);process.exitCode=1;});

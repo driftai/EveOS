@@ -57,6 +57,7 @@ try {
             uiClass: { renderButton: () => '<button data-af-action="toggle-classifiers">Classifiers</button>' },
             getFlags: () => ({ addFormOpen: {}, localizeFormOpen: {}, groupsOpen: {}, foldersOpen: {}, nexusState: { open: window.__nexus, type: 'music' } }) });
         const panel = window.__panel = window.EveAudioflixUiPanel.create({ state: () => window.__state, esc, closeSvg: 'Close', hotkeyComboIssue: () => null,
+            frontendActiveGroup: renderer.frontendActiveGroup,
             renderItems: renderer.renderItems, renderAddSection: type => toolbar(type).replace('data-af-action="toggle-view-mode"', 'id="view-toggle" data-af-action="toggle-view-mode"'),
             view: () => window.__view, modal: () => '', tools: () => ({ routing: { renderStatusCards: () => '<select id="live-output"><option>Output</option></select>' },
                 narration: { renderAudioflixSummary: () => '<strong id="narration-title"></strong>', syncAudioflixSummary: () => { const title = document.getElementById('narration-title'); if (title) title.textContent = 'Selected stopped reader'; } } }),

@@ -55,6 +55,13 @@ async function performQueue(data, api) {
     }
     if (!song) throw new Error('Song not found in your Piano library. Refresh.');
     queue.addSong(song, false);
+  } else if (action === 'queue:add-many') {
+    const ids = Array.isArray(data.songIds) ? [...new Set(data.songIds.map(cleanText).filter(Boolean))].slice(0, 500) : [];
+    if (!ids.length) throw new Error('Choose at least one Piano song.');
+    const songs = (await api.songs({ fresh: true })).songs || [];
+    const chosen = ids.map(id => songs.find(song => String(song.id) === id)).filter(Boolean);
+    if (chosen.length !== ids.length) throw new Error('One or more Piano songs are no longer available. Refresh.');
+    await queue.addSongs(chosen, { announce: false });
   } else if (action === 'queue:remove') {
     if (typeof data.queueId !== 'string' || !data.queueId) throw new Error('Invalid queue entry.');
     queue.removeQueueId(data.queueId);
@@ -160,6 +167,8 @@ async function performMedia(data, api, deps) {
     const rating = data.rating === undefined ? (previous.personal_rating ?? null)
       : data.rating === '' || data.rating == null ? null : Number(data.rating);
     if (rating != null && (!Number.isFinite(rating) || rating < 0 || rating > 5)) throw new Error('Rating must be from 0 to 5.');
+    if (data.playback !== undefined && (!data.playback || typeof data.playback !== 'object' || Array.isArray(data.playback)))
+      throw new Error('Piano playback settings must be an object.');
     const identifiers = {
       ...previous,
       author: cleanText(data.artist ?? previous.author ?? song.artist, 90),
@@ -171,7 +180,8 @@ async function performMedia(data, api, deps) {
         favorite: data.favorite === true ? 'true' : data.favorite === false ? 'false' : String(previousCustom.favorite || 'false'),
         piano_tab: cleanText(data.tab ?? previousCustom.piano_tab, 80),
         piano_folder: cleanText(data.folder ?? previousCustom.piano_folder, 80),
-        piano_group: cleanText(data.group ?? previousCustom.piano_group, 80)
+        piano_group: cleanText(data.group ?? previousCustom.piano_group, 80),
+        piano_playback_v1: data.playback === undefined ? (previousCustom.piano_playback_v1 || {}) : data.playback
       }
     };
     await api.saveSong({ ...song, title: cleanText(data.title ?? song.title) || 'Untitled', artist: identifiers.author, identifiers });
@@ -194,7 +204,7 @@ export function setupExtendedPianoFrontendPort({ api, parent, parentOrigin, repl
       sheetEvents: preview.events || [] };
   };
   const supported = new Set(['controls:get', 'controls:set', 'controls:refresh', 'queue:get',
-    'queue:add', 'queue:remove', 'queue:reorder', 'queue:duplicate', 'queue:play-item', 'queue:mode', 'queue:play', 'queue:stop',
+    'queue:add', 'queue:add-many', 'queue:remove', 'queue:reorder', 'queue:duplicate', 'queue:play-item', 'queue:mode', 'queue:play', 'queue:stop',
     'queue:next', 'queue:previous', 'queue:shuffle', 'queue:clear', 'queue:play-all', 'progress:get', 'progress:seek',
     'media:get', 'playback:preset', 'workspace:history-load', 'workspace:inbox-load', 'workspace:inbox-discard',
     'library:import', 'song:load', 'song:update']);
@@ -245,14 +255,16 @@ export function summarizeFrontendSong(song) {
   const identifiers = song?.identifiers || {}, auto = song?.automatic_identifiers || {};
   return {
     id: String(song.id || ''), title: String(song.title || 'Untitled'), artist: String(song.artist || ''),
-    kind: song.performance?.length ? 'recording' : 'song', source: String(song.source || ''),
+    kind: song.performance?.length ? 'recording' : 'song', source: String(song.source || ''), source_url: String(song.source_url || ''),
     updated_at: Number(song.updated_at || 0), duration_ms: Number(auto.duration_ms || song.duration_ms || 0),
     identifiers: { author: String(identifiers.author || ''), genre: identifiers.genre || [], tags: identifiers.tags || [],
       personal_rating: identifiers.personal_rating ?? null, custom: {
         favorite: String(identifiers.custom?.favorite || ''),
         piano_tab: String(identifiers.custom?.piano_tab || ''),
         piano_folder: String(identifiers.custom?.piano_folder || ''),
-        piano_group: String(identifiers.custom?.piano_group || '')
+        piano_group: String(identifiers.custom?.piano_group || ''),
+        piano_playback_v1: identifiers.custom?.piano_playback_v1 && typeof identifiers.custom.piano_playback_v1 === 'object'
+          ? identifiers.custom.piano_playback_v1 : {}
       } },
     automatic_identifiers: { kind: String(auto.kind || ''), source_host: String(auto.source_host || ''),
       event_count: Number(auto.event_count || 0), duration_ms: Number(auto.duration_ms || 0),

@@ -133,7 +133,7 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
             music: [{ id: 'preserved-music', title: 'Preserved Music', url: 'media/preserved.mp3' }],
             soundboard: [],
             scopeBindings: []
-        }, 'scoped-smoke-wipe');
+        }, 'scoped-smoke-wipe', { authoritative: true });
         window.EveDataStore.Store.applyWorkspaceState(scoped);
         const restored = window.EveAudioflixState.ensure();
         const passed = capturedCleanly
@@ -190,7 +190,7 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
             music: [{ id: 'card-preserved', title: 'Card Preserved', url: 'media/card-preserved.mp3' }],
             soundboard: [],
             scopeBindings: []
-        }, 'card-scoped-smoke-wipe');
+        }, 'card-scoped-smoke-wipe', { authoritative: true });
         window.EveDataStore.Store.applyCardState(scoped);
         const restored = window.EveAudioflixState.ensure();
         const result = {
@@ -227,7 +227,7 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
             music: [{ id: 'folder-preserved', title: 'Folder Preserved', url: 'media/folder-preserved.mp3' }],
             soundboard: [],
             scopeBindings: []
-        }, 'folder-scoped-smoke-wipe');
+        }, 'folder-scoped-smoke-wipe', { authoritative: true });
         window.EveDataStore.Store.applyFolderState(scoped);
         const restored = window.EveAudioflixState.ensure();
         const result = {
@@ -266,7 +266,7 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
             music: [{ id: 'bookmark-preserved', title: 'Bookmark Preserved', url: 'media/bookmark-preserved.mp3' }],
             soundboard: [],
             scopeBindings: []
-        }, 'bookmark-scoped-smoke-wipe');
+        }, 'bookmark-scoped-smoke-wipe', { authoritative: true });
         window.EveDataStore.Store.applyBookmarkState(scoped);
         const restored = window.EveAudioflixState.ensure();
         const result = {
@@ -288,7 +288,7 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
     // 4. Wipe Audioflix, restore the captured datapack, then verify all content returns.
     const restoreOk = await page.evaluate(() => {
         const cap = window.EveDataStore.Store.captureState();          // snapshot WITH our data
-        window.EveAudioflixState.replaceState({ soundboard: [], music: [], ports: [], soundboardGroups: [] }, 'smoke-wipe');
+        window.EveAudioflixState.replaceState({ soundboard: [], music: [], ports: [], soundboardGroups: [] }, 'smoke-wipe', { authoritative: true });
         window.EveDataStore.Store.applyState(cap);                     // restore
         const a = window.eveState.config.audioflix || {};
         return (a.ports || []).some(p => p.nickname === 'RTPort')

@@ -123,6 +123,40 @@ class SongLibrary:
         values = raw if isinstance(raw, list) else str(raw or "").split(",")
         return list(dict.fromkeys(str(value).strip()[:80] for value in values if str(value).strip()))[:40]
 
+    @staticmethod
+    def normalize_playback_settings(raw: Any) -> dict[str, Any]:
+        if not isinstance(raw, dict):
+            raise ValueError("Piano playback settings must be an object")
+        route = str(raw.get("route") or "inherit").strip().lower()
+        if route not in {"inherit", "internal", "target"}:
+            raise ValueError("Invalid Piano playback route")
+        layout_raw = raw.get("layout")
+        layout = None if layout_raw in (None, "", "inherit") else str(layout_raw)
+        if layout not in {None, "61", "88"}:
+            raise ValueError("Invalid Piano layout override")
+        target = None if raw.get("targetHint") in (None, "") else str(raw.get("targetHint")).strip()[:180]
+        instrument = None if raw.get("instrumentId") in (None, "") else str(raw.get("instrumentId")).strip()[:80]
+        volume_raw = raw.get("internalVolumePercent")
+        if volume_raw in (None, ""):
+            volume = None
+        else:
+            if isinstance(volume_raw, bool):
+                raise ValueError("Invalid Piano internal volume")
+            try:
+                parsed = float(volume_raw)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Invalid Piano internal volume") from exc
+            if not parsed.is_integer() or not 0 <= parsed <= 100:
+                raise ValueError("Piano internal volume must be a whole number from 0 to 100")
+            volume = int(parsed)
+        return {
+            "route": route,
+            "targetHint": target,
+            "layout": layout,
+            "instrumentId": instrument,
+            "internalVolumePercent": volume,
+        }
+
     @classmethod
     def _merge_identifiers(cls, existing: Any, incoming: Any) -> dict[str, Any]:
         base = existing if isinstance(existing, dict) else {}
@@ -139,7 +173,9 @@ class SongLibrary:
                 for key, value in raw_custom.items():
                     clean_key = str(key).strip()[:80]
                     if clean_key:
-                        custom[clean_key] = str(value).strip()[:240]
+                        custom[clean_key] = (cls.normalize_playback_settings(value)
+                                             if clean_key == "piano_playback_v1"
+                                             else str(value).strip()[:240])
         rating = patch.get("personal_rating", base.get("personal_rating"))
         try:
             rating = None if rating in (None, "") else max(0, min(5, round(float(rating), 2)))

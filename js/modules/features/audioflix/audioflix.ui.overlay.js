@@ -109,6 +109,10 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                     return;
                 }
                 if (t.hasAttribute && t.hasAttribute('data-af-spotify-search')) {
+                    window.EveAudioflixSpotifyUi?.setSearch?.(
+                        t.closest('[data-af-spotify-inspector]')?.dataset.afSpotifyGroup || '',
+                        t.value
+                    );
                     const query = String(t.value || '').trim().toLowerCase();
                     t.closest('[data-af-spotify-inspector]')?.querySelectorAll('[data-af-spotify-row]').forEach((row) => {
                         row.hidden = !!query && !String(row.dataset.afSearch || '').includes(query);
