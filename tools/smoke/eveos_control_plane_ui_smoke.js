@@ -211,9 +211,13 @@ vm.runInNewContext(source, context, { filename: 'eveosControlPlane.js' });
     windowMock.config = { bridges: { localControlPort: 70000, geminiControlPort: 0 } };
     assert.equal(windowMock.EveOSLocalControl.port(), 9082, 'out-of-range port must fall back');
     windowMock.config = { bridges: {} };
+    const beforeHealth = seenUrls.length;
     await windowMock.EveOSLocalControl.health();
-    assert.equal(seenUrls.at(-1), 'http://127.0.0.1:9082/api/control-plane/health',
-        'health probe must never target blocked port 0');
+    const healthRequests = seenUrls.slice(beforeHealth);
+    assert.ok(healthRequests.includes('http://127.0.0.1:9082/api/control-plane/health'),
+        'health probe must target fallback port 9082 regardless of concurrent status polls');
+    assert.ok(!healthRequests.some(url => /^http:\/\/127\.0\.0\.1:0\//.test(url)),
+        'early bootstrap must never request blocked localhost port 0');
     windowMock.config = savedConfig;
     delete windowMock.EveOSPortRegistry;
 
