@@ -12,9 +12,10 @@ const views = read('js/modules/features/audioflix/audioflix.piano.views.js');
 const frontend = read('js/modules/features/audioflix/audioflix.piano.frontend.js');
 const presentationPorts = read('js/modules/features/audioflix/audioflix.piano.frontend.ports.js');
 const mediaFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.media.js');
+const organizeFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.organize.js');
 const extendedPort = read('tools/Piano-Auto-Player/web/piano_frontend_extended_port.js');
 const frontendAppBridge = read('tools/Piano-Auto-Player/web/piano_frontend_app_bridge.js');
-const css = read('js/modules/features/audioflix/audioflix.piano.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.ports.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.media.css');
+const css = read('js/modules/features/audioflix/audioflix.piano.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.ports.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.media.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.organize.css');
 const port = read('tools/Piano-Auto-Player/web/piano_frontend_port.js');
 const app = read('tools/Piano-Auto-Player/web/app.js');
 assert(app.includes('setupPianoFrontendAppBridge({'), 'real player must install the frontend app bridge');
@@ -30,6 +31,8 @@ assert(frontend.includes('if (!bridgeReady) applyLibrary'), 'direct fallback mus
 assert(css.includes('> .audioflix-piano-header { display: none; }'), 'frontend must keep technical lifecycle controls in Backend');
 assert(!presentationPorts.includes('Backend Player Queue'), 'frontend copy must not expose Backend wiring');
 assert(frontendAppBridge.includes('eveos:piano:internal-play:v1'), 'Internal Play must have a durable Backend preference');
+assert(frontendAppBridge.includes('eveos:piano:target-window:v1'), 'Target Window must have a durable Backend preference');
+assert(organizeFrontend.includes("ports.command?.('song:update'"), 'Piano organization must use the Backend song owner');
 assert(mediaFrontend.includes("ports.command?.('song:update'"), 'listener metadata must use the shared Backend port');
 assert(mediaFrontend.includes("ports.command?.('progress:seek'"), 'listener seek must use the existing Backend progress owner');
 
@@ -80,6 +83,7 @@ async function syntheticTest(browser, width) {
   await page.addScriptTag({content:frontend});
   await page.addScriptTag({content:presentationPorts});
   await page.addScriptTag({content:mediaFrontend});
+  await page.addScriptTag({content:organizeFrontend});
   await page.addScriptTag({content:ui});
   await installHost(page, 'http://127.0.0.1:8771/piano');
   let child = null;
@@ -133,4 +137,4 @@ async function syntheticTest(browser, width) {
  } finally { await page.close(); }
 }
 
-(async()=>{const browser=await chromium.launch({headless:true});try{await opaqueRealAppTest(browser,{repo,css,views,frontend,presentationPorts,mediaFrontend,ui,installHost});for(const width of [1440,760,480])await syntheticTest(browser,width);console.log('EVEOS_PIANO_FRONTEND_LIBRARY_BROWSER_PASS');}finally{await browser.close();}})().catch(error=>{console.error(error.stack||error);process.exitCode=1;});
+(async()=>{const browser=await chromium.launch({headless:true});try{await opaqueRealAppTest(browser,{repo,css,views,frontend,presentationPorts,mediaFrontend,organizeFrontend,ui,installHost});for(const width of [1440,760,480])await syntheticTest(browser,width);console.log('EVEOS_PIANO_FRONTEND_LIBRARY_BROWSER_PASS');}finally{await browser.close();}})().catch(error=>{console.error(error.stack||error);process.exitCode=1;});

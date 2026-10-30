@@ -165,7 +165,7 @@
             serviceStart.disabled = isRunning() || lifecycle?.disabled === true;
         }
         for (const action of ['pause', 'stop', 'refresh']) {
-            const button = c.querySelector(`[data-af-action="piano-frontend-${action}"]`);
+            const button = c.querySelector(`.piano-frontend-transport [data-af-action="piano-frontend-${action}"]`);
             if (!button) continue;
             button.disabled = !isRunning() || !!busy || (action !== 'refresh' && !bridgeReady);
         }
@@ -223,9 +223,10 @@
         c.setAttribute('aria-label', 'Piano songs frontend');
         c.innerHTML = `<div class="piano-frontend-inner">
           <header class="piano-frontend-header">
-            <div class="piano-frontend-title"><span class="piano-frontend-kicker">PIANO LIBRARY</span><h2>Piano Auto Player - Frontend</h2><p>Choose a song and play it here.</p></div>
-            <div class="piano-frontend-transport" aria-label="Piano playback controls"><span class="piano-frontend-state" data-pf-playback role="status">Connecting…</span><button type="button" data-af-action="piano-toggle" data-pf-service-start hidden>Start Piano</button><button type="button" data-af-action="piano-frontend-pause">Pause / Resume</button><button type="button" data-af-action="piano-frontend-stop">Stop</button></div>
+            <div class="piano-frontend-title"><span class="piano-frontend-kicker">PIANO LIBRARY</span><h2>Piano Auto Player - Frontend</h2><p>Choose a song, organize the library, and play it here.</p></div>
           </header>
+          <div class="piano-frontend-transport" aria-label="Piano playback controls"><span class="piano-frontend-state" data-pf-playback role="status">Connecting…</span><button type="button" data-af-action="piano-toggle" data-pf-service-start hidden>Start Piano</button><button type="button" data-af-action="piano-frontend-pause">Pause / Resume</button><button type="button" data-af-action="piano-frontend-stop">Stop</button></div>
+          <div class="piano-frontend-workspace-heading">Piano workspace</div>
           <section class="piano-frontend-library">
             <div class="piano-frontend-library-head"><div><span>LIBRARY</span><h3>Songs <small data-pf-count>0 songs</small></h3></div>
               <div class="piano-frontend-library-tools">
@@ -238,6 +239,7 @@
             <div data-pf-songs class="piano-frontend-song-list"></div>
           </section>
         </div>`;
+
         c.querySelector('[data-pf-search]')?.addEventListener('input', event => { filter = event.target.value.toLowerCase().trim(); displaySongs(); });
         c.querySelector('[data-pf-sort]')?.addEventListener('change', event => { sortMode = event.target.value || 'recent'; displaySongs(); });
         displayStatus();
@@ -281,7 +283,7 @@
     });
     Object.assign(ns, {
         ready: true, mount, sync, refresh, invalidate, handleAction, repaint: displaySongs,
-        syncPlayback: updateSongTransportButtons, setSongFavorite,
+        syncPlayback: updateSongTransportButtons, syncControls: displayStatus, setSongFavorite,
         bridgeReady: () => bridgeReady, serviceOrigin: origin,
         pendingCount: () => pending.size,
         getSongs: () => songs.map(song => ({ ...song, identifiers: { ...(song.identifiers || {}) }, automatic_identifiers: { ...(song.automatic_identifiers || {}) } })),

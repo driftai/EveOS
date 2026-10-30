@@ -5,20 +5,15 @@
   let host = null, remote = '', seq = 1000000, controls = null, queue = null, progress = null, media = null;
   let lastRead = 0, updating = false, scope = 'all', genre = '', author = '', source = '', tag = '', rating = '', duration = '', events = '';
   let membershipSignature = '', queueRenderSignature = '', draggedQueueId = '';
-  const pending = new Map();
-  const subscribers = new Set();
-  const canvas = () => host?.querySelector('[data-piano-frontend]');
-  const frame = () => host?.querySelector('[data-piano-frame]');
-  const $ = selector => canvas()?.querySelector(selector);
-  const active = () => { const panel = host?.querySelector('[data-audioflix-piano]'); return panel?.dataset.pianoView === 'frontend' && panel.dataset.running === 'true'; };
-  const list = value => (Array.isArray(value) ? value : String(value || '').split(',')).map(x => String(x).trim()).filter(Boolean);
-  const norm = value => String(value || '').toLowerCase().trim();
+  const pending = new Map(); const subscribers = new Set();
+  const canvas = () => host?.querySelector('[data-piano-frontend]'); const frame = () => host?.querySelector('[data-piano-frame]');
+  const $ = selector => canvas()?.querySelector(selector); const active = () => { const panel = host?.querySelector('[data-audioflix-piano]'); return panel?.dataset.pianoView === 'frontend' && panel.dataset.running === 'true'; };
+  const list = value => (Array.isArray(value) ? value : String(value || '').split(',')).map(x => String(x).trim()).filter(Boolean); const norm = value => String(value || '').toLowerCase().trim();
   const favorite = song => song.identifiers?.custom?.favorite === 'true' ||
     (song.identifiers?.custom?.favorite !== 'false' && (list(song.identifiers?.tags).some(x => norm(x) === 'favorite') || Number(song.identifiers?.personal_rating) >= 4.5));
   const queued = song => queue?.items?.some(item => String(item.songId) === String(song.id)) || false;
   const kind = song => song.kind === 'recording' || song.automatic_identifiers?.kind === 'performance' ? 'recording' : 'sheet';
-  const durationMs = song => Number(song.automatic_identifiers?.duration_ms || song.duration_ms || 0);
-  const eventCount = song => Number(song.automatic_identifiers?.event_count || 0);
+  const durationMs = song => Number(song.automatic_identifiers?.duration_ms || song.duration_ms || 0); const eventCount = song => Number(song.automatic_identifiers?.event_count || 0);
   const sourceLabel = song => {
     const raw = String(song.automatic_identifiers?.source_host || song.source || '').trim();
     if (!raw) return '';
@@ -58,8 +53,7 @@
   }
   function optionNodes(node, values, placeholder, selectedValue) {
     if (!node) return;
-    const oldValue = selectedValue ?? node.value;
-    node.replaceChildren();
+    const oldValue = selectedValue ?? node.value; node.replaceChildren();
     for (const { value, label } of [{value:'',label:placeholder}, ...values]) {
       const o = document.createElement('option'); o.value = String(value); o.textContent = label; node.append(o);
     }
@@ -161,7 +155,7 @@
   }
   function note(message) { const node = $('[data-pxp-notice]'); if (node) node.textContent = message; }
   function publish() {
-    front.syncPlayback?.();
+    front.syncControls?.(); front.syncPlayback?.();
     for (const listener of subscribers) { try { listener({ controls, queue, progress, media }); } catch (_) {} }
   }
   function updateControls() {
@@ -176,8 +170,7 @@
       optionNodes(node, controls[optionsKey] || [], 'Choose…', controls[key]?.value || '');
       node.disabled = !active() || (key === 'target' && (!!controls.internal || !!controls.targetDisabled));
     }
-    const targetLabel = $('[data-pxp-target-note]'); if (targetLabel) targetLabel.textContent = controls.internal ? 'Not used during Internal Play' : 'Sends notes to the selected window';
-    if (target) target.setAttribute('aria-disabled', String(!!controls.internal || !!controls.targetDisabled));
+    const targetLabel = $('[data-pxp-target-note]'); if (targetLabel) targetLabel.textContent = controls.internal ? 'Not used during Internal Play' : 'Sends notes to the selected window'; if (target) target.setAttribute('aria-disabled', String(!!controls.internal || !!controls.targetDisabled));
     const sound = $('[data-pxp-sound-note]'); if (sound) sound.textContent = controls.soundStatus || 'Choose the built-in instrument';
   }
   function updateQueue() {
@@ -192,8 +185,7 @@
       queue?.mode || '', queue?.currentId || '', Number(queue?.cursor) || 0, !!queue?.active,
       items.map(item => [item.queueId, item.songId, item.label])
     ]);
-    membershipSignature = nextMembershipSignature;
-    if (total) total.textContent = queue ? `${items.length} queued` : (active() ? 'Queue starting…' : '0 queued');
+    membershipSignature = nextMembershipSignature; if (total) total.textContent = queue ? `${items.length} queued` : (active() ? 'Queue starting…' : '0 queued');
     if (now) now.textContent = queue?.currentId ? (items.find(x => x.queueId === queue.currentId)?.label || 'Ready') : 'Nothing playing';
     if (next) {
       const currentIndex = items.findIndex(x => x.queueId === queue?.currentId);
@@ -275,8 +267,7 @@
       progress.status === 'countdown' ? 'Starting…' : progress.status === 'complete' ? 'Finished' : 'Ready';
     if (rail) { rail.setAttribute('aria-valuenow', String(current)); rail.setAttribute('aria-valuemax', String(Math.max(1, total))); }
     if (fill) fill.style.width = `${total ? (100 * current / total).toFixed(2) : 0}%`;
-    const input = c.querySelector('[data-pxp-event-input]');
-    if (input) { input.max=String(Math.max(1,total)); if(document.activeElement!==input)input.value=String(current||1); input.disabled=!active()||!total; }
+    const input = c.querySelector('[data-pxp-event-input]'); if (input) { input.max=String(Math.max(1,total)); if(document.activeElement!==input)input.value=String(current||1); input.disabled=!active()||!total; }
     c.querySelectorAll('[data-pxp-event-seek]').forEach(button=>{button.disabled=!active()||!total;});
   }
   function invalidate() {
@@ -292,8 +283,30 @@
       send('controls:get'); send('queue:get'); send('progress:get'); send('media:get'); lastRead = Date.now();
     }
   }
+  // Single owner for Advanced Filters, including late recovery after player mounting.
+  function ensureFilters() {
+    const c = canvas(); if (!c) return false;
+    if (c.querySelector('.piano-pxp-advanced')) return true;
+    const filter = document.createElement('section'); filter.className = 'piano-pxp-filters';
+    filter.innerHTML = `<div class="piano-pxp-pills" role="group" aria-label="Piano library scope">
+       <button type="button" class="active" data-pxp-scope="all">All</button><button type="button" data-pxp-scope="favorites">★ Favorites</button>
+       <button type="button" data-pxp-scope="sheets">Sheets</button><button type="button" data-pxp-scope="recordings">Recordings</button><button type="button" data-pxp-scope="queued">Queued</button></div>
+       <details class="piano-pxp-advanced"><summary>Advanced library filters <span data-pxp-matches></span></summary><div class="piano-pxp-filters-grid">
+         <select data-pxp-genre aria-label="Filter genre"><option value="">All genres</option></select>
+         <select data-pxp-author aria-label="Filter author"><option value="">All authors</option></select>
+         <select data-pxp-source aria-label="Filter source"><option value="">All sources</option></select>
+         <input data-pxp-tags type="search" placeholder="Search tags" aria-label="Filter tags">
+         <input data-pxp-rating type="number" min="0" max="5" step="0.5" placeholder="Min rating" aria-label="Minimum rating">
+         <input data-pxp-duration type="number" min="0" step="1" placeholder="Min minutes" aria-label="Minimum duration in minutes">
+         <input data-pxp-events type="number" min="0" step="1" placeholder="Min events" aria-label="Minimum event count">
+         <button type="button" data-af-action="piano-frontend-port-filters-clear">Reset filters</button>
+       </div></details>`;
+    if (c.querySelector('.piano-pxp-pills')) filter.querySelector('.piano-pxp-pills')?.remove();
+    c.querySelector('.piano-frontend-library-head')?.after(filter);
+    return !!c.querySelector('.piano-pxp-advanced');
+  }
   function mount() {
-    const c = canvas(); if (!c || c.querySelector('.piano-pxp-controls')) return;
+    const c = canvas(); if (!c) return; if (c.querySelector('.piano-pxp-controls')) { ensureFilters(); return; }
     const workspace=document.createElement('details');workspace.className='piano-pxp-workspace';
     workspace.innerHTML='<summary><strong>Player controls &amp; library tools</strong><span>Playback, queue, song controls, history, inbox, and metadata</span></summary><div data-pxp-workspace-body></div>';
     c.querySelector('.piano-frontend-header')?.after(workspace);
@@ -313,21 +326,7 @@
       <div class="piano-pxp-event-nav" aria-label="Piano event navigation"><button type="button" data-pxp-event-seek="start" title="First event">↤</button><button type="button" data-pxp-event-seek="-100">−100</button><button type="button" data-pxp-event-seek="-10">−10</button><button type="button" data-pxp-event-seek="-1">−1</button><label>Event <input data-pxp-event-input type="number" min="1" value="1" aria-label="Piano event number"></label><button type="button" data-pxp-event-seek="go">Go</button><button type="button" data-pxp-event-seek="1">+1</button><button type="button" data-pxp-event-seek="10">+10</button><button type="button" data-pxp-event-seek="100">+100</button><button type="button" data-pxp-event-seek="end" title="Last event">↦</button></div>
       <div class="piano-pxp-event-rail" data-pxp-event-rail role="progressbar" aria-label="Piano song event progression" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"><span data-pxp-event-fill></span></div>`;
     workspace.before(events);
-    const filter = document.createElement('section'); filter.className = 'piano-pxp-filters';
-    filter.innerHTML = `<div class="piano-pxp-pills" role="group" aria-label="Piano library scope">
-       <button type="button" class="active" data-pxp-scope="all">All</button><button type="button" data-pxp-scope="favorites">★ Favorites</button>
-       <button type="button" data-pxp-scope="sheets">Sheets</button><button type="button" data-pxp-scope="recordings">Recordings</button><button type="button" data-pxp-scope="queued">Queued</button></div>
-       <details class="piano-pxp-advanced"><summary>Advanced library filters <span data-pxp-matches></span></summary><div class="piano-pxp-filters-grid">
-         <select data-pxp-genre aria-label="Filter genre"><option value="">All genres</option></select>
-         <select data-pxp-author aria-label="Filter author"><option value="">All authors</option></select>
-         <select data-pxp-source aria-label="Filter source"><option value="">All sources</option></select>
-         <input data-pxp-tags type="search" placeholder="Search tags" aria-label="Filter tags">
-         <input data-pxp-rating type="number" min="0" max="5" step="0.5" placeholder="Min rating" aria-label="Minimum rating">
-         <input data-pxp-duration type="number" min="0" step="1" placeholder="Min minutes" aria-label="Minimum duration in minutes">
-         <input data-pxp-events type="number" min="0" step="1" placeholder="Min events" aria-label="Minimum event count">
-         <button type="button" data-af-action="piano-frontend-port-filters-clear">Reset filters</button>
-       </div></details>`;
-    c.querySelector('.piano-frontend-library-head')?.after(filter);
+    ensureFilters();
     const queuePanel = document.createElement('details'); queuePanel.className = 'piano-pxp-queue';
     queuePanel.innerHTML = `<summary><strong>Player Queue</strong><span data-pxp-queue-count>Queue starting…</span></summary>
       <div class="piano-pxp-queue-now"><div><small>NOW</small><strong data-pxp-now>Nothing playing</strong></div><div><small>NEXT</small><strong data-pxp-next>Nothing queued next</strong></div></div>
@@ -431,7 +430,7 @@
   front.handleAction = button => handleAction(button) || oldHandle(button);
   front.refresh = force => { oldRefresh(force); refresh(force); };
   Object.assign(ports,{
-    ready:true,matches,sortSongs,
+    ready:true,ensureFilters,matches,sortSongs,
     decorateSongs(target, visible, all) { decorateSongs(target, visible, all); window.EveAudioflixPianoFrontendMedia?.decorateSongs?.(target, visible, all); },
     command: send, invalidate,
     snapshot: () => ({ controls, queue, progress, media }),

@@ -261,7 +261,7 @@ async function refreshWindows() {
       option.value = String(item.hwnd || 0); option.textContent = item.title; option.dataset.title = item.title;
       els.window.append(option);
     }
-    const match = [...els.window.options].find(option => option.value === current) || [...els.window.options].find(option => /roblox/i.test(option.textContent));
+    const match = frontendBridge?.restoreTargetWindow?.(current) || [...els.window.options].find(option => /roblox/i.test(option.textContent));
     if (match) els.window.value = match.value;
   } catch (error) { toast(error.message, "error"); }
 }
@@ -429,7 +429,7 @@ function bind() {
   els.seekEnd.addEventListener("click", () => applySeek(currentSeekTotal()));
   document.querySelectorAll("[data-seek-delta]").forEach(button => button.addEventListener("click", () => nudgeSeek(button.dataset.seekDelta)));
   [els.interval, els.hold, els.gate, els.blackLead, els.chordSpread, els.countdown, els.globalSpeed].forEach(element => element.addEventListener("input", updateSliderLabels));
-  els.inputMode.addEventListener("change", updateInputModeUI); els.internalPlay.addEventListener("change", changeInternalMode);
+  els.inputMode.addEventListener("change", updateInputModeUI); els.internalPlay.addEventListener("change", changeInternalMode); els.window.addEventListener("change", () => frontendBridge?.persistTargetWindow?.());
   document.querySelectorAll("[data-speed]").forEach(button => button.addEventListener("click", () => setGlobalSpeed(button.dataset.speed)));
   els.record.addEventListener("click", startRecording); els.recordStop.addEventListener("click", finishRecording); els.replay.addEventListener("click", replayRecording);
   els.clearRecording.addEventListener("click", clearRecording); els.saveRecording.addEventListener("click", saveRecording);

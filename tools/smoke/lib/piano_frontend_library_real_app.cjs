@@ -19,7 +19,7 @@ function waitHttp(url, timeout=10000) {
  return new Promise((resolve,reject)=>{const tick=()=>{const req=http.get(url,res=>{res.resume();if(res.statusCode===200)return resolve();setTimeout(tick,80);});req.on('error',()=>{if(Date.now()-start>timeout)return reject(new Error(`Timed out waiting for ${url}`));setTimeout(tick,80);});};tick();});
 }
 
-async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentationPorts, mediaFrontend, ui, installHost}) {
+async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentationPorts, mediaFrontend, organizeFrontend, ui, installHost}) {
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'eveos-piano-front-'));
  const portNumber=await freePort();
  const songFile=path.join(temp,'songs.json');
@@ -45,7 +45,7 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
   page.on('pageerror',error=>pageErrors.push(String(error?.stack||error)));
   try {
    await page.goto(pathToFileURL(parentFile).href);
-   await page.addStyleTag({content:css}); await page.addScriptTag({content:views}); await page.addScriptTag({content:frontend}); await page.addScriptTag({content:presentationPorts}); await page.addScriptTag({content:mediaFrontend}); await page.addScriptTag({content:ui});
+   await page.addStyleTag({content:css}); await page.addScriptTag({content:views}); await page.addScriptTag({content:frontend}); await page.addScriptTag({content:presentationPorts}); await page.addScriptTag({content:mediaFrontend}); await page.addScriptTag({content:organizeFrontend}); await page.addScriptTag({content:ui});
    await installHost(page,`http://127.0.0.1:${portNumber}/`);
    let realChild=null;
    for(let attempt=0;attempt<100&&!realChild;attempt++){realChild=page.frames().find(frame=>frame.url()===`http://127.0.0.1:${portNumber}/`);if(!realChild)await page.waitForTimeout(50);}
@@ -60,23 +60,73 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
    await page.click('[data-piano-view-switch]');
    assert.equal(await page.locator('.audioflix-piano-header').evaluate(el=>getComputedStyle(el).display),'none','real file-origin frontend must hide technical launcher controls');
    assert.equal(await page.locator('.piano-frontend-title h2').textContent(),'Piano Auto Player - Frontend');
+   assert.equal(await page.locator('.piano-frontend-inner > .piano-frontend-header').count(),1,'Piano title must remain outside the collapsible workspace');
    assert.equal(await page.locator('[data-piano-view-title]').textContent(),'Piano Library');
    await page.waitForFunction(()=>document.querySelector('[data-pf-count]')?.textContent==='2 songs',{timeout:10000});
    await page.waitForFunction(()=>document.querySelector('[data-pf-playback]')?.textContent!=='Connecting…',{timeout:10000});
-    await page.waitForFunction(()=>document.querySelector('.piano-frontend-transport [data-af-action="piano-frontend-pause"]')?.disabled===false,{timeout:10000});
+    try {
+     await page.waitForFunction(()=>document.querySelector('.piano-frontend-transport [data-af-action="piano-frontend-pause"]')?.disabled===false,null,{timeout:10000});
+    } catch(error) {
+     const projection=await page.evaluate(()=>{const panel=document.querySelector('[data-audioflix-piano]');return{ready:window.EveAudioflixPianoFrontend?.bridgeReady?.(),pending:window.EveAudioflixPianoFrontend?.pendingCount?.(),status:document.querySelector('[data-pf-playback]')?.outerHTML,pause:document.querySelector('.piano-frontend-transport [data-af-action="piano-frontend-pause"]')?.outerHTML,notice:document.querySelector('[data-pf-message]')?.textContent,view:panel?.dataset?.pianoView,running:panel?.dataset?.running};});
+     throw new Error(`Frontend playback bridge did not become ready: ${JSON.stringify(projection)}; ${error.message}`);
+    }
     assert(Date.now()-bridgeConnectStarted<2000,'Frontend playback bridge must publish its initial projection without a polling delay');
    assert.equal(await page.locator('.piano-frontend-transport [data-af-action="piano-frontend-pause"]').count(),1,'main Pause transport must have one target');
    assert.equal(await page.locator('[data-pxm-compact-pause]').count(),1,'compact Pause control must mount independently');
    assert(await page.locator('.piano-frontend-transport [data-af-action="piano-frontend-pause"]').isEnabled(),`opaque/file parent must establish playback bridge; child=${JSON.stringify(bridgeEvidence)} console=${consoleLines.join(' | ')} errors=${pageErrors.join(' | ')}`);
    const titles=await page.locator('.piano-frontend-song-info strong').allTextContents();
    assert.deepEqual(new Set(titles),new Set(['Opaque One','Opaque Two']));
-   await page.waitForSelector('[data-pxp-layout] option[value="88"]',{timeout:10000,state:'attached'});
+   assert.equal(await page.locator('.piano-pfo-toolbar').count(),1,'Piano library toolbar must mount once');
+   for (const drawer of ['data-pfo-manager','data-pfo-group-panel','data-pfo-classifier-panel','data-pfo-search-panel']) {
+    assert.equal(await page.locator(`[${drawer}]`).isVisible(),false,`Organizer ${drawer} must start hidden`);
+   }
+   await page.locator('[data-pfo-action="groups"]').click();
+   assert.equal(await page.locator('[data-pfo-group-panel]').isVisible(),true,'Groups button must reveal its drawer');
+   await page.locator('[data-pfo-action="classifiers"]').click();
+   assert.equal(await page.locator('[data-pfo-group-panel]').isVisible(),false,'Opening Classifiers must close Groups');
+   assert.equal(await page.locator('[data-pfo-classifier-panel]').isVisible(),true,'Classifiers must be enclosed in its own drawer');
+   await page.locator('[data-pfo-action="nexus"]').click();
+   assert.equal(await page.locator('[data-pfo-classifier-panel]').isVisible(),false,'Opening Nexus must close Classifiers');
+   assert.equal(await page.locator('[data-pfo-search-panel]').isVisible(),true,'Nexus search must be hidden until requested');
+   await page.locator('[data-pfo-action="nexus"]').click();
+   assert.equal(await page.locator('[data-pfo-search-panel]').isVisible(),false,'Clicking a second time collapses drawer');
+   assert.equal(await page.locator('.piano-pfo-actions button:disabled').count(),2,'future Localize and Piano Port actions must remain visibly staged');
+   const cardGeometry=await page.locator('.piano-frontend-song').evaluateAll(nodes=>nodes.map(node=>{const r=node.getBoundingClientRect();return{x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width)}}));
+   assert(cardGeometry.length===2&&cardGeometry[0].y===cardGeometry[1].y&&cardGeometry[0].x!==cardGeometry[1].x,`wide Piano Frontend must use compact Soundboard-style cards: ${JSON.stringify(cardGeometry)}`);
+   await page.locator('[data-pfo-action="organize"]').click();
+   await page.locator('[data-pfo-song]').selectOption('opaque-one');
+   await page.locator('[data-pfo-folder-input]').fill('Practice');
+   await page.locator('[data-pfo-group-input]').fill('Evening');
+   await page.locator('[data-pfo-action="save"]').click();
+   await realChild.waitForFunction(async()=>{const body=await fetch('/api/songs').then(r=>r.json());const song=body.songs.find(item=>item.id==='opaque-one');return song?.identifiers?.custom?.piano_folder==='Practice'&&song?.identifiers?.custom?.piano_group==='Evening';},null,{timeout:10000});
+   await page.waitForSelector('.piano-pfo-tabs [data-pfo-group="Evening"]',{timeout:10000});
+   await page.waitForSelector('[data-pfo-folder="Practice"]',{timeout:10000});
+   await page.locator('.piano-pfo-tabs [data-pfo-group="Evening"]').click();
+   await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===1);
+   assert.equal(await page.locator('.piano-frontend-song-info strong').textContent(),'Opaque One','custom groups must filter the shared Backend library');
+   await page.locator('[data-pxp-scope="all"]').click();
+   await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===2);
+   await page.locator('[data-pfo-action="groups"]').click();
+   assert.equal(await page.locator('.piano-pfo-tabs [data-pfo-group="Evening"]').count(),1,'saved Backend group must project into custom library tabs');
+   // Simulate the organizer DOM being recreated with an unchanged song catalog.
+   await page.evaluate(() => {
+    document.querySelector('.piano-pfo-toolbar')?.remove();
+    document.querySelector('.piano-pfo-tabs')?.remove();
+    window.EveAudioflixPianoFrontendOrganize.mount(document.body);
+   });
+   assert.equal(await page.locator('.piano-pfo-tabs [data-pfo-group="Evening"]').count(),1,'remount must rebuild group navigation from an unchanged signature');
+   assert.equal(await page.locator('[data-pfo-song] option[value="opaque-one"]').count(),1,'remount must restore song selector');
+   assert.equal(await page.locator('.piano-pfo-toolbar').count(),1,'remount must not duplicate organizer');
+
    assert.equal(await page.locator('[data-pxp-target]').count(),1,'target selector must be surfaced');
    assert.equal(await page.locator('[data-pxp-internal]').count(),1,'Internal Play must be surfaced');
-   assert.equal(await page.locator('.piano-pxp-workspace').getAttribute('open'),null,'combined player tools must start collapsed');
-   assert.equal(await page.evaluate(()=>!document.querySelector('.piano-pxp-workspace')?.contains(document.querySelector('.piano-pxp-events'))),true,'Event view must remain outside the combined player tools');
-   await page.locator('.piano-pxp-workspace > summary').click();
-   assert.equal(await page.locator('.piano-pxp-workspace').getAttribute('open'),'','combined player tools must open on request');
+   assert.equal(await page.locator('[data-pfo-player-panel]').isVisible(),false,'player tools start hidden inside frontend toolbar');
+   assert.equal(await page.locator('.piano-frontend-workspace-heading').textContent(),'Piano workspace','workspace is a plain heading'); assert.equal(await page.locator('.piano-frontend-workspace-toggle').count(),0,'workspace is not collapsible'); assert.equal(await page.locator('.piano-frontend-transport').isVisible(),true,'Ready/Pause/Stop stay visible'); assert.equal(await page.locator('[data-pxp-scope="sheets"]').count(),0,'no redundant Sheets tab'); assert.equal(await page.locator('[data-pxp-scope="recordings"]').count(),0,'no redundant Recordings tab'); assert.equal(await page.locator('[data-pxp-scope="queued"]').count(),1,'Queued remains built in'); assert.equal(await page.locator('.piano-pxp-advanced').isVisible(),false,'advanced filters start in hidden Nexus panel');
+   assert.equal(await page.evaluate(()=>!document.querySelector('[data-pfo-player-panel]')?.contains(document.querySelector('.piano-pxp-events'))),true,'Event view stays outside the tools drawer');
+   await page.locator('[data-pfo-action="player"]').click();
+   assert.deepEqual(await page.evaluate(()=>['.piano-pxp-controls','.piano-pxp-queue','.piano-pxm-listener'].map(q=>document.querySelector('[data-pfo-player-panel]')?.querySelectorAll(q).length)),[1,1,1],'Player drawer must own original setup, queue and song controls'); assert.equal(await page.locator('[data-pfo-player-panel] [data-pxp-layout]').count(),1,'backend selector is inside the header drawer');
+   try { await page.waitForSelector('[data-pxp-layout] option[value="88"]',{timeout:10000,state:'attached'}); } catch(e) { throw new Error('Playback layout options unavailable: '+JSON.stringify(await page.evaluate(()=>({playerHidden:document.querySelector('[data-pfo-player-panel]')?.hidden,layoutCount:document.querySelectorAll('[data-pxp-layout]').length,options:[...document.querySelectorAll('[data-pxp-layout] option')].map(n=>n.value),portState:window.EveAudioflixPianoFrontendPorts?.snapshot?.()?.controls?.layout,bridge:window.EveAudioflixPianoFrontend?.bridgeReady?.()})))+'; '+e.message); }
+   assert.equal(await page.locator('[data-pfo-player-panel]').isVisible(),true,'player tools open from header button');
    assert.equal(await page.locator('.piano-pxp-controls').getAttribute('open'),null,'Playback setup must start collapsed');
    assert.equal(await page.evaluate(()=>document.querySelector('.piano-pxp-controls')?.nextElementSibling?.classList.contains('piano-pxp-queue')),true,'Player Queue must sit directly below Playback setup');
    await page.locator('.piano-pxp-controls > summary').click();
@@ -88,6 +138,7 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
    assert.equal(await realChild.evaluate(()=>localStorage.getItem('eveos:piano:layout:v1')),'88');
    await page.locator('[data-pxp-sound]').selectOption('legacy_synth');
    await realChild.waitForFunction(()=>document.getElementById('pianoSound')?.value==='legacy_synth');
+   assert.equal(await realChild.evaluate(()=>localStorage.getItem('eveos:piano:sound:v1')),'legacy_synth','Internal Piano Sound must persist through the Backend owner');
    await page.locator('[data-pxp-internal]').check();
    await realChild.waitForFunction(()=>document.getElementById('internalPlay')?.checked===true);
    assert.equal(await realChild.evaluate(()=>localStorage.getItem('eveos:piano:internal-play:v1')),'true','Internal Play must persist through the Backend owner');
@@ -288,7 +339,9 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
    assert.deepEqual((await page.locator('.piano-frontend-song-info strong').allTextContents()).sort(),['Opaque One','Opaque Two']);
    await page.locator('[data-pxp-scope="all"]').click();
     // Advanced metadata filters are likewise hidden until the user expands them.
-   await page.locator('.piano-pxp-advanced > summary').click();
+   await page.locator('[data-pfo-action="nexus"]').click();
+   assert.equal(await page.locator('[data-pfo-player-panel]').isVisible(),false,'Nexus opens exclusively');
+   assert.deepEqual(await page.evaluate(()=>['genre','author','source','tags','rating','duration','events'].map(k=>document.querySelectorAll('[data-pxp-'+k+']').length)),[1,1,1,1,1,1,1],'filters must have one live input each'); assert.equal(await page.locator('.piano-pxp-pills').count(),1,'built-in tabs must not duplicate after late filter recovery'); assert.equal(await page.locator('[data-pfo-search-panel] .piano-pxp-advanced').count(),1,'advanced filters are owned by Nexus'); await page.locator('[data-pfo-search-panel] .piano-pxp-advanced > summary').click();
     await page.waitForFunction(()=>document.querySelector('.piano-pxp-advanced')?.open===true);
    await page.locator('[data-pxp-genre]').selectOption('Classical');
    await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===1);
@@ -322,6 +375,7 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
      { detail: { status:'playing', current_index:0, total_events:12, current_token:'a' } })));
    await page.waitForFunction(() => document.querySelector('[data-pxp-event-count]')?.textContent === '0 / 12 events');
    assert.equal(await page.locator('[data-pxp-event-rail]').getAttribute('aria-valuenow'),'0','new-song progress must not retain a stale nonzero index');
+   if (await page.locator('[data-pfo-player-panel]').isHidden()) await page.locator('[data-pfo-action="player"]').click();
    await page.locator('[data-af-action="piano-frontend-port-queue-clear"]').click();
    await realChild.waitForFunction(()=>window.PianoPlayerQueue?.getState?.().items?.length===0);
    await realChild.evaluate(()=>window.PianoPlayerQueue.addSong({id:'opaque-two',title:'Opaque Two',sheet:'d e f'},false));

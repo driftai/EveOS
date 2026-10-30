@@ -2,6 +2,7 @@ import { renderPiano } from "./piano.js";
 import { pianoSoundCatalog } from "./piano_sound.js";
 
 const LAYOUT_PREFERENCE_KEY = "eveos:piano:layout:v1";
+const SOUND_PREFERENCE_KEY = "eveos:piano:sound:v1";
 function savedPianoLayout() {
   try {
     const value = window.localStorage.getItem(LAYOUT_PREFERENCE_KEY);
@@ -11,6 +12,14 @@ function savedPianoLayout() {
 function savePianoLayout(value) {
   if (value !== "61" && value !== "88") return;
   try { window.localStorage.setItem(LAYOUT_PREFERENCE_KEY, value); } catch (_) {}
+}
+function savedPianoSound() {
+  try { return String(window.localStorage.getItem(SOUND_PREFERENCE_KEY) || "") || null; }
+  catch (_) { return null; }
+}
+function savePianoSound(value) {
+  if (!value) return;
+  try { window.localStorage.setItem(SOUND_PREFERENCE_KEY, value); } catch (_) {}
 }
 
 export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, visualMeta, piano, recorder, preview }) {
@@ -70,13 +79,16 @@ export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, vis
   soundSelect.addEventListener("change", () => {
     // Keep the playback timeline alive while the sound engine releases the
     // current voices and routes subsequent notes through the new instrument.
+    savePianoSound(soundSelect.value);
     applySound();
     recorder.unlock();
     prepareSound().catch(() => {});
   });
 
   const ids = new Set(pianoSoundCatalog().map(item => item.id));
-  if (!ids.has(soundSelect.value)) soundSelect.value = "acoustic_grand";
+  const preferredSound = savedPianoSound();
+  if (preferredSound && ids.has(preferredSound) && [...soundSelect.options].some(option => option.value === preferredSound)) soundSelect.value = preferredSound;
+  else if (!ids.has(soundSelect.value)) soundSelect.value = "acoustic_grand";
   applySound();
   render();
   warmSelectedSound();

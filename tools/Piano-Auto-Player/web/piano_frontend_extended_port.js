@@ -157,7 +157,8 @@ async function performMedia(data, api, deps) {
     if (!song) throw new Error('That Piano song is no longer available.');
     const previous = song.identifiers && typeof song.identifiers === 'object' ? song.identifiers : {};
     const previousCustom = previous.custom && typeof previous.custom === 'object' ? previous.custom : {};
-    const rating = data.rating === '' || data.rating == null ? null : Number(data.rating);
+    const rating = data.rating === undefined ? (previous.personal_rating ?? null)
+      : data.rating === '' || data.rating == null ? null : Number(data.rating);
     if (rating != null && (!Number.isFinite(rating) || rating < 0 || rating > 5)) throw new Error('Rating must be from 0 to 5.');
     const identifiers = {
       ...previous,
@@ -165,7 +166,13 @@ async function performMedia(data, api, deps) {
       genre: cleanList(data.genre ?? previous.genre),
       tags: cleanList(data.tags ?? previous.tags),
       personal_rating: rating,
-      custom: { ...previousCustom, favorite: data.favorite === true ? 'true' : data.favorite === false ? 'false' : String(previousCustom.favorite || 'false') }
+      custom: {
+        ...previousCustom,
+        favorite: data.favorite === true ? 'true' : data.favorite === false ? 'false' : String(previousCustom.favorite || 'false'),
+        piano_tab: cleanText(data.tab ?? previousCustom.piano_tab, 80),
+        piano_folder: cleanText(data.folder ?? previousCustom.piano_folder, 80),
+        piano_group: cleanText(data.group ?? previousCustom.piano_group, 80)
+      }
     };
     await api.saveSong({ ...song, title: cleanText(data.title ?? song.title) || 'Untitled', artist: identifiers.author, identifiers });
     window.dispatchEvent(new CustomEvent('piano:unified-refresh-requested'));
@@ -241,7 +248,12 @@ export function summarizeFrontendSong(song) {
     kind: song.performance?.length ? 'recording' : 'song', source: String(song.source || ''),
     updated_at: Number(song.updated_at || 0), duration_ms: Number(auto.duration_ms || song.duration_ms || 0),
     identifiers: { author: String(identifiers.author || ''), genre: identifiers.genre || [], tags: identifiers.tags || [],
-      personal_rating: identifiers.personal_rating ?? null, custom: { favorite: String(identifiers.custom?.favorite || '') } },
+      personal_rating: identifiers.personal_rating ?? null, custom: {
+        favorite: String(identifiers.custom?.favorite || ''),
+        piano_tab: String(identifiers.custom?.piano_tab || ''),
+        piano_folder: String(identifiers.custom?.piano_folder || ''),
+        piano_group: String(identifiers.custom?.piano_group || '')
+      } },
     automatic_identifiers: { kind: String(auto.kind || ''), source_host: String(auto.source_host || ''),
       event_count: Number(auto.event_count || 0), duration_ms: Number(auto.duration_ms || 0),
       conversion_rating: auto.conversion_rating ?? null, tags: auto.tags || [] }
