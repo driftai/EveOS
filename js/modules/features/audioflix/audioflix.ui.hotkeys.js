@@ -107,7 +107,7 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
         }
 
         async function performSync(force) {
-            if (!ctx.hotkeyCatalogReady()) return lastStatus || { ok: false, pending: true };
+            if (ctx.activeTab === 'soundboard' && !ctx.hotkeyCatalogReady()) return lastStatus || { ok: false, pending: true };
             const snapshot = ctx.state(), items = armedItems(), bypassCombo = String(snapshot.hotkeyBypassCombo || '').trim();
             const fingerprint = JSON.stringify({ soundboardArmed: ctx.activeTab === 'soundboard', device: snapshot.nativeOutputId || 'default', bypassCombo,
                 items: items.map(item => [item.id, item.url, item.hotkey, Number(item.volume ?? 1)]) });

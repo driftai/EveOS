@@ -33,7 +33,7 @@ vm.runInNewContext(source, context, { filename: 'audioflix.ui.hotkeys.js' });
 
 let live = false;
 let catalogReady = true;
-const controller = window.EveAudioflixUiHotkeys.create({
+const ctx = {
     state: () => state,
     hotkeySoundItems: () => items,
     hotkeyCatalogReady: () => catalogReady,
@@ -42,9 +42,10 @@ const controller = window.EveAudioflixUiHotkeys.create({
     overlay: { hidden: false, querySelector: selector => selector === '.audioflix-bypass-state' ? statusElement
         : selector === '[data-af-action="toggle-hotkey-bypass"]' ? bypassButton : null, querySelectorAll: () => [] },
     activeInfoItem: null,
-    activeTab: 'music',
+    activeTab: 'soundboard',
     settingsOpen: false
-});
+};
+const controller = window.EveAudioflixUiHotkeys.create(ctx);
 
 (async () => {
     await controller.syncHotkeys();
@@ -61,6 +62,22 @@ const controller = window.EveAudioflixUiHotkeys.create({
     assert.strictEqual(calls.set.length, 1, 'an incomplete port catalog must preserve native registrations');
     assert.strictEqual(calls.clear, 0, 'an incomplete port catalog must never clear native registrations');
     catalogReady = true;
+
+    // While the last selected tab is not Soundboard, unarm even when the
+    // scanned sound catalog is temporarily unavailable; bypass stays live.
+    ctx.activeTab = 'music';
+    catalogReady = false;
+    await controller.syncHotkeys();
+    assert.deepStrictEqual(Array.from(calls.set.at(-1).bindings, binding => binding.combo), [],
+        'leaving Soundboard must unregister its sounds even before catalog hydration');
+    assert.strictEqual(calls.set.at(-1).bypassCombo, state.hotkeyBypassCombo,
+        'the bypass remains registered across tabs');
+    assert.strictEqual(calls.clear, 0, 'tab standby must never clear the bypass');
+    catalogReady = true;
+    ctx.activeTab = 'soundboard';
+    await controller.syncHotkeys();
+    assert.deepStrictEqual(Array.from(calls.set.at(-1).bindings, binding => binding.combo),
+        ['u', 'ctrl+y'], 'returning to Soundboard re-arms the visible group');
 
     controller.handleHotkey({ key: 'u', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
         target: { tagName: 'DIV' }, preventDefault() {} });
