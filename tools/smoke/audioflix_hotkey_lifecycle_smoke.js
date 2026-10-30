@@ -73,6 +73,9 @@ const controller = window.EveAudioflixUiHotkeys.create(ctx);
     assert.strictEqual(calls.set.at(-1).bypassCombo, state.hotkeyBypassCombo,
         'the bypass remains registered across tabs');
     assert.strictEqual(calls.clear, 0, 'tab standby must never clear the bypass');
+    controller.handleHotkey({ key: 'y', ctrlKey: true, altKey: false, shiftKey: false, metaKey: false,
+        target: { tagName: 'DIV' }, preventDefault() {} });
+    assert.deepStrictEqual(calls.play, [], 'standby must suppress the focused sound fallback');
     catalogReady = true;
     ctx.activeTab = 'soundboard';
     await controller.syncHotkeys();
@@ -104,6 +107,14 @@ const controller = window.EveAudioflixUiHotkeys.create(ctx);
     assert(statusElement.textContent.includes('PAGE ONLY'), 'manual button must re-arm the page-local fallback');
 
     state.hotkeyBypassCombo = 'j';
+    ctx.activeTab = 'music';
+    controller.handleHotkey({ key: 'j', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
+        target: { tagName: 'DIV' }, preventDefault() {} });
+    assert(statusElement.textContent.includes('PAGE BYPASSED'),
+        'focused-page bypass must work in Music');
+    controller.handleHotkey({ key: 'j', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
+        target: { tagName: 'DIV' }, preventDefault() {} });
+    ctx.activeTab = 'soundboard';
     controller.handleHotkey({ key: 'j', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
         target: { tagName: 'DIV' }, preventDefault() {} });
     assert(statusElement.textContent.includes('PAGE BYPASSED'), 'page-local bypass state must be visible');
