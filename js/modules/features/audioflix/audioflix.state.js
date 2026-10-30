@@ -70,7 +70,6 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const legacyMusicFocus = text(source.activeFrontendMusicGroup, '');
         const legacyArtist = legacyMusicFocus.startsWith('smart:artist:') ? legacyMusicFocus : '';
         const legacyClassifier = legacyMusicFocus.startsWith('class:') ? legacyMusicFocus : '';
-        // Persisted assignments are independent from transient sound catalogs or native arming.
         const soundboard = boundedItems(source.soundboard, 'sound', MAX_SOUNDBOARD), music = boundedItems(source.music, 'music');
         const portHotkeys = source.portHotkeys && typeof source.portHotkeys === 'object' && !Array.isArray(source.portHotkeys) ? { ...source.portHotkeys } : {};
         for (const item of [...soundboard, ...music]) {
@@ -187,8 +186,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
                 ? Object.fromEntries(Object.entries(source.localizeScopeDirs).map(([k, v]) => [text(k), text(v)]).filter(([k, v]) => k && v))
                 : {},
             scopeBindings: boundedBindings(source.scopeBindings, MAX_SCOPE_BINDINGS),
-            hotkeyBypassCombo: text(source.hotkeyBypassCombo, ''),
-            lastAudioflixTab: ['soundboard', 'music', 'piano', 'soundlab', 'router'].includes(source.lastAudioflixTab) ? source.lastAudioflixTab : 'soundboard',
+            hotkeyBypassCombo: text(source.hotkeyBypassCombo, ''), lastAudioflixTab: ['soundboard', 'music', 'piano', 'soundlab', 'router'].includes(source.lastAudioflixTab) ? source.lastAudioflixTab : 'soundboard',
             counters: {
                 plays: Number(source.counters?.plays || 0) || 0,
                 routedGeminiEvents: Number(source.counters?.routedGeminiEvents || 0) || 0
@@ -257,8 +255,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const state = ensure();
         Object.assign(state, patch || {});
         if (['music', 'soundboard', 'musicGroupMap', 'soundGroupMap'].some(key => Object.prototype.hasOwnProperty.call(patch || {}, key))) window.EveAudioflixLibraryIndex.invalidate(state);
-        const next = syncRootOrFallback(state);
-        if (Object.prototype.hasOwnProperty.call(patch || {}, 'lastAudioflixTab')) window.EveAudioflixStateRecovery?.writeStructure?.(STORAGE_KEY, next);
+        const next = syncRootOrFallback(state); if (Object.prototype.hasOwnProperty.call(patch || {}, 'lastAudioflixTab')) window.EveAudioflixStateRecovery?.writeStructure?.(STORAGE_KEY, next);
         scheduleSave(reason);
         return next;
     }
@@ -274,11 +271,9 @@ window.EveAudioflixState = window.EveAudioflixState || {};
     }
 
     function replaceDatapackState(rawState, reason) {
-        if (rawState && typeof rawState === 'object') {
-            const old = ensure(), preserved = { ...(old.portHotkeys || {}) };
+        if (rawState && typeof rawState === 'object') { const old = ensure(), preserved = { ...(old.portHotkeys || {}) };
             for (const [id, combo] of Object.entries(rawState.portHotkeys || {})) if (text(combo, '') || combo === null) preserved[id] = combo;
-            return replaceState({ ...rawState, portHotkeys: preserved, lastAudioflixTab: rawState.lastAudioflixTab || old.lastAudioflixTab }, reason, { authoritative: true });
-        }
+            return replaceState({ ...rawState, portHotkeys: preserved, lastAudioflixTab: rawState.lastAudioflixTab || old.lastAudioflixTab }, reason, { authoritative: true }); }
         const current = ensure();
         return replaceState(Object.assign({}, current, {
             soundboard: [],
@@ -399,10 +394,8 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         if (!combo && options.explicitClear !== true) return state;
         const entry = window.EveAudioflixLibraryIndex.get(state, type).getById(itemId);
         if (entry) entry.hotkey = combo;
-        state.portHotkeys = state.portHotkeys || {};
-        state.portHotkeys[itemId] = combo || null; // Null means explicit clear, not a transient blank.
-        window.EveAudioflixStateRecovery?.writeStructure?.(STORAGE_KEY, state);
-        scheduleSave('audioflix-hotkey');
+        state.portHotkeys = state.portHotkeys || {}; state.portHotkeys[itemId] = combo || null;
+        window.EveAudioflixStateRecovery?.writeStructure?.(STORAGE_KEY, state); scheduleSave('audioflix-hotkey');
         return ensure();
     }
 
