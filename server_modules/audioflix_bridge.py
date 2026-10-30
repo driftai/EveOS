@@ -158,6 +158,11 @@ def hotkeys_clear(payload: dict) -> dict:
     return audioflix_hotkeys.clear_all()
 
 
+def hotkeys_bypass(payload: dict) -> dict:
+    from server_modules import audioflix_hotkeys
+    return audioflix_hotkeys.set_bypassed(payload)
+
+
 def localize_track(payload: dict) -> dict:
     from server_modules import audioflix_localize
     return audioflix_localize.localize_one(payload)
@@ -298,6 +303,7 @@ def handle_post_request(handler, path: str) -> bool:
         "/api/audioflix/warm": warm,
         "/api/audioflix/hotkeys/set": hotkeys_set,
         "/api/audioflix/hotkeys/clear": hotkeys_clear,
+        "/api/audioflix/hotkeys/bypass": hotkeys_bypass,
         "/api/audioflix/localize": localize_track,
         "/api/audioflix/localize-spotify-fallback": localize_spotify_fallback,
         "/api/audioflix/localize-scan": localize_scan,

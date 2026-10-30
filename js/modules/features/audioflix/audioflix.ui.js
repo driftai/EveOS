@@ -3,14 +3,14 @@ window.EveAudioflix = window.EveAudioflix || {};
     'use strict';
     const ns = window.EveAudioflix;
     if (ns.ready) return;
-    let overlay = null, activeTab = 'soundboard', lastTab = 'soundboard', playbackStatus = 'Idle', routingOpen = false, fullscreenOn = false, settingsOpen = false, addFormOpen = { sound: false, music: false }, portsOpen = false, groupsOpen = { sound: false, music: false }, foldersOpen = { music: false }, portedSounds = [], fsPortFolders = [], deadServerPorts = new Set(), collapsedGroups = {}, activeRepeaters = {}, activeInfoItem = null, activeInfoType = null, deleteConfirmId = '';
+    let overlay = null, activeTab = 'soundboard', lastTab = 'soundboard', playbackStatus = 'Idle', routingOpen = false, fullscreenOn = false, settingsOpen = false, addFormOpen = { sound: false, music: false }, portsOpen = false, groupsOpen = { sound: false, music: false }, foldersOpen = { music: false }, portedSounds = [], portedCatalogReady = false, fsPortFolders = [], deadServerPorts = new Set(), collapsedGroups = {}, activeRepeaters = {}, activeInfoItem = null, activeInfoType = null, deleteConfirmId = '';
     let activeMusicQueue = { groupName: '', items: [], currentIndex: -1, isPlaying: false, shuffle: false, loop: false }, repeatCurrent = false;
     let queueTransition = Promise.resolve(), queueRunId = 0;
     const shared = window.EveAudioflixUiShared;
     let lastRenderedRevision = -1;
     if (!shared?.ready) throw new Error('Audioflix UI shared module loaded out of order.');
-    const { shuffleQueue, hotkeyComboIssue, playSvg, closeSvg, stopSvg, layerPlaySvg, viewSvg, cogSvg } = shared;
-    let nativeHotkeysLive = false;
+    const { shuffleQueue, hotkeyComboIssue, hotkeyComboFromEvent, playSvg, closeSvg, stopSvg, layerPlaySvg, viewSvg, cogSvg } = shared;
+    let nativeHotkeysLive = false, hotkeyController = null;
     const state = () => window.EveAudioflixState?.ensure?.() || {};
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const setButtonExpanded = (exp) => document.querySelectorAll('.topbar-audioflix-btn').forEach(b => b.setAttribute('aria-expanded', exp ? 'true' : 'false'));
@@ -83,28 +83,13 @@ window.EveAudioflix = window.EveAudioflix || {};
         deadServerPorts = new Set();
         try {
             const res = await window.EveAudioflixFsPorts?.loadPortedSounds?.(snapshot, base, deadServerPorts);
-            if (res) { portedSounds = res.fetched; fsPortFolders = res.fsPortFolders; }
+            if (res) { portedSounds = res.fetched; fsPortFolders = res.fsPortFolders; portedCatalogReady = true; }
         } catch (err) { console.error('Failed to load ported sounds:', err); }
-        pushHotkeysToBridge(); rerender();
+        if (portedCatalogReady) pushHotkeysToBridge();
+        rerender();
     }
 
-    async function pushHotkeysToBridge() {
-        const u = state(), { items } = frontendActiveGroup('sound'), hotkeyItems = items.filter(it => it.hotkey);
-        const isActive = overlay && !overlay.hidden && activeTab === 'soundboard' && (u.soundboardViewMode || 'backend') === 'frontend';
-        if (!isActive || !hotkeyItems.length) { nativeHotkeysLive = false; return window.EveAudioflixNative?.clearHotkeys?.().catch(() => {}); }
-        let sampleRate = 48000; const bindings = [];
-        for (const item of hotkeyItems) {
-            try {
-                const buffer = await window.EveAudioflixAudio?.getDecodedBuffer?.(item.url);
-                if (buffer) {
-                    if (!bindings.length) sampleRate = buffer.sampleRate;
-                    bindings.push({ combo: item.hotkey, audio: window.EveAudioflixAudio.encodeBufferToBase64(buffer), volume: item.volume ?? 1, voiceId: 'hk:' + item.id });
-                }
-            } catch (e) { console.error(`Failed to decode hotkey sound ${item.title}:`, e); }
-        }
-        if (bindings.length) window.EveAudioflixNative?.setHotkeys?.({ deviceId: u.nativeOutputId || 'default', sampleRate, bindings, bypassCombo: u.hotkeyBypassCombo || '' }).then(p => { nativeHotkeysLive = p?.ok === true; }).catch(e => { nativeHotkeysLive = false; console.error('Failed to set hotkeys:', e); });
-        else { nativeHotkeysLive = false; window.EveAudioflixNative?.clearHotkeys?.().catch(() => {}); }
-    }
+    const pushHotkeysToBridge = (options) => hotkeyController?.syncHotkeys?.(options) || Promise.resolve({ ok: false, pending: true });
 
     // Overlay construction + delegated event wiring live in a sibling module (late-bound ctx).
     const uiOverlay = window.EveAudioflixUiOverlay.create({
@@ -114,6 +99,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         renderPanel: () => renderPanel(), shuffleQueue: (ids) => shuffleQueue(ids),
         findItem: (t, id) => findItem(t, id), uiNexus, uiClass,
         pushHotkeysToBridge: () => pushHotkeysToBridge(), hotkeyComboIssue: (c) => hotkeyComboIssue(c),
+        hotkeyComboFromEvent: (e) => hotkeyComboFromEvent(e),
         // Live accessors over this view's mutable state (the overlay module holds none of its own).
         view: {
             get overlay() { return overlay; }, set overlay(v) { overlay = v; },
@@ -265,6 +251,7 @@ window.EveAudioflix = window.EveAudioflix || {};
     });
     const uiPanel = window.EveAudioflixUiPanel.create({
         state, esc, closeSvg, hotkeyComboIssue, renderItems, renderAddSection,
+        frontendActiveGroup: (type) => frontendActiveGroup(type),
         view: () => ({ activeTab, fullscreenOn, settingsOpen, routingOpen, portedSounds, playbackStatus }),
         tools: () => ({ piano: window.EveAudioflixPianoUi, soundLab: window.EveAudioflixSoundLabUi, routing: window.EveAudioflixRouting, narration: window.EveWorldBookNarrationCompanion }),
         playback: () => ({ queue: uiRender, status: updateStatusDOM, nexus: nexusState, nexusUi: uiNexus }),
@@ -324,6 +311,7 @@ window.EveAudioflix = window.EveAudioflix || {};
     const uiCtx = {
         rerenderTransient: () => rerender(true), rerenderPlayback, rerenderLibrary,
         state, rerender, rerenderModal, pushHotkeysToBridge, loadPortedSounds, findItem, startRepeater, stopRepeater, frontendActiveGroup, frontendGroupEntries, playQueueIndex, toggleGroup: uiRender.toggleGroup,
+        setHotkeyBypassed: (desired) => hotkeyController?.setBypassed?.(desired),
         invalidateQueueRun, waitForQueueTransition: () => queueTransition.catch(() => {}),
         get overlay() { return overlay; },
         get portedSounds() { return portedSounds; },
@@ -360,13 +348,16 @@ window.EveAudioflix = window.EveAudioflix || {};
         get nexusState() { return nexusState; }, set nexusState(v) { nexusState = v; },
         get activeMusicQueue() { return activeMusicQueue; }, set activeMusicQueue(v) { const prev = activeMusicQueue; activeMusicQueue = v; window.EveAudioflixQueueMembership?.noteWrite?.(prev, v); },
         shuffleQueue: (ids) => shuffleQueue(ids),
+        hotkeySoundItems: () => frontendActiveGroup('sound').items,
+        hotkeyCatalogReady: () => portedCatalogReady,
         get nativeHotkeysLive() { return nativeHotkeysLive; }, set nativeHotkeysLive(v) { nativeHotkeysLive = v; }
     };
     const { handleAction, handleForm } = window.EveAudioflixUiActions.create(uiCtx);
-    const { startHotkeyFeedbackPoll, stopHotkeyFeedbackPoll, handleHotkey } = window.EveAudioflixUiHotkeys.create(uiCtx);
+    hotkeyController = window.EveAudioflixUiHotkeys.create(uiCtx);
+    const { startHotkeyFeedbackPoll, stopHotkeyFeedbackPoll, handleHotkey } = hotkeyController;
     const refreshMountedTool = () => { if (!overlay || overlay.hidden || !['piano', 'soundlab'].includes(activeTab)) return false; updateStatusDOM(); window.EveAudioflixTransport?.sync?.(overlay); window.EveAudioflixSoundLabUi?.setVisible?.(activeTab === 'soundlab'); window.EveAudioflixPianoUi?.setVisible?.(activeTab === 'piano'); return true; };
-    const open = () => { ensureOverlay(); overlay.hidden = false; overlay.classList.toggle('is-fullscreen', fullscreenOn); setButtonExpanded(true); loadPortedSounds().then(() => window.EveAudioflixLocalize?.auditScopeDiskStatus?.('library', '')).then(() => { if (!refreshMountedTool()) rerender(); }).catch(() => {}); startHotkeyFeedbackPoll(); };
-    const close = () => { if (overlay) { overlay.hidden = true; overlay.classList.remove('audioflix-info-over-internal', 'audioflix-nexus-over-internal'); } window.EveAudioflixSoundLabUi?.setVisible?.(false); window.EveAudioflixPianoUi?.setVisible?.(false); window.EveAudioflixAudio?.attachWaveform?.(null); window.EveAudioflixLinks?.clearPendingScope?.(); setButtonExpanded(false); stopHotkeyFeedbackPoll(); pushHotkeysToBridge(); };
+    const open = () => { ensureOverlay(); overlay.hidden = false; overlay.classList.toggle('is-fullscreen', fullscreenOn); setButtonExpanded(true); rerender(); loadPortedSounds().then(() => window.EveAudioflixLocalize?.auditScopeDiskStatus?.('library', '')).then(() => { if (!refreshMountedTool()) rerender(); }).catch(() => {}); startHotkeyFeedbackPoll(); };
+    const close = () => { if (overlay) { overlay.hidden = true; overlay.classList.remove('audioflix-info-over-internal', 'audioflix-nexus-over-internal'); } window.EveAudioflixSoundLabUi?.setVisible?.(false); window.EveAudioflixPianoUi?.setVisible?.(false); window.EveAudioflixAudio?.attachWaveform?.(null); window.EveAudioflixLinks?.clearPendingScope?.(); setButtonExpanded(false); };
     const openNexus = (type = 'music', forceOpen = false) => {
         const nextType = type === 'sound' ? 'sound' : 'music';
         if (!forceOpen && nexusState.open && nexusState.type === nextType) {
@@ -429,9 +420,10 @@ window.EveAudioflix = window.EveAudioflix || {};
 
     document.addEventListener('DOMContentLoaded', () => {
         probeMissingDurations();
+        startHotkeyFeedbackPoll();
         if (window.__eveAudioflixOpenPending) { window.__eveAudioflixOpenPending = false; open(); }
+        else loadPortedSounds();
     });
-    window.addEventListener('beforeunload', () => { window.EveAudioflixNative?.clearHotkeys?.().catch(() => {}); });
     ns.queueConnection = { snapshot: () => ({ groupName: activeMusicQueue.groupName, currentIndex: activeMusicQueue.currentIndex, playbackRunId: queueRunId, isPlaying: activeMusicQueue.isPlaying === true, shuffle: activeMusicQueue.shuffle, loop: activeMusicQueue.loop, repeatOne: repeatCurrent, entries: queueRuntime.entries(), actions: [{ id: 'restart', label: 'Restart' }, { id: 'repeat-one', label: repeatCurrent ? 'Loop track on' : 'Loop track', pressed: repeatCurrent }, { id: 'details', label: 'Track details' }] }),
         step: delta => playQueueIndex(activeMusicQueue.currentIndex + delta), jump: index => playQueueIndex(index), syncGroupMembership: (id, group, on) => window.EveAudioflixQueueMembership?.sync?.(uiCtx, id, group, on) || false, move: (from, to) => { const q = activeMusicQueue, source = Number(from), target = Math.max(0, Math.min((q.items?.length || 1) - 1, Number(to))); if (!q.items?.length || !Number.isInteger(source) || !Number.isInteger(target) || source < 0 || source >= q.items.length || source === target) return false; const currentId = q.items[q.currentIndex], items = [...q.items], moved = items.splice(source, 1)[0]; items.splice(target, 0, moved); activeMusicQueue = { ...q, items, currentIndex: Math.max(0, items.indexOf(currentId)) }; playbackStatus = `Queue updated — ${queueTrackAt(target)?.title || 'track'} is #${target + 1}.`; window.EveAudioflixAudio?.syncQueueView?.(); rerenderPlayback(); window.dispatchEvent(new CustomEvent('eve:audioflix-queue-changed')); return true; }, playNext: id => { const q = activeMusicQueue, currentId = q.items?.[q.currentIndex]; if (!q.isPlaying || !currentId || id === currentId) return false; const items = q.items.filter(entry => entry !== id), current = items.indexOf(currentId); if (current < 0) return false; items.splice(current + 1, 0, id); activeMusicQueue = { ...q, items, currentIndex: current }; playbackStatus = `${(state().music || []).find(track => track.id === id)?.title || 'Track'} queued next.`; window.EveAudioflixAudio?.syncQueueView?.(); rerenderPlayback(); window.dispatchEvent(new CustomEvent('eve:audioflix-queue-changed')); return true; }, action: action => ['shuffle-music-group', 'loop-music-group'].includes(action) ? handleAction({ dataset: { afAction: action } }, {}) : action === 'restart' ? restartQueueCurrent() : action === 'repeat-one' ? (window.EveAudioflixSpotifyQueueHandoff?.invalidate?.(), repeatCurrent = !repeatCurrent, window.EveAudioflixAudio?.syncQueueView?.(), repeatCurrent) : action === 'details' ? openQueueDetails() : false };
     ns.queueConnection.adoptManagedSpotify = ({runId, index, itemId, finished}) => { const q = activeMusicQueue; if (runId !== queueRunId || !q.isPlaying || !Number.isInteger(index) || String(q.items?.[index] ?? '') !== itemId) return null; q.currentIndex = index; q.isPlaying = !finished; const track = queueTrackAt(index); window.EveAudioflixAudio?.syncQueueView?.(); rerenderPlayback(); return track; };

@@ -196,8 +196,11 @@ async function main() {
     await page.click(`[data-af-action="item-info"][data-af-id="${soundId}"]`);
     await page.waitForSelector('.audioflix-group-cb[data-af-group="Quick Clips"]', { timeout: 5000 });
     await page.click('.audioflix-group-cb[data-af-group="Quick Clips"]');
-    await page.fill('.audioflix-hotkey-input', '1');
-    await page.dispatchEvent('.audioflix-hotkey-input', 'change');
+    await page.focus('.audioflix-hotkey-input');
+    await page.keyboard.press('Control+Shift+U');
+    await page.waitForFunction((id) => window.EveAudioflixState.getSnapshot().portHotkeys[id] === 'ctrl+shift+u', soundId);
+    await page.fill('.audioflix-hotkey-input', '');
+    await page.keyboard.press('1');
     await page.waitForFunction((id) => (window.EveAudioflixState.getSnapshot().soundGroupMap[id] || []).includes('Quick Clips'), soundId, { timeout: 5000 });
     await page.click('.audioflix-info-footer [data-af-action="close-info"]');
     // Frontend opens at All Groups until the user chooses a focus. Select the real group pill

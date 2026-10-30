@@ -374,6 +374,14 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         return fetchJson('/api/audioflix/hotkeys/status', { method: 'GET', timeout: DEFAULT_TIMEOUT_MS });
     }
 
+    async function setHotkeyBypassed(bypassed) {
+        return fetchJson('/api/audioflix/hotkeys/bypass', {
+            method: 'POST',
+            body: JSON.stringify({ bypassed: Boolean(bypassed) }),
+            timeout: DEFAULT_TIMEOUT_MS
+        });
+    }
+
     // Localization transport (probe / download / link / scan) lives in a sibling module.
     const { probeLocalFile, localizeTrack, linkLocalFile, scanLocalized, readWplFile } =
         window.EveAudioflixNativeLocalize.create({ fetchJson, DEVICE_SCAN_TIMEOUT_MS, isBridgeOffline });
@@ -411,6 +419,7 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         setHotkeys,
         clearHotkeys,
         hotkeyStatus,
+        setHotkeyBypassed,
         warm,
         getStatus: function () { return lastStatus; }
     });

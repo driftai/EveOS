@@ -54,6 +54,25 @@
     color: rgba(234, 242, 246, 0.7);
 }
 
+.audioflix-bypass-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.audioflix-bypass-toggle {
+    min-width: 150px;
+    border-color: rgba(255, 202, 95, 0.48);
+}
+
+.audioflix-bypass-toggle[aria-pressed="true"] {
+    color: #ffca5f;
+    border-color: #ffca5f;
+    background: rgba(255, 202, 95, 0.12);
+}
+
 .audioflix-bypass-state {
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -63,8 +82,16 @@
     color: #34d399;
 }
 
+.audioflix-bypass-state[data-state="local"] {
+    color: #67e8f9;
+}
+
 .audioflix-bypass-state[data-state="bypassed"] {
     color: #ffca5f;
+}
+
+.audioflix-bypass-state[data-state="conflict"] {
+    color: #ff8b8b;
 }
 
 .audioflix-routing-summary {

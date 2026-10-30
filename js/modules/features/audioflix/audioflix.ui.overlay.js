@@ -13,7 +13,7 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
     ns.create = function create(ctx) {
         const { state, rerender, close, handleAction, handleForm, handleHotkey,
             startHotkeyFeedbackPoll, renderPanel, shuffleQueue, uiNexus, uiClass, findItem,
-            pushHotkeysToBridge, hotkeyComboIssue } = ctx;
+            pushHotkeysToBridge, hotkeyComboIssue, hotkeyComboFromEvent } = ctx;
         // Shared mutable view state stays in audioflix.ui.js; reach it through the accessor bag.
         const V = ctx.view;
 
@@ -150,6 +150,16 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                 const id = String(activeId ?? '') === String(t.dataset.afId ?? '') ? activeId : t.dataset.afId;
                 return { id, type: t.dataset.afType || 'sound', ported: !!ported, volume: ported?.volume };
             }, (value, options) => window.EveAudioflixAudio?.updateItemVolume?.(options.itemId, value, options));
+            V.overlay.addEventListener('keydown', e => {
+                const target = e.target;
+                if (!target?.classList?.contains('audioflix-hotkey-input') && !target?.classList?.contains('audioflix-bypass-input')) return;
+                if (e.key === 'Tab') return;
+                if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+                    e.preventDefault(); target.value = ''; target.dispatchEvent(new Event('change', { bubbles: true })); return;
+                }
+                e.preventDefault(); target.value = hotkeyComboFromEvent(e);
+                if (!['Control', 'Alt', 'Shift', 'Meta', 'OS'].includes(e.key)) target.dispatchEvent(new Event('change', { bubbles: true }));
+            });
             V.overlay.addEventListener('change', async e => {
                 const t = e.target, id = t.dataset.afId, type = t.dataset.afType || 'sound';
                 if (window.EveAudioflixOutputPort?.handleChange?.(t)) return;

@@ -31,10 +31,24 @@ window.EveAudioflixUiShared = window.EveAudioflixUiShared || {};
             : null;
     }
 
+    function hotkeyComboFromEvent(event) {
+        const modifiers = [];
+        if (event.ctrlKey) modifiers.push('ctrl');
+        if (event.altKey) modifiers.push('alt');
+        if (event.shiftKey) modifiers.push('shift');
+        if (event.metaKey) modifiers.push('win');
+        const raw = String(event.key || '').toLowerCase();
+        const aliases = { ' ': 'space', escape: 'esc', arrowup: 'up', arrowdown: 'down', arrowleft: 'left', arrowright: 'right' };
+        const key = aliases[raw] || raw;
+        if (!['control', 'ctrl', 'alt', 'shift', 'meta', 'os'].includes(key)) modifiers.push(key);
+        return modifiers.filter(Boolean).join('+');
+    }
+
     Object.assign(ns, {
         ready: true,
         shuffleQueue,
         hotkeyComboIssue,
+        hotkeyComboFromEvent,
         playSvg: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
         closeSvg: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>',
         stopSvg: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>',
