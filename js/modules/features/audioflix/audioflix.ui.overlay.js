@@ -155,9 +155,9 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                 if (!target?.classList?.contains('audioflix-hotkey-input') && !target?.classList?.contains('audioflix-bypass-input')) return;
                 if (e.key === 'Tab') return;
                 if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
-                    e.preventDefault(); target.value = ''; target.dispatchEvent(new Event('change', { bubbles: true })); return;
+                    e.preventDefault(); target.dataset.afExplicitClear = 'true'; target.value = ''; target.dispatchEvent(new Event('change', { bubbles: true })); return;
                 }
-                e.preventDefault(); target.value = hotkeyComboFromEvent(e);
+                e.preventDefault(); delete target.dataset.afExplicitClear; target.value = hotkeyComboFromEvent(e);
                 if (!['Control', 'Alt', 'Shift', 'Meta', 'OS'].includes(e.key)) target.dispatchEvent(new Event('change', { bubbles: true }));
             });
             V.overlay.addEventListener('change', async e => {
@@ -219,9 +219,12 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                     pushHotkeysToBridge();
                 } else if (t.classList.contains('audioflix-hotkey-input')) {
                     const val = t.value.trim().toLowerCase(), issue = hotkeyComboIssue(val);
+                    const explicitClear = !val && t.dataset.afExplicitClear === 'true';
+                    delete t.dataset.afExplicitClear;
+                    if (!val && !explicitClear) return;
                     t.title = issue ? issue.msg : 'Global hotkey (e.g. ctrl+y)'; t.classList.toggle('audioflix-input-invalid', !!(issue && issue.invalid));
                     if (issue) V.playbackStatus = issue.msg;
-                    window.EveAudioflixState?.setItemHotkey?.(type, id, val, { explicitClear: val === '' });
+                    window.EveAudioflixState?.setItemHotkey?.(type, id, val, { explicitClear });
                     if (V.activeInfoItem?.id === id) V.activeInfoItem.hotkey = val;
                     const ps = V.portedSounds.find(s => s.id === id); if (ps) ps.hotkey = val;
                     pushHotkeysToBridge();
