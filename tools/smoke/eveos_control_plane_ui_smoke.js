@@ -196,6 +196,27 @@ vm.runInNewContext(localControlSource, context, { filename: 'eveos-local-control
 vm.runInNewContext(source, context, { filename: 'eveosControlPlane.js' });
 
 (async () => {
+    // Early file:// bootstrap may not have hydrated config or the port registry.
+    // Both World Book and Control Plane consume this shared local-control base URL.
+    const savedConfig = windowMock.config;
+    windowMock.config = { bridges: {} };
+    assert.equal(windowMock.EveOSLocalControl.port(), 9082, 'missing port config must use safe fallback');
+    windowMock.EveOSPortRegistry = { get: () => 0 };
+    assert.equal(windowMock.EveOSLocalControl.baseUrl(), 'http://127.0.0.1:9082',
+        'zero registry value must never generate localhost:0');
+    windowMock.config = { bridges: { localControlPort: -1, geminiControlPort: 9130 } };
+    assert.equal(windowMock.EveOSLocalControl.port(), 9130, 'valid secondary override must win');
+    windowMock.config = { bridges: { localControlPort: 9000, geminiControlPort: 9130 } };
+    assert.equal(windowMock.EveOSLocalControl.port(), 9000, 'valid primary override must win');
+    windowMock.config = { bridges: { localControlPort: 70000, geminiControlPort: 0 } };
+    assert.equal(windowMock.EveOSLocalControl.port(), 9082, 'out-of-range port must fall back');
+    windowMock.config = { bridges: {} };
+    await windowMock.EveOSLocalControl.health();
+    assert.equal(seenUrls.at(-1), 'http://127.0.0.1:9082/api/control-plane/health',
+        'health probe must never target blocked port 0');
+    windowMock.config = savedConfig;
+    delete windowMock.EveOSPortRegistry;
+
     await windowMock.EveOSControlPlane.refreshStatus();
     if (statusNode.textContent !== 'Localhost Off' || labelNode.textContent !== 'Start') {
         throw new Error(`file-mode stopped UI mismatch: ${statusNode.textContent}/${labelNode.textContent}`);

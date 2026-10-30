@@ -13,15 +13,19 @@
     // a window would also swallow the user's second click when the first attempt failed.
     let launchAlreadyRequested = false;
 
+    function validPort(value) {
+        const numeric = Number(value);
+        return Number.isInteger(numeric) && numeric > 0 && numeric <= 65535 ? numeric : 0;
+    }
+
     function registryPort(name, fallback = 0) {
-        return Number(window.EveOSPortRegistry?.get?.(name, fallback)) || Number(fallback) || 0;
+        return validPort(window.EveOSPortRegistry?.get?.(name, fallback)) || validPort(fallback);
     }
 
     function port() {
-        return Number(
-            window.config?.bridges?.localControlPort
-            || window.config?.bridges?.geminiControlPort
-        ) || registryPort('GEMINI_CONTROL_PORT');
+        return validPort(window.config?.bridges?.localControlPort)
+            || validPort(window.config?.bridges?.geminiControlPort)
+            || registryPort('GEMINI_CONTROL_PORT', 9082);
     }
 
     function baseUrl() {

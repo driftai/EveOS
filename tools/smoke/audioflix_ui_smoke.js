@@ -29,7 +29,11 @@ function silentWavDataUrl() {
 async function main() {
     const { browser } = await launchChromiumOrConnect({ headless: true });
     const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
-    const pageErrors = [];
+    const pageErrors = [], invalidControlPortRequests = [];
+    page.on('requestfailed', request => {
+        if (/^https?:\/\/(?:127\.0\.0\.1|localhost):0\//i.test(request.url()))
+            invalidControlPortRequests.push(request.url());
+    });
     page.on('pageerror', (error) => {
         console.error('[BROWSER ERROR]', error);
         pageErrors.push(error?.stack || String(error));
@@ -404,6 +408,8 @@ async function main() {
     if (result.webAudioSink !== 'cable-output') failures.push(`Web Audio sink did not follow the selected output: ${result.webAudioSink}`);
     if (result.buttonExpanded !== 'true') failures.push('topbar aria-expanded not updated');
     if (pageErrors.length) failures.push(`page errors: ${pageErrors.join('\n')}`);
+    if (invalidControlPortRequests.length) failures.push(
+        `invalid localhost:0 requests: ${invalidControlPortRequests.join(', ')}`);
 
     await browser.close();
     if (failures.length) throw new Error(failures.join('; '));
