@@ -57,7 +57,7 @@ async function main() {
     const first = bootstrap(data), store = first.win.EveAudioflixState;
     assert.equal(store.ensure().soundboard.length, 100);
     assert.equal(Object.keys(store.ensure().portHotkeys).length, 100);
-    first.win.EveAudioflixStateRecovery.write(key, store.durableSnapshot());
+    first.win.EveAudioflixStateRecovery.write(key, store.getSnapshot());
     const reload = bootstrap({ ...data, soundboard: originals.map(item => ({ ...item, hotkey: '' })),
         portHotkeys: {}, durabilityRevision: 9, durabilityUpdatedAt: 2 });
     let restored = reload.win.EveAudioflixState.ensure();
@@ -76,6 +76,13 @@ async function main() {
         durabilityRevision: 1, durabilityUpdatedAt: 1 }).win.EveAudioflixState.ensure();
     assert.equal(afterClear.soundboard[0].hotkey, '', 'explicit per-item clear must stay cleared');
     assert.equal(afterClear.soundboard.filter(item => item.hotkey).length, 99);
+    const withoutConfig = bootstrap({});
+    delete withoutConfig.win.eveState;
+    assert.equal(withoutConfig.win.EveAudioflixState.ensure().portHotkeys.sound_0, null);
+    assert.equal(withoutConfig.win.EveAudioflixState.ensure().soundboard.filter(item => item.hotkey).length, 99);
+    const restoredTab = bootstrap({ ...data, lastAudioflixTab: 'soundboard',
+        durabilityRevision: 1, durabilityUpdatedAt: 1 }).win.EveAudioflixState.ensure();
+    assert.equal(restoredTab.lastAudioflixTab, 'music', 'journal preserves last tab on early reload');
     const ignored = store.setItemHotkey('sound', 'sound_1', '');
     assert.equal(ignored.soundboard[1].hotkey, combo(1), 'generic blank writes must not erase');
 
