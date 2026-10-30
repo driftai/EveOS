@@ -221,7 +221,7 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                     const val = t.value.trim().toLowerCase(), issue = hotkeyComboIssue(val);
                     t.title = issue ? issue.msg : 'Global hotkey (e.g. ctrl+y)'; t.classList.toggle('audioflix-input-invalid', !!(issue && issue.invalid));
                     if (issue) V.playbackStatus = issue.msg;
-                    window.EveAudioflixState?.setItemHotkey?.(type, id, val);
+                    window.EveAudioflixState?.setItemHotkey?.(type, id, val, { explicitClear: val === '' });
                     if (V.activeInfoItem?.id === id) V.activeInfoItem.hotkey = val;
                     const ps = V.portedSounds.find(s => s.id === id); if (ps) ps.hotkey = val;
                     pushHotkeysToBridge();

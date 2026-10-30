@@ -1,5 +1,5 @@
 // Soundboard hotkey lifecycle, feedback + focused-page fallback. Bindings follow the selected
-// Frontend group and remain armed when Audioflix closes or its Backend view is shown.
+// Frontend group only while Soundboard was the last selected Audioflix tab.
 // The poll's own timers live here; everything shared with the view (overlay ref, active tab,
 // settings-open flag, native-hotkeys-live flag) is reached through the `ctx` accessor facade.
 window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
@@ -42,6 +42,8 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
             });
         }
 
+        const armedItems = () => ctx.activeTab === 'soundboard' ? configuredItems() : [];
+
         function statusCounts(result) {
             const bindings = Array.isArray(result?.bindings) ? result.bindings : [];
             const registered = Array.isArray(result?.registered)
@@ -56,6 +58,7 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
             lastStatus = result;
             const counts = statusCounts(result), bypassReady = result?.bypassRegistered === true;
             const localOnly = result?.localOnly === true, localCount = configuredItems().length;
+            const standby = ctx.activeTab !== 'soundboard';
             const localBypassConfigured = Boolean(String(ctx.state().hotkeyBypassCombo || '').trim());
             if (!localOnly) {
                 const registered = Array.isArray(result?.registered) ? result.registered
@@ -75,6 +78,8 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
                 state = localBypassed ? 'bypassed' : 'local';
             }
             else if (result?.lastError) { text = `PLAYBACK ERROR — ${result.lastError.message || 'output unavailable'}`; state = 'conflict'; }
+            else if (standby && bypassReady) { text = `SOUNDBOARD STANDBY — ${localCount} saved in group; bypass system-wide`; state = 'active'; }
+            else if (standby) { text = `SOUNDBOARD STANDBY — ${localCount} saved in group; bypass page-only`; state = 'local'; }
             else if (result?.bypassed === true) { text = `SYSTEM-WIDE BYPASSED — ${counts.configured} suspended`; state = 'bypassed'; }
             else if (counts.conflicts) { text = `PARTIAL — ${counts.registered} armed, ${counts.conflicts} conflict${counts.conflicts === 1 ? '' : 's'}`; state = 'conflict'; }
             else if (counts.registered) { text = `SYSTEM-WIDE — ${counts.registered} armed`; state = 'active'; }
@@ -103,8 +108,8 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
 
         async function performSync(force) {
             if (!ctx.hotkeyCatalogReady()) return lastStatus || { ok: false, pending: true };
-            const snapshot = ctx.state(), items = configuredItems(), bypassCombo = String(snapshot.hotkeyBypassCombo || '').trim();
-            const fingerprint = JSON.stringify({ device: snapshot.nativeOutputId || 'default', bypassCombo,
+            const snapshot = ctx.state(), items = armedItems(), bypassCombo = String(snapshot.hotkeyBypassCombo || '').trim();
+            const fingerprint = JSON.stringify({ soundboardArmed: ctx.activeTab === 'soundboard', device: snapshot.nativeOutputId || 'default', bypassCombo,
                 items: items.map(item => [item.id, item.url, item.hotkey, Number(item.volume ?? 1)]) });
             if (!force && fingerprint === appliedFingerprint && ctx.nativeHotkeysLive) return lastStatus;
             if (!items.length && !bypassCombo) {
@@ -158,7 +163,7 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
                 }
                 window.EveAudioflixNative?.hotkeyStatus?.().then(r => {
                     paintStatus(r);
-                    if (r?.ok === false || (!r?.bypassed && configuredItems().length && statusCounts(r).registered === 0)) syncHotkeys({ force: true });
+                    if (r?.ok === false || (!r?.bypassed && armedItems().length && statusCounts(r).registered === 0)) syncHotkeys({ force: true });
                     if (!onSoundboardFrontend) return;
                     const lf = r?.lastFired;
                     if (lf?.at && lf.at !== lastFiredAt) {
@@ -183,7 +188,7 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
         }
 
         function handleHotkey(e) {
-            if (!ctx.overlay || ctx.overlay.hidden || ctx.activeInfoItem) return;
+            if (!ctx.overlay || ctx.overlay.hidden) return;
             // When the system-wide global hook is LIVE (bridge accepted our bindings), it already
             // plays these combos even while focused — running the in-app matcher too would
             // double-fire. But stand down only on confirmed liveness: gating on mere configuration
@@ -196,8 +201,8 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
                 e.preventDefault(); localBypassed = !localBypassed;
                 paintStatus({ ok: false, localOnly: true, configured: configuredItems().length }); return;
             }
-            if (localBypassed || nativeBypassed) return;
-            const items = configuredItems(), matched = items.find(item => matchEventToHotkey(e, item.hotkey));
+            if (localBypassed || nativeBypassed || ctx.activeTab !== 'soundboard' || ctx.activeInfoItem) return;
+            const items = armedItems(), matched = items.find(item => matchEventToHotkey(e, item.hotkey));
             if (!matched) return; e.preventDefault();
             if (registeredCombos.has(canonicalCombo(matched.hotkey))) return;
             flashHotkey(matched.id);

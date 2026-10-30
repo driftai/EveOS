@@ -114,7 +114,13 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             musicClassifiers: uniq(source.musicClassifiers),
             localizeScopeDirs: clone(source.localizeScopeDirs || {}, {}),
             portVolumes: clone(source.portVolumes || {}, {}),
-            portHotkeys: clone(source.portHotkeys || {}, {}),
+            lastAudioflixTab: ['soundboard', 'music', 'piano', 'soundlab', 'router'].includes(source.lastAudioflixTab) ? source.lastAudioflixTab : 'soundboard',
+            portHotkeys: (() => {
+                const map = clone(source.portHotkeys || {}, {});
+                for (const item of [...(source.soundboard || []), ...(source.music || [])])
+                    if (text(item?.id) && text(item?.hotkey) && !Object.prototype.hasOwnProperty.call(map, item.id)) map[item.id] = text(item.hotkey);
+                return map;
+            })(),
             exposedPortedSounds: clone(source.exposedPortedSounds || {}, {}),
             scopeBindings: clone(source.scopeBindings || [], []),
             soundGroupMap: clone(source.soundGroupMap || {}, {}),
@@ -239,7 +245,25 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         state.musicClassifiers = uniq([...(state.musicClassifiers || []), ...(structure.musicClassifiers || [])]);
         state.localizeScopeDirs = { ...(structure.localizeScopeDirs || {}), ...(state.localizeScopeDirs || {}) };
         state.portVolumes = { ...(structure.portVolumes || {}), ...(state.portVolumes || {}) };
-        state.portHotkeys = { ...(structure.portHotkeys || {}), ...(state.portHotkeys || {}) };
+        // Journal assignments survive a partial core-config save, reload or incomplete catalog.
+        // A null journal entry is an explicit clear; missing/blank transient entries are not.
+        const restoredKeys = { ...(state.portHotkeys || {}) }, journalKeys = structure.portHotkeys || {};
+        const journalNewer = Number(structure.savedAt || 0) >= Number(state.durabilityUpdatedAt || 0);
+        for (const [id, value] of Object.entries(journalKeys)) {
+            const prior = restoredKeys[id];
+            if (value === null) {
+                if (journalNewer || !text(prior)) restoredKeys[id] = null;
+            } else if (text(value) && (journalNewer || !text(prior))) restoredKeys[id] = value;
+        }
+        state.portHotkeys = restoredKeys;
+        if (['soundboard', 'music', 'piano', 'soundlab', 'router'].includes(structure.lastAudioflixTab) && journalNewer) state.lastAudioflixTab = structure.lastAudioflixTab;
+        for (const item of [...(state.soundboard || []), ...(state.music || [])]) {
+            const key = text(item?.id);
+            if (!key) continue;
+            if (restoredKeys[key] === null) item.hotkey = '';
+            else if (text(restoredKeys[key])) item.hotkey = text(restoredKeys[key]);
+            else if (text(item.hotkey)) restoredKeys[key] = text(item.hotkey);
+        }
         state.exposedPortedSounds = { ...(structure.exposedPortedSounds || {}), ...(state.exposedPortedSounds || {}) };
         state.soundGroupMap = { ...(structure.soundGroupMap || {}), ...(state.soundGroupMap || {}) };
         state.musicGroupMap = state.musicGroupMap || {};
@@ -324,7 +348,8 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         // evidence of an incomplete/partial rollback, not an intentional empty library.
         const rootMusic = Array.isArray(root.music) ? root.music.length : 0;
         const mirrorMusic = Array.isArray(mirror.music) ? mirror.music.length : 0;
-        if (rootMusic === 0 && mirrorMusic > 0 && structuralScore(mirror) > structuralScore(root)) return mirror;
+        if ((rootMusic === 0 && mirrorMusic > 0 || (root.soundboard || []).length === 0 && (mirror.soundboard || []).length > 0)
+            && structuralScore(mirror) > structuralScore(root)) return mirror;
         if (mirrorRev > rootRev) return mirror;
         if (rootRev > mirrorRev) return root;
         const rootTime = Math.max(0, Number(root.durabilityUpdatedAt || 0) || 0);
@@ -365,6 +390,11 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             }
         }
 
+        if (options.allowDestructive !== true) {
+            const oldKeys = existing.state?.portHotkeys || {}, nextKeys = state?.portHotkeys || {};
+            const lost = Object.entries(oldKeys).some(([id, combo]) => text(combo) && !text(nextKeys[id]) && nextKeys[id] !== null);
+            if (lost) return { written: false, kind: 'guard', reason: 'saved hotkeys cannot be erased by an incomplete write' };
+        }
         const existingRev = Math.max(0, Number(existing.state?.durabilityRevision || 0) || 0);
         const incomingRev = Math.max(0, Number(state?.durabilityRevision || 0) || 0);
         if (options.allowDestructive !== true && existingRev > 0 && incomingRev <= existingRev

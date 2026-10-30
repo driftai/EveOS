@@ -12,6 +12,7 @@ window.EveAudioflix = window.EveAudioflix || {};
     const { shuffleQueue, hotkeyComboIssue, hotkeyComboFromEvent, playSvg, closeSvg, stopSvg, layerPlaySvg, viewSvg, cogSvg } = shared;
     let nativeHotkeysLive = false, hotkeyController = null;
     const state = () => window.EveAudioflixState?.ensure?.() || {};
+    activeTab = state().lastAudioflixTab || 'soundboard';
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const setButtonExpanded = (exp) => document.querySelectorAll('.topbar-audioflix-btn').forEach(b => b.setAttribute('aria-expanded', exp ? 'true' : 'false'));
     const itemMeta = (item) => [...new Set([item.artist, item.card, item.folder, item.category].filter(Boolean))].join(' / ') || 'No extra metadata yet';
@@ -366,6 +367,8 @@ window.EveAudioflix = window.EveAudioflix || {};
             rerender(true); return false;
         }
         activeTab = nextType === 'sound' ? 'soundboard' : 'music';
+        window.EveAudioflixState?.update?.({ lastAudioflixTab: activeTab }, 'audioflix-active-tab');
+        pushHotkeysToBridge();
         nexusState = { open: true, type: nextType, query: '', facet: '', selectedIds: [] };
         if (!overlay || overlay.hidden) open(); // no re-run of port reload/disk audit (2 late full rerenders)
         overlay?.classList.add('audioflix-nexus-over-internal');

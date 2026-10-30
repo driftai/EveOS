@@ -101,6 +101,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
             if (action === 'submit-form') { const f = actionTarget.closest('form'); if (f?.reportValidity()) handleForm(f); return; }
             if (action === 'tab') {
                 ctx.activeTab = actionTarget.dataset.afTab || 'soundboard';
+                window.EveAudioflixState?.update?.({ lastAudioflixTab: ctx.activeTab }, 'audioflix-active-tab');
                 window.EveAudioflixSoundLabUi?.setVisible?.(ctx.activeTab === 'soundlab'); window.EveAudioflixPianoUi?.setVisible?.(ctx.activeTab === 'piano');
                 ctx.pushHotkeysToBridge();
                 ctx.rerender();
