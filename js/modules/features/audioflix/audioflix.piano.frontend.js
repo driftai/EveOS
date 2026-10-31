@@ -25,6 +25,7 @@
             identifiers: { author: id.author, genre: id.genre, tags: id.tags, personal_rating: id.personal_rating,
                 custom: { piano_tab: custom.piano_tab, piano_folder: custom.piano_folder,
                     piano_group: custom.piano_group, favorite: custom.favorite,
+                    piano_duplicate_keep_v1: custom.piano_duplicate_keep_v1,
                     piano_playback_v1: custom.piano_playback_v1 && {
                         route: custom.piano_playback_v1.route, layout: custom.piano_playback_v1.layout,
                         instrumentId: custom.piano_playback_v1.instrumentId,
@@ -335,6 +336,7 @@
         bridgeReady: () => bridgeReady, serviceOrigin: origin,
         pendingCount: () => pending.size,
         getSongs: () => songs.map(song => ({ ...song, identifiers: { ...(song.identifiers || {}) }, automatic_identifiers: { ...(song.automatic_identifiers || {}) } })),
+        getVisibleSongs: () => sortedSongs().map(song => ({ ...song })),
         requestLibrary: () => { lastLibrary = 0; refresh(true); }
     });
 })(window.EveAudioflixPianoFrontend = window.EveAudioflixPianoFrontend || {});

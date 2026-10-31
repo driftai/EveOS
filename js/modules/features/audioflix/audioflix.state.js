@@ -71,7 +71,8 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const legacyArtist = legacyMusicFocus.startsWith('smart:artist:') ? legacyMusicFocus : '';
         const legacyClassifier = legacyMusicFocus.startsWith('class:') ? legacyMusicFocus : '';
         const soundboard = boundedItems(source.soundboard, 'sound', MAX_SOUNDBOARD), music = boundedItems(source.music, 'music');
-        const portHotkeys = source.portHotkeys && typeof source.portHotkeys === 'object' && !Array.isArray(source.portHotkeys) ? { ...source.portHotkeys } : {};
+        const incomingHotkeys = source.portHotkeys && typeof source.portHotkeys === 'object' && !Array.isArray(source.portHotkeys) ? { ...source.portHotkeys } : {};
+        const portHotkeys = window.EveAudioflixHotkeyJournal?.merge?.(incomingHotkeys) || incomingHotkeys;
         for (const item of [...soundboard, ...music]) {
             if (portHotkeys[item.id] === null) item.hotkey = ''; // Explicit per-item clear tombstone.
             else if (text(portHotkeys[item.id], '')) item.hotkey = text(portHotkeys[item.id], '');
@@ -395,6 +396,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const entry = window.EveAudioflixLibraryIndex.get(state, type).getById(itemId);
         if (entry) entry.hotkey = combo;
         state.portHotkeys = state.portHotkeys || {}; state.portHotkeys[itemId] = combo || null;
+        window.EveAudioflixHotkeyJournal?.record?.(itemId, combo || null);
         window.EveAudioflixStateRecovery?.writeStructure?.(STORAGE_KEY, state); scheduleSave('audioflix-hotkey');
         return ensure();
     }

@@ -4,6 +4,7 @@
   if (ns.ready || !front?.ready || !ports?.ready) return;
   let host = null, signature = '', routeFilter = 'all';
   const focus = { group: new Map(), folder: new Map(), classifier: new Map() };
+  const FOCUS_KEY = 'evePianoFrontendFocusV1';
   const canvas = () => host?.querySelector('[data-piano-frontend]');
   const $ = selector => canvas()?.querySelector(selector);
   const list = value => (Array.isArray(value) ? value : String(value || '').split(','))
@@ -22,6 +23,19 @@
     return [...list(ids.genre), ...list(ids.tags), ...list(automatic.tags)].slice(0, 16);
   };
   const unique = values => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  function saveFocus() {
+    try { localStorage.setItem(FOCUS_KEY, JSON.stringify({ routeFilter,
+      focus: Object.fromEntries(Object.entries(focus).map(([key, map]) => [key, [...map]])) })); } catch (_) {}
+  }
+  function restoreFocus() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(FOCUS_KEY) || 'null');
+      routeFilter = ['inherit','internal','target'].includes(saved?.routeFilter) ? saved.routeFilter : 'all';
+      for (const [kind, values] of Object.entries(saved?.focus || {})) if (focus[kind] && Array.isArray(values))
+        for (const [value, state] of values.slice(0, 80)) if (String(value).trim() && [1,-1].includes(state)) focus[kind].set(String(value), state);
+    } catch (_) {}
+  }
+  restoreFocus();
   function button(label, action, className = '') {
     const node = document.createElement('button');
     node.type = 'button'; node.textContent = label; node.dataset.pfoAction = action; node.className = className;
@@ -41,7 +55,7 @@
     const next = current === 0 ? 1 : current === 1 ? -1 : 0;
     if (next === 0) bucket.delete(value);
     else bucket.set(value, next);
-    updateActive(); front.repaint?.();
+    saveFocus(); updateActive(); front.repaint?.();
   }
   function updateActive() {
     for (const [selector, kind, key] of [
@@ -128,16 +142,25 @@
     if (primary) { primary.value = value; primary.dispatchEvent(new Event('input', { bubbles: true })); }
     if (linked && linked.value !== value) linked.value = value;
   }
-  function matchingSongs() { return (front.getSongs?.() || []).filter(matches); }
+  function matchingSongs() { return (front.getVisibleSongs?.() || front.getSongs?.() || []).filter(matches); }
   function updateQueuePreview() {
     const note = $('[data-pfo-queue-note]');
     if (note) note.textContent = `${matchingSongs().length} songs match the current group, folder, classifier, and route filters.`;
   }
+  function previewFilteredQueue() {
+    const songs = matchingSongs(), panel = $('[data-pfo-queue-preview]'), listNode = $('[data-pfo-queue-candidates]');
+    const note = $('[data-pfo-queue-note]');
+    if (!songs.length) { if (note) note.textContent = 'No songs match the current filters.'; return; }
+    listNode?.replaceChildren(...songs.slice(0, 60).map(song => { const item=document.createElement('li');item.textContent=song.title;return item; }));
+    if (panel) panel.hidden = false;
+    if (note) note.textContent = `${songs.length} songs are ready for review. Nothing has changed yet.`;
+  }
   function addFilteredQueue() {
     const songIds = matchingSongs().map(song => String(song.id));
     const note = $('[data-pfo-queue-note]');
-    if (!songIds.length) { if (note) note.textContent = 'No songs match the current filters.'; return; }
+    if (!songIds.length) return;
     const sent = ports.command?.('queue:add-many', { songIds });
+    const panel = $('[data-pfo-queue-preview]'); if (panel) panel.hidden = true;
     if (note) note.textContent = sent === false ? 'Piano Backend is not ready.' : `Adding ${songIds.length} songs through the shared Player Queue…`;
   }
   // Each action owns exactly one panel; the other drawers close when it opens.
@@ -227,7 +250,7 @@
     <div class="piano-pfo-drawer piano-pfo-player" data-pfo-player-panel id="pfo-player-tools" hidden></div>
     <div class="piano-pfo-search" data-pfo-search-panel id="pfo-nexus-search" hidden><input data-pfo-search type="search" placeholder="Search Piano songs" aria-label="Nexus Piano Link search"><button type="button" data-pfo-action="search">Search</button></div>
     <div class="piano-pfo-drawer" data-pfo-classifier-panel id="pfo-classifiers" hidden><strong>Classifiers</strong><div data-pfo-classifiers></div></div>
-    <div class="piano-pfo-drawer" data-pfo-group-panel id="pfo-groups" hidden><strong>Groups &amp; queue</strong><div data-pfo-groups></div><label>Playback route<select data-pfo-route-filter><option value="all">All routes</option><option value="inherit">Inherited defaults</option><option value="internal">Internal Piano</option><option value="target">Target window</option></select></label><button type="button" data-pfo-action="queue-filtered">Add filtered songs to queue</button><span data-pfo-queue-note></span></div>
+    <div class="piano-pfo-drawer" data-pfo-group-panel id="pfo-groups" hidden><strong>Groups &amp; queue</strong><div data-pfo-groups></div><label>Playback route<select data-pfo-route-filter><option value="all">All routes</option><option value="inherit">Inherited defaults</option><option value="internal">Internal Piano</option><option value="target">Target window</option></select></label><button type="button" data-pfo-action="queue-preview">Preview filtered queue</button><span data-pfo-queue-note></span><div class="piano-pfo-queue-preview" data-pfo-queue-preview hidden><strong>Queue candidates</strong><ol data-pfo-queue-candidates></ol><button type="button" data-pfo-action="queue-confirm">Add these songs</button><button type="button" data-pfo-action="queue-cancel">Cancel</button></div></div>
     <div class="piano-pfo-manager" data-pfo-manager id="pfo-edit-folders" hidden><label>Song<select data-pfo-song></select></label><label hidden>Legacy tab<input data-pfo-tab-input maxlength="80" placeholder="Custom tab"></label><label>Folder<input data-pfo-folder-input maxlength="80" placeholder="Folder name"></label><label>Group<input data-pfo-group-input maxlength="80" placeholder="Group name"></label><div><button type="button" data-pfo-action="save">Apply</button><button type="button" data-pfo-action="clear">Clear</button></div><div class="piano-pfo-folder-list"><strong>Folders</strong><div data-pfo-folders></div></div><span data-pfo-note>Saved by the Piano Backend.</span></div>`;
     library.prepend(toolbar);
     // Keep live port/media controls mounted until the user opens their destination drawer.
@@ -266,7 +289,7 @@
     pills?.append(tabs);
     pills?.addEventListener('click', event => {
       if (!event.target.closest('[data-pxp-scope]')) return;
-      Object.values(focus).forEach(bucket => bucket.clear()); updateActive(); front.repaint?.();
+      Object.values(focus).forEach(bucket => bucket.clear()); saveFocus(); updateActive(); front.repaint?.();
     });
     toolbar.addEventListener('click', event => {
       const action = event.target.closest('[data-pfo-action]')?.dataset.pfoAction;
@@ -277,13 +300,16 @@
       else if (action === 'groups') togglePanel('groups');
       else if (action === 'save') saveOrganization(false);
       else if (action === 'clear') saveOrganization(true);
-      else if (action === 'queue-filtered') addFilteredQueue();
+      else if (action === 'queue-preview') previewFilteredQueue();
+      else if (action === 'queue-confirm') addFilteredQueue();
+      else if (action === 'queue-cancel') { const panel=$('[data-pfo-queue-preview]');if(panel)panel.hidden=true; }
       else if (action === 'search') search($('[data-pfo-search]')?.value || '');
     });
     toolbar.querySelector('[data-pfo-route-filter]')?.addEventListener('change', event => {
       routeFilter = ['inherit','internal','target'].includes(event.target.value) ? event.target.value : 'all';
-      front.repaint?.();
+      saveFocus(); front.repaint?.();
     });
+    if (toolbar.querySelector('[data-pfo-route-filter]')) toolbar.querySelector('[data-pfo-route-filter]').value = routeFilter;
     // Card Details must reveal the panel that now owns the existing editor.
     c.addEventListener('click', event => {
       if (!event.target.closest?.('[data-af-action="piano-frontend-media-details"]')) return;

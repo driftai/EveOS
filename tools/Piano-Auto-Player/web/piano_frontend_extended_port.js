@@ -181,6 +181,7 @@ async function performMedia(data, api, deps) {
         piano_tab: cleanText(data.tab ?? previousCustom.piano_tab, 80),
         piano_folder: cleanText(data.folder ?? previousCustom.piano_folder, 80),
         piano_group: cleanText(data.group ?? previousCustom.piano_group, 80),
+        piano_duplicate_keep_v1: cleanText(data.duplicateKeep ?? previousCustom.piano_duplicate_keep_v1, 240),
         piano_playback_v1: data.playback === undefined ? (previousCustom.piano_playback_v1 || {}) : data.playback
       }
     };
@@ -263,6 +264,7 @@ export function summarizeFrontendSong(song) {
         piano_tab: String(identifiers.custom?.piano_tab || ''),
         piano_folder: String(identifiers.custom?.piano_folder || ''),
         piano_group: String(identifiers.custom?.piano_group || ''),
+        piano_duplicate_keep_v1: String(identifiers.custom?.piano_duplicate_keep_v1 || ''),
         piano_playback_v1: identifiers.custom?.piano_playback_v1 && typeof identifiers.custom.piano_playback_v1 === 'object'
           ? identifiers.custom.piano_playback_v1 : {}
       } },

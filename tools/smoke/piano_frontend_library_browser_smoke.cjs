@@ -15,10 +15,13 @@ const retentionSource = read('js/modules/features/audioflix/audioflix.ui.piano-r
 const presentationPorts = read('js/modules/features/audioflix/audioflix.piano.frontend.ports.js');
 const mediaFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.media.js');
 const organizeFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.organize.js');
+const duplicateFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.duplicates.js');
 const settingsFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.settings.js');
+const v3CardsFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.v3.cards.js');
+const internalFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.internal.js');
 const extendedPort = read('tools/Piano-Auto-Player/web/piano_frontend_extended_port.js');
 const frontendAppBridge = read('tools/Piano-Auto-Player/web/piano_frontend_app_bridge.js');
-const css = read('js/modules/features/audioflix/audioflix.piano.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.ports.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.media.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.organize.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.settings.css');
+const css = read('js/modules/features/audioflix/audioflix.piano.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.ports.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.media.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.organize.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.settings.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.v3.css');
 const port = read('tools/Piano-Auto-Player/web/piano_frontend_port.js');
 const app = read('tools/Piano-Auto-Player/web/app.js');
 assert(app.includes('setupPianoFrontendAppBridge({'), 'real player must install the frontend app bridge');
@@ -42,16 +45,18 @@ assert(mediaFrontend.includes("ports.command?.('song:update'"), 'listener metada
 assert(mediaFrontend.includes("ports.command?.('progress:seek'"), 'listener seek must use the existing Backend progress owner');
 assert(settingsFrontend.includes("ports.command?.('queue:reorder'"), 'Piano Internal View must reorder the shared Backend queue');
 assert(organizeFrontend.includes("ports.command?.('queue:add-many'"), 'filtered group queueing must use one Backend queue command');
+assert(internalFrontend.includes("window.open('','eveos-piano-internal-viewer'"), 'Internal Viewer must retain its bounded detachable projection');
+assert(!internalFrontend.includes('new Audio(') && !internalFrontend.includes('PianoPlaybackOwner ='), 'Internal Viewer must never create a second playback owner');
 
 const childHtml = `<!doctype html><html><body><script type="module">
 import { setupPianoFrontendPort } from '/port.js';
 window.__calls = [];
 window.__songs = [
-  { id: 'one', title: 'Moonlight', artist: 'Composer', sheet: 'abc', source_url:'https://example.test/shared', identifiers:{tags:['Calm'],custom:{piano_group:'Study',piano_playback_v1:{route:'internal',layout:'88'}}}, updated_at: 100 },
-  { id: 'two', title: 'Danger <img src=x onerror=alert(1)>', source_url:'https://example.test/shared', identifiers:{tags:['Loud'],custom:{piano_group:'Concert',piano_playback_v1:{route:'target'}}}, performance: [{key:'a'}], updated_at: 200 }
+  { id: 'one', title: 'Moonlight', artist: 'Composer', sheet: 'abc', source_url:'https://youtu.be/shared123?si=one', identifiers:{personal_rating:4.5,tags:['Calm'],custom:{piano_group:'Study',piano_playback_v1:{route:'internal',layout:'88'}}}, updated_at: Date.now() },
+  { id: 'two', title: 'Danger <img src=x onerror=alert(1)>', source_url:'https://www.youtube.com/watch?v=shared123&utm_source=test', identifiers:{tags:['Loud'],custom:{piano_group:'Concert',piano_playback_v1:{route:'target'}}}, performance: [{key:'a'}], updated_at: 200 }
 ];
 setupPianoFrontendPort({
- api: { songs: async () => ({ songs: window.__songs }) },
+ api: { songs: async () => ({ songs: window.__songs }), saveSong: async song => { const index=window.__songs.findIndex(item=>item.id===song.id);if(index>=0)window.__songs[index]=song;window.__calls.push(['save',song.id,song.identifiers?.custom?.piano_duplicate_keep_v1||'']); } },
  play: async song => { window.__calls.push(['play',song.id]); window.__state = 'playing'; },
  pause: async () => { window.__calls.push(['pause']); window.__state = 'paused'; },
  stop: async () => { window.__calls.push(['stop']); window.__state = 'idle'; },
@@ -91,7 +96,10 @@ async function syntheticTest(browser, width) {
   await page.addScriptTag({content:presentationPorts});
   await page.addScriptTag({content:mediaFrontend});
   await page.addScriptTag({content:organizeFrontend});
+  await page.addScriptTag({content:duplicateFrontend});
   await page.addScriptTag({content:settingsFrontend});
+  await page.addScriptTag({content:v3CardsFrontend});
+  await page.addScriptTag({content:internalFrontend});
   await page.addScriptTag({content:ui});
   await installHost(page, 'http://127.0.0.1:8771/piano');
   let child = null;
@@ -115,19 +123,34 @@ async function syntheticTest(browser, width) {
   if (width === 1440) {
    assert.equal(await page.locator('[data-pfs-settings-button]').count(),2,'Music-style Piano cards expose song settings');
    assert.equal(await page.locator('[data-pfs-eye-button]').count(),2,'Every song card has direct Piano Internal View entry');
+   assert.equal(await page.locator('[data-pfv3-progress]').count(),2,'Every song card has an inline playback progress projection');
+   assert.equal(await page.locator('[data-pfv3-pause]').count(),2,'Every song card carries a pause/resume control');
+   assert.equal(await page.locator('[data-pfv3-smart]').count(),6,'Dedicated Smart Piano scopes are mounted');
+   await page.locator('[data-pfv3-smart="top"]').click();
+   assert.equal(await page.locator('.piano-frontend-song').count(),1,'Top Rated Smart scope filters through the shared library');
+   assert.equal(await page.evaluate(()=>localStorage.getItem('evePianoFrontendSmartScopeV1')),'top','Smart scope persists');
+   await page.locator('[data-pfv3-smart="top"]').click();
    await page.locator('.piano-frontend-song[data-song-id="one"] [data-pfs-eye-button]').click();
-   assert.equal(await page.locator('[data-pfs-internal]').isVisible(),true,'Eye opens the shared-queue Piano Internal View directly');
-   assert.equal(await page.locator('[data-pfs-internal-song]').textContent(),'Moonlight','Internal View identifies selected song');
+   assert.equal(await page.locator('.piano-pfiv-overlay').isVisible(),true,'Eye opens the dedicated shared-queue Piano Internal Viewer');
    assert.equal(await child.evaluate(()=>window.__calls.filter(x=>x[0]==='play').length),0,'Opening Internal View must not play the song');
-   await page.locator('[data-pfs-action="close"]').click();
+   await page.keyboard.press('Escape');
+   assert.equal(await page.evaluate(()=>document.activeElement?.hasAttribute('data-pfs-eye-button')),true,'closing Internal Viewer restores keyboard focus to its opener');
    await page.locator('.piano-frontend-song[data-song-id="one"] [data-pfs-settings-button]').click();
    assert.equal(await page.locator('[data-pfs-route]').inputValue(),'internal','card settings project the Backend-owned playback override');
    assert((await page.locator('[data-pfs-duplicates] > div').count())>=1,'exact source matches are shown as non-destructive duplicate suggestions');
+   assert.equal(await page.locator('[data-pfs-action="merge-metadata"]').count(),1,'duplicate review offers a safe metadata-only merge');
+   await page.locator('[data-pfs-action="keep-both"]').click();
+   await child.waitForFunction(()=>window.__calls.some(call=>call[0]==='save'&&call[1]==='one'&&call[2].includes('two')));
+   assert.equal(await page.locator('.piano-pfs-duplicate-row').count(),0,'Keep Both decision removes only the warning and persists through Backend metadata');
    await page.locator('[data-pfs-action="close"]').click();
    await page.locator('[data-pfo-action="groups"]').click();
    await page.locator('[data-pfo-route-filter]').selectOption('internal');
    assert.equal(await page.locator('.piano-frontend-song').count(),1,'route filters operate over the shared Backend library');
    await page.locator('[data-pfo-route-filter]').selectOption('all');
+   await page.locator('[data-pfo-action="queue-preview"]').click();
+   assert.equal(await page.locator('[data-pfo-queue-preview]').isVisible(),true,'bulk queue construction requires an explicit candidate preview');
+   assert.equal(await page.locator('[data-pfo-queue-candidates] li').count(),2,'preview uses the combined visible library scope');
+   await page.locator('[data-pfo-action="queue-cancel"]').click();
     assert.equal(await page.locator('[data-pfo-exclude],.piano-pfo-exclude').count(),0,'No standalone minus/exclude controls appear in scope selectors');
    const study=page.locator('[data-pfo-groups] [data-pfo-group]').filter({hasText:'Study'});
    await study.click();
