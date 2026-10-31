@@ -49,7 +49,7 @@ function extractRerender(source) {
     return source.slice(declaration.index, bodyStart + end.index + end[0].length);
 }
 
-function exerciseActualRerender(source, ui, activeTab, transientAccepted, transientRequested) {
+function exerciseActualRerender(source, ui, activeTab, transientAccepted, transientRequested, retained = false) {
     const calls = [], initialOffsets = [['music', 640], ['sound', 120]];
     let nodes = makeOverlay(initialOffsets).nodes;
     let panel = { scrollTop: 280, scrollLeft: 45 }, info = { scrollTop: 310 }, library = {};
@@ -85,6 +85,17 @@ function exerciseActualRerender(source, ui, activeTab, transientAccepted, transi
         EveAudioflixRouting: { populateOutputSelectors() { calls.push('routing'); } },
         EveAudioflixState: { getRevision() { calls.push('revision'); return 17; } }
     };
+    // An already-mounted Piano exercises the retained path. Every non-Piano
+    // full rebuild in this test intentionally leaves the optional owner absent.
+    if (retained) window.EveAudioflixPianoRetain = {
+        patch(target, html, tab) {
+            assert(target === overlay, 'retention patches the live overlay');
+            assert(html === '<fixture-rebuilt-panel>', 'retention receives fresh tab markup');
+            assert(tab === activeTab, 'retention receives the requested AudioFlix tab');
+            calls.push('retain');
+            return true;
+        }
+    };
     const context = vm.createContext({ window, overlay, activeTab, lastTab: activeTab,
         activeInfoItem: null, activeInfoType: 'music', lastRenderedRevision: -1,
         uiPanel: { transient(root) { assert(root === overlay, 'transient projection uses the same overlay'); calls.push('transient'); return transientAccepted; } },
@@ -106,6 +117,16 @@ function exerciseActualRerender(source, ui, activeTab, transientAccepted, transi
         assert(calls.join(',') === 'transient,status,transport',
             'accepted transient projection returns after status and transport, without capture/rebuild/restore');
         assert(context.lastRenderedRevision === -1, 'transient projection does not manufacture a structural render revision');
+    } else if (retained) {
+        assert(rebuilds === 0 && nodes === original.nodes && panel === original.panel &&
+            info === original.info && library === original.library,
+        'retained Piano must not destroy Nexus results or its original panel nodes');
+        assert(calls.join(',') ===
+            ['capture', 'render', 'retain', 'restore', 'waveform', 'transport', 'layers',
+                'narration', 'routing', 'revision'].join(','),
+        'retained rerender must still preserve capture/restore and downstream updates');
+        assert(context.lastRenderedRevision === 17 && context.lastTab === activeTab,
+        'retained rerender updates the normal revision and tab tracking');
     } else {
         assert(rebuilds === 1 && nodes !== original.nodes && panel !== original.panel
             && info !== original.info && library !== original.library, 'full path really replaces the old containers');
@@ -153,13 +174,14 @@ function main() {
     const rerender = fs.readFileSync(path.join(A, 'audioflix.ui.js'), 'utf8');
     const scoped = extractRerender(rerender);
     const captureAt = scoped.indexOf('captureScroll');
-    const renderAt = scoped.indexOf('overlay.innerHTML = renderPanel()');
+    const renderAt = scoped.indexOf('const markup = renderPanel()');
+    const retentionAt = scoped.indexOf('EveAudioflixPianoRetain?.patch?.');
+    const fallbackAt = scoped.indexOf('overlay.innerHTML = markup');
     const restoreAt = scoped.indexOf('restoreScroll');
-    assert(captureAt !== -1 && renderAt !== -1 && restoreAt !== -1,
-        'rerender captures and restores the list scroll around the rebuild');
-    assert(captureAt < renderAt && renderAt < restoreAt,
-        'capture happens BEFORE the innerHTML rebuild and restore after it; either side of that'
-        + ' ordering and the offset read is the one already reset to zero');
+    assert([captureAt, renderAt, retentionAt, fallbackAt, restoreAt].every(i => i !== -1),
+        'rerender must capture scroll, render once, retain Piano conditionally, restore scroll');
+    assert(captureAt < renderAt && renderAt < retentionAt && retentionAt < fallbackAt && fallbackAt < restoreAt,
+        'scroll capture must precede either retained or full-rebuild path, with restore afterward');
 
     assert(extractRerender('function rerender (flag = false) {\n return flag;\n}').includes('flag = false'),
         'scope extraction accepts parameters/defaults and whitespace, not only an empty signature');
@@ -171,6 +193,9 @@ function main() {
     exerciseActualRerender(scoped, ui, 'music', true, true);
     exerciseActualRerender(scoped, ui, 'soundboard', true, true);
     exerciseActualRerender(scoped, ui, 'music', false, true);
+    // A live Piano must remain mounted even when another AudioFlix tab is selected.
+    exerciseActualRerender(scoped, ui, 'piano', false, false, true);
+    exerciseActualRerender(scoped, ui, 'music', false, false, true);
     console.log('AUDIOFLIX_NEXUS_SCROLL_SMOKE_OK');
 }
 

@@ -5,11 +5,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const { opaqueRealAppTest } = require('./lib/piano_frontend_library_real_app.cjs');
+const { testPianoRetention } = require('./lib/piano_frontend_retention_browser.cjs');
 const repo = path.resolve(__dirname, '../..');
 const read = p => fs.readFileSync(path.join(repo, p), 'utf8');
 const ui = read('js/modules/features/audioflix/audioflix.piano.ui.js');
 const views = read('js/modules/features/audioflix/audioflix.piano.views.js');
 const frontend = read('js/modules/features/audioflix/audioflix.piano.frontend.js');
+const retentionSource = read('js/modules/features/audioflix/audioflix.ui.piano-retain.js');
 const presentationPorts = read('js/modules/features/audioflix/audioflix.piano.frontend.ports.js');
 const mediaFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.media.js');
 const organizeFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.organize.js');
@@ -200,4 +202,4 @@ async function syntheticTest(browser, width) {
  } finally { await page.close(); }
 }
 
-(async()=>{const browser=await chromium.launch({headless:true});try{await opaqueRealAppTest(browser,{repo,css,views,frontend,presentationPorts,mediaFrontend,organizeFrontend,settingsFrontend,ui,installHost});for(const width of [1440,760,480])await syntheticTest(browser,width);console.log('EVEOS_PIANO_FRONTEND_LIBRARY_BROWSER_PASS');}finally{await browser.close();}})().catch(error=>{console.error(error.stack||error);process.exitCode=1;});
+(async()=>{const browser=await chromium.launch({headless:true});try{await opaqueRealAppTest(browser,{repo,css,views,frontend,presentationPorts,mediaFrontend,organizeFrontend,settingsFrontend,ui,installHost});for(const width of [1440,760,480])await syntheticTest(browser,width);await testPianoRetention(browser,retentionSource,read('js/modules/features/audioflix/audioflix.ui.js'));console.log('EVEOS_PIANO_FRONTEND_LIBRARY_BROWSER_PASS');}finally{await browser.close();}})().catch(error=>{console.error(error.stack||error);process.exitCode=1;});

@@ -287,7 +287,8 @@ window.EveAudioflix = window.EveAudioflix || {};
         const panel = overlay.querySelector('.audioflix-panel'), scrollTop = (panel && lastTab === activeTab) ? panel.scrollTop : 0, scrollLeft = (panel && lastTab === activeTab) ? panel.scrollLeft : 0;
         const infoBody = overlay.querySelector('.audioflix-info-body'), infoScrollTop = infoBody ? infoBody.scrollTop : 0;
         const nexusScroll = window.EveAudioflixNexusUi?.captureScroll?.(overlay);
-        lastTab = activeTab; overlay.innerHTML = renderPanel();
+        lastTab = activeTab; const markup = renderPanel();
+        if (!window.EveAudioflixPianoRetain?.patch?.(overlay, markup, activeTab)) overlay.innerHTML = markup;
         window.EveAudioflixNexusUi?.restoreScroll?.(overlay, nexusScroll); const newPanel = overlay.querySelector('.audioflix-panel');
         if (newPanel) { newPanel.scrollTop = scrollTop; newPanel.scrollLeft = scrollLeft; }
         const newInfoBody = overlay.querySelector('.audioflix-info-body');

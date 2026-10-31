@@ -145,10 +145,13 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
     function afterRender(host) {
         root = host;
         const frame = root?.querySelector?.('[data-piano-frame]');
-        frame?.addEventListener('load', () => {
-            sendContext(frame);
-            window.EveAudioflixPianoFrontend?.refresh?.(true);
-        });
+        if (frame && frame.dataset.pianoContextBound !== 'yes') {
+            frame.dataset.pianoContextBound = 'yes';
+            frame.addEventListener('load', () => {
+                sendContext(frame);
+                window.EveAudioflixPianoFrontend?.refresh?.(true);
+            });
+        }
         window.EveAudioflixPianoFrontend?.mount?.(host);
         patch(host);
     }
