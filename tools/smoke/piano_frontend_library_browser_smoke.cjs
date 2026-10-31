@@ -28,6 +28,8 @@ assert(port.includes('pulseReady();'), 'bridge must briefly reannounce readiness
 assert(port.includes('event.source !== parent'), 'bridge must pin commands to the actual embedding parent');
 assert(port.includes("data?.type === 'eveos:audioflix-context'"), 'bridge must reannounce after host context');
 assert(frontend.includes("directJson('/api/songs')"), 'frontend must have direct library fallback');
+assert(frontend.includes('saveOfflinePreview(songs)'), 'backend library sync automatically persists the read-only offline projection');
+assert(!frontend.includes('importOfflinePreview') && !frontend.includes('data-pf-offline-file'), 'do not expose a manual songs.json import path');
 assert(frontend.includes('if (!bridgeReady) applyLibrary'), 'direct fallback must not overwrite bridge-owned library');
 assert(css.includes('> .audioflix-piano-header { display: none; }'), 'frontend must keep technical lifecycle controls in Backend');
 assert(!presentationPorts.includes('Backend Player Queue'), 'frontend copy must not expose Backend wiring');
@@ -43,8 +45,8 @@ const childHtml = `<!doctype html><html><body><script type="module">
 import { setupPianoFrontendPort } from '/port.js';
 window.__calls = [];
 window.__songs = [
-  { id: 'one', title: 'Moonlight', artist: 'Composer', sheet: 'abc', source_url:'https://example.test/shared', identifiers:{custom:{piano_group:'Study',piano_playback_v1:{route:'internal',layout:'88'}}}, updated_at: 100 },
-  { id: 'two', title: 'Danger <img src=x onerror=alert(1)>', source_url:'https://example.test/shared', identifiers:{custom:{piano_group:'Concert',piano_playback_v1:{route:'target'}}}, performance: [{key:'a'}], updated_at: 200 }
+  { id: 'one', title: 'Moonlight', artist: 'Composer', sheet: 'abc', source_url:'https://example.test/shared', identifiers:{tags:['Calm'],custom:{piano_group:'Study',piano_playback_v1:{route:'internal',layout:'88'}}}, updated_at: 100 },
+  { id: 'two', title: 'Danger <img src=x onerror=alert(1)>', source_url:'https://example.test/shared', identifiers:{tags:['Loud'],custom:{piano_group:'Concert',piano_playback_v1:{route:'target'}}}, performance: [{key:'a'}], updated_at: 200 }
 ];
 setupPianoFrontendPort({
  api: { songs: async () => ({ songs: window.__songs }) },
@@ -105,8 +107,17 @@ async function syntheticTest(browser, width) {
   assert.equal(await page.locator('.audioflix-piano-header').evaluate(el=>getComputedStyle(el).display),'none','technical Piano Automation toolbar must stay in Backend');
   assert.equal(await page.locator('.piano-frontend-title h2').textContent(),'Piano Auto Player - Frontend');
   assert.equal(await page.locator('[data-piano-view-title]').textContent(),'Piano Library');
+   assert.equal(await page.locator('.piano-frontend-transport').evaluate(el=>getComputedStyle(el).justifyContent),'center','Piano transport group must be centered at wide and narrow widths');
+   const transportSpacing=await page.locator('.piano-frontend-transport').evaluate(el=>({bottom:parseFloat(getComputedStyle(el).paddingBottom),divider:parseFloat(getComputedStyle(el).borderBottomWidth)}));
+   assert(transportSpacing.bottom>=20 && transportSpacing.divider===0, 'Transport controls float above Event View without touching a lower divider');
   if (width === 1440) {
    assert.equal(await page.locator('[data-pfs-settings-button]').count(),2,'Music-style Piano cards expose song settings');
+   assert.equal(await page.locator('[data-pfs-eye-button]').count(),2,'Every song card has direct Piano Internal View entry');
+   await page.locator('.piano-frontend-song[data-song-id="one"] [data-pfs-eye-button]').click();
+   assert.equal(await page.locator('[data-pfs-internal]').isVisible(),true,'Eye opens the shared-queue Piano Internal View directly');
+   assert.equal(await page.locator('[data-pfs-internal-song]').textContent(),'Moonlight','Internal View identifies selected song');
+   assert.equal(await child.evaluate(()=>window.__calls.filter(x=>x[0]==='play').length),0,'Opening Internal View must not play the song');
+   await page.locator('[data-pfs-action="close"]').click();
    await page.locator('.piano-frontend-song[data-song-id="one"] [data-pfs-settings-button]').click();
    assert.equal(await page.locator('[data-pfs-route]').inputValue(),'internal','card settings project the Backend-owned playback override');
    assert((await page.locator('[data-pfs-duplicates] > div').count())>=1,'exact source matches are shown as non-destructive duplicate suggestions');
@@ -115,6 +126,33 @@ async function syntheticTest(browser, width) {
    await page.locator('[data-pfo-route-filter]').selectOption('internal');
    assert.equal(await page.locator('.piano-frontend-song').count(),1,'route filters operate over the shared Backend library');
    await page.locator('[data-pfo-route-filter]').selectOption('all');
+    assert.equal(await page.locator('[data-pfo-exclude],.piano-pfo-exclude').count(),0,'No standalone minus/exclude controls appear in scope selectors');
+   const study=page.locator('[data-pfo-groups] [data-pfo-group]').filter({hasText:'Study'});
+   await study.click();
+   assert.equal(await study.getAttribute('data-focus-state'),'included','First group click includes Study');
+   assert.equal(await study.getAttribute('aria-pressed'),'true','Included scope is announced as active');
+   assert.equal(await page.locator('.piano-frontend-song').count(),1,'Included Study narrows results');
+   await study.click();
+   assert.equal(await study.getAttribute('data-focus-state'),'excluded','Second group click excludes Study');
+   assert.equal(await study.getAttribute('aria-pressed'),'true','Excluded scope is announced as active');
+   assert.equal(await study.evaluate(el=>el.classList.contains('is-excluded')),true,'Excluded group uses danger styling');
+   assert.equal(await page.locator('.piano-frontend-song').count(),1,'Excluded Study narrows to non-Study songs');
+   await study.click();
+   assert.equal(await study.getAttribute('data-focus-state'),'neutral','Third group click clears Study focus');
+   assert.equal(await study.getAttribute('aria-pressed'),'false','Cleared group scope is announced as neutral');
+   assert.equal(await page.locator('.piano-frontend-song').count(),2,'Clearing Study restores all songs');
+   await page.locator('[data-pfo-action="classifiers"]').click();
+   const calm=page.locator('[data-pfo-classifiers] [data-pfo-classifier]').filter({hasText:'Calm'});
+   await calm.click();
+   assert.equal(await calm.getAttribute('data-focus-state'),'included','First classifier click includes Calm');
+   assert.equal(await page.locator('.piano-frontend-song').count(),1);
+   await calm.click();
+   assert.equal(await calm.getAttribute('data-focus-state'),'excluded','Second classifier click excludes Calm');
+   assert.equal(await calm.evaluate(el=>el.classList.contains('is-excluded')),true,'Excluded tag uses danger styling');
+   assert.equal(await page.locator('.piano-frontend-song').count(),1);
+   await calm.click();
+   assert.equal(await calm.getAttribute('data-focus-state'),'neutral','Third classifier click clears Calm');
+   assert.equal(await page.locator('.piano-frontend-song').count(),2);
   }
   assert(await page.locator('[data-af-action="piano-frontend-stop"]').isEnabled(),'stop must enable after bridge handshake');
   await page.locator('[data-af-action="piano-frontend-play"][data-song-id="one"]').click();
@@ -143,7 +181,17 @@ async function syntheticTest(browser, width) {
   assert((await page.locator('.piano-frontend-song-info strong').allTextContents()).includes('Backend Refresh Song'),'Backend Refresh must invalidate and update the shared Frontend library');
   await page.evaluate(()=>{window.EveAudioflixPiano.state.running=false;window.EveAudioflixPiano.state.phase='stopped';window.EveAudioflixPiano.state.url='';window.dispatchEvent(new Event('eve:audioflix-piano-status'));});
   await page.waitForFunction(()=>document.querySelector('[data-pf-playback]')?.textContent==='Piano offline');
-  assert.equal(await page.locator('.piano-frontend-song').count(),0,'do not show stale playable entries when service stops');
+   assert.equal(await page.locator('.piano-frontend-song').count(),4,'offline mode retains last-synced song cards as a read-only preview');
+   assert.equal(await page.locator('.piano-frontend-song-play:not(:disabled)').count(),0,'offline song cards cannot start playback');
+   assert((await page.locator('[data-pf-message]').textContent()).includes('Offline library preview'), 'offline preview is explicitly labeled as stale');
+   const cached=await page.evaluate(()=>JSON.parse(localStorage.getItem('eveos:piano:library-preview:v1')));
+   assert.equal(cached?.songs?.length,4,'live library is persisted as a bounded offline projection');
+   assert(!('sheet' in cached.songs[0]) && !('performance' in cached.songs[0]), 'offline snapshot excludes raw sheet and performance data');
+   assert.equal(await page.locator('[data-pf-offline-import],[data-pf-offline-file]').count(),0,'No manual library-file picker is exposed');
+   assert((await page.locator('.piano-frontend-song-info strong').allTextContents()).includes('Backend Refresh Song'), 'Offline view preserves songs synced from the real backend');
+   await page.evaluate(()=>window.EveAudioflixPianoFrontend.sync());
+   assert.equal(await page.locator('.piano-frontend-song').count(),4,'Repeated offline synchronization must preserve the stored backend projection');
+   assert.equal(await page.locator('.piano-frontend-song-play:not(:disabled)').count(),0,'Offline cache remains read-only on repeat synchronization');
   assert.equal(await page.locator('[data-pf-service-start]').isVisible(),true,'frontend must offer a friendly service start action when offline');
   await page.evaluate(()=>{window.EveAudioflixPiano.start=async()=>{window.__frontStartRequested=true;};});
   await page.locator('[data-pf-service-start]').click();

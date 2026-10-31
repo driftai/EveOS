@@ -33,12 +33,14 @@
   }
   function cycleFocus(kind, value) {
     const all = $('[data-pxp-scope="all"]');
-    all?.click();
-    const bucket = focus[kind === 'tab' ? 'group' : kind]; if (!bucket) return;
+    // Leaving Favorites/Queued restores the common All scope only once.
+    // Do not click All again while it is active: that clears the focus maps.
+    if (all && !all.classList.contains('active')) all.click();
+    const bucket = focus[kind]; if (!bucket) return;
     const current = bucket.get(value) || 0;
-    if (current === 0) bucket.set(value, 1);
-    else if (current === 1) bucket.set(value, -1);
-    else bucket.delete(value);
+    const next = current === 0 ? 1 : current === 1 ? -1 : 0;
+    if (next === 0) bucket.delete(value);
+    else bucket.set(value, next);
     updateActive(); front.repaint?.();
   }
   function updateActive() {
@@ -47,9 +49,20 @@
       ['[data-pfo-group]','group','pfoGroup'], ['[data-pfo-classifier]','classifier','pfoClassifier']
     ]) canvas()?.querySelectorAll(selector).forEach(node => {
       const state = focus[kind].get(node.dataset[key]) || 0;
-      active(node, state === 1); node.classList.toggle('is-excluded', state === -1);
+      active(node, state === 1);
+      node.classList.toggle('is-excluded', state === -1);
+      node.setAttribute('aria-pressed', String(state !== 0));
+      node.dataset.focusState = state === 1 ? 'included' : state === -1 ? 'excluded' : 'neutral';
+      const name = node.dataset[key] || '';
       node.title = state === 1 ? 'Included — click to exclude' : state === -1 ? 'Excluded — click to clear' : 'Click to include';
+      node.setAttribute('aria-label', `${name}: ${state === 1 ? 'included; click to exclude' : state === -1 ? 'excluded; click to clear' : 'neutral; click to include'}`);
     });
+  }
+  function focusChip(value, kind) {
+    const node = button(value, kind);
+    node.dataset[kind === 'folder' ? 'pfoFolder' : kind === 'classifier' ? 'pfoClassifier' : 'pfoGroup'] = value;
+    node.addEventListener('click', () => cycleFocus(kind, value));
+    return node;
   }
   function navButtons(target, values, kind) {
     if (!target) return;
@@ -58,13 +71,7 @@
       const empty = document.createElement('span'); empty.className = 'piano-pfo-empty';
       empty.textContent = `No ${kind}s assigned yet.`; target.append(empty); return;
     }
-    for (const value of values) {
-      const node = button(value, kind);
-      node.dataset[kind === 'tab' ? 'pfoTab' : kind === 'folder' ? 'pfoFolder' : 'pfoGroup'] = value;
-      node.title = `Show Piano songs in ${value}`;
-      node.addEventListener('click', () => cycleFocus(kind, value));
-      target.append(node);
-    }
+    for (const value of values) target.append(focusChip(value, kind));
   }
   function refreshNavigation(songs) {
     const tabs = unique(songs.map(tabOf));
@@ -78,10 +85,7 @@
     navButtons($('[data-pfo-folders]'), folders, 'folder');
     navButtons($('[data-pfo-groups]'), groups, 'group');
     const classifierTarget = $('[data-pfo-classifiers]'); classifierTarget?.replaceChildren();
-    for (const label of labels) {
-      const node = button(label, 'classifier'); node.dataset.pfoClassifier = label;
-      node.addEventListener('click', () => cycleFocus('classifier', label)); classifierTarget?.append(node);
-    }
+    for (const label of labels) classifierTarget?.append(focusChip(label, 'classifier'));
     if (classifierTarget && !labels.length) {
       const empty = document.createElement('span'); empty.className = 'piano-pfo-empty'; empty.textContent = 'No classifiers found.'; classifierTarget.append(empty);
     }

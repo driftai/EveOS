@@ -28,9 +28,11 @@
 .piano-pfo-search .piano-pxp-advanced { grid-column:1/-1; width:100%; min-width:0; }
 .piano-pfo-search .piano-pxm-editor { grid-column:1/-1; width:100%; min-width:0; margin-top:2px; }
 .piano-pfo-search .piano-pxp-filters-grid { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
-.piano-frontend-inner > .piano-frontend-transport { display:flex; flex-wrap:wrap; gap:10px; }
+.piano-frontend-inner > .piano-frontend-transport { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; }
 .piano-pxp-events>.piano-pxm-now{margin:10px 0 0;border:0;border-top:1px solid rgba(71,128,138,.28);border-radius:0;background:transparent;padding:9px 0 0}
 .audioflix-piano-frontend .piano-pfo-drawer button.is-excluded,.audioflix-piano-frontend .piano-pfo-tabs button.is-excluded,.audioflix-piano-frontend .piano-pfo-folder-list button.is-excluded{color:#fecaca;background:rgba(127,29,29,.48);border-color:rgba(248,113,113,.78)}
 
 /* Hide the legacy placement until original controls move into the requested drawer. */
 .piano-pxp-workspace[hidden],.piano-pxm-listener[hidden]{display:none!important}
+
+/* A single chip cycles neutral -> included -> excluded -> neutral. */
