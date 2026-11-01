@@ -1,9 +1,10 @@
 /* The frontend is a song-first surface, with all technical controls left in Backend. */
-.audioflix-piano[data-piano-view="frontend"] { grid-template-rows: auto minmax(440px, 1fr); }
+.audioflix-piano[data-piano-view="frontend"] { grid-template-rows: auto auto; }
 .audioflix-piano[data-piano-view="frontend"] > .audioflix-piano-header { display: none; }
 .audioflix-piano[data-piano-view="frontend"] .audioflix-piano-meta { padding: 0 4px; }
-.audioflix-piano-frontend { overflow: auto; }
-.piano-frontend-inner { width:min(100%,1680px); margin:0 auto; padding: clamp(18px, 3vw, 34px); min-height: 100%; color: #e6f4f5; }
+.audioflix-piano[data-piano-view="frontend"] .audioflix-piano-stage{min-height:0;overflow:visible;border:0;border-radius:0;background:transparent}
+.audioflix-piano[data-piano-view="frontend"] .audioflix-piano-frontend{position:relative;inset:auto;overflow:visible;background:transparent}
+.piano-frontend-inner { width:100%; max-width:none; margin:0; padding: clamp(12px, 2vw, 24px) 0; min-height: 0; color: #e6f4f5; }
 /* The Piano title and transport are first-class controls, never in a disclosure. */
 .piano-frontend-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:18px; padding:4px 0 10px; }
 .piano-frontend-workspace-heading { font-size:12px; font-weight:750; letter-spacing:.08em; color:#98dce7; margin:10px 0 12px; }

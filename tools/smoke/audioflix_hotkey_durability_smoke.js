@@ -57,6 +57,12 @@ async function main() {
     const first = bootstrap(data), store = first.win.EveAudioflixState;
     assert.equal(store.ensure().soundboard.length, 100);
     assert.equal(Object.keys(store.ensure().portHotkeys).length, 100);
+    const seeded = JSON.parse(localStorage.getItem('eveAudioflixHotkeyAssignmentsV1'));
+    assert.equal(Object.keys(seeded.assignments).length, 100, 'item-only assignments seed the journal immediately');
+    store.setItemHotkey('sound', 'sound_2', 'ctrl+alt+x');
+    const stale = bootstrap({ ...data, portHotkeys: { sound_2: combo(2) },
+        soundboard: originals, durabilityRevision: 2, durabilityUpdatedAt: 2 }).win.EveAudioflixState.ensure();
+    assert.equal(stale.soundboard[2].hotkey, 'ctrl+alt+x', 'stale catalog values cannot overwrite a newer journal remap');
     first.win.EveAudioflixStateRecovery.write(key, store.getSnapshot());
     const reload = bootstrap({ ...data, soundboard: originals.map(item => ({ ...item, hotkey: '' })),
         portHotkeys: {}, durabilityRevision: 9, durabilityUpdatedAt: 2 });

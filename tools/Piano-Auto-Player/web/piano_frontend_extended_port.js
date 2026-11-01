@@ -20,8 +20,8 @@ function firstFinite(...values) {
 function validOption(node, value) { return !!node && [...node.options].some(option => String(option.value) === String(value)); }
 function emitChange(node) { node.dispatchEvent(new Event('change', { bubbles: true })); }
 const cleanText = (value, limit = 180) => String(value || '').trim().slice(0, limit);
-const cleanList = value => (Array.isArray(value) ? value : String(value || '').split(','))
-  .map(item => cleanText(item, 60)).filter(Boolean).slice(0, 30);
+const cleanList = (value, limit = 60, count = 30) => (Array.isArray(value) ? value : String(value || '').split(','))
+  .map(item => cleanText(item, limit)).filter(Boolean).slice(0, count);
 
 async function setControl(data) {
   const field = data.field, value = data.value;
@@ -179,9 +179,11 @@ async function performMedia(data, api, deps) {
         ...previousCustom,
         favorite: data.favorite === true ? 'true' : data.favorite === false ? 'false' : String(previousCustom.favorite || 'false'),
         piano_tab: cleanText(data.tab ?? previousCustom.piano_tab, 80),
-        piano_folder: cleanText(data.folder ?? previousCustom.piano_folder, 80),
-        piano_group: cleanText(data.group ?? previousCustom.piano_group, 80),
-        piano_duplicate_keep_v1: cleanText(data.duplicateKeep ?? previousCustom.piano_duplicate_keep_v1, 240),
+        piano_folder: data.folders === undefined ? cleanText(data.folder ?? previousCustom.piano_folder, 80) : '',
+        piano_group: data.groups === undefined ? cleanText(data.group ?? previousCustom.piano_group, 80) : '',
+        piano_folders_v1: cleanList(data.folders ?? previousCustom.piano_folders_v1 ?? previousCustom.piano_folder, 80, 80),
+        piano_groups_v1: cleanList(data.groups ?? previousCustom.piano_groups_v1 ?? previousCustom.piano_group, 80, 80),
+        piano_duplicate_keep_v1: cleanList(data.duplicateKeep ?? previousCustom.piano_duplicate_keep_v1, 180, 20),
         piano_playback_v1: data.playback === undefined ? (previousCustom.piano_playback_v1 || {}) : data.playback
       }
     };
@@ -264,7 +266,9 @@ export function summarizeFrontendSong(song) {
         piano_tab: String(identifiers.custom?.piano_tab || ''),
         piano_folder: String(identifiers.custom?.piano_folder || ''),
         piano_group: String(identifiers.custom?.piano_group || ''),
-        piano_duplicate_keep_v1: String(identifiers.custom?.piano_duplicate_keep_v1 || ''),
+        piano_folders_v1: cleanList(identifiers.custom?.piano_folders_v1, 80, 80),
+        piano_groups_v1: cleanList(identifiers.custom?.piano_groups_v1, 80, 80),
+        piano_duplicate_keep_v1: cleanList(identifiers.custom?.piano_duplicate_keep_v1, 180, 20),
         piano_playback_v1: identifiers.custom?.piano_playback_v1 && typeof identifiers.custom.piano_playback_v1 === 'object'
           ? identifiers.custom.piano_playback_v1 : {}
       } },

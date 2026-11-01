@@ -19,7 +19,7 @@ function waitHttp(url, timeout=10000) {
  return new Promise((resolve,reject)=>{const tick=()=>{const req=http.get(url,res=>{res.resume();if(res.statusCode===200)return resolve();setTimeout(tick,80);});req.on('error',()=>{if(Date.now()-start>timeout)return reject(new Error(`Timed out waiting for ${url}`));setTimeout(tick,80);});};tick();});
 }
 
-async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentationPorts, mediaFrontend, organizeFrontend, settingsFrontend, ui, installHost}) {
+async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentationPorts, mediaFrontend, taxonomyFrontend, organizeFrontend, settingsFrontend, ui, installHost}) {
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'eveos-piano-front-'));
  const portNumber=await freePort();
  const songFile=path.join(temp,'songs.json');
@@ -45,7 +45,7 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
   page.on('pageerror',error=>pageErrors.push(String(error?.stack||error)));
   try {
    await page.goto(pathToFileURL(parentFile).href);
-    await page.addStyleTag({content:css}); await page.addScriptTag({content:views}); await page.addScriptTag({content:frontend}); await page.addScriptTag({content:presentationPorts}); await page.addScriptTag({content:mediaFrontend}); await page.addScriptTag({content:organizeFrontend}); await page.addScriptTag({content:settingsFrontend}); await page.addScriptTag({content:ui});
+    await page.addStyleTag({content:css}); await page.addScriptTag({content:views}); await page.addScriptTag({content:frontend}); await page.addScriptTag({content:presentationPorts}); await page.addScriptTag({content:mediaFrontend}); await page.addScriptTag({content:taxonomyFrontend}); await page.addScriptTag({content:organizeFrontend}); await page.addScriptTag({content:settingsFrontend}); await page.addScriptTag({content:ui});
    await installHost(page,`http://127.0.0.1:${portNumber}/`);
    let realChild=null;
    for(let attempt=0;attempt<100&&!realChild;attempt++){realChild=page.frames().find(frame=>frame.url()===`http://127.0.0.1:${portNumber}/`);if(!realChild)await page.waitForTimeout(50);}
@@ -98,23 +98,23 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
    await page.locator('[data-pfo-folder-input]').fill('Practice');
    await page.locator('[data-pfo-group-input]').fill('Evening');
    await page.locator('[data-pfo-action="save"]').click();
-   await realChild.waitForFunction(async()=>{const body=await fetch('/api/songs').then(r=>r.json());const song=body.songs.find(item=>item.id==='opaque-one');return song?.identifiers?.custom?.piano_folder==='Practice'&&song?.identifiers?.custom?.piano_group==='Evening';},null,{timeout:10000});
-   await page.waitForSelector('.piano-pfo-tabs [data-pfo-group="Evening"]',{timeout:10000});
+   await realChild.waitForFunction(async()=>{const body=await fetch('/api/songs').then(r=>r.json());const song=body.songs.find(item=>item.id==='opaque-one');return song?.identifiers?.custom?.piano_folders_v1?.includes('Practice')&&song?.identifiers?.custom?.piano_groups_v1?.includes('Evening');},null,{timeout:10000});
+   await page.waitForSelector('[data-pfo-library-groups] [data-pfo-group="Evening"]',{timeout:10000});
    await page.waitForSelector('[data-pfo-folder="Practice"]',{timeout:10000});
-   await page.locator('.piano-pfo-tabs [data-pfo-group="Evening"]').click();
+   await page.locator('[data-pfo-library-groups] [data-pfo-group="Evening"]').click();
    await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===1);
    assert.equal(await page.locator('.piano-frontend-song-info strong').textContent(),'Opaque One','custom groups must filter the shared Backend library');
    await page.locator('[data-pxp-scope="all"]').click();
    await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===2);
    await page.locator('[data-pfo-action="groups"]').click();
-   assert.equal(await page.locator('.piano-pfo-tabs [data-pfo-group="Evening"]').count(),1,'saved Backend group must project into custom library tabs');
+   assert.equal(await page.locator('[data-pfo-library-groups] [data-pfo-group="Evening"]').count(),1,'saved Backend group must project into the labeled group scope');
    // Simulate the organizer DOM being recreated with an unchanged song catalog.
    await page.evaluate(() => {
     document.querySelector('.piano-pfo-toolbar')?.remove();
-    document.querySelector('.piano-pfo-tabs')?.remove();
+    document.querySelector('.piano-pfo-library-scopes')?.remove();
     window.EveAudioflixPianoFrontendOrganize.mount(document.body);
    });
-   assert.equal(await page.locator('.piano-pfo-tabs [data-pfo-group="Evening"]').count(),1,'remount must rebuild group navigation from an unchanged signature');
+   assert.equal(await page.locator('[data-pfo-library-groups] [data-pfo-group="Evening"]').count(),1,'remount must rebuild group navigation from an unchanged signature');
    assert.equal(await page.locator('[data-pfo-song] option[value="opaque-one"]').count(),1,'remount must restore song selector');
    assert.equal(await page.locator('.piano-pfo-toolbar').count(),1,'remount must not duplicate organizer');
 
@@ -332,6 +332,7 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
    assert.equal(await page.locator('.piano-pxp-queue-row').first().getAttribute('data-queue-id'),orderBeforeDrag[1],'frontend drag must reorder the Backend PlayerQueue');
    await page.locator('.piano-pxp-queue-row').first().locator('[data-af-action="piano-frontend-port-queue-duplicate"]').click();
    await realChild.waitForFunction(()=>window.PianoPlayerQueue?.getState?.().items?.length===3);
+    await page.waitForFunction(()=>window.EveAudioflixPianoFrontend?.pendingCount?.()===0);
    assert.equal(await page.locator('.piano-pxp-queue-row').first().locator('button').allTextContents().then(items=>items.includes('+')&&items.includes('−')),true,'manual queue rows must expose + and − entry controls');
    await page.locator('[data-pxp-mode]').selectOption('ordered');
    await realChild.waitForFunction(()=>window.PianoPlayerQueue?.getState?.().mode==='ordered');
@@ -436,5 +437,4 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
  } catch (error) { throw new Error(`${error.message}\nPiano server stderr:\n${stderr}`); }
  finally { child.kill(); fs.rmSync(temp,{recursive:true,force:true}); }
 }
-
 module.exports = { opaqueRealAppTest };

@@ -1,28 +1,20 @@
 // Soundboard-inspired Piano organization, projected over the Backend song owner.
-(function (ns, front, ports) {
+(function (ns, front, ports, tax) {
   'use strict';
-  if (ns.ready || !front?.ready || !ports?.ready) return;
-  let host = null, signature = '', routeFilter = 'all';
+  if (ns.ready || !front?.ready || !ports?.ready || !tax?.ready) return;
+  let host = null, signature = '', routeFilter = 'all', previewIds = [];
   const focus = { group: new Map(), folder: new Map(), classifier: new Map() };
   const FOCUS_KEY = 'evePianoFrontendFocusV1';
   const canvas = () => host?.querySelector('[data-piano-frontend]');
   const $ = selector => canvas()?.querySelector(selector);
-  const list = value => (Array.isArray(value) ? value : String(value || '').split(','))
-    .map(item => String(item).trim()).filter(Boolean);
-  const custom = song => song?.identifiers?.custom || {};
-  const tabOf = song => String(custom(song).piano_tab || '').trim();
-  const folderOf = song => String(custom(song).piano_folder || '').trim();
-  const groupOf = song => String(custom(song).piano_group || '').trim();
-  const libraryGroupOf = song => groupOf(song) || tabOf(song); // non-destructive legacy fallback
+  const custom = tax.custom, tabOf = tax.tab, foldersOf = tax.folders;
+  const groupsOf = tax.groups, assignedGroupsOf = tax.assignedGroups, classifiers = tax.classifiers;
+  const tagsOf = song => tax.list(song?.identifiers?.tags);
   const routeOf = song => {
     const value = custom(song).piano_playback_v1?.route;
     return ['internal','target'].includes(value) ? value : 'inherit';
   };
-  const classifiers = song => {
-    const ids = song?.identifiers || {}, automatic = song?.automatic_identifiers || {};
-    return [...list(ids.genre), ...list(ids.tags), ...list(automatic.tags)].slice(0, 16);
-  };
-  const unique = values => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const unique = values => tax.unique(values).sort((a, b) => a.localeCompare(b));
   function saveFocus() {
     try { localStorage.setItem(FOCUS_KEY, JSON.stringify({ routeFilter,
       focus: Object.fromEntries(Object.entries(focus).map(([key, map]) => [key, [...map]])) })); } catch (_) {}
@@ -87,22 +79,30 @@
     }
     for (const value of values) target.append(focusChip(value, kind));
   }
+  function optionList(target, values) {
+    if (!target) return;
+    target.replaceChildren(...values.map(value => { const option=document.createElement('option'); option.value=value; return option; }));
+  }
   function refreshNavigation(songs) {
-    const tabs = unique(songs.map(tabOf));
-    const folders = unique(songs.map(folderOf));
-    const groups = unique(songs.map(libraryGroupOf));
+    const folders = unique(songs.flatMap(foldersOf));
+    const groups = unique(songs.flatMap(groupsOf));
+    const tags = unique(songs.flatMap(tagsOf));
     const labels = unique(songs.flatMap(classifiers)).slice(0, 30);
-    const next = JSON.stringify({ songs: songs.map(song => [song.id, song.title, tabOf(song), folderOf(song), groupOf(song)]), tabs, folders, groups, labels });
+    const next = JSON.stringify({ songs: songs.map(song => [song.id, song.title, foldersOf(song), groupsOf(song), tagsOf(song)]), folders, groups, tags, labels });
     if (next === signature) { updateActive(); updateQueuePreview(); return; }
     signature = next;
-    navButtons($('[data-pfo-tabs]'), groups, 'group');
-    navButtons($('[data-pfo-folders]'), folders, 'folder');
+    navButtons($('[data-pfo-library-folders]'), folders, 'folder');
+    navButtons($('[data-pfo-library-groups]'), groups, 'group');
+    navButtons($('[data-pfo-library-tags]'), tags, 'classifier');
     navButtons($('[data-pfo-groups]'), groups, 'group');
     const classifierTarget = $('[data-pfo-classifiers]'); classifierTarget?.replaceChildren();
     for (const label of labels) classifierTarget?.append(focusChip(label, 'classifier'));
     if (classifierTarget && !labels.length) {
       const empty = document.createElement('span'); empty.className = 'piano-pfo-empty'; empty.textContent = 'No classifiers found.'; classifierTarget.append(empty);
     }
+    optionList($('[data-pfo-folder-options]'), folders);
+    optionList($('[data-pfo-group-options]'), groups);
+    optionList($('[data-pfo-tag-options]'), tags);
     const songSelect = $('[data-pfo-song]');
     if (songSelect) {
       const before = songSelect.value; songSelect.replaceChildren();
@@ -121,21 +121,38 @@
   }
   function fillEditor() {
     const song = selectedSong();
-    const tabInput = $('[data-pfo-tab-input]'), folderInput = $('[data-pfo-folder-input]'), groupInput = $('[data-pfo-group-input]');
-    if (tabInput) tabInput.value = tabOf(song);
-    if (folderInput) folderInput.value = folderOf(song);
-    if (groupInput) groupInput.value = groupOf(song);
+    for (const selector of ['[data-pfo-folder-input]','[data-pfo-group-input]','[data-pfo-tag-input]']) {
+      const input = $(selector); if (input) input.value = '';
+    }
+    for (const [selector, values, kind] of [
+      ['[data-pfo-current-folders]', foldersOf(song), 'folder'],
+      ['[data-pfo-current-groups]', assignedGroupsOf(song), 'group'],
+      ['[data-pfo-current-tags]', tagsOf(song), 'tag']
+    ]) {
+      const target = $(selector); target?.replaceChildren(...values.map(value => {
+        const chip = button(`${value} ×`, 'remove-assignment', 'piano-pfo-assignment');
+        chip.dataset.pfoKind = kind; chip.dataset.pfoValue = value; return chip;
+      }));
+      if (target && !values.length) target.textContent = 'None';
+    }
   }
-  function saveOrganization(clear = false) {
+  function saveOrganization() {
     const song = selectedSong(); if (!song) return;
+    const folders = tax.append(foldersOf(song), $('[data-pfo-folder-input]')?.value);
+    const groups = tax.append(assignedGroupsOf(song), $('[data-pfo-group-input]')?.value);
+    const tags = tax.append(tagsOf(song), $('[data-pfo-tag-input]')?.value);
     const sent = ports.command?.('song:update', {
-      songId: song.id,
-      tab: clear ? '' : $('[data-pfo-tab-input]')?.value || '',
-      folder: clear ? '' : $('[data-pfo-folder-input]')?.value || '',
-      group: clear ? '' : $('[data-pfo-group-input]')?.value || ''
+      songId: song.id, folders, groups, tags
     });
+    fillEditor();
     const note = $('[data-pfo-note]');
     if (note) note.textContent = sent === false ? 'Backend is not ready.' : 'Saving through the Piano Backend…';
+  }
+  function removeAssignment(kind, value) {
+    const song = selectedSong(); if (!song) return;
+    const payload = { songId: song.id, folders: foldersOf(song), groups: assignedGroupsOf(song), tags: tagsOf(song) };
+    const key = ({ folder: 'folders', group: 'groups', tag: 'tags' })[kind]; if (!key) return;
+    payload[key] = tax.remove(payload[key], value); ports.command?.('song:update', payload);
   }
   function search(value) {
     const primary = $('[data-pf-search]'), linked = $('[data-pfo-search]');
@@ -144,23 +161,28 @@
   }
   function matchingSongs() { return (front.getVisibleSongs?.() || front.getSongs?.() || []).filter(matches); }
   function updateQueuePreview() {
+    const ids = matchingSongs().map(song => String(song.id));
+    if (previewIds.length && JSON.stringify(ids.slice(0, 500)) !== JSON.stringify(previewIds)) {
+      previewIds = []; const panel = $('[data-pfo-queue-preview]'); if (panel) panel.hidden = true;
+    }
     const note = $('[data-pfo-queue-note]');
-    if (note) note.textContent = `${matchingSongs().length} songs match the current group, folder, classifier, and route filters.`;
+    if (note) note.textContent = `${ids.length} songs match the current group, folder, tag, and route filters.`;
   }
   function previewFilteredQueue() {
     const songs = matchingSongs(), panel = $('[data-pfo-queue-preview]'), listNode = $('[data-pfo-queue-candidates]');
     const note = $('[data-pfo-queue-note]');
     if (!songs.length) { if (note) note.textContent = 'No songs match the current filters.'; return; }
-    listNode?.replaceChildren(...songs.slice(0, 60).map(song => { const item=document.createElement('li');item.textContent=song.title;return item; }));
+    const supported = songs.slice(0, 500); previewIds = supported.map(song => String(song.id));
+    listNode?.replaceChildren(...supported.map(song => { const item=document.createElement('li');item.textContent=song.title;return item; }));
     if (panel) panel.hidden = false;
-    if (note) note.textContent = `${songs.length} songs are ready for review. Nothing has changed yet.`;
+    if (note) note.textContent = `${supported.length} songs are frozen for review. Nothing has changed yet.`;
   }
   function addFilteredQueue() {
-    const songIds = matchingSongs().map(song => String(song.id));
+    const songIds = [...previewIds];
     const note = $('[data-pfo-queue-note]');
     if (!songIds.length) return;
     const sent = ports.command?.('queue:add-many', { songIds });
-    const panel = $('[data-pfo-queue-preview]'); if (panel) panel.hidden = true;
+    previewIds = []; const panel = $('[data-pfo-queue-preview]'); if (panel) panel.hidden = true;
     if (note) note.textContent = sent === false ? 'Piano Backend is not ready.' : `Adding ${songIds.length} songs through the shared Player Queue…`;
   }
   // Each action owns exactly one panel; the other drawers close when it opens.
@@ -223,6 +245,7 @@
     if (!advanced) { ports.ensureFilters?.(); advanced = c.querySelector('.piano-pxp-advanced'); }
     if (!advanced) return false;
     if (!nexus.contains(advanced)) nexus.append(advanced);
+    advanced.querySelector('[data-pxp-tags]')?.setAttribute('list', 'piano-pfo-tag-options');
     const editor = c.querySelector('.piano-pxm-editor');
     if (editor && !nexus.contains(editor)) nexus.append(editor);
     const orphan = c.querySelector('.piano-pxp-filters');
@@ -250,8 +273,8 @@
     <div class="piano-pfo-drawer piano-pfo-player" data-pfo-player-panel id="pfo-player-tools" hidden></div>
     <div class="piano-pfo-search" data-pfo-search-panel id="pfo-nexus-search" hidden><input data-pfo-search type="search" placeholder="Search Piano songs" aria-label="Nexus Piano Link search"><button type="button" data-pfo-action="search">Search</button></div>
     <div class="piano-pfo-drawer" data-pfo-classifier-panel id="pfo-classifiers" hidden><strong>Classifiers</strong><div data-pfo-classifiers></div></div>
-    <div class="piano-pfo-drawer" data-pfo-group-panel id="pfo-groups" hidden><strong>Groups &amp; queue</strong><div data-pfo-groups></div><label>Playback route<select data-pfo-route-filter><option value="all">All routes</option><option value="inherit">Inherited defaults</option><option value="internal">Internal Piano</option><option value="target">Target window</option></select></label><button type="button" data-pfo-action="queue-preview">Preview filtered queue</button><span data-pfo-queue-note></span><div class="piano-pfo-queue-preview" data-pfo-queue-preview hidden><strong>Queue candidates</strong><ol data-pfo-queue-candidates></ol><button type="button" data-pfo-action="queue-confirm">Add these songs</button><button type="button" data-pfo-action="queue-cancel">Cancel</button></div></div>
-    <div class="piano-pfo-manager" data-pfo-manager id="pfo-edit-folders" hidden><label>Song<select data-pfo-song></select></label><label hidden>Legacy tab<input data-pfo-tab-input maxlength="80" placeholder="Custom tab"></label><label>Folder<input data-pfo-folder-input maxlength="80" placeholder="Folder name"></label><label>Group<input data-pfo-group-input maxlength="80" placeholder="Group name"></label><div><button type="button" data-pfo-action="save">Apply</button><button type="button" data-pfo-action="clear">Clear</button></div><div class="piano-pfo-folder-list"><strong>Folders</strong><div data-pfo-folders></div></div><span data-pfo-note>Saved by the Piano Backend.</span></div>`;
+    <div class="piano-pfo-drawer" data-pfo-group-panel id="pfo-groups" hidden><strong>Groups &amp; queue</strong><div data-pfo-groups></div><div class="piano-pfo-route"><span>Playback route</span><label><select data-pfo-route-filter><option value="all">All routes</option><option value="inherit">Inherited defaults</option><option value="internal">Internal Piano</option><option value="target">Target window</option></select><small>Limit the reviewed queue set by its Backend-owned playback route.</small></label></div><button type="button" data-pfo-action="queue-preview">Preview filtered queue</button><span data-pfo-queue-note></span><div class="piano-pfo-queue-preview" data-pfo-queue-preview hidden><strong>Queue candidates</strong><ol data-pfo-queue-candidates></ol><button type="button" data-pfo-action="queue-confirm">Add these songs</button><button type="button" data-pfo-action="queue-cancel">Cancel</button></div></div>
+    <div class="piano-pfo-manager" data-pfo-manager id="pfo-edit-folders" hidden><label>Song<select data-pfo-song></select></label><label>Folder<input data-pfo-folder-input list="piano-pfo-folder-options" maxlength="80" placeholder="Add folder"></label><label>Group<input data-pfo-group-input list="piano-pfo-group-options" maxlength="80" placeholder="Add group"></label><label>Tag<input data-pfo-tag-input list="piano-pfo-tag-options" maxlength="80" placeholder="Add tag"></label><div><button type="button" data-pfo-action="save">Apply additions</button><button type="button" data-pfo-action="clear">Clear fields</button></div><div class="piano-pfo-current"><strong>Current assignments</strong><span>Folders</span><div data-pfo-current-folders></div><span>Groups</span><div data-pfo-current-groups></div><span>Tags</span><div data-pfo-current-tags></div></div><span data-pfo-note>Saved by the Piano Backend.</span><datalist id="piano-pfo-folder-options" data-pfo-folder-options></datalist><datalist id="piano-pfo-group-options" data-pfo-group-options></datalist><datalist id="piano-pfo-tag-options" data-pfo-tag-options></datalist></div>`;
     library.prepend(toolbar);
     // Keep live port/media controls mounted until the user opens their destination drawer.
     const c = canvas(), player = toolbar.querySelector('[data-pfo-player-panel]');
@@ -279,14 +302,15 @@
       pills.querySelector('[data-pxp-scope="recordings"]')?.remove();
       pills.classList.add('piano-pfo-library-tabs');
       if (!pills.querySelector('.piano-pfo-tab-title')) {
-        const title = document.createElement('span'); title.className = 'piano-pfo-tab-title'; title.textContent = 'Library groups';
+        const title = document.createElement('span'); title.className = 'piano-pfo-tab-title'; title.textContent = 'Views';
         pills.prepend(title);
       }
       c.querySelector('.piano-frontend-library-head')?.after(pills);
     }
     if (filters && !filters.querySelector('.piano-pxp-advanced,.piano-pxp-pills')) filters.remove();
-    const tabs = document.createElement('div'); tabs.className = 'piano-pfo-tabs'; tabs.dataset.pfoTabs = '';
-    pills?.append(tabs);
+    const scopes = document.createElement('div'); scopes.className = 'piano-pfo-library-scopes';
+    scopes.innerHTML = '<div><strong>Folders:</strong><span data-pfo-library-folders></span></div><div><strong>Groups:</strong><span data-pfo-library-groups></span></div><div><strong>Tags:</strong><span data-pfo-library-tags></span></div>';
+    pills?.after(scopes);
     pills?.addEventListener('click', event => {
       if (!event.target.closest('[data-pxp-scope]')) return;
       Object.values(focus).forEach(bucket => bucket.clear()); saveFocus(); updateActive(); front.repaint?.();
@@ -298,11 +322,12 @@
       else if (action === 'nexus') togglePanel('nexus');
       else if (action === 'classifiers') togglePanel('classifiers');
       else if (action === 'groups') togglePanel('groups');
-      else if (action === 'save') saveOrganization(false);
-      else if (action === 'clear') saveOrganization(true);
+      else if (action === 'save') saveOrganization();
+      else if (action === 'clear') fillEditor();
+      else if (action === 'remove-assignment') removeAssignment(event.target.dataset.pfoKind, event.target.dataset.pfoValue);
       else if (action === 'queue-preview') previewFilteredQueue();
       else if (action === 'queue-confirm') addFilteredQueue();
-      else if (action === 'queue-cancel') { const panel=$('[data-pfo-queue-preview]');if(panel)panel.hidden=true; }
+      else if (action === 'queue-cancel') { previewIds=[];const panel=$('[data-pfo-queue-preview]');if(panel)panel.hidden=true; }
       else if (action === 'search') search($('[data-pfo-search]')?.value || '');
     });
     toolbar.querySelector('[data-pfo-route-filter]')?.addEventListener('change', event => {
@@ -322,7 +347,7 @@
   front.mount = nextHost => { oldMount(nextHost); mount(nextHost); };
   function matches(song) {
     if (routeFilter !== 'all' && routeOf(song) !== routeFilter) return false;
-    const values = { group: [libraryGroupOf(song)], folder: [folderOf(song)], classifier: classifiers(song) };
+    const values = { group: groupsOf(song), folder: foldersOf(song), classifier: classifiers(song) };
     for (const [kind, bucket] of Object.entries(focus)) {
       const mine = values[kind].filter(Boolean), included = [...bucket].filter(([,state]) => state === 1).map(([value]) => value);
       if (mine.some(value => bucket.get(value) === -1)) return false;
@@ -335,12 +360,12 @@
     oldDecorate(target, visible, all); refreshNavigation(all);
     for (const row of target.querySelectorAll('.piano-frontend-song')) {
       const song = visible.find(item => String(item.id) === String(row.dataset.songId)); if (!song) continue;
-      row.dataset.tab = tabOf(song); row.dataset.folder = folderOf(song); row.dataset.group = groupOf(song);
+      row.dataset.tab = tabOf(song); row.dataset.folder = foldersOf(song).join(','); row.dataset.group = groupsOf(song).join(',');
       const details = row.querySelector('.piano-pxp-song-details');
-      for (const value of [tabOf(song), folderOf(song), groupOf(song)]) if (value && details) {
+      for (const value of [...foldersOf(song), ...groupsOf(song), ...tagsOf(song)].slice(0, 12)) if (value && details) {
         const chip = document.createElement('span'); chip.className = 'piano-pxp-chip piano-pfo-chip'; chip.textContent = value; details.append(chip);
       }
     }
   };
   Object.assign(ns, { ready: true, mount, matches, refresh: () => refreshNavigation(front.getSongs?.() || []) });
-})(window.EveAudioflixPianoFrontendOrganize = window.EveAudioflixPianoFrontendOrganize || {}, window.EveAudioflixPianoFrontend, window.EveAudioflixPianoFrontendPorts);
+})(window.EveAudioflixPianoFrontendOrganize = window.EveAudioflixPianoFrontendOrganize || {}, window.EveAudioflixPianoFrontend, window.EveAudioflixPianoFrontendPorts, window.EveAudioflixPianoTaxonomy);

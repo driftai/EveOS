@@ -28,8 +28,8 @@
             return clean;
         } catch (_) { return clean; }
     }
-    function merge(assignments) {
-        const saved = read(), incoming = sanitize(assignments), merged = { ...saved, ...incoming };
+    function reconcile(assignments) {
+        const saved = read(), incoming = sanitize(assignments), merged = { ...incoming, ...saved };
         if (JSON.stringify(saved) !== JSON.stringify(merged)) write(merged);
         return merged;
     }
@@ -39,5 +39,5 @@
         if (value === null || value) next[key] = value;
         return write(next);
     }
-    Object.assign(ns, { ready: true, read, merge, record });
+    Object.assign(ns, { ready: true, read, reconcile, merge: reconcile, record });
 })(window.EveAudioflixHotkeyJournal = window.EveAudioflixHotkeyJournal || {});

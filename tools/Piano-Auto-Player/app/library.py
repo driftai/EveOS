@@ -124,6 +124,13 @@ class SongLibrary:
         return list(dict.fromkeys(str(value).strip()[:80] for value in values if str(value).strip()))[:40]
 
     @staticmethod
+    def _clean_custom_collection(key: str, raw: Any) -> list[str]:
+        values = raw if isinstance(raw, list) else str(raw or "").split(",")
+        limit = 180 if key == "piano_duplicate_keep_v1" else 80
+        count = 20 if key == "piano_duplicate_keep_v1" else 80
+        return list(dict.fromkeys(str(value).strip()[:limit] for value in values if str(value).strip()))[:count]
+
+    @staticmethod
     def normalize_playback_settings(raw: Any) -> dict[str, Any]:
         if not isinstance(raw, dict):
             raise ValueError("Piano playback settings must be an object")
@@ -163,6 +170,10 @@ class SongLibrary:
         patch = incoming if isinstance(incoming, dict) else {}
         base_custom = base.get("custom")
         custom = dict(base_custom) if isinstance(base_custom, dict) else {}
+        collection_keys = {"piano_folders_v1": 80, "piano_groups_v1": 80, "piano_duplicate_keep_v1": 20}
+        for key in collection_keys:
+            if key in custom:
+                custom[key] = cls._clean_custom_collection(key, custom[key])
         if "custom" in patch:
             # The editor sends custom identifiers as the complete desired set.
             # Treat an explicit empty dict as a real delete-all operation instead
@@ -175,6 +186,8 @@ class SongLibrary:
                     if clean_key:
                         custom[clean_key] = (cls.normalize_playback_settings(value)
                                              if clean_key == "piano_playback_v1"
+                                             else cls._clean_custom_collection(clean_key, value)
+                                             if clean_key in collection_keys
                                              else str(value).strip()[:240])
         rating = patch.get("personal_rating", base.get("personal_rating"))
         try:

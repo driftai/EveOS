@@ -71,8 +71,8 @@ window.EveAudioflixState = window.EveAudioflixState || {};
         const legacyArtist = legacyMusicFocus.startsWith('smart:artist:') ? legacyMusicFocus : '';
         const legacyClassifier = legacyMusicFocus.startsWith('class:') ? legacyMusicFocus : '';
         const soundboard = boundedItems(source.soundboard, 'sound', MAX_SOUNDBOARD), music = boundedItems(source.music, 'music');
-        const incomingHotkeys = source.portHotkeys && typeof source.portHotkeys === 'object' && !Array.isArray(source.portHotkeys) ? { ...source.portHotkeys } : {};
-        const portHotkeys = window.EveAudioflixHotkeyJournal?.merge?.(incomingHotkeys) || incomingHotkeys;
+        const incomingHotkeys = source.portHotkeys && typeof source.portHotkeys === 'object' && !Array.isArray(source.portHotkeys) ? { ...source.portHotkeys } : {}, catalogHotkeys = { ...incomingHotkeys }; for (const item of [...soundboard, ...music]) if (item.hotkey && !(item.id in catalogHotkeys)) catalogHotkeys[item.id] = item.hotkey;
+        const portHotkeys = window.EveAudioflixHotkeyJournal?.reconcile?.(catalogHotkeys) || catalogHotkeys;
         for (const item of [...soundboard, ...music]) {
             if (portHotkeys[item.id] === null) item.hotkey = ''; // Explicit per-item clear tombstone.
             else if (text(portHotkeys[item.id], '')) item.hotkey = text(portHotkeys[item.id], '');

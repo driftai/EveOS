@@ -24,7 +24,8 @@
             updatedAt: song.updatedAt, source: song.source, source_url: song.source_url, duration_ms: song.duration_ms,
             identifiers: { author: id.author, genre: id.genre, tags: id.tags, personal_rating: id.personal_rating,
                 custom: { piano_tab: custom.piano_tab, piano_folder: custom.piano_folder,
-                    piano_group: custom.piano_group, favorite: custom.favorite,
+                    piano_group: custom.piano_group, piano_folders_v1: custom.piano_folders_v1,
+                    piano_groups_v1: custom.piano_groups_v1, favorite: custom.favorite,
                     piano_duplicate_keep_v1: custom.piano_duplicate_keep_v1,
                     piano_playback_v1: custom.piano_playback_v1 && {
                         route: custom.piano_playback_v1.route, layout: custom.piano_playback_v1.layout,

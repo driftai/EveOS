@@ -1,0 +1,20 @@
+// Shared Piano metadata projection. The Backend remains the only persistence owner.
+(function (ns) {
+  'use strict';
+  if (ns.ready) return;
+  const list = value => (Array.isArray(value) ? value : String(value || '').split(','))
+    .map(item => String(item).trim()).filter(Boolean);
+  const unique = values => [...new Set(values.filter(Boolean))];
+  const custom = song => song?.identifiers?.custom || {};
+  const tab = song => String(custom(song).piano_tab || '').trim();
+  const folders = song => unique(list(custom(song).piano_folders_v1).concat(list(custom(song).piano_folder)));
+  const assignedGroups = song => unique(list(custom(song).piano_groups_v1).concat(list(custom(song).piano_group)));
+  const groups = song => assignedGroups(song).length ? assignedGroups(song) : list(tab(song));
+  const classifiers = song => {
+    const ids = song?.identifiers || {}, automatic = song?.automatic_identifiers || {};
+    return unique([...list(ids.genre), ...list(ids.tags), ...list(automatic.tags)]).slice(0, 60);
+  };
+  const append = (current, additions) => unique([...list(current), ...list(additions)]).slice(0, 80);
+  const remove = (current, value) => list(current).filter(item => item !== String(value || '').trim());
+  Object.assign(ns, { ready: true, list, unique, custom, tab, folders, assignedGroups, groups, classifiers, append, remove });
+})(window.EveAudioflixPianoTaxonomy = window.EveAudioflixPianoTaxonomy || {});

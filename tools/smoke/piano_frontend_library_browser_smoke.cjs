@@ -14,6 +14,7 @@ const frontend = read('js/modules/features/audioflix/audioflix.piano.frontend.js
 const retentionSource = read('js/modules/features/audioflix/audioflix.ui.piano-retain.js');
 const presentationPorts = read('js/modules/features/audioflix/audioflix.piano.frontend.ports.js');
 const mediaFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.media.js');
+const taxonomyFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.taxonomy.js');
 const organizeFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.organize.js');
 const duplicateFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.duplicates.js');
 const settingsFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.settings.js');
@@ -45,6 +46,8 @@ assert(mediaFrontend.includes("ports.command?.('song:update'"), 'listener metada
 assert(mediaFrontend.includes("ports.command?.('progress:seek'"), 'listener seek must use the existing Backend progress owner');
 assert(settingsFrontend.includes("ports.command?.('queue:reorder'"), 'Piano Internal View must reorder the shared Backend queue');
 assert(organizeFrontend.includes("ports.command?.('queue:add-many'"), 'filtered group queueing must use one Backend queue command');
+assert(!organizeFrontend.includes('slice(0, 60)'), 'queue previews must show the complete supported candidate set');
+assert(extendedPort.includes('piano_folders_v1: cleanList'), 'multi-folder metadata must stay Backend-owned and structured');
 assert(internalFrontend.includes("window.open('','eveos-piano-internal-viewer'"), 'Internal Viewer must retain its bounded detachable projection');
 assert(!internalFrontend.includes('new Audio(') && !internalFrontend.includes('PianoPlaybackOwner ='), 'Internal Viewer must never create a second playback owner');
 
@@ -95,6 +98,7 @@ async function syntheticTest(browser, width) {
   await page.addScriptTag({content:frontend});
   await page.addScriptTag({content:presentationPorts});
   await page.addScriptTag({content:mediaFrontend});
+   await page.addScriptTag({content:taxonomyFrontend});
   await page.addScriptTag({content:organizeFrontend});
   await page.addScriptTag({content:duplicateFrontend});
   await page.addScriptTag({content:settingsFrontend});
@@ -150,6 +154,10 @@ async function syntheticTest(browser, width) {
    await page.locator('[data-pfo-action="queue-preview"]').click();
    assert.equal(await page.locator('[data-pfo-queue-preview]').isVisible(),true,'bulk queue construction requires an explicit candidate preview');
    assert.equal(await page.locator('[data-pfo-queue-candidates] li').count(),2,'preview uses the combined visible library scope');
+   await page.locator('[data-pfo-route-filter]').selectOption('internal');
+   assert.equal(await page.locator('[data-pfo-queue-preview]').isHidden(),true,'changing the filtered set invalidates the reviewed queue snapshot');
+   await page.locator('[data-pfo-route-filter]').selectOption('all');
+   await page.locator('[data-pfo-action="queue-preview"]').click();
    await page.locator('[data-pfo-action="queue-cancel"]').click();
     assert.equal(await page.locator('[data-pfo-exclude],.piano-pfo-exclude').count(),0,'No standalone minus/exclude controls appear in scope selectors');
    const study=page.locator('[data-pfo-groups] [data-pfo-group]').filter({hasText:'Study'});
@@ -178,11 +186,30 @@ async function syntheticTest(browser, width) {
    await calm.click();
    assert.equal(await calm.getAttribute('data-focus-state'),'neutral','Third classifier click clears Calm');
    assert.equal(await page.locator('.piano-frontend-song').count(),2);
+   assert.equal(await page.locator('[data-pfo-library-groups] [data-pfo-group]').count(),2,'library scope exposes groups in its own labeled row');
+   assert.equal(await page.locator('[data-pfo-library-tags] [data-pfo-classifier]').count(),2,'library scope exposes tags in its own labeled row');
+   await page.locator('[data-pfo-action="organize"]').click();
+   await page.locator('[data-pfo-folder-input]').fill('Practice');
+   await page.locator('[data-pfo-group-input]').fill('Favorites');
+   await page.locator('[data-pfo-tag-input]').fill('Calm');
+   await page.locator('[data-pfo-action="save"]').click();
+   await child.waitForFunction(()=>window.__songs[0].identifiers.custom.piano_folders_v1?.includes('Practice'));
+   const organized=await child.evaluate(()=>window.__songs[0].identifiers);
+   assert.deepEqual(organized.custom.piano_folders_v1,['Practice'],'folder additions persist as a Backend-owned collection');
+   assert.deepEqual(organized.custom.piano_groups_v1,['Study','Favorites'],'legacy and new groups migrate without replacement');
+   assert.deepEqual(organized.tags,['Calm'],'tag additions preserve existing metadata without duplication');
+   assert.equal(await page.locator('[data-pfo-folder-input]').inputValue(),'','successful Apply clears the addition fields');
   }
+   await page.waitForFunction(()=>window.EveAudioflixPianoFrontend?.pendingCount?.()===0);
   assert(await page.locator('[data-af-action="piano-frontend-stop"]').isEnabled(),'stop must enable after bridge handshake');
   await page.locator('[data-af-action="piano-frontend-play"][data-song-id="one"]').click();
-  await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='play'&&x[1]==='one'));
-  await page.waitForFunction(()=>document.querySelector('[data-pf-message]')?.textContent?.includes('Song sent'));
+   try {
+    await page.waitForFunction(()=>document.querySelector('[data-pf-message]')?.textContent?.includes('Song sent'),null,{timeout:10000});
+    await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='play'&&x[1]==='one'),null,{timeout:5000});
+   } catch(error) {
+    const evidence=await page.evaluate(()=>({notice:document.querySelector('[data-pf-message]')?.textContent,button:document.querySelector('[data-song-id="one"] .piano-frontend-song-play')?.outerHTML,pending:window.EveAudioflixPianoFrontend?.pendingCount?.(),bridge:window.EveAudioflixPianoFrontend?.bridgeReady?.()}));
+    throw new Error(`Responsive Play did not reach the shared Backend at ${width}px: ${JSON.stringify(evidence)}; ${error.message}`);
+   }
   await page.click('.piano-frontend-transport [data-af-action="piano-frontend-pause"]'); await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='pause'));
   await page.click('[data-af-action="piano-frontend-stop"]'); await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='stop'));
   await page.locator('[data-pfo-action="nexus"]').click(); await page.locator('[data-pfo-search]').fill('Moon'); await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===1); assert.equal(await page.locator('.piano-frontend-song').count(),1);
@@ -197,6 +224,8 @@ async function syntheticTest(browser, width) {
   assert(stable.same && stable.view==='frontend','backend document must be preserved on view change');
   assert.equal(await page.locator('[data-piano-view-title]').textContent(),'Piano Library');
   assert.equal(await child.evaluate(()=>window.__keep),1147);
+  const unwrapped=await page.evaluate(()=>{const root=document.querySelector('[data-audioflix-piano]'),stage=root.querySelector('.audioflix-piano-stage'),canvas=root.querySelector('.audioflix-piano-frontend');return{stage:getComputedStyle(stage).overflow,position:getComputedStyle(canvas).position,overflow:getComputedStyle(canvas).overflow};});
+  assert.deepEqual(unwrapped,{stage:'visible',position:'relative',overflow:'visible'},'Piano Frontend must use the Audioflix page scroll instead of a nested viewport');
   await page.click('[data-piano-view-switch]');
   await child.evaluate(()=>window.__songs.push({id:'four',title:'Backend Refresh Song',updated_at:400}));
   await page.click('[data-af-action="piano-refresh"]');
@@ -225,4 +254,4 @@ async function syntheticTest(browser, width) {
  } finally { await page.close(); }
 }
 
-(async()=>{const browser=await chromium.launch({headless:true});try{await opaqueRealAppTest(browser,{repo,css,views,frontend,presentationPorts,mediaFrontend,organizeFrontend,settingsFrontend,ui,installHost});for(const width of [1440,760,480])await syntheticTest(browser,width);await testPianoRetention(browser,retentionSource,read('js/modules/features/audioflix/audioflix.ui.js'));console.log('EVEOS_PIANO_FRONTEND_LIBRARY_BROWSER_PASS');}finally{await browser.close();}})().catch(error=>{console.error(error.stack||error);process.exitCode=1;});
+(async()=>{const browser=await chromium.launch({headless:true});try{await opaqueRealAppTest(browser,{repo,css,views,frontend,presentationPorts,mediaFrontend,taxonomyFrontend,organizeFrontend,settingsFrontend,ui,installHost});for(const width of [1440,760,480])await syntheticTest(browser,width);await testPianoRetention(browser,retentionSource,read('js/modules/features/audioflix/audioflix.ui.js'));console.log('EVEOS_PIANO_FRONTEND_LIBRARY_BROWSER_PASS');}finally{await browser.close();}})().catch(error=>{console.error(error.stack||error);process.exitCode=1;});

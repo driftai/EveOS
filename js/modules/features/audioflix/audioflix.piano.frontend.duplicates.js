@@ -30,7 +30,7 @@
     }).filter(Boolean);
   }
   function keepPayload(song, other) {
-    return [...new Set([...keepList(song), String(other?.id || '')].filter(Boolean))].slice(0, 20).join(',');
+    return [...new Set([...keepList(song), String(other?.id || '')].filter(Boolean))].slice(0, 20);
   }
   function mergePayload(song, other) {
     const mine = song?.identifiers || {}, theirs = other?.identifiers || {}, mineCustom = mine.custom || {}, theirCustom = theirs.custom || {};

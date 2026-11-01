@@ -53,3 +53,23 @@ def test_explicit_empty_custom_identifiers_delete_all_existing_keys(tmp_path) ->
     assert updated is not None
     assert updated["sheet"] == "a"
     assert updated["identifiers"]["custom"] == {}
+
+
+def test_piano_collection_metadata_round_trips_without_string_truncation(tmp_path) -> None:
+    library = SongLibrary(tmp_path / "songs.json")
+    keep_ids = [f"duplicate-{index:02d}-" + "x" * 120 for index in range(20)]
+    library.save({
+        "id": "song-collections", "title": "Collections", "sheet": "a",
+        "identifiers": {"custom": {
+            "piano_folders_v1": ["Study", "Favorites"],
+            "piano_groups_v1": ["Anime", "Practice"],
+            "piano_duplicate_keep_v1": keep_ids,
+        }},
+    })
+
+    song = library.get("song-collections")
+
+    assert song is not None
+    assert song["identifiers"]["custom"]["piano_folders_v1"] == ["Study", "Favorites"]
+    assert song["identifiers"]["custom"]["piano_groups_v1"] == ["Anime", "Practice"]
+    assert song["identifiers"]["custom"]["piano_duplicate_keep_v1"] == keep_ids
