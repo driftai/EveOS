@@ -3,6 +3,10 @@ window.EveAudioflixUiActionsRouting = window.EveAudioflixUiActionsRouting || {};
 (function (ns) {
     'use strict';
     ns.create = ctx => async (actionTarget, action) => {
+            // Do not consume the user gesture for unrelated routing controls.
+            if (['provider-open-companion', 'provider-test-tone', 'provider-arm', 'provider-stop'].includes(action)) {
+                return !!(await window.EveAudioflixProviderCaptureUi?.handleAction?.(actionTarget, action, ctx));
+            }
             if (action === 'select-output') { try { await window.EveAudioflixAudio?.selectOutput?.(); } catch (err) { ctx.playbackStatus = err.message || 'Output selection failed'; } ctx.rerender(); return true; }
             if (action === 'unlock-output-names') {
                 try { const ok = await window.EveAudioflixAudio?.unlockDeviceLabels?.(); ctx.playbackStatus = ok ? 'Output access granted.' : 'Output access still blocked here.'; }

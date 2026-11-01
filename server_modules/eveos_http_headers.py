@@ -8,6 +8,13 @@ class EveOSHTTPHeadersMixin:
 
     protocol_version = "HTTP/1.1"
 
+    def translate_path(self, path):
+        # Covers GET and HEAD, including aliases or normalized URL spellings.
+        # The generated file:// capability must never be downloadable over HTTP.
+        from .audioflix_provider_file_auth import is_private_static_path
+        target = super().translate_path(path)
+        return target + '.blocked' if is_private_static_path(target) else target
+
     def end_headers(self):
         if (self.path or "").split("?", 1)[0] == "/agent-management-embedded.html":
             self.send_header("Content-Security-Policy", "frame-ancestors file: http://localhost:* http://127.0.0.1:*")
@@ -19,7 +26,7 @@ class EveOSHTTPHeadersMixin:
                 self.send_header("Access-Control-Allow-Origin", _acao)
         self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With, X-EveOS-Provider-Capture, X-EveOS-Provider-File-Auth")
         self.send_header("Access-Control-Max-Age", "86400")  # 24 hours
         self._send_cache_control()
         super().end_headers()

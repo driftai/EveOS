@@ -227,7 +227,7 @@ class _PcmPlayer:
             pass
 
 
-def _player_for(device_id: str, sample_rate: int, channels: int) -> _PcmPlayer:
+def _player_for(device_id: str, sample_rate: int, channels: int, lane: str = "primary") -> _PcmPlayer:
     if sd is None or np is None:
         raise RuntimeError("Native playback requires the optional sounddevice and numpy packages.")
     if not isinstance(device_id, str) or not device_id.startswith("sd:"):
@@ -239,7 +239,10 @@ def _player_for(device_id: str, sample_rate: int, channels: int) -> _PcmPlayer:
                 raise ValueError()
         except Exception:
             raise RuntimeError("Selected native output is not a playable sounddevice endpoint.")
-    key = f"{device_id}:{sample_rate}:{channels}"
+    lane = str(lane or "primary").strip().lower()
+    if lane not in {"primary", "provider-capture"}:
+        raise RuntimeError("Unknown native playback lane.")
+    key = f"{device_id}:{sample_rate}:{channels}:{lane}"
     index = int(str(device_id).split(":", 1)[1])
     with _LOCK:
         open_lock = _PLAYER_LOCKS.setdefault(device_id, threading.Lock())
@@ -263,9 +266,8 @@ def _player_for(device_id: str, sample_rate: int, channels: int) -> _PcmPlayer:
             with _LOCK:
                 _PLAYERS[key] = player
         return player
-
-
-def _enqueue_mono(device_id: str, sample_rate: int, samples, kind: str, stream_id=None, expires_at_ms=None) -> dict:
+def _enqueue_mono(device_id: str, sample_rate: int, samples, kind: str, stream_id=None,
+                  expires_at_ms=None, lane="primary", strict_device=False) -> dict:
     if sd is None or np is None:
         raise RuntimeError("Native playback requires the optional sounddevice and numpy packages.")
     if not device_id:
@@ -273,16 +275,12 @@ def _enqueue_mono(device_id: str, sample_rate: int, samples, kind: str, stream_i
     mono = np.asarray(samples, dtype="float32").reshape(-1)
     used_device, fell_back = device_id, False
     try:
-        player = _player_for(device_id, sample_rate, 1)
+        player = _player_for(device_id, sample_rate, 1, lane)
     except Exception:
-        # A saved output that no longer exists -- unplugged, renamed, driver reinstalled -- raised
-        # on EVERY chunk, and handle_post_request turns any exception into a 400. So one stale
-        # device id produced an unbroken stream of failed requests and total silence, with nothing
-        # in the response pointing at the device as the cause. Fall back to the system default so
-        # sound keeps coming, and report what was actually used so the caller can correct itself.
-        if device_id == "default":
+        # Legacy lanes may fall back and report it; strict capture must fail closed.
+        if device_id == "default" or strict_device:
             raise
-        player = _player_for("default", sample_rate, 1)
+        player = _player_for("default", sample_rate, 1, lane)
         used_device, fell_back = "default", True
     if expires_at_ms is not None and (time.time() * 1000) > expires_at_ms:
         return {"ok": False, "stale": True, "message": "Expired PCM chunk was not queued."}
@@ -309,12 +307,14 @@ def play_pcm(payload: dict) -> dict:
     if expires_at_ms is not None and (time.time() * 1000) > expires_at_ms:
         return {"ok": False, "stale": True, "message": "Expired PCM chunk was not decoded."}
     samples = np.frombuffer(base64.b64decode(audio), dtype="<i2").astype("float32") / 32768.0
+    samples *= max(0.0, min(1.0, float(payload.get("gain", 1.0))))
     channels = max(1, int(payload.get("channels") or 1))
     if channels > 1:
         samples = samples.reshape((-1, channels))[:, 0]
     return _enqueue_mono(
         device_id, int(payload.get("sampleRate") or 24000), samples, "pcm",
-        payload.get("streamId"), expires_at_ms,
+        payload.get("streamId"), expires_at_ms, payload.get("lane") or "primary",
+        payload.get("strictDevice") is True,
     )
 
 

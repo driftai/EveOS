@@ -429,6 +429,7 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         setHotkeyBypassed,
         setVoicesPaused,
         warm,
+        request: fetchJson,
         getStatus: function () { return lastStatus; }
     });
 })();
