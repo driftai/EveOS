@@ -316,7 +316,7 @@ window.EveAudioflix = window.EveAudioflix || {};
     const uiCtx = {
         rerenderTransient: () => rerender(true), rerenderPlayback, rerenderLibrary,
         state, rerender, rerenderModal, pushHotkeysToBridge, loadPortedSounds, findItem, startRepeater, stopRepeater, frontendActiveGroup, frontendGroupEntries, playQueueIndex, toggleGroup: uiRender.toggleGroup,
-        setHotkeyBypassed: (desired) => hotkeyController?.setBypassed?.(desired),
+        setHotkeyBypassed: (desired) => hotkeyController?.setBypassed?.(desired), toggleTransportPause: () => hotkeyController?.toggleTransportPause?.(),
         invalidateQueueRun, waitForQueueTransition: () => queueTransition.catch(() => {}),
         get overlay() { return overlay; },
         get portedSounds() { return portedSounds; },

@@ -27,14 +27,22 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
             soundCount: Number(audioflix.soundboard?.length || 0),
             musicCount: Number(audioflix.music?.length || 0),
             outputRoute: route,
+            audioOutput: { requestedLabel: route, browserSinkId: audioflix.nativeBridgeEnabled ? '' : (audioflix.preferredSinkId || ''), source: audioflix.nativeBridgeEnabled ? 'native-match' : 'browser' },
             sentAt: new Date().toISOString()
         };
     }
 
     function sendContext(frame) {
+        const initial = context();
         try {
-            frame?.contentWindow?.postMessage({ type: 'eveos:audioflix-context', context: context() }, '*');
+            frame?.contentWindow?.postMessage({ type: 'eveos:audioflix-context', context: initial }, '*');
         } catch (_) {}
+        Promise.resolve(window.EveAudioflixAudio?.resolvePlaybackSink?.()).then(sink => {
+            if (!frame?.contentWindow) return;
+            const refined = { ...context(), audioOutput: { requestedLabel: initial.audioOutput.requestedLabel,
+                browserSinkId: String(sink?.deviceId || ''), source: sink?.source || initial.audioOutput.source } };
+            frame.contentWindow.postMessage({ type: 'eveos:audioflix-context', context: refined }, '*');
+        }).catch(() => {});
     }
 
     function watchDetached() {

@@ -156,7 +156,7 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
             }, (value, options) => window.EveAudioflixAudio?.updateItemVolume?.(options.itemId, value, options));
             V.overlay.addEventListener('keydown', e => {
                 const target = e.target;
-                if (!target?.classList?.contains('audioflix-hotkey-input') && !target?.classList?.contains('audioflix-bypass-input')) return;
+                if (!target?.classList?.contains('audioflix-hotkey-input') && !target?.classList?.contains('audioflix-bypass-input') && !target?.classList?.contains('audioflix-transport-input')) return;
                 if (e.key === 'Tab') return;
                 if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
                     e.preventDefault(); target.dataset.afExplicitClear = 'true'; target.value = ''; target.dispatchEvent(new Event('change', { bubbles: true })); return;
@@ -236,6 +236,10 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                     const val = t.value.trim().toLowerCase(), issue = hotkeyComboIssue(val);
                     t.title = issue ? issue.msg : 'Press this to suspend/resume all sound hotkeys'; t.classList.toggle('audioflix-input-invalid', !!(issue && issue.invalid));
                     window.EveAudioflixState?.update?.({ hotkeyBypassCombo: val }, 'audioflix-bypass'); pushHotkeysToBridge();
+                } else if (t.classList.contains('audioflix-transport-input')) {
+                    const val = t.value.trim().toLowerCase(), issue = hotkeyComboIssue(val);
+                    t.title = issue ? issue.msg : 'Pause or resume the active Audioflix tab'; t.classList.toggle('audioflix-input-invalid', !!(issue && issue.invalid));
+                    window.EveAudioflixState?.update?.({ hotkeyTransportCombo: val }, 'audioflix-transport-hotkey'); pushHotkeysToBridge();
                 } else {
                     const sel = t.closest('[data-af-control]'); if (!sel) return;
                     const lbl = sel.selectedOptions[0]?.textContent || '', val = sel.value || '', ctrl = sel.dataset.afControl; sel.blur();

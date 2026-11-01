@@ -60,6 +60,8 @@ function frames(count = 450) {
     const directRoute = audioSource.indexOf('await routeBrowserStream');
     const captureFallback = audioSource.indexOf('await musicCapture?.start');
     assert(directRoute >= 0 && captureFallback > directRoute, 'direct browser sink is attempted before main-thread PCM capture');
+    assert(audioSource.includes('if (resumeMusicCapture) await musicCapture?.start?.(player, currentItem.id)'),
+        'resuming a paused native-routed music track must restore its existing capture lane');
     // Queue completion has one owner (audioflix.queue.completion.js); ui.js only routes Ended to it.
     const uiSource = fs.readFileSync(UI, 'utf8');
     const completionSource = fs.readFileSync(COMPLETION, 'utf8');

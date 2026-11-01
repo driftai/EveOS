@@ -394,6 +394,7 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 ctx.loadPortedSounds();
                 return;
             }
+            if (action === 'toggle-audio-pause') { await ctx.toggleTransportPause?.(); return; }
             if (action === 'pause') { window.EveAudioflixAudio?.pause?.(); return; }
             if (action === 'play') {
                 if (!item || playRequests.has(id)) return;

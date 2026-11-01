@@ -1,6 +1,7 @@
 import { LocalPianoOutput } from "./piano.js";
 
 const FOREGROUND_LOOKAHEAD_MS = 6000;
+const BACKGROUND_LOOKAHEAD_MS = 75000;
 const LATE_AUDIO_SKIP_MS = 120;
 
 export class InternalPreviewPlayer {
@@ -26,9 +27,8 @@ export class InternalPreviewPlayer {
     this.resumeIndex = 0;
     this._backgroundSchedule = () => {
       if (this.state === "countdown") this._beginPlaying();
-      this._scheduleAudio(true);
+      this._scheduleAudio(BACKGROUND_LOOKAHEAD_MS);
     };
-    window.addEventListener("blur", this._backgroundSchedule);
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) this._backgroundSchedule();
     });
@@ -173,7 +173,7 @@ export class InternalPreviewPlayer {
 
   _scheduleNext() {
     if (this.state !== "playing") return;
-    this._scheduleAudio(this._isBackgrounded());
+    this._scheduleAudio(this._lookaheadMs());
     if (this.cursor >= this.rows.length) {
       const remaining = Math.max(0, this.durationMs - this._timelineNow());
       this.timer = window.setTimeout(() => this._finish(), remaining);
@@ -248,20 +248,21 @@ export class InternalPreviewPlayer {
     }
   }
 
-  _isBackgrounded() { return document.hidden || !document.hasFocus(); }
+  _isBackgrounded() { return document.hidden; }
+  _lookaheadMs() { return this._isBackgrounded() ? BACKGROUND_LOOKAHEAD_MS : FOREGROUND_LOOKAHEAD_MS; }
 
   _rescheduleAudio() {
     if (this.state !== "playing") return;
     this.output.allOff();
     this.audioCursor = this.cursor;
     this.audioGeneration += 1;
-    this._scheduleAudio(this._isBackgrounded());
+    this._scheduleAudio(this._lookaheadMs());
   }
 
-  _scheduleAudio(allRemaining = false) {
+  _scheduleAudio(lookaheadMs = FOREGROUND_LOOKAHEAD_MS) {
     if (this.state !== "playing" || !this.rows.length) return;
     const timelineNow = this._timelineNow();
-    const horizon = allRemaining ? Infinity : timelineNow + FOREGROUND_LOOKAHEAD_MS;
+    const horizon = timelineNow + Math.max(FOREGROUND_LOOKAHEAD_MS, Number(lookaheadMs) || 0);
     const audioNow = this.output.audioTime();
     while (this.audioCursor < this.rows.length) {
       const index = this.audioCursor;

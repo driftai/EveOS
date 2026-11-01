@@ -58,6 +58,7 @@ const SOUNDS = {
 let sharedContext = null;
 let sharedOutput = null;
 let sharedOutputVolume = 1;
+let sharedOutputRoute = { sinkId: "", label: "Default output", applied: true };
 const scriptLoads = new Map();
 const presetLoads = new Map();
 
@@ -93,6 +94,42 @@ export function setPianoMasterVolume(percent = 100) {
 }
 
 export function pianoMasterVolume() { return Math.round(sharedOutputVolume * 100); }
+
+function normalizeDeviceLabel(value) {
+  return String(value || "").toLowerCase().replace(/\([^)]*(wasapi|directsound|mme)[^)]*\)/g, " ")
+    .replace(/windows\s+(wasapi|directsound)|\(mme\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+export async function setPianoOutputRoute(route = {}) {
+  const ctx = audioContext(false);
+  if (typeof ctx.setSinkId !== "function") {
+    sharedOutputRoute = { sinkId: "", label: String(route.requestedLabel || "Default output"), applied: !route.browserSinkId, unsupported: true };
+    return { ...sharedOutputRoute };
+  }
+  let sinkId = String(route.browserSinkId || "").trim();
+  const requestedLabel = String(route.requestedLabel || "Default output").trim();
+  if (!sinkId && requestedLabel && !/^default\b/i.test(requestedLabel) && navigator.mediaDevices?.enumerateDevices) {
+    const wanted = normalizeDeviceLabel(requestedLabel);
+    const outputs = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === "audiooutput");
+    const match = outputs.find(device => normalizeDeviceLabel(device.label) === wanted)
+      || outputs.find(device => wanted && (normalizeDeviceLabel(device.label).includes(wanted) || wanted.includes(normalizeDeviceLabel(device.label))));
+    sinkId = String(match?.deviceId || "");
+  }
+  if (!sinkId && requestedLabel && !/^default\b/i.test(requestedLabel)) {
+    sharedOutputRoute = { sinkId: "", label: requestedLabel, applied: false, unresolved: true };
+    return { ...sharedOutputRoute };
+  }
+  try {
+    await ctx.setSinkId(sinkId);
+    sharedOutputRoute = { sinkId, label: requestedLabel || "Default output", applied: true };
+  } catch (error) {
+    sharedOutputRoute = { sinkId, label: requestedLabel, applied: false, error: String(error?.message || error) };
+  }
+  window.dispatchEvent(new CustomEvent("piano:audio-route", { detail: { ...sharedOutputRoute } }));
+  return { ...sharedOutputRoute };
+}
+
+export function pianoOutputRoute() { return { ...sharedOutputRoute }; }
 
 function loadScript(meta) {
   if (window[meta.variable]) return Promise.resolve(window[meta.variable]);

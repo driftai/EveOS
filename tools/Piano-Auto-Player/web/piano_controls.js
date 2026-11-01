@@ -1,5 +1,5 @@
 import { renderPiano } from "./piano.js";
-import { pianoSoundCatalog, setPianoMasterVolume } from "./piano_sound.js";
+import { pianoSoundCatalog, setPianoMasterVolume, setPianoOutputRoute } from "./piano_sound.js";
 
 const LAYOUT_PREFERENCE_KEY = "eveos:piano:layout:v1";
 const SOUND_PREFERENCE_KEY = "eveos:piano:sound:v1";
@@ -106,6 +106,9 @@ export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, vis
   applySound();
   render();
   warmSelectedSound();
+  const syncOutputRoute = event => { const route = event?.detail?.audioOutput || window.PianoEveOS?.getContext?.()?.audioOutput; if (route) setPianoOutputRoute(route).catch(() => {}); };
+  window.addEventListener("piano:eveos-context", syncOutputRoute);
+  syncOutputRoute();
   const restorePreferences = async () => {
     setLayout(savedPianoLayout() || layoutSelect.value || "61");
     await setSound(savedPianoSound() || soundSelect.value || "acoustic_grand");

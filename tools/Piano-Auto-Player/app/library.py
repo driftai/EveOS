@@ -121,7 +121,7 @@ class SongLibrary:
     @staticmethod
     def _clean_values(raw: Any) -> list[str]:
         values = raw if isinstance(raw, list) else str(raw or "").split(",")
-        return list(dict.fromkeys(str(value).strip()[:80] for value in values if str(value).strip()))[:40]
+        return list(dict.fromkeys(str(value).strip()[:80] for value in values if str(value).strip()))[:80]
 
     @staticmethod
     def _clean_custom_collection(key: str, raw: Any) -> list[str]:

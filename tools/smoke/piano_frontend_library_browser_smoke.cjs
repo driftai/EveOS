@@ -21,6 +21,7 @@ const settingsFrontend = read('js/modules/features/audioflix/audioflix.piano.fro
 const v3CardsFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.v3.cards.js');
 const internalFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.internal.js');
 const extendedPort = read('tools/Piano-Auto-Player/web/piano_frontend_extended_port.js');
+const pianoLibrary = read('tools/Piano-Auto-Player/app/library.py');
 const frontendAppBridge = read('tools/Piano-Auto-Player/web/piano_frontend_app_bridge.js');
 const css = read('js/modules/features/audioflix/audioflix.piano.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.ports.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.media.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.organize.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.settings.css') + '\n' + read('js/modules/features/audioflix/audioflix.piano.frontend.v3.css');
 const port = read('tools/Piano-Auto-Player/web/piano_frontend_port.js');
@@ -48,6 +49,11 @@ assert(settingsFrontend.includes("ports.command?.('queue:reorder'"), 'Piano Inte
 assert(organizeFrontend.includes("ports.command?.('queue:add-many'"), 'filtered group queueing must use one Backend queue command');
 assert(!organizeFrontend.includes('slice(0, 60)'), 'queue previews must show the complete supported candidate set');
 assert(extendedPort.includes('piano_folders_v1: cleanList'), 'multi-folder metadata must stay Backend-owned and structured');
+assert.match(extendedPort, /const cleanList = \(value, limit = 60, count = 80\)/, 'the browser bridge must retain up to 80 tag and membership values');
+assert.match(pianoLibrary, /def _clean_values\(raw:[\s\S]{0,220}\)\)\[:80\]/, 'the Python owner must retain the same 80-value contract');
+assert(settingsFrontend.includes('data-pfs-folders') && settingsFrontend.includes('data-pfs-groups')
+  && !settingsFrontend.includes('data-pfs-folder ') && !settingsFrontend.includes('data-pfs-group '),
+  'song settings must edit structured multi-folder and multi-group values rather than legacy singleton fields');
 assert(internalFrontend.includes("window.open('','eveos-piano-internal-viewer'"), 'Internal Viewer must retain its bounded detachable projection');
 assert(!internalFrontend.includes('new Audio(') && !internalFrontend.includes('PianoPlaybackOwner ='), 'Internal Viewer must never create a second playback owner');
 

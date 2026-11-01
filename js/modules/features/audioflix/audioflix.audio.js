@@ -15,7 +15,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     let nativeGeneration = 0;
     let nativeFallbackNoticeShown = false;
     let activeStreamVolume = 1.0;
-    let urlPlayback = null;
+    let urlPlayback = null, resumeMusicCapture = false;
 
     async function getDecodedBuffer(url) {
         return window.EveAudioflixAudioCodec.getDecodedBuffer(
@@ -176,7 +176,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     async function openInternalView(item) {
         const prior = getPlaybackState();
         const sameItem = String(prior?.item?.id || '') === String(item?.id || '');
-        const prepared = await preparePlaybackItem(item);
+        resumeMusicCapture = false; const prepared = await preparePlaybackItem(item);
         const requestedItem = prepared?.item || (item && typeof item === 'object' ? { ...item } : {});
         if (!requestedItem.url) throw new Error(requestedItem.sourceIsLocal ? 'This Spotify local file has no linked file in EveOS yet.' : 'Audioflix item is missing a URL.');
         let playableItem = requestedItem;
@@ -202,7 +202,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             window.EveAudioflixState?.recordPlay?.(item);
             return true;
         }
-        const prepared = await preparePlaybackItem(item);
+        resumeMusicCapture = false; const prepared = await preparePlaybackItem(item);
         const requestedItem = prepared?.item || (item && typeof item === 'object' ? { ...item } : {});
         if (!requestedItem.url) throw new Error(requestedItem.sourceIsLocal ? 'This Spotify local file has no linked file in EveOS yet.' : 'Audioflix item is missing a URL.');
 
@@ -355,7 +355,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         await urlPlayback?.stop?.().catch?.(() => {});
         await stopNativePlayback(false).catch(() => {});
         await Promise.allSettled(pending);
-        currentItem = null;
+        currentItem = null; resumeMusicCapture = false;
         lastStatus = 'Stopped';
         dispatch('eve:audioflix-playback', { status: lastStatus, item: stoppedItem });
         dispatch('eve:audioflix-progress', { item: stoppedItem, currentTime: 0, duration: 0, paused: true });
@@ -369,9 +369,10 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             nativeProgress(nativePausedAt, activeNativeBuffer?.duration || 0, true);
             return;
         }
-        await musicCapture?.stop?.().catch(() => false);
+        resumeMusicCapture = musicCapture?.isActive?.() === true; await musicCapture?.stop?.().catch(() => false);
         ensureAudio().pause();
     }
+    async function resume() { if (!currentItem) return false; if (urlPlayback?.isActive?.()) { await urlPlayback.play(currentItem); return true; } if (activeNativeMode && activeNativeBuffer) { await startNativeBuffer(activeNativeBuffer, currentItem, nativePausedAt, activeNativeMode); return true; } const player = ensureAudio(); if (resumeMusicCapture) await musicCapture?.start?.(player, currentItem.id); await player.play(); return true; }
     async function seek(seconds) {
         const target = Math.max(0, Number(seconds || 0) || 0);
         if (urlPlayback?.isActive?.()) return urlPlayback.seek(target);
@@ -395,7 +396,6 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         dispatch('eve:audioflix-progress', getPlaybackState());
         return true;
     }
-
     function updateItemVolume(itemId, vol, options = {}) {
         const safeVolume = Math.max(0, Math.min(1, Number(vol) || 0));
         const outputVolume = window.EveAudioflixOutputPort?.effective?.(safeVolume) ?? safeVolume;
@@ -425,9 +425,9 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     }
 
     Object.assign(ns, {
-        ready: true, playItem, openInternalView, pause, seek, selectOutput, listOutputs, setOutputById, unlockDeviceLabels,
+        ready: true, playItem, openInternalView, pause, resume, seek, selectOutput, listOutputs, setOutputById, unlockDeviceLabels,
         playTestSignal, applySink, attachWaveform, browserOutputStatus, resolvePlaybackSink, layerPlay, stopItemLayers,
-        stopAll, updateItemVolume, getDecodedBuffer, encodeBufferToBase64, getAudioElement: ensureAudio, getPlaybackState,
+        stopAll, pauseLayers: layerController.pauseAll, resumeLayers: layerController.resumeAll, layersPaused: layerController.isPaused, hasLayers: layerController.hasLayers, updateItemVolume, getDecodedBuffer, encodeBufferToBase64, getAudioElement: ensureAudio, getPlaybackState,
         setQueueBridge, syncQueueView, setPlaybackRate, isInternalViewOpen: () => urlPlayback?.isInternalViewOpen?.() === true,
         hideInternalView: () => urlPlayback?.hideInternalView?.(), closeInternalView: () => urlPlayback?.closeInternalView?.(),
         getPlaybackRate: () => urlPlayback?.getRate?.() ?? 1, getMusicCapture: () => musicCapture,

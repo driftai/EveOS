@@ -9,7 +9,6 @@ import time
 from pathlib import Path
 
 from server_modules import audioflix_bridge_media
-
 try:
     import numpy as np
 except Exception:  # pragma: no cover - optional runtime dependency
@@ -81,19 +80,11 @@ def _open_output_stream(device_index: int, channels: int, callback, preferred_ra
 class _PcmPlayer:
     def __init__(self, device_index: int, source_rate: int, channels: int) -> None:
         self.device_index, self.source_rate, self.channels = device_index, int(source_rate), channels
-        # Stream-lane depth: Gemini delivers a long reply FASTER than realtime, so the queue must
-        # hold the whole backlog. The old maxsize=128 was a CHUNK count (~40ms each ≈ 5 seconds);
-        # any reply longer than that overflowed and enqueue()'s drop-oldest ate unplayed chunks
-        # out of the middle — heard as long replies racing through themselves ("sped up") over
-        # CABLE while short ones sounded fine. 4096 chunks ≈ several minutes: a true runaway
-        # guard, not a cap that live replies can hit.
+        # Several minutes of Gemini chunks: a runaway guard, not a normal reply cap.
         self.q, self.pending, self.closed, self.last_used = queue.Queue(maxsize=4096), None, False, time.monotonic()
-        # Set by clear_stream() (any thread); honored + reset inside the audio callback so we can
-        # drop the in-flight chunk without racing the callback's slicing of self.pending.
-        self.flush_pending, self.stream_id = False, None
-        # One-shot "voices" (soundboard layers) are mixed together in the callback so
-        # multiple/overlapping presses sum cleanly instead of fighting over one FIFO
-        # queue (which interleaved chunks and sounded choppy).
+        # clear_stream() requests callback-owned in-flight cleanup without racing slicing.
+        self.flush_pending, self.stream_id, self.voices_paused = False, None, False
+        # One-shot voices mix independently from the Gemini FIFO stream.
         self.voices = []
         self.voices_lock = threading.Lock()
         self.last_frames = 0   # diagnostics (exposed via /api/audioflix/voice-debug)
@@ -104,11 +95,7 @@ class _PcmPlayer:
         self.last_frames = frames
         self.cb_count += 1
         outdata.fill(0)
-        # CRITICAL: a raised exception out of a sounddevice callback ABORTS the stream permanently.
-        # That is exactly what silently broke the soundboard — one bad mix killed the output stream,
-        # then every later voice just queued onto a dead stream (stream_active=False, pos never
-        # advancing) and was never heard. Never let the callback raise: emit silence for this block
-        # and log the real cause ONCE so the stream stays alive and the next block recovers.
+        # Never let an unmixable block abort the sounddevice callback permanently.
         try:
             self._mix(outdata, frames)
         except Exception as exc:
@@ -138,7 +125,7 @@ class _PcmPlayer:
             self.pending, written = self.pending[take:], written + take
         # One-shot voices: sum each into the output, advance, drop finished ones.
         with self.voices_lock:
-            if self.voices:
+            if self.voices and not self.voices_paused:
                 survivors = []
                 for v in self.voices:
                     try:
@@ -183,6 +170,11 @@ class _PcmPlayer:
             before = len(self.voices)
             self.voices = [] if vid is None else [v for v in self.voices if v.get("vid") != vid]
             return before - len(self.voices)
+
+    def set_voices_paused(self, paused: bool) -> int:
+        with self.voices_lock:
+            self.voices_paused = bool(paused)
+            return len(self.voices)
 
     def clear_stream(self, expected_id=None) -> int:
         """Stop the live streaming lane (the Gemini play-pcm channel). Drains the FIFO from this
@@ -401,12 +393,19 @@ def clear_voices(payload: dict) -> dict:
     cleared = sum(p.clear_voices(vid) for p in players)
     return {"ok": True, "cleared": cleared, "allDevices": all_devices}
 
+def pause_voices(payload: dict) -> dict:
+    if sd is None or np is None:
+        return {"ok": False, "message": "Native playback unavailable."}
+    device_id = str(payload.get("deviceId") or "")
+    all_devices, paused = payload.get("allDevices") is True, payload.get("paused") is True
+    with _LOCK:
+        players = list(_PLAYERS.values()) if all_devices else [p for k, p in _PLAYERS.items() if k.startswith(device_id + ":")]
+    affected = sum(player.set_voices_paused(paused) for player in players)
+    return {"ok": True, "paused": paused, "affected": affected, "allDevices": all_devices}
+
 
 def stop_stream(payload: dict) -> dict:
-    """Stop ONLY the live streaming lane (the Gemini play-pcm channel) on a device — soundboard
-    voices keep playing. A Gemini pause / turn-handoff calls this so it silences the reply over
-    CABLE WITHOUT wiping unrelated soundboard sounds mixing on the same output. Keeping the stream
-    lane and the voices lane separate is exactly what stops a pause from killing the soundboard."""
+    """Stop the Gemini streaming lane without clearing independently mixed soundboard voices."""
     if sd is None or np is None:
         return {"ok": False, "message": "Native playback unavailable."}
     device_id = str(payload.get("deviceId") or "")
@@ -426,7 +425,7 @@ def get_voice_debug() -> dict:
                 "sample_rate": player.sample_rate,
                 "last_frames": player.last_frames,
                 "cb_count": player.cb_count,
-                "stream_active": bool(player.stream and player.stream.active),
+                "stream_active": bool(player.stream and player.stream.active), "voices_paused": player.voices_paused,
                 "voices": [
                     {
                         "len": int(len(voice["samples"])),

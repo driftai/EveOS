@@ -28,10 +28,11 @@ class FakeAudio {
   pause(){this.paused=true;this.emit('pause');}
   ended(){this.currentTime=this.duration;this.paused=true;this.emit('ended');}
 }
+const nativePauses=[];
 const win={
  EveAudioflixAudioWaveform:{},EveAudioflixAudioLayers:{},EveAudioflixState:{normalizeVolume:v=>typeof v==='number'?v:1},
  EveAudioflixUrlProviders:{providerFor:url=>/youtube\.com/.test(url)?'youtube':/^https?:/.test(url)?'direct':''},
- EveAudioflixNative:{shouldSuppressBrowserPlayback:()=>false},
+ EveAudioflixNative:{shouldSuppressBrowserPlayback:()=>false,setVoicesPaused:async paused=>{nativePauses.push(paused);return{ok:true};}},
  EveAudioflixAudioSource:{needsResolution:()=>false},
  EveAudioflixOutputPort:{effective:v=>v},
  AudioContext,
@@ -60,6 +61,11 @@ const ctl=win.EveAudioflixAudioLayers.createController({
   assert.notEqual(voices[0].id,voices[1].id,'separate layer identities');
   const layerPlayers=players.filter(p=>p.src===sound.url);
   assert.equal(layerPlayers.length,2,'two independent browser media players');
+  assert.equal(await ctl.pauseAll(),true,'shared transport pauses active layers');
+  assert(layerPlayers.every(player=>player.paused),'every browser layer pauses without losing its position');
+  assert.equal(await ctl.resumeAll(),true,'shared transport resumes active layers');
+  assert(layerPlayers.every(player=>!player.paused),'every browser layer resumes independently');
+  assert.deepEqual(nativePauses,[true,false],'native voice lane follows the same pause/resume owner');
   assert.equal(nodes.get(layerPlayers[0])?.connections.size,1,'first source remains connected after second Layer Play');
   assert.equal(nodes.get(layerPlayers[1])?.connections.size,1,'second source is connected');
   // Singleton music may switch owners; independent soundboard voices must survive.

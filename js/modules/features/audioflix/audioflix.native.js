@@ -382,6 +382,13 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         });
     }
 
+    async function setVoicesPaused(paused, options = {}) {
+        return fetchJson('/api/audioflix/pause-voices', {
+            method: 'POST', body: JSON.stringify({ paused: Boolean(paused), allDevices: options.allDevices !== false,
+                deviceId: options.deviceId || state().nativeOutputId || '' }), timeout: DEFAULT_TIMEOUT_MS
+        });
+    }
+
     // Localization transport (probe / download / link / scan) lives in a sibling module.
     const { probeLocalFile, localizeTrack, linkLocalFile, scanLocalized, readWplFile } =
         window.EveAudioflixNativeLocalize.create({ fetchJson, DEVICE_SCAN_TIMEOUT_MS, isBridgeOffline });
@@ -420,6 +427,7 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         clearHotkeys,
         hotkeyStatus,
         setHotkeyBypassed,
+        setVoicesPaused,
         warm,
         getStatus: function () { return lastStatus; }
     });

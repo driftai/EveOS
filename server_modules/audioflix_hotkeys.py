@@ -73,6 +73,11 @@ _bypass_id = [0]                # hk_id of the bypass toggle combo (0 = none)
 _bypass_combo = [None]          # the bypass combo string (for status/UI)
 _bypassed = [False]             # True = sound hotkeys currently suspended (typing mode)
 _bypass_ok = [None]             # RegisterHotKey result for the bypass combo
+_transport_id = [0]             # tab-aware Audioflix pause/resume trigger
+_transport_combo = [None]
+_transport_ok = [None]
+_transport_seq = [0]
+_last_transport = {}
 
 
 def available():
@@ -159,6 +164,11 @@ def _toggle_bypass():
     _set_bypass_state(not _bypassed[0])
 
 
+def _trigger_transport():
+    _transport_seq[0] += 1
+    _last_transport.update({'seq': _transport_seq[0], 'combo': _transport_combo[0], 'at': time.time()})
+
+
 def _apply(user32, cmd):
     kind = cmd[0]
     if kind == 'register':
@@ -168,6 +178,8 @@ def _apply(user32, cmd):
         with _lock:
             if hk_id == _bypass_id[0]:
                 _bypass_ok[0] = ok
+            elif hk_id == _transport_id[0]:
+                _transport_ok[0] = ok
             elif hk_id in _bindings:
                 _bindings[hk_id]['ok'] = ok
         print(f"[Hotkey Engine] RegisterHotKey id={hk_id} mods={mods} vk={vk} -> {ok}", flush=True)
@@ -208,6 +220,8 @@ def _loop():
             hk = int(msg.wParam)
             if hk and hk == _bypass_id[0]:
                 _toggle_bypass()
+            elif hk and hk == _transport_id[0]:
+                _trigger_transport()
             else:
                 _trigger(hk)
         else:
@@ -235,6 +249,11 @@ def _clear_registrations(reset_bypass=True):
         _bypass_id[0] = 0
     _bypass_combo[0] = None
     _bypass_ok[0] = None
+    if _transport_id[0]:
+        _cmd_q.put(('unregister', _transport_id[0]))
+        _transport_id[0] = 0
+    _transport_combo[0] = None
+    _transport_ok[0] = None
     if reset_bypass:
         _bypassed[0] = False
     _wake()
@@ -271,9 +290,12 @@ def _set_bindings(payload):
     _clear_registrations(reset_bypass=False)
     bypass_combo = str(payload.get('bypassCombo') or '').strip()
     parsed_b = _parse_combo(bypass_combo)
+    transport_combo = str(payload.get('transportCombo') or '').strip()
+    parsed_t = _parse_combo(transport_combo)
+    transport_duplicate = bool(parsed_t and parsed_t == parsed_b)
     # Manual bypass does not require a configured bypass combo. Preserve it when bindings refresh.
     _bypassed[0] = bool(was_bypassed)
-    used = {parsed_b} if parsed_b else set()
+    used = {value for value in (parsed_b, parsed_t) if value}
     queued, skipped, duplicates = [], [], []
     for it in items:
         combo = str(it.get('combo') or '').strip()
@@ -311,6 +333,14 @@ def _set_bindings(payload):
             _bypass_id[0] = bid
             _bypass_combo[0] = bypass_combo
         _cmd_q.put(('register', bid, mods_b, vk_b))
+    if parsed_t and not transport_duplicate:
+        mods_t, vk_t = parsed_t
+        with _lock:
+            tid = _next_id[0]
+            _next_id[0] += 1
+            _transport_id[0] = tid
+            _transport_combo[0] = transport_combo
+        _cmd_q.put(('register', tid, mods_t, vk_t))
     _wake()
     # Wait briefly for the loop thread to actually RegisterHotKey each combo so we can report
     # real success/conflict (a combo already owned by another app fails to register).
@@ -319,7 +349,8 @@ def _set_bindings(payload):
         with _lock:
             sounds_done = _bypassed[0] or all(_bindings[i]['ok'] is not None for i in queued if i in _bindings)
             bypass_done = not parsed_b or _bypass_ok[0] is not None
-            if sounds_done and bypass_done:
+            transport_done = not parsed_t or transport_duplicate or _transport_ok[0] is not None
+            if sounds_done and bypass_done and transport_done:
                 break
         time.sleep(0.02)
     with _lock:
@@ -330,6 +361,9 @@ def _set_bindings(payload):
             'bypassed': _bypassed[0], 'bypassCombo': _bypass_combo[0],
             'bypassRegistered': _bypass_ok[0] is True,
             'bypassConflict': bool(parsed_b and _bypass_ok[0] is False),
+            'transportCombo': _transport_combo[0] or transport_combo,
+            'transportRegistered': _transport_ok[0] is True,
+            'transportConflict': bool(transport_duplicate or (parsed_t and _transport_ok[0] is False)),
             'elevated': _is_elevated()}
 
 
@@ -354,4 +388,7 @@ def status():
             'lastError': dict(_last_error) if _last_error else None,
             'bypassed': _bypassed[0], 'bypassCombo': _bypass_combo[0],
             'bypassRegistered': _bypass_ok[0] is True,
-            'bypassConflict': bool(_bypass_combo[0] and _bypass_ok[0] is False)}
+            'bypassConflict': bool(_bypass_combo[0] and _bypass_ok[0] is False),
+            'transportCombo': _transport_combo[0], 'transportRegistered': _transport_ok[0] is True,
+            'transportConflict': bool(_transport_combo[0] and _transport_ok[0] is False),
+            'transportFired': dict(_last_transport) if _last_transport else None}

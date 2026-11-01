@@ -55,7 +55,7 @@ import { setupPianoControls } from '/assets/piano_controls.js';
 import { setupPianoFrontendAppBridge } from '/assets/piano_frontend_app_bridge.js';
 import { setupPianoPlaybackOverrides } from '/assets/piano_playback_overrides.js';
 import { InternalPreviewPlayer } from '/assets/internal_preview.js';
-import { PianoSoundEngine } from '/assets/piano_sound.js';
+import { PianoSoundEngine, setPianoOutputRoute } from '/assets/piano_sound.js';
 window.__previewStops = 0;
 const recorder = { setSound() {}, noteDownMidi() {}, noteUpMidi() {}, unlock() {}, prepareSound: async () => {} };
 const preview = { setSound() {}, stop() { window.__previewStops += 1; }, prepareSound: async () => {} };
@@ -96,18 +96,21 @@ window.__runBackgroundProof = () => {
  };
  const player = new InternalPreviewPlayer(document.getElementById('backgroundPreview'), output);
  player._isBackgrounded = () => false;
- player.start({ duration_ms: 16000, total_events: 3, events: [
+ player.start({ duration_ms: 130000, total_events: 4, events: [
    { event_index: 1, at_ms: 1000, duration_ms: 80, midi_notes: [60] },
    { event_index: 2, at_ms: 5000, duration_ms: 80, midi_notes: [62] },
-   { event_index: 3, at_ms: 15000, duration_ms: 80, midi_notes: [64] }
+   { event_index: 3, at_ms: 70000, duration_ms: 80, midi_notes: [64] },
+   { event_index: 4, at_ms: 120000, duration_ms: 80, midi_notes: [65] }
  ] }, 1, 0);
  const foreground = scheduled.length;
  window.dispatchEvent(new Event('blur'));
- const background = scheduled.length;
- window.dispatchEvent(new Event('blur'));
+  const blurred = scheduled.length;
+  player._scheduleAudio(75000);
+  const background = scheduled.length;
+  player._scheduleAudio(75000);
  const deduplicated = scheduled.length;
  player.stop();
- return { foreground, background, deduplicated, scheduled };
+  return { foreground, blurred, background, deduplicated, scheduled };
 };
 window.__runBackgroundCountdownProof = () => {
  const scheduled = [];
@@ -144,8 +147,10 @@ window.__runSampleOrderProof = async () => {
    createDynamicsCompressor() {
      return { threshold: {}, knee: {}, ratio: {}, attack: {}, release: {}, connect() { return this; } };
    }
+    async setSinkId(value) { operations.push(['sink', value]); }
  }
  window.AudioContext = FixtureAudioContext;
+  const route = await setPianoOutputRoute({ browserSinkId: 'cable-output', requestedLabel: 'CABLE Input' });
  window._tone_0000_GeneralUserGS_sf2_file = { zones: [{
    keyRangeLow: 0, keyRangeHigh: 127, originalPitch: 6000,
    coarseTune: 0, fineTune: 0, loopStart: 0, loopEnd: 0, sampleRate: 44100, buffer: {}
@@ -153,7 +158,7 @@ window.__runSampleOrderProof = async () => {
  const engine = new PianoSoundEngine('acoustic_grand');
  await engine.prepare();
  engine.scheduleMidi(60, 'sample:1', 11, 0.4);
- return operations;
+  return { operations, route };
 };
 window.__ready = true;
 </script></body></html>`;
@@ -225,17 +230,20 @@ async function check(browser, url, width) {
     assert.equal(s.previewStops, 0, 'Layout changes must not stop active playback');
     const background = await page.evaluate(() => window.__runBackgroundProof());
     assert.equal(background.foreground, 2, 'Foreground scheduling stays bounded to the lookahead window');
-    assert.equal(background.background, 3, 'Blur schedules the full remaining timeline on the audio clock');
-    assert.equal(background.deduplicated, 3, 'Repeated background signals must not duplicate scheduled notes');
+    assert.equal(background.blurred, 2, 'An embedded iframe blur must not masquerade as a hidden page');
+    assert.equal(background.background, 3, 'Hidden-page scheduling uses the finite background lookahead');
+    assert.equal(background.deduplicated, 3, 'Repeated background scheduling must not duplicate notes');
     assert.equal(new Set(background.scheduled.map(row => row.id)).size, 3, 'Scheduled notes use unique identities');
-    assert.ok(background.scheduled[2].at - background.scheduled[1].at > 9,
-      'Background notes retain their original audio-clock spacing');
+    assert.ok(background.scheduled[2].at - background.scheduled[1].at > 60,
+      'Background notes retain their original audio-clock spacing without scheduling the full song');
     const backgroundCountdown = await page.evaluate(() => window.__runBackgroundCountdownProof());
     assert.deepEqual(backgroundCountdown, { state: 'playing', scheduled: 2 },
       'A background page must start immediately instead of freezing in the countdown');
     const sampleOrder = await page.evaluate(() => window.__runSampleOrderProof());
-    assert.deepEqual(sampleOrder.map(row => row[0]), ['start', 'stop'],
+    assert.deepEqual(sampleOrder.operations.map(row => row[0]), ['sink', 'start', 'stop'],
       'Sampled voices must start before a finite-duration stop is scheduled');
+    assert.deepEqual(sampleOrder.route, { sinkId: 'cable-output', label: 'CABLE Input', applied: true },
+      'Piano output must follow the shared Audioflix browser sink when one is available');
     await page.reload();
     await page.waitForFunction(() => window.__ready === true, null, { timeout: 10000 });
     s = await state();

@@ -187,7 +187,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
                 ? Object.fromEntries(Object.entries(source.localizeScopeDirs).map(([k, v]) => [text(k), text(v)]).filter(([k, v]) => k && v))
                 : {},
             scopeBindings: boundedBindings(source.scopeBindings, MAX_SCOPE_BINDINGS),
-            hotkeyBypassCombo: text(source.hotkeyBypassCombo, ''), lastAudioflixTab: ['soundboard', 'music', 'piano', 'soundlab', 'router'].includes(source.lastAudioflixTab) ? source.lastAudioflixTab : 'soundboard',
+            hotkeyBypassCombo: text(source.hotkeyBypassCombo, ''), hotkeyTransportCombo: text(source.hotkeyTransportCombo, ''), lastAudioflixTab: ['soundboard', 'music', 'piano', 'soundlab', 'router'].includes(source.lastAudioflixTab) ? source.lastAudioflixTab : 'soundboard',
             counters: {
                 plays: Number(source.counters?.plays || 0) || 0,
                 routedGeminiEvents: Number(source.counters?.routedGeminiEvents || 0) || 0

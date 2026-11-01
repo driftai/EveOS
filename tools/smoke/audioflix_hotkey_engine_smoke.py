@@ -59,9 +59,9 @@ class _Player:
         self.added.append((samples, voice_id, volume))
 
 
-def _payload(sound_combos, bypass='ctrl+shift+b'):
+def _payload(sound_combos, bypass='ctrl+shift+b', transport='ctrl+shift+p'):
     pcm = base64.b64encode(b'\x00\x00').decode('ascii')
-    return {'deviceId': 'default', 'sampleRate': 48000, 'bypassCombo': bypass,
+    return {'deviceId': 'default', 'sampleRate': 48000, 'bypassCombo': bypass, 'transportCombo': transport,
             'bindings': [{'combo': combo, 'audio': pcm, 'voiceId': f'hk:{index}'}
                          for index, combo in enumerate(sound_combos)]}
 
@@ -73,6 +73,11 @@ def _reset():
     hotkeys._bypass_combo[0] = None
     hotkeys._bypassed[0] = False
     hotkeys._bypass_ok[0] = None
+    hotkeys._transport_id[0] = 0
+    hotkeys._transport_combo[0] = None
+    hotkeys._transport_ok[0] = None
+    hotkeys._transport_seq[0] = 0
+    hotkeys._last_transport.clear()
     hotkeys._last_fired.clear()
     hotkeys._last_error.clear()
     hotkeys._ready.set()
@@ -95,11 +100,14 @@ def main():
 
         armed = hotkeys.set_bindings(_payload(['u', 'ctrl+y']))
         assert armed['registered'] == ['u', 'ctrl+y']
-        assert armed['bypassRegistered'] is True and armed['configured'] == 2
+        assert armed['bypassRegistered'] is True and armed['transportRegistered'] is True and armed['configured'] == 2
         first_id = next(iter(hotkeys._bindings))
         hotkeys._trigger(first_id)
         assert player.added and hotkeys.status()['lastFired']['combo'] == 'u'
         assert hotkeys.status()['lastError'] is None
+        hotkeys._trigger_transport()
+        assert hotkeys.status()['transportFired']['seq'] == 1
+        assert hotkeys.status()['transportFired']['combo'] == 'ctrl+shift+p'
 
         manual = hotkeys.set_bypassed({'bypassed': True})
         assert manual['bypassed'] is True
@@ -117,9 +125,12 @@ def main():
         hotkeys._toggle_bypass()
         assert len([entry for entry in hotkeys.status()['bindings'] if entry['registered']]) == 2
 
-        duplicate = hotkeys.set_bindings(_payload(['u', 'ctrl+u'], bypass='u'))
+        duplicate = hotkeys.set_bindings(_payload(['u', 'ctrl+u'], bypass='u', transport='ctrl+shift+p'))
         assert duplicate['duplicates'] == ['u']
         assert duplicate['registered'] == ['ctrl+u'] and duplicate['bypassRegistered'] is True
+
+        transport_duplicate = hotkeys.set_bindings(_payload([], bypass='ctrl+shift+p', transport='ctrl+shift+p'))
+        assert transport_duplicate['transportRegistered'] is False and transport_duplicate['transportConflict'] is True
 
         conflict = hotkeys.set_bindings(_payload(['x'], bypass=''))
         assert conflict['registered'] == [] and conflict['conflicted'] == ['x']
@@ -129,12 +140,13 @@ def main():
         cleared = hotkeys.status()
         assert cleared['configured'] == 0 and cleared['bypassCombo'] is None
         assert cleared['bypassed'] is False and cleared['bypassRegistered'] is False
+        assert cleared['transportCombo'] is None and cleared['transportRegistered'] is False
     finally:
         del hotkeys.print
         hotkeys.np, hotkeys.available, hotkeys._ensure_thread, hotkeys._cmd_q, hotkeys._wake, hotkeys.audioflix_bridge_playback._player_for = original
         hotkeys._cmd_q = queue.Queue()
         _reset()
-    print('AUDIOFLIX_HOTKEY_ENGINE_OK playbackOwner=true manualBypass=true preserveBypass=true duplicateFence=true conflictStatus=true')
+    print('AUDIOFLIX_HOTKEY_ENGINE_OK playbackOwner=true manualBypass=true transport=true duplicateFence=true conflictStatus=true')
 
 
 if __name__ == '__main__':

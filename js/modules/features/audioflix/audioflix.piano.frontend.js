@@ -332,7 +332,7 @@
         displayStatus();
     });
     Object.assign(ns, {
-        ready: true, mount, sync, refresh, invalidate, handleAction, repaint: displaySongs,
+        ready: true, mount, sync, refresh, invalidate, handleAction, togglePause: () => send('pause'), repaint: displaySongs,
         syncPlayback: updateSongTransportButtons, syncControls: displayStatus, setSongFavorite,
         bridgeReady: () => bridgeReady, serviceOrigin: origin,
         pendingCount: () => pending.size,

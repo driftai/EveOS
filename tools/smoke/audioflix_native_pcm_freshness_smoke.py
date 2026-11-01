@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import queue
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -89,6 +90,19 @@ def main() -> None:
         assert stream_player.q.qsize() == 1
         assert playback._PcmPlayer.clear_stream(stream_player, 'track:beta') == 1
         assert stream_player.q.empty()
+
+        voice_player = playback._PcmPlayer.__new__(playback._PcmPlayer)
+        voice_player.q, voice_player.pending, voice_player.flush_pending = queue.Queue(), None, False
+        voice_player.voices_lock, voice_player.voices_paused = threading.Lock(), False
+        voice_player.voices = [{"samples": np.ones(4, dtype='float32'), "pos": 0, "vid": "layer", "vol": 1.0}]
+        assert playback._PcmPlayer.set_voices_paused(voice_player, True) == 1
+        muted = np.zeros((2, 1), dtype='float32')
+        playback._PcmPlayer._mix(voice_player, muted, 2)
+        assert voice_player.voices[0]['pos'] == 0 and not muted.any()
+        playback._PcmPlayer.set_voices_paused(voice_player, False)
+        resumed = np.zeros((2, 1), dtype='float32')
+        playback._PcmPlayer._mix(voice_player, resumed, 2)
+        assert voice_player.voices[0]['pos'] == 2 and resumed.any()
     finally:
         playback.sd, playback.np = original_sd, original_np
         playback._player_for = original_player_for

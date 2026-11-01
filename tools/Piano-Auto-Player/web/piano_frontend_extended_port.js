@@ -20,7 +20,7 @@ function firstFinite(...values) {
 function validOption(node, value) { return !!node && [...node.options].some(option => String(option.value) === String(value)); }
 function emitChange(node) { node.dispatchEvent(new Event('change', { bubbles: true })); }
 const cleanText = (value, limit = 180) => String(value || '').trim().slice(0, limit);
-const cleanList = (value, limit = 60, count = 30) => (Array.isArray(value) ? value : String(value || '').split(','))
+const cleanList = (value, limit = 60, count = 80) => (Array.isArray(value) ? value : String(value || '').split(','))
   .map(item => cleanText(item, limit)).filter(Boolean).slice(0, count);
 
 async function setControl(data) {

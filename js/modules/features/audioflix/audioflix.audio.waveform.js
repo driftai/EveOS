@@ -354,7 +354,8 @@ window.EveAudioflixAudioWaveform = window.EveAudioflixAudioWaveform || {};
                     if (context?.state === 'suspended') context.resume().catch?.(() => {});
                     if (canvas) start();
                 });
-                for (const eventName of ['pause', 'ended', 'error']) {
+                player.addEventListener('pause', () => { if (!released) disconnectPlayerSource(player); });
+                for (const eventName of ['ended', 'error']) {
                     player.addEventListener(eventName, release);
                 }
             }

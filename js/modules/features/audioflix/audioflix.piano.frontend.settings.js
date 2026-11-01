@@ -38,9 +38,9 @@
       <header><div><span>PIANO SONG</span><h3 id="pfs-title">Song settings</h3></div><button type="button" data-pfs-action="close" aria-label="Close Piano song settings">×</button></header>
       <div data-pfs-settings><div class="piano-pfs-grid">
         <label>Title<input data-pfs-title maxlength="180"></label><label>Artist / author<input data-pfs-artist maxlength="90"></label>
-        <label>Genres<input data-pfs-genres placeholder="genre, genre"></label><label>Tags<input data-pfs-tags placeholder="tag, tag"></label>
+        <label>Genres<input data-pfs-genres placeholder="genre, genre"></label><label>Tags (up to 80)<input data-pfs-tags placeholder="tag, tag"></label>
         <label>Rating<input data-pfs-rating type="number" min="0" max="5" step="0.5"></label><label class="piano-pfs-check"><input data-pfs-favorite type="checkbox"> Favorite</label>
-        <label>Folder<input data-pfs-folder maxlength="80"></label><label>Group<input data-pfs-group maxlength="80"></label>
+        <label>Folders<input data-pfs-folders placeholder="folder, folder"></label><label>Groups<input data-pfs-groups placeholder="group, group"></label>
       </div><fieldset><legend>Playback overrides</legend><div class="piano-pfs-grid">
         <label>Playback route<select data-pfs-route><option value="inherit">Inherit global default</option><option value="internal">Internal Piano</option><option value="target">Target window</option></select></label>
         <label>Target window<select data-pfs-target><option value="">Inherit / choose at play</option></select></label>
@@ -75,7 +75,7 @@
     ensureModal(); const song=songById(songId); if(!song)return; selectedId=song.id; mode=nextMode;
     const ids=song.identifiers||{}, settings=playback(song), controls=snapshot.controls||{};
     $('[data-pfs-title]').value=song.title||'';$('[data-pfs-artist]').value=ids.author||song.artist||'';$('[data-pfs-genres]').value=list(ids.genre).join(', ');$('[data-pfs-tags]').value=list(ids.tags).join(', ');
-    $('[data-pfs-rating]').value=ids.personal_rating==null?'':String(ids.personal_rating);$('[data-pfs-favorite]').checked=custom(song).favorite==='true';$('[data-pfs-folder]').value=custom(song).piano_folder||'';$('[data-pfs-group]').value=custom(song).piano_group||'';
+    $('[data-pfs-rating]').value=ids.personal_rating==null?'':String(ids.personal_rating);$('[data-pfs-favorite]').checked=custom(song).favorite==='true';$('[data-pfs-folders]').value=list(custom(song).piano_folders_v1||custom(song).piano_folder).join(', ');$('[data-pfs-groups]').value=list(custom(song).piano_groups_v1||custom(song).piano_group).join(', ');
     fillOptions($('[data-pfs-target]'),controls.targets,'Inherit / choose at play');fillOptions($('[data-pfs-sound]'),controls.sounds,'Inherit default');
     $('[data-pfs-route]').value=settings.route||'inherit';$('[data-pfs-target]').value=settings.targetHint||'';$('[data-pfs-layout]').value=settings.layout||'';$('[data-pfs-sound]').value=settings.instrumentId||'';
     const inherited=settings.internalVolumePercent==null;$('[data-pfs-volume-inherit]').checked=inherited;$('[data-pfs-volume]').value=String(inherited?100:settings.internalVolumePercent);renderVolume();
@@ -94,7 +94,7 @@
   function renderMode(){const settings=$('[data-pfs-settings]'),internal=$('[data-pfs-internal]');if(settings)settings.hidden=mode!=='settings';if(internal)internal.hidden=mode!=='internal';if(mode==='internal')renderQueue();}
   function save() {
     const song=songById(selectedId);if(!song)return;const inherited=$('[data-pfs-volume-inherit]').checked;
-    const payload={songId:song.id,title:$('[data-pfs-title]').value,artist:$('[data-pfs-artist]').value,genre:$('[data-pfs-genres]').value,tags:$('[data-pfs-tags]').value,rating:$('[data-pfs-rating]').value,favorite:$('[data-pfs-favorite]').checked,folder:$('[data-pfs-folder]').value,group:$('[data-pfs-group]').value,
+    const payload={songId:song.id,title:$('[data-pfs-title]').value,artist:$('[data-pfs-artist]').value,genre:$('[data-pfs-genres]').value,tags:list($('[data-pfs-tags]').value).slice(0,80),rating:$('[data-pfs-rating]').value,favorite:$('[data-pfs-favorite]').checked,folders:list($('[data-pfs-folders]').value).slice(0,80),groups:list($('[data-pfs-groups]').value).slice(0,80),
       playback:{route:$('[data-pfs-route]').value,targetHint:$('[data-pfs-target]').value||null,layout:$('[data-pfs-layout]').value||null,instrumentId:$('[data-pfs-sound]').value||null,internalVolumePercent:inherited?null:Number($('[data-pfs-volume]').value)}};
     const sent=ports.command?.('song:update',payload);$('[data-pfs-note]').textContent=sent===false?'Backend is unavailable.':'Saving through the Piano Backend…';
   }
