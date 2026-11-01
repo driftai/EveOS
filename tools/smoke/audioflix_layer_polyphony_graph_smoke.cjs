@@ -50,7 +50,7 @@ const ctl=win.EveAudioflixAudioLayers.createController({
  state:()=>({preferredSinkId:''}),dispatch:()=>{}, shouldPreferUrl:()=>true,
  playUrlItem:async()=>{sharedCount++;return true;}, stopUrlPlayback:async()=>{},
  tryNativePlayback:async()=>false, getDecodedBuffer:async()=>{throw Error('unexpected native decode');},
- canPlayUrl:()=>true
+ canPlayUrl:()=>true, canUseSharedUrlLayer:()=>true
 });
 (async()=>{
   const sound={id:'test-sound',type:'sound',url:'https://example.invalid/test.mp3',title:'Test',volume:0.5};
@@ -88,5 +88,8 @@ const ctl=win.EveAudioflixAudioLayers.createController({
   const before=sharedCount;
   assert.equal(await ctl.layerPlay({id:'provider',type:'sound',url:'https://www.youtube.com/watch?v=abcdefghijk'}),true);
   assert.equal(sharedCount,before+1,'provider iframe route retained for unsupported native media');
+  const protectedCtl=win.EveAudioflixAudioLayers.createController({state:()=>({}),dispatch:()=>{},shouldPreferUrl:()=>true,canPlayUrl:()=>true,canUseSharedUrlLayer:()=>false,playUrlItem:async()=>{sharedCount++;return true;}});
+  assert.equal(await protectedCtl.layerPlay({id:'provider-blocked',type:'sound',url:'https://www.youtube.com/watch?v=abcdefghijk'}),false);
+  assert.equal(sharedCount,before+1,'provider Soundboard fallback cannot replace an active Music owner');
   console.log('AUDIOFLIX_POLYPHONIC_BROWSER_LAYER_GRAPH_OK independent=2 normalOwner=preserved stop=isolated provider=retained');
 })().catch(err=>{console.error(err);process.exitCode=1});

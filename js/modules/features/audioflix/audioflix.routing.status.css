@@ -54,7 +54,25 @@
 
 .audioflix-output-port-volume {
     width: 100%;
-    accent-color: #ffd166;
+    height: 16px;
+    appearance: none;
+    background: transparent;
+}
+
+.audioflix-output-port-volume::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #ffd166 0 var(--vol), rgba(255,255,255,.18) var(--vol) 100%);
+}
+
+.audioflix-output-port-volume::-webkit-slider-thumb {
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border: 2px solid #101518;
+    border-radius: 50%;
+    appearance: none;
+    background: #ffd166;
 }
 
 .audioflix-output-port-label {

@@ -40,6 +40,7 @@
     function saveOfflinePreview(items) {
         try {
             const list = items.slice(0, 5000).map(previewRecord);
+            if (!list.length) return; // Never replace a usable recovery projection with a transient empty sync.
             const record = { version: 1, savedAt: Date.now(), songs: list };
             void Promise.resolve(window.IDBStore?.set?.(OFFLINE_IDB_KEY, record)).catch(() => false);
             const payload = JSON.stringify(record);

@@ -302,13 +302,14 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         state, dispatch, tryNativePlayback, getDecodedBuffer, encodeBufferToBase64, playUrlItem,
         canPlayUrl: (item) => urlPlayback?.canHandle?.(item),
         shouldPreferUrl: (item) => urlPlayback?.shouldPreferBrowser?.(item),
+        canUseSharedUrlLayer: () => getPlaybackState()?.paused !== false,
         stopUrlPlayback: (id) => {
             const item = urlPlayback?.getPlaybackState?.()?.item;
             return String(item?.id || item?.url || '') === String(id || '') && urlPlayback?.stop?.();
         },
         stopNativeItem: (id) => window.EveAudioflixNative?.stopStream?.({ allDevices: true, itemId: id })
     });
-    const layerPlay = layerController.layerPlay;
+    const layerPlay = async item => layerController.layerPlay((await preparePlaybackItem(item))?.item || item);
     async function playSound(item) {
         if (!item?.url) return false;
         const safeItem = { ...item, type: 'sound' };

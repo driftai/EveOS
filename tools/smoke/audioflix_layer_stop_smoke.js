@@ -1,5 +1,4 @@
 'use strict';
-
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -377,6 +376,7 @@ async function main() {
     assert(backendProbe.status === 0, `native all-device stop failed: ${backendProbe.stderr || backendProbe.stdout}`);
 
     const actions = fs.readFileSync(ACTIONS, 'utf8');
+    const audioOwner = fs.readFileSync(path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.audio.js'), 'utf8');
     const layerUi = fs.readFileSync(path.join(ROOT, 'js', 'modules', 'features', 'audioflix',
         'audioflix.ui.layer-voices.js'), 'utf8');
     const layerCss = fs.readFileSync(path.join(ROOT, 'js', 'modules', 'features', 'audioflix',
@@ -431,6 +431,8 @@ async function main() {
         'the visible Stop button reaches the layer controller');
     assert(!stopBlock.includes('EveAudioflixAudio?.pause'),
         'the layer Stop button cannot pause unrelated continuous playback');
+    assert(audioOwner.includes('layerController.layerPlay((await preparePlaybackItem(item))?.item || item)'),
+        'Layer Play must honor the same localized/provider source preparation as normal playback');
 
     console.log('AUDIOFLIX_LAYER_STOP_SMOKE_OK');
 }

@@ -9,6 +9,8 @@
     if (kind === 'folder') return tax()?.folders?.(song) || [];
     if (kind === 'group') return tax()?.assignedGroups?.(song) || [];
     if (kind === 'genre') return tax()?.list?.(ids.genre) || [];
+    if (kind === 'title') return [song?.title].filter(Boolean);
+    if (kind === 'artist') return [ids.author || song?.artist].filter(Boolean);
     return tax()?.unique?.([...(tax()?.list?.(ids.tags) || []), ...(tax()?.list?.(automatic.tags) || [])]) || [];
   };
   function catalog(kind) {

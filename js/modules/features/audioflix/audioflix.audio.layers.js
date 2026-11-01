@@ -219,21 +219,12 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             if (!reserveStart(id)) return false;
             try {
             const cancelled = () => isCancelled(id, itemStartEpoch, globalStartEpoch);
-
-            const provider = window.EveAudioflixUrlProviders?.providerFor?.(safeItem.url) || '';
-            const independentSound = safeItem.type === 'sound' && (provider === 'direct' || /^(?:file:|blob:|data:audio\/)/i.test(safeItem.url));
-            if (deps.shouldPreferUrl?.(safeItem) && !independentSound) {
-                const played = await deps.playUrlItem(safeItem);
-                if (!cancelled()) return played;
-                await cancelStartedUrl(id);
-                return false;
-            }
             if (window.EveAudioflixAudioSource?.needsResolution?.(safeItem.url)) {
                 try {
                     safeItem = await window.EveAudioflixAudioSource.resolveItem(safeItem);
                 } catch (error) {
                     if (cancelled()) return false;
-                    if (deps.canPlayUrl?.(safeItem)) {
+                    if (deps.canPlayUrl?.(safeItem) && deps.canUseSharedUrlLayer?.(safeItem) !== false) {
                         const played = await deps.playUrlItem(safeItem);
                         if (!cancelled()) return played;
                         await cancelStartedUrl(id);
@@ -242,6 +233,15 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
                     console.warn('[Audioflix] Failed to resolve stream URL for layer:', error);
                     return false;
                 }
+            }
+            const provider = window.EveAudioflixUrlProviders?.providerFor?.(safeItem.url) || '';
+            const independentSound = safeItem.type === 'sound' && (provider === 'direct' || /^(?:file:|blob:|data:audio\/)/i.test(safeItem.url));
+            if (deps.shouldPreferUrl?.(safeItem) && !independentSound) {
+                if (deps.canUseSharedUrlLayer?.(safeItem) === false) return false;
+                const played = await deps.playUrlItem(safeItem);
+                if (!cancelled()) return played;
+                await cancelStartedUrl(id);
+                return false;
             }
             if (cancelled()) return false;
 

@@ -146,20 +146,22 @@
       if (target && !values.length) target.textContent = 'None';
     }
   }
-  function saveOrganization() {
+  async function saveOrganization() {
     const song = selectedSong(); if (!song) return;
     const folders = tax.append(foldersOf(song), $('[data-pfo-folder-input]')?.value);
     const groups = tax.append(assignedGroupsOf(song), $('[data-pfo-group-input]')?.value);
     const tags = tax.append(tagsOf(song), $('[data-pfo-tag-input]')?.value);
-    const sent = ports.command?.('song:update', {
-      songId: song.id, folders, groups, tags
-    });
-    if (sent !== false) optimisticAssignments.set(String(song.id), { folders, groups, tags });
+    const prior = { folders: foldersOf(song), groups: assignedGroupsOf(song), tags: tagsOf(song) };
+    optimisticAssignments.set(String(song.id), { folders, groups, tags });
     fillEditor();
     const note = $('[data-pfo-note]');
-    if (note) note.textContent = sent === false ? 'Backend is not ready.' : 'Saving through the Piano Backend…';
+    if (note) note.textContent = 'Saving through the Piano Backend…';
+    const result = await ports.request?.('song:update', { songId: song.id, folders, groups, tags });
+    if (!result?.ok) optimisticAssignments.set(String(song.id), prior);
+    if (note) note.textContent = result?.ok ? 'Saved by the Piano Backend.' : (result?.error || 'Backend is not ready.');
+    fillEditor(); refreshNavigation(front.getSongs?.() || []); front.repaint?.();
   }
-  function removeAssignment(kind, value) {
+  async function removeAssignment(kind, value) {
     const song = selectedSong(); if (!song) return;
     const payload = { songId: song.id, folders: foldersOf(song), groups: assignedGroupsOf(song), tags: tagsOf(song) };
     const key = ({ folder: 'folders', group: 'groups', tag: 'tags' })[kind]; if (!key) return;
@@ -167,7 +169,9 @@
     const next = { folders: payload.folders, groups: payload.groups, tags: payload.tags };
     optimisticAssignments.set(String(song.id), next);
     fillEditor(); refreshNavigation(front.getSongs?.() || []); front.repaint?.();
-    if (ports.command?.('song:update', payload) === false) { optimisticAssignments.delete(String(song.id)); fillEditor(); refreshNavigation(front.getSongs?.() || []); front.repaint?.(); }
+    const result = await ports.request?.('song:update', payload);
+    if (!result?.ok) { optimisticAssignments.delete(String(song.id)); fillEditor(); refreshNavigation(front.getSongs?.() || []); front.repaint?.(); }
+    const note = $('[data-pfo-note]'); if (note) note.textContent = result?.ok ? 'Saved by the Piano Backend.' : (result?.error || 'Backend is not ready.');
   }
   function search(value) {
     const primary = $('[data-pf-search]'), linked = $('[data-pfo-search]');
@@ -260,7 +264,7 @@
     if (!advanced) { ports.ensureFilters?.(); advanced = c.querySelector('.piano-pxp-advanced'); }
     if (!advanced) return false;
     if (!nexus.contains(advanced)) nexus.append(advanced);
-    advanced.querySelector('[data-pxp-tags]')?.setAttribute('list', 'piano-pfo-tag-options');
+    advanced.querySelector('[data-pxp-tags]')?.setAttribute('data-piano-suggest', 'tag');
     const editor = c.querySelector('.piano-pxm-editor');
     if (editor && !nexus.contains(editor)) nexus.append(editor);
     const orphan = c.querySelector('.piano-pxp-filters');

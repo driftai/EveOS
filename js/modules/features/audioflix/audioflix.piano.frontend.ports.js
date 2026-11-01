@@ -19,7 +19,6 @@
     if (!raw) return '';
     try { return new URL(raw).hostname.replace(/^www\./, ''); } catch (_) { return raw.slice(0, 40); }
   };
-
   function matches(song, search) {
     if (scope === 'favorites' && !favorite(song)) return false;
     if (scope === 'sheets' && kind(song) !== 'sheet') return false;
@@ -150,9 +149,10 @@
     pending.set(id, { action, sent: Date.now() });
     try { receiver.postMessage({ type: 'eveos:piano-frontend-port-command', action, id, ...fields }, dest); }
     catch (_) { pending.delete(id); return false; }
-    setTimeout(() => { if (pending.has(id)) { pending.delete(id); note('Piano controls did not respond. Try Refresh.'); } }, 7000);
-    return true;
+    setTimeout(() => { const entry = pending.get(id); if (entry) { pending.delete(id); entry.resolve?.({ ok: false, error: 'Piano controls did not respond. Try Refresh.' }); note('Piano controls did not respond. Try Refresh.'); } }, 7000);
+    return id;
   }
+  const request = (action, fields = {}) => new Promise(resolve => { const id = send(action, fields); if (id === false) resolve({ ok: false, error: 'Backend is not ready.' }); else pending.get(id).resolve = resolve; });
   function note(message) { const node = $('[data-pxp-notice]'); if (node) node.textContent = message; }
   function publish() {
     front.syncControls?.(); front.syncPlayback?.();
@@ -407,7 +407,7 @@
       return;
     }
     if (data?.type !== 'piano:eveos-frontend-port-response' || !pending.has(data.id)) return;
-    const action = pending.get(data.id)?.action; pending.delete(data.id);
+    const entry = pending.get(data.id), action = entry?.action; pending.delete(data.id);
     if (data.error) {
       note(data.error);
       if (action?.startsWith('queue:')) { const count = $('[data-pxp-queue-count]'); if (count) count.textContent = 'Queue unavailable · Refresh'; }
@@ -423,6 +423,7 @@
       if (action === 'song:update') front.requestLibrary?.();
       publish();
     }
+    entry?.resolve?.({ ok: !data.error, error: data.error || '', data });
   });
   const oldMount = front.mount, oldSync = front.sync, oldHandle = front.handleAction, oldRefresh = front.refresh;
   front.mount = h => { host = h; oldMount(h); mount(); };
@@ -432,7 +433,7 @@
   Object.assign(ports,{
     ready:true,ensureFilters,matches,sortSongs,
     decorateSongs(target, visible, all) { decorateSongs(target, visible, all); window.EveAudioflixPianoFrontendMedia?.decorateSongs?.(target, visible, all); },
-    command: send, invalidate,
+    command: (action, fields) => send(action, fields) !== false, request, invalidate,
     snapshot: () => ({ controls, queue, progress, media }),
     subscribe(listener) { if (typeof listener !== 'function') return () => {}; subscribers.add(listener); listener({ controls, queue, progress, media }); return () => subscribers.delete(listener); }
   });
