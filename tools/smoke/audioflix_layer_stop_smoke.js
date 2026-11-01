@@ -219,6 +219,7 @@ async function main() {
     actionWindow.EveAudioflixAudio = {
         layerPlay: async (item) => { actionLayerItem = item; return true; },
         playItem: async (item) => { actionPlayItem = item; actionPlayCount += 1; return true; },
+        playSound: async (item) => { actionLayerStopped = true; actionVoiceClears.push(String(item.id), `hk:${item.id}`); actionPlayItem = item; actionPlayCount += 1; return true; },
         stopItemLayers: async () => { actionLayerStopped = true; return true; }
     };
     actionWindow.EveAudioflixNative = { clearVoices: (id) => { actionVoiceClears.push(id); return hotkeyClear.promise; } };
@@ -255,7 +256,7 @@ async function main() {
     // Same-item normal Play coalesces; Layer Play forwards each press to its bounded transport owner.
     const playStormGate = deferred();
     let playStormCalls = 0;
-    actionWindow.EveAudioflixAudio.playItem = async () => {
+    actionWindow.EveAudioflixAudio.playSound = async () => {
         playStormCalls += 1;
         await playStormGate.promise;
         return true;

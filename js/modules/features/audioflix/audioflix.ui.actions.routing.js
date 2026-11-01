@@ -8,6 +8,15 @@ window.EveAudioflixUiActionsRouting = window.EveAudioflixUiActionsRouting || {};
                 try { const ok = await window.EveAudioflixAudio?.unlockDeviceLabels?.(); ctx.playbackStatus = ok ? 'Output access granted.' : 'Output access still blocked here.'; }
                 catch (err) { ctx.playbackStatus = err.message || 'Device name unlock failed'; } ctx.rerender(); return true;
             }
+            if (action === 'route-piano-output') {
+                try {
+                    let sink = await window.EveAudioflixAudio?.resolvePlaybackSink?.(true);
+                    if (!sink?.deviceId && await window.EveAudioflixAudio?.unlockDeviceLabels?.()) sink = await window.EveAudioflixAudio?.resolvePlaybackSink?.(true);
+                    if (!sink?.deviceId) throw new Error('The selected native port is not browser-authorized yet. Pick the matching Browser Output once.');
+                    await window.EveAudioflixAudio?.setOutputById?.(sink.deviceId, sink.label); ctx.playbackStatus = `Piano routed to ${sink.label}`;
+                } catch (err) { ctx.playbackStatus = err.message || 'Piano output routing failed'; }
+                ctx.rerender(); return true;
+            }
             if (action === 'local-only') {
                 window.EveAudioflixNative?.setNativeBridgeEnabled?.(false); window.EveAudioflixGemini?.setVoicePortEnabled?.(false); window.EveAudioflixGemini?.setMonitorEnabled?.(true);
                 await window.EveAudioflixAudio?.setOutputById?.('', 'System default output');

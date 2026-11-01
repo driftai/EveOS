@@ -5,8 +5,7 @@
   let host = null, selectedId = '', draggedQueueId = '', mode = 'settings', snapshot = ports.snapshot?.() || {};
   const canvas = () => host?.querySelector('[data-piano-frontend]');
   const $ = selector => canvas()?.querySelector(selector);
-  const list = value => (Array.isArray(value) ? value : String(value || '').split(','))
-    .map(item => String(item).trim()).filter(Boolean);
+  const list = value => window.EveAudioflixPianoTaxonomy?.list?.(value) || [];
   const songs = () => front.getSongs?.() || [];
   const songById = id => songs().find(song => String(song.id) === String(id)) || null;
   const custom = song => song?.identifiers?.custom || {};
@@ -38,9 +37,9 @@
       <header><div><span>PIANO SONG</span><h3 id="pfs-title">Song settings</h3></div><button type="button" data-pfs-action="close" aria-label="Close Piano song settings">×</button></header>
       <div data-pfs-settings><div class="piano-pfs-grid">
         <label>Title<input data-pfs-title maxlength="180"></label><label>Artist / author<input data-pfs-artist maxlength="90"></label>
-        <label>Genres<input data-pfs-genres placeholder="genre, genre"></label><label>Tags (up to 80)<input data-pfs-tags placeholder="tag, tag"></label>
+        <label>Genres<input data-pfs-genres data-piano-suggest="genre" data-piano-suggest-multi="true" placeholder="genre, genre"></label><label>Tags (up to 80)<input data-pfs-tags data-piano-suggest="tag" data-piano-suggest-multi="true" placeholder="tag, tag"></label>
         <label>Rating<input data-pfs-rating type="number" min="0" max="5" step="0.5"></label><label class="piano-pfs-check"><input data-pfs-favorite type="checkbox"> Favorite</label>
-        <label>Folders<input data-pfs-folders placeholder="folder, folder"></label><label>Groups<input data-pfs-groups placeholder="group, group"></label>
+        <label>Folders<input data-pfs-folders data-piano-suggest="folder" data-piano-suggest-multi="true" placeholder="folder, folder"></label><label>Groups<input data-pfs-groups data-piano-suggest="group" data-piano-suggest-multi="true" placeholder="group, group"></label>
       </div><fieldset><legend>Playback overrides</legend><div class="piano-pfs-grid">
         <label>Playback route<select data-pfs-route><option value="inherit">Inherit global default</option><option value="internal">Internal Piano</option><option value="target">Target window</option></select></label>
         <label>Target window<select data-pfs-target><option value="">Inherit / choose at play</option></select></label>

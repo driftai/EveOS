@@ -125,7 +125,13 @@ function assert(condition, message) {
         'system default left exclusive native playback armed');
     assert(stateRef.value.routeMode === 'browser', 'system default did not restore browser route mode');
 
-    console.log('AUDIOFLIX_MUSIC_ROUTE_SMOKE_OK (cases=6)');
+    stateRef.value = { preferredSinkId: '', preferredSinkLabel: '', nativeBridgeEnabled: true,
+        nativeSuppressBrowserPlayback: true, nativeOutputId: 'sd:7', routeMode: 'native-bridge' };
+    await controller.setOutputById('dev-cable-in', 'CABLE Input');
+    assert(stateRef.value.nativeBridgeEnabled === true && stateRef.value.preferredSinkId === 'dev-cable-in',
+        'browser sink selection unexpectedly disarmed the native route');
+
+    console.log('AUDIOFLIX_MUSIC_ROUTE_SMOKE_OK (cases=7)');
 })().catch((error) => {
     console.error(error);
     process.exit(1);

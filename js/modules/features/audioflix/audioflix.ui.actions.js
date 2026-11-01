@@ -3,8 +3,7 @@
 // source of truth; this module reaches it through a `ctx` accessor facade (getters/setters over those
 // closure locals), so the renderers there keep reading the same variables unchanged.
 window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
-(function () {
-    'use strict';
+(function () { 'use strict';
     const ns = window.EveAudioflixUiActions;
     if (ns.ready) return;
     ns.create = function create(ctx) {
@@ -406,9 +405,10 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                         ctx.activeMusicQueue = { ...ctx.activeMusicQueue, currentIndex: ctx.activeMusicQueue.items.indexOf(id), isPlaying: true };
                         window.EveAudioflixAudio?.syncQueueView?.();
                     }
-                    const active = window.EveAudioflixAudio?.getPlaybackState?.();
-                    await stopItemPlayback(id, active?.browserOnly === true && String(active.item?.id || active.item?.url || '') === String(id || ''));
-                    await window.EveAudioflixAudio?.playItem?.({ ...item, type: type || item.type });
+                    const isSound = (type || item.type) === 'sound';
+                    if (!isSound) { const active = window.EveAudioflixAudio?.getPlaybackState?.();
+                        await stopItemPlayback(id, active?.browserOnly === true && String(active.item?.id || active.item?.url || '') === String(id || '')); }
+                    await window.EveAudioflixAudio?.[isSound ? 'playSound' : 'playItem']?.({ ...item, type: isSound ? 'sound' : (type || item.type) });
                 } catch (err) { ctx.playbackStatus = err.message || 'Playback failed'; ctx.rerender(); }
                 finally { playRequests.delete(id); }
                 return;

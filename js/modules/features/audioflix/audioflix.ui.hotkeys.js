@@ -221,7 +221,13 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
                     const lf = r?.lastFired;
                     if (lf?.at && lf.at !== lastFiredAt) {
                         lastFiredAt = lf.at;
-                        const card = String(lf.vid || '').startsWith('hk:') && ctx.overlay.querySelector(`.audioflix-item-grid[data-af-active-group] [data-af-id="${lf.vid.slice(3)}"]`)?.closest('.audioflix-item-card');
+                        const firedId = String(lf.vid || '').startsWith('hk:') ? lf.vid.slice(3) : '';
+                        const firedItem = firedId && configuredItems().find(item => String(item.id) === firedId);
+                        if (firedItem) window.EveAudioflixAudio?.projectExternalLayer?.({
+                            itemId: firedId, voiceId: lf.vid, title: firedItem.title,
+                            duration: Number(lf.duration || firedItem.duration || 0), startedAt: Number(lf.at) * 1000
+                        });
+                        const card = firedId && ctx.overlay.querySelector(`.audioflix-item-grid[data-af-active-group] [data-af-id="${firedId}"]`)?.closest('.audioflix-item-card');
                         if (card) { card.classList.add('is-hotkey-hit'); setTimeout(() => card.classList.remove('is-hotkey-hit'), 220); }
                         recordAudioflixNexus(`Hotkey ${lf.combo || ''} fired a soundboard clip`);
                     }
@@ -263,7 +269,7 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
             if (!matched) return; e.preventDefault();
             if (registeredCombos.has(canonicalCombo(matched.hotkey))) return;
             flashHotkey(matched.id);
-            Promise.resolve(window.EveAudioflixAudio?.playItem?.(matched)).catch(() => {});
+            Promise.resolve(window.EveAudioflixAudio?.playSound?.(matched)).catch(() => {});
         }
 
         return { startHotkeyFeedbackPoll, stopHotkeyFeedbackPoll, handleHotkey, syncHotkeys, setBypassed, toggleTransportPause, status: () => lastStatus };

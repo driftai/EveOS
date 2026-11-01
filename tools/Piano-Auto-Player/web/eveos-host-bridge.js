@@ -74,6 +74,7 @@
 
   try { context = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (_) {}
   window.addEventListener('message', accept);
+  window.addEventListener('piano:audio-route', event => eveHost?.postMessage?.({ type: 'piano:eveos-audio-route', route: event.detail || null }, '*'));
   window.PianoEveOS = Object.freeze({ getContext: () => context ? { ...context } : null });
   eveHost?.postMessage?.({ type: 'piano:eveos-ready' }, '*');
 

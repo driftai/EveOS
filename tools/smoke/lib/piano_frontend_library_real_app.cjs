@@ -10,7 +10,6 @@ const http = require('node:http');
 const { spawn } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const { assertTransportContinuity } = require('./piano_frontend_transport_real_app.cjs');
-
 function freePort() {
  return new Promise((resolve,reject)=>{const s=net.createServer();s.unref();s.on('error',reject);s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});
 }
@@ -18,7 +17,6 @@ function waitHttp(url, timeout=10000) {
  const start=Date.now();
  return new Promise((resolve,reject)=>{const tick=()=>{const req=http.get(url,res=>{res.resume();if(res.statusCode===200)return resolve();setTimeout(tick,80);});req.on('error',()=>{if(Date.now()-start>timeout)return reject(new Error(`Timed out waiting for ${url}`));setTimeout(tick,80);});};tick();});
 }
-
 async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentationPorts, mediaFrontend, taxonomyFrontend, organizeFrontend, settingsFrontend, ui, installHost}) {
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'eveos-piano-front-'));
  const portNumber=await freePort();
@@ -34,6 +32,7 @@ async function opaqueRealAppTest(browser, {repo, css, views, frontend, presentat
  try {
   await waitHttp(`http://127.0.0.1:${portNumber}/api/status`);
   const page=await browser.newPage({viewport:{width:1180,height:860}});
+  await page.addInitScript(() => { if(location.hostname==='127.0.0.1')localStorage.setItem('eveos:piano:sound:v1','legacy_synth'); });
   const transientModuleFailures=new Map();
   await page.route(/\/assets\/(player_queue|sheet_progress)\.js(?:\?|$)/,async route=>{
    const name=new URL(route.request().url()).pathname.split('/').pop();

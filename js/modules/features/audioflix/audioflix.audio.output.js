@@ -45,8 +45,7 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
         window.EveAudioflixState?.update?.({
             preferredSinkId: sinkId,
             preferredSinkLabel: isDefault ? '' : (label || 'Selected output device'),
-            nativeBridgeEnabled: false,
-            nativeSuppressBrowserPlayback: false,
+            ...(isDefault ? { nativeBridgeEnabled: false, nativeSuppressBrowserPlayback: false } : {}),
             nativeRouteDefaultV2Applied: true,
             routeMode: isDefault ? 'browser' : 'browser-selective'
         }, 'audioflix-output-device');
@@ -167,7 +166,7 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
         return shorter.length >= 6 && longer.startsWith(shorter);
     }
 
-    async function resolvePlaybackSink() {
+    async function resolvePlaybackSink(force = false) {
         const current = state();
         if (current.preferredSinkId) {
             return {
@@ -177,7 +176,7 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
             };
         }
         if (current.nativeBridgeEnabled !== true || !current.nativeOutputId || !current.nativeOutputLabel) return null;
-        if (nativeSinkMatch.key !== current.nativeOutputLabel || Date.now() - nativeSinkMatch.at >= 15000) {
+        if (force || nativeSinkMatch.key !== current.nativeOutputLabel || Date.now() - nativeSinkMatch.at >= 15000) {
             const outputs = await listOutputs();
             const match = (outputs || []).find(
                 (device) => device && !device.anonymous && deviceLabelsMatch(device.label, current.nativeOutputLabel)

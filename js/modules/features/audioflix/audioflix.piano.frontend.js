@@ -17,7 +17,9 @@
     let message = 'Connect to Piano to see your songs.';
     const pending = new Map();
     const OFFLINE_KEY = 'eveos:piano:library-preview:v1';
+    const OFFLINE_IDB_KEY = 'eveos_piano_library_preview_v1';
     let offlineSnapshot = false;
+    let offlineReadGeneration = 0;
     function previewRecord(song) {
         const id = song.identifiers || {}, custom = id.custom || {}, automatic = song.automatic_identifiers || {};
         return { id: song.id, title: song.title, artist: song.artist, kind: song.kind,
@@ -38,26 +40,37 @@
     function saveOfflinePreview(items) {
         try {
             const list = items.slice(0, 5000).map(previewRecord);
-            const payload = JSON.stringify({ version: 1, savedAt: Date.now(), songs: list });
+            const record = { version: 1, savedAt: Date.now(), songs: list };
+            void Promise.resolve(window.IDBStore?.set?.(OFFLINE_IDB_KEY, record)).catch(() => false);
+            const payload = JSON.stringify(record);
             if (payload.length <= 3000000) localStorage.setItem(OFFLINE_KEY, payload);
         } catch (_) { /* Blocked or full browser storage never breaks live playback. */ }
     }
-    function readOfflinePreview() {
+    function validOfflinePreview(saved) {
+        if (saved?.version !== 1 || !Array.isArray(saved.songs) || saved.songs.length > 5000 ||
+            !Number.isFinite(saved.savedAt) || saved.savedAt <= 0) return null;
+        return { savedAt: saved.savedAt, songs: normalizeSongs(saved.songs) };
+    }
+    async function readOfflinePreview() {
+        try {
+            const saved = validOfflinePreview(await window.IDBStore?.get?.(OFFLINE_IDB_KEY));
+            if (saved) return saved;
+        } catch (_) { /* Fall through to the compact localStorage compatibility copy. */ }
         try {
             const raw = localStorage.getItem(OFFLINE_KEY);
             if (!raw || raw.length > 3000000) return null;
-            const saved = JSON.parse(raw);
-            if (saved?.version !== 1 || !Array.isArray(saved.songs) || saved.songs.length > 5000 ||
-                !Number.isFinite(saved.savedAt) || saved.savedAt <= 0) return null;
-            return { savedAt: saved.savedAt, songs: normalizeSongs(saved.songs) };
+            return validOfflinePreview(JSON.parse(raw));
         } catch (_) { return null; }
     }
-    function showOfflinePreview() {
-        const saved = readOfflinePreview();
+    async function showOfflinePreview() {
+        const generation = ++offlineReadGeneration;
+        const saved = await readOfflinePreview();
+        if (generation !== offlineReadGeneration || (!offlineSnapshot && libraryReady && isRunning())) return;
         songs = saved?.songs || []; offlineSnapshot = !!saved; libraryReady = !!saved;
         const when = saved ? new Date(saved.savedAt).toLocaleString() : '';
         message = saved ? `Offline library preview from ${when} — start Piano to play or edit songs.`
             : 'Piano offline. Start Piano once to sync your songs; afterward, the library stays visible while offline.';
+        displayStatus(); displaySongs();
     }
 
     function panel() { return root?.querySelector('[data-audioflix-piano]'); }
@@ -99,6 +112,7 @@
         }));
     }
     function applyLibrary(items, source = 'bridge') {
+        offlineReadGeneration += 1;
         songs = normalizeSongs(items);
         offlineSnapshot = false;
         libraryReady = true;
@@ -222,7 +236,7 @@
     }
     function reset() {
         pending.clear(); bridgeReady = false; lastLibrary = lastStatus = 0; busy = ''; state = 'idle';
-        showOfflinePreview();
+        void showOfflinePreview();
         if (isRunning()) message = offlineSnapshot ? 'Connecting to Piano — showing last synced library preview.' : 'Connecting to Piano library…';
         displayStatus(); displaySongs();
     }
@@ -291,7 +305,7 @@
 
         c.querySelector('[data-pf-search]')?.addEventListener('input', event => { filter = event.target.value.toLowerCase().trim(); displaySongs(); });
         c.querySelector('[data-pf-sort]')?.addEventListener('change', event => { sortMode = event.target.value || 'recent'; displaySongs(); });
-        if (!isRunning()) showOfflinePreview();
+        if (!isRunning()) void showOfflinePreview();
         displayStatus(); displaySongs();
     }
     function handleAction(target) {

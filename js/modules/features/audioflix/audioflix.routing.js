@@ -1,10 +1,8 @@
 window.EveAudioflixRouting = window.EveAudioflixRouting || {};
 (function () {
     'use strict';
-
     const ns = window.EveAudioflixRouting;
     if (ns.ready) return;
-
     function esc(value) {
         return String(value ?? '').replace(/[&<>"']/g, function (char) {
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char];
@@ -191,6 +189,7 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
             </div>
         </section>
         <section class="audioflix-status-grid">${window.EveAudioflixOutputPort?.render?.(snapshot) || ''}
+            ${window.EveAudioflixPianoUi?.renderOutputRouteCard?.() || ''}
             <article class="audioflix-status-card is-core">
                 <span>Browser Output Core</span>
                 <strong>${esc(browserCore.title)}</strong>
@@ -398,6 +397,7 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
             `Generated: ${new Date().toISOString()}`,
             '',
             `[Browser Core] ${browserCore.title}`,
+            `[Piano WebAudio] ${window.EveAudioflixPianoUi?.outputRouteStatus?.()?.applied ? (window.EveAudioflixPianoUi.outputRouteStatus().label || 'browser output applied') : 'default or unresolved browser output'}`,
             `[Output Router] ${routeLabel(snapshot, audioStatus)}`,
             `[Voice Port] ${snapshot.geminiVoicePortEnabled ? 'selective Gemini WebAudio route armed' : 'default playback'}`,
             `[Route Mode] ${snapshot.routeMode || 'browser'}`,

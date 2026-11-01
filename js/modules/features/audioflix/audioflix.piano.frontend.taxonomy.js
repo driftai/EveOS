@@ -2,8 +2,17 @@
 (function (ns) {
   'use strict';
   if (ns.ready) return;
-  const list = value => (Array.isArray(value) ? value : String(value || '').split(','))
-    .map(item => String(item).trim()).filter(Boolean);
+  function list(value, depth = 0) {
+    if (depth > 3) return [];
+    if (Array.isArray(value)) return value.flatMap(item => list(item, depth + 1));
+    const raw = String(value || '').trim(); if (!raw) return [];
+    if (/^\[.*\]$/.test(raw)) {
+      for (const candidate of [raw, raw.includes('"') ? '' : raw.replace(/'/g, '"')]) {
+        try { const parsed = JSON.parse(candidate); if (Array.isArray(parsed)) return list(parsed, depth + 1); } catch (_) {}
+      }
+    }
+    return raw.split(',').map(item => item.trim()).filter(Boolean);
+  }
   const unique = values => [...new Set(values.filter(Boolean))];
   const custom = song => song?.identifiers?.custom || {};
   const tab = song => String(custom(song).piano_tab || '').trim();

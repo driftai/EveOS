@@ -17,6 +17,7 @@
 .piano-pfo-heading { color:#e4c878; font-size:11px; font-weight:800; letter-spacing:.13em; text-transform:uppercase; }
 .piano-pfo-toolbar [hidden], .piano-pfo-toolbar .piano-pfo-player[hidden] { display:none !important; }
 .piano-pfo-manager label[hidden] { display:none !important; }
+.audioflix-piano-frontend .piano-pfo-assignment:hover,.audioflix-piano-frontend .piano-pfo-assignment:focus-visible{color:#ffd7d7;border-color:#d85d68;background:rgba(112,25,35,.38)}
 .piano-pfo-player { min-width:0; }
 .piano-pfo-player .piano-pxp-controls { margin:0 0 12px; }
 .piano-pfo-player .piano-pxp-queue { margin:0 0 12px; }

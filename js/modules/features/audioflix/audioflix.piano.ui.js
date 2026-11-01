@@ -9,6 +9,7 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
     let root = null;
     let detachedWindow = null;
     let detachedTimer = 0;
+    let outputRoute = null;
 
     function snapshot() {
         return window.EveAudioflixPiano?.state || {};
@@ -20,14 +21,13 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
 
     function context() {
         const audioflix = window.EveAudioflixState?.getSnapshot?.() || {};
-        const route = audioflix.nativeBridgeEnabled && audioflix.nativeOutputLabel
-            ? audioflix.nativeOutputLabel : (audioflix.preferredSinkLabel || 'Default output');
+        const route = audioflix.preferredSinkLabel || (audioflix.nativeBridgeEnabled && audioflix.nativeOutputLabel) || 'Default output';
         return {
             surface: 'Audioflix',
             soundCount: Number(audioflix.soundboard?.length || 0),
             musicCount: Number(audioflix.music?.length || 0),
             outputRoute: route,
-            audioOutput: { requestedLabel: route, browserSinkId: audioflix.nativeBridgeEnabled ? '' : (audioflix.preferredSinkId || ''), source: audioflix.nativeBridgeEnabled ? 'native-match' : 'browser' },
+            audioOutput: { requestedLabel: route, browserSinkId: audioflix.preferredSinkId || '', source: audioflix.preferredSinkId ? 'browser-selective' : (audioflix.nativeBridgeEnabled ? 'native-match' : 'browser') },
             sentAt: new Date().toISOString()
         };
     }
@@ -43,6 +43,17 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
                 browserSinkId: String(sink?.deviceId || ''), source: sink?.source || initial.audioOutput.source } };
             frame.contentWindow.postMessage({ type: 'eveos:audioflix-context', context: refined }, '*');
         }).catch(() => {});
+    }
+
+    function outputRouteStatus() { return outputRoute ? { ...outputRoute } : null; }
+    function renderOutputRouteCard() {
+        const esc = value => String(value || '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        const current = outputRouteStatus(), audioflix = window.EveAudioflixState?.getSnapshot?.() || {};
+        const requested = audioflix.preferredSinkLabel || (audioflix.nativeBridgeEnabled && audioflix.nativeOutputLabel) || 'System default output';
+        const ready = current?.applied === true, waiting = !current;
+        const title = ready ? (current.label || requested) : waiting ? 'Checking Piano output…' : 'Default output — route not applied';
+        const detail = ready ? 'Piano WebAudio is using this browser-authorized output.' : 'Piano is browser WebAudio. Grant/select the same browser output as the Native Bridge to send it through that port.';
+        return `<article class="audioflix-status-card ${ready ? 'is-on' : ''}"><span>Piano WebAudio</span><strong>${esc(title)}</strong><p>${esc(detail)}</p>${ready ? '' : '<button type="button" data-af-action="route-piano-output">Route Piano to selected port</button>'}</article>`;
     }
 
     function watchDetached() {
@@ -270,7 +281,13 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         if (event.data?.type === 'piano:eveos-ready') {
             sendContext(root?.querySelector?.('[data-piano-frame]'));
         }
+        if (event.data?.type === 'piano:eveos-audio-route') {
+            const frame = root?.querySelector?.('[data-piano-frame]')?.contentWindow;
+            if (event.source !== frame && event.source !== detachedWindow) return;
+            const next = event.data.route && typeof event.data.route === 'object' ? event.data.route : null;
+            if (JSON.stringify(next) !== JSON.stringify(outputRoute)) { outputRoute = next; window.EveAudioflix?.render?.(); }
+        }
     });
     window.addEventListener('eve:audioflix-piano-status', () => patch());
-    Object.assign(ns, { ready: true, render, afterRender, setVisible, handleAction, reattach });
+    Object.assign(ns, { ready: true, render, afterRender, setVisible, handleAction, reattach, outputRouteStatus, renderOutputRouteCard });
 })(window.EveAudioflixPianoUi);

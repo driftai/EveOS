@@ -17,21 +17,10 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     let activeStreamVolume = 1.0;
     let urlPlayback = null, resumeMusicCapture = false;
 
-    async function getDecodedBuffer(url) {
-        return window.EveAudioflixAudioCodec.getDecodedBuffer(
-            url,
-            () => waveformController?.getContext?.()
-        );
-    }
-    function encodeBufferToBase64(audioBuffer, startAt = 0) {
-        return window.EveAudioflixAudioCodec.encodeBufferToBase64(audioBuffer, startAt);
-    }
-    function state() {
-        return window.EveAudioflixState?.ensure?.() || {};
-    }
-    function dispatch(name, detail) {
-        window.dispatchEvent(new CustomEvent(name, { detail }));
-    }
+    async function getDecodedBuffer(url) { return window.EveAudioflixAudioCodec.getDecodedBuffer(url, () => waveformController?.getContext?.()); }
+    function encodeBufferToBase64(audioBuffer, startAt = 0) { return window.EveAudioflixAudioCodec.encodeBufferToBase64(audioBuffer, startAt); }
+    function state() { return window.EveAudioflixState?.ensure?.() || {}; }
+    function dispatch(name, detail) { window.dispatchEvent(new CustomEvent(name, { detail })); }
     urlPlayback = window.EveAudioflixUrlPlayback?.createController?.({
         onPlayback(detail) {
             currentItem = detail.item || currentItem;
@@ -320,6 +309,16 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         stopNativeItem: (id) => window.EveAudioflixNative?.stopStream?.({ allDevices: true, itemId: id })
     });
     const layerPlay = layerController.layerPlay;
+    async function playSound(item) {
+        if (!item?.url) return false;
+        const safeItem = { ...item, type: 'sound' };
+        const id = String(safeItem.id ?? safeItem.url ?? '');
+        await Promise.allSettled(layerController.stopItemLayers(id));
+        await window.EveAudioflixNative?.clearVoices?.(`hk:${id}`).catch?.(() => false);
+        const played = await layerController.layerPlay(safeItem);
+        if (played) window.EveAudioflixState?.recordPlay?.(safeItem);
+        return played;
+    }
     async function stopItemLayers(itemId, preserveProvider = false) {
         waveformController?.stop?.();
         const pending = [...layerController.stopItemLayers(itemId), window.EveAudioflixNative?.stopStream?.({ allDevices: true, itemId: String(itemId || '') })];
@@ -419,14 +418,13 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     function attachWaveform(targetCanvas) {
         waveformController?.attach?.(targetCanvas);
         const internalPlayer = urlPlayback?.getAudioElement?.();
-        if (targetCanvas && internalPlayer?._eveAudioflixWaveformSafe) {
-            waveformController?.attachPlayer?.(internalPlayer);
-        }
+        if (targetCanvas && internalPlayer?._eveAudioflixWaveformSafe) waveformController?.attachPlayer?.(internalPlayer);
     }
 
     Object.assign(ns, {
         ready: true, playItem, openInternalView, pause, resume, seek, selectOutput, listOutputs, setOutputById, unlockDeviceLabels,
-        playTestSignal, applySink, attachWaveform, browserOutputStatus, resolvePlaybackSink, layerPlay, stopItemLayers,
+        playTestSignal, applySink, attachWaveform, browserOutputStatus, resolvePlaybackSink, routeBrowserStream,
+        playSound, layerPlay, projectExternalLayer: layerController.projectExternalLayer, stopItemLayers,
         stopAll, pauseLayers: layerController.pauseAll, resumeLayers: layerController.resumeAll, layersPaused: layerController.isPaused, hasLayers: layerController.hasLayers, updateItemVolume, getDecodedBuffer, encodeBufferToBase64, getAudioElement: ensureAudio, getPlaybackState,
         setQueueBridge, syncQueueView, setPlaybackRate, isInternalViewOpen: () => urlPlayback?.isInternalViewOpen?.() === true,
         hideInternalView: () => urlPlayback?.hideInternalView?.(), closeInternalView: () => urlPlayback?.closeInternalView?.(),

@@ -102,9 +102,14 @@ function normalizeDeviceLabel(value) {
 
 export async function setPianoOutputRoute(route = {}) {
   const ctx = audioContext(false);
-  if (typeof ctx.setSinkId !== "function") {
-    sharedOutputRoute = { sinkId: "", label: String(route.requestedLabel || "Default output"), applied: !route.browserSinkId, unsupported: true };
+  const finish = value => {
+    sharedOutputRoute = value;
+    window.dispatchEvent(new CustomEvent("piano:audio-route", { detail: { ...sharedOutputRoute } }));
     return { ...sharedOutputRoute };
+  };
+  if (typeof ctx.setSinkId !== "function") {
+    const requestedLabel = String(route.requestedLabel || "Default output");
+    return finish({ sinkId: "", label: requestedLabel, applied: !route.browserSinkId && /^default\b/i.test(requestedLabel), unsupported: true });
   }
   let sinkId = String(route.browserSinkId || "").trim();
   const requestedLabel = String(route.requestedLabel || "Default output").trim();
@@ -116,8 +121,7 @@ export async function setPianoOutputRoute(route = {}) {
     sinkId = String(match?.deviceId || "");
   }
   if (!sinkId && requestedLabel && !/^default\b/i.test(requestedLabel)) {
-    sharedOutputRoute = { sinkId: "", label: requestedLabel, applied: false, unresolved: true };
-    return { ...sharedOutputRoute };
+    return finish({ sinkId: "", label: requestedLabel, applied: false, unresolved: true });
   }
   try {
     await ctx.setSinkId(sinkId);
@@ -125,8 +129,7 @@ export async function setPianoOutputRoute(route = {}) {
   } catch (error) {
     sharedOutputRoute = { sinkId, label: requestedLabel, applied: false, error: String(error?.message || error) };
   }
-  window.dispatchEvent(new CustomEvent("piano:audio-route", { detail: { ...sharedOutputRoute } }));
-  return { ...sharedOutputRoute };
+  return finish(sharedOutputRoute);
 }
 
 export function pianoOutputRoute() { return { ...sharedOutputRoute }; }

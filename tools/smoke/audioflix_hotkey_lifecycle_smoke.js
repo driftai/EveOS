@@ -27,7 +27,7 @@ const window = {
     EveAudioflixAudio: {
         getDecodedBuffer: async url => ({ sampleRate: 48000, url }),
         encodeBufferToBase64: buffer => `pcm:${buffer.url}`,
-        playItem: async item => calls.play.push(item.id), getPlaybackState: () => playback,
+        playSound: async item => calls.play.push(item.id), getPlaybackState: () => playback,
         pause: async () => { calls.pause++; playback.paused = true; }, resume: async () => { calls.resume++; playback.paused = false; },
         hasLayers: () => false, layersPaused: () => false
     },

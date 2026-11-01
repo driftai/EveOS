@@ -104,6 +104,7 @@ def main():
         first_id = next(iter(hotkeys._bindings))
         hotkeys._trigger(first_id)
         assert player.added and hotkeys.status()['lastFired']['combo'] == 'u'
+        assert hotkeys.status()['lastFired']['duration'] > 0
         assert hotkeys.status()['lastError'] is None
         hotkeys._trigger_transport()
         assert hotkeys.status()['transportFired']['seq'] == 1

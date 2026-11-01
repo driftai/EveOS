@@ -20,8 +20,16 @@ function firstFinite(...values) {
 function validOption(node, value) { return !!node && [...node.options].some(option => String(option.value) === String(value)); }
 function emitChange(node) { node.dispatchEvent(new Event('change', { bubbles: true })); }
 const cleanText = (value, limit = 180) => String(value || '').trim().slice(0, limit);
-const cleanList = (value, limit = 60, count = 80) => (Array.isArray(value) ? value : String(value || '').split(','))
-  .map(item => cleanText(item, limit)).filter(Boolean).slice(0, count);
+function cleanListValue(value, limit, count, depth = 0) {
+  if (depth > 3) return [];
+  if (Array.isArray(value)) return [...new Set(value.flatMap(item => cleanListValue(item, limit, count, depth + 1)))].slice(0, count);
+  const raw = String(value || '').trim(); if (!raw) return [];
+  if (/^\[.*\]$/.test(raw)) for (const candidate of [raw, raw.includes('"') ? '' : raw.replace(/'/g, '"')]) {
+    try { const parsed = JSON.parse(candidate); if (Array.isArray(parsed)) return cleanListValue(parsed, limit, count, depth + 1); } catch (_) {}
+  }
+  return [...new Set(raw.split(',').map(item => cleanText(item, limit)).filter(Boolean))].slice(0, count);
+}
+const cleanList = (value, limit = 60, count = 80) => cleanListValue(value, limit, count);
 
 async function setControl(data) {
   const field = data.field, value = data.value;

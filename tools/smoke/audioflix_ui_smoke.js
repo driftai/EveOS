@@ -232,11 +232,11 @@ async function main() {
     // Hotkey: pressing "1" plays the first sound of the active group.
     const hotkeyPlayed = await page.evaluate(async (id) => {
         const played = [];
-        const orig = window.EveAudioflixAudio.playItem;
-        window.EveAudioflixAudio.playItem = (item) => { played.push(item && item.id); return Promise.resolve(true); };
+        const orig = window.EveAudioflixAudio.playSound;
+        window.EveAudioflixAudio.playSound = (item) => { played.push(item && item.id); return Promise.resolve(true); };
         document.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }));
         await new Promise((r) => setTimeout(r, 50));
-        window.EveAudioflixAudio.playItem = orig;
+        window.EveAudioflixAudio.playSound = orig;
         return played.includes(id);
     }, soundId);
     await page.click('[data-af-action="toggle-view-mode"]'); // back to backend

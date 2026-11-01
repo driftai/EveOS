@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ast
 import threading
 import time
 from pathlib import Path
@@ -119,13 +120,30 @@ class SongLibrary:
         return int(max(event["at_ms"] + event["duration_ms"] for event in events))
 
     @staticmethod
+    def _collection_values(raw: Any, depth: int = 0) -> list[Any]:
+        if depth > 3:
+            return []
+        if isinstance(raw, (list, tuple, set)):
+            return [nested for value in raw for nested in SongLibrary._collection_values(value, depth + 1)]
+        text = str(raw or "").strip()
+        if text.startswith("[") and text.endswith("]"):
+            for parser in (json.loads, ast.literal_eval):
+                try:
+                    value = parser(text)
+                    if isinstance(value, (list, tuple, set)):
+                        return SongLibrary._collection_values(value, depth + 1)
+                except (ValueError, SyntaxError, TypeError, json.JSONDecodeError):
+                    pass
+        return text.split(",")
+
+    @staticmethod
     def _clean_values(raw: Any) -> list[str]:
-        values = raw if isinstance(raw, list) else str(raw or "").split(",")
+        values = SongLibrary._collection_values(raw)
         return list(dict.fromkeys(str(value).strip()[:80] for value in values if str(value).strip()))[:80]
 
     @staticmethod
     def _clean_custom_collection(key: str, raw: Any) -> list[str]:
-        values = raw if isinstance(raw, list) else str(raw or "").split(",")
+        values = SongLibrary._collection_values(raw)
         limit = 180 if key == "piano_duplicate_keep_v1" else 80
         count = 20 if key == "piano_duplicate_keep_v1" else 80
         return list(dict.fromkeys(str(value).strip()[:limit] for value in values if str(value).strip()))[:count]

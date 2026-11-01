@@ -132,7 +132,8 @@ def _trigger(hk_id):
             player = audioflix_bridge_playback._player_for(used_device, b['rate'], 1)
         player.clear_voices(vid)            # replace a still-playing instance of this key
         player.add_voice(b['samples'], vid, b['vol'])
-        _last_fired.update({'vid': vid, 'combo': b.get('combo'), 'deviceId': used_device, 'at': time.time()})
+        _last_fired.update({'vid': vid, 'combo': b.get('combo'), 'deviceId': used_device,
+                            'duration': b.get('duration', 0), 'at': time.time()})
         _last_error.clear()
     except Exception as e:
         _last_error.update({'vid': b.get('vid'), 'combo': b.get('combo'), 'message': str(e), 'at': time.time()})
@@ -317,7 +318,7 @@ def _set_bindings(payload):
         with _lock:
             hk_id = _next_id[0]
             _next_id[0] += 1
-            _bindings[hk_id] = {'samples': samples, 'rate': rate, 'device': device,
+            _bindings[hk_id] = {'samples': samples, 'rate': rate, 'duration': len(base64.b64decode(audio)) / 2 / max(1, rate), 'device': device,
                                 'vol': float(it.get('volume') or 1.0), 'combo': combo, 'ok': None,
                                 'vid': str(it.get('voiceId') or '') or None,
                                 'mods': mods, 'vk': vk}  # mods/vk kept so bypass can re-arm

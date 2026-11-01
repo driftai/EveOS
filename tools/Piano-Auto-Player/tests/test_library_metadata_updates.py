@@ -73,3 +73,15 @@ def test_piano_collection_metadata_round_trips_without_string_truncation(tmp_pat
     assert song["identifiers"]["custom"]["piano_folders_v1"] == ["Study", "Favorites"]
     assert song["identifiers"]["custom"]["piano_groups_v1"] == ["Anime", "Practice"]
     assert song["identifiers"]["custom"]["piano_duplicate_keep_v1"] == keep_ids
+
+
+def test_legacy_serialized_memberships_are_recovered_without_literal_brackets(tmp_path) -> None:
+    library = SongLibrary(tmp_path / "songs.json")
+    library.save({"id": "legacy", "title": "Legacy", "sheet": "a", "identifiers": {
+        "genre": "['Anime OST']", "tags": '["calm", "piano"]', "custom": {
+            "piano_folders_v1": "[\"Study\", \"Favorites\"]", "piano_groups_v1": "['Test']"}}})
+    song = library.get("legacy")
+    assert song["identifiers"]["genre"] == ["Anime OST"]
+    assert song["identifiers"]["tags"] == ["calm", "piano"]
+    assert song["identifiers"]["custom"]["piano_folders_v1"] == ["Study", "Favorites"]
+    assert song["identifiers"]["custom"]["piano_groups_v1"] == ["Test"]

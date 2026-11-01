@@ -15,6 +15,7 @@ const retentionSource = read('js/modules/features/audioflix/audioflix.ui.piano-r
 const presentationPorts = read('js/modules/features/audioflix/audioflix.piano.frontend.ports.js');
 const mediaFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.media.js');
 const taxonomyFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.taxonomy.js');
+const suggestionsFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.suggestions.js');
 const organizeFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.organize.js');
 const duplicateFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.duplicates.js');
 const settingsFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.settings.js');
@@ -36,6 +37,7 @@ assert(port.includes('event.source !== parent'), 'bridge must pin commands to th
 assert(port.includes("data?.type === 'eveos:audioflix-context'"), 'bridge must reannounce after host context');
 assert(frontend.includes("directJson('/api/songs')"), 'frontend must have direct library fallback');
 assert(frontend.includes('saveOfflinePreview(songs)'), 'backend library sync automatically persists the read-only offline projection');
+assert(frontend.includes("IDBStore?.set?.(OFFLINE_IDB_KEY") && frontend.includes("IDBStore?.get?.(OFFLINE_IDB_KEY"), 'offline Piano library must use the durable IndexedDB projection');
 assert(!frontend.includes('importOfflinePreview') && !frontend.includes('data-pf-offline-file'), 'do not expose a manual songs.json import path');
 assert(frontend.includes('if (!bridgeReady) applyLibrary'), 'direct fallback must not overwrite bridge-owned library');
 assert(css.includes('> .audioflix-piano-header { display: none; }'), 'frontend must keep technical lifecycle controls in Backend');
@@ -43,6 +45,9 @@ assert(!presentationPorts.includes('Backend Player Queue'), 'frontend copy must 
 assert(frontendAppBridge.includes('eveos:piano:internal-play:v1'), 'Internal Play must have a durable Backend preference');
 assert(frontendAppBridge.includes('eveos:piano:target-window:v1'), 'Target Window must have a durable Backend preference');
 assert(organizeFrontend.includes("ports.command?.('song:update'"), 'Piano organization must use the Backend song owner');
+assert(organizeFrontend.includes('data-piano-suggest="folder"') && suggestionsFrontend.includes("role', 'listbox"), 'taxonomy inputs must use the bounded EveOS suggestion UI');
+assert(taxonomyFrontend.includes("raw.replace(/'/g, '\"')"), 'legacy serialized memberships must be normalized instead of rendered as literal brackets');
+assert(organizeFrontend.includes('optimisticAssignments.set') && organizeFrontend.includes("ports.command?.('song:update', payload) === false"), 'membership removal must repaint immediately and roll back if the Backend refuses it');
 assert(mediaFrontend.includes("ports.command?.('song:update'"), 'listener metadata must use the shared Backend port');
 assert(mediaFrontend.includes("ports.command?.('progress:seek'"), 'listener seek must use the existing Backend progress owner');
 assert(settingsFrontend.includes("ports.command?.('queue:reorder'"), 'Piano Internal View must reorder the shared Backend queue');

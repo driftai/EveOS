@@ -79,6 +79,12 @@ const ctl=win.EveAudioflixAudioLayers.createController({
   assert.equal(ctl.getSnapshot(sound.id).length,1,'finished record removes only itself');
   await Promise.allSettled(ctl.stopItemLayers(sound.id));
   assert.equal(nodes.get(layerPlayers[1]).connections.size,0,'Stop releases remaining audio route');
+  assert.equal(ctl.projectExternalLayer({itemId:sound.id,voiceId:`hk:${sound.id}`,title:sound.title,duration:1.61,startedAt:Date.now()}),true);
+  voices=ctl.getSnapshot(sound.id);assert.equal(voices.length,1,'hotkey voice projects into the shared layer UI');
+  assert.equal(voices[0].native,true);assert.equal(voices[0].duration,1.61);
+  assert.equal(ctl.projectExternalLayer({itemId:sound.id,voiceId:`hk:${sound.id}`,title:sound.title,duration:1.61,startedAt:Date.now()}),true);
+  assert.equal(ctl.getSnapshot(sound.id).length,1,'repeated hotkey replaces its prior projected voice');
+  await Promise.allSettled(ctl.stopItemLayers(sound.id));
   const before=sharedCount;
   assert.equal(await ctl.layerPlay({id:'provider',type:'sound',url:'https://www.youtube.com/watch?v=abcdefghijk'}),true);
   assert.equal(sharedCount,before+1,'provider iframe route retained for unsupported native media');

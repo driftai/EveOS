@@ -49,6 +49,7 @@ try {
             stopItemLayers: async () => true,
             getPlaybackState: () => ({ item: window.__playing, browserOnly: false }),
             playItem: async (next) => { window.__playing = next; return true; },
+            playSound: async (next) => { window.__playing = next; return true; },
             updateItemVolume: () => { window.__liveVolumeWrites += 1; },
             syncQueueView: () => {}
         };
@@ -207,7 +208,7 @@ try {
         window.EveAudioflixUiActionsNexus = { create: () => async () => false };
         window.EveAudioflixUiActionsRouting = { create: () => async () => false };
         window.EveAudioflixUiForms = { create: () => () => {} };
-        window.EveAudioflixAudio = { stopItemLayers: async () => true, playItem: async item => { window.__playing = item.id; }, syncQueueView: () => {} };
+        window.EveAudioflixAudio = { stopItemLayers: async () => true, playItem: async item => { window.__playing = item.id; }, playSound: async item => { window.__playing = item.id; }, syncQueueView: () => {} };
     });
     await lazy.addScriptTag({ content: windowSource });
     const pagePolicy = await lazy.evaluate(() => window.EveAudioflixUiWindow.create({

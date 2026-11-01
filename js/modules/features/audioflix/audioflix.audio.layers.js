@@ -177,6 +177,25 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             return record;
         }
 
+        function projectExternalLayer(detail = {}) {
+            const id = String(detail.itemId || '').trim();
+            const duration = Math.max(0, Number(detail.duration || 0));
+            if (!id || !duration) return false;
+            const externalId = String(detail.voiceId || `external:${id}`);
+            const existing = activeLayers.get(id) || [];
+            existing.filter(record => record.externalId === externalId).forEach(record => removeLayer(id, record));
+            const firedAt = Number(detail.startedAt || 0);
+            addLayer(id, makeRecord(id, { id, type: 'sound', title: detail.title || 'Hotkey sound' }, {
+                id: externalId,
+                externalId,
+                native: true,
+                duration,
+                startedAt: firedAt > 0 ? firedAt : now(),
+                stop: () => window.EveAudioflixNative?.clearVoices?.(externalId)
+            }));
+            return true;
+        }
+
         function reserveStart(id) {
             const ownPending = Number(pendingByItem.get(id) || 0);
             if (ownPending >= MAX_PENDING_PER_ITEM || pendingTotal >= MAX_PENDING_TOTAL) return false;
@@ -414,7 +433,7 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
             if (layer?.native) window.EveAudioflixNative?.setVoiceVolume?.(layer.id, outputVolume(layer.volume));
         })));
 
-        return { layerPlay, stopItemLayers, stopAll, pauseAll, resumeAll, isPaused: () => paused, hasLayers: () => activeLayers.size > 0, updateVolume, getSnapshot: itemSnapshot };
+        return { layerPlay, projectExternalLayer, stopItemLayers, stopAll, pauseAll, resumeAll, isPaused: () => paused, hasLayers: () => activeLayers.size > 0, updateVolume, getSnapshot: itemSnapshot };
     }
 
     Object.assign(ns, { ready: true, createController });
