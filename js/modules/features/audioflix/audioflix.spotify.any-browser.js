@@ -137,7 +137,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             return { ok: false, fallback: false, reason: String(error?.message || error) };
         }
     }
-    async function preferredLocalItem(nextItem) {
+    async function preferredLocalItem(nextItem, policy = null) {
+        if (policy?.sourcePreference === 'original') return null;
         const localPlayback = window.EveAudioflixLocalPlayback;
         const prepare = localPlayback?.prepare;
         if (typeof prepare !== 'function') return null;
@@ -335,7 +336,9 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
                 if (active || starting) await stopRemote();
                 return original.playItem(nextItem);
             }
-            const localItem = await preferredLocalItem(nextItem);
+            const policy = window.EveAudioflixPlaybackPolicy?.resolve?.(nextItem) || { spotifyMethod: 'managed' };
+            if (policy.spotifyMethod === 'embed') { if (active || starting) await stopRemote(); return original.playItem(nextItem); }
+            const localItem = await preferredLocalItem(nextItem, policy);
             if (localItem) {
                 if (active || starting) await stopRemote();
                 return original.playItem(localItem);
@@ -360,7 +363,9 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         };
         audio.openInternalView = async function anyBrowserInternal(nextItem) {
             if (!isSpotify(nextItem)) return original.openInternalView(nextItem);
-            const localItem = await preferredLocalItem(nextItem);
+            const policy = window.EveAudioflixPlaybackPolicy?.resolve?.(nextItem) || { spotifyMethod: 'managed' };
+            if (policy.spotifyMethod === 'embed') { if (active || starting) await stopRemote(); return original.openInternalView(nextItem); }
+            const localItem = await preferredLocalItem(nextItem, policy);
             if (localItem) {
                 if (active || starting) await stopRemote();
                 return original.openInternalView(localItem);

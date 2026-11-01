@@ -96,10 +96,10 @@ const spotifyPrepare = spotifyNative.slice(
 );
 assert(spotifyNative.includes("PLAYBACK_POLICY_REVISION = 'official-embed-v3'"),
     'Spotify normal playback policy is the official embed');
-assert(spotifyPrepare.includes("spotifyPlaybackMode: 'official-embed'")
+assert(spotifyPrepare.includes("spotifyMethod === 'managed' ? 'managed-engine' : 'official-embed'")
     && spotifyPrepare.includes('eveOwnedPlaybackSource: false')
     && spotifyPrepare.includes('preferEveDirectAudio: false'),
-    'Spotify preparation keeps the official Spotify provider authoritative');
+    'Spotify preparation preserves the explicit managed-vs-embed policy decision');
 assert(spotifyNative.includes("'spotifyPlaybackUrl'") && spotifyNative.includes("'rawAudioUrl'")
     && spotifyNative.includes("'youtubeUrl'") && spotifyNative.includes('delete clean[key]'),
     'Spotify preparation strips stale alternate-media resolver residue');

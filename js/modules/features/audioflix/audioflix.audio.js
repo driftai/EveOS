@@ -145,15 +145,14 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     async function preparePlaybackItem(item) {
         let prepared;
         try {
-            prepared = await window.EveAudioflixLocalPlayback?.prepare?.(item) || {
-                item: item && typeof item === 'object' ? { ...item } : item,
-                localPath: '',
-                status: ''
-            };
+            const decision = window.EveAudioflixPlaybackPolicy?.prepareItem?.(item) || { item: item && typeof item === 'object' ? { ...item } : item, policy: window.EveAudioflixPlaybackPolicy?.resolve?.(item) || null };
+            prepared = await window.EveAudioflixLocalPlayback?.prepare?.(decision.item)
+                || { item: decision.item, localPath: '', status: '' };
+            if (prepared?.item && decision.policy) prepared.item._effectivePlaybackPolicy = decision.policy;
             // Spotify playback-source ownership is an Audioflix invariant. Invoke the source
             // mapper explicitly after local-file preparation so a script/DOMContentLoaded race
             // cannot silently route an ordinary library play back into Spotify's iframe.
-            prepared = await window.EveAudioflixNativeSpotify?.preparePlaybackSource?.(item, prepared) || prepared;
+            prepared = await window.EveAudioflixNativeSpotify?.preparePlaybackSource?.(decision.item, prepared, decision.policy) || prepared;
         } catch (error) {
             lastStatus = error?.message || 'The local audio source is unavailable.';
             throw error;
@@ -243,13 +242,15 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             await urlPlayback.stop();
         }
 
-        if (safeItem.type === 'sound' && window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()) {
+        const effectivePolicy = window.EveAudioflixPlaybackPolicy?.policyOf?.(safeItem);
+        const customNativeOutput = effectivePolicy?.outputMode === 'custom' && effectivePolicy.outputKind === 'native' && effectivePolicy.outputId;
+        if (safeItem.type === 'sound' && (customNativeOutput || window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.())) {
             try {
                 lastStatus = `Decoding ${safeItem.title || 'audio'}...`;
                 dispatch('eve:audioflix-playback', { status: lastStatus, item: safeItem });
                 const audioBuffer = await getDecodedBuffer(safeItem.url);
                 currentItem = safeItem;
-                lastStatus = `Native route playing ${safeItem.title || 'audio'} -> ${state().nativeOutputLabel || 'selected output'}`;
+                lastStatus = `Native route playing ${safeItem.title || 'audio'} -> ${effectivePolicy?.outputLabel || state().nativeOutputLabel || 'selected output'}`;
                 dispatch('eve:audioflix-playback', { status: lastStatus, item: safeItem, native: true });
                 await startNativeBuffer(audioBuffer, safeItem, 0);
                 nativeFallbackNoticeShown = false;
@@ -276,9 +277,9 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         window.EveAudioflixLocalPlayback?.setMediaSource?.(player, safeItem.url) || (player.src = safeItem.url);
         currentItem = safeItem;
         const directRoute = await routeBrowserStream(safeItem) || '';
-        const nativeMusic = safeItem.type === 'music' && !directRoute
-            && window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()
-            && await musicCapture?.start(player, safeItem.id);
+        const nativeMusic = safeItem.type === 'music' && !directRoute && (window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()
+                || (window.EveAudioflixPlaybackPolicy?.policyOf?.(safeItem)?.outputMode === 'custom' && window.EveAudioflixPlaybackPolicy.policyOf(safeItem).outputKind === 'native'))
+            && await musicCapture?.start(player, safeItem.id, window.EveAudioflixPlaybackPolicy?.policyOf?.(safeItem));
         if (!nativeMusic) await musicCapture?.stop?.().catch(() => false);
         activeBrowserRouteLabel = nativeMusic ? (state().nativeOutputLabel || 'native route') : directRoute;
         try {
@@ -372,7 +373,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         resumeMusicCapture = musicCapture?.isActive?.() === true; await musicCapture?.stop?.().catch(() => false);
         ensureAudio().pause();
     }
-    async function resume() { if (!currentItem) return false; if (urlPlayback?.isActive?.()) { await urlPlayback.play(currentItem); return true; } if (activeNativeMode && activeNativeBuffer) { await startNativeBuffer(activeNativeBuffer, currentItem, nativePausedAt, activeNativeMode); return true; } const player = ensureAudio(); if (resumeMusicCapture) await musicCapture?.start?.(player, currentItem.id); await player.play(); return true; }
+    async function resume() { if (!currentItem) return false; if (urlPlayback?.isActive?.()) { await urlPlayback.play(currentItem); return true; } if (activeNativeMode && activeNativeBuffer) { await startNativeBuffer(activeNativeBuffer, currentItem, nativePausedAt, activeNativeMode); return true; } const player = ensureAudio(); if (resumeMusicCapture) await musicCapture?.start?.(player, currentItem.id, window.EveAudioflixPlaybackPolicy?.policyOf?.(currentItem)); await player.play(); return true; }
     async function seek(seconds) {
         const target = Math.max(0, Number(seconds || 0) || 0);
         if (urlPlayback?.isActive?.()) return urlPlayback.seek(target);

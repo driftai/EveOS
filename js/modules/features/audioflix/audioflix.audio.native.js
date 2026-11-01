@@ -44,6 +44,9 @@ window.EveAudioflixAudioNative = window.EveAudioflixAudioNative || {};
 
         async function startNativeBuffer(buffer, item, startAt = 0, requestedMode = '') {
             const mode = requestedMode || (item.type === 'sound' ? 'voice' : 'stream');
+            const policy = window.EveAudioflixPlaybackPolicy?.policyOf?.(item);
+            const deviceId = policy?.outputMode === 'custom' && policy.outputKind === 'native'
+                ? policy.outputId : '';
             const generation = rt.generation = rt.generation + 1;
             rt.buffer = buffer;
             rt.mode = mode;
@@ -63,7 +66,8 @@ window.EveAudioflixAudioNative = window.EveAudioflixAudioNative || {};
                     channels: 1,
                     volume: rt.streamVolume,
                     voiceId: 'singleton-main',
-                    replace: true
+                    replace: true,
+                    deviceId
                 });
                 if (accepted !== true) throw new Error('Native bridge unreachable for voice playback');
                 deps.playBufferWaveform?.(buffer, startAt);
@@ -75,7 +79,7 @@ window.EveAudioflixAudioNative = window.EveAudioflixAudioNative || {};
                 buffer,
                 startAt,
                 volume: rt.streamVolume,
-                sendChunk: (payload, detail) => window.EveAudioflixNative?.sendGeminiChunk?.(payload, detail),
+                sendChunk: (payload, detail) => window.EveAudioflixNative?.sendGeminiChunk?.(payload, { ...detail, deviceId }),
                 stopRemote: () => window.EveAudioflixNative?.stopStream?.(),
                 onProgress: timelineOptions.onProgress,
                 onEnded: timelineOptions.onEnded,

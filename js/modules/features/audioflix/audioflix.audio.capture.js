@@ -40,6 +40,7 @@ window.EveAudioflixAudioCapture = window.EveAudioflixAudioCapture || {};
         let dropped = 0;
         let streamId = '';
         let activeItemId = '';
+        let activeDeviceId = '';
         let pumpPromise = Promise.resolve();
         let stopPromise = null;
 
@@ -63,7 +64,7 @@ window.EveAudioflixAudioCapture = window.EveAudioflixAudioCapture || {};
             if (window.EveAudioflixNative?.isBridgeOffline?.()) return false;
             const payload = window.EveAudioflixAudioBridge?.encodePcm?.(chunk, 0, chunk.length, getVolume());
             if (!payload) return true;
-            const detail = { sampleRate: rate, channels: 1, streamId };
+            const detail = { sampleRate: rate, channels: 1, streamId, deviceId: activeDeviceId };
             let ok = await window.EveAudioflixNative?.sendGeminiChunk?.(payload, detail);
             // One retry: a single transient failure would otherwise punch a hole in the audio.
             if (ok !== true) ok = await window.EveAudioflixNative?.sendGeminiChunk?.(payload, detail);
@@ -154,6 +155,7 @@ window.EveAudioflixAudioCapture = window.EveAudioflixAudioCapture || {};
                 } finally {
                     streamId = '';
                     activeItemId = '';
+                    activeDeviceId = '';
                     stopPromise = null;
                 }
             })();
@@ -162,7 +164,7 @@ window.EveAudioflixAudioCapture = window.EveAudioflixAudioCapture || {};
 
         // Async: the preferred tap is an AudioWorklet, whose module must be fetched once. Awaiting
         // it here means even the FIRST track gets the jank-immune audio-thread tap.
-        async function start(player, itemId) {
+        async function start(player, itemId, policy = null) {
             if (stopPromise) await stopPromise.catch(() => {});
             if (active || streamId) await stop().catch(() => {});
             const waveform = getWaveform();
@@ -171,6 +173,8 @@ window.EveAudioflixAudioCapture = window.EveAudioflixAudioCapture || {};
             dropped = 0;
             activePlayer = player || null;
             activeItemId = String(itemId || 'music');
+            activeDeviceId = policy?.outputMode === 'custom' && policy.outputKind === 'native'
+                ? String(policy.outputId || '') : '';
             streamId = `music:${activeItemId}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 7)}`;
             if (player && typeof waveform.ensureGraph === 'function') {
                 waveform.ensureGraph(player);
@@ -179,6 +183,7 @@ window.EveAudioflixAudioCapture = window.EveAudioflixAudioCapture || {};
             if (!tapRate) {
                 streamId = '';
                 activeItemId = '';
+                activeDeviceId = '';
                 return false;
             }
             rate = tapRate;
@@ -197,7 +202,7 @@ window.EveAudioflixAudioCapture = window.EveAudioflixAudioCapture || {};
             let warmed = TIMED_OUT;
             try {
                 warmed = await Promise.race([
-                    Promise.resolve(window.EveAudioflixNative?.warm?.(rate)),
+                    Promise.resolve(window.EveAudioflixNative?.warm?.(rate, activeDeviceId)),
                     new Promise((resolve) => setTimeout(() => resolve(TIMED_OUT), WARM_TIMEOUT_MS))
                 ]);
             } catch { warmed = false; }
@@ -206,6 +211,7 @@ window.EveAudioflixAudioCapture = window.EveAudioflixAudioCapture || {};
                 activePlayer = null;
                 streamId = '';
                 activeItemId = '';
+                activeDeviceId = '';
                 return false;
             }
             active = true;

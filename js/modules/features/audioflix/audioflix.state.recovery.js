@@ -7,20 +7,13 @@
 window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
 (function () {
     'use strict';
-
     const ns = window.EveAudioflixStateRecovery;
     if (ns.ready) return;
-
-    const QUARANTINE_SUFFIX = '.corrupt';
-    const STRUCTURE_SUFFIX = '.structure-v2';
-    const STRUCTURE_VERSION = 3;
-    const revisionFloors = new Map();
-    const trackStructures = new Map();
-    const text = (value) => String(value ?? '').trim();
-    const clone = (value, fallback) => {
+    const QUARANTINE_SUFFIX = '.corrupt', STRUCTURE_SUFFIX = '.structure-v2', STRUCTURE_VERSION = 3;
+    const revisionFloors = new Map(), trackStructures = new Map();
+    const text = (value) => String(value ?? '').trim(), clone = (value, fallback) => {
         try { return JSON.parse(JSON.stringify(value)); } catch { return fallback; }
-    };
-    const uniq = (values) => [...new Set((values || []).map(text).filter(Boolean))];
+    }, uniq = (values) => [...new Set((values || []).map(text).filter(Boolean))];
 
     function countEntries(state) {
         if (!state || typeof state !== 'object') return 0;
@@ -91,7 +84,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             folder,
             classifiers: uniq(item?.classifiers),
             groups: uniq(state?.musicGroupMap?.[item?.id] || []),
-            musicPortGroup: text(item?.musicPortGroup)
+            musicPortGroup: text(item?.musicPortGroup), playbackPolicy: item?.playbackPolicy && typeof item.playbackPolicy === 'object' ? clone(item.playbackPolicy, {}) : undefined
         };
     }
 
@@ -121,10 +114,11 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
                 return map; })(),
             exposedPortedSounds: clone(source.exposedPortedSounds || {}, {}),
             scopeBindings: clone(source.scopeBindings || [], []),
+            playbackPolicy: clone(source.playbackPolicy || {}, {}), playbackScopePolicies: clone(source.playbackScopePolicies || {}, {}),
             soundGroupMap: clone(source.soundGroupMap || {}, {}),
+            soundPlaybackPolicies: Object.fromEntries((source.soundboard || []).filter((item) => text(item?.id) && item?.playbackPolicy && typeof item.playbackPolicy === 'object').map((item) => [text(item.id), clone(item.playbackPolicy, {})])),
             musicRefs: (source.music || []).map((item) => musicRef(item, source))
-                .filter((ref) => ref.id && (ref.localPath || ref.sourceId || ref.folder
-                    || ref.groups.length || ref.classifiers.length || ref.musicPortGroup))
+                .filter((ref) => ref.id && (ref.localPath || ref.sourceId || ref.folder || ref.groups.length || ref.classifiers.length || ref.musicPortGroup || ref.playbackPolicy))
         };
     }
 
@@ -256,7 +250,11 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             else if (text(item.hotkey)) restoredKeys[key] = text(item.hotkey);
         }
         state.exposedPortedSounds = { ...(structure.exposedPortedSounds || {}), ...(state.exposedPortedSounds || {}) };
+        state.playbackPolicy = { ...(structure.playbackPolicy || {}), ...(state.playbackPolicy || {}) }; state.playbackScopePolicies = { ...(structure.playbackScopePolicies || {}), ...(state.playbackScopePolicies || {}) };
         state.soundGroupMap = { ...(structure.soundGroupMap || {}), ...(state.soundGroupMap || {}) };
+        for (const item of state.soundboard || []) {
+            const restored = structure.soundPlaybackPolicies?.[text(item?.id)];
+            if (restored && typeof restored === 'object' && !item.playbackPolicy) item.playbackPolicy = clone(restored, {}); }
         state.musicGroupMap = state.musicGroupMap || {};
 
         const music = Array.isArray(state.music) ? state.music : [];
@@ -272,6 +270,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             state.musicClassifiers = uniq([...(state.musicClassifiers || []), ...(ref.classifiers || [])]);
             if (!text(match.folder || match.card) && ref.folder) match.folder = match.card = ref.folder;
             if (!text(match.musicPortGroup) && ref.musicPortGroup) match.musicPortGroup = ref.musicPortGroup;
+            if (ref.playbackPolicy && typeof ref.playbackPolicy === 'object' && !match.playbackPolicy) match.playbackPolicy = clone(ref.playbackPolicy, {});
         });
 
         state.scopeBindings = (state.scopeBindings || []).map((binding) => {
@@ -305,10 +304,12 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         if (!structure) return false;
         if (type === 'sound') {
             const groups = structure.soundGroupMap?.[item.id] || [];
-            if (!groups.length) return false;
+            const playbackPolicy = structure.soundPlaybackPolicies?.[item.id];
+            if (!groups.length && !playbackPolicy) return false;
             state.soundGroupMap = state.soundGroupMap || {};
-            state.soundGroupMap[item.id] = uniq([...(state.soundGroupMap[item.id] || []), ...groups]);
+            if (groups.length) state.soundGroupMap[item.id] = uniq([...(state.soundGroupMap[item.id] || []), ...groups]);
             state.soundboardGroups = uniq([...(state.soundboardGroups || []), ...groups]);
+            if (playbackPolicy && typeof playbackPolicy === 'object' && !item.playbackPolicy) item.playbackPolicy = clone(playbackPolicy, {});
             return true;
         }
         const source = text(item.playlistId) && text(item.sourceId) ? JSON.stringify([text(item.playlistId), text(item.sourceId)]) : '';

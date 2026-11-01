@@ -165,13 +165,14 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         }
     }
 
-    async function warm(sampleRate) {
+    async function warm(sampleRate, deviceId = '') {
         if (isBridgeOffline()) return false;
         const current = state();
-        if (current.nativeBridgeEnabled !== true || !current.nativeOutputId) return false;
+        const target = String(deviceId || current.nativeOutputId || '');
+        if (!target || (!deviceId && current.nativeBridgeEnabled !== true)) return false;
         const payload = await fetchJson('/api/audioflix/warm', {
             method: 'POST',
-            body: JSON.stringify({ deviceId: current.nativeOutputId, sampleRate: sampleRate || 24000 }),
+            body: JSON.stringify({ deviceId: target, sampleRate: sampleRate || 24000 }),
             timeout: DEFAULT_TIMEOUT_MS
         });
         return payload?.ok === true;
@@ -193,12 +194,13 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
     async function sendGeminiChunk(audio, detail = {}) {
         if (isBridgeOffline()) return false;
         const current = state();
-        if (current.nativeBridgeEnabled !== true || !current.nativeOutputId || !audio) return false;
+        const target = String(detail.deviceId || current.nativeOutputId || '');
+        if (!target || (!detail.deviceId && current.nativeBridgeEnabled !== true) || !audio) return false;
         const payload = await fetchJson('/api/audioflix/play-pcm', {
             method: 'POST',
             body: JSON.stringify({
                 audio,
-                deviceId: current.nativeOutputId,
+                deviceId: target,
                 sampleRate: detail.sampleRate || 24000,
                 channels: detail.channels || 1,
                 streamId: detail.streamId || null,
@@ -218,12 +220,13 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
     async function playVoice(audio, detail = {}) {
         if (isBridgeOffline()) return false;
         const current = state();
-        if (current.nativeBridgeEnabled !== true || !current.nativeOutputId || !audio) return false;
+        const target = String(detail.deviceId || current.nativeOutputId || '');
+        if (!target || (!detail.deviceId && current.nativeBridgeEnabled !== true) || !audio) return false;
         const payload = await fetchJson('/api/audioflix/play-voice', {
             method: 'POST',
             body: JSON.stringify({
                 audio,
-                deviceId: current.nativeOutputId,
+                deviceId: target,
                 sampleRate: detail.sampleRate || 24000,
                 channels: detail.channels || 1,
                 volume: detail.volume ?? 1,
@@ -281,11 +284,12 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
     async function playMediaItem(item, detail = {}) {
         const current = state();
         const safeItem = item && typeof item === 'object' ? item : {};
-        if (current.nativeBridgeEnabled !== true || !current.nativeOutputId || !safeItem.url) return false;
+        const target = String(detail.deviceId || current.nativeOutputId || '');
+        if (!target || (!detail.deviceId && current.nativeBridgeEnabled !== true) || !safeItem.url) return false;
         const payload = await fetchJson('/api/audioflix/play-media', {
             method: 'POST',
             body: JSON.stringify({
-                deviceId: current.nativeOutputId,
+                deviceId: target,
                 itemId: safeItem.id || safeItem.url,
                 url: safeItem.url,
                 title: safeItem.title || '',

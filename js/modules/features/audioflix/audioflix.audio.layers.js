@@ -256,7 +256,8 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
                 await deps.stopNativeItem?.(id);
                 return false;
             }
-            if (window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()) {
+            const nativePolicy = window.EveAudioflixPlaybackPolicy?.policyOf?.(safeItem), customNative = nativePolicy?.outputMode === 'custom' && nativePolicy.outputKind === 'native' && nativePolicy.outputId;
+            if (customNative || window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()) {
                 try {
                     const buffer = await deps.getDecodedBuffer(safeItem.url);
                     if (cancelled()) return false;
@@ -268,7 +269,7 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
                         sampleRate: buffer.sampleRate,
                         channels: 1,
                         volume: outputVolume(safeItem.volume),
-                        voiceId: record.id
+                        voiceId: record.id, deviceId: customNative ? nativePolicy.outputId : ''
                     });
                     if (cancelled()) {
                         if (ok) await window.EveAudioflixNative?.clearVoices?.(record.id);
@@ -284,14 +285,13 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
                     console.warn('[Audioflix] native voice failed for layer, falling back:', error);
                 }
             }
-
             const player = new Audio();
             player.crossOrigin = 'anonymous';
             player.src = safeItem.url;
             player.loop = false;
             player.volume = outputVolume(safeItem.volume);
             const releaseWaveform = window.EveAudioflixAudio?.getWaveformController?.()?.attachLayerPlayer?.(player);
-            const sinkId = deps.state().preferredSinkId;
+            const policy = window.EveAudioflixPlaybackPolicy?.policyOf?.(safeItem), sinkId = policy?.outputMode === 'custom' && policy.outputKind === 'browser' ? policy.outputId : deps.state().preferredSinkId;
             if (sinkId && typeof player.setSinkId === 'function') {
                 try { await player.setSinkId(sinkId); } catch {}
             }

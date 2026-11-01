@@ -56,10 +56,8 @@ window.EveAudioflixState = window.EveAudioflixState || {};
 
     const { text, normalizeVolume, id, bool } = window.EveAudioflixStateSchema;
 
-    // Per-item cleaners live in a sibling module (audioflix.state.schema.js) so this store stays
-    // under the line cap; they run against the same coerce/clamp/id primitives.
-    const { cleanItem, cleanPort, boundedItems, boundedBindings } = window.EveAudioflixStateSchema.create({ text, normalizeVolume, id });
-
+    // Per-item cleaners live in a sibling module and share these coerce/clamp/id primitives.
+    const { cleanItem, cleanPort, boundedItems, boundedBindings, cleanPlaybackPolicy, cleanScopePolicies } = window.EveAudioflixStateSchema.create({ text, normalizeVolume, id });
     function normalize(raw) {
         const source = raw && typeof raw === 'object' ? raw : {};
         const tree = window.EveAudioflixGroupTree;
@@ -187,6 +185,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
                 ? Object.fromEntries(Object.entries(source.localizeScopeDirs).map(([k, v]) => [text(k), text(v)]).filter(([k, v]) => k && v))
                 : {},
             scopeBindings: boundedBindings(source.scopeBindings, MAX_SCOPE_BINDINGS),
+            playbackPolicy: cleanPlaybackPolicy(source.playbackPolicy, { global: true }), playbackScopePolicies: cleanScopePolicies(source.playbackScopePolicies),
             hotkeyBypassCombo: text(source.hotkeyBypassCombo, ''), hotkeyTransportCombo: text(source.hotkeyTransportCombo, ''), lastAudioflixTab: ['soundboard', 'music', 'piano', 'soundlab', 'router'].includes(source.lastAudioflixTab) ? source.lastAudioflixTab : 'soundboard',
             counters: {
                 plays: Number(source.counters?.plays || 0) || 0,
@@ -304,6 +303,7 @@ window.EveAudioflixState = window.EveAudioflixState || {};
             localizeDir: '',
             localizeScopeDirs: {},
             scopeBindings: [],
+            playbackPolicy: cleanPlaybackPolicy({}, { global: true }), playbackScopePolicies: {},
             counters: Object.assign({}, current.counters, { plays: 0 })
         }), reason, { authoritative: true });
     }
