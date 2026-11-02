@@ -106,7 +106,7 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
         const originalText = button?.textContent || '';
         if (button) button.textContent = 'Working…';
         try {
-            const result = await remote().send('engine-presentation', { mode }, { timeout: 25000 });
+            const result = await window.EveAudioflixSpotifyManagement?.setPresentation?.(mode);
             if (!result?.ok) throw new Error(result?.reason || `Could not switch Spotify engine to ${mode}.`);
             view?.setStatus?.(mode === 'headless'
                 ? 'Spotify engine is true headless. Control/state remain available; Windows audio may be silent.'
@@ -138,14 +138,9 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
         presentationBusy = true;
         button.textContent = 'Restarting…';
         try {
-            const reload = window.EveOSServiceReload;
-            if (typeof reload?.restart !== 'function') throw new Error('Shared EveOS restart control is unavailable.');
-            const base = new URL(mirrorBase());
-            const port = Number(base.port || (base.protocol === 'https:' ? 443 : 80));
-            // Retire the old managed playback lease before replacing its Playwright helper.
-            // Otherwise same-song Play can try to resume the dead helper's old session.
-            await window.EveAudioflixAudio?.stopAll?.();
-            const result = await reload.restart('spotifyEngine', { port, timeoutS: 45 });
+            // The shared facade retires playback before replacing the helper and invalidates the
+            // old relay identity, so Nexus and Internal Player cannot diverge on restart.
+            const result = await window.EveAudioflixSpotifyManagement?.restart?.();
             if (result?.serviceRestarted !== true) throw new Error(result?.message || 'Managed Spotify engine did not verify a fresh idle helper.');
             view?.setStatus?.('Managed Spotify engine restarted and is idle. Playback was not auto-resumed; use Play when you are ready.');
             postMirrorState();
@@ -163,9 +158,8 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
         const originalText = button?.textContent || '';
         if (button) button.textContent = 'Stopping…';
         try {
-            const result = await remote().send('engine-stop', {}, { timeout: 12000 });
+            const result = await window.EveAudioflixSpotifyManagement?.stopEngine?.();
             if (!result?.ok) throw new Error(result?.reason || 'Could not stop the Spotify engine.');
-            try { await window.EveAudioflixAudio?.stopAll?.(); } catch {}
             view?.setStatus?.('Managed Spotify engine stopped. Internal controls remain available; press Play to launch it again.');
             postMirrorState();
         } catch (error) {

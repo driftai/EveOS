@@ -97,6 +97,38 @@ async function run(){
   presentation='window';assert.equal(controls({state:'capturing',active:true,source:'managed-spotify'}).showLabel,'Hide Spotify Engine');
   assert.equal(controls({state:'capturing',active:true,source:'managed-spotify'}).captureLabel,'Stop Engine Capture');
   assert.equal(controls({state:'requesting',active:false,source:'browser-tab'}).anotherLabel,'Choosing Provider Tab…');
-  console.log('AUDIOFLIX_PROVIDER_CAPTURE_RESILIENCE_OK chooser-denial no-audio resume-failure late-ack stopped-state gesture-preservation');
+  const commands=[];let pauses=0,statusReads=0;
+  const item={id:'spotify:track:abc',title:'Managed song',type:'music',volume:0.5};
+  const managedState={ok:true,isOwner:true,managed:{helperReachable:true,authState:'signed-in',presentation:'hidden',capture:{state:'capturing',active:true,nonzeroPcm:true,endpoint:'CABLE'}},engine:{status:'playing',paused:false,currentTime:12,duration:180}};
+  const nexusWindow={
+    EveAudioflixSpotifyRemote:{
+      snapshot:()=>({connected:true,status:'ready',lastState:managedState,base:'http://127.0.0.1:8765'}),
+      connect:async()=>({connected:true}),retry:async()=>({connected:true}),status:async()=>{statusReads++;return managedState;},
+      send:async(action,payload)=>{commands.push({action,payload});return managedState;},openApproval:()=>true,disconnect(){}
+    },
+    EveAudioflixSpotifyAnyBrowser:{snapshot:()=>({active:true,item,playback:{item,paused:false}})},
+    EveAudioflixProviderCaptureUi:{managedCaptureStatus:()=>managedState.managed.capture,armManagedSpotify:async()=>({ok:true})},
+    EveAudioflixPlaybackPolicy:{resolve:()=>({spotifyMethod:'managed',outputKind:'native',outputId:'sd:7',outputLabel:'CABLE Input'})},
+    EveAudioflixAudio:{pause:async()=>{pauses++;},playItem:async()=>true,stopAll:async()=>true},
+    EveOSServiceReload:{restart:async()=>({serviceRestarted:true})}
+  };
+  const nexusContext=vm.createContext({window:nexusWindow,URL,Date,console});
+  vm.runInContext(fs.readFileSync(path.join(root,'js/modules/features/audioflix/audioflix.spotify.management.js'),'utf8'),nexusContext);
+  vm.runInContext(fs.readFileSync(path.join(root,'js/modules/features/audioflix/audioflix.nexus.spotify.js'),'utf8'),nexusContext);
+  const markup=nexusWindow.EveAudioflixNexusSpotify.render();
+  assert(markup.includes('Spotify Engine')&&markup.includes('signed-in')&&markup.includes('CABLE Input')&&markup.includes('Sign in / reauthenticate'),
+    'Nexus projects authenticated engine, output and recovery controls');
+  const actionCtx={playbackStatus:'',rerender(){}};
+  await nexusWindow.EveAudioflixNexusSpotify.handleAction({dataset:{}},'nexus-spotify-refresh',actionCtx);
+  await nexusWindow.EveAudioflixNexusSpotify.handleAction({dataset:{}},'nexus-spotify-auth',actionCtx);
+  await nexusWindow.EveAudioflixNexusSpotify.handleAction({dataset:{}},'nexus-spotify-toggle',actionCtx);
+  assert.equal(statusReads,1,'Nexus diagnostics use the authenticated relay status owner');
+  assert.deepEqual(commands.map(entry=>entry.action),['take-control','auth'],
+    'reauthentication retains relay ownership and uses the existing auth command');
+  assert.equal(pauses,1,'Nexus pause delegates to the shared Audioflix playback owner');
+  assert(routing.includes('EveAudioflixNexusSpotify?.handleAction'), 'Nexus Spotify actions retain the trusted routing click path');
+  const nexusUi=fs.readFileSync(path.join(root,'js/modules/features/audioflix/audioflix.nexus.ui.js'),'utf8');
+  assert(nexusUi.includes('EveAudioflixNexusSpotify?.render'), 'Nexus music scope renders the management projection');
+  console.log('AUDIOFLIX_PROVIDER_CAPTURE_RESILIENCE_OK chooser-denial no-audio resume-failure late-ack stopped-state gesture-preservation nexus-management');
 }
 run().catch(err=>{console.error(err);process.exitCode=1});

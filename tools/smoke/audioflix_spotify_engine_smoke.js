@@ -331,12 +331,12 @@ fs.writeFileSync(fixture, `<!doctype html><html><body><div id="spotify-engine-pl
             && surface.includes('originalOpenInternalView')
             && surface.includes('managedActive()'),
         'ordinary EveOS Internal View mirrors the managed engine only when managed playback owns Spotify');
-        assert(surface.includes("remote().send('engine-presentation'")
-            && surface.includes("remote().send('engine-stop'")
+        assert(surface.includes('EveAudioflixSpotifyManagement?.setPresentation')
+            && surface.includes('EveAudioflixSpotifyManagement?.stopEngine')
             && surface.includes('Hidden (default)')
             && surface.includes('Window')
             && surface.includes('True headless (silent)'),
-        'Internal Player exposes presentation and subsystem lifecycle controls without a second engine');
+        'Internal Player delegates presentation and subsystem lifecycle controls to the shared management owner');
         const presentation = fs.readFileSync(presentationPath, 'utf8');
         assert(presentation.includes('_managed_profile_process')
             && presentation.includes('GetWindowThreadProcessId')

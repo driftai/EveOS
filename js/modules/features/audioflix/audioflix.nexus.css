@@ -101,6 +101,48 @@
     accent-color: #22d3ee;
 }
 
+.audioflix-nexus-spotify {
+    margin: 8px 0;
+    overflow: hidden;
+    border: 1px solid rgba(29, 185, 84, 0.38);
+    border-radius: 10px;
+    background: rgba(5, 46, 22, 0.18);
+}
+
+.audioflix-nexus-spotify > summary {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    color: #86efac;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.audioflix-nexus-spotify > summary span { margin-left: auto; color: #94a3b8; font-weight: 500; }
+.audioflix-nexus-spotify > p { margin: 5px 10px; color: #cbd5e1; font-size: 0.72rem; }
+.audioflix-nexus-spotify .audioflix-nexus-spotify-error { color: #fca5a5; }
+.audioflix-nexus-spotify-facts,
+.audioflix-nexus-spotify-actions,
+.audioflix-nexus-spotify-modes { display: flex; flex-wrap: wrap; gap: 7px; padding: 7px 10px; }
+.audioflix-nexus-spotify-facts { border-top: 1px solid rgba(148, 163, 184, 0.14); }
+.audioflix-nexus-spotify-facts span,
+.audioflix-nexus-spotify-modes span { color: #94a3b8; font-size: 0.69rem; }
+.audioflix-nexus-spotify-facts strong { color: #dcfce7; }
+.audioflix-nexus-spotify-actions button {
+    min-height: 30px;
+    padding: 5px 9px;
+    border: 1px solid rgba(134, 239, 172, 0.32);
+    border-radius: 8px;
+    background: rgba(20, 83, 45, 0.28);
+    color: #dcfce7;
+    cursor: pointer;
+}
+.audioflix-nexus-spotify-actions button:disabled { opacity: 0.45; cursor: default; }
+.audioflix-nexus-spotify-modes { border-top: 1px solid rgba(148, 163, 184, 0.14); }
+.audioflix-nexus-spotify-volume { display: grid; grid-template-columns: auto minmax(120px, 1fr) auto; gap: 8px; align-items: center; margin: 7px 10px; color: #bbf7d0; font-size: 0.7rem; }
+
 @media (max-width: 900px) {
     .audioflix-bulk-fields {
         grid-template-columns: 1fr;
@@ -112,4 +154,6 @@
         align-items: flex-start;
         flex-direction: column;
     }
+
+    .audioflix-nexus-spotify-actions button { flex: 1 1 140px; }
 }

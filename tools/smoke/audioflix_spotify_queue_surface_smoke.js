@@ -123,6 +123,11 @@ const window = {
     },
     addEventListener(name, listener) { listeners.set(name, listener); }
 };
+window.EveAudioflixSpotifyManagement = {
+    setPresentation: mode => remote.send('engine-presentation', { mode }),
+    async restart() { await audio.stopAll(); return window.EveOSServiceReload.restart(); },
+    async stopEngine() { const result = await remote.send('engine-stop', {}); await audio.stopAll(); return result; }
+};
 window.window = window;
 const context = {
     window,
@@ -221,6 +226,11 @@ async function browserPhase() {
                 async pause() { fixture.pauses.push(item().id); fixture.paused = true; fixture.progress(); },
                 async playItem(next) { fixture.replays.push(next.id); fixture.paused = false; fixture.progress(); },
                 seek: async () => true, stopAll: async () => true
+            };
+            window.EveAudioflixSpotifyManagement = {
+                setPresentation: mode => window.EveAudioflixSpotifyRemote.send('engine-presentation', { mode }),
+                restart: async () => ({ serviceRestarted: true }),
+                stopEngine: async () => ({ ok: true })
             };
         }, { ...providerTrack, sourceProvider: '', url: 'https://open.spotify.com/episode/4cOdK2wGLETKBW3PvgPWqT' });
         await page.addScriptTag({ content: fs.readFileSync(path.join(ROOT,
