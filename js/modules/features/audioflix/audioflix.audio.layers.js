@@ -15,13 +15,10 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
         let layerSequence = 0;
         let pendingSequence = 0;
         let progressTimer = 0;
-        let pendingTotal = 0;
-        let paused = false;
+        let pendingTotal = 0, paused = false;
         const pendingByItem = new Map();
-        const MAX_LAYERS_PER_ITEM = 12;
-        const MAX_LAYERS_TOTAL = 32;
-        const MAX_PENDING_PER_ITEM = 2;
-        const MAX_PENDING_TOTAL = 6;
+        const MAX_LAYERS_PER_ITEM = 12, MAX_LAYERS_TOTAL = 32;
+        const MAX_PENDING_PER_ITEM = 2, MAX_PENDING_TOTAL = 6;
 
         const itemId = (item) => String(item?.id ?? item?.url ?? '');
         const epoch = (id) => Number(itemEpochs.get(id) || 0);
@@ -224,24 +221,21 @@ window.EveAudioflixAudioLayers = window.EveAudioflixAudioLayers || {};
                     safeItem = await window.EveAudioflixAudioSource.resolveItem(safeItem);
                 } catch (error) {
                     if (cancelled()) return false;
-                    if (deps.canPlayUrl?.(safeItem) && deps.canUseSharedUrlLayer?.(safeItem) !== false) {
-                        const played = await deps.playUrlItem(safeItem);
-                        if (!cancelled()) return played;
-                        await cancelStartedUrl(id);
-                        return false;
+                    if (!deps.canPlayUrl?.(safeItem)) {
+                        console.warn('[Audioflix] Failed to resolve stream URL for layer:', error); return false;
                     }
-                    console.warn('[Audioflix] Failed to resolve stream URL for layer:', error);
-                    return false;
                 }
             }
-            const provider = window.EveAudioflixUrlProviders?.providerFor?.(safeItem.url) || '';
-            const independentSound = safeItem.type === 'sound' && (provider === 'direct' || /^(?:file:|blob:|data:audio\/)/i.test(safeItem.url));
+            const provider = window.EveAudioflixUrlProviders?.providerFor?.(safeItem.url) || '', independentSound = safeItem.type === 'sound' && (provider === 'direct' || /^(?:file:|blob:|data:audio\/)/i.test(safeItem.url));
             if (deps.shouldPreferUrl?.(safeItem) && !independentSound) {
-                if (deps.canUseSharedUrlLayer?.(safeItem) === false) return false;
-                const played = await deps.playUrlItem(safeItem);
-                if (!cancelled()) return played;
-                await cancelStartedUrl(id);
-                return false;
+                let record = null;
+                const layered = await window.EveAudioflixProviderLayers?.start?.(safeItem, {
+                    cancelled, canUseShared: () => deps.canUseSharedUrlLayer?.(safeItem) !== false,
+                    playShared: () => deps.playUrlItem(safeItem), cancelShared: () => cancelStartedUrl(id),
+                    onStart: value => { record = makeRecord(id, safeItem, { player: value.player, provider: true, stop: value.stop, setVolume: value.setVolume }); addLayer(id, record); if (paused) value.player?.pause?.(); },
+                    onProgress: () => { if (record) emit(id); }, onEnded: () => { if (record) removeLayer(id, record); }, onError: () => { if (record) removeLayer(id, record); }
+                });
+                if (layered?.handled) return layered.played;
             }
             if (cancelled()) return false;
 

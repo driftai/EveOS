@@ -14,6 +14,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
         return (s.preferredSinkId || (s.nativeBridgeEnabled === true && s.nativeOutputId)) ? ' Note: provider players cannot follow the routed output, so this audio uses the system default device.' : '';
     }
     function createController(options = {}) {
+        const independentLayer = options.independentLayer === true;
         let active = null;
         let timer = 0;
         let requestedInternalView = false;
@@ -60,7 +61,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             clearTimer();
             const session = active;
             active = null;
-            window.EveAudioflixAudio?.getMusicCapture?.()?.stop?.();
+            if (!independentLayer) window.EveAudioflixAudio?.getMusicCapture?.()?.stop?.();
             try {
                 if (session?.kind === 'direct') { session.player.pause(); window.EveAudioflixLocalPlayback?.clearMediaSource?.(session.player); }
                 else if (session?.kind === 'youtube') session.player.destroy?.();
@@ -207,7 +208,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             }
         });
         const providerView = { get active() { return active; }, set active(v) { active = v; }, get playback() { return playback; } };
-        const providerDeps = { ensureStage, setStageStatus, emitPlayback, emitProgress, view: providerView };
+        const providerDeps = { ensureStage, setStageStatus, emitPlayback, emitProgress, view: providerView, independentLayer };
         const spotifyAdapter = window.EveAudioflixSpotifyPlayback?.create?.(providerDeps), instagramAdapter = window.EveAudioflixInstagramPlayback?.create?.({ ...providerDeps, isInternalView: () => requestedInternalView });
         const playSpotify = spotifyAdapter?.playSpotify || (async () => { throw new Error('Spotify playback support is not loaded yet.'); });
         const playInstagram = instagramAdapter?.playInstagram || (async () => { throw new Error('Instagram playback support is not loaded yet.'); });
@@ -345,8 +346,10 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             return true;
         }
 
+        async function destroy() { await stop({ closeView: true }); view?.destroy?.(); }
+
         return {
-            play, openInternalView: (item) => play(item, { internalView: true }), pause, seek, stop, setVolume,
+            play, openInternalView: (item) => play(item, { internalView: true }), pause, resume, seek, stop, destroy, setVolume,
             setRate, getRate: () => playbackRate,
             isInternalViewOpen: () => requestedInternalView && view?.isOpen?.() === true,
             hideInternalView,

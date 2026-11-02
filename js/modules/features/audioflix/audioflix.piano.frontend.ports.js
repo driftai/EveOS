@@ -25,15 +25,8 @@
     if (scope === 'recordings' && kind(song) !== 'recording') return false;
     if (scope === 'queued' && !queued(song)) return false;
     const id = song.identifiers || {}, auto = song.automatic_identifiers || {};
-    const tags = [...list(id.tags), ...list(auto.tags)];
-    // Search the same Backend-owned memberships that the Frontend organizer renders.
-    // Do not invent a second index or depend on an active Piano server for metadata search.
-    const taxonomy = window.EveAudioflixPianoTaxonomy;
-    const custom = id.custom || {};
-    const folders = taxonomy?.folders?.(song) || [...list(custom.piano_folders_v1), ...list(custom.piano_folder)];
-    const groups = taxonomy?.groups?.(song) || [...list(custom.piano_groups_v1), ...list(custom.piano_group), ...list(custom.piano_tab)];
-    const hay = [song.title, song.artist, id.author, song.source, auto.source_host, auto.kind,
-      ...list(id.genre), ...tags, ...folders, ...groups].map(norm).join(' ');
+    const tags = [...list(id.tags), ...list(auto.tags)]; const taxonomy = window.EveAudioflixPianoTaxonomy;
+    const hay = [song.title, song.artist, id.author, song.source, auto.source_host, auto.kind, ...list(id.genre), ...tags, ...(taxonomy?.searchTerms?.(song) || [])].map(norm).join(' ');
     if (search && !hay.includes(norm(search))) return false;
     if (genre && !list(id.genre).some(x => norm(x) === norm(genre))) return false;
     if (author && norm(id.author || song.artist) !== norm(author)) return false;

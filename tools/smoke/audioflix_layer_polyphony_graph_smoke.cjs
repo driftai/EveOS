@@ -6,6 +6,7 @@ const path = require('node:path');
 const repo = process.argv[2] || path.resolve(__dirname, '..', '..');
 const waveformSource = fs.readFileSync(path.join(repo,'js/modules/features/audioflix/audioflix.audio.waveform.js'),'utf8');
 const layerSource = fs.readFileSync(path.join(repo,'js/modules/features/audioflix/audioflix.audio.layers.js'),'utf8');
+const providerLayerSource = fs.readFileSync(path.join(repo,'js/modules/features/audioflix/audioflix.audio.provider-layers.js'),'utf8');
 class FakeNode {
   constructor(){this.connections = new Set();this.gain={value:1};this.fftSize=1024;}
   connect(node){this.connections.add(node);return node;}
@@ -28,22 +29,28 @@ class FakeAudio {
   pause(){this.paused=true;this.emit('pause');}
   ended(){this.currentTime=this.duration;this.paused=true;this.emit('ended');}
 }
-const nativePauses=[];
+const nativePauses=[], providerControllers=[], playbackEvents=[];
 const win={
- EveAudioflixAudioWaveform:{},EveAudioflixAudioLayers:{},EveAudioflixState:{normalizeVolume:v=>typeof v==='number'?v:1},
- EveAudioflixUrlProviders:{providerFor:url=>/youtube\.com/.test(url)?'youtube':/^https?:/.test(url)?'direct':''},
+ EveAudioflixAudioWaveform:{},EveAudioflixAudioLayers:{},EveAudioflixProviderLayers:{},EveAudioflixState:{normalizeVolume:v=>typeof v==='number'?v:1},
+ EveAudioflixUrlProviders:{providerFor:url=>/youtube\.com/.test(url)?'youtube':/spotify\.com/.test(url)?'spotify':/^https?:/.test(url)?'direct':''},
+ EveAudioflixPlaybackPolicy:{policyOf:item=>item._effectivePlaybackPolicy||{outputKind:'browser',outputId:'',spotifyMethod:'embed'}},
+ EveAudioflixUrlPlayback:{createController:options=>{const controller={stopped:false,paused:false,
+   async play(item){controller.item=item;options.onProgress?.({currentTime:0,duration:9,paused:false});options.onPlayback?.({status:'Playing '+item.title});return true;},
+   async pause(){controller.paused=true;},async resume(){controller.paused=false;},async destroy(){controller.stopped=true;},setVolume(){}};providerControllers.push(controller);return controller;}},
  EveAudioflixNative:{shouldSuppressBrowserPlayback:()=>false,setVoicesPaused:async paused=>{nativePauses.push(paused);return{ok:true};}},
  EveAudioflixAudioSource:{needsResolution:()=>false},
  EveAudioflixOutputPort:{effective:v=>v},
  AudioContext,
- setInterval:()=>123,clearInterval:()=>{}, addEventListener:()=>{},dispatchEvent:()=>{},
+ setInterval:()=>123,clearInterval:()=>{}, addEventListener:()=>{},dispatchEvent:event=>{playbackEvents.push(event);},
  requestAnimationFrame:()=>2,cancelAnimationFrame:()=>{},devicePixelRatio:1
 };
-const context=vm.createContext({window:win, Audio:FakeAudio, console, WeakMap, WeakSet, Set, Map, Date, Number, Math, Promise, Uint8Array, setTimeout});
+const context=vm.createContext({window:win, Audio:FakeAudio, console, WeakMap, WeakSet, Set, Map, Date, Number, Math, Promise, Uint8Array, setTimeout,
+ CustomEvent:class{constructor(type,init){this.type=type;this.detail=init.detail;}}});
 vm.runInContext(waveformSource,context,{filename:'waveform.js'});
 let main=new FakeAudio();
 const wave=win.EveAudioflixAudioWaveform.createController(()=>main);
 win.EveAudioflixAudio={getWaveformController:()=>wave};
+vm.runInContext(providerLayerSource,context,{filename:'provider-layers.js'});
 vm.runInContext(layerSource,context,{filename:'layers.js'});
 let sharedCount=0;
 const ctl=win.EveAudioflixAudioLayers.createController({
@@ -87,9 +94,22 @@ const ctl=win.EveAudioflixAudioLayers.createController({
   await Promise.allSettled(ctl.stopItemLayers(sound.id));
   const before=sharedCount;
   assert.equal(await ctl.layerPlay({id:'provider',type:'sound',url:'https://www.youtube.com/watch?v=abcdefghijk'}),true);
-  assert.equal(sharedCount,before+1,'provider iframe route retained for unsupported native media');
+  assert.equal(await ctl.layerPlay({id:'provider',type:'sound',url:'https://www.youtube.com/watch?v=abcdefghijk'}),true);
+  assert.equal(sharedCount,before,'YouTube layers use independent provider controllers instead of shared Music playback');
+  assert.equal(providerControllers.length,2,'each provider Layer Play receives its own bounded controller');
+  assert.equal(ctl.getSnapshot('provider').length,2,'independent provider voices are projected into the layer timeline');
+  win.EveAudioflixAudioSource.needsResolution=()=>true;
+  win.EveAudioflixAudioSource.resolveItem=async()=>{throw Error('resolver offline');};
+  assert.equal(await ctl.layerPlay({id:'provider-resolver-offline',type:'sound',url:'https://www.youtube.com/watch?v=abcdefghijk'}),true);
+  assert.equal(sharedCount,before,'resolver failure falls through to an independent provider instead of stealing Music');
+  win.EveAudioflixAudioSource.needsResolution=()=>false;
   const protectedCtl=win.EveAudioflixAudioLayers.createController({state:()=>({}),dispatch:()=>{},shouldPreferUrl:()=>true,canPlayUrl:()=>true,canUseSharedUrlLayer:()=>false,playUrlItem:async()=>{sharedCount++;return true;}});
-  assert.equal(await protectedCtl.layerPlay({id:'provider-blocked',type:'sound',url:'https://www.youtube.com/watch?v=abcdefghijk'}),false);
-  assert.equal(sharedCount,before+1,'provider Soundboard fallback cannot replace an active Music owner');
-  console.log('AUDIOFLIX_POLYPHONIC_BROWSER_LAYER_GRAPH_OK independent=2 normalOwner=preserved stop=isolated provider=retained');
+  assert.equal(await protectedCtl.layerPlay({id:'provider-independent',type:'sound',url:'https://www.youtube.com/watch?v=abcdefghijk'}),true);
+  assert.equal(sharedCount,before,'independent YouTube Layer Play does not replace an active Music owner');
+  assert.equal(await protectedCtl.layerPlay({id:'managed-blocked',type:'music',url:'https://open.spotify.com/track/1234567890123456789012',spotifyPlaybackMode:'managed-engine'}),false);
+  assert.equal(sharedCount,before,'single-owner managed Spotify never impersonates independent layering');
+  assert(playbackEvents.some(event=>event.detail?.layer&&event.detail?.error),'unsupported managed layering reports a visible capability error');
+  await Promise.allSettled(ctl.stopItemLayers('provider'));
+  assert(providerControllers.slice(0,2).every(controller=>controller.stopped),'Stop retires only the item\'s independent provider controllers');
+  console.log('AUDIOFLIX_POLYPHONIC_BROWSER_LAYER_GRAPH_OK independent=2 provider=isolated managed=fail-closed stop=isolated');
 })().catch(err=>{console.error(err);process.exitCode=1});

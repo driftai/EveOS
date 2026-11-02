@@ -110,6 +110,7 @@
     const label = original.closest('label');
     pane.querySelector('[data-pft-input]').append(label);
     search = original;
+    search.removeAttribute('data-pfo-search');
     search.setAttribute('aria-label', 'Fast Track: search saved Piano songs');
     search.placeholder = 'Search titles, artists, folders, groups, tags…';
     // Nexus Piano Link retains its own scoped-search field, synchronized with Fast Track.
