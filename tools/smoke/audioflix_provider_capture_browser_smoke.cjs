@@ -31,13 +31,14 @@ class Context {
 }
 
 const sent = [];
+const starts = [];
 const window = {
   AudioContext: Context,
   EveAudioflixCaptureProcessorSrc: 'registerProcessor("audioflix-capture-processor",class{});',
   EveAudioflixState: { ensure: () => ({ outputVolume: 0.5 }) },
   EveAudioflixAudioBridge: { encodePcm: () => 'AQI=' },
   EveAudioflixNativeProviderCapture: {
-    start: async () => ({ ok: true, sessionId: 'p:1', captureToken: 'secret', deviceId: 'sd:7', endpointLabel: 'CABLE', rendererRunning: true, sampleRate: 48000 }),
+    start: async (detail) => { starts.push(detail); return { ok: true, sessionId: 'p:1', captureToken: 'secret', deviceId: 'sd:7', endpointLabel: 'CABLE', rendererRunning: true, sampleRate: 48000 }; },
     send: async (_session, _audio, detail) => { sent.push(detail); return { ok: true, deviceId: 'sd:7', rendererRunning: true }; },
     stop: async () => ({ ok: true })
   },
@@ -64,5 +65,20 @@ vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/modules/features/audioflix/a
   assert.strictEqual(sent[0].gain, 0.5);
   await runtimeNode.stop('test');
   assert(track.stopped && !runtimeNode.getStatus().active);
-  console.log('AUDIOFLIX_PROVIDER_CAPTURE_BROWSER_OK worklet=true bounded=true gain=true cleanup=true');
+  const managedTrack = new Track({ suppressLocalAudioPlayback: true });
+  await runtimeNode.startStream(new Stream([managedTrack]), {
+    source: 'managed-spotify', gainMode: 'unity',
+    endpoint: { deviceId: 'sd:7', label: 'CABLE' }
+  });
+  const managedWorklet = Node.instances.filter(node => typeof node.port.onmessage === 'function').at(-1);
+  for (let i = 0; i < 4; i++) {
+    const block = new Float32Array(4096); block.fill(0.2);
+    managedWorklet.port.onmessage({ data: block });
+  }
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepStrictEqual(starts.at(-1).endpoint, { deviceId: 'sd:7', label: 'CABLE' });
+  assert.strictEqual(sent.at(-1).gain, 1, 'managed engine applies its own effective gain exactly once');
+  assert.strictEqual(runtimeNode.getStatus().source, 'managed-spotify');
+  await runtimeNode.stop('test');
+  console.log('AUDIOFLIX_PROVIDER_CAPTURE_BROWSER_OK worklet=true bounded=true gain=true exact_endpoint=true managed_unity=true cleanup=true');
 })().catch(error => { console.error(error); process.exitCode = 1; });

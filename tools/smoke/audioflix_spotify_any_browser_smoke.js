@@ -1,17 +1,14 @@
 'use strict';
-
 const fs = require('fs');
 const path = require('path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
-
 const ROOT = path.resolve(__dirname, '..', '..');
 const revision = process.argv.find(arg => arg.startsWith('--revision='))?.slice(11);
 const sourcePath = 'js/modules/features/audioflix/audioflix.spotify.any-browser.js';
 const source = revision ? execFileSync('git', ['show', `${revision}:${sourcePath}`], { cwd: ROOT, encoding: 'utf8' })
     : fs.readFileSync(path.join(ROOT, sourcePath), 'utf8');
-
 const calls = [];
 const windowListeners = new Map();
 const dispatched = [];
@@ -26,7 +23,8 @@ let engineState = {
 };
 let lastState = null;
 let pollRemote = null;
-
+let managedNativeRoute = false;
+let providerCapture = { active: false, source: '', endpoint: '' };
 const remote = {
     ready: true,
     subscribe(listener) { remoteSubscribers.add(listener); return () => remoteSubscribers.delete(listener); },
@@ -37,7 +35,7 @@ const remote = {
     waitUntilReady: async () => ({ connected: true }),
     openApproval: () => true,
     async status() {
-        lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true } };
+        lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true, capture: { ...providerCapture } } };
         return lastState;
     },
     async send(action, payload = {}, options = {}) {
@@ -59,7 +57,7 @@ const remote = {
         else if (action === 'resume') engineState = { ...engineState, status: 'playing', paused: false };
         else if (action === 'seek') engineState = { ...engineState, currentTime: payload.seconds };
         else if (action === 'stop') engineState = { ...engineState, status: 'stopped', paused: true, currentTime: 0 };
-        lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true } };
+        lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true, capture: { ...providerCapture } } };
         return lastState;
     }
 };
@@ -112,6 +110,11 @@ const window = {
     EveAudioflixAudio: audio,
     EveAudioflixLocalPlayback: localPlayback,
     EveAudioflixOutputPort: { effective: (value) => Number(value) * 0.5 },
+    EveAudioflixPlaybackPolicy: { resolve: () => managedNativeRoute
+        ? { spotifyMethod: 'managed', outputKind: 'native', outputId: 'sd:cable', outputLabel: 'CABLE' }
+        : { spotifyMethod: 'managed', outputKind: 'browser', outputId: '' } },
+    EveAudioflixProviderCapture: { getStatus: () => ({ ...providerCapture }) },
+    EveAudioflixProviderCaptureUi: { managedCaptureStatus: () => ({ ...providerCapture }) },
     addEventListener(name, fn) { windowListeners.set(name, fn); },
     dispatchEvent(event) { dispatched.push(event); }
 };
@@ -141,6 +144,7 @@ const createObserver = window.EveAudioflixSpotifyStatusWatch.create;
 window.EveAudioflixSpotifyStatusWatch.create = options => { observerOptions = options; return createObserver(options); };
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/modules/features/audioflix/audioflix.spotify.playback-lifecycle.js'), 'utf8'),
     context, { filename: 'audioflix.spotify.playback-lifecycle.js' });
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/modules/features/audioflix/audioflix.spotify.native-capture.js'), 'utf8'), context);
 vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' });
 let phase = 'legacy-contracts';
 function evidence(error) {
@@ -153,7 +157,6 @@ function evidence(error) {
 (async () => {
     assert.equal(window.EveAudioflixSpotifyAnyBrowser.ready, true);
     assert.equal(window.EveAudioflixSpotifyAnyBrowser.install(), false, 'ordinary-tab wrapper installs eagerly once and refuses duplicate wrapping');
-
     await window.EveAudioflixAudio.playItem(spotify);
     assert.equal(originalPlayCount, 0, 'managed Spotify path does not create an audible local provider player');
     assert.equal(originalStopCount, 1, 'existing local playback is stopped before managed Spotify starts');
@@ -162,9 +165,12 @@ function evidence(error) {
     assert.equal(play.payload.spotifyId, '4cOdK2wGLETKBW3PvgPWqT');
     assert.equal(play.payload.effectiveVolume, 0.25, 'track 50% x master/output 50% reaches the engine as exactly 25% once');
     assert.equal(play.options.timeout, 45000, 'staged managed Play keeps a reply budget above the old 20s browser timeout race');
+    await require('./helpers/audioflix_any_browser_native_capture')({ window, calls, spotify,
+        setRoute: value => { managedNativeRoute = value; }, setCapture: value => { providerCapture = value; },
+        applyState: observerOptions.applyState, engineState: () => engineState });
+    await window.EveAudioflixAudio.playItem(spotify);
 
     await require('./helpers/audioflix_any_browser_volume_namespace')({ window, calls, originalVolumeCalls, windowListeners });
-
     await window.EveAudioflixAudio.pause();
     assert.equal(calls.at(-1).action, 'pause');
     await window.EveAudioflixAudio.seek(42);

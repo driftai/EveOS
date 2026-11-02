@@ -1,17 +1,15 @@
 window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {};
 (function () {
     'use strict';
-
     const ns = window.EveAudioflixSpotifyAnyBrowser;
     if (ns.ready) return;
-
     const remote = () => window.EveAudioflixSpotifyRemote;
     const media = window.EveAudioflixSpotifyMedia;
+    const nativeCapture = window.EveAudioflixSpotifyNativeCapture;
     const isSpotify = (item) => !!media.fromItem(item);
     const effectiveGain = (raw) => window.EveAudioflixSpotifyVolume.effectiveGain(raw);
     const sameItem = (left, right) => String(left?.id || left?.url || '') === String(right?.id || right?.url || '')
         && media.fromItem(left)?.spotifyUri === media.fromItem(right)?.spotifyUri;
-
     let installed = false;
     let active = false;
     // A remote start in flight is not `active` yet, but Pause/Stop/switch-away must still reach
@@ -45,7 +43,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         onDegraded: () => emitPlayback('Spotify status disconnected. Press Play to reconnect.', true),
         notify
     });
-
+    nativeCapture.configure({ remote, resolvePolicy: (value) => window.EveAudioflixPlaybackPolicy?.resolve?.(value), onLost: () => emitPlayback('Managed Spotify PCM capture stopped; Spotify was paused to prevent speaker fallback.', true), applyState: (value) => { if (active) applyEngineState(value); } });
     function dispatch(name, detail) {
         window.dispatchEvent(new CustomEvent(name, { detail }));
     }
@@ -154,6 +152,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     }
     function applyEngineState(result) {
         if (!result?.ok || !active) return;
+        if (!nativeCapture.guard(result, playbackRun, item)) return;
         window.EveAudioflixSpotifyQueueHandoff?.adopt?.(result, (next) => { item = next; playback.item = next; lastEngineStatus = ''; ended = false; });
         const engine = result.engine || {};
         if ((engine.spotifyId || engine.spotifyUri || engine.mediaType) && !media.matches(engine, media.fromItem(item))) return;
@@ -245,8 +244,9 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         }
         return { ok: false, reason: 'Spotify took too long to start in the managed engine.' };
     }
-    async function remotePlay(nextItem) {
+    async function remotePlay(nextItem, policy = null) {
         const run = ++playbackRun;
+        const captureRequired = nativeCapture.require(policy);
         const finish = window.EveAudioflixDiagnostics?.span?.('spotify:start');
         const connection = await ensureRemote();
         if (run !== playbackRun) return false;
@@ -288,6 +288,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         finish?.(!result?.ok);
         if (!result?.ok) throw new Error(result?.reason || 'Managed Spotify playback failed.');
         active = true;
+        nativeCapture.bind(run, captureRequired);
         applyEngineState(result);
         startPoll(result);
         refreshControls();
@@ -303,6 +304,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         if (run !== playbackRun) return;
         const stopped = item;
         active = false;
+        nativeCapture.clear();
         item = null;
         ended = false;
         playback = { item: stopped, currentTime: 0, duration: 0, paused: true, provider: 'spotify', browserOnly: true, remoteManaged: true };
@@ -313,7 +315,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         notify();
         refreshControls();
     }
-
     function install() {
         if (installed || !window.EveAudioflixAudio?.ready || !remote()?.ready) return false;
         installed = true;
@@ -330,7 +331,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             getStatus: audio.getStatus?.bind(audio)
         };
         stopLocalPlayback = () => original.stopAll();
-
         audio.playItem = async function anyBrowserPlay(nextItem) {
             if (!isSpotify(nextItem)) {
                 if (active || starting) await stopRemote();
@@ -343,19 +343,21 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
                 if (active || starting) await stopRemote();
                 return original.playItem(localItem);
             }
+            const captureRequired = nativeCapture.require(policy);
             if (active && sameItem(item, nextItem) && !ended) {
                 item = nextItem;
                 playback.item = item;
                 const ownsEngine = remote()?.snapshot?.().lastState?.isOwner === true;
-                if (!ownsEngine) return remotePlay(nextItem);
+                if (!ownsEngine) return remotePlay(nextItem, policy);
                 if (playback.paused) {
                     const resumed = await remote().send('resume');
                     if (!resumed?.ok) throw new Error(resumed?.reason || 'Spotify could not resume.');
                     applyEngineState(resumed);
                 }
+                nativeCapture.bind(playbackRun, captureRequired);
                 return true;
             }
-            try { return await remotePlay(nextItem); }
+            try { return await remotePlay(nextItem, policy); }
             catch (error) {
                 if (error?.eveSpotifyFallback) return original.playItem(nextItem);
                 throw error;
@@ -370,8 +372,9 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
                 if (active || starting) await stopRemote();
                 return original.openInternalView(localItem);
             }
+            nativeCapture.require(policy);
             if (active) return audio.playItem(nextItem);
-            try { return await remotePlay(nextItem); }
+            try { return await remotePlay(nextItem, policy); }
             catch (error) {
                 if (error?.eveSpotifyFallback) return original.openInternalView(nextItem);
                 throw error;
@@ -429,7 +432,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         notify();
         return true;
     }
-
     Object.assign(ns, {
         ready: true, install, snapshot, volumeDiagnostics: () => volumeLane?.diagnostics(),
         subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); }

@@ -75,7 +75,7 @@ async function run(){
   assert(captured.stopped && delayed.stats().nativeStops===1);
 
   const routing=fs.readFileSync(path.join(root,'js/modules/features/audioflix/audioflix.ui.actions.routing.js'),'utf8');
-  assert(routing.includes("['provider-open-companion', 'provider-test-tone', 'provider-arm', 'provider-stop'].includes(action)"), 'unrelated routing actions must not await provider capture handler');
+  assert(routing.includes("'provider-managed-show', 'provider-managed-arm'"), 'managed Spotify capture actions must preserve the trusted routing click path');
   console.log('AUDIOFLIX_PROVIDER_CAPTURE_RESILIENCE_OK chooser-denial no-audio resume-failure late-ack stopped-state gesture-preservation');
 }
 run().catch(err=>{console.error(err);process.exitCode=1});

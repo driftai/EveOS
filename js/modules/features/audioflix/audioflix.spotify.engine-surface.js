@@ -171,6 +171,20 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
         }
     }
 
+    async function captureManagedEngine(button) {
+        if (presentationBusy) return;
+        const originalText = button?.textContent || '';
+        if (button) button.textContent = 'Choose engine tab…';
+        try {
+            const status = await window.EveAudioflixProviderCaptureUi?.armManagedSpotify?.();
+            view?.setStatus?.(status?.message || 'Managed Spotify capture armed.');
+        } catch (error) {
+            view?.setStatus?.(String(error?.message || error));
+        } finally {
+            if (button) button.textContent = originalText;
+        }
+    }
+
     function makeButton(label, action, title = '') {
         const button = document.createElement('button');
         button.type = 'button';
@@ -200,6 +214,7 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
             makeButton('Window', (button) => setPresentation('window', button), 'Show the managed Edge engine for debugging or sign-in.'),
             makeButton('Minimized', (button) => setPresentation('background', button), 'Keep the headed engine minimized.'),
             makeButton('True headless (silent)', (button) => setPresentation('headless', button), 'No browser window. Control/state work, but Windows audio may be silent.'),
+            makeButton('Capture to native output', (button) => captureManagedEngine(button), 'After showing the engine, choose its browser tab and enable Share tab audio.'),
             makeButton('Restart engine', (button) => restartEngine(button), 'Restart only the managed Spotify helper. Playback stops and does not auto-resume.'),
             makeButton('Stop engine', (button) => stopEngine(button), 'Close the managed Spotify subsystem until the next Spotify Play.')
         );

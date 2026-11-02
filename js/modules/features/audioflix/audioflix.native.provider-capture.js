@@ -40,7 +40,15 @@ window.EveAudioflixNativeProviderCapture = window.EveAudioflixNativeProviderCapt
     function requireFileCompanion() { return true; }
     const state = () => window.EveAudioflixState?.ensure?.() || {};
 
-    function selectedEndpoint() {
+    function selectedEndpoint(detail = {}) {
+        if (detail.endpoint && typeof detail.endpoint === 'object') {
+            const deviceId = String(detail.endpoint.deviceId || '').trim();
+            const label = String(detail.endpoint.label || deviceId).trim();
+            if (!deviceId.startsWith('sd:')) {
+                throw new Error('Provider capture requires an exact native output endpoint.');
+            }
+            return { deviceId, label };
+        }
         const current = state();
         if (current.nativeBridgeEnabled !== true) {
             throw new Error('Enable Native Route before capturing provider audio.');
@@ -85,7 +93,7 @@ window.EveAudioflixNativeProviderCapture = window.EveAudioflixNativeProviderCapt
         if (!identity?.isEveOsBridge || !(await identity.isEveOsBridge(base))) {
             throw new Error('The selected localhost server is not a verified EveOS bridge.');
         }
-        const endpoint = selectedEndpoint();
+        const endpoint = selectedEndpoint(detail);
         const payload = await protectedPost(base, '/api/audioflix/provider-capture/start', {
             deviceId: endpoint.deviceId,
             sampleRate: detail.sampleRate || 48000,

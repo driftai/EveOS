@@ -4,7 +4,7 @@ window.EveAudioflixUiActionsRouting = window.EveAudioflixUiActionsRouting || {};
     'use strict';
     ns.create = ctx => async (actionTarget, action) => {
             // Do not consume the user gesture for unrelated routing controls.
-            if (['provider-open-companion', 'provider-test-tone', 'provider-arm', 'provider-stop'].includes(action)) {
+            if (['provider-open-companion', 'provider-test-tone', 'provider-managed-show', 'provider-managed-arm', 'provider-arm', 'provider-stop'].includes(action)) {
                 return !!(await window.EveAudioflixProviderCaptureUi?.handleAction?.(actionTarget, action, ctx));
             }
             if (action === 'select-output') { try { await window.EveAudioflixAudio?.selectOutput?.(); } catch (err) { ctx.playbackStatus = err.message || 'Output selection failed'; } ctx.rerender(); return true; }

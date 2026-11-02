@@ -40,6 +40,28 @@ def set_presentation(mode: str, page_url: str = "") -> dict:
     }))
 
 
+def start_provider_capture(device_id: str, label: str = "") -> dict:
+    manager = browser._manager
+    with manager._lock:
+        if not manager._helper_status() or not manager._session_id:
+            return {"ok": False, "reason": "Managed Spotify engine is not running."}
+        return manager._request("POST", "/provider-capture/start", {
+            "sessionId": manager._session_id,
+            "deviceId": str(device_id or "").strip(),
+            "label": str(label or device_id or "").strip()[:180],
+        }, timeout=20.0)
+
+
+def stop_provider_capture() -> dict:
+    manager = browser._manager
+    with manager._lock:
+        if not manager._helper_status() or not manager._session_id:
+            return {"ok": True, "capture": {"state": "idle", "active": False}}
+        return manager._request("POST", "/provider-capture/stop", {
+            "sessionId": manager._session_id,
+        }, timeout=8.0)
+
+
 def stop_engine() -> dict:
     return _with_epoch(presentation.stop_engine({}))
 

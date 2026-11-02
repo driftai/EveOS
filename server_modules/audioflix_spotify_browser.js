@@ -26,6 +26,7 @@ const { parseMedia, fromPayload, normalizeTrackId, isSpotifyEmbedUrl,
     spotifyFrameTrackId, playingTrackIds } = require('./audioflix_spotify_media_identity.js');
 const { cancelLeases } = require('./audioflix_spotify_playback_lease.js');
 const { handleInterrupt } = require('./audioflix_spotify_playback_preemption.js');
+const providerCapture = require('./audioflix_spotify_browser_capture.js');
 const {
     EDGE_LAUNCH_TIMEOUT_MS, CHROMIUM_LAUNCH_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS,
     launchManagedContext, prepareManagedPage
@@ -120,6 +121,7 @@ async function main() {
             '--disable-blink-features=AutomationControlled', '--disable-dev-shm-usage', '--lang=en-US',
             '--autoplay-policy=no-user-gesture-required', '--disable-background-timer-throttling',
             '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding',
+            ...providerCapture.LAUNCH_ARGS,
             '--hide-crash-restore-bubble',
             '--disable-features=CalculateNativeWinOcclusion', '--window-position=80,80', '--window-size=1280,900'
         ]
@@ -135,6 +137,7 @@ async function main() {
     });
 
     let page = await prepareManagedPage(context, pageUrl, runtime, note);
+    const captureController = providerCapture.create({ getPage: () => page, sameSession });
     runtime.state = 'ready';
     runtime.phase = 'ready';
     const livenessUrl = new URL('/EveOS.html', pageUrl).href;
@@ -236,6 +239,7 @@ async function main() {
             lastPlaybackKickAt: runtime.lastPlaybackKickAt,
             serverOfflineForMs: serverOfflineSince ? Date.now() - serverOfflineSince : 0,
             profileOpen: true, importing: runtime.importing, transport,
+            providerCapture: await captureController.status(),
             diagnostics: diagnostics.slice(-8)
         };
     }
@@ -370,6 +374,8 @@ async function main() {
             if (req.method !== 'POST') return send(res, 404, { ok: false, reason: 'Not found.' });
             const body = await readBody(req);
             if (requestUrl.pathname === '/volume') return send(res, 200, await applyVolume(body));
+            if (requestUrl.pathname === '/provider-capture/start') return send(res, 200, await captureController.start(body));
+            if (requestUrl.pathname === '/provider-capture/stop') return send(res, 200, await captureController.stop(body));
             const playback = { page, spotifySnapshots, isSpotifyEmbedUrl, normalizeTrackId, note, runtime };
             if (requestUrl.pathname === '/transport') return send(res, 200, await handleTransportWithActivation(playback, body));
             if (requestUrl.pathname === '/transport-interrupt') return send(res, 200, await handleInterrupt(playback, body));

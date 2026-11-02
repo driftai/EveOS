@@ -5,4 +5,6 @@ const src=fs.readFileSync(path.join(root,'js/modules/features/audioflix/audiofli
 assert(src.includes("mode: isFile() ? 'cors' : 'same-origin'"));
 assert(src.includes("headers['X-EveOS-Provider-File-Auth'] = await fileCredential()"));
 assert(!src.includes('fileRpc('));
-console.log('AUDIOFLIX_PROVIDER_CAPTURE_CLIENT_AUTH_OK same_origin=true direct_file_proof=true');
+assert(src.includes("detail.endpoint.deviceId"));
+assert(src.includes("deviceId.startsWith('sd:')"));
+console.log('AUDIOFLIX_PROVIDER_CAPTURE_CLIENT_AUTH_OK same_origin=true direct_file_proof=true exact_native_endpoint=true');

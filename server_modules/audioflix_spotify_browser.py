@@ -206,7 +206,7 @@ class SpotifyBrowserManager:
                 "lastAppliedAt": (helper or {}).get("lastAppliedAt") or 0,
                 "lastError": (helper or {}).get("lastError") or self._last_error,
                 "importing": bool((helper or {}).get("importing")),
-                "transport": dict(helper["transport"]) if helper and isinstance(helper.get("transport"), dict) else None,
+                "transport": dict(helper["transport"]) if helper and isinstance(helper.get("transport"), dict) else None, "providerCapture": dict(helper["providerCapture"]) if helper and isinstance(helper.get("providerCapture"), dict) else None,
                 "startupBudgetMs": int(_START_TIMEOUT_S * 1000),
             }
             if helper and helper.get("diagnostics"):

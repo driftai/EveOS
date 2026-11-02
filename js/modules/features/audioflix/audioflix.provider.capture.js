@@ -12,11 +12,12 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
     let last = {
         state: 'idle', message: 'Provider capture is not armed.', authorization: 'required',
         audioTrack: false, nonzeroPcm: false, transport: false, renderer: false,
-        endpoint: '', suppression: 'not-checked', chunks: 0, dropped: 0, gain: 1
+        endpoint: '', suppression: 'not-checked', chunks: 0, dropped: 0, gain: 1, source: ''
     };
 
     const AudioContextCtor = () => window.AudioContext || window.webkitAudioContext;
-    const gain = () => {
+    const gain = (rt) => {
+        if (rt?.gainMode === 'unity') return 1;
         const value = Number(window.EveAudioflixState?.ensure?.()?.outputVolume);
         return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 1));
     };
@@ -59,7 +60,7 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
             while (rt.active && rt.queue.length) {
                 const block = rt.queue.shift();
                 rt.queueMs -= (block.length / rt.sampleRate) * 1000;
-                const level = gain();
+                const level = gain(rt);
                 const audio = window.EveAudioflixAudioBridge?.encodePcm?.(block, 0, block.length, 1);
                 const result = await window.EveAudioflixNativeProviderCapture?.send?.(rt.session, audio, {
                     sampleRate: rt.sampleRate, channels: 1, gain: level
@@ -104,7 +105,8 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
             await context.resume();
             const sampleRate = context.sampleRate;
             session = await window.EveAudioflixNativeProviderCapture.start({
-                sampleRate, channels: 1, source: options.source || 'provider-tab'
+                sampleRate, channels: 1, source: options.source || 'provider-tab',
+                endpoint: options.endpoint || null
             });
             await context.audioWorklet.addModule(workletUrl());
             const source = context.createMediaStreamSource(new MediaStream([audioTrack]));
@@ -117,6 +119,7 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
             source.connect(node); node.connect(sink); sink.connect(context.destination);
             const rt = runtime = {
                 active: true, stream, audioTrack, context, source, node, sink, session, sampleRate,
+                gainMode: options.gainMode === 'unity' ? 'unity' : 'master',
                 queue: [], queueMs: 0, primed: false, pumping: false, chunks: 0, dropped: 0, failures: 0
             };
             node.port.onmessage = (event) => enqueue(rt, event.data);
@@ -126,7 +129,8 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
                 authorization: options.authorization || 'granted', audioTrack: true,
                 transport: false, renderer: session.rendererRunning === true,
                 endpoint: session.deviceId, suppression: options.suppression || 'not-applicable',
-                chunks: 0, dropped: 0, gain: gain(), nonzeroPcm: false
+                chunks: 0, dropped: 0, gain: gain(rt), nonzeroPcm: false,
+                source: options.source || 'provider-tab'
             });
             return getStatus();
         } catch (error) {
@@ -138,7 +142,7 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
         }
     }
 
-    async function armProviderTab() {
+    async function armProviderTab(options = {}) {
         let stream = null;
         try {
             // Confirm the page can use the local bridge before opening the browser chooser.
@@ -146,13 +150,15 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
             if (!navigator.mediaDevices?.getDisplayMedia) {
                 throw new Error('This browser does not support user-authorized tab capture.');
             }
-            update({ state: 'requesting', message: 'Choose the isolated provider tab and enable Share tab audio.', authorization: 'prompting' });
+            const target = String(options.targetTitle || 'the isolated provider tab');
+            update({ state: 'requesting', message: `Choose ${target} and enable Share tab audio.`, authorization: 'prompting',
+                source: options.source || 'provider-tab' });
             // The capture chooser must be the first awaited operation after a real user gesture.
             stream = await navigator.mediaDevices.getDisplayMedia({
                 video: true,
                 audio: { suppressLocalAudioPlayback: true, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-                preferCurrentTab: false,
-                selfBrowserSurface: 'exclude',
+                preferCurrentTab: options.preferCurrentTab === true,
+                selfBrowserSurface: options.preferCurrentTab === true ? 'include' : 'exclude',
                 surfaceSwitching: 'exclude',
                 systemAudio: 'exclude'
             });
@@ -164,8 +170,9 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
                 throw new Error('The browser refused duplicate-output suppression for this capture.');
             }
             return await startStream(stream, {
-                source: 'authorized-provider-tab', authorization: 'granted',
-                suppression: suppressed === true ? 'confirmed' : 'manual-verification-required'
+                source: options.source || 'authorized-provider-tab', authorization: 'granted',
+                suppression: suppressed === true ? 'confirmed' : 'manual-verification-required',
+                endpoint: options.endpoint || null, gainMode: options.gainMode
             });
         } catch (error) {
             stream?.getTracks?.().forEach((track) => track.stop());
@@ -210,7 +217,8 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
                 const failed = reason === 'transport-failed';
                 update({ state: failed ? 'error' : 'idle',
                     message: failed ? last.message : `Provider capture stopped (${reason}).`,
-                    authorization: 'required', audioTrack: false, transport: false, renderer: false });
+                    authorization: 'required', audioTrack: false, transport: false, renderer: false,
+                    source: '' });
                 return true;
             } finally { stopPromise = null; }
         })();
