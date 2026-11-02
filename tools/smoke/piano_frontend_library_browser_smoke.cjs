@@ -241,6 +241,9 @@ async function syntheticTest(browser, width) {
   await page.click('[data-af-action="piano-frontend-stop"]'); await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='stop'));
   assert.equal(await page.locator('.piano-frontend-library-head [data-pf-search]').count(),0,'Fast Track replaces standalone Find a song field');
   await page.locator('[data-pft-action="toggle"]').click();
+  await page.locator('.piano-pft-panel [data-pf-search]').fill('Study');
+  await page.waitForFunction(()=>document.querySelectorAll('.piano-pft-result').length===1);
+  assert.equal(await page.locator('.piano-frontend-song').count(),1,'Fast Track resolves Backend-owned group memberships');
   await page.locator('.piano-pft-panel [data-pf-search]').fill('Moon');
   await page.waitForFunction(()=>document.querySelectorAll('.piano-pft-result').length===1);
   assert.equal(await page.locator('.piano-frontend-song').count(),1,'Fast Track searches existing song cards');
