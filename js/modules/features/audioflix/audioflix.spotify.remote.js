@@ -208,10 +208,12 @@ window.EveAudioflixSpotifyRemote = window.EveAudioflixSpotifyRemote || {};
             return;
         }
         if (message.type === 'connection-error') {
-            state.connected = false;
-            state.connecting = false;
+            state.connected = false; state.connecting = false; state.approvalRequired = false;
+            state.relayReady = false; state.code = ''; state.approvalUrl = '';
             state.status = 'unavailable';
             state.lastError = String(message.message || 'Spotify relay connection failed.').slice(0, 240);
+            try { port?.close?.(); } catch {} port = null;
+            try { iframe?.remove?.(); } catch {} iframe = null;
             notify();
             settleReady(false, new Error(state.lastError));
             return;

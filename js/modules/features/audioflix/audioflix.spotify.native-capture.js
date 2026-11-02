@@ -27,7 +27,11 @@ window.EveAudioflixSpotifyNativeCapture = window.EveAudioflixSpotifyNativeCaptur
         if (!connection?.connected && !R.snapshot?.().connected) {
             throw new Error(connection?.reason || 'Managed Spotify relay is unavailable.');
         }
-        const ownership = await R.send('take-control', {}, { timeout: 15000 });
+        let ownership = await R.send('take-control', {}, { timeout: 15000 });
+        if (ownership?.authorizationExpired === true) {
+            const fresh = await R.connect({ force: true });
+            if (fresh?.connected) ownership = await R.send('take-control', {}, { timeout: 15000 });
+        }
         if (!ownership?.ok || ownership?.isOwner !== true) {
             throw new Error(ownership?.reason || 'Could not take control of the managed Spotify engine.');
         }

@@ -28,7 +28,25 @@ def prepare_restart(payload: dict | None = None) -> dict:
         presentation = str(before.get("presentation") or "hidden")
         transition = {"ok": True, "skipped": True, "reason": "Managed Spotify helper was not reachable."}
 
-        if helper_reachable:
+        # A reachable helper can outlive its Playwright page/context. In that exact terminal
+        # state no playback or PCM source remains to stop. Do not forge a transport ACK: record
+        # that the transition was skipped, retire broker ownership, and close the helper.
+        # Any unknown/active media state must still attempt the normal stop and fail closed.
+        capture_state = before.get("providerCapture")
+        page_closed_idle = (
+            helper_reachable and before.get("state") == "page-closed"
+            and before.get("pageAttached") is False
+            and before.get("playingCount") == 0
+            and before.get("transport") is None
+            and isinstance(capture_state, dict)
+            and capture_state.get("active") is False
+        )
+        if page_closed_idle:
+            transition = {
+                "ok": False, "skipped": True, "lifecycle": "page-closed",
+                "reason": "Closed Engine page has no transport to acknowledge stop.",
+            }
+        elif helper_reachable:
             # `stop` is a transport reset, not Ended. It leaves the queue scheduler with the
             # controller and provides one explicit terminal transition before helper teardown.
             transition = engine.transport({"action": "stop"})

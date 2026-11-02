@@ -171,6 +171,9 @@ function evidence(error) {
     await require('./helpers/audioflix_any_browser_native_capture')({ window, calls, spotify,
         setRoute: value => { managedNativeRoute = value; }, setCapture: value => { providerCapture = value; },
         applyState: observerOptions.applyState, engineState: () => engineState });
+    await require('./helpers/audioflix_any_browser_file_approval')({ window, remote, calls, spotify,
+        setRoute: value => { managedNativeRoute = value; }, setCapture: value => { providerCapture = value; },
+        document: context.document });
     await window.EveAudioflixAudio.playItem(spotify);
 
     await require('./helpers/audioflix_any_browser_volume_namespace')({ window, calls, originalVolumeCalls, windowListeners });

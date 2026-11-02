@@ -228,7 +228,7 @@ class SpotifyBrowserManager:
             if not validate_loopback_page_url(page_url):
                 return {"ok": False, "reason": "Managed Spotify browser requires a loopback EveOS URL."}
             helper = self._helper_status()
-            if helper:
+            if helper and helper.get("pageAttached") and helper.get("state") != "page-closed":
                 self._page_url = page_url
                 if helper.get("pageUrl") != page_url:
                     opened = self._request("POST", "/open", {"pageUrl": page_url}, timeout=12)
@@ -236,7 +236,7 @@ class SpotifyBrowserManager:
                         return opened
                 return self.status()
             if self._process_running():
-                self._stop_locked(force=True)
+                self._stop_locked(force=not bool(helper))
             else:
                 self._cleanup_process_locked()
             env = self.environment_status(force=True)
@@ -260,7 +260,7 @@ class SpotifyBrowserManager:
             command = [
                 env.get("nodePath") or "node", str(_helper_path()),
                 "--port", str(self._port), "--profile", str(profile),
-                "--page", page_url, "--session", self._session_id,
+                "--page", page_url, "--session", self._session_id, "--owner-pid", str(os.getpid()),
             ]
             child_env = os.environ.copy()
             child_env["EVEOS_SPOTIFY_BROWSER_TOKEN"] = self._token

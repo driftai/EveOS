@@ -27,6 +27,7 @@ const { parseMedia, fromPayload, normalizeTrackId, isSpotifyEmbedUrl,
 const { cancelLeases } = require('./audioflix_spotify_playback_lease.js');
 const { handleInterrupt } = require('./audioflix_spotify_playback_preemption.js');
 const providerCapture = require('./audioflix_spotify_browser_capture.js');
+const { ownerAlive } = require('./audioflix_spotify_browser_owner.js');
 const {
     EDGE_LAUNCH_TIMEOUT_MS, CHROMIUM_LAUNCH_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS,
     launchManagedContext, prepareManagedPage
@@ -83,6 +84,7 @@ async function main() {
     const pageUrl = String(args.page || 'http://127.0.0.1:8765/tools/audioflix/spotify-engine.html');
     const headlessRequested = headlessRequestedFromPageUrl(pageUrl);
     const sessionId = String(args.session || '');
+    const ownerPid = Number(args['owner-pid'] || process.ppid || 0);
     const token = String(process.env.EVEOS_SPOTIFY_BROWSER_TOKEN || '');
     if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('A valid helper --port is required.');
     if (!profileDir || profileDir === path.parse(profileDir).root) throw new Error('A dedicated Spotify --profile directory is required.');
@@ -146,6 +148,7 @@ async function main() {
 
     async function checkServerLiveness() {
         if (runtime.closing) return;
+        if (!ownerAlive(ownerPid)) { note('owner-exited', `Python owner PID ${ownerPid} disappeared`); await shutdown(0); return; }
         if (await probeServer(livenessUrl)) {
             if (serverOfflineSince) note('server-liveness-restored', livenessUrl);
             serverOfflineSince = 0;

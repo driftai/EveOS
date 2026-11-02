@@ -246,8 +246,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     }
     async function remotePlay(nextItem, policy = null) {
         const run = ++playbackRun;
-        const captureRequired = await nativeCapture.ensure(policy, nextItem);
-        const finish = window.EveAudioflixDiagnostics?.span?.('spotify:start');
         const connection = await ensureRemote();
         if (run !== playbackRun) return false;
         if (!connection.ok) {
@@ -255,6 +253,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             error.eveSpotifyFallback = connection.fallback === true;
             throw error;
         }
+        const captureRequired = await nativeCapture.ensure(policy, nextItem);
+        const finish = window.EveAudioflixDiagnostics?.span?.('spotify:start');
         const identity = media.fromItem(nextItem);
         if (!identity) throw new Error('This Spotify item has no valid track or episode identity.');
         if (!active) await stopLocalPlayback?.().catch?.(() => {});
