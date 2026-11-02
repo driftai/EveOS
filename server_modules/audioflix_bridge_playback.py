@@ -135,6 +135,9 @@ def _enqueue_mono(device_id: str, sample_rate: int, samples, kind: str, stream_i
     if expires_at_ms is not None and (time.time() * 1000) > expires_at_ms:
         return {"ok": False, "stale": True, "message": "Expired PCM chunk was not queued."}
     player.enqueue(mono, stream_id, lane, sample_rate)
+    lane_stats = player.lane_stats(lane) if callable(getattr(player, "lane_stats", None)) else {
+        "dropped": 0, "underruns": 0, "backlogFrames": 0, "enqueuedFrames": int(mono.shape[0])
+    }
     return {
         "ok": True,
         "kind": kind,
@@ -142,6 +145,7 @@ def _enqueue_mono(device_id: str, sample_rate: int, samples, kind: str, stream_i
         "sampleRate": sample_rate,
         "deviceId": used_device,
         "requestedDeviceUnavailable": fell_back,
+        **lane_stats,
     }
 
 

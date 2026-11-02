@@ -2,10 +2,11 @@ window.EveAudioflixPianoPcm = window.EveAudioflixPianoPcm || {};
 (function (ns) {
     'use strict';
     if (ns.ready) return;
-    const MAX_PENDING = 3, latency = [];
+    const MAX_PENDING = 3, MAX_RECOVERY_ATTEMPTS = 4, latency = [];
     const instanceId = `piano-owner:${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
     let generation = 0, binding = null, session = null, starting = null, pumping = false;
-    let heartbeatTimer = 0, heartbeatBusy = false, failureMessage = '';
+    let heartbeatTimer = 0, heartbeatBusy = false, failureMessage = '', recovering = null;
+    let dropped = 0, recoveries = 0, lastFailureCategory = '';
     const pending = [];
     const randomToken = () => { const bytes = new Uint8Array(24); crypto.getRandomValues(bytes);
         return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join(''); };
@@ -15,27 +16,30 @@ window.EveAudioflixPianoPcm = window.EveAudioflixPianoPcm || {};
             ? { deviceId, label: current.nativeOutputLabel || deviceId } : null; };
     function metrics() { const values = latency.slice().sort((a, b) => a - b);
         return { samples: values.length, medianMs: Math.round(values[Math.floor(values.length / 2)] || 0),
-            worstMs: Math.round(values.at(-1) || 0), queued: pending.length }; }
+            worstMs: Math.round(values.at(-1) || 0), queued: pending.length, dropped, recoveries,
+            recovering: Boolean(recovering), lastFailureCategory }; }
     function emit(status, message = '') { window.dispatchEvent(new CustomEvent('eve:audioflix-piano-pcm', {
         detail: { status, message, generation, endpoint: session?.deviceId || binding?.endpoint?.deviceId || '', metrics: metrics() }
     })); }
     function stopHeartbeat() { if (heartbeatTimer) clearInterval(heartbeatTimer); heartbeatTimer = 0; heartbeatBusy = false; }
     function fail(error) { failureMessage = String(error?.message || error || 'Native Piano PCM failed.');
+        lastFailureCategory = String(error?.eveCategory || 'unknown');
         const current = binding; void stopSession().finally(() => { emit('failed', failureMessage);
             current?.target?.postMessage?.({ type: 'eveos:piano-pcm-failed', token: current.token,
                 generation: current.generation, message: failureMessage }, current.origin); }); }
     function startHeartbeat(expected) { stopHeartbeat(); heartbeatTimer = setInterval(async () => {
         if (heartbeatBusy || binding !== expected || !session) return; heartbeatBusy = true;
         try { await window.EveAudioflixNativeProviderCapture.status(session); }
-        catch (error) { fail(error); }
+        catch (error) { void recover(error, expected); }
         finally { heartbeatBusy = false; }
     }, 1500); }
-    async function stopSession() { stopHeartbeat(); const previous = session; session = null; pending.length = 0;
+    async function stopSession({ keepPending = false } = {}) { stopHeartbeat(); const previous = session; session = null;
+        if (!keepPending) pending.length = 0;
         if (previous) await window.EveAudioflixNativeProviderCapture?.stop?.(previous).catch(() => {}); }
     async function startSession(expected) {
         if (session?.generation === expected.generation && session?.deviceId === expected.endpoint.deviceId) return session;
         if (starting) return starting;
-        starting = (async () => { await stopSession(); if (binding !== expected || !expected.endpoint) return null;
+        starting = (async () => { await stopSession({ keepPending: true }); if (binding !== expected || !expected.endpoint) return null;
             const opened = await window.EveAudioflixNativeProviderCapture.start({ endpoint: expected.endpoint,
                 sampleRate: 48000, channels: 1, source: 'piano-post-compressor', lane: 'piano-pcm',
                 ownerId: instanceId, generation: expected.generation });
@@ -44,6 +48,41 @@ window.EveAudioflixPianoPcm = window.EveAudioflixPianoPcm || {};
         })().catch(error => { failureMessage = String(error?.message || error); emit('failed', failureMessage); return null; })
             .finally(() => { starting = null; });
         return starting;
+    }
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    function retryable(error) { return error?.eveRetryable === true
+        || /failed to fetch|timed out|unreachable|invalid or expired|session expired/i.test(String(error?.message || '')); }
+    async function recover(error, expected = binding) {
+        if (!expected || binding !== expected) return false;
+        if (!retryable(error)) { fail(error); return false; }
+        if (recovering) return recovering;
+        lastFailureCategory = String(error?.eveCategory || 'temporary-transport');
+        recovering = (async () => {
+            emit('recovering', `Piano PCM transport interrupted (${lastFailureCategory}); retrying safely.`);
+            for (let attempt = 0; attempt < MAX_RECOVERY_ATTEMPTS && binding === expected; attempt += 1) {
+                await wait([180, 420, 900, 1800][attempt]);
+                if (binding !== expected) return false;
+                if (session) {
+                    try {
+                        const status = await window.EveAudioflixNativeProviderCapture.status(session);
+                        if (status?.ok === true) { recoveries += 1; failureMessage = ''; startHeartbeat(expected);
+                            emit('active', 'Piano PCM transport recovered on the existing native session.'); return true; }
+                    } catch (statusError) {
+                        error = statusError;
+                        if (!retryable(statusError)) { fail(statusError); return false; }
+                        if (statusError?.eveCategory === 'session-expired') session = null;
+                    }
+                }
+                if (!session && ['session-expired', 'bridge-unreachable', 'timeout', 'temporary-transport'].includes(
+                    String(error?.eveCategory || 'temporary-transport'))) {
+                    const reopened = await startSession(expected);
+                    if (reopened) { recoveries += 1; failureMessage = '';
+                        emit('active', 'Piano PCM transport reopened after the bridge interruption.'); return true; }
+                }
+            }
+            fail(error); return false;
+        })().finally(() => { recovering = null; if (session && pending.length) void pump(); });
+        return recovering;
     }
     async function authorize(target, origin, options = {}) {
         const selected = endpoint();
@@ -71,18 +110,18 @@ window.EveAudioflixPianoPcm = window.EveAudioflixPianoPcm || {};
             await window.EveAudioflixNativeProviderCapture.send(session, audio, {
                 sampleRate: item.sampleRate, channels: 1, gain: 1, maxAgeMs: 120, timeoutMs: 180 });
             latency.push(Math.max(0, Date.now() - item.capturedAtMs)); if (latency.length > 64) latency.shift();
-        } } catch (error) { pending.length = 0; fail(error);
-        } finally { pumping = false; }
+        } } catch (error) { await recover(error, binding);
+        } finally { pumping = false; if (pending.length && session && !recovering) queueMicrotask(() => void pump()); }
     }
     function accept(event) { const data = event.data || {};
         if (data.type !== 'piano:eveos-pcm' || !matches(event, data) || !session) return false;
         if (!(data.audio instanceof ArrayBuffer) || data.audio.byteLength < 2 || data.audio.byteLength > 16384) return false;
-        if (pending.length >= MAX_PENDING) pending.shift();
+        if (pending.length >= MAX_PENDING) { pending.shift(); dropped += 1; }
         pending.push({ samples: new Float32Array(data.audio), sampleRate: Number(data.sampleRate) || 48000,
             capturedAtMs: Number(data.capturedAtMs) || Date.now() }); void pump(); return true; }
     async function revoke(target) { if (target && binding?.target !== target) return false;
-        const changed = Boolean(binding || session || starting); generation += 1; binding = null; await stopSession();
+        const changed = Boolean(binding || session || starting || recovering); generation += 1; binding = null; await stopSession();
         if (changed) emit('disabled'); return changed; }
     window.addEventListener('message', accept);
-    Object.assign(ns, { ready: true, authorize, revoke, metrics, accept });
+    Object.assign(ns, { ready: true, authorize, revoke, metrics, accept, recover });
 })(window.EveAudioflixPianoPcm);

@@ -223,24 +223,26 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         fallbackTimer = setInterval(() => { fallbackPollOnce().catch(() => {}); }, 1000);
         fallbackPollOnce().catch(() => {});
     }
-    // A cold engine start (launching the managed browser and Spotify's iframe API) can outlast the
-    // play reply window while the broker still finishes load+play. Adopt that playback instead of
-    // leaving it unobserved: an unobserved first track can never report Ended, so the queue stalls on #1.
-    async function adoptSlowStart(identity, requested) {
-        const deadline = Date.now() + SLOW_START_ADOPT_MS;
-        let last = null;
+    // A cold engine start can outlast the reply window; adopt only matching confirmed playback,
+    // because an unobserved first track cannot report Ended and leaves the queue stalled on #1.
+    async function adoptSlowStart(identity, requested, playPayload, commandId) {
+        const deadline = Date.now() + SLOW_START_ADOPT_MS; let last = null, receiptChecked = false, polls = 0;
         while (Date.now() < deadline && item === requested) {
-            const state = await remote().status().catch(() => null);
-            const engine = state?.engine || {};
-            if (state?.ok && state.isOwner === true && media.matches(engine, identity)) {
-                last = state;
-                if (['playing', 'starting', 'ended'].includes(String(engine.status || ''))) return state;
+            const state = await remote().status().catch(() => null), engine = state?.engine || {};
+            if (state?.ok && state.isOwner === true && media.matches(engine, identity)) last = state;
+            if (last === state && String(engine.status || '').toLowerCase() === 'playing' && engine.paused !== true) return state; polls += 1;
+            // Re-query the original fingerprinted broker receipt; never issue a second Play intent.
+            if (!receiptChecked && polls >= 2 && commandId) {
+                receiptChecked = true;
+                const receipt = await remote().send('play', playPayload, { timeout: 12000, commandId }).catch(() => null), receiptEngine = receipt?.engine || {};
+                if (receipt?.ok && receipt.isOwner === true && media.matches(receiptEngine, identity) && String(receiptEngine.status || '').toLowerCase() === 'playing' && receiptEngine.paused !== true) return receipt;
             }
             await new Promise((resolve) => setTimeout(resolve, SLOW_START_POLL_MS));
         }
-        if (last && item === requested) {
-            const resumed = await remote().send('resume', {}, { timeout: 12000 });
-            if (resumed?.ok) return resumed;
+        const lastEngine = last?.engine || {}, resumable = ['paused', 'provider-paused'].includes(String(lastEngine.status || '').toLowerCase());
+        if (last && item === requested && last.isOwner === true && media.matches(lastEngine, identity) && resumable) {
+            const resumed = await remote().send('resume', {}, { timeout: 12000 }), resumedEngine = resumed?.engine || {};
+            if (resumed?.ok && resumed.isOwner === true && media.matches(resumedEngine, identity) && String(resumedEngine.status || '').toLowerCase() === 'playing' && resumedEngine.paused !== true) return resumed;
         }
         return { ok: false, reason: 'Spotify took too long to start in the managed engine.' };
     }
@@ -266,13 +268,12 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         lastEngineStatus = ''; lastCompletionId = ''; ended = false; latestEngineState = null;
         starting = true;
         let result;
+        const playPayload = { ...identity, title: item.title || '', duration: playback.duration,
+            effectiveVolume: effectiveGain(item.volume ?? 1), itemId: String(item.id || ''), type: String(item.type || 'music') };
+        const playCommandId = `spotify-play:${Date.now()}:${Math.random().toString(36).slice(2)}`;
         try {
-            result = await remote().send('play', {
-                ...identity, title: item.title || '', duration: playback.duration,
-                effectiveVolume: effectiveGain(item.volume ?? 1),
-                itemId: String(item.id || ''), type: String(item.type || 'music')
-            }, { timeout: PLAY_REPLY_TIMEOUT_MS });
-            if (!result?.ok && result?.timeout) result = await adoptSlowStart(identity, nextItem);
+            result = await remote().send('play', playPayload, { timeout: PLAY_REPLY_TIMEOUT_MS, commandId: playCommandId });
+            if (!result?.ok && result?.timeout) result = await adoptSlowStart(identity, nextItem, playPayload, playCommandId);
         } catch (error) {
             if (run !== playbackRun) return false; // a superseded run's late failure is not a skip
             throw error;

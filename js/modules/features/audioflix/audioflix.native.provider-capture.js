@@ -40,6 +40,29 @@ window.EveAudioflixNativeProviderCapture = window.EveAudioflixNativeProviderCapt
     function requireFileCompanion() { return true; }
     const state = () => window.EveAudioflixState?.ensure?.() || {};
 
+    function transportError(message, category, retryable, status = 0, cause = null) {
+        const error = new Error(message);
+        error.eveCategory = category;
+        error.eveRetryable = retryable === true;
+        error.eveHttpStatus = Number(status) || 0;
+        if (cause) error.cause = cause;
+        return error;
+    }
+
+    function responseError(data, status) {
+        const message = String(data?.message || `Provider capture request failed (${status}).`);
+        if (/invalid or expired|session expired|already stopped/i.test(message)) {
+            return transportError(message, 'session-expired', true, status);
+        }
+        if (/endpoint|device|renderer did not start|native output/i.test(message)) {
+            return transportError(message, 'endpoint-unavailable', false, status);
+        }
+        if (status === 401 || status === 403 || /auth|credential|ownership|generation is stale/i.test(message)) {
+            return transportError(message, 'authorization', false, status);
+        }
+        return transportError(message, status >= 500 ? 'bridge-refused' : 'request-refused', status >= 500, status);
+    }
+
     function selectedEndpoint(detail = {}) {
         if (detail.endpoint && typeof detail.endpoint === 'object') {
             const deviceId = String(detail.endpoint.deviceId || '').trim();
@@ -69,19 +92,25 @@ window.EveAudioflixNativeProviderCapture = window.EveAudioflixNativeProviderCapt
     }
 
     async function protectedPost(base, path, payload, timeout = 1600) {
-        if (base !== captureOrigin()) throw new Error('Provider capture origin changed; re-arm required.');
+        if (base !== captureOrigin()) throw transportError('Provider capture origin changed; re-arm required.', 'origin-changed', false);
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeout);
         try {
             const headers = { 'Content-Type': 'application/json', 'X-EveOS-Provider-Capture': 'v1' };
             if (isFile() && path.endsWith('/start')) headers['X-EveOS-Provider-File-Auth'] = await fileCredential();
-            const response = await fetch(base + path, {
-                method: 'POST', mode: isFile() ? 'cors' : 'same-origin', cache: 'no-store', credentials: 'omit',
-                headers, body: JSON.stringify(payload), signal: controller.signal
-            });
+            let response;
+            try {
+                response = await fetch(base + path, {
+                    method: 'POST', mode: isFile() ? 'cors' : 'same-origin', cache: 'no-store', credentials: 'omit',
+                    headers, body: JSON.stringify(payload), signal: controller.signal
+                });
+            } catch (error) {
+                if (error?.name === 'AbortError') throw transportError('Provider capture request timed out.', 'timeout', true, 0, error);
+                throw transportError(error?.message || 'Provider capture bridge is unreachable.', 'bridge-unreachable', true, 0, error);
+            }
             const data = await response.json().catch(() => ({}));
             if (!response.ok || data?.ok === false) {
-                throw new Error(data?.message || `Provider capture request failed (${response.status}).`);
+                throw responseError(data, response.status);
             }
             return data;
         } finally { clearTimeout(timer); }
@@ -135,5 +164,6 @@ window.EveAudioflixNativeProviderCapture = window.EveAudioflixNativeProviderCapt
                 lane: session.lane, ownerId: session.ownerId, generation: session.generation });
     }
 
-    Object.assign(ns, { ready: true, start, send, status, stop, selectedEndpoint, captureOrigin, requireFileCompanion });
+    Object.assign(ns, { ready: true, start, send, status, stop, selectedEndpoint, captureOrigin,
+        requireFileCompanion, transportError, responseError });
 })(window.EveAudioflixNativeProviderCapture);

@@ -11,6 +11,7 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
     let detachedTimer = 0;
     let outputRoute = null;
     let pcmRoute = null;
+    const contextSignatures = new WeakMap();
 
     function snapshot() {
         return window.EveAudioflixPiano?.state || {};
@@ -45,6 +46,11 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         const destination = targetDetails(frame);
         if (!destination || destination.origin === 'null') return false;
         const initial = context();
+        const routeState = window.EveAudioflixState?.getSnapshot?.() || {};
+        const signature = JSON.stringify({ origin: destination.origin, route: initial.outputRoute,
+            sink: initial.audioOutput.browserSinkId, native: routeState.nativeBridgeEnabled === true,
+            nativeId: routeState.nativeOutputId || '' });
+        if (options.force !== true && options.retry !== true && contextSignatures.get(destination.target) === signature) return true;
         try {
             const [sink, pianoPcm] = await Promise.all([
                 Promise.resolve(window.EveAudioflixAudio?.resolvePlaybackSink?.()).catch(() => null),
@@ -55,6 +61,7 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
                 browserSinkId: String(sink?.deviceId || ''), source: sink?.source || initial.audioOutput.source },
                 pianoPcm: pianoPcm || { requested: false, active: false } };
             destination.target.postMessage({ type: 'eveos:audioflix-context', context: refined }, destination.origin);
+            contextSignatures.set(destination.target, signature);
             return true;
         } catch (_) { return false; }
     }
@@ -195,7 +202,8 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         if (frame && frame.dataset.pianoContextBound !== 'yes') {
             frame.dataset.pianoContextBound = 'yes';
             frame.addEventListener('load', () => {
-                void sendContext(frame);
+                contextSignatures.delete(frame.contentWindow);
+                void sendContext(frame, { force: true });
                 window.EveAudioflixPianoFrontend?.refresh?.(true);
             });
         }
@@ -308,8 +316,8 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         }
         if (event.data?.type === 'piano:eveos-ready') {
             const embedded = root?.querySelector?.('[data-piano-frame]');
-            if (event.source === detachedWindow) void sendContext(detachedWindow);
-            else if (event.source === embedded?.contentWindow) void sendContext(embedded);
+            if (event.source === detachedWindow) void sendContext(detachedWindow, { force: true });
+            else if (event.source === embedded?.contentWindow) void sendContext(embedded, { force: true });
         }
         if (event.data?.type === 'piano:eveos-audio-route') {
             const frame = root?.querySelector?.('[data-piano-frame]')?.contentWindow;
@@ -323,5 +331,6 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         pcmRoute = event.detail && typeof event.detail === 'object' ? event.detail : null;
         window.EveAudioflix?.render?.();
     });
-    Object.assign(ns, { ready: true, render, afterRender, setVisible, handleAction, reattach, outputRouteStatus, renderOutputRouteCard });
+    Object.assign(ns, { ready: true, render, afterRender, setVisible, handleAction, reattach,
+        outputRouteStatus, pcmRouteStatus: () => pcmRoute ? { ...pcmRoute } : null, renderOutputRouteCard });
 })(window.EveAudioflixPianoUi);

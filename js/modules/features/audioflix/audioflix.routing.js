@@ -107,8 +107,8 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
         if (snapshot.nativeBridgeEnabled === true && snapshot.nativeOutputId) {
             return {
                 state: 'ready',
-                title: 'Native EveOS-only route active',
-                body: `Gemini PCM, route tests, and local/served Audioflix clips are sent to ${snapshot.nativeOutputLabel || 'the selected native output'} through the local EveOS server. Edge default can stay unchanged.`
+                title: 'Native endpoint selected',
+                body: `${snapshot.nativeOutputLabel || 'The selected native output'} is the requested endpoint. Spotify capture and Piano show their own session/PCM state below; physical delivery still requires the real device meter.`
             };
         }
         if (audioStatus.hasOutputPicker && audioStatus.hasSetSinkId && !snapshot.preferredSinkId) {
@@ -165,6 +165,7 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
         const nativeInputLabel = snapshot.nativeInputLabel || 'No mic target noted';
         const guidance = nextStep(snapshot, audioStatus);
         const browserCore = browserCoreState(snapshot, audioStatus);
+        const providerPcm = window.EveAudioflixProviderCaptureUi?.captureStatus?.() || {}, pianoPcm = window.EveAudioflixPianoUi?.pcmRouteStatus?.() || {};
         return `<section class="audioflix-route-board" aria-label="Gemini voice route">
             <div class="audioflix-route-node"><span>Gemini Voice</span><strong>${snapshot.nativeBridgeEnabled ? 'Native route active' : (snapshot.geminiVoicePortEnabled ? 'Selective route armed' : 'Default playback')}</strong></div>
             <div class="audioflix-route-arrow">-&gt;</div>
@@ -206,8 +207,8 @@ window.EveAudioflixRouting = window.EveAudioflixRouting || {};
             </article>
             <article class="audioflix-status-card ${snapshot.nativeBridgeEnabled ? 'is-on' : ''}">
                 <span>Native Bridge Output</span>
-                <strong>${esc(snapshot.nativeBridgeEnabled ? nativeLabel : 'Optional EveOS-only route')}</strong>
-                <p>Optional exclusive route through the EveOS server. Selecting an endpoint only configures it; Use Native Route explicitly moves Audioflix playback there.</p>
+                <strong>${esc(snapshot.nativeBridgeEnabled ? `Requested: ${nativeLabel}` : 'Optional EveOS-owned route')}</strong>
+                <p>Selecting an endpoint configures a destination; it does not prove a stream or physical signal. Spotify Provider Capture and Piano PCM each own an independent authenticated session on the shared renderer.</p><p class="audioflix-mini-status">Native route: ${snapshot.nativeBridgeEnabled ? 'configured' : 'disabled'} · Spotify PCM: ${providerPcm.transport ? 'flowing' : providerPcm.active ? 'armed / waiting' : 'inactive'} · Piano PCM: ${pianoPcm.status === 'active' ? 'session active' : pianoPcm.status || 'inactive'} · Physical output: verify meter</p>
                 <div class="audioflix-output-picker">
                     <select data-af-control="native-output-select" aria-label="Native Audioflix output device">
                         <option value="">Checking native bridge...</option>

@@ -86,7 +86,17 @@ async function run(){
   assert.strictEqual(edge.api.getStatus().active,false,'capture is inactive after video sharing ends');
 
   const routing=fs.readFileSync(path.join(root,'js/modules/features/audioflix/audioflix.ui.actions.routing.js'),'utf8');
-  assert(routing.includes("'provider-managed-show', 'provider-managed-arm'"), 'managed Spotify capture actions must preserve the trusted routing click path');
+  assert(routing.includes("'provider-managed-toggle', 'provider-managed-capture-toggle'")
+    && routing.includes("'provider-retry'"), 'state-aware managed Spotify capture actions must preserve the trusted routing click path');
+  const uiSource=fs.readFileSync(path.join(root,'js/modules/features/audioflix/audioflix.provider.capture.ui.js'),'utf8');
+  let presentation='hidden';const uiWindow={addEventListener(){},EveAudioflixSpotifyRemote:{snapshot:()=>({lastState:{managed:{presentation}}})}};
+  vm.runInContext(uiSource,vm.createContext({window:uiWindow,document:{querySelectorAll:()=>[]},console}));
+  const controls=uiWindow.EveAudioflixProviderCaptureUi.controls;
+  assert.equal(controls({state:'error',active:false,source:'managed-spotify'}).retry,true);
+  assert.equal(controls({state:'idle',active:false,source:'managed-spotify'}).showLabel,'Show Spotify Engine');
+  presentation='window';assert.equal(controls({state:'capturing',active:true,source:'managed-spotify'}).showLabel,'Hide Spotify Engine');
+  assert.equal(controls({state:'capturing',active:true,source:'managed-spotify'}).captureLabel,'Stop Engine Capture');
+  assert.equal(controls({state:'requesting',active:false,source:'browser-tab'}).anotherLabel,'Choosing Provider Tab…');
   console.log('AUDIOFLIX_PROVIDER_CAPTURE_RESILIENCE_OK chooser-denial no-audio resume-failure late-ack stopped-state gesture-preservation');
 }
 run().catch(err=>{console.error(err);process.exitCode=1});

@@ -70,7 +70,13 @@ class PcmPlayer:
                 try:
                     pending = source.get_nowait()
                 except queue.Empty:
+                    if (state is not None and state.get("stream_id")
+                            and state.get("enqueued", 0) and not state.get("starved")):
+                        state["underruns"] += 1
+                        state["starved"] = True
                     break
+            if state is not None:
+                state["starved"] = False
             count = min(frames - written, len(pending))
             outdata[written:written + count, 0] += pending[:count]
             pending, written = pending[count:], written + count
@@ -87,7 +93,35 @@ class PcmPlayer:
             return self.stream_lanes.setdefault(lane, {
                 "q": queue.Queue(maxsize=16 if lane == "piano-pcm" else 256),
                 "pending": None, "flush": False, "stream_id": None,
+                "dropped": 0, "underruns": 0, "enqueued": 0, "starved": False,
+                "resample_rate": 0, "resample_input": 0, "resample_next": 0.0, "resample_tail": None,
             })
+
+    def _resample_lane(self, samples, state, source_rate):
+        source_rate, target_rate = int(source_rate or self.source_rate), int(self.sample_rate)
+        mono = np.asarray(samples, dtype="float32").reshape(-1)
+        if not len(mono):
+            return mono
+        if source_rate == target_rate:
+            if state["resample_rate"]:
+                state.update(resample_rate=0, resample_input=0, resample_next=0.0, resample_tail=None)
+            return mono
+        if state["resample_rate"] != source_rate:
+            state.update(resample_rate=source_rate, resample_input=0, resample_next=0.0, resample_tail=None)
+        start, end = state["resample_input"], state["resample_input"] + len(mono) - 1
+        tail = state["resample_tail"]
+        values = np.concatenate(([tail], mono)) if tail is not None else mono
+        x_start = start - 1 if tail is not None else start
+        step, position = source_rate / float(target_rate), max(float(x_start), state["resample_next"])
+        count = max(0, int(np.floor((end - position) / step)) + 1)
+        if count:
+            positions = position + np.arange(count, dtype="float64") * step
+            converted = np.interp(positions, np.arange(x_start, end + 1), values).astype("float32")
+            state["resample_next"] = position + count * step
+        else:
+            converted = mono[:0]
+        state["resample_input"], state["resample_tail"] = end + 1, float(mono[-1])
+        return converted
 
     def add_voice(self, samples, vid=None, vol=1.0, source_rate=None) -> None:
         self.last_used = time.monotonic()
@@ -134,6 +168,8 @@ class PcmPlayer:
             self.flush_pending, self.stream_id = True, None
         else:
             state["flush"], state["stream_id"] = True, None
+            state.update(resample_input=0, resample_next=0.0, resample_tail=None,
+                         resample_rate=0, starved=False)
         return dropped
 
     def enqueue(self, samples, stream_id=None, lane="primary", source_rate=None) -> None:
@@ -146,15 +182,31 @@ class PcmPlayer:
             self.stream_id, source = stream_id, self.q
         else:
             state["stream_id"], source = stream_id, state["q"]
-        samples = self._resample(samples, source_rate or self.source_rate, self.sample_rate)
+        samples = (self._resample(samples, source_rate or self.source_rate, self.sample_rate)
+                   if state is None else self._resample_lane(samples, state, source_rate))
+        if state is not None:
+            state["enqueued"] += len(samples)
         try:
             source.put_nowait(samples)
         except queue.Full:
+            if state is not None:
+                state["dropped"] += 1
             try:
                 source.get_nowait()
                 source.put_nowait(samples)
             except queue.Empty:
                 pass
+
+    def lane_stats(self, lane="primary") -> dict:
+        state = self._lane(lane)
+        if state is None:
+            return {"dropped": 0, "underruns": 0, "backlogFrames": self.q.qsize()}
+        pending = len(state["pending"]) if state["pending"] is not None else 0
+        with state["q"].mutex:
+            queued = sum(len(block) for block in list(state["q"].queue))
+        return {"dropped": state["dropped"], "underruns": state["underruns"],
+                "backlogFrames": pending + queued,
+                "enqueuedFrames": state["enqueued"]}
 
     def close(self) -> None:
         self.closed = True

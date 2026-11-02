@@ -25,6 +25,7 @@ let lastState = null;
 let pollRemote = null;
 let managedNativeRoute = false;
 let providerCapture = { active: false, source: '', endpoint: '' };
+let coldStartStartingPolls = 0;
 const remote = {
     ready: true,
     subscribe(listener) { remoteSubscribers.add(listener); return () => remoteSubscribers.delete(listener); },
@@ -35,6 +36,11 @@ const remote = {
     waitUntilReady: async () => ({ connected: true }),
     openApproval: () => true,
     async status() {
+        if (coldStartStartingPolls > 0) {
+            coldStartStartingPolls -= 1;
+            engineState = { ...engineState, status: coldStartStartingPolls ? 'starting' : 'playing',
+                paused: coldStartStartingPolls > 0 };
+        }
         lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true, capture: { ...providerCapture } } };
         return lastState;
     },
@@ -43,7 +49,7 @@ const remote = {
         if (action === 'play' && remote.coldStartTimeouts > 0) {
             // Cold engine start: the broker keeps loading/playing after the reply window closes.
             remote.coldStartTimeouts -= 1;
-            engineState = { ...engineState, status: 'playing', paused: false, spotifyId: payload.spotifyId,
+            engineState = { ...engineState, status: coldStartStartingPolls ? 'starting' : 'playing', paused: coldStartStartingPolls > 0, spotifyId: payload.spotifyId,
                 generation: engineState.generation + 1, completionId: '' };
             return { ok: false, timeout: true, reason: 'Spotify play timed out.' };
         }
@@ -240,11 +246,16 @@ function evidence(error) {
     // starting. The client must adopt that playback (active + polled) or #1 never reports Ended.
     await window.EveAudioflixAudio.stopAll();
     remote.coldStartTimeouts = 1;
+    coldStartStartingPolls = 3;
     const coldItem = { ...spotify, id: 'song-cold', url: 'https://open.spotify.com/track/1AbCdEfGhIjKlMnOpQrStU' };
     assert.equal(await window.EveAudioflixAudio.playItem(coldItem), true, 'a timed-out cold-start play is adopted once the engine reports it playing for this client');
     const coldSnapshot = window.EveAudioflixSpotifyAnyBrowser.snapshot();
     assert.equal(coldSnapshot.active, true, 'adopted cold-start playback is the active managed route');
     assert.equal(coldSnapshot.item.id, 'song-cold');
+    const coldPlays = calls.filter(entry => entry.action === 'play' && entry.payload.spotifyId === '1AbCdEfGhIjKlMnOpQrStU');
+    assert.ok(coldPlays.length >= 2, 'a still-starting cold engine re-queries its original exact-once receipt');
+    assert.equal(new Set(coldPlays.map(entry => entry.options.commandId)).size, 1,
+        'cold-start recovery reuses one broker commandId and cannot create duplicate Play intents');
     // Slow status must never accumulate overlapping requests or relabel an old terminal
     // snapshot as the next queue item. The managed browser is a separate async runtime.
     const normalStatus = remote.status;

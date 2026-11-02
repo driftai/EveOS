@@ -134,6 +134,10 @@ def start(payload: dict) -> dict:
                 "samples": 0,
                 "nonzeroChunks": 0,
                 "gain": 1.0,
+                "sourceRates": {},
+                "dropped": 0,
+                "underruns": 0,
+                "backlogFrames": 0,
             }
             _SESSIONS[session_id] = entry
     return {
@@ -167,6 +171,7 @@ def chunk(payload: dict) -> dict:
     if channels != entry["channels"] or len(raw) % (2 * channels):
         raise RuntimeError("Provider capture PCM channels or frame alignment mismatch.")
     gain = max(0.0, min(1.0, float(payload.get("gain", 1.0))))
+    source_rate = max(8000, min(192000, int(payload.get("sampleRate") or entry["sampleRate"])))
 
     # Stop and chunk must serialize against the same session. Without this fence,
     # a verified HTTP chunk may enqueue *after* Stop has already cleared the PCM
@@ -178,7 +183,7 @@ def chunk(payload: dict) -> dict:
         result = play_pcm({
             "audio": audio,
             "deviceId": entry["deviceId"],
-            "sampleRate": entry["sampleRate"],
+            "sampleRate": source_rate,
             "channels": channels,
             "streamId": session_id,
             "sentAtMs": payload.get("sentAtMs") or int(_now() * 1000),
@@ -197,6 +202,10 @@ def chunk(payload: dict) -> dict:
             entry["samples"] += len(raw) // 2 // channels
             entry["nonzeroChunks"] += int(any(raw))
             entry["gain"] = gain
+            entry["sourceRates"][str(source_rate)] = entry["sourceRates"].get(str(source_rate), 0) + 1
+            entry["dropped"] = int(result.get("dropped") or 0)
+            entry["underruns"] = int(result.get("underruns") or 0)
+            entry["backlogFrames"] = int(result.get("backlogFrames") or 0)
     return {
         "ok": True,
         "sessionId": session_id,
@@ -206,6 +215,10 @@ def chunk(payload: dict) -> dict:
         "gain": gain,
         "nonzero": bool(any(raw)),
         "lane": entry["lane"],
+        "sourceRate": source_rate,
+        "dropped": entry["dropped"],
+        "underruns": entry["underruns"],
+        "backlogFrames": entry["backlogFrames"],
     }
 
 
@@ -225,6 +238,10 @@ def status(payload: dict) -> dict:
         "samples": entry["samples"],
         "nonzeroChunks": entry["nonzeroChunks"],
         "gain": entry["gain"],
+        "sourceRates": dict(entry["sourceRates"]),
+        "dropped": entry["dropped"],
+        "underruns": entry["underruns"],
+        "backlogFrames": entry["backlogFrames"],
         "expiresAt": int(entry["expiresAt"] * 1000),
     }
 

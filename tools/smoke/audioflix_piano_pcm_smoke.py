@@ -46,9 +46,10 @@ def main():
         assert spotify["lane"] == "provider-capture" and piano["lane"] == "piano-pcm"
         piano_auth = {"sessionId": piano["sessionId"], "captureToken": piano["captureToken"],
             "lane": "piano-pcm", "ownerId": piano["ownerId"], "generation": 1}
-        capture.chunk({**piano_auth, "audio": pcm(), "channels": 1, "maxAgeMs": 120})
+        capture.chunk({**piano_auth, "audio": pcm(), "channels": 1, "sampleRate": 44100, "maxAgeMs": 120})
         sent = [payload for kind, payload in calls if kind == "pcm"][-1]
         assert sent["lane"] == "piano-pcm" and sent["strictDevice"] is True and sent["maxAgeMs"] == 120
+        assert sent["sampleRate"] == 44100
         try:
             capture.status({**piano_auth, "generation": 2})
             raise AssertionError("stale generation was accepted")
@@ -88,6 +89,32 @@ def main():
         player.enqueue(np.ones(2, dtype="float32"), "piano", "piano-pcm", 48000)
         assert player.clear_stream("piano", "piano-pcm") == 1
         assert player._lane("provider-capture")["q"].qsize() == 1
+
+        # Streaming rate conversion must retain fractional phase across chunks instead of
+        # independently stretching every block (which causes long-song clicks and drift).
+        for rate in (44100, 48000, 96000):
+            player.clear_stream(lane="piano-pcm")
+            first = np.linspace(-0.8, 0.0, 1024, endpoint=False, dtype="float32")
+            second = np.linspace(0.0, 0.8, 1024, endpoint=False, dtype="float32")
+            player.enqueue(first, f"rate-{rate}", "piano-pcm", rate)
+            player.enqueue(second, f"rate-{rate}", "piano-pcm", rate)
+            lane = player._lane("piano-pcm")
+            converted = np.concatenate(list(lane["q"].queue))
+            expected = round(2048 * 48000 / rate)
+            assert abs(len(converted) - expected) <= 2, (rate, len(converted), expected)
+            assert np.max(np.abs(np.diff(converted))) < 0.01, rate
+
+        # A live context-rate change must discard the previous converter phase, and a
+        # starved lane records one gap rather than one underrun per audio callback.
+        player.clear_stream(lane="piano-pcm")
+        player.enqueue(np.linspace(-0.2, 0.2, 256, dtype="float32"), "rate-switch", "piano-pcm", 44100)
+        player.enqueue(np.linspace(0.2, -0.2, 256, dtype="float32"), "rate-switch", "piano-pcm", 48000)
+        lane = player._lane("piano-pcm")
+        assert lane["resample_rate"] == 0 and lane["resample_input"] == 0
+        drained = np.zeros((1024, 1), dtype="float32")
+        player._mix(drained, len(drained))
+        player._mix(np.zeros((128, 1), dtype="float32"), 128)
+        assert lane["underruns"] == 1, lane["underruns"]
     finally:
         capture._SESSIONS.clear()
         capture._player_for, capture.play_pcm, capture.stop_stream, capture._now = old
