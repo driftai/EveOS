@@ -74,6 +74,17 @@ async function run(){
   assert.strictEqual(delayed.api.getStatus().active,false);
   assert(captured.stopped && delayed.stats().nativeStops===1);
 
+  // Edge Stop sharing can end the video track before the captured audio track.
+  const edge=fixture();const edgeAudio=new edge.Track(),edgeVideo=new edge.Track();edgeVideo.audio=false;
+  edgeAudio.handlers={};edgeVideo.handlers={};
+  edgeAudio.addEventListener=function(name,fn){this.handlers[name]=fn;};
+  edgeVideo.addEventListener=function(name,fn){this.handlers[name]=fn;};
+  await edge.api.startStream(new edge.Stream([edgeAudio,edgeVideo]));
+  edgeVideo.handlers.ended();
+  await new Promise(resolve=>setTimeout(resolve,40));
+  assert.strictEqual(edge.stats().nativeStops,1,'video Stop sharing releases the native lane');
+  assert.strictEqual(edge.api.getStatus().active,false,'capture is inactive after video sharing ends');
+
   const routing=fs.readFileSync(path.join(root,'js/modules/features/audioflix/audioflix.ui.actions.routing.js'),'utf8');
   assert(routing.includes("'provider-managed-show', 'provider-managed-arm'"), 'managed Spotify capture actions must preserve the trusted routing click path');
   console.log('AUDIOFLIX_PROVIDER_CAPTURE_RESILIENCE_OK chooser-denial no-audio resume-failure late-ack stopped-state gesture-preservation');

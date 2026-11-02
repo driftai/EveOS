@@ -81,7 +81,8 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
             onToggle: async () => {
                 const playback = managed()?.snapshot?.().playback || {};
                 if (playback.paused === false) return window.EveAudioflixAudio?.pause?.();
-                const item = playbackItem();
+                // An Engine restart retires the transport but must not lose the selected song.
+                const item = playbackItem() || currentItem;
                 if (item) return window.EveAudioflixAudio?.playItem?.(item);
             },
             onSeek: (value) => window.EveAudioflixAudio?.seek?.(value),
@@ -120,7 +121,7 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
     }
 
     async function restartEngine(button) {
-        if (presentationBusy || !remote()?.snapshot?.().connected || !button) return;
+        if (presentationBusy || !button) return;
         const defaultLabel = 'Restart engine';
         if (button.dataset.confirmSpotifyRestart !== 'true') {
             button.dataset.confirmSpotifyRestart = 'true';
@@ -141,6 +142,9 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
             if (typeof reload?.restart !== 'function') throw new Error('Shared EveOS restart control is unavailable.');
             const base = new URL(mirrorBase());
             const port = Number(base.port || (base.protocol === 'https:' ? 443 : 80));
+            // Retire the old managed playback lease before replacing its Playwright helper.
+            // Otherwise same-song Play can try to resume the dead helper's old session.
+            await window.EveAudioflixAudio?.stopAll?.();
             const result = await reload.restart('spotifyEngine', { port, timeoutS: 45 });
             if (result?.serviceRestarted !== true) throw new Error(result?.message || 'Managed Spotify engine did not verify a fresh idle helper.');
             view?.setStatus?.('Managed Spotify engine restarted and is idle. Playback was not auto-resumed; use Play when you are ready.');
@@ -162,7 +166,8 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
             const result = await remote().send('engine-stop', {}, { timeout: 12000 });
             if (!result?.ok) throw new Error(result?.reason || 'Could not stop the Spotify engine.');
             try { await window.EveAudioflixAudio?.stopAll?.(); } catch {}
-            hide();
+            view?.setStatus?.('Managed Spotify engine stopped. Internal controls remain available; press Play to launch it again.');
+            postMirrorState();
         } catch (error) {
             view?.setStatus?.(String(error?.message || error));
             if (button) button.textContent = originalText;
@@ -221,12 +226,14 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
         return wrap;
     }
 
-    function show(item) {
+    function show(item, options = {}) {
         const controller = ensureView();
-        if (!controller || !managedActive()) return false;
+        if (!controller || (!managedActive() && options.allowIdle !== true)) return false;
         currentItem = playbackItem() || item || currentItem;
         const host = controller.open(currentItem || {}, 'Spotify Engine', { expanded: true, visible: true });
-        controller.setStatus('Managed Spotify engine is running in the background. This view mirrors it inside EveOS.');
+        controller.setStatus(managedActive()
+            ? 'Managed Spotify engine is running in the background. This view mirrors it inside EveOS.'
+            : 'Opening managed Spotify engine… Controls will remain available even if launch fails.');
         controller.setVisualVisible(true);
         syncQueue();
         host.replaceChildren();
@@ -262,12 +269,23 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
         const audio = window.EveAudioflixAudio;
         originalOpenInternalView = audio.openInternalView.bind(audio);
         audio.openInternalView = async function managedEngineInternalView(item) {
-            const result = await originalOpenInternalView(item);
-            if (isSpotify(item) && managedActive()) show(item);
-            return result;
+            const policy = window.EveAudioflixPlaybackPolicy?.resolve?.(item) || {};
+            if (!isSpotify(item) || policy.spotifyMethod === 'embed') return originalOpenInternalView(item);
+            // The eye action must present the panel before waiting for the cold
+            // Playwright helper or the file-origin pairing handshake.
+            const opened = show(item, { allowIdle: true });
+            try {
+                const result = await originalOpenInternalView(item);
+                if (managedActive()) postMirrorState();
+                else if (opened) view?.setStatus?.('Spotify engine is idle; press Play or use the controls above.');
+                return result;
+            } catch (error) {
+                if (opened) view?.setStatus?.(String(error?.message || error));
+                throw error;
+            }
         };
-        window.addEventListener('eve:audioflix-playback', () => {
-            if (!managedActive()) hide();
+        window.addEventListener('eve:audioflix-playback', (event) => {
+            if (event?.detail?.item && !isSpotify(event.detail.item) && !managedActive()) hide();
             else postMirrorState();
         });
         window.addEventListener('eve:audioflix-progress', () => {

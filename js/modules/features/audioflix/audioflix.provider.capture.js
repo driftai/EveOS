@@ -9,6 +9,7 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
     const MAX_FAILURES = 4;
     let runtime = null;
     let stopPromise = null;
+    let orphanedSession = null;
     let last = {
         state: 'idle', message: 'Provider capture is not armed.', authorization: 'required',
         audioTrack: false, nonzeroPcm: false, transport: false, renderer: false,
@@ -30,6 +31,23 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
         if (!source) throw new Error('AudioWorklet capture processor is unavailable.');
         return 'data:application/javascript,' + encodeURIComponent(source);
     };
+
+    async function releaseSession(session) {
+        if (!session?.sessionId || !session?.captureToken) return;
+        let failure = null;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+                const result = await window.EveAudioflixNativeProviderCapture.stop(session);
+                if (result?.ok !== true) throw new Error(result?.message || 'Native PCM release was not acknowledged.');
+                return;
+            } catch (error) {
+                if (/invalid or expired|already stopped/i.test(String(error?.message || ''))) return;
+                failure = error;
+                if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
+            }
+        }
+        throw failure || new Error('Native PCM release failed.');
+    }
 
     function getStatus() {
         return { ...last, active: !!runtime?.active, sessionId: runtime?.session?.sessionId || '' };
@@ -91,7 +109,11 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
     }
 
     async function startStream(stream, options = {}) {
-        await stop('replace').catch(() => {});
+        try { await stop('replace'); }
+        catch (error) {
+            stream?.getTracks?.().forEach((track) => track.stop());
+            throw error;
+        }
         const audioTrack = stream?.getAudioTracks?.()[0];
         if (!audioTrack) {
             stream?.getTracks?.().forEach((track) => track.stop());
@@ -123,7 +145,10 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
                 queue: [], queueMs: 0, primed: false, pumping: false, chunks: 0, dropped: 0, failures: 0
             };
             node.port.onmessage = (event) => enqueue(rt, event.data);
-            audioTrack.addEventListener('ended', () => stop('capture-ended'), { once: true });
+            // Edge can end the video track first when Stop sharing is pressed.
+            // Either track ending must release the native capture lease.
+            stream.getTracks().forEach((track) =>
+                track.addEventListener('ended', () => { stop('capture-ended').catch(() => {}); }, { once: true }));
             update({
                 state: 'armed', message: `Capture authorized; waiting for provider audio on ${session.endpointLabel}.`,
                 authorization: options.authorization || 'granted', audioTrack: true,
@@ -134,7 +159,10 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
             });
             return getStatus();
         } catch (error) {
-            if (session) await window.EveAudioflixNativeProviderCapture?.stop?.(session).catch(() => {});
+            if (session) {
+                try { await releaseSession(session); }
+                catch { orphanedSession = session; }
+            }
             stream?.getTracks?.().forEach((track) => track.stop());
             await context?.close?.().catch(() => {});
             update({ state: 'error', message: error?.message || 'Provider capture failed.', transport: false, renderer: false });
@@ -204,23 +232,32 @@ window.EveAudioflixProviderCapture = window.EveAudioflixProviderCapture || {};
     async function stop(reason = 'user') {
         if (stopPromise) return stopPromise;
         const rt = runtime;
-        if (!rt) return false;
+        if (!rt && !orphanedSession) return false;
         runtime = null;
-        rt.active = false;
+        if (rt) rt.active = false;
         stopPromise = (async () => {
+            const session = rt?.session || orphanedSession;
             try {
-                rt.node?.port?.postMessage?.({ command: 'stop' });
-                rt.node?.disconnect?.(); rt.source?.disconnect?.(); rt.sink?.disconnect?.();
-                rt.stream?.getTracks?.().forEach((track) => track.stop());
-                await window.EveAudioflixNativeProviderCapture?.stop?.(rt.session).catch(() => false);
-                await rt.context?.close?.().catch(() => {});
+                rt?.node?.port?.postMessage?.({ command: 'stop' });
+                rt?.node?.disconnect?.(); rt?.source?.disconnect?.(); rt?.sink?.disconnect?.();
+                rt?.stream?.getTracks?.().forEach((track) => track.stop());
+                await releaseSession(session);
+                orphanedSession = null;
                 const failed = reason === 'transport-failed';
                 update({ state: failed ? 'error' : 'idle',
                     message: failed ? last.message : `Provider capture stopped (${reason}).`,
                     authorization: 'required', audioTrack: false, transport: false, renderer: false,
                     source: '' });
                 return true;
-            } finally { stopPromise = null; }
+            } catch (error) {
+                orphanedSession = session;
+                update({ state: 'error', message: `Native PCM release pending: ${error?.message || error}`,
+                    audioTrack: false, transport: false, renderer: false });
+                throw error;
+            } finally {
+                await rt?.context?.close?.().catch(() => {});
+                stopPromise = null;
+            }
         })();
         return stopPromise;
     }

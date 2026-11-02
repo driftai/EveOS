@@ -31,6 +31,7 @@ window.EveAudioflixSpotifyEngineCapture = window.EveAudioflixSpotifyEngineCaptur
     async function start() {
         if (!configured) throw new Error('No managed Spotify capture endpoint is configured.');
         if (task) return task;
+        if (status().active === true && status().endpoint === configured.deviceId) return status();
         button.disabled = true;
         button.textContent = 'Starting EveOS PCM route…';
         task = window.EveAudioflixProviderCapture.armProviderTab({
@@ -54,7 +55,7 @@ window.EveAudioflixSpotifyEngineCapture = window.EveAudioflixSpotifyEngineCaptur
         if (configured) button.textContent = `Route Spotify to ${configured.label}`;
         return status();
     }
-    button.addEventListener('click', () => { task = start(); task.catch(() => {}); });
+    button.addEventListener('click', () => { start().catch(() => {}); });
     document.querySelector('main')?.appendChild(button);
     Object.assign(ns, { ready: true, configure, start, stop, status, button });
 })(window.EveAudioflixSpotifyEngineCapture);

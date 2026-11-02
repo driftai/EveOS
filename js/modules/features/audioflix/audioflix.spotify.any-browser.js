@@ -295,8 +295,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         return true;
     }
     async function stopRemote(released = false) {
-        const run = ++playbackRun;
-        starting = false;
+        const run = ++playbackRun; starting = false;
         clearPoll();
         if (item && remote()?.snapshot?.().connected) {
             try { await remote().send('stop', {}, { timeout: 5000 }); } catch {}
@@ -344,12 +343,15 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
                 return original.playItem(localItem);
             }
             if (active && sameItem(item, nextItem) && !ended) {
+                const run = playbackRun, owner = remote()?.snapshot?.().lastState?.isOwner === true;
+                const lease = owner ? await remote().status().catch(() => null) : null;
+                if (run !== playbackRun || !active || !sameItem(item, nextItem)) return false;
+                // An idle/replaced Playwright page cannot resume the old selected song.
+                if (!lease?.ok || lease.isOwner !== true || !media.matches(lease.engine || {}, media.fromItem(nextItem))
+                    || !['playing', 'paused', 'provider-paused', 'starting'].includes(String(lease.engine?.status || '').toLowerCase())) return remotePlay(nextItem, policy);
                 const captureRequired = await nativeCapture.ensure(policy, nextItem);
-                item = nextItem;
-                playback.item = item;
-                const ownsEngine = remote()?.snapshot?.().lastState?.isOwner === true;
-                if (!ownsEngine) return remotePlay(nextItem, policy);
-                if (playback.paused) {
+                item = nextItem; playback.item = item;
+                if (playback.paused || lease.engine?.paused === true) {
                     const resumed = await remote().send('resume');
                     if (!resumed?.ok) throw new Error(resumed?.reason || 'Spotify could not resume.');
                     applyEngineState(resumed);
@@ -357,8 +359,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
                 nativeCapture.bind(playbackRun, captureRequired);
                 return true;
             }
-            try { return await remotePlay(nextItem, policy); }
-            catch (error) {
+            try { return await remotePlay(nextItem, policy); } catch (error) {
                 if (error?.eveSpotifyFallback) return original.playItem(nextItem);
                 throw error;
             }
@@ -373,8 +374,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
                 return original.openInternalView(localItem);
             }
             if (active) return audio.playItem(nextItem);
-            try { return await remotePlay(nextItem, policy); }
-            catch (error) {
+            try { return await remotePlay(nextItem, policy); } catch (error) {
                 if (error?.eveSpotifyFallback) return original.openInternalView(nextItem);
                 throw error;
             }

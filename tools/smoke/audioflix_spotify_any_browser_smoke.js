@@ -189,6 +189,8 @@ function evidence(error) {
     const playsBeforeTransfer = calls.filter((entry) => entry.action === 'play').length;
     await window.EveAudioflixAudio.playItem(spotify);
     assert.equal(calls.filter((entry) => entry.action === 'play').length, playsBeforeTransfer + 1, 'explicit Play on an observed same item transfers ownership through a fresh play command');
+    await require('./helpers/audioflix_any_browser_restart_rebind')({ window, calls, spotify,
+        setEngineState: value => { engineState = value; }, engineState: () => engineState });
 
     const stopsBeforeCard = calls.filter((entry) => entry.action === 'stop').length;
     await window.EveAudioflixAudio.stopItemLayers('song-1', false);

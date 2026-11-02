@@ -61,6 +61,49 @@ try:
         raise AssertionError("non-exact endpoint was accepted")
     except RuntimeError as exc:
         assert "exact native output" in str(exc)
+    # A stopped sharing tab may leave a managed-only native PCM lease.
+    # Reclaim only after a quiet period and only for the identical endpoint.
+    original_now = module._now
+    clock = [1000.0]
+    module._now = lambda: clock[0]
+    try:
+        existing = module.start({"deviceId": "sd:7", "source": "managed-spotify"})
+        clock[0] += 14
+        try:
+            module.start({"deviceId": "sd:7", "source": "managed-spotify"})
+            raise AssertionError("active grace-period capture was stolen")
+        except RuntimeError as exc:
+            assert "already owns" in str(exc)
+        clock[0] += 2
+        try:
+            module.start({"deviceId": "sd:8", "source": "managed-spotify"})
+            raise AssertionError("different endpoint reclaimed the provider lane")
+        except RuntimeError as exc:
+            assert "already owns" in str(exc)
+        try:
+            module.start({"deviceId": "sd:7", "source": "provider-tab"})
+            raise AssertionError("unrelated provider stole managed lane")
+        except RuntimeError as exc:
+            assert "already owns" in str(exc)
+        recovered = module.start({"deviceId": "sd:7", "source": "managed-spotify"})
+        assert recovered["sessionId"] != existing["sessionId"]
+        assert calls["stop"][-1]["itemId"] == existing["sessionId"]
+        try:
+            module.status({"sessionId": existing["sessionId"], "captureToken": existing["captureToken"]})
+            raise AssertionError("old session token survived recovery")
+        except RuntimeError as exc:
+            assert "invalid or expired" in str(exc)
+        module.chunk({"sessionId": recovered["sessionId"], "captureToken": recovered["captureToken"],
+                      "audio": audio, "channels": 1})
+        clock[0] += 8
+        try:
+            module.start({"deviceId": "sd:7", "source": "managed-spotify"})
+            raise AssertionError("recent PCM was interrupted by retry")
+        except RuntimeError as exc:
+            assert "already owns" in str(exc)
+        module.stop({"sessionId": recovered["sessionId"], "captureToken": recovered["captureToken"]})
+    finally:
+        module._now = original_now
     print("AUDIOFLIX_PROVIDER_CAPTURE_SERVER_OK auth=true exclusive=true endpoint=strict gain=true cleanup=true")
 finally:
     module._SESSIONS.clear()

@@ -20,6 +20,7 @@ const steps = [];
 const jumps = [];
 let controllerOptions = null;
 let internalOpenCount = 0;
+let deferInternal = false, finishInternal = null;
 let open = false;
 let queueState = {
     groupName: 'Spotify queue',
@@ -33,7 +34,8 @@ const providerTrack = {
     id: 'spotify-1', type: 'music', sourceProvider: 'spotify', title: 'Provider linked one',
     url: 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT'
 };
-let activeTrack = providerTrack, paused = false;
+let activeTrack = providerTrack, paused = false, engineActive = true;
+let restartCount = 0, stopAllCount = 0;
 const volumes = [], persisted = [], replays = [], presentedVolumes = [];
 
 const host = {
@@ -67,18 +69,22 @@ const remote = {
 const managed = {
     ready: true,
     snapshot: () => ({
-        active: true,
+        active: engineActive,
         item: activeTrack,
         playback: { item: activeTrack, currentTime: 12, duration: 180, paused }
     })
 };
 const audio = {
     ready: true,
-    async openInternalView() { internalOpenCount += 1; return true; },
+    async openInternalView() {
+        internalOpenCount += 1;
+        if (deferInternal) return new Promise(resolve => { finishInternal = resolve; });
+        return true;
+    },
     async pause() { return true; },
     async playItem(item) { replays.push(item.id); return true; },
     async seek() { return true; },
-    async stopAll() { return true; },
+    async stopAll() { stopAllCount++; engineActive = false; return true; },
     updateItemVolume(id, value) { volumes.push({ id, value }); }
 };
 const queueConnection = {
@@ -92,7 +98,7 @@ function node(tag) {
         tagName: tag.toUpperCase(), dataset: {}, style: {}, children: [], textContent: '',
         append(...children) { this.children.push(...children); },
         appendChild(child) { this.children.push(child); return child; },
-        addEventListener() {},
+        addEventListener(name, listener) { (this.events ||= {})[name] = listener; },
         setAttribute() {},
         remove() {}
     };
@@ -106,6 +112,10 @@ const window = {
     EveAudioflixSpotifyRemote: remote,
     EveAudioflixSpotifyAnyBrowser: managed,
     EveAudioflixAudio: audio,
+    EveOSServiceReload: { async restart() {
+        assert.equal(stopAllCount, 1, 'old playback lease must be retired before helper restart');
+        restartCount++; return { serviceRestarted: true };
+    } },
     EveAudioflixState: { setItemVolume(type, id, value) { persisted.push({ type, id, value }); } },
     EveAudioflix: { queueConnection },
     EveAudioflixInternalPlayer: {
@@ -123,7 +133,8 @@ const context = {
     String,
     Object,
     Array,
-    Promise
+    Promise,
+    setTimeout: () => 0
 };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/modules/features/audioflix/audioflix.audio.volume-target.js'), 'utf8'), context);
@@ -311,7 +322,13 @@ function saveResult(status, error) {
 
 (async () => {
     assert.equal(window.EveAudioflixSpotifyEngineSurface.ready, true);
-    await window.EveAudioflixAudio.openInternalView(providerTrack);
+    deferInternal = true;
+    const coldOpen = window.EveAudioflixAudio.openInternalView(providerTrack);
+    assert.equal(open, true, 'Spotify eye click opens Internal Player synchronously before helper startup');
+    assert.ok(host.children.length > 0, 'engine controls render before remote playback resolves');
+    deferInternal = false;
+    finishInternal(true);
+    await coldOpen;
     assert.equal(internalOpenCount, 1, 'Spotify Internal View still delegates through the normal Audioflix open path');
     assert.ok(queueSets.length > 0, 'managed Spotify Internal Player receives the Audioflix queue');
     assert.deepEqual(queueSets.at(-1), { entries: queueState.entries, index: 0 },
@@ -350,6 +367,21 @@ function saveResult(status, error) {
     paused = true; await controllerOptions.onToggle();
     assert.equal(replays.at(-1), 'spotify-2', 'resume cannot replay the original Queue View track');
     assert.equal(internalOpenCount, 1, 'automatic advancement must not require reopening Queue View');
+    // The selected mirror song must remain playable after Restart Engine retires its lease.
+    const controls = host.children.find(node => node.dataset.spotifyEngineControls);
+    const restart = controls?.children.find(node => node.textContent === 'Restart engine');
+    assert.ok(restart?.events?.click, 'internal panel retains its manual Engine restart control');
+    restart.events.click(); restart.events.click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(restartCount, 1, 'confirmed Engine restart executes once');
+    assert.equal(stopAllCount, 1, 'Engine restart retires the prior managed audio session');
+    assert.equal(window.EveAudioflixSpotifyEngineSurface.snapshot().item.id, 'spotify-2',
+        'restart preserves the currently selected mirror song');
+    const beforeRebind = replays.length;
+    await controllerOptions.onToggle();
+    assert.equal(replays.length, beforeRebind + 1, 'idle mirror Play remains actionable');
+    assert.equal(replays.at(-1), 'spotify-2',
+        'mirror replays its selected song rather than returning to the opening track');
 
     assert.match(source, /queueConnection\(\)\?\.snapshot/);
     assert.match(source, /view\?\.setQueue\?\./);

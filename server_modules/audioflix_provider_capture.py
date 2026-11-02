@@ -11,6 +11,8 @@ import time
 from server_modules.audioflix_bridge_playback import _player_for, play_pcm, stop_stream
 
 _LOCK = threading.RLock()
+_START_LOCK = threading.Lock()
+_MANAGED_IDLE_RECLAIM_SECONDS = 15
 _SESSIONS: dict[str, dict] = {}
 _TTL_SECONDS = 5 * 60
 _MAX_PCM_BYTES = 65536  # A 4096-frame mono block is about 8 KiB; reject bulk uploads.
@@ -66,32 +68,51 @@ def start(payload: dict) -> dict:
     channels = max(1, min(2, int(payload.get("channels") or 1)))
     if not device_id.startswith("sd:"):
         raise RuntimeError("Provider capture requires an exact native output endpoint.")
-    now = _now()
-    _reap(now)
-    with _LOCK:
-        if _SESSIONS:
-            raise RuntimeError("Another provider capture session already owns the capture lane.")
-        player = _player_for(device_id, sample_rate, 1, "provider-capture")
-        if not player.stream or not player.stream.active:
-            raise RuntimeError("Selected native output renderer did not start.")
-        session_id = f"provider:{secrets.token_hex(12)}"
-        token = secrets.token_urlsafe(32)
-        entry = {
-            "token": token,
-            "ioLock": threading.Lock(),
-            "deviceId": device_id,
-            "sampleRate": sample_rate,
-            "channels": channels,
-            "source": str(payload.get("source") or "provider-tab")[:80],
-            "createdAt": now,
-            "lastSeenAt": now,
-            "expiresAt": now + _TTL_SECONDS,
-            "chunks": 0,
-            "samples": 0,
-            "nonzeroChunks": 0,
-            "gain": 1.0,
-        }
-        _SESSIONS[session_id] = entry
+    source = str(payload.get("source") or "provider-tab")[:80]
+    # Only an inactive managed-Spotify lease for this *same endpoint* may be
+    # reclaimed; active PCM and every other provider remain exclusive.
+    with _START_LOCK:
+        now = _now()
+        _reap(now)
+        orphan = None
+        with _LOCK:
+            if _SESSIONS:
+                old_id, old = next(iter(_SESSIONS.items()))
+                quiet = now - float(old.get("lastPcmAt", old["createdAt"]))
+                if not (source == "managed-spotify"
+                        and old["source"] == source and old["deviceId"] == device_id
+                        and _MANAGED_IDLE_RECLAIM_SECONDS <= quiet < _TTL_SECONDS):
+                    raise RuntimeError("Another provider capture session already owns the capture lane.")
+                orphan = (old_id, _SESSIONS.pop(old_id))
+        if orphan:
+            # A final in-flight chunk must drain before its native stream is flushed.
+            with orphan[1]["ioLock"]:
+                _discard(*orphan)
+        with _LOCK:
+            if _SESSIONS:
+                raise RuntimeError("Another provider capture session already owns the capture lane.")
+            player = _player_for(device_id, sample_rate, 1, "provider-capture")
+            if not player.stream or not player.stream.active:
+                raise RuntimeError("Selected native output renderer did not start.")
+            session_id = f"provider:{secrets.token_hex(12)}"
+            token = secrets.token_urlsafe(32)
+            entry = {
+                "token": token,
+                "ioLock": threading.Lock(),
+                "deviceId": device_id,
+                "sampleRate": sample_rate,
+                "channels": channels,
+                "source": source,
+                "createdAt": now,
+                "lastSeenAt": now,
+                "lastPcmAt": now,
+                "expiresAt": now + _TTL_SECONDS,
+                "chunks": 0,
+                "samples": 0,
+                "nonzeroChunks": 0,
+                "gain": 1.0,
+            }
+            _SESSIONS[session_id] = entry
     return {
         "ok": True,
         "sessionId": session_id,
@@ -145,6 +166,7 @@ def chunk(payload: dict) -> dict:
         with _LOCK:
             if _SESSIONS.get(session_id) is not entry:
                 raise RuntimeError("Provider capture session has already stopped.")
+            entry["lastPcmAt"] = _now()
             entry["chunks"] += 1
             entry["samples"] += len(raw) // 2 // channels
             entry["nonzeroChunks"] += int(any(raw))
