@@ -73,9 +73,12 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         const requested = audioflix.preferredSinkLabel || (audioflix.nativeBridgeEnabled && audioflix.nativeOutputLabel) || 'System default output';
         if (audioflix.nativeBridgeEnabled && String(audioflix.nativeOutputId || '').startsWith('sd:')) {
             const active = pcmRoute?.status === 'active', failed = pcmRoute?.status === 'failed';
+            const reconnecting = pcmRoute?.status === 'recovering';
             const title = active ? (audioflix.nativeOutputLabel || audioflix.nativeOutputId)
+                : reconnecting ? 'Reconnecting Piano PCM…'
                 : failed ? 'Piano PCM route stopped safely' : 'Preparing Piano PCM route…';
-            const detail = active ? `Post-compressor Piano PCM is isolated on its own native lane. ${pcmRoute.metrics?.medianMs || 0} ms median transport.`
+            const detail = active ? `Post-compressor Piano PCM is isolated on its own native lane. ${pcmRoute.metrics?.medianMs || 0} ms median transport. ${pcmRoute.metrics?.dropped || 0} dropped.`
+                : reconnecting ? 'Native transport interrupted; bounded retries are in progress. Browser fallback stays muted.'
                 : failed ? (pcmRoute.message || 'The selected native endpoint refused Piano PCM; browser fallback remains muted.')
                     : 'Opening the exact selected native endpoint without interrupting Spotify.';
             return `<article class="audioflix-status-card ${active ? 'is-on' : ''}"><span>Piano Native PCM</span><strong>${esc(title)}</strong><p>${esc(detail)}</p></article>`;
@@ -328,7 +331,14 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
     });
     window.addEventListener('eve:audioflix-piano-status', () => patch());
     window.addEventListener('eve:audioflix-piano-pcm', event => {
+        const previous = pcmRoute?.status;
         pcmRoute = event.detail && typeof event.detail === 'object' ? event.detail : null;
+        // After a failed first open the child worklet was never armed; re-send the same
+        // owner context on recovery rather than switching to browser speaker output.
+        if (previous === 'recovering' && pcmRoute?.status === 'active' && snapshot().running) {
+            const target = isDetached() ? detachedWindow : root?.querySelector?.('[data-piano-frame]');
+            if (target) void sendContext(target, { force: true });
+        }
         window.EveAudioflix?.render?.();
     });
     Object.assign(ns, { ready: true, render, afterRender, setVisible, handleAction, reattach,
