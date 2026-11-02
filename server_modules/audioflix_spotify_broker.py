@@ -363,7 +363,7 @@ class SpotifyClientBroker:
             mode = _safe(args.get("mode"), 20).lower()
             result = engine.set_presentation(mode, _engine_url(server_origin))
             return {**self._state(client_id), "presentationResult": result, "ok": bool(result.get("ok"))}
-        capture_result = capture_control.execute(self, client_id, action, args)
+        capture_result = capture_control.execute(self, client_id, action, args, server_origin)
         if capture_result is not None: return capture_result
         if action == "engine-stop":
             blocked = self._owner_block(client_id, "stopping the engine")

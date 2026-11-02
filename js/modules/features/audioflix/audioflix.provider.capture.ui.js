@@ -91,20 +91,11 @@ window.EveAudioflixProviderCaptureUi = window.EveAudioflixProviderCaptureUi || {
 
     async function armManagedSpotify() {
         const route = managedRoute();
-        const remote = window.EveAudioflixSpotifyRemote;
-        const connection = await remote?.connect?.();
-        if (!connection?.connected && !remote?.snapshot?.().connected) throw new Error(connection?.reason || 'Managed Spotify engine is unavailable.');
-        const ownership = await remote.send('take-control', {}, { timeout: 15000 });
-        if (!ownership?.ok || ownership?.isOwner !== true) throw new Error(ownership?.reason || 'Could not take control of the managed Spotify engine.');
-        const result = await remote.send('engine-capture-start', {
-            deviceId: route.endpoint.deviceId, label: route.endpoint.label
-        }, { timeout: 45000 });
-        const capture = result?.captureResult?.capture || result?.managed?.capture || result?.captureResult;
-        if (!result?.ok || capture?.active !== true || capture?.endpoint !== route.endpoint.deviceId) {
-            throw new Error(result?.reason || result?.captureResult?.reason || 'Managed Spotify PCM capture did not become active.');
-        }
-        lastManagedCapture = { ...capture, source: capture.source || 'managed-spotify' };
-        return result;
+        await window.EveAudioflixSpotifyNativeCapture?.ensure?.({
+            outputKind: 'native', outputId: route.endpoint.deviceId, outputLabel: route.endpoint.label
+        }, route.item);
+        lastManagedCapture = { ...managedCaptureStatus(), source: 'managed-spotify' };
+        return { ok: lastManagedCapture.active === true, capture: lastManagedCapture };
     }
 
     async function handleAction(_target, action, ctx) {

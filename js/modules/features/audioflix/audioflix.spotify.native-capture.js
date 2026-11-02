@@ -14,9 +14,31 @@ window.EveAudioflixSpotifyNativeCapture = window.EveAudioflixSpotifyNativeCaptur
         if (policy?.outputKind !== 'native') return false;
         const outputId = String(policy.outputId || '');
         if (!outputId.startsWith('sd:')) throw new Error('Managed Spotify needs an exact native output endpoint.');
-        const capture = status();
-        if (capture.active !== true || capture.source !== 'managed-spotify' || capture.endpoint !== outputId) {
-            throw new Error('Show the Spotify Engine, then arm “Capture Engine to Native Output” before Play.');
+        return true;
+    }
+    async function ensure(policy, item = null) {
+        if (!requireCapture(policy)) return false;
+        const outputId = String(policy.outputId || '');
+        const current = status();
+        if (current.active === true && current.source === 'managed-spotify' && current.endpoint === outputId) return true;
+        const R = hooks.remote?.();
+        if (!R?.ready) throw new Error('Managed Spotify relay is unavailable.');
+        const connection = await R.connect?.();
+        if (!connection?.connected && !R.snapshot?.().connected) {
+            throw new Error(connection?.reason || 'Managed Spotify relay is unavailable.');
+        }
+        const ownership = await R.send('take-control', {}, { timeout: 15000 });
+        if (!ownership?.ok || ownership?.isOwner !== true) {
+            throw new Error(ownership?.reason || 'Could not take control of the managed Spotify engine.');
+        }
+        const result = await R.send('engine-capture-start', {
+            deviceId: outputId,
+            label: String(policy.outputLabel || outputId),
+            itemId: String(item?.id || '')
+        }, { timeout: 45000 });
+        const capture = result?.captureResult?.capture || result?.managed?.capture || result?.captureResult || {};
+        if (!result?.ok || capture.active !== true || capture.source !== 'managed-spotify' || capture.endpoint !== outputId) {
+            throw new Error(result?.reason || result?.captureResult?.reason || 'Managed Spotify PCM capture did not become active.');
         }
         return true;
     }
@@ -35,5 +57,5 @@ window.EveAudioflixSpotifyNativeCapture = window.EveAudioflixSpotifyNativeCaptur
         return false;
     }
 
-    Object.assign(ns, { ready: true, configure, require: requireCapture, bind, clear, guard, status });
+    Object.assign(ns, { ready: true, configure, require: requireCapture, ensure, bind, clear, guard, status });
 })(window.EveAudioflixSpotifyNativeCapture);

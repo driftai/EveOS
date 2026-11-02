@@ -8,16 +8,12 @@ module.exports = async function checkManagedNativeCapture({
     await window.EveAudioflixAudio.stopAll();
     setRoute(true);
     const item = { ...spotify, id: 'song-native-capture' };
-    await assert.rejects(() => window.EveAudioflixAudio.playItem(item), /arm.*Capture Engine/i,
-        'native managed Spotify refuses to leak to the default output without its exact capture');
-    setCapture({ active: true, source: 'provider-tab', endpoint: 'sd:cable' });
-    await assert.rejects(() => window.EveAudioflixAudio.playItem(item), /arm.*Capture Engine/i,
-        'a different captured tab cannot impersonate the managed Spotify route');
-    setCapture({ active: true, source: 'managed-spotify', endpoint: 'sd:other' });
-    await assert.rejects(() => window.EveAudioflixAudio.playItem(item), /arm.*Capture Engine/i,
-        'a managed capture bound to another endpoint cannot satisfy the route');
-    setCapture({ active: true, source: 'managed-spotify', endpoint: 'sd:cable' });
     await window.EveAudioflixAudio.playItem(item);
+    const captureIndex = calls.findLastIndex(entry => entry.action === 'engine-capture-start');
+    const playIndex = calls.findIndex((entry, index) => index > captureIndex && entry.action === 'play');
+    assert.equal(calls[captureIndex]?.payload?.deviceId, 'sd:cable', 'Play automatically arms the exact native endpoint');
+    assert.ok(captureIndex >= 0 && captureIndex < playIndex, 'PCM capture is active before Spotify playback can begin');
+    assert.equal(window.EveAudioflixSpotifyNativeCapture.status().active, true);
     const before = calls.filter(entry => entry.action === 'pause').length;
     const lost = { active: false, source: '', endpoint: '', state: 'idle' };
     setCapture(lost);
