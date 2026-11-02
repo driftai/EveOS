@@ -5,7 +5,7 @@ window.EveAudioflixPianoPcm = window.EveAudioflixPianoPcm || {};
     const MAX_PENDING = 3, MAX_RECOVERY_ATTEMPTS = 4, latency = [];
     const instanceId = `piano-owner:${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
     let generation = 0, binding = null, session = null, starting = null, pumping = false;
-    let heartbeatTimer = 0, heartbeatBusy = false, failureMessage = '', recovering = null;
+    let heartbeatTimer = 0, heartbeatBusy = false, failureMessage = '', recovering = null, lastStartError = null;
     let dropped = 0, recoveries = 0, lastFailureCategory = '';
     const pending = [];
     const randomToken = () => { const bytes = new Uint8Array(24); crypto.getRandomValues(bytes);
@@ -39,13 +39,17 @@ window.EveAudioflixPianoPcm = window.EveAudioflixPianoPcm || {};
     async function startSession(expected) {
         if (session?.generation === expected.generation && session?.deviceId === expected.endpoint.deviceId) return session;
         if (starting) return starting;
+        lastStartError = null;
         starting = (async () => { await stopSession({ keepPending: true }); if (binding !== expected || !expected.endpoint) return null;
             const opened = await window.EveAudioflixNativeProviderCapture.start({ endpoint: expected.endpoint,
                 sampleRate: 48000, channels: 1, source: 'piano-post-compressor', lane: 'piano-pcm',
                 ownerId: instanceId, generation: expected.generation });
             if (binding !== expected) { await window.EveAudioflixNativeProviderCapture.stop(opened).catch(() => {}); return null; }
-            session = opened; failureMessage = ''; startHeartbeat(expected); emit('active'); return opened;
-        })().catch(error => { failureMessage = String(error?.message || error); emit('failed', failureMessage); return null; })
+            session = opened; lastStartError = null; failureMessage = ''; startHeartbeat(expected); emit('active'); return opened;
+        })().catch(error => { if (binding === expected) {
+                lastStartError = error; failureMessage = String(error?.message || error);
+                if (!retryable(error)) emit('failed', failureMessage);
+            } return null; })
             .finally(() => { starting = null; });
         return starting;
     }
@@ -73,11 +77,14 @@ window.EveAudioflixPianoPcm = window.EveAudioflixPianoPcm || {};
                         if (statusError?.eveCategory === 'session-expired') session = null;
                     }
                 }
-                if (!session && ['session-expired', 'bridge-unreachable', 'timeout', 'temporary-transport'].includes(
-                    String(error?.eveCategory || 'temporary-transport'))) {
+                if (!session && retryable(error)) {
                     const reopened = await startSession(expected);
                     if (reopened) { recoveries += 1; failureMessage = '';
                         emit('active', 'Piano PCM transport reopened after the bridge interruption.'); return true; }
+                    if (lastStartError && binding === expected) {
+                        error = lastStartError;
+                        if (!retryable(error)) { fail(error); return false; }
+                    }
                 }
             }
             fail(error); return false;
@@ -94,8 +101,13 @@ window.EveAudioflixPianoPcm = window.EveAudioflixPianoPcm || {};
         if (failureMessage && options.retry !== true) return { requested: true, active: false,
             token: binding.token, generation: binding.generation, ownerId: instanceId,
             endpointLabel: selected.label, error: failureMessage };
-        if (options.retry === true) { failureMessage = ''; emit('arming'); }
-        const active = await startSession(binding);
+        if (options.retry === true) { failureMessage = ''; lastStartError = null; emit('arming'); }
+        let active = await startSession(binding);
+        if (!active && lastStartError && retryable(lastStartError)) {
+            const expected = binding;
+            await recover(lastStartError, expected);
+            if (binding === expected) active = session;
+        }
         return { requested: true, active: Boolean(active), token: binding.token, generation: binding.generation,
             ownerId: instanceId, endpointLabel: selected.label,
             error: active ? '' : (failureMessage || 'Native Piano PCM route unavailable.') };
