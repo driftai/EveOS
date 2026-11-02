@@ -17,6 +17,7 @@ const mediaFrontend = read('js/modules/features/audioflix/audioflix.piano.fronte
 const taxonomyFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.taxonomy.js');
 const suggestionsFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.suggestions.js');
 const organizeFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.organize.js');
+const fastTrackFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.fast-track.js');
 const duplicateFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.duplicates.js');
 const settingsFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.settings.js');
 const v3CardsFrontend = read('js/modules/features/audioflix/audioflix.piano.frontend.v3.cards.js');
@@ -47,6 +48,8 @@ assert(frontendAppBridge.includes('eveos:piano:internal-play:v1'), 'Internal Pla
 assert(frontendAppBridge.includes('eveos:piano:target-window:v1'), 'Target Window must have a durable Backend preference');
 assert(organizeFrontend.includes("ports.request?.('song:update'"), 'Piano organization must use the acknowledged Backend song owner');
 assert(organizeFrontend.includes('data-piano-suggest="folder"') && suggestionsFrontend.includes("role', 'listbox"), 'taxonomy inputs must use the bounded EveOS suggestion UI');
+assert(fastTrackFrontend.includes("front.getVisibleSongs?.()") && fastTrackFrontend.includes("front.handleAction?.("), 'Fast Track must use scoped library results and Backend playback owner');
+assert(fastTrackFrontend.includes("original.closest('label')") && fastTrackFrontend.includes("nexus.prepend(nexusSearch)"), 'Fast Track reuses the original search field without breaking Nexus Piano Link');
 assert(taxonomyFrontend.includes("raw.replace(/'/g, '\"')"), 'legacy serialized memberships must be normalized instead of rendered as literal brackets');
 assert(organizeFrontend.includes('optimisticAssignments.set') && organizeFrontend.includes("await ports.request?.('song:update', payload)"), 'membership removal must await Backend acceptance and roll back an asynchronous refusal');
 assert(presentationPorts.includes('send(action, fields) !== false, request') && presentationPorts.includes('settlePending')
@@ -117,6 +120,7 @@ async function syntheticTest(browser, width) {
   await page.addScriptTag({content:mediaFrontend});
    await page.addScriptTag({content:taxonomyFrontend});
   await page.addScriptTag({content:organizeFrontend});
+  await page.addScriptTag({content:fastTrackFrontend});
   await page.addScriptTag({content:duplicateFrontend});
   await page.addScriptTag({content:settingsFrontend});
   await page.addScriptTag({content:v3CardsFrontend});
@@ -235,6 +239,13 @@ async function syntheticTest(browser, width) {
    }
   await page.click('.piano-frontend-transport [data-af-action="piano-frontend-pause"]'); await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='pause'));
   await page.click('[data-af-action="piano-frontend-stop"]'); await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='stop'));
+  assert.equal(await page.locator('.piano-frontend-library-head [data-pf-search]').count(),0,'Fast Track replaces standalone Find a song field');
+  await page.locator('[data-pft-action="toggle"]').click();
+  await page.locator('.piano-pft-panel [data-pf-search]').fill('Moon');
+  await page.waitForFunction(()=>document.querySelectorAll('.piano-pft-result').length===1);
+  assert.equal(await page.locator('.piano-frontend-song').count(),1,'Fast Track searches existing song cards');
+  await page.locator('[data-pft-action="jump"][data-song-id="one"]').click();
+  assert.equal(await page.locator('.piano-pft-panel').isHidden(),true,'Jump returns to the existing song card');
   await page.locator('[data-pfo-action="nexus"]').click(); await page.locator('[data-pfo-search]').fill('Moon'); await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===1); assert.equal(await page.locator('.piano-frontend-song').count(),1);
   await page.locator('[data-pfo-search]').fill('');
   await page.locator('[data-pf-sort]').selectOption('az');
