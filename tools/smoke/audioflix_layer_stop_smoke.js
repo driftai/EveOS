@@ -365,9 +365,10 @@ async function main() {
         'result = p.clear_voices({"deviceId": "sd:1", "voiceId": "clip", "allDevices": True})',
         'assert result["cleared"] == 2 and result["allDevices"] is True',
         'assert a.ids == ["clip"] and b.ids == ["clip"]',
-        'import queue',
+        'import queue, threading',
         'player = p._PcmPlayer.__new__(p._PcmPlayer)',
         'player.q, player.pending, player.flush_pending, player.stream_id = queue.Queue(), None, False, "owned-media"',
+        'player.stream_lanes, player.stream_lanes_lock = {}, threading.Lock()',
         'player.q.put(object())',
         'assert player.clear_stream("other-media") == 0 and player.q.qsize() == 1',
         'assert player.clear_stream("owned-media") == 1 and player.q.empty() and player.flush_pending',
@@ -433,7 +434,6 @@ async function main() {
         'the layer Stop button cannot pause unrelated continuous playback');
     assert(audioOwner.includes('layerController.layerPlay((await preparePlaybackItem(item))?.item || item)'),
         'Layer Play must honor the same localized/provider source preparation as normal playback');
-
     console.log('AUDIOFLIX_LAYER_STOP_SMOKE_OK');
 }
 

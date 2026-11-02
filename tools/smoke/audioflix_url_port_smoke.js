@@ -51,8 +51,9 @@ assert(source.includes('const inner = proxiedTarget(currentUrl)')
     'legacy proxy-wrapped ordinary media is unwrapped for the URL port');
 
 assert(spotifyNative.includes('stripAlternatePlaybackFields')
-    && spotifyNative.includes("spotifyPlaybackMode: 'official-embed'"),
-    'Spotify preparation strips alternate-media residue and stays official-provider owned');
+    && spotifyNative.includes("'managed-engine'")
+    && spotifyNative.includes("'official-embed'"),
+    'Spotify preparation strips alternate-media residue and preserves explicit provider-owned modes');
 assert(ytdl.includes('_is_spotify_provider_url(url)')
     && ytdl.includes('alternate URL resolution is disabled'),
     'server-side yt-dlp resolver rejects Spotify provider identities');

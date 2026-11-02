@@ -1,5 +1,6 @@
 import { renderPiano } from "./piano.js";
-import { pianoSoundCatalog, setPianoMasterVolume, setPianoOutputRoute } from "./piano_sound.js";
+import { pianoSoundCatalog, preparePianoPcmOutput, setPianoMasterVolume, setPianoOutputRoute } from "./piano_sound.js";
+import { configurePianoPcm } from "./piano_pcm_capture.js";
 
 const LAYOUT_PREFERENCE_KEY = "eveos:piano:layout:v1";
 const SOUND_PREFERENCE_KEY = "eveos:piano:sound:v1";
@@ -106,7 +107,10 @@ export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, vis
   applySound();
   render();
   warmSelectedSound();
-  const syncOutputRoute = event => { const route = event?.detail?.audioOutput || window.PianoEveOS?.getContext?.()?.audioOutput; if (route) setPianoOutputRoute(route).catch(() => {}); };
+  const syncOutputRoute = event => { const detail = event?.detail || window.PianoEveOS?.getContext?.() || {};
+    if (detail.audioOutput) setPianoOutputRoute(detail.audioOutput).catch(() => {});
+    configurePianoPcm(detail.pianoPcm || {});
+    if (detail.pianoPcm?.active) preparePianoPcmOutput().catch(() => {}); };
   window.addEventListener("piano:eveos-context", syncOutputRoute);
   syncOutputRoute();
   const restorePreferences = async () => {

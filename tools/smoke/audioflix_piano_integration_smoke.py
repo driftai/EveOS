@@ -61,6 +61,9 @@ def assert_static_contract() -> None:
     piano_css = (ROOT / "js" / "modules" / "features" / "audioflix" / "audioflix.piano.css").read_text(encoding="utf-8")
     piano_client = (ROOT / "js" / "modules" / "features" / "audioflix" / "audioflix.piano.client.js").read_text(encoding="utf-8")
     bridge = (PIANO / "web" / "eveos-host-bridge.js").read_text(encoding="utf-8")
+    pcm_parent = (ROOT / "js" / "modules" / "features" / "audioflix" / "audioflix.piano.pcm.js").read_text(encoding="utf-8")
+    pcm_child = (PIANO / "web" / "piano_pcm_capture.js").read_text(encoding="utf-8")
+    sound = (PIANO / "web" / "piano_sound.js").read_text(encoding="utf-8")
     piano_app = (PIANO / "web" / "app.js").read_text(encoding="utf-8")
     workspace = (PIANO / "web" / "sheet_workspace.js").read_text(encoding="utf-8")
     bulk = (PIANO / "web" / "bulk_conversion.js").read_text(encoding="utf-8")
@@ -93,6 +96,14 @@ def assert_static_contract() -> None:
     assert 'data-piano-view="frontend"' in piano_css
     assert 'Piano Auto Player - Backend' in (PIANO / 'web' / 'index.html').read_text(encoding='utf-8')
     assert "sessionStorage" in bridge and "localStorage" not in bridge
+    assert "piano:eveos-pcm" in bridge and "event.source !== eveHost" in bridge
+    assert "MAX_PENDING = 3" in pcm_parent and "lane: 'piano-pcm'" in pcm_parent
+    assert "event.source === binding.target" in pcm_parent and "event.origin === binding.origin" in pcm_parent
+    assert "startHeartbeat(expected)" in pcm_parent and "options.retry !== true" in pcm_parent
+    assert "retryPcm: true" in piano_ui and "sendContext(target, { retry: true })" in piano_ui
+    assert "new Float32Array(1024)" in pcm_child and "postPcm" in pcm_child
+    assert "master.connect(compressor)" in sound and "createPianoOutputRouter(ctx, compressor)" in sound
+    assert "preparePianoPcmOutput" in sound and "pianoPcmReady" in pcm_child
     assert "pianoPlayerPort: 8771" in state
 
     assert 'setupSheetWorkspace' in piano_app and 'setupBulkConversion' in piano_app
@@ -170,7 +181,7 @@ def assert_http_contract() -> None:
         assert cors == "null"
         status, body, _ = request(server.server_port, "GET", "/")
         assert status == 200 and b"eveos-host-bridge.js" in body
-        for asset in ("sheet_workspace.js", "bulk_conversion.js", "piano_workspace.css"):
+        for asset in ("sheet_workspace.js", "bulk_conversion.js", "piano_workspace.css", "piano_pcm_capture.js"):
             status, body, _ = request(server.server_port, "GET", f"/assets/{asset}")
             assert status == 200 and body
         assets = ("app.js", "internal_preview.js", "piano.js", "piano_sound.js")

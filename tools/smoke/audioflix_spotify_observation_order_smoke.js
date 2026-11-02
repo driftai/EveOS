@@ -104,6 +104,7 @@ async function playbackOrdering() {
     const create = window.EveAudioflixSpotifyStatusWatch.create;
     window.EveAudioflixSpotifyStatusWatch.create = options => { observer = create(options); return observer; };
     vm.runInContext(read('audioflix.spotify.playback-lifecycle.js'), context);
+    vm.runInContext(read('audioflix.spotify.native-capture.js'), context);
     vm.runInContext(read('audioflix.spotify.any-browser.js'), context);
     try {
         await audio.playItem({ id: 'fixture-song', url: `https://open.spotify.com/track/${id}`, title: 'Fixture', volume: 1 });

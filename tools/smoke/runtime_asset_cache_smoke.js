@@ -126,7 +126,8 @@ with tempfile.TemporaryDirectory(prefix='eveos-http-cache-') as directory:
                 check(headers.get('Content-Length') is None, f'{method} {target}: legacy-no-length')
             check(headers.get('Access-Control-Allow-Methods') == 'GET, POST, OPTIONS',
                   f'{method} {target}: cors-methods')
-            check(headers.get('Access-Control-Allow-Headers') == 'Content-Type, X-Requested-With',
+            check(headers.get('Access-Control-Allow-Headers') ==
+                  'Content-Type, X-Requested-With, X-EveOS-Provider-Capture, X-EveOS-Provider-File-Auth',
                   f'{method} {target}: cors-headers')
             check(headers.get('Access-Control-Max-Age') == '86400', f'{method} {target}: cors-max-age')
 

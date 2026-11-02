@@ -7,6 +7,7 @@
   let workspaceReady = false, workspaceLoad = null, sheetProgressReady = false, sheetProgressLoad = null;
   const failedModules = new Set();
   const eveHost = window.parent && window.parent !== window ? window.parent : window.opener;
+  let eveOrigin = '*';
 
   // Prevent the three legacy Piano surfaces from flashing as separate workspaces while the
   // queue/metadata controllers hydrate. Their DOM remains available as a compatibility bridge;
@@ -28,7 +29,19 @@
       window.location.reload();
       return;
     }
+    if (payload.type === 'eveos:piano-pcm-failed') {
+      const pcm = context?.pianoPcm || {};
+      if (!eveHost || event.source !== eveHost || payload.token !== pcm.token
+          || Number(payload.generation) !== Number(pcm.generation)) return;
+      context = { ...context, pianoPcm: { ...pcm, active: false, error: String(payload.message || 'Native Piano PCM failed.') } };
+      window.dispatchEvent(new CustomEvent('piano:eveos-context', { detail: context }));
+      return;
+    }
     if (payload.type !== 'eveos:audioflix-context') return;
+    if (!eveHost || event.source !== eveHost) return;
+    const pcm = payload.context?.pianoPcm || {};
+    if (pcm.requested && (String(pcm.token || '').length < 32 || Number(pcm.generation || 0) < 1)) return;
+    eveOrigin = event.origin && event.origin !== 'null' ? event.origin : '*';
     context = payload.context && typeof payload.context === 'object' ? payload.context : null;
     try {
       if (context) sessionStorage.setItem(KEY, JSON.stringify(context));
@@ -74,9 +87,16 @@
 
   try { context = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (_) {}
   window.addEventListener('message', accept);
-  window.addEventListener('piano:audio-route', event => eveHost?.postMessage?.({ type: 'piano:eveos-audio-route', route: event.detail || null }, '*'));
-  window.PianoEveOS = Object.freeze({ getContext: () => context ? { ...context } : null });
-  eveHost?.postMessage?.({ type: 'piano:eveos-ready' }, '*');
+  window.addEventListener('piano:audio-route', event => eveHost?.postMessage?.({ type: 'piano:eveos-audio-route', route: event.detail || null }, eveOrigin));
+  window.PianoEveOS = Object.freeze({
+    getContext: () => context ? { ...context } : null,
+    postPcm(detail = {}) { const pcm = context?.pianoPcm || {};
+      if (!eveHost || !pcm.active || detail.token !== pcm.token || detail.generation !== pcm.generation) return false;
+      eveHost.postMessage({ type: 'piano:eveos-pcm', ...detail }, eveOrigin, [detail.audio]); return true; },
+    reportPcmFailure(message) { eveHost?.postMessage?.({ type: 'piano:eveos-pcm-client-failed', message,
+      token: context?.pianoPcm?.token, generation: context?.pianoPcm?.generation }, eveOrigin); }
+  });
+  eveHost?.postMessage?.({ type: 'piano:eveos-ready' }, eveOrigin);
 
   function installReattachControl() {
     const detached = new URL(window.location.href).searchParams.get('eveosDetached') === '1';

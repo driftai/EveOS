@@ -306,6 +306,11 @@ const assert = (condition, message) => {
         })})`
     );
     await page.evaluate(() => window.EveAudioflixAudio.stopAll());
+    const expandedPlayer = page.locator('.audioflix-provider-stage.is-internal-view');
+    if (await expandedPlayer.isVisible()) {
+        await expandedPlayer.locator('[data-url-player-action="stop"]').click();
+        await expandedPlayer.waitFor({ state: 'hidden' });
+    }
     await page.click('[data-af-action="toggle-view-mode"][data-af-type="music"]');
 
     await page.click('[data-af-action="toggle-import-form"]');

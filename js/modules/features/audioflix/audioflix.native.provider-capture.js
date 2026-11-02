@@ -94,11 +94,14 @@ window.EveAudioflixNativeProviderCapture = window.EveAudioflixNativeProviderCapt
             throw new Error('The selected localhost server is not a verified EveOS bridge.');
         }
         const endpoint = selectedEndpoint(detail);
+        const lane = detail.lane === 'piano-pcm' ? 'piano-pcm' : 'provider-capture';
         const payload = await protectedPost(base, '/api/audioflix/provider-capture/start', {
             deviceId: endpoint.deviceId,
             sampleRate: detail.sampleRate || 48000,
             channels: detail.channels || 1,
-            source: detail.source || 'provider-tab'
+            source: detail.source || 'provider-tab', lane,
+            ownerId: lane === 'piano-pcm' ? String(detail.ownerId || '') : '',
+            generation: lane === 'piano-pcm' ? Number(detail.generation || 0) : 0
         }, 3000);
         if (payload?.ok !== true || !payload.sessionId || !payload.captureToken) {
             throw new Error(payload?.message || 'Native provider capture session was refused.');
@@ -115,18 +118,21 @@ window.EveAudioflixNativeProviderCapture = window.EveAudioflixNativeProviderCapt
             sessionId: session.sessionId, captureToken: session.captureToken, audio,
             sampleRate: detail.sampleRate || session.sampleRate || 48000,
             channels: detail.channels || session.channels || 1,
-            gain: detail.gain, sentAtMs: Date.now(), maxAgeMs: 1200
-        }, PCM_TIMEOUT_MS);
+            gain: detail.gain, sentAtMs: Date.now(), maxAgeMs: detail.maxAgeMs || 1200,
+            lane: session.lane, ownerId: session.ownerId, generation: session.generation
+        }, Math.max(120, Math.min(PCM_TIMEOUT_MS, Number(detail.timeoutMs || PCM_TIMEOUT_MS))));
     }
     async function status(session) {
         if (!session?.sessionId || !session?.captureToken) return { ok: false };
         return protectedPost(session.bridgeBase, '/api/audioflix/provider-capture/status',
-            { sessionId: session.sessionId, captureToken: session.captureToken });
+            { sessionId: session.sessionId, captureToken: session.captureToken,
+                lane: session.lane, ownerId: session.ownerId, generation: session.generation });
     }
     async function stop(session) {
         if (!session?.sessionId || !session?.captureToken) return { ok: true, stopped: false };
         return protectedPost(session.bridgeBase, '/api/audioflix/provider-capture/stop',
-            { sessionId: session.sessionId, captureToken: session.captureToken });
+            { sessionId: session.sessionId, captureToken: session.captureToken,
+                lane: session.lane, ownerId: session.ownerId, generation: session.generation });
     }
 
     Object.assign(ns, { ready: true, start, send, status, stop, selectedEndpoint, captureOrigin, requireFileCompanion });

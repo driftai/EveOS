@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import base64
-import queue
 import threading
 import time
 from pathlib import Path
 
 from server_modules import audioflix_bridge_media
+from server_modules.audioflix_bridge_player import PcmPlayer as _PcmPlayer
 try:
     import numpy as np
 except Exception:  # pragma: no cover - optional runtime dependency
@@ -77,156 +77,6 @@ def _open_output_stream(device_index: int, channels: int, callback, preferred_ra
     raise RuntimeError(f"Could not open stream for {device_index}: {last_err}")
 
 
-class _PcmPlayer:
-    def __init__(self, device_index: int, source_rate: int, channels: int) -> None:
-        self.device_index, self.source_rate, self.channels = device_index, int(source_rate), channels
-        # Several minutes of Gemini chunks: a runaway guard, not a normal reply cap.
-        self.q, self.pending, self.closed, self.last_used = queue.Queue(maxsize=4096), None, False, time.monotonic()
-        # clear_stream() requests callback-owned in-flight cleanup without racing slicing.
-        self.flush_pending, self.stream_id, self.voices_paused = False, None, False
-        # One-shot voices mix independently from the Gemini FIFO stream.
-        self.voices = []
-        self.voices_lock = threading.Lock()
-        self.last_frames = 0   # diagnostics (exposed via /api/audioflix/voice-debug)
-        self.cb_count = 0
-        self.stream, self.sample_rate = _open_output_stream(device_index, channels, self._callback, source_rate)
-
-    def _callback(self, outdata, frames, _time_info, _status) -> None:
-        self.last_frames = frames
-        self.cb_count += 1
-        outdata.fill(0)
-        # Never let an unmixable block abort the sounddevice callback permanently.
-        try:
-            self._mix(outdata, frames)
-        except Exception as exc:
-            outdata.fill(0)
-            if not getattr(self, "_cb_error_logged", False):
-                self._cb_error_logged = True
-                import traceback
-                print(f"[Audioflix] audio callback error (stream kept alive): {exc!r}", flush=True)
-                traceback.print_exc()
-
-    def _mix(self, outdata, frames) -> None:
-        # A pause/stop asked us to flush the live stream — drop the in-flight chunk here, in the
-        # callback thread, so we never index a chunk that another thread nulled mid-slice.
-        if self.flush_pending:
-            self.flush_pending = False
-            self.pending = None
-        # Streaming channel (Gemini live): FIFO chunks, mixed in additively.
-        written = 0
-        while written < frames:
-            if self.pending is None or len(self.pending) == 0:
-                try:
-                    self.pending = self.q.get_nowait()
-                except queue.Empty:
-                    break
-            take = min(frames - written, len(self.pending))
-            outdata[written:written + take, 0] += self.pending[:take]
-            self.pending, written = self.pending[take:], written + take
-        # One-shot voices: sum each into the output, advance, drop finished ones.
-        with self.voices_lock:
-            if self.voices and not self.voices_paused:
-                survivors = []
-                for v in self.voices:
-                    try:
-                        samples, pos, vol = v["samples"], v["pos"], v.get("vol", 1.0)
-                        n = min(len(samples) - pos, frames)
-                        if n > 0:
-                            seg = np.asarray(samples[pos:pos + n], dtype="float32").reshape(-1)[:n]
-                            if vol != 1.0:
-                                seg = seg * np.float32(vol)
-                            outdata[:n, 0] += seg
-                            v["pos"] = pos + n
-                        if v["pos"] < len(samples):
-                            survivors.append(v)
-                    except Exception as exc:
-                        # Drop just this voice rather than wedging the whole player on every block.
-                        if not getattr(self, "_cb_error_logged", False):
-                            self._cb_error_logged = True
-                            print(f"[Audioflix] dropped an unmixable voice: {exc!r}", flush=True)
-                self.voices = survivors
-        np.clip(outdata[:, 0], -1.0, 1.0, out=outdata[:, 0])
-
-    def add_voice(self, samples, vid=None, vol=1.0) -> None:
-        self.last_used = time.monotonic()
-        samples = _resample_mono(samples, self.source_rate, self.sample_rate)
-        with self.voices_lock:
-            if len(self.voices) >= 32:           # cap concurrent voices
-                self.voices = self.voices[-31:]
-            self.voices.append({"samples": samples, "pos": 0, "vid": vid, "vol": vol})
-
-    def set_voice_volume(self, vid, vol: float) -> int:
-        count = 0
-        if vid is not None:
-            with self.voices_lock:
-                for v in self.voices:
-                    if v.get("vid") == vid:
-                        v["vol"] = vol
-                        count += 1
-        return count
-
-    def clear_voices(self, vid=None) -> int:
-        with self.voices_lock:
-            before = len(self.voices)
-            self.voices = [] if vid is None else [v for v in self.voices if v.get("vid") != vid]
-            return before - len(self.voices)
-
-    def set_voices_paused(self, paused: bool) -> int:
-        with self.voices_lock:
-            self.voices_paused = bool(paused)
-            return len(self.voices)
-
-    def clear_stream(self, expected_id=None) -> int:
-        """Stop the live streaming lane (the Gemini play-pcm channel). Drains the FIFO from this
-        thread and flags the callback to drop the in-flight chunk on its next tick. The voices
-        mixer is a separate lane (clear_voices) and is left alone. This is the piece that actually
-        silences a Gemini reply playing out over CABLE — clear_voices never touched this queue,
-        which is why pausing only flipped the icon while the sound kept draining."""
-        if expected_id is not None and self.stream_id != expected_id:
-            return 0
-        dropped = 0
-        while True:
-            try:
-                self.q.get_nowait()
-                dropped += 1
-            except queue.Empty:
-                break
-        self.flush_pending, self.stream_id = True, None
-        return dropped
-
-    def enqueue(self, samples, stream_id=None) -> None:
-        self.last_used = time.monotonic()
-        # A new browser track owns a new stream id. Discard any queued tail from the prior
-        # owner before accepting it so rapid queue transitions cannot replay or overlap stale
-        # PCM. Repeated chunks from the same stream keep the continuous FIFO intact.
-        if stream_id is not None and self.stream_id not in (None, stream_id):
-            self.clear_stream()
-        self.stream_id = stream_id
-        samples = _resample_mono(samples, self.source_rate, self.sample_rate)
-        try:
-            self.q.put_nowait(samples)
-        except queue.Full:
-            # Drop only the OLDEST chunk and append this one (a tiny gap) instead of clearing
-            # the whole buffer. Clearing everything is what made the first Gemini reply cut out:
-            # a cold WASAPI open let chunks pile past maxsize and the whole reply was dumped.
-            try:
-                self.q.get_nowait()
-            except queue.Empty:
-                pass
-            try:
-                self.q.put_nowait(samples)
-            except queue.Full:
-                pass
-
-    def close(self) -> None:
-        self.closed = True
-        try:
-            self.stream.stop()
-            self.stream.close()
-        except Exception:
-            pass
-
-
 def _player_for(device_id: str, sample_rate: int, channels: int, lane: str = "primary") -> _PcmPlayer:
     if sd is None or np is None:
         raise RuntimeError("Native playback requires the optional sounddevice and numpy packages.")
@@ -240,9 +90,9 @@ def _player_for(device_id: str, sample_rate: int, channels: int, lane: str = "pr
         except Exception:
             raise RuntimeError("Selected native output is not a playable sounddevice endpoint.")
     lane = str(lane or "primary").strip().lower()
-    if lane not in {"primary", "provider-capture"}:
+    if lane not in {"primary", "provider-capture", "piano-pcm"}:
         raise RuntimeError("Unknown native playback lane.")
-    key = f"{device_id}:{sample_rate}:{channels}:{lane}"
+    key = f"{device_id}:{channels}:shared"
     index = int(str(device_id).split(":", 1)[1])
     with _LOCK:
         open_lock = _PLAYER_LOCKS.setdefault(device_id, threading.Lock())
@@ -262,7 +112,7 @@ def _player_for(device_id: str, sample_rate: int, channels: int, lane: str = "pr
                     player.close()
                 except Exception:
                     pass
-            player = _PcmPlayer(index, sample_rate, channels)
+            player = _PcmPlayer(index, sample_rate, channels, _open_output_stream, _resample_mono)
             with _LOCK:
                 _PLAYERS[key] = player
         return player
@@ -284,7 +134,7 @@ def _enqueue_mono(device_id: str, sample_rate: int, samples, kind: str, stream_i
         used_device, fell_back = "default", True
     if expires_at_ms is not None and (time.time() * 1000) > expires_at_ms:
         return {"ok": False, "stale": True, "message": "Expired PCM chunk was not queued."}
-    player.enqueue(mono, stream_id)
+    player.enqueue(mono, stream_id, lane, sample_rate)
     return {
         "ok": True,
         "kind": kind,
@@ -349,7 +199,7 @@ def play_voice(payload: dict) -> dict:
     # play) so a separate clear+add can't race and drop the new sound.
     if payload.get("replace"):
         player.clear_voices(payload.get("voiceId"))
-    player.add_voice(samples, payload.get("voiceId"), volume)
+    player.add_voice(samples, payload.get("voiceId"), volume, int(payload.get("sampleRate") or 24000))
     return {"ok": True, "kind": "voice", "queued": int(samples.shape[0]), "deviceId": device_id, "voices": len(player.voices)}
 
 def warm(payload: dict) -> dict:
@@ -412,9 +262,9 @@ def stop_stream(payload: dict) -> dict:
     all_devices = payload.get("allDevices") is True
     with _LOCK:
         players = list(_PLAYERS.values()) if all_devices else [p for k, p in _PLAYERS.items() if k.startswith(device_id + ":")]
-    stream_id = payload.get("itemId")
-    dropped = sum(p.clear_stream(stream_id) for p in players)
-    return {"ok": True, "streamDropped": dropped, "allDevices": all_devices, "itemId": stream_id}
+    stream_id, lane = payload.get("itemId"), str(payload.get("lane") or "primary")
+    dropped = sum(p.clear_stream(stream_id, lane) for p in players)
+    return {"ok": True, "streamDropped": dropped, "allDevices": all_devices, "itemId": stream_id, "lane": lane}
 
 def get_voice_debug() -> dict:
     """Return a lock-safe snapshot without exposing mutable player internals."""

@@ -13,6 +13,7 @@ from server_modules.audioflix_bridge_playback import _player_for, play_pcm, stop
 _LOCK = threading.RLock()
 _START_LOCK = threading.Lock()
 _MANAGED_IDLE_RECLAIM_SECONDS = 15
+_PIANO_OWNER_GRACE_SECONDS = 4
 _SESSIONS: dict[str, dict] = {}
 _TTL_SECONDS = 5 * 60
 _MAX_PCM_BYTES = 65536  # A 4096-frame mono block is about 8 KiB; reject bulk uploads.
@@ -31,6 +32,7 @@ def _discard(session_id: str, entry: dict) -> None:
         "deviceId": entry.get("deviceId") or "",
         "sampleRate": entry.get("sampleRate") or 48000,
         "itemId": session_id,
+        "lane": entry.get("lane") or "provider-capture",
     })
 
 
@@ -57,6 +59,11 @@ def _require(payload: dict) -> tuple[str, dict]:
             raise RuntimeError("Provider capture session is invalid or expired.")
         if _expired(entry, now):
             raise RuntimeError("Provider capture session expired.")
+        if entry["lane"] == "piano-pcm":
+            if (str(payload.get("lane") or "") != entry["lane"]
+                    or str(payload.get("ownerId") or "") != entry["ownerId"]
+                    or int(payload.get("generation") or 0) != entry["generation"]):
+                raise RuntimeError("Piano PCM session ownership or generation is stale.")
         entry["lastSeenAt"] = now
         entry["expiresAt"] = now + _TTL_SECONDS
         return session_id, entry
@@ -68,7 +75,14 @@ def start(payload: dict) -> dict:
     channels = max(1, min(2, int(payload.get("channels") or 1)))
     if not device_id.startswith("sd:"):
         raise RuntimeError("Provider capture requires an exact native output endpoint.")
-    source = str(payload.get("source") or "provider-tab")[:80]
+    lane = str(payload.get("lane") or "provider-capture").strip().lower()
+    if lane not in {"provider-capture", "piano-pcm"}:
+        raise RuntimeError("Unknown provider capture lane.")
+    owner_id = str(payload.get("ownerId") or "")[:120]
+    generation = int(payload.get("generation") or 0)
+    if lane == "piano-pcm" and (len(owner_id) < 16 or generation < 1):
+        raise RuntimeError("Piano PCM requires an authenticated owner generation.")
+    source = str(payload.get("source") or ("piano" if lane == "piano-pcm" else "provider-tab"))[:80]
     # Only an inactive managed-Spotify lease for this *same endpoint* may be
     # reclaimed; active PCM and every other provider remain exclusive.
     with _START_LOCK:
@@ -76,12 +90,18 @@ def start(payload: dict) -> dict:
         _reap(now)
         orphan = None
         with _LOCK:
-            if _SESSIONS:
-                old_id, old = next(iter(_SESSIONS.items()))
+            existing = [(sid, value) for sid, value in _SESSIONS.items() if value["lane"] == lane]
+            if existing:
+                old_id, old = existing[0]
                 quiet = now - float(old.get("lastPcmAt", old["createdAt"]))
-                if not (source == "managed-spotify"
-                        and old["source"] == source and old["deviceId"] == device_id
-                        and _MANAGED_IDLE_RECLAIM_SECONDS <= quiet < _TTL_SECONDS):
+                managed_reclaim = (lane == "provider-capture" and source == "managed-spotify"
+                    and old["source"] == source and old["deviceId"] == device_id
+                    and _MANAGED_IDLE_RECLAIM_SECONDS <= quiet < _TTL_SECONDS)
+                generation_handoff = (lane == "piano-pcm" and old["ownerId"] == owner_id
+                    and generation > old["generation"])
+                piano_stale_reclaim = (lane == "piano-pcm" and old["deviceId"] == device_id
+                    and now - float(old.get("lastSeenAt", old["createdAt"])) >= _PIANO_OWNER_GRACE_SECONDS)
+                if not (managed_reclaim or generation_handoff or piano_stale_reclaim):
                     raise RuntimeError("Another provider capture session already owns the capture lane.")
                 orphan = (old_id, _SESSIONS.pop(old_id))
         if orphan:
@@ -89,12 +109,12 @@ def start(payload: dict) -> dict:
             with orphan[1]["ioLock"]:
                 _discard(*orphan)
         with _LOCK:
-            if _SESSIONS:
+            if any(value["lane"] == lane for value in _SESSIONS.values()):
                 raise RuntimeError("Another provider capture session already owns the capture lane.")
-            player = _player_for(device_id, sample_rate, 1, "provider-capture")
+            player = _player_for(device_id, sample_rate, 1, lane)
             if not player.stream or not player.stream.active:
                 raise RuntimeError("Selected native output renderer did not start.")
-            session_id = f"provider:{secrets.token_hex(12)}"
+            session_id = f"{'piano' if lane == 'piano-pcm' else 'provider'}:{secrets.token_hex(12)}"
             token = secrets.token_urlsafe(32)
             entry = {
                 "token": token,
@@ -103,6 +123,9 @@ def start(payload: dict) -> dict:
                 "sampleRate": sample_rate,
                 "channels": channels,
                 "source": source,
+                "lane": lane,
+                "ownerId": owner_id,
+                "generation": generation,
                 "createdAt": now,
                 "lastSeenAt": now,
                 "lastPcmAt": now,
@@ -121,6 +144,9 @@ def start(payload: dict) -> dict:
         "sampleRate": sample_rate,
         "channels": channels,
         "rendererRunning": True,
+        "lane": lane,
+        "ownerId": owner_id,
+        "generation": generation,
         "expiresAt": int(entry["expiresAt"] * 1000),
     }
 
@@ -156,8 +182,8 @@ def chunk(payload: dict) -> dict:
             "channels": channels,
             "streamId": session_id,
             "sentAtMs": payload.get("sentAtMs") or int(_now() * 1000),
-            "maxAgeMs": payload.get("maxAgeMs") or 1200,
-            "lane": "provider-capture",
+            "maxAgeMs": min(250, int(payload.get("maxAgeMs") or 120)) if entry["lane"] == "piano-pcm" else (payload.get("maxAgeMs") or 1200),
+            "lane": entry["lane"],
             "strictDevice": True,
             "gain": gain,
         })
@@ -179,6 +205,7 @@ def chunk(payload: dict) -> dict:
         "queued": result.get("queued") or 0,
         "gain": gain,
         "nonzero": bool(any(raw)),
+        "lane": entry["lane"],
     }
 
 
@@ -191,6 +218,9 @@ def status(payload: dict) -> dict:
         "sampleRate": entry["sampleRate"],
         "channels": entry["channels"],
         "source": entry["source"],
+        "lane": entry["lane"],
+        "ownerId": entry["ownerId"],
+        "generation": entry["generation"],
         "chunks": entry["chunks"],
         "samples": entry["samples"],
         "nonzeroChunks": entry["nonzeroChunks"],
@@ -215,6 +245,7 @@ def stop(payload: dict) -> dict:
         "samples": entry["samples"],
         "nonzeroChunks": entry["nonzeroChunks"],
         "stopped": True,
+        "lane": entry["lane"],
     }
 
 

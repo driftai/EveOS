@@ -1,3 +1,5 @@
+import { createPianoOutputRouter, pianoPcmReady } from "./piano_pcm_capture.js";
+
 const SOUNDS = {
   fluid_studio_grand: {
     label: "Studio Grand Piano (FluidR3)",
@@ -78,7 +80,8 @@ function outputNode(ctx) {
   compressor.attack.value = 0.003;
   compressor.release.value = 0.22;
   master.gain.value = 0.62 * sharedOutputVolume;
-  master.connect(compressor).connect(ctx.destination);
+  master.connect(compressor);
+  createPianoOutputRouter(ctx, compressor);
   sharedOutput = master;
   return sharedOutput;
 }
@@ -133,6 +136,7 @@ export async function setPianoOutputRoute(route = {}) {
 }
 
 export function pianoOutputRoute() { return { ...sharedOutputRoute }; }
+export function preparePianoPcmOutput() { outputNode(audioContext(false)); return pianoPcmReady(); }
 
 function loadScript(meta) {
   if (window[meta.variable]) return Promise.resolve(window[meta.variable]);

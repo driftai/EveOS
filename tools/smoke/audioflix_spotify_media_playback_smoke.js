@@ -102,6 +102,8 @@ function anyBrowserFixture() {
         stopAll: async () => true, stopItemLayers: async () => true, updateItemVolume() {},
         getPlaybackState: () => ({ item: null }), getStatus: () => ({}) };
     const window = { EveAudioflixAudio: audio, EveAudioflixSpotifyRemote: remote,
+        EveAudioflixSpotifyNativeCapture: { configure() {}, ensure: async () => false,
+            bind() {}, clear() {}, guard: () => true, status: () => ({}) },
         EveAudioflixSpotifyPlaybackLifecycle: { create: () => ({ ensureObserver: () => null }) },
         EveAudioflixLocalPlayback: { prepare: async item => local.has(item.id)
             ? { item: { ...item, url: 'blob:verified-local' }, localPath: 'C:\\test\\song.mp3' } : null },
