@@ -298,6 +298,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         window.EveAudioflixLayerVoices?.render?.(overlay);
         window.EveWorldBookNarrationCompanion?.syncAudioflixSummary?.();
         window.EveAudioflixRouting?.populateOutputSelectors?.(overlay);
+        window.EveAudioflixPlaybackPolicyUi?.populateOutputs?.(overlay);
         window.EveAudioflixSoundLabUi?.setVisible?.(activeTab === 'soundlab'); window.EveAudioflixPianoUi?.setVisible?.(activeTab === 'piano'); window.EveAudioflixPianoUi?.afterRender?.(overlay);
         window.EveAudioflixSoundLabUi?.afterRender?.(overlay);
         lastRenderedRevision = window.EveAudioflixState?.getRevision?.();

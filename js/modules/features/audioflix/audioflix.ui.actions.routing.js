@@ -3,6 +3,7 @@ window.EveAudioflixUiActionsRouting = window.EveAudioflixUiActionsRouting || {};
 (function (ns) {
     'use strict';
     ns.create = ctx => async (actionTarget, action) => {
+            if (window.EveAudioflixPlaybackPolicyUi?.handleAction?.(actionTarget, action, ctx)) return true;
             // Do not consume the user gesture for unrelated routing controls.
             if (['provider-open-companion', 'provider-test-tone', 'provider-managed-toggle', 'provider-managed-capture-toggle', 'provider-arm', 'provider-stop', 'provider-retry'].includes(action)) {
                 return !!(await window.EveAudioflixProviderCaptureUi?.handleAction?.(actionTarget, action, ctx));

@@ -16,6 +16,12 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
             pushHotkeysToBridge, hotkeyComboIssue, hotkeyComboFromEvent } = ctx;
         // Shared mutable view state stays in audioflix.ui.js; reach it through the accessor bag.
         const V = ctx.view;
+        const policyCtx = {
+            rerender,
+            rerenderModal: rerender,
+            get playbackStatus() { return V.playbackStatus; },
+            set playbackStatus(value) { V.playbackStatus = value; }
+        };
 
         // Provider-backed players can report their terminal state while EveOS is backgrounded.
         // Register this bridge before audioflix.ui.js installs its generic Ended listener so the
@@ -166,6 +172,7 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
             });
             V.overlay.addEventListener('change', async e => {
                 const t = e.target, id = t.dataset.afId, type = t.dataset.afType || 'sound';
+                if (window.EveAudioflixPlaybackPolicyUi?.handleChange?.(t, policyCtx)) return;
                 if (window.EveAudioflixOutputPort?.handleChange?.(t)) return;
                 if (await window.EveAudioflixSoundLabUi?.handleChange?.(t, e)) return;
                 if (t.classList.contains('audioflix-nexus-select')) {

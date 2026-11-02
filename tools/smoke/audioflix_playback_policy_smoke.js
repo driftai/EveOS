@@ -11,7 +11,8 @@ const window = {};
 const context = vm.createContext({ window, console });
 for (const file of [
     'js/modules/features/audioflix/audioflix.state.schema.js',
-    'js/modules/features/audioflix/audioflix.playback.policy.js'
+    'js/modules/features/audioflix/audioflix.playback.policy.js',
+    'js/modules/features/audioflix/audioflix.playback.policy.ui.js'
 ]) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, { filename: file });
 
 let checks = 0;
@@ -157,5 +158,37 @@ equal(configuredState.music[0].playbackPolicy.spotifyMethod, 'embed', 'song poli
 equal(policy.configureScope('group:focus', null), null, 'scope policy API removes one rule');
 equal(policy.configureSong('sound', 'missing', { sourcePreference: 'original' }), null,
     'song policy API refuses an unknown item');
+
+configuredState.musicGroups = ['Focus', 'Night'];
+configuredState.music[0].folder = 'Piano';
+configuredState.scopeBindings = [{ audioId: 'track-1', audioType: 'music', scopeType: 'workspace', workspaceId: 'main' }];
+const policyUi = window.EveAudioflixPlaybackPolicyUi;
+const scopeOptions = policyUi.scopeOptions('music', configuredState);
+check(scopeOptions.some(entry => entry.key === 'group:focus'), 'policy UI exposes music groups');
+check(scopeOptions.some(entry => entry.key === 'folder:piano'), 'policy UI exposes music folders');
+check(scopeOptions.some(entry => entry.key === 'nexus:workspace:main:::'), 'policy UI exposes Nexus bindings');
+const nexusMarkup = policyUi.renderNexus('music');
+check(nexusMarkup.includes('Global defaults') && nexusMarkup.includes('Managed Spotify Engine'),
+    'Nexus panel renders global policy controls');
+const songMarkup = policyUi.renderSong(configuredState.music[0], 'music');
+check(songMarkup.includes('Decision source') && songMarkup.includes('Effective:'),
+    'song settings render policy source and effective decision');
+let rerenders = 0;
+policyUi.handleChange({
+    value: 'original',
+    dataset: { afPolicyField: 'sourcePreference', afPolicyLevel: 'scope', afPolicyScope: 'group:focus' }
+}, { rerender() { rerenders += 1; } });
+equal(configuredState.playbackScopePolicies['group:focus'].sourcePreference, 'original',
+    'scope UI change reaches authoritative policy owner');
+equal(rerenders, 1, 'scope UI change rerenders once');
+policyUi.handleChange({
+    value: 'custom',
+    dataset: { afPolicyField: 'scopeMode', afPolicyLevel: 'song', afPolicyType: 'music', afPolicyId: 'track-1' }
+}, { rerenderModal() { rerenders += 1; } });
+equal(configuredState.music[0].playbackPolicy.scopeMode, 'custom', 'song UI selects custom policy mode');
+policyUi.handleAction({ dataset: {
+    afPolicyLevel: 'song', afPolicyType: 'music', afPolicyId: 'track-1'
+} }, 'reset-playback-policy', { rerenderModal() { rerenders += 1; } });
+equal(configuredState.music[0].playbackPolicy, undefined, 'song UI reset removes stored override');
 
 console.log(`audioflix playback policy: ${checks}/${checks} checks passed`);
