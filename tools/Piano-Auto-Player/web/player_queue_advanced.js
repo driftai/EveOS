@@ -73,6 +73,8 @@ function htmlFor(host) {
           <label><span>Author</span><input data-p-author-edit placeholder="Author / artist"></label>
           <label><span>Genre</span><input data-p-genre-edit placeholder="Anime, electronic, classical…"></label>
           <label><span>Tags</span><input data-p-tags-edit placeholder="calm, boss-fight, favorite…"></label>
+          <label><span>Folders</span><input data-p-folders-edit placeholder="practice, anime, favorites…"></label>
+          <label><span>Groups</span><input data-p-groups-edit placeholder="study, performance, queue…"></label>
           <label><span>Personal rating</span><select data-p-rating-edit><option value="">Unrated</option><option>1</option><option>1.5</option><option>2</option><option>2.5</option><option>3</option><option>3.5</option><option>4</option><option>4.5</option><option>5</option></select></label>
           <label><span>Custom identifiers · key=value per line</span><textarea data-p-custom-edit placeholder="era=2020s&#10;energy=high&#10;context=late-night"></textarea></label>
           <div class="planner-overrides">
@@ -109,7 +111,7 @@ async function installPlanner() {
     minRating: section.querySelector("[data-p-min-rating]"), minConversion: section.querySelector("[data-p-min-conversion]"), minDuration: section.querySelector("[data-p-min-duration]"),
     maxDuration: section.querySelector("[data-p-max-duration]"), minEvents: section.querySelector("[data-p-min-events]"), maxEvents: section.querySelector("[data-p-max-events]"), sort: section.querySelector("[data-p-sort]"),
     list: section.querySelector("[data-p-list]"), count: section.querySelector("[data-planner-count]"), selection: section.querySelector("[data-p-selection]"),
-    editorTitle: section.querySelector("[data-p-editor-title]"), authorEdit: section.querySelector("[data-p-author-edit]"), genreEdit: section.querySelector("[data-p-genre-edit]"), tagsEdit: section.querySelector("[data-p-tags-edit]"), ratingEdit: section.querySelector("[data-p-rating-edit]"),
+    editorTitle: section.querySelector("[data-p-editor-title]"), authorEdit: section.querySelector("[data-p-author-edit]"), genreEdit: section.querySelector("[data-p-genre-edit]"), tagsEdit: section.querySelector("[data-p-tags-edit]"), foldersEdit: section.querySelector("[data-p-folders-edit]"), groupsEdit: section.querySelector("[data-p-groups-edit]"), ratingEdit: section.querySelector("[data-p-rating-edit]"),
     customEdit: section.querySelector("[data-p-custom-edit]"), autoChips: section.querySelector("[data-p-auto-chips]"), saveMeta: section.querySelector("[data-p-save-meta]"),
     ovSpeed: section.querySelector("[data-p-ov-speed]"), ovInterval: section.querySelector("[data-p-ov-interval]"), ovHold: section.querySelector("[data-p-ov-hold]"), ovGate: section.querySelector("[data-p-ov-gate]"),
     queueStatus: section.querySelector("[data-p-queue-status]"), qPlay: section.querySelector("[data-p-q-play]"), qToggle: section.querySelector("[data-p-q-toggle]"), qUp: section.querySelector("[data-p-q-up]"), qDown: section.querySelector("[data-p-q-down]")
@@ -160,6 +162,20 @@ async function installPlanner() {
     optionList(els.kind, state.songs.map(song => song.automatic_identifiers?.kind || song.kind).filter(Boolean), "All types");
   }
 
+  function renderEditorSuggestions() {
+    const values = (kind) => state.songs.flatMap(song => {
+      const ids = song.identifiers || {}, custom = ids.custom || {};
+      if (kind === "author") return [ids.author || song.artist];
+      if (kind === "genre" || kind === "tags") return listValue(ids[kind]);
+      return listValue(custom[kind === "folders" ? "piano_folders_v1" : "piano_groups_v1"] || custom[kind === "folders" ? "piano_folder" : "piano_group"]);
+    }).filter(Boolean);
+    [[els.authorEdit,"author"],[els.genreEdit,"genre"],[els.tagsEdit,"tags"],[els.foldersEdit,"folders"],[els.groupsEdit,"groups"]].forEach(([input, kind]) => {
+      const id = `piano-planner-${kind}-suggestions`; let list = section.querySelector(`#${id}`);
+      if (!list) { list = document.createElement("datalist"); list.id = id; section.append(list); input.setAttribute("list", id); }
+      list.replaceChildren(...[...new Set(values(kind).map(clean))].sort((a,b)=>a.localeCompare(b)).map(value => new Option(value)));
+    });
+  }
+
   function renderAuto(song) {
     const auto = song?.automatic_identifiers || {};
     const chips = [
@@ -190,8 +206,8 @@ async function installPlanner() {
 
   function openEditor(song) {
     state.editingId = song.id; const ids = song.identifiers || {}, custom = ids.custom || {};
-    els.editorTitle.textContent = labelFor(song); els.authorEdit.value = ids.author || song.artist || ""; els.genreEdit.value = listValue(ids.genre).join(", "); els.tagsEdit.value = listValue(ids.tags).join(", "); els.ratingEdit.value = ids.personal_rating == null ? "" : String(ids.personal_rating);
-    els.customEdit.value = Object.entries(custom).filter(([k]) => !k.startsWith("override_") && k !== "favorite").map(([key, value]) => `${key}=${value}`).join("\n");
+    els.editorTitle.textContent = labelFor(song); els.authorEdit.value = ids.author || song.artist || ""; els.genreEdit.value = listValue(ids.genre).join(", "); els.tagsEdit.value = listValue(ids.tags).join(", "); els.foldersEdit.value = listValue(custom.piano_folders_v1 || custom.piano_folder).join(", "); els.groupsEdit.value = listValue(custom.piano_groups_v1 || custom.piano_group).join(", "); els.ratingEdit.value = ids.personal_rating == null ? "" : String(ids.personal_rating);
+    els.customEdit.value = Object.entries(custom).filter(([k]) => !k.startsWith("override_") && !["favorite","piano_folder","piano_group","piano_folders_v1","piano_groups_v1"].includes(k)).map(([key, value]) => `${key}=${value}`).join("\n");
     els.ovSpeed.value = custom.override_speed || "";
     els.ovInterval.value = custom.override_interval || "";
     els.ovHold.value = custom.override_hold || "";
@@ -266,7 +282,7 @@ async function installPlanner() {
       const title = document.createElement("strong"); title.textContent = labelFor(song);
       const sub = document.createElement("small"); sub.textContent = `${song.identifiers?.genre?.join(", ") || "No genre"} · ${song.automatic_identifiers?.event_count || 0} events · ${durationText(song.automatic_identifiers?.duration_ms || song.duration_ms)}`;
       const chips = document.createElement("div"); chips.className = "planner-song-chips";
-      [song.identifiers?.personal_rating == null ? "Unrated" : `★ ${ratingText(song.identifiers.personal_rating)}`, song.automatic_identifiers?.conversion_rating == null ? "Conversion —" : `Conv ${ratingText(song.automatic_identifiers.conversion_rating)}`, ...listValue(song.identifiers?.tags).slice(0, 3)].forEach(value => { const chip = document.createElement("span"); chip.textContent = value; chips.append(chip); });
+      [song.identifiers?.personal_rating == null ? "Unrated" : `★ ${ratingText(song.identifiers.personal_rating)}`, song.automatic_identifiers?.conversion_rating == null ? "Conversion —" : `Conv ${ratingText(song.automatic_identifiers.conversion_rating)}`, ...listValue(custom.piano_folders_v1 || custom.piano_folder).slice(0, 2).map(value=>`📁 ${value}`), ...listValue(custom.piano_groups_v1 || custom.piano_group).slice(0, 2).map(value=>`Group: ${value}`), ...listValue(song.identifiers?.tags).slice(0, 3)].forEach(value => { const chip = document.createElement("span"); chip.textContent = value; chips.append(chip); });
       entries.forEach(entry => { const qChip = document.createElement("span"); qChip.className = `planner-qtag ${entry.status === "current" ? "now" : entry.status}`; qChip.textContent = entry.status === "current" ? `NOW #${entry.position}` : entry.status === "played" ? `PLAYED #${entry.position}` : entry.status === "next" ? `NEXT #${entry.position}` : `#${entry.position} QUEUED`; chips.append(qChip); });
       if (custom.override_speed || custom.override_interval) { const ovChip = document.createElement("span"); ovChip.className = "planner-qtag override"; ovChip.textContent = `⚡ ${custom.override_speed ? `${custom.override_speed}×` : "Custom"}`; chips.append(ovChip); }
       copy.append(title, sub, chips);
@@ -283,7 +299,7 @@ async function installPlanner() {
     });
   }
 
-  async function refresh() { try { state.songs = await fetchSongs(); renderFilterOptions(); renderResults(); } catch (error) { toast(error.message, "error"); } }
+  async function refresh() { try { state.songs = await fetchSongs(); renderFilterOptions(); renderEditorSuggestions(); renderResults(); } catch (error) { toast(error.message, "error"); } }
 
   function selectedSongs() {
     const byId = new Map(state.songs.map(song => [String(song.id), song]));
@@ -353,6 +369,7 @@ async function installPlanner() {
     if (clean(els.ovHold.value)) custom.override_hold = clean(els.ovHold.value); else delete custom.override_hold;
     if (clean(els.ovGate.value)) custom.override_gate = clean(els.ovGate.value); else delete custom.override_gate;
     if (song.identifiers?.custom?.favorite === "true" || song.identifiers?.custom?.favorite === "false") custom.favorite = song.identifiers.custom.favorite;
+    custom.piano_folders_v1 = listValue(els.foldersEdit.value); custom.piano_groups_v1 = listValue(els.groupsEdit.value);
     try {
       const identifiers = { genre: listValue(els.genreEdit.value), tags: listValue(els.tagsEdit.value), author: clean(els.authorEdit.value), personal_rating: els.ratingEdit.value ? Number(els.ratingEdit.value) : null, custom };
       const updated = await saveIdentifiers(song.id, identifiers);
