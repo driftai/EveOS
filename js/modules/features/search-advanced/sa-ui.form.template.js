@@ -23,7 +23,7 @@ window.EveOS.SearchAdvanced.Modules = window.EveOS.SearchAdvanced.Modules || {};
                 <span class="nx-header-sub">Unified Knowledge Index</span>
             </div>
             <div class="nx-header-actions">
-                <button type="button" class="nx-gemini-btn nx-audioflix-btn" id="nxAudioflixLinkBtn" title="Open Nexus Audio Link / Audioflix" style="background:linear-gradient(135deg,rgba(255,202,95,0.25),rgba(245,158,11,0.35)); border:1px solid rgba(255,202,95,0.5); color:#ffca5f; font-weight:700; margin-right:6px;">🎵 Audioflix</button>
+                <button type="button" class="nx-gemini-btn nx-audioflix-btn" id="nxAudioflixLinkBtn" title="Return to Nexus Audio Link" style="background:linear-gradient(135deg,rgba(255,202,95,0.25),rgba(245,158,11,0.35)); border:1px solid rgba(255,202,95,0.5); color:#ffca5f; font-weight:700; margin-right:6px;">🔎 Nexus Audio Link</button>
                 <button type="button" class="nx-gemini-btn" id="nxGeminiLinkBtn" title="Open Gemini AI Link">✦ Gemini</button>
                 <button class="nx-close-btn" onclick="closeModals()" title="Close">✕</button>
             </div>
