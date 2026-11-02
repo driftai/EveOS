@@ -41,3 +41,16 @@
 .piano-pxp-workspace[hidden],.piano-pxm-listener[hidden]{display:none!important}
 
 /* A single chip cycles neutral -> included -> excluded -> neutral. */
+
+/* Fast Track is the only standalone song-search surface; Nexus keeps its scoped filter drawer. */
+.piano-pfo-toolbar{position:relative}
+.piano-pfo-toolbar .piano-pft-panel[hidden]{display:none!important}
+.piano-pft-panel{position:absolute;z-index:32;top:43px;left:0;right:0;max-height:min(72vh,640px);overflow-y:auto;padding:15px;border:1px solid rgba(101,207,221,.65);border-radius:12px;background:#091a20;box-shadow:0 16px 42px rgba(0,0,0,.56)}
+.piano-pft-head,.piano-pft-search,.piano-pft-result,.piano-pft-actions{display:flex;align-items:center;gap:10px}
+.piano-pft-head,.piano-pft-result{justify-content:space-between}.piano-pft-head{margin-bottom:12px}.piano-pft-head strong{font-size:15px;color:#b7f4ee}
+.piano-pft-search{margin-bottom:8px}.piano-pft-search [data-pft-input]{flex:1;min-width:0}.piano-pft-search .piano-frontend-search-label,.piano-pft-search [data-pf-search]{width:100%;max-width:none;min-width:0;display:block}
+.piano-pft-panel [data-pft-status]{margin:6px 0 10px;color:#97c9cc;font-size:12px}
+.piano-pft-results{display:grid;gap:6px}.piano-pft-result{padding:9px 10px;border:1px solid #27464d;border-radius:8px;background:#10252b}
+.piano-pft-result-text{min-width:0;display:grid;gap:3px}.piano-pft-result-text strong{overflow-wrap:anywhere}.piano-pft-result-text small{color:#a7c9cb;overflow-wrap:anywhere}
+.piano-pft-actions{flex-shrink:0}.piano-pft-actions button{min-height:31px;padding:5px 8px}
+@media(max-width:620px){.piano-pft-panel{top:36px;max-height:75vh}.piano-pft-result{align-items:stretch;flex-direction:column}.piano-pft-actions button{flex:1}}
