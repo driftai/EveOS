@@ -49,6 +49,7 @@ assert(frontendAppBridge.includes('eveos:piano:target-window:v1'), 'Target Windo
 assert(organizeFrontend.includes("ports.request?.('song:update'"), 'Piano organization must use the acknowledged Backend song owner');
 assert(organizeFrontend.includes('data-piano-suggest="folder"') && suggestionsFrontend.includes("role', 'listbox"), 'taxonomy inputs must use the bounded EveOS suggestion UI');
 assert(fastTrackFrontend.includes("front.getVisibleSongs?.()") && fastTrackFrontend.includes("front.handleAction?.("), 'Fast Track must use scoped library results and Backend playback owner');
+assert(fastTrackFrontend.includes("ports.command?.('queue:add'") && fastTrackFrontend.includes("ports.command?.('queue:remove'"), 'Fast Track queue actions must use the shared Backend queue owner');
 assert(fastTrackFrontend.includes("original.closest('label')") && fastTrackFrontend.includes("nexus.prepend(nexusSearch)"), 'Fast Track reuses the original search field without breaking Nexus Piano Link');
 assert(taxonomyFrontend.includes("raw.replace(/'/g, '\"')"), 'legacy serialized memberships must be normalized instead of rendered as literal brackets');
 assert(organizeFrontend.includes('optimisticAssignments.set') && organizeFrontend.includes("await ports.request?.('song:update', payload)"), 'membership removal must await Backend acceptance and roll back an asynchronous refusal');
@@ -78,6 +79,12 @@ window.__songs = [
   { id: 'one', title: 'Moonlight', artist: 'Composer', sheet: 'abc', source_url:'https://youtu.be/shared123?si=one', identifiers:{personal_rating:4.5,tags:['Calm'],custom:{piano_group:'Study',piano_playback_v1:{route:'internal',layout:'88'}}}, updated_at: Date.now() },
   { id: 'two', title: 'Danger <img src=x onerror=alert(1)>', source_url:'https://www.youtube.com/watch?v=shared123&utm_source=test', identifiers:{tags:['Loud'],custom:{piano_group:'Concert',piano_playback_v1:{route:'target'}}}, performance: [{key:'a'}], updated_at: 200 }
 ];
+window.__queue = { mode:'manual', currentId:'', cursor:0, active:false, items:[] };
+window.PianoPlayerQueue = {
+ getState: () => structuredClone(window.__queue),
+ addSong: song => { const queueId='q-'+(window.__queue.items.length+1);window.__queue.items.push({queueId,songId:song.id,label:song.title});window.__calls.push(['queue:add',song.id]); },
+ removeQueueId: queueId => { window.__queue.items=window.__queue.items.filter(item=>item.queueId!==queueId);window.__calls.push(['queue:remove',queueId]); }
+};
 setupPianoFrontendPort({
  api: { songs: async () => { if(window.__rejectList)throw Error('Transient library failure');return { songs: window.__songs }; }, saveSong: async song => { if(window.__rejectSave)throw Error('Forced backend rejection');const index=window.__songs.findIndex(item=>item.id===song.id);if(index>=0)window.__songs[index]=song;window.__calls.push(['save',song.id,song.identifiers?.custom?.piano_duplicate_keep_v1||'']); } },
  play: async song => { window.__calls.push(['play',song.id]); window.__state = 'playing'; },
@@ -247,6 +254,10 @@ async function syntheticTest(browser, width) {
   await page.locator('.piano-pft-panel [data-pf-search]').fill('Moon');
   await page.waitForFunction(()=>document.querySelectorAll('.piano-pft-result').length===1);
   assert.equal(await page.locator('.piano-frontend-song').count(),1,'Fast Track searches existing song cards');
+  await page.locator('[data-pft-action="queue-add"][data-song-id="one"]').click();
+  await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='queue:add'&&x[1]==='one'));
+  await page.locator('[data-pft-action="queue-remove"][data-song-id="one"]').click();
+  await child.waitForFunction(()=>window.__calls?.some(x=>x[0]==='queue:remove'));
   await page.locator('[data-pft-action="jump"][data-song-id="one"]').click();
   assert.equal(await page.locator('.piano-pft-panel').isHidden(),true,'Jump returns to the existing song card');
   await page.locator('[data-pfo-action="nexus"]').click(); await page.locator('[data-pfo-search]').fill('Moon'); await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===1); assert.equal(await page.locator('.piano-frontend-song').count(),1);

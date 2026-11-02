@@ -3,11 +3,13 @@
   'use strict';
   if (ns.ready || !front?.ready || !ports?.ready) return;
   const LIMIT = 40;
-  let host = null, pane = null, opener = null, search = null, nexusSearch = null;
+  let host = null, pane = null, opener = null, search = null, nexusSearch = null, unsubscribe = null;
   const canvas = () => host?.querySelector('[data-piano-frontend]');
   const panel = () => host?.querySelector('[data-audioflix-piano]');
   const query = selector => canvas()?.querySelector(selector);
   const readable = value => String(value || '').trim();
+  const queueItems = () => ports.snapshot?.().queue?.items || [];
+  const queuedEntries = songId => queueItems().filter(item => String(item.songId) === String(songId));
   function button(label, action, songId = '') {
     const item = document.createElement('button'); item.type = 'button';
     item.dataset.pftAction = action; item.dataset.songId = songId; item.textContent = label;
@@ -46,7 +48,14 @@
       actions.append(button('Jump', 'jump', song.id));
       const play = button('Play', 'play', song.id); play.disabled = !playable;
       play.title = playable ? 'Play using the current Piano Backend' : 'Start Piano and connect playback before playing';
-      actions.append(play, button('Details', 'details', song.id));
+      const queued = queuedEntries(song.id);
+      const add = button('+ Queue', 'queue-add', song.id);
+      add.disabled = !front.bridgeReady?.();
+      add.title = add.disabled ? 'Connect the Piano Backend before changing its queue' : 'Add another copy to the shared Player Queue';
+      const remove = button(queued.length > 1 ? `− Queue (${queued.length})` : '− Queue', 'queue-remove', song.id);
+      remove.disabled = !queued.length || !front.bridgeReady?.();
+      remove.title = queued.length ? 'Remove the most recently added matching queue entry' : 'This song is not queued';
+      actions.append(play, add, remove, button('Details', 'details', song.id));
       row.append(text, actions); results.append(row);
     }
   }
@@ -73,7 +82,12 @@
       return;
     }
     if (!songId || !front.getVisibleSongs?.().some(song => song.id === songId)) return;
-    if (action === 'play') {
+    if (action === 'queue-add') {
+      if (ports.command?.('queue:add', { songId }) !== false) render();
+    } else if (action === 'queue-remove') {
+      const entry = queuedEntries(songId).at(-1);
+      if (entry?.queueId && ports.command?.('queue:remove', { queueId: entry.queueId }) !== false) render();
+    } else if (action === 'play') {
       if (panel()?.dataset.running !== 'true' || front.bridgeReady?.() !== true) return;
       front.handleAction?.({ dataset: { afAction: 'piano-frontend-play', songId } });
       close();
@@ -126,6 +140,8 @@
       search.dispatchEvent(new Event('input', { bubbles: true }));
     });
     search.addEventListener('input', () => { nexusSearch.value = search.value; render(); });
+    unsubscribe?.();
+    unsubscribe = ports.subscribe?.(() => render()) || null;
     toolbar.addEventListener('click', event => {
       const control = event.target.closest?.('[data-pft-action]');
       if (control) { act(control.dataset.pftAction, control.dataset.songId); return; }
