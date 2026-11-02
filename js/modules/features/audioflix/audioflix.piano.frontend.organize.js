@@ -4,6 +4,7 @@
   if (ns.ready || !front?.ready || !ports?.ready || !tax?.ready) return;
   let host = null, signature = '', routeFilter = 'all', previewIds = [];
   const optimisticAssignments = new Map();
+  const mutationVersions = new Map();
   const focus = { group: new Map(), folder: new Map(), classifier: new Map() };
   const FOCUS_KEY = 'evePianoFrontendFocusV1';
   const canvas = () => host?.querySelector('[data-piano-frontend]');
@@ -15,6 +16,7 @@
   const groupsOf = song => assignedGroupsOf(song).length ? assignedGroupsOf(song) : tax.list(tabOf(song));
   const tagsOf = song => assigned(song, 'tags', item => tax.list(item?.identifiers?.tags));
   const classifiers = song => tax.unique([...tax.classifiers(song), ...tagsOf(song)]);
+  function saveNote(node, state, text) { if (!node) return; node.dataset.saveState = state; node.textContent = `${state}: ${text}`; }
   const routeOf = song => {
     const value = custom(song).piano_playback_v1?.route;
     return ['internal','target'].includes(value) ? value : 'inherit';
@@ -152,13 +154,16 @@
     const groups = tax.append(assignedGroupsOf(song), $('[data-pfo-group-input]')?.value);
     const tags = tax.append(tagsOf(song), $('[data-pfo-tag-input]')?.value);
     const prior = { folders: foldersOf(song), groups: assignedGroupsOf(song), tags: tagsOf(song) };
+    const version = (mutationVersions.get(String(song.id)) || 0) + 1; mutationVersions.set(String(song.id), version);
     optimisticAssignments.set(String(song.id), { folders, groups, tags });
     fillEditor();
     const note = $('[data-pfo-note]');
-    if (note) note.textContent = 'Saving through the Piano Backend…';
+    saveNote(note, 'Saving', 'waiting for the Piano Backend acknowledgment…');
     const result = await ports.request?.('song:update', { songId: song.id, folders, groups, tags });
+    if (mutationVersions.get(String(song.id)) !== version) return;
     if (!result?.ok) optimisticAssignments.set(String(song.id), prior);
-    if (note) note.textContent = result?.ok ? 'Saved by the Piano Backend.' : (result?.error || 'Backend is not ready.');
+    saveNote(note, result?.ok ? 'Saved' : result?.stale ? 'Offline' : 'Failed', result?.ok ? 'confirmed by the Piano Backend.'
+      : result?.stale ? 'save cancelled because the Piano connection changed.' : (result?.error || 'Backend is not ready.'));
     fillEditor(); refreshNavigation(front.getSongs?.() || []); front.repaint?.();
   }
   async function removeAssignment(kind, value) {
@@ -166,12 +171,17 @@
     const payload = { songId: song.id, folders: foldersOf(song), groups: assignedGroupsOf(song), tags: tagsOf(song) };
     const key = ({ folder: 'folders', group: 'groups', tag: 'tags' })[kind]; if (!key) return;
     payload[key] = tax.remove(payload[key], value);
+    const prior = { folders: foldersOf(song), groups: assignedGroupsOf(song), tags: tagsOf(song) };
+    const version = (mutationVersions.get(String(song.id)) || 0) + 1; mutationVersions.set(String(song.id), version);
     const next = { folders: payload.folders, groups: payload.groups, tags: payload.tags };
     optimisticAssignments.set(String(song.id), next);
     fillEditor(); refreshNavigation(front.getSongs?.() || []); front.repaint?.();
+    const note = $('[data-pfo-note]'); saveNote(note, 'Saving', 'waiting for the Piano Backend acknowledgment…');
     const result = await ports.request?.('song:update', payload);
-    if (!result?.ok) { optimisticAssignments.delete(String(song.id)); fillEditor(); refreshNavigation(front.getSongs?.() || []); front.repaint?.(); }
-    const note = $('[data-pfo-note]'); if (note) note.textContent = result?.ok ? 'Saved by the Piano Backend.' : (result?.error || 'Backend is not ready.');
+    if (mutationVersions.get(String(song.id)) !== version) return;
+    if (!result?.ok) { optimisticAssignments.set(String(song.id), prior); fillEditor(); refreshNavigation(front.getSongs?.() || []); front.repaint?.(); }
+    saveNote(note, result?.ok ? 'Saved' : result?.stale ? 'Offline' : 'Failed', result?.ok ? 'confirmed by the Piano Backend.'
+      : result?.stale ? 'save cancelled because the Piano connection changed.' : (result?.error || 'Backend is not ready.'));
   }
   function search(value) {
     const primary = $('[data-pf-search]'), linked = $('[data-pfo-search]');
@@ -293,7 +303,7 @@
     <div class="piano-pfo-search" data-pfo-search-panel id="pfo-nexus-search" hidden><input data-pfo-search type="search" placeholder="Search Piano songs" aria-label="Nexus Piano Link search"><button type="button" data-pfo-action="search">Search</button></div>
     <div class="piano-pfo-drawer" data-pfo-classifier-panel id="pfo-classifiers" hidden><strong>Classifiers</strong><div data-pfo-classifiers></div></div>
     <div class="piano-pfo-drawer" data-pfo-group-panel id="pfo-groups" hidden><strong>Groups &amp; queue</strong><div data-pfo-groups></div><div class="piano-pfo-route"><span>Playback route</span><label><select data-pfo-route-filter><option value="all">All routes</option><option value="inherit">Inherited defaults</option><option value="internal">Internal Piano</option><option value="target">Target window</option></select><small>Limit the reviewed queue set by its Backend-owned playback route.</small></label></div><button type="button" data-pfo-action="queue-preview">Preview filtered queue</button><span data-pfo-queue-note></span><div class="piano-pfo-queue-preview" data-pfo-queue-preview hidden><strong>Queue candidates</strong><ol data-pfo-queue-candidates></ol><button type="button" data-pfo-action="queue-confirm">Add these songs</button><button type="button" data-pfo-action="queue-cancel">Cancel</button></div></div>
-    <div class="piano-pfo-manager" data-pfo-manager id="pfo-edit-folders" hidden><label>Song<select data-pfo-song></select></label><label>Folder<input data-pfo-folder-input data-piano-suggest="folder" maxlength="80" placeholder="Add folder"></label><label>Group<input data-pfo-group-input data-piano-suggest="group" maxlength="80" placeholder="Add group"></label><label>Tag<input data-pfo-tag-input data-piano-suggest="tag" maxlength="80" placeholder="Add tag"></label><div><button type="button" data-pfo-action="save">Apply additions</button><button type="button" data-pfo-action="clear">Clear fields</button></div><div class="piano-pfo-current"><strong>Current assignments</strong><span>Folders</span><div data-pfo-current-folders></div><span>Groups</span><div data-pfo-current-groups></div><span>Tags</span><div data-pfo-current-tags></div></div><span data-pfo-note>Saved by the Piano Backend.</span></div>`;
+    <div class="piano-pfo-manager" data-pfo-manager id="pfo-edit-folders" hidden><label>Song<select data-pfo-song></select></label><label>Folder<input data-pfo-folder-input data-piano-suggest="folder" maxlength="80" placeholder="Add folder"></label><label>Group<input data-pfo-group-input data-piano-suggest="group" maxlength="80" placeholder="Add group"></label><label>Tag<input data-pfo-tag-input data-piano-suggest="tag" maxlength="80" placeholder="Add tag"></label><div><button type="button" data-pfo-action="save">Apply additions</button><button type="button" data-pfo-action="clear">Clear fields</button></div><div class="piano-pfo-current"><strong>Current assignments</strong><span>Folders</span><div data-pfo-current-folders></div><span>Groups</span><div data-pfo-current-groups></div><span>Tags</span><div data-pfo-current-tags></div></div><span data-pfo-note data-save-state="Saved">Saved: confirmed by the Piano Backend.</span></div>`;
     library.prepend(toolbar);
     // Keep live port/media controls mounted until the user opens their destination drawer.
     const c = canvas(), player = toolbar.querySelector('[data-pfo-player-panel]');

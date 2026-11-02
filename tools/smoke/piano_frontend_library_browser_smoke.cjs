@@ -36,10 +36,11 @@ assert(port.includes('pulseReady();'), 'bridge must briefly reannounce readiness
 assert(port.includes('event.source !== parent'), 'bridge must pin commands to the actual embedding parent');
 assert(port.includes("data?.type === 'eveos:audioflix-context'"), 'bridge must reannounce after host context');
 assert(frontend.includes("directJson('/api/songs')"), 'frontend must have direct library fallback');
-assert(frontend.includes('saveOfflinePreview(songs)') && frontend.includes('if (!list.length) return'), 'backend sync must preserve the last non-empty offline recovery projection');
+assert(frontend.includes('saveOfflinePreview(songs, { authoritative: options.authoritative === true })')
+  && frontend.includes('if (!list.length && !authoritative) return'), 'only a verified authoritative empty library may replace the offline recovery projection');
 assert(frontend.includes("IDBStore?.set?.(OFFLINE_IDB_KEY") && frontend.includes("IDBStore?.get?.(OFFLINE_IDB_KEY"), 'offline Piano library must use the durable IndexedDB projection');
 assert(!frontend.includes('importOfflinePreview') && !frontend.includes('data-pf-offline-file'), 'do not expose a manual songs.json import path');
-assert(frontend.includes('if (!bridgeReady) applyLibrary'), 'direct fallback must not overwrite bridge-owned library');
+assert(frontend.includes('if (!bridgeReady && requestId === latestListId) applyLibrary'), 'direct fallback must not overwrite a newer bridge-owned library');
 assert(css.includes('> .audioflix-piano-header { display: none; }'), 'frontend must keep technical lifecycle controls in Backend');
 assert(!presentationPorts.includes('Backend Player Queue'), 'frontend copy must not expose Backend wiring');
 assert(frontendAppBridge.includes('eveos:piano:internal-play:v1'), 'Internal Play must have a durable Backend preference');
@@ -48,7 +49,9 @@ assert(organizeFrontend.includes("ports.request?.('song:update'"), 'Piano organi
 assert(organizeFrontend.includes('data-piano-suggest="folder"') && suggestionsFrontend.includes("role', 'listbox"), 'taxonomy inputs must use the bounded EveOS suggestion UI');
 assert(taxonomyFrontend.includes("raw.replace(/'/g, '\"')"), 'legacy serialized memberships must be normalized instead of rendered as literal brackets');
 assert(organizeFrontend.includes('optimisticAssignments.set') && organizeFrontend.includes("await ports.request?.('song:update', payload)"), 'membership removal must await Backend acceptance and roll back an asynchronous refusal');
-assert(presentationPorts.includes('send(action, fields) !== false, request') && settingsFrontend.includes('Saved by the Piano Backend.'), 'Piano saves must settle from an authoritative Backend response');
+assert(presentationPorts.includes('send(action, fields) !== false, request') && presentationPorts.includes('settlePending')
+  && organizeFrontend.includes("'Saving'") && organizeFrontend.includes("'Saved'") && organizeFrontend.includes("'Failed'")
+  && organizeFrontend.includes("'Offline'"), 'Piano saves must expose the full authoritative Backend lifecycle');
 assert(settingsFrontend.includes('data-piano-suggest="title"') && settingsFrontend.includes('data-piano-suggest="artist"'), 'title and artist editors must use library-backed suggestions');
 assert(mediaFrontend.includes("data-piano-suggest','title'") && organizeFrontend.includes("setAttribute('data-piano-suggest', 'tag')"), 'listener metadata and advanced tag filtering must share the same library-backed suggestion UI');
 assert(mediaFrontend.includes("ports.command?.('song:update'"), 'listener metadata must use the shared Backend port');
@@ -73,7 +76,7 @@ window.__songs = [
   { id: 'two', title: 'Danger <img src=x onerror=alert(1)>', source_url:'https://www.youtube.com/watch?v=shared123&utm_source=test', identifiers:{tags:['Loud'],custom:{piano_group:'Concert',piano_playback_v1:{route:'target'}}}, performance: [{key:'a'}], updated_at: 200 }
 ];
 setupPianoFrontendPort({
- api: { songs: async () => ({ songs: window.__songs }), saveSong: async song => { if(window.__rejectSave)throw Error('Forced backend rejection');const index=window.__songs.findIndex(item=>item.id===song.id);if(index>=0)window.__songs[index]=song;window.__calls.push(['save',song.id,song.identifiers?.custom?.piano_duplicate_keep_v1||'']); } },
+ api: { songs: async () => { if(window.__rejectList)throw Error('Transient library failure');return { songs: window.__songs }; }, saveSong: async song => { if(window.__rejectSave)throw Error('Forced backend rejection');const index=window.__songs.findIndex(item=>item.id===song.id);if(index>=0)window.__songs[index]=song;window.__calls.push(['save',song.id,song.identifiers?.custom?.piano_duplicate_keep_v1||'']); } },
  play: async song => { window.__calls.push(['play',song.id]); window.__state = 'playing'; },
  pause: async () => { window.__calls.push(['pause']); window.__state = 'paused'; },
  stop: async () => { window.__calls.push(['stop']); window.__state = 'idle'; },
@@ -213,7 +216,7 @@ async function syntheticTest(browser, width) {
    assert.deepEqual(organized.custom.piano_groups_v1,['Study','Favorites'],'legacy and new groups migrate without replacement');
    assert.deepEqual(organized.tags,['Calm'],'tag additions preserve existing metadata without duplication');
    assert.equal(await page.locator('[data-pfo-folder-input]').inputValue(),'','successful Apply clears the addition fields');
-    await page.waitForFunction(()=>document.querySelector('[data-pfo-note]')?.textContent==='Saved by the Piano Backend.');
+     await page.waitForFunction(()=>document.querySelector('[data-pfo-note]')?.textContent==='Saved: confirmed by the Piano Backend.');
     await child.evaluate(()=>{window.__rejectSave=true;});
     await page.locator('[data-pfo-current-folders] .piano-pfo-assignment').filter({hasText:'Practice'}).click();
     await page.waitForFunction(()=>document.querySelector('[data-pfo-note]')?.textContent?.includes('Forced backend rejection'));
@@ -253,23 +256,24 @@ async function syntheticTest(browser, width) {
   assert.equal(await page.locator('[data-piano-frontend]').isHidden(),true,'Backend Refresh must update the shared Frontend while that view remains hidden');
   await page.click('[data-piano-view-switch]');
   assert((await page.locator('.piano-frontend-song-info strong').allTextContents()).includes('Backend Refresh Song'),'Backend Refresh must invalidate and update the shared Frontend library');
-  await child.evaluate(()=>{window.__songs=[];});
+  await child.evaluate(()=>{window.__rejectList=true;});
+  await page.click('[data-af-action="piano-frontend-refresh"]');
+  assert.equal((await page.evaluate(()=>JSON.parse(localStorage.getItem('eveos:piano:library-preview:v1'))))?.songs?.length,4,'transient empty sync cannot erase the last usable offline library');
+  await child.evaluate(()=>{window.__rejectList=false;window.__songs=[];});
   await page.click('[data-af-action="piano-frontend-refresh"]');
   await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===0);
-  assert.equal((await page.evaluate(()=>JSON.parse(localStorage.getItem('eveos:piano:library-preview:v1'))))?.songs?.length,4,'transient empty sync cannot erase the last usable offline library');
+  assert.equal((await page.evaluate(()=>JSON.parse(localStorage.getItem('eveos:piano:library-preview:v1'))))?.songs?.length,0,'verified authoritative empty library replaces stale offline recovery data');
   await page.evaluate(()=>{window.EveAudioflixPiano.state.running=false;window.EveAudioflixPiano.state.phase='stopped';window.EveAudioflixPiano.state.url='';window.dispatchEvent(new Event('eve:audioflix-piano-status'));});
   await page.waitForFunction(()=>document.querySelector('[data-pf-playback]')?.textContent==='Piano offline');
-   await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===4);
-   assert.equal(await page.locator('.piano-frontend-song').count(),4,'offline mode retains last-synced song cards as a read-only preview');
+   await page.waitForFunction(()=>document.querySelectorAll('.piano-frontend-song').length===0);
+   assert.equal(await page.locator('.piano-frontend-song').count(),0,'offline mode retains the authoritative empty library instead of resurrecting deleted songs');
    assert.equal(await page.locator('.piano-frontend-song-play:not(:disabled)').count(),0,'offline song cards cannot start playback');
    assert((await page.locator('[data-pf-message]').textContent()).includes('Offline library preview'), 'offline preview is explicitly labeled as stale');
    const cached=await page.evaluate(()=>JSON.parse(localStorage.getItem('eveos:piano:library-preview:v1')));
-   assert.equal(cached?.songs?.length,4,'live library is persisted as a bounded offline projection');
-   assert(!('sheet' in cached.songs[0]) && !('performance' in cached.songs[0]), 'offline snapshot excludes raw sheet and performance data');
+   assert.equal(cached?.songs?.length,0,'authoritative empty library is durably persisted');
    assert.equal(await page.locator('[data-pf-offline-import],[data-pf-offline-file]').count(),0,'No manual library-file picker is exposed');
-   assert((await page.locator('.piano-frontend-song-info strong').allTextContents()).includes('Backend Refresh Song'), 'Offline view preserves songs synced from the real backend');
    await page.evaluate(()=>window.EveAudioflixPianoFrontend.sync());
-   assert.equal(await page.locator('.piano-frontend-song').count(),4,'Repeated offline synchronization must preserve the stored backend projection');
+   assert.equal(await page.locator('.piano-frontend-song').count(),0,'Repeated offline synchronization must preserve the authoritative empty projection');
    assert.equal(await page.locator('.piano-frontend-song-play:not(:disabled)').count(),0,'Offline cache remains read-only on repeat synchronization');
   assert.equal(await page.locator('[data-pf-service-start]').isVisible(),true,'frontend must offer a friendly service start action when offline');
   await page.evaluate(()=>{window.EveAudioflixPiano.start=async()=>{window.__frontStartRequested=true;};});

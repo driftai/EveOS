@@ -153,6 +153,7 @@
     return id;
   }
   const request = (action, fields = {}) => new Promise(resolve => { const id = send(action, fields); if (id === false) resolve({ ok: false, error: 'Backend is not ready.' }); else pending.get(id).resolve = resolve; });
+  function settlePending(reason = 'Piano controls reloaded before the Backend acknowledged this request.') { for (const entry of pending.values()) entry.resolve?.({ ok: false, stale: true, error: reason }); pending.clear(); }
   function note(message) { const node = $('[data-pxp-notice]'); if (node) node.textContent = message; }
   function publish() {
     front.syncControls?.(); front.syncPlayback?.();
@@ -270,10 +271,9 @@
     const input = c.querySelector('[data-pxp-event-input]'); if (input) { input.max=String(Math.max(1,total)); if(document.activeElement!==input)input.value=String(current||1); input.disabled=!active()||!total; }
     c.querySelectorAll('[data-pxp-event-seek]').forEach(button=>{button.disabled=!active()||!total;});
   }
-  function invalidate() {
-    controls = null; queue = null; progress = null; media = null;
-    membershipSignature = ''; queueRenderSignature = ''; draggedQueueId = ''; lastRead = 0;
-    pending.clear(); updateControls(); updateQueue(); updateEventProgress(); publish();
+  function invalidate(reason) {
+    controls = null; queue = null; progress = null; media = null; membershipSignature = ''; queueRenderSignature = ''; draggedQueueId = ''; lastRead = 0;
+    settlePending(reason); updateControls(); updateQueue(); updateEventProgress(); publish();
   }
   function refresh(force = false) {
     const src = frame()?.getAttribute('src') || '';
@@ -433,7 +433,7 @@
   Object.assign(ports,{
     ready:true,ensureFilters,matches,sortSongs,
     decorateSongs(target, visible, all) { decorateSongs(target, visible, all); window.EveAudioflixPianoFrontendMedia?.decorateSongs?.(target, visible, all); },
-    command: (action, fields) => send(action, fields) !== false, request, invalidate,
+    command: (action, fields) => send(action, fields) !== false, request, invalidate, settlePending,
     snapshot: () => ({ controls, queue, progress, media }),
     subscribe(listener) { if (typeof listener !== 'function') return () => {}; subscribers.add(listener); listener({ controls, queue, progress, media }); return () => subscribers.delete(listener); }
   });

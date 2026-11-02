@@ -20,6 +20,7 @@
     const OFFLINE_IDB_KEY = 'eveos_piano_library_preview_v1';
     let offlineSnapshot = false;
     let offlineReadGeneration = 0;
+    let latestListId = 0;
     function previewRecord(song) {
         const id = song.identifiers || {}, custom = id.custom || {}, automatic = song.automatic_identifiers || {};
         return { id: song.id, title: song.title, artist: song.artist, kind: song.kind,
@@ -37,18 +38,18 @@
                 event_count: automatic.event_count, duration_ms: automatic.duration_ms,
                 conversion_rating: automatic.conversion_rating } };
     }
-    function saveOfflinePreview(items) {
+    function saveOfflinePreview(items, { authoritative = false } = {}) {
         try {
             const list = items.slice(0, 5000).map(previewRecord);
-            if (!list.length) return; // Never replace a usable recovery projection with a transient empty sync.
-            const record = { version: 1, savedAt: Date.now(), songs: list };
+            if (!list.length && !authoritative) return; // A transient empty/read failure cannot erase recovery data.
+            const record = { version: 2, savedAt: Date.now(), authoritative: true, songs: list };
             void Promise.resolve(window.IDBStore?.set?.(OFFLINE_IDB_KEY, record)).catch(() => false);
             const payload = JSON.stringify(record);
             if (payload.length <= 3000000) localStorage.setItem(OFFLINE_KEY, payload);
         } catch (_) { /* Blocked or full browser storage never breaks live playback. */ }
     }
     function validOfflinePreview(saved) {
-        if (saved?.version !== 1 || !Array.isArray(saved.songs) || saved.songs.length > 5000 ||
+        if (![1, 2].includes(saved?.version) || !Array.isArray(saved.songs) || saved.songs.length > 5000 ||
             !Number.isFinite(saved.savedAt) || saved.savedAt <= 0) return null;
         return { savedAt: saved.savedAt, songs: normalizeSongs(saved.songs) };
     }
@@ -112,12 +113,12 @@
             automatic_identifiers: song.automatic_identifiers && typeof song.automatic_identifiers === 'object' ? song.automatic_identifiers : {}
         }));
     }
-    function applyLibrary(items, source = 'bridge') {
+    function applyLibrary(items, source = 'bridge', options = {}) {
         offlineReadGeneration += 1;
         songs = normalizeSongs(items);
         offlineSnapshot = false;
         libraryReady = true;
-        saveOfflinePreview(songs);
+        saveOfflinePreview(songs, { authoritative: options.authoritative === true });
         if (!bridgeReady && source === 'direct') message = songs.length
             ? 'Library loaded. Connecting playback controls…'
             : 'Library is empty. Add songs from Backend tools.';
@@ -130,6 +131,7 @@
         const to = origin();
         if (!isRunning() || !target || !to) return false;
         const id = ++seq;
+        if (action === 'list') latestListId = id;
         pending.set(id, action);
         setTimeout(() => {
             if (!pending.has(id)) return;
@@ -236,20 +238,21 @@
         updateSongTransportButtons();
     }
     function reset() {
-        pending.clear(); bridgeReady = false; lastLibrary = lastStatus = 0; busy = ''; state = 'idle';
+        pending.clear(); latestListId = ++seq; bridgeReady = false; lastLibrary = lastStatus = 0; busy = ''; state = 'idle';
         void showOfflinePreview();
         if (isRunning()) message = offlineSnapshot ? 'Connecting to Piano — showing last synced library preview.' : 'Connecting to Piano library…';
         displayStatus(); displaySongs();
     }
     function invalidate(messageText = 'Refreshing Piano library…') {
-        pending.clear(); bridgeReady = false; lastLibrary = lastStatus = 0; busy = '';
+        pending.clear(); latestListId = ++seq; bridgeReady = false; lastLibrary = lastStatus = 0; busy = '';
         if (isRunning()) message = messageText;
         displayStatus(); displaySongs();
     }
     async function loadLibraryDirect() {
+        const requestId = latestListId;
         try {
             const data = await directJson('/api/songs');
-            if (!bridgeReady) applyLibrary(data.songs, 'direct');
+            if (!bridgeReady && requestId === latestListId) applyLibrary(data.songs, 'direct', { authoritative: data.authoritative === true });
         } catch (_) {
             if (!libraryReady && !bridgeReady) { message = 'Connecting to Piano library…'; displayStatus(); }
         }
@@ -341,7 +344,8 @@
         const action = pending.get(data.id); if (!action) return;
         pending.delete(data.id); bridgeReady = true;
         if (data.error) { if (busy === action) busy = ''; message = String(data.error).slice(0, 180); }
-        else if (action === 'list' && Array.isArray(data.songs)) applyLibrary(data.songs, 'bridge');
+        else if (action === 'list' && data.id === latestListId && Array.isArray(data.songs))
+            applyLibrary(data.songs, 'bridge', { authoritative: data.authoritative === true });
         else if (action === 'status') state = String(data.status || 'idle');
         else if (busy === action) { busy = ''; message = action === 'play' ? 'Song sent to Piano player.' : 'Playback command completed.'; lastStatus = 0; }
         displayStatus();
