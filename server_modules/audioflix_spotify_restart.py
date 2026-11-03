@@ -6,6 +6,7 @@ objects that actually own playback, so Local Control never creates a second Spot
 from __future__ import annotations
 
 from server_modules import audioflix_spotify_broker as broker
+from server_modules import audioflix_spotify_broker_capture as capture_control
 from server_modules import audioflix_spotify_browser_rpc as engine
 
 
@@ -62,6 +63,11 @@ def prepare_restart(payload: dict | None = None) -> dict:
                     "presentation": presentation,
                 }
 
+        # Retire managed PCM capture while the owner can still release it; a transport stop resets
+        # playback only, and a stranded capture lease would block Direct Embed after the restart.
+        capture_stop = (capture_control.retire_for_engine_stop() if helper_reachable
+                        else {"ok": True, "skipped": True, "reason": "Managed Spotify helper was not reachable."})
+
         with owned._lock:
             previous_owner = owned._owner_client_id
             owned._owner_client_id = ""
@@ -80,6 +86,7 @@ def prepare_restart(payload: dict | None = None) -> dict:
                 "presentation": presentation,
                 "previousOwner": bool(previous_owner),
                 "stopTransition": transition,
+                "captureStop": capture_stop,
             }
 
         return {
@@ -93,6 +100,7 @@ def prepare_restart(payload: dict | None = None) -> dict:
             "desiredVolume": desired_volume,
             "previousOwner": bool(previous_owner),
             "stopTransition": transition,
+            "captureStop": capture_stop,
             "helperStop": stopped,
             "autoplayRequested": False,
             "endedManufactured": False,

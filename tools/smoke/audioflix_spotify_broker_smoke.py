@@ -406,6 +406,26 @@ try:
 finally:
     mod.engine.stop_provider_capture = capture_stop
 
+
+# Web-restart teardown (selective EveOS update) retires managed capture the same way.
+from server_modules import audioflix_spotify_restart as restart_mod  # noqa: E402
+
+singleton = mod._broker
+mod._broker = broker
+mod.engine.stop_provider_capture = fake_capture_stop
+try:
+    restart_owner = broker.connect(file_connect, context)
+    assert command(restart_owner, "play", {"spotifyId": "4cOdK2wGLETKBW3PvgPWqT"})["ok"]
+    mark = len(fake.calls)
+    prepared = restart_mod.prepare_restart({})
+    names = [call[0] for call in fake.calls[mark:]]
+    assert prepared["ok"] and prepared["captureStop"]["ok"], prepared
+    assert names.index("capture-stop") < names.index("engine-stop"), names
+    assert broker._owner_client_id == "" and prepared["autoplayRequested"] is False
+finally:
+    mod.engine.stop_provider_capture = capture_stop
+    mod._broker = singleton
+
 # Run the actual broker/RPC/manager read path in isolation from this file's fake engine.
 import subprocess
 for script in ("audioflix_spotify_status_reads_smoke.py", "audioflix_spotify_volume_fence_smoke.py"):
