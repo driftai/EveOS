@@ -6,7 +6,10 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const policy = require('../policy');
-const { createBridge, MAX_PENDING } = require('../bridge');
+const { createBridge, readInstallCredential, MAX_PENDING } = require('../bridge');
+const { load, loopbackBridge } = require('../config');
+const fs = require('node:fs');
+const os = require('node:os');
 
 const page = (name, q = '') => pathToFileURL(path.join(policy.PAGES_DIR, name)).href + q;
 
@@ -37,6 +40,38 @@ test('diagnostics redact auth-bearing parameters', () => {
   assert.equal(policy.redact('https://accounts.spotify.com/authorize?code=SECRET&state=S#t=1'),
     'https://accounts.spotify.com/authorize [params redacted]');
   assert.ok(!policy.redact(page('tone.html', '?hz=440')).includes('/workspace'));
+});
+
+
+test('Windows CRLF and Linux LF credential envelope accepted; malformed or short rejected', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eveos-spike-credential-'));
+  const file = path.join(root, 'data', 'runtime', 'audioflix-provider-file-auth.js');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  try {
+    const key = 'k'.repeat(64);
+    for (const ending of [';\\n', ';\\r\\n']) {
+      fs.writeFileSync(file, 'window.__EveOSProviderFileAuth = ' + JSON.stringify(key) + ending.replace(/\\r/g, '\r').replace(/\\n/g, '\n'));
+      assert.equal(readInstallCredential(root), key);
+    }
+    for (const bad of ['window.__EveOSProviderFileAuth = "short";\\r\\n',
+      'window.__EveOSProviderFileAuth = "x"; alert(1);\\r\\n',
+      'window.__EveOSProviderFileAuth = 3;\\r\\n']) {
+      fs.writeFileSync(file, bad.replace(/\\r/g, '\r').replace(/\\n/g, '\n'));
+      assert.throws(() => readInstallCredential(root), /credential is invalid/);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('install credential destination must be an explicit loopback HTTP origin', () => {
+  assert.equal(loopbackBridge('http://127.0.0.1:3000'), 'http://127.0.0.1:3000');
+  assert.equal(loopbackBridge('http://localhost:8765/'), 'http://localhost:8765');
+  for (const bad of ['http://0.0.0.0:3000','http://192.168.0.2:3000','http://evil.example:3000',
+    'https://127.0.0.1:3000','http://127.0.0.1:3000/redirect',
+    'http://127.0.0.1:3000/?token=foo','http://evil@127.0.0.1:3000',
+    'http://127.0.0.1','not-a-url']) {
+    assert.throws(() => loopbackBridge(bad), /--bridge/, bad);
+    assert.throws(() => load(['.', '--bridge='+bad]), /--bridge/, bad);
+  }
 });
 
 function harness({ startDelay = 0, chunkDelay = 5, startError = null } = {}) {

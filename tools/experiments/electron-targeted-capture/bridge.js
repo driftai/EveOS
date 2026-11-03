@@ -18,8 +18,14 @@ const FILE_AUTH_PREFIX = 'window.__EveOSProviderFileAuth = ';
 
 function readInstallCredential(eveosRoot) {
   const raw = fs.readFileSync(path.join(eveosRoot, 'data', 'runtime', 'audioflix-provider-file-auth.js'), 'utf8');
-  if (!raw.startsWith(FILE_AUTH_PREFIX) || !raw.endsWith(';\n')) throw new Error('EveOS provider credential is invalid');
-  return JSON.parse(raw.slice(FILE_AUTH_PREFIX.length, -2));
+  // Python's text-mode writer uses CRLF on Windows and LF elsewhere. Do not weaken
+  // the envelope or accept arbitrary JavaScript: this is a single JSON string assignment.
+  const match = /^window\.__EveOSProviderFileAuth = (".*");\r?\n$/.exec(raw);
+  if (!match) throw new Error('EveOS provider credential is invalid');
+  let key;
+  try { key = JSON.parse(match[1]); } catch { throw new Error('EveOS provider credential is invalid'); }
+  if (typeof key !== 'string' || key.length < 40) throw new Error('EveOS provider credential is invalid');
+  return key;
 }
 
 function createBridge({ cfg, note, fetchImpl = globalThis.fetch, readKey = readInstallCredential }) {
@@ -30,7 +36,7 @@ function createBridge({ cfg, note, fetchImpl = globalThis.fetch, readKey = readI
 
   async function post(route, body, extraHeaders = {}) {
     const res = await fetchImpl(`${cfg.bridge}/api/audioflix/provider-capture/${route}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...extraHeaders },
+      method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json', ...extraHeaders },
       body: JSON.stringify(body), signal: AbortSignal.timeout(1500) });
     const json = await res.json().catch(() => ({ ok: false, message: `HTTP ${res.status}` }));
     if (!json || json.ok !== true) throw new Error(String(json?.message || `HTTP ${res.status}`));

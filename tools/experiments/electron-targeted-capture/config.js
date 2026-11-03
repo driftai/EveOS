@@ -11,6 +11,16 @@ function parseArgs(argv) {
   return out;
 }
 
+function loopbackBridge(raw) {
+  let u;
+  try { u = new URL(raw); } catch { throw new Error('--bridge must be an explicit localhost HTTP URL.'); }
+  if (u.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname)
+      || !u.port || u.username || u.password || u.search || u.hash || u.pathname !== '/') {
+    throw new Error('--bridge must be an explicit localhost HTTP URL with no credentials, path or query.');
+  }
+  return u.origin;
+}
+
 function load(argv = process.argv.slice(1)) {
   const a = parseArgs(argv);
   const source = a.source === 'spotify' ? 'spotify' : 'tone';
@@ -25,7 +35,7 @@ function load(argv = process.argv.slice(1)) {
     // Every byte the spike writes (Electron userData, JSON reports) lives here and nowhere else.
     // Defaults inside this experiment folder (gitignored). No audio is ever written.
     dataDir: path.resolve(String(a['data-dir'] || path.join(__dirname, '.run'))),
-    bridge: String(a.bridge || 'http://127.0.0.1:3000').replace(/\/+$/, ''),
+    bridge: loopbackBridge(String(a.bridge || 'http://127.0.0.1:3000')),
     // EveOS checkout whose data/runtime holds the install-local provider credential (read by main only).
     eveosRoot: path.resolve(String(a['eveos-root'] || path.join(__dirname, '..', '..', '..'))),
     deviceId: String(a['device-id'] || ''),          // e.g. sd:7 (CABLE Input). Empty = capture only, no forwarding.
@@ -36,4 +46,4 @@ function load(argv = process.argv.slice(1)) {
   };
 }
 
-module.exports = { load };
+module.exports = { load, loopbackBridge };

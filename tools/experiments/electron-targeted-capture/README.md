@@ -59,6 +59,9 @@ the authenticated provider-capture session API on its own **`electron-capture`**
   webview locks, recursively (`did-create-window`).
 - Diagnostics redact query strings and fragments (Spotify login codes/state) and local paths.
 - The bridge URL, session token and install credential never reach a renderer.
+- `--bridge` accepts only a localhost HTTP origin with an explicit port; redirects are rejected before
+  credential-bearing requests can follow them to another host. Reports redact Spotify URL parameters,
+  and omit the local data and checkout paths. Credential envelopes accept LF/CRLF while retaining strict JSON validation.
 - The source session allows only `fullscreen` and `mediaKeySystem` (licensed playback). Stock Electron
   ships **no Widevine CDM**, so DRM full tracks may not play. Report that as a finding. Do not work around it.
 

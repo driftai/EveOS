@@ -13,7 +13,10 @@ app.setPath('userData', path.join(cfg.dataDir, 'userData'));
 app.setPath('sessionData', path.join(cfg.dataDir, 'userData'));
 
 const report = { electron: process.versions.electron, chrome: process.versions.chrome, platform: process.platform,
-  arch: process.arch, cfg: { ...cfg }, startedAt: new Date().toISOString(), events: [] };
+  arch: process.arch, cfg: { source: cfg.source, spotifyUrl: policy.redact(cfg.spotifyUrl),
+    bridge: cfg.bridge, deviceId: cfg.deviceId, decoy: cfg.decoy, localEcho: cfg.localEcho,
+    persistSpotify: cfg.persistSpotify, showSource: cfg.showSource },
+  startedAt: new Date().toISOString(), events: [] };
 const note = (type, detail = {}) => { const e = { t: Date.now(), type, ...detail }; report.events.push(e); console.log('[spike]', type, JSON.stringify(detail)); };
 const bridge = createBridge({ cfg, note });
 report.owner = { ownerId: bridge.ownerId, lane: bridge.lane };
