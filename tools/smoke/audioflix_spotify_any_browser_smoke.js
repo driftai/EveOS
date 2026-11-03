@@ -414,14 +414,12 @@ function evidence(error) {
         assert.equal(await runB, false);
         remote.send = realSend;
     }
-
     await window.EveAudioflixAudio.stopAll();
     remote.connect = async () => { throw new Error('relay offline'); };
     remote.snapshot = () => ({ connected: false, status: 'unavailable', approvalRequired: false, relayReady: false, lastState: null });
     const fallbackBefore = originalPlayCount;
     await window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-fallback' });
     assert.equal(originalPlayCount, fallbackBefore + 1, 'an absent/unreachable relay falls back to the existing official Spotify embed');
-
     remote.connect = async () => { throw new Error('relay answered, command failed'); };
     remote.snapshot = () => ({ connected: false, status: 'unavailable', approvalRequired: false, relayReady: true, lastState: null });
     const failClosedBefore = originalPlayCount;
@@ -430,12 +428,10 @@ function evidence(error) {
         /relay answered, command failed/
     );
     assert.equal(originalPlayCount, failClosedBefore, 'after a trusted relay handshake an ambiguous failure does not start a second local embed');
-
     const local = { id: 'local-1', url: 'https://example.com/audio.mp3', sourceProvider: 'direct' };
     const localBefore = originalPlayCount;
     await window.EveAudioflixAudio.playItem(local);
     assert.equal(originalPlayCount, localBefore + 1, 'non-Spotify playback remains on the existing local/browser path');
-
     assert.ok(dispatched.some((event) => event.type === 'eve:audioflix-progress'), 'remote Spotify state feeds the existing public Audioflix progress channel');
     phase = 'complete'; evidence(); console.log('AUDIOFLIX_SPOTIFY_ANY_BROWSER_SMOKE_OK');
 })().catch((error) => {
