@@ -6,7 +6,7 @@ window.EveAudioflixNativeProviderCapture = window.EveAudioflixNativeProviderCapt
 
     const PCM_TIMEOUT_MS = 900;
     const isFile = () => window.location?.protocol === 'file:';
-    const FILE_CREDENTIAL = 'data/runtime/audioflix-provider-file-auth.js?v=cbee10c9b75e';
+    const FILE_CREDENTIAL = 'data/runtime/audioflix-provider-file-auth.js?v=e47c5f84f2fe';
     let credentialTask = null;
     function localBase() {
         const state = window.EveAudioflixState?.ensure?.() || {};

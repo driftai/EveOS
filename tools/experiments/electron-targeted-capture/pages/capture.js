@@ -59,11 +59,11 @@ async function start() {
   } catch (err) { window.spike.event({ type: 'getDisplayMedia-failed', error: String(err) }); return log(`getDisplayMedia FAILED: ${err}`); }
   stream.getVideoTracks().forEach((t) => t.stop());   // audio only is needed
   const track = stream.getAudioTracks()[0];
+  if (!track) { window.spike.event({ type: 'no-audio-track' }); return log('FAIL: granted stream has no audio track'); }
   const st = track.getSettings();
   if (st.echoCancellation || st.noiseSuppression || st.autoGainControl) {
     window.spike.event({ type: 'voice-processing-still-on', settings: st }); log('WARN: voice processing still on; levels are not trustworthy');
   }
-  if (!track) { window.spike.event({ type: 'no-audio-track' }); return log('FAIL: granted stream has no audio track'); }
   captureId = crypto.randomUUID();
   const myId = captureId;
   track.onended = () => { if (captureId !== myId) return; window.spike.event({ type: 'track-ended', captureId: myId }); log('audio track ended: releasing capture'); stop(); };
@@ -86,6 +86,19 @@ async function stop() {
   node?.disconnect(); node = null; await ctx?.close(); ctx = null; pending = []; pendingLen = 0;
   log('capture stopped');
 }
+
+async function control(value = {}) {
+  const action = String(value.action || '');
+  if (action === 'start') { await start(); return { ok: !!stream && !!ctx }; }
+  if (action === 'stop') { await stop(); return { ok: true }; }
+  if (action === 'gain') { gain = Math.max(0, Math.min(1, Number(value.gain) || 0)); return { ok: true, gain }; }
+  return { ok: false, reason: 'Unsupported capture action.' };
+}
+
+window.__eveCaptureControl = control;
+window.spike.onControl((value) => { control(value).catch((error) => window.spike.event({
+  type: 'capture-control-failed', error: String(error?.message || error)
+})); });
 
 document.getElementById('start').onclick = start;
 document.getElementById('stop').onclick = stop;

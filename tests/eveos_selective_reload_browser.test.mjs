@@ -255,7 +255,10 @@ try {
         window.EveAudioflixInternalPlayer = { createController: () => view };
         window.EveAudioflixSpotifyRemote = {
             snapshot: () => ({ connected: true, base: 'http://127.0.0.1:8765', lastState: { managed: { presentation: 'hidden' }, engine: { status: 'playing' } } }),
-            send: async () => ({ ok: true })
+            connect: async () => ({ connected: true }),
+            send: async (command) => command === 'take-control'
+                ? { ok: true, isOwner: true } : { ok: true },
+            disconnect: () => {}
         };
         window.EveAudioflixSpotifyAnyBrowser = {
             ready: true,
@@ -269,6 +272,8 @@ try {
         };
     });
     await page.addScriptTag({ content: read('js/modules/features/audioflix/audioflix.spotify.media.js') });
+    // Exercise the real management facade instead of omitting the restart owner.
+    await page.addScriptTag({ content: read('js/modules/features/audioflix/audioflix.spotify.management.js') });
     await page.addScriptTag({ content: spotifySurface });
     await page.evaluate(() => window.EveAudioflixAudio.openInternalView({
         id: 'spotify-fixture', type: 'music', sourceProvider: 'spotify', title: 'Fixture Spotify',

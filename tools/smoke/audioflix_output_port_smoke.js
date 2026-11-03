@@ -96,7 +96,9 @@ const spotifyPrepare = spotifyNative.slice(
 );
 assert(spotifyNative.includes("PLAYBACK_POLICY_REVISION = 'official-embed-v3'"),
     'Spotify normal playback policy is the official embed');
-assert(spotifyPrepare.includes("spotifyMethod === 'managed' ? 'managed-engine' : 'official-embed'")
+assert(spotifyPrepare.includes("['embed', 'electron'].includes(effectivePolicy.spotifyMethod)")
+    && spotifyPrepare.includes("spotifyMethod === 'managed' ? 'managed-engine'")
+    && spotifyPrepare.includes("spotifyMethod === 'electron' ? 'electron-direct-embed' : 'official-embed'")
     && spotifyPrepare.includes('eveOwnedPlaybackSource: false')
     && spotifyPrepare.includes('preferEveDirectAudio: false'),
     'Spotify preparation preserves the explicit managed-vs-embed policy decision');

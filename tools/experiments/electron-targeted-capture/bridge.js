@@ -98,7 +98,12 @@ function createBridge({ cfg, note, fetchImpl = globalThis.fetch, readKey = readI
         note('bridge-session-started', { generation: c.generation, lane: session.lane, deviceId: session.deviceId });
         if (c.closed || c !== current) return stopSession(c, 'retired-while-starting');
         kick(c);
-      } catch (err) { reject('bridge-start-failed', c, err); }
+      } catch (err) {
+        c.startError = String(err?.message || err).slice(0, 200);
+        reject('bridge-start-failed', c, err);
+      }
+      return c.session ? { ok: true, lane: LANE, generation: c.generation, deviceId: c.session.deviceId }
+        : { ok: false, reason: c.startError || 'Native Electron capture session did not start.' };
     });
     return c.starting;
   }
@@ -123,7 +128,9 @@ function createBridge({ cfg, note, fetchImpl = globalThis.fetch, readKey = readI
     note('bridge-totals', { generation: c.generation, reason, ...totals, native: c.native || null });
   }
 
-  return { begin, push, end, ownerId, lane: LANE, totals: () => ({ ...totals, generation, active: !!current }) };
+  return { begin, push, end, ownerId, lane: LANE,
+    totals: () => ({ ...totals, generation, active: !!current, ready: !!current?.session,
+      lastError: current?.startError || '' }) };
 }
 
 module.exports = { createBridge, readInstallCredential, LANE, MAX_PENDING };

@@ -6,8 +6,9 @@ const { fileURLToPath, pathToFileURL } = require('node:url');
 const SPOTIFY_HOSTS = new Set(['open.spotify.com', 'accounts.spotify.com', 'www.spotify.com']);
 const PAGES_DIR = path.join(__dirname, 'pages');
 // Only these local documents may ever load. capture.html is additionally pinned to its own window.
-const LOCAL_PAGES = new Set(['tone.html', 'capture.html']);
+const LOCAL_PAGES = new Set(['tone.html', 'capture.html', 'spotify-source.html']);
 const CAPTURE_URL = pathToFileURL(path.join(PAGES_DIR, 'capture.html')).href;
+const SPOTIFY_SOURCE_URL = pathToFileURL(path.join(PAGES_DIR, 'spotify-source.html')).href;
 
 function localPage(u) {
   let file;
@@ -28,6 +29,11 @@ function allowedUrl(raw) {
 // The trusted capture document, exactly: same file, no query, no fragment.
 function isCaptureUrl(raw) {
   try { const u = new URL(raw); return u.protocol === 'file:' && !u.search && !u.hash && u.href === CAPTURE_URL; }
+  catch { return false; }
+}
+
+function isSpotifySourceUrl(raw) {
+  try { const u = new URL(raw); return u.protocol === 'file:' && !u.search && !u.hash && u.href === SPOTIFY_SOURCE_URL; }
   catch { return false; }
 }
 
@@ -93,5 +99,5 @@ function lockSourceSession(ses, cfg, note) {
   ses.setDisplayMediaRequestHandler((req, cb) => { note('source-capture-denied'); cb(null); });
 }
 
-module.exports = { allowedUrl, isCaptureUrl, redact, lockNavigation, lockCaptureDocument, lockSourceSession,
-  lockedPrefs, CAPTURE_URL, PAGES_DIR };
+module.exports = { allowedUrl, isCaptureUrl, isSpotifySourceUrl, redact, lockNavigation, lockCaptureDocument,
+  lockSourceSession, lockedPrefs, CAPTURE_URL, SPOTIFY_SOURCE_URL, PAGES_DIR };

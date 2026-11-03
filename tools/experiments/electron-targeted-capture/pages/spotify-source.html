@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval' https://open.spotify.com https://embed-cdn.spotifycdn.com; frame-src https://open.spotify.com; style-src 'self'; img-src https: data:; connect-src https://open.spotify.com">
+<meta name="referrer" content="no-referrer">
+<title>EveOS Spotify Direct Embed</title>
+<link rel="stylesheet" href="spotify-source.css">
+<main>
+  <p>EveOS · Electron Direct Embed</p>
+  <div id="embed-iframe"></div>
+  <output id="status">Loading official Spotify player…</output>
+</main>
+<script src="spotify-source.js"></script>
+<!-- The documented callback must exist before the async IFrame API can invoke it. -->
+<script src="https://open.spotify.com/embed/iframe-api/v1" async></script>

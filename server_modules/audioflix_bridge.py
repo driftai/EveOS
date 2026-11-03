@@ -135,6 +135,12 @@ def handle_get_request(handler, path: str, query) -> bool:
             return True
         from server_modules import audioflix_spotify_presentation
         _send_json(handler, audioflix_spotify_presentation.status())
+    elif path == "/api/audioflix/spotify-direct/status":
+        if not _can_control(handler):
+            _send_json(handler, {"ok": False, "message": "Forbidden."}, HTTPStatus.FORBIDDEN)
+            return True
+        from server_modules import audioflix_spotify_direct
+        _send_json(handler, audioflix_spotify_direct.status())
     elif path == "/api/audioflix/resolve-url":
         if not _can_control(handler):
             _send_json(handler, {"ok": False, "message": "Forbidden."}, HTTPStatus.FORBIDDEN)
@@ -324,6 +330,17 @@ def save_soundlab_recording(payload: dict) -> dict:
 def handle_post_request(handler, path: str) -> bool:
     from server_modules import audioflix_spotify_http
     if audioflix_spotify_http.handle_post_request(handler, path):
+        return True
+    if path == "/api/audioflix/spotify-direct/command":
+        if not _can_control(handler):
+            _send_json(handler, {"ok": False, "message": "Local access required."}, HTTPStatus.FORBIDDEN)
+            return True
+        try:
+            from server_modules import audioflix_spotify_direct
+            port = int(handler.server.server_address[1])
+            _send_json(handler, audioflix_spotify_direct.command(_read_json(handler), port))
+        except Exception as exc:
+            _send_json(handler, {"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
         return True
     if path.startswith("/api/audioflix/provider-capture/"):
         if path == "/api/audioflix/provider-capture/start" and not _can_start_provider_capture(handler):

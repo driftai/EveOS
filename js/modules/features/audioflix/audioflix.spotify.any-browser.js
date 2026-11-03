@@ -399,7 +399,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         };
         audio.stopAll = async function anyBrowserStopAll() { window.EveAudioflixSpotifyQueueHandoff?.invalidate?.();
             if (!active && !starting) return original.stopAll();
-            await stopRemote();
+            await stopRemote(); await original.stopAll();
             return true;
         };
         audio.stopItemLayers = async function anyBrowserStopItem(itemId, preserveProvider = false) {

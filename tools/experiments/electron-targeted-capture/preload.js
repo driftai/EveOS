@@ -10,5 +10,6 @@ contextBridge.exposeInMainWorld('spike', {
   source: (action) => ipcRenderer.invoke('spike:source', String(action)),
   metrics: () => ipcRenderer.invoke('spike:metrics'),
   bridge: () => ipcRenderer.invoke('spike:bridge'),
+  onControl: (fn) => ipcRenderer.on('spike:control', (_event, value) => fn(value)),
   onSourceGone: (fn) => ipcRenderer.on('spike:source-gone', () => fn())
 });

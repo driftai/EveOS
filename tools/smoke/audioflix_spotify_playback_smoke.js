@@ -24,7 +24,8 @@ const assert = (condition, message) => { if (!condition) throw new Error(`ASSERT
         && uiMain.includes('complete: completeQueue } = queueRuntime')
         && queueCompletion.includes("detail.status !== 'Ended'")
         && queueCompletion.includes('const complete = create({')
-        && queueCompletion.includes('await (latest.repeatOne ? restart() : advance())')
+        && queueCompletion.includes('const terminalFailure = detail.error === true && detail.terminal === true;')
+        && queueCompletion.includes('await (terminalFailure ? advance() : latest.repeatOne ? restart() : advance())')
         && queueCompletion.includes('advance: () => playIndex(queue().currentIndex + 1)'),
         'frontend owns nondelegated Ended; delegated Spotify completion remains broker-owned');
     assert(!spotifyVolume.includes('getDisplayMedia') && !spotifyVolume.includes('createMediaStreamSource'),

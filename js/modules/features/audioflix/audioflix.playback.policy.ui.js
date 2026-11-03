@@ -61,7 +61,8 @@ window.EveAudioflixPlaybackPolicyUi = window.EveAudioflixPlaybackPolicyUi || {};
     function controls(level, source, meta = {}) {
         const inherit = level === 'global' ? null : ['inherit', 'Inherit'];
         const sourceEntries = [inherit, ['localized', 'Prefer localized copy'], ['original', 'Prefer original URL']].filter(Boolean);
-        const spotifyEntries = [inherit, ['managed', 'Managed Spotify Engine'], ['embed', 'Official Spotify embed']].filter(Boolean);
+        const spotifyEntries = [inherit, ['managed', 'Managed Spotify Engine'],
+            ['electron', 'Electron Direct Embed'], ['embed', 'Official Spotify embed']].filter(Boolean);
         const outputEntries = level === 'global'
             ? [['global', 'Follow Audioflix output route']]
             : [['inherit', 'Inherit output policy'], ['global', 'Follow global Audioflix route']];
@@ -77,7 +78,8 @@ window.EveAudioflixPlaybackPolicyUi = window.EveAudioflixPlaybackPolicyUi || {};
     function effectiveLine(item) {
         const result = policy()?.resolve?.(item) || {};
         const source = result.sourcePreference === 'original' ? 'original URL' : 'localized first';
-        const spotify = result.spotifyMethod === 'embed' ? 'official embed' : 'managed engine';
+        const spotify = result.spotifyMethod === 'electron' ? 'Electron direct embed'
+            : result.spotifyMethod === 'embed' ? 'official embed' : 'managed engine';
         const output = result.outputLabel || (result.outputKind === 'native' ? 'native route' : 'browser route');
         return `<p class="audioflix-policy-effective"><strong>Effective:</strong> ${esc(source)} · ${esc(spotify)} · ${esc(output)} <span>${esc(result.provenance || 'global')}</span></p>`;
     }

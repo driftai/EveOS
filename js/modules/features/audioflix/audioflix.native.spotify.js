@@ -56,7 +56,7 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
         const cleanPlayable = stripAlternatePlaybackFields(playable);
 
         const spotifyMethod = effectivePolicy
-            ? (effectivePolicy.spotifyMethod === 'embed' ? 'embed' : 'managed')
+            ? (['embed', 'electron'].includes(effectivePolicy.spotifyMethod) ? effectivePolicy.spotifyMethod : 'managed')
             : 'embed';
         return {
             ...base,
@@ -66,15 +66,16 @@ window.EveAudioflixNativeSpotify = window.EveAudioflixNativeSpotify || {};
                 originalUrl: officialUrl,
                 spotifyUrl: officialUrl,
                 sourceProvider: 'spotify',
-                spotifyPlaybackMode: spotifyMethod === 'managed' ? 'managed-engine' : 'official-embed',
+                spotifyPlaybackMode: spotifyMethod === 'managed' ? 'managed-engine'
+                    : spotifyMethod === 'electron' ? 'electron-direct-embed' : 'official-embed',
                 spotifyPlaybackPolicyRevision: PLAYBACK_POLICY_REVISION,
                 _effectivePlaybackPolicy: effectivePolicy || cleanPlayable._effectivePlaybackPolicy || null,
                 eveOwnedPlaybackSource: false,
                 preferEveDirectAudio: false
             },
-            status: base?.status || (spotifyMethod === 'managed'
-                ? 'Playing Spotify through the managed engine.'
-                : 'Playing Spotify through the official embed.')
+            status: base?.status || (spotifyMethod === 'managed' ? 'Playing Spotify through the managed engine.'
+                : spotifyMethod === 'electron' ? 'Playing Spotify through Electron Direct Embed.'
+                    : 'Playing Spotify through the official embed.')
         };
     }
 

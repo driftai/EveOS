@@ -76,7 +76,7 @@ window.EveAudioflixPlaybackPolicy = window.EveAudioflixPlaybackPolicy || {};
             : outputKind === 'native' ? text(state.nativeOutputLabel) : text(state.preferredSinkLabel);
         return {
             sourcePreference: policy.sourcePreference === 'original' ? 'original' : 'localized',
-            spotifyMethod: policy.spotifyMethod === 'embed' ? 'embed' : 'managed',
+            spotifyMethod: ['embed', 'electron'].includes(policy.spotifyMethod) ? policy.spotifyMethod : 'managed',
             outputMode: custom ? 'custom' : 'global', outputKind, outputId, outputLabel
         };
     }

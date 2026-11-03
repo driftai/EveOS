@@ -1,5 +1,5 @@
 'use strict';
-// Argument parsing and the one approved storage location for the spike.
+// Argument parsing and the one approved storage location for the targeted-capture host.
 const path = require('node:path');
 
 function parseArgs(argv) {
@@ -31,6 +31,7 @@ function load(argv = process.argv.slice(1)) {
   }
   return {
     source,
+    runtime: a.runtime === true,
     spotifyUrl: embed.toString(),
     // Every byte the spike writes (Electron userData, JSON reports) lives here and nowhere else.
     // Defaults inside this experiment folder (gitignored). No audio is ever written.
@@ -42,7 +43,10 @@ function load(argv = process.argv.slice(1)) {
     decoy: a.decoy === true,                          // 880 Hz in an unrelated session: must NOT appear in capture.
     localEcho: a['local-echo'] === true,              // A/B ONLY: proves suppression by contrast. Never a GO config.
     persistSpotify: a['persist-spotify'] === true,    // authenticated phase only; profile under dataDir/userData.
-    showSource: a['hide-source'] !== true
+    showSource: a['hide-source'] !== true,
+    ownerPid: Math.max(0, Number(a['owner-pid']) || 0),
+    controlPort: Math.max(0, Number(a['control-port']) || 0),
+    controlToken: String(process.env.EVEOS_SPOTIFY_DIRECT_CONTROL_TOKEN || '')
   };
 }
 

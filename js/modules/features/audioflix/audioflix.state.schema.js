@@ -102,7 +102,7 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
         const id = deps.id;
 
         const POLICY_SOURCE = new Set(['inherit', 'localized', 'original']);
-        const POLICY_SPOTIFY = new Set(['inherit', 'managed', 'embed']);
+        const POLICY_SPOTIFY = new Set(['inherit', 'managed', 'embed', 'electron']);
         const POLICY_SCOPE = new Set(['nexus', 'global', 'custom']);
         const POLICY_OUTPUT = new Set(['inherit', 'global', 'custom']);
         const POLICY_OUTPUT_KIND = new Set(['browser', 'native']);
