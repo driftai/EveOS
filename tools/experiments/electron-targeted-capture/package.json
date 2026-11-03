@@ -1,0 +1,16 @@
+{
+  "name": "eveos-electron-targeted-capture-spike",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Experiment E: feasibility spike for picker-free targeted webContents audio capture. Not production code.",
+  "main": "main.js",
+  "scripts": {
+    "tone": "electron . --source=tone",
+    "tone:decoy": "electron . --source=tone --decoy",
+    "tone:echo-ab": "electron . --source=tone --local-echo",
+    "spotify": "electron . --source=spotify"
+  },
+  "devDependencies": {
+    "electron": "45.2.1"
+  }
+}
