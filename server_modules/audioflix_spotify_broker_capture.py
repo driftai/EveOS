@@ -22,3 +22,11 @@ def execute(broker, client_id: str, action: str, args: dict, server_origin: str 
     else:
         result = engine.stop_provider_capture()
     return {**broker._state(client_id), "captureResult": result, "ok": bool(result.get("ok"))}
+
+
+def retire_for_engine_stop() -> dict:
+    """Release managed PCM capture before engine stop clears the owner that may release it."""
+    try:
+        return engine.stop_provider_capture()
+    except Exception as error:  # a capture failure must never block the engine stop
+        return {"ok": False, "reason": f"Managed capture stop failed: {error}"}
