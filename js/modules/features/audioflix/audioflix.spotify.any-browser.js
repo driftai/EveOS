@@ -322,7 +322,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         const original = {
             playItem: audio.playItem.bind(audio),
             openInternalView: audio.openInternalView.bind(audio),
-            pause: audio.pause.bind(audio),
+            pause: audio.pause.bind(audio), resume: audio.resume.bind(audio),
             seek: audio.seek.bind(audio),
             stopAll: audio.stopAll.bind(audio),
             stopItemLayers: audio.stopItemLayers.bind(audio),
@@ -388,6 +388,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             applyEngineState(result);
             return true;
         };
+        audio.resume = async () => !active && !starting ? original.resume()
+            : starting || !item || ended ? false : audio.playItem(item);
         audio.seek = async function anyBrowserSeek(seconds) { window.EveAudioflixSpotifyQueueHandoff?.invalidate?.();
             if (!active) return original.seek(seconds);
             const result = await remote().send('seek', { seconds: Math.max(0, Number(seconds || 0)) });
@@ -416,9 +418,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             playback.item = item;
             volumeLane?.request(effectiveGain(safe));
         };
-        audio.getPlaybackState = function anyBrowserState() {
-            return active ? { ...playback } : original.getPlaybackState();
-        };
+        audio.getPlaybackState = function anyBrowserState() { return active ? { ...playback } : original.getPlaybackState(); };
         if (original.getStatus) {
             audio.getStatus = function anyBrowserStatus() {
                 const value = original.getStatus();

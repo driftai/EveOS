@@ -31,7 +31,7 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/features/audioflix/audioflix.spotify.status-watch.js?v=832b2f4fca48",
     "js/modules/features/audioflix/audioflix.spotify.playback-lifecycle.js?v=205029a9b32f",
     "js/modules/features/audioflix/audioflix.spotify.native-capture.js?v=caacc1f9e532",
-    "js/modules/features/audioflix/audioflix.spotify.any-browser.js?v=78f4666a0c10",
+    "js/modules/features/audioflix/audioflix.spotify.any-browser.js?v=11a7320ac57d",
     "js/modules/features/audioflix/audioflix.spotify.queue-handoff.js?v=dcf3e029d8f1",
     "js/modules/features/audioflix/audioflix.spotify.repeat-rearm.js?v=70e844de7bf5",
     "js/modules/features/audioflix/audioflix.spotify.engine-surface.js?v=56cdf9b954c2",

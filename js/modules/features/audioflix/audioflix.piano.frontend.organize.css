@@ -54,3 +54,29 @@
 .piano-pft-result-text{min-width:0;display:grid;gap:3px}.piano-pft-result-text strong{overflow-wrap:anywhere}.piano-pft-result-text small{color:#a7c9cb;overflow-wrap:anywhere}
 .piano-pft-actions{flex-shrink:0}.piano-pft-actions button{min-height:31px;padding:5px 8px}
 @media(max-width:620px){.piano-pft-panel{top:36px;max-height:75vh}.piano-pft-result{align-items:stretch;flex-direction:column}.piano-pft-actions button{flex:1}}
+/* Four primary song actions must never leave the Settings button orphaned. */
+.audioflix-piano-frontend .piano-frontend-song .piano-pxm-song-actions {
+  grid-area: media;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  justify-self: stretch;
+  align-self: stretch;
+  min-width: 0;
+  width: 100%;
+  gap: 4px;
+}
+.audioflix-piano-frontend .piano-frontend-song .piano-pxm-song-actions > button {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding-inline: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Two balanced rows only at the tightest viewport width. */
+@media (max-width: 370px) {
+  .audioflix-piano-frontend .piano-frontend-song .piano-pxm-song-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

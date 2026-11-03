@@ -146,6 +146,20 @@ async function syntheticTest(browser, width) {
   assert.equal(songs.length,2); assert(songs.includes('Moonlight'));
   assert.equal(await page.locator('.piano-frontend-song-info img').count(),0,'titles must not be parsed as HTML');
   assert.equal(await page.locator('[data-pf-count]').textContent(),'2 songs');
+  const cardActionLayout = await page.locator('.piano-frontend-song .piano-pxm-song-actions').first().evaluate(group => {
+    const buttons = [...group.querySelectorAll('button')];
+    const rect = group.getBoundingClientRect();
+    return { count: buttons.length, width: rect.width, groupLeft: rect.left, groupRight: rect.right,
+      positions: buttons.map(button => {
+        const box = button.getBoundingClientRect();
+        return { x: box.left, y: box.top, right: box.right };
+      }) };
+  });
+  assert.equal(cardActionLayout.count,4,'Piano song card keeps four primary actions');
+  assert(cardActionLayout.positions.every(box => Math.abs(box.y-cardActionLayout.positions[0].y)<2),
+    'all four Piano card actions must share the same row at standard browser-test widths');
+  assert(cardActionLayout.positions.every(box => box.x>=cardActionLayout.groupLeft-2 && box.right<=cardActionLayout.groupRight+2),
+    'card action controls must fit inside their card row');
   assert.equal(await page.locator('.audioflix-piano-header').evaluate(el=>getComputedStyle(el).display),'none','technical Piano Automation toolbar must stay in Backend');
   assert.equal(await page.locator('.piano-frontend-title h2').textContent(),'Piano Auto Player - Frontend');
   assert.equal(await page.locator('[data-piano-view-title]').textContent(),'Piano Library');

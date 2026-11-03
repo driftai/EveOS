@@ -88,6 +88,7 @@ const localPlayback = {
 };
 let originalPlayCount = 0;
 let originalStopCount = 0;
+let originalResumeCount = 0;
 const originalPlayCalls = [];
 const originalVolumeCalls = [];
 const stopItemCalls = [];
@@ -104,6 +105,7 @@ const audio = {
         return true;
     },
     async pause() { return true; },
+    async resume() { originalResumeCount += 1; return true; },
     async seek() { return true; },
     async stopAll() { originalStopCount += 1; return true; },
     async stopItemLayers(itemId, preserveProvider = false) {
@@ -185,6 +187,12 @@ function evidence(error) {
     await require('./helpers/audioflix_any_browser_volume_namespace')({ window, calls, originalVolumeCalls, windowListeners });
     await window.EveAudioflixAudio.pause();
     assert.equal(calls.at(-1).action, 'pause');
+    const playsBeforeResume = calls.filter(entry => entry.action === 'play').length;
+    assert.equal(await window.EveAudioflixAudio.resume(), true, 'AudioFlix hotkey resume must reach the managed Spotify session');
+    assert.equal(calls.at(-1).action, 'resume', 'second hotkey press targets Spotify Engine instead of a local HTML audio element');
+    assert.equal(engineState.paused, false, 'managed Spotify has resumed');
+    assert.equal(originalResumeCount, 0, 'managed resume must not call the original local resume handler');
+    assert.equal(calls.filter(entry => entry.action === 'play').length, playsBeforeResume, 'same-song resume must not start a duplicate Spotify session');
     await window.EveAudioflixAudio.seek(42);
     assert.equal(calls.at(-1).action, 'seek');
     assert.equal(calls.at(-1).payload.seconds, 42);
