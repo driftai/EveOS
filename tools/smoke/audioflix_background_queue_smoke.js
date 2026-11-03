@@ -126,6 +126,22 @@ async function completionCoverage() {
     assert(window.EveAudioflixQueueCompletion.isStaleDelivery(repeated, queueState.playbackRunId) === true,
         'shared stale-delivery fence is exposed to the fallback listeners');
 
+    // A definitive player error after a successful start should advance the active queue once.
+    // Nonterminal provider warnings and user pauses must never turn into automatic skips.
+    queueState.currentIndex = 0; queueState.isPlaying = true; queueState.repeatOne = true;
+    const advancesBeforeError = stepCalls, repeatsBeforeError = restartCalls;
+    const nonterminal = { status: 'Buffering', item: { id: 101 }, error: true };
+    onPlayback({ detail: nonterminal });
+    await flush();
+    assert(stepCalls === advancesBeforeError, 'transient provider error must not skip');
+    const broken = { status: 'Audio failed to load', item: { id: 101 }, error: true, terminal: true };
+    onPlayback({ detail: broken });
+    await flush();
+    assert(stepCalls === advancesBeforeError + 1 && restartCalls === repeatsBeforeError,
+        'terminal error must advance even when repeat-one was enabled');
+    onPlayback({ detail: broken });
+    await flush();
+    assert(stepCalls === advancesBeforeError + 1, 'stale terminal error must not skip another item');
 }
 
 // Presentation factories are inert, but group actions, queue transitions, every completion

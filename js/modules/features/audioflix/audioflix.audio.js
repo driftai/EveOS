@@ -108,7 +108,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         });
         audio.addEventListener('error', function () {
             lastStatus = 'Audio failed to load';
-            dispatch('eve:audioflix-playback', { status: lastStatus, item: currentItem, error: true });
+            dispatch('eve:audioflix-playback', { status: lastStatus, item: currentItem, error: true, terminal: true });
         });
         return audio;
     }

@@ -94,8 +94,9 @@ window.EveAudioflixUrlDirect = window.EveAudioflixUrlDirect || {};
                         }
                     } catch {}
                 }
+                if (deps.active() !== session) return; // late provider error cannot skip a replacement
                 update();
-                emitPlayback('Linked audio failed to load', true);
+                emitPlayback('Linked audio failed to load', true, { terminal: true, item });
             });
             await player.play();
         };

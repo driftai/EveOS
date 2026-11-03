@@ -232,12 +232,16 @@ function evidence(error) {
     assert.equal(window.EveAudioflixSpotifyAnyBrowser.snapshot().active, false, 'localized playback leaves the managed Spotify route inactive');
     localizedIds.delete('song-1');
 
+    await window.EveAudioflixAudio.playItem(spotify); // active managed Engine before localized Internal View
+    const stopsBeforeInternal = calls.filter((entry) => entry.action === 'stop').length;
     localizedIds.add('song-local-view');
     const internalBefore = originalPlayCount;
     const managedPlaysBeforeInternal = calls.filter((entry) => entry.action === 'play').length;
     await window.EveAudioflixAudio.openInternalView({ ...spotify, id: 'song-local-view', localPath: 'C:\\Audioflix\\song-local-view.mp3' });
     assert.equal(originalPlayCount, internalBefore + 1);
     assert.equal(originalPlayCalls.at(-1).kind, 'internal', 'Internal View also keeps a localized Spotify-linked item on the local path');
+    assert.equal(calls.filter((entry) => entry.action === 'stop').length, stopsBeforeInternal + 1,
+        'Internal View local handoff stops managed Engine before opening the local player');
     assert.equal(calls.filter((entry) => entry.action === 'play').length, managedPlaysBeforeInternal, 'localized Internal View does not wake the managed Spotify engine');
     localizedIds.delete('song-local-view');
 

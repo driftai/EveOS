@@ -366,7 +366,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             }
         };
         audio.openInternalView = async function anyBrowserInternal(nextItem) {
-            if (!isSpotify(nextItem)) return original.openInternalView(nextItem);
+            // Preserve the Internal Player's local handoff while stopping the prior managed Engine.
+            if (!isSpotify(nextItem)) { if (active || starting) await stopRemote(); return original.openInternalView(nextItem); }
             const policy = window.EveAudioflixPlaybackPolicy?.resolve?.(nextItem) || { spotifyMethod: 'managed' };
             if (policy.spotifyMethod === 'embed') { if (active || starting) await stopRemote(); return original.openInternalView(nextItem); }
             const localItem = await preferredLocalItem(nextItem, policy);
