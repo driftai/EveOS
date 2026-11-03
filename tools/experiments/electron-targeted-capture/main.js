@@ -1,13 +1,14 @@
 'use strict';
 // Targeted-capture main process. Grants ONE capture: the trusted capture page may receive audio from
 // the dedicated source webContents, with local echo disabled. Everything else is denied.
-const { app, BrowserWindow, session, ipcMain } = require('electron');
+const { app, BrowserWindow, session, ipcMain, components } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const cfg = require('./config').load();
 const policy = require('./policy');
 const { createBridge } = require('./bridge');
 const { createRuntime } = require('./direct-runtime');
+const sessionHandoff = require('./session-handoff');
 
 fs.mkdirSync(cfg.dataDir, { recursive: true });
 app.setPath('userData', path.join(cfg.dataDir, 'userData'));
@@ -88,7 +89,8 @@ function createCapture() {
   ses.setPermissionCheckHandler((wc, perm) => onCaptureDoc(wc) && perm === 'display-capture');
   ses.setPermissionRequestHandler((wc, perm, cb) => cb(onCaptureDoc(wc) && perm === 'display-capture'));
   ses.setDisplayMediaRequestHandler((request, callback) => {
-    const trusted = trustedCaptureFrame(request.frame) && request.frame === request.frame.top && request.userGesture === true;
+    const trusted = trustedCaptureFrame(request.frame) && request.frame === request.frame.top
+      && request.userGesture === true;
     const target = sourceWin && !sourceWin.isDestroyed() ? sourceWin.webContents.mainFrame : null;
     if (!trusted || !target) {
       note('capture-denied', { trusted: !!trusted, haveSource: !!target, origin: policy.redact(request.securityOrigin), gesture: request.userGesture });
@@ -152,17 +154,30 @@ ipcMain.handle('spike:bridge', (e) => fromCapture(e) ? bridge.totals() : null);
 ipcMain.handle('spike:metrics', (e) => fromCapture(e) ? app.getAppMetrics().map((m) => ({ pid: m.pid, type: m.type,
   cpu: m.cpu?.percentCPUUsage, memKB: m.memory?.workingSetSize })) : null);
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   note('ready', { electron: process.versions.electron });
+  let envelope = null;
   if (cfg.runtime) {
     directRuntime = createRuntime({ app, cfg, note, bridge, ipcMain,
       getSourceWin: () => sourceWin, getCaptureWin: () => captureWin, fromSource });
     directRuntime.install();
+    envelope = await directRuntime.authHandoff();
   }
+  if (components?.whenReady) {
+    await components.whenReady();
+    note('drm-components-ready', { widevine: true });
+  }
+  const sourceSession = session.fromPartition(cfg.source === 'spotify' && cfg.persistSpotify
+    ? 'persist:eve-spike-spotify' : 'eve-spike-source');
+  const handoff = await sessionHandoff.apply(sourceSession, { enabled: cfg.runtime, envelope });
+  if (handoff.applied) note('auth-handoff-applied', { count: handoff.count });
   createSource();
   if (cfg.decoy) createDecoy();
   createCapture();
   captureWin.webContents.once('did-finish-load', () => directRuntime?.hostReady());
+}).catch((error) => {
+  note('startup-failed', { message: String(error?.message || error).slice(0, 240) });
+  setTimeout(() => app.quit(), 25);
 });
 app.on('will-quit', () => {
   report.endedAt = new Date().toISOString();

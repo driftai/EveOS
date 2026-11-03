@@ -110,7 +110,7 @@ class SpotifyDirectManager:
         for raw in iter(process.stdout.readline, ""):
             self._write_log(raw.rstrip("\r\n"))
 
-    def _reader_loop(self, process: subprocess.Popen, listener: socket.socket, token: str) -> None:
+    def _reader_loop(self, process: subprocess.Popen, listener: socket.socket, token: str, handoff: dict) -> None:
         try:
             listener.settimeout(_START_TIMEOUT)
             connection, address = listener.accept()
@@ -122,6 +122,8 @@ class SpotifyDirectManager:
             if not secrets.compare_digest(str(first.get("token") or ""), token):
                 connection.close()
                 raise RuntimeError("Electron Direct Embed control authentication failed.")
+            bootstrap = json.dumps({"type": "auth-handoff", "envelope": handoff}, separators=(",", ":"))
+            connection.sendall((bootstrap + "\n").encode("utf-8"))
             with self._lock:
                 if process is not self._process:
                     connection.close()
@@ -193,6 +195,10 @@ class SpotifyDirectManager:
             return {"ok": False, "reason": "Electron Direct Embed requires an exact native sd:* output."}
         if not 1 <= int(bridge_port) <= 65535:
             return {"ok": False, "reason": "Invalid EveOS bridge port."}
+        from server_modules import audioflix_spotify_session_handoff
+        handoff = audioflix_spotify_session_handoff.acquire()
+        if not handoff.get("ok"):
+            return {"ok": False, "reason": handoff.get("reason") or "Spotify authentication handoff failed."}
         with self._lock:
             if self._running() and self._device_id == device_id and self._bridge_port == bridge_port:
                 return self._public_status()
@@ -237,7 +243,8 @@ class SpotifyDirectManager:
             self._log_handle = handle
             threading.Thread(target=self._stdout_loop, args=(process,), daemon=True,
                 name="audioflix-spotify-direct-log").start()
-            self._reader = threading.Thread(target=self._reader_loop, args=(process, listener, control_token), daemon=True,
+            self._reader = threading.Thread(target=self._reader_loop,
+                args=(process, listener, control_token, handoff), daemon=True,
                 name="audioflix-spotify-direct-reader")
             self._reader.start()
         if not self._ready.wait(_START_TIMEOUT):

@@ -15,6 +15,8 @@ function createRuntime(deps) {
   let controlSocket = null, controlReady = false;
   const queuedOutput = [];
   const sourceReplies = new Map(), stateWaiters = new Set();
+  let handoffResolve, handoffSettled = false;
+  const handoffPromise = new Promise((resolve) => { handoffResolve = resolve; });
   let sourceReady = false, captureReady = false, captureRetirement = null, started = false, current = null;
   let state = { status: 'starting', currentTime: 0, duration: 0, paused: true, generation: 0 };
 
@@ -171,6 +173,12 @@ function createRuntime(deps) {
     if (!line || line.length > MAX_LINE) return emit({ type: 'reply', ok: false, reason: 'Invalid command size.' });
     let request;
     try { request = JSON.parse(line); } catch { return emit({ type: 'reply', ok: false, reason: 'Invalid command JSON.' }); }
+    if (request.type === 'auth-handoff') {
+      if (handoffSettled) { note('auth-handoff-rejected', { reason: 'duplicate' }); app.quit(); return; }
+      handoffSettled = true;
+      handoffResolve(request.envelope);
+      return;
+    }
     const id = String(request.id || '');
     Promise.resolve().then(() => command(String(request.action || ''), request.payload || {}))
       .then((result) => emit({ type: 'reply', id, ...result }),
@@ -202,7 +210,13 @@ function createRuntime(deps) {
     note('runtime-installed', { deviceId: cfg.deviceId });
   }
   function hostReady() { emit({ type: 'ready', ok: true, state: publicState() }); }
-  return { install, hostReady, sourceEvent, captureEvent, command, publicState };
+  function authHandoff(timeoutMs = 8000) {
+    let timer;
+    return Promise.race([handoffPromise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Authenticated Spotify session handoff timed out.')), timeoutMs);
+    })]).finally(() => clearTimeout(timer));
+  }
+  return { install, hostReady, authHandoff, sourceEvent, captureEvent, command, publicState };
 }
 
 module.exports = { createRuntime, PREFIX, MEDIA_RE };
