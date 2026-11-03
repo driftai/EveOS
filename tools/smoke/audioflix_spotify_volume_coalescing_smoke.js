@@ -52,7 +52,7 @@ function fixture({ delayMs = 0 } = {}) {
     };
     const audio = {
         ready: true, playItem: async () => true, openInternalView: async () => true,
-        pause: async () => true, seek: async () => true, stopAll: async () => true,
+        pause: async () => true, resume: async () => true, seek: async () => true, stopAll: async () => true,
         stopItemLayers: async () => true, updateItemVolume() {},
         getPlaybackState: () => ({ item: null }), getStatus: () => ({})
     };

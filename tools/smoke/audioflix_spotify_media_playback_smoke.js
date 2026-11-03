@@ -98,7 +98,7 @@ function anyBrowserFixture() {
             return lastState = state();
         } };
     const audio = { ready: true, playItem: async () => { original++; return true; },
-        openInternalView: async () => { original++; return true; }, pause: async () => true, seek: async () => true,
+        openInternalView: async () => { original++; return true; }, pause: async () => true, resume: async () => true, seek: async () => true,
         stopAll: async () => true, stopItemLayers: async () => true, updateItemVolume() {},
         getPlaybackState: () => ({ item: null }), getStatus: () => ({}) };
     const window = { EveAudioflixAudio: audio, EveAudioflixSpotifyRemote: remote,

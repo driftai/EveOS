@@ -91,7 +91,7 @@ async function playbackOrdering() {
             return state;
         } };
     const audio = { ready: true, playItem: async () => true, openInternalView: async () => true,
-        pause: async () => true, seek: async () => true, stopAll: async () => true,
+        pause: async () => true, resume: async () => true, seek: async () => true, stopAll: async () => true,
         stopItemLayers: async () => true, updateItemVolume() {}, getPlaybackState: () => ({}), getStatus: () => ({}) };
     const window = { EveAudioflixSpotifyRemote: remote, EveAudioflixAudio: audio,
         addEventListener() {}, dispatchEvent: event => events.push(event) };
