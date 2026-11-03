@@ -26,6 +26,8 @@ function load(argv = process.argv.slice(1)) {
     // Defaults inside this experiment folder (gitignored). No audio is ever written.
     dataDir: path.resolve(String(a['data-dir'] || path.join(__dirname, '.run'))),
     bridge: String(a.bridge || 'http://127.0.0.1:3000').replace(/\/+$/, ''),
+    // EveOS checkout whose data/runtime holds the install-local provider credential (read by main only).
+    eveosRoot: path.resolve(String(a['eveos-root'] || path.join(__dirname, '..', '..', '..'))),
     deviceId: String(a['device-id'] || ''),          // e.g. sd:7 (CABLE Input). Empty = capture only, no forwarding.
     decoy: a.decoy === true,                          // 880 Hz in an unrelated session: must NOT appear in capture.
     localEcho: a['local-echo'] === true,              // A/B ONLY: proves suppression by contrast. Never a GO config.

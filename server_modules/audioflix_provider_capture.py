@@ -16,7 +16,9 @@ _MANAGED_IDLE_RECLAIM_SECONDS = 15
 _PIANO_OWNER_GRACE_SECONDS = 4
 _SESSIONS: dict[str, dict] = {}
 _TTL_SECONDS = 5 * 60
-_MAX_PCM_BYTES = 65536  # A 4096-frame mono block is about 8 KiB; reject bulk uploads.
+_MAX_PCM_BYTES = 65536
+# Lanes whose every request must name the owning host and its current generation.
+_OWNED_LANES = {"piano-pcm", "electron-capture"}  # A 4096-frame mono block is about 8 KiB; reject bulk uploads.
 
 
 def _now() -> float:
@@ -59,11 +61,13 @@ def _require(payload: dict) -> tuple[str, dict]:
             raise RuntimeError("Provider capture session is invalid or expired.")
         if _expired(entry, now):
             raise RuntimeError("Provider capture session expired.")
-        if entry["lane"] == "piano-pcm":
+        if entry["lane"] in _OWNED_LANES:
             if (str(payload.get("lane") or "") != entry["lane"]
                     or str(payload.get("ownerId") or "") != entry["ownerId"]
                     or int(payload.get("generation") or 0) != entry["generation"]):
-                raise RuntimeError("Piano PCM session ownership or generation is stale.")
+                raise RuntimeError("Piano PCM session ownership or generation is stale."
+                                   if entry["lane"] == "piano-pcm" else
+                                   "Electron capture session ownership or generation is stale.")
         entry["lastSeenAt"] = now
         entry["expiresAt"] = now + _TTL_SECONDS
         return session_id, entry
@@ -76,12 +80,13 @@ def start(payload: dict) -> dict:
     if not device_id.startswith("sd:"):
         raise RuntimeError("Provider capture requires an exact native output endpoint.")
     lane = str(payload.get("lane") or "provider-capture").strip().lower()
-    if lane not in {"provider-capture", "piano-pcm"}:
+    if lane not in {"provider-capture", "piano-pcm", "electron-capture"}:
         raise RuntimeError("Unknown provider capture lane.")
     owner_id = str(payload.get("ownerId") or "")[:120]
     generation = int(payload.get("generation") or 0)
-    if lane == "piano-pcm" and (len(owner_id) < 16 or generation < 1):
-        raise RuntimeError("Piano PCM requires an authenticated owner generation.")
+    if lane in _OWNED_LANES and (len(owner_id) < 16 or generation < 1):
+        raise RuntimeError("Piano PCM requires an authenticated owner generation." if lane == "piano-pcm"
+                           else "Electron capture requires an owner generation.")
     source = str(payload.get("source") or ("piano" if lane == "piano-pcm" else "provider-tab"))[:80]
     # Only an inactive managed-Spotify lease for this *same endpoint* may be
     # reclaimed; active PCM and every other provider remain exclusive.
@@ -97,9 +102,11 @@ def start(payload: dict) -> dict:
                 managed_reclaim = (lane == "provider-capture" and source == "managed-spotify"
                     and old["source"] == source and old["deviceId"] == device_id
                     and _MANAGED_IDLE_RECLAIM_SECONDS <= quiet < _TTL_SECONDS)
-                generation_handoff = (lane == "piano-pcm" and old["ownerId"] == owner_id
+                # Owned lanes: the same host may hand off to a newer generation; another host
+                # may take over only an endpoint whose owner went quiet (crashed without Stop).
+                generation_handoff = (lane in _OWNED_LANES and old["ownerId"] == owner_id
                     and generation > old["generation"])
-                piano_stale_reclaim = (lane == "piano-pcm" and old["deviceId"] == device_id
+                piano_stale_reclaim = (lane in _OWNED_LANES and old["deviceId"] == device_id
                     and now - float(old.get("lastSeenAt", old["createdAt"])) >= _PIANO_OWNER_GRACE_SECONDS)
                 if not (managed_reclaim or generation_handoff or piano_stale_reclaim):
                     raise RuntimeError("Another provider capture session already owns the capture lane.")
@@ -114,7 +121,8 @@ def start(payload: dict) -> dict:
             player = _player_for(device_id, sample_rate, 1, lane)
             if not player.stream or not player.stream.active:
                 raise RuntimeError("Selected native output renderer did not start.")
-            session_id = f"{'piano' if lane == 'piano-pcm' else 'provider'}:{secrets.token_hex(12)}"
+            prefix = {"piano-pcm": "piano", "electron-capture": "electron"}.get(lane, "provider")
+            session_id = f"{prefix}:{secrets.token_hex(12)}"
             token = secrets.token_urlsafe(32)
             entry = {
                 "token": token,

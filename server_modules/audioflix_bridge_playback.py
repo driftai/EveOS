@@ -90,7 +90,7 @@ def _player_for(device_id: str, sample_rate: int, channels: int, lane: str = "pr
         except Exception:
             raise RuntimeError("Selected native output is not a playable sounddevice endpoint.")
     lane = str(lane or "primary").strip().lower()
-    if lane not in {"primary", "provider-capture", "piano-pcm"}:
+    if lane not in {"primary", "provider-capture", "piano-pcm", "electron-capture"}:
         raise RuntimeError("Unknown native playback lane.")
     key = f"{device_id}:{channels}:shared"
     index = int(str(device_id).split(":", 1)[1])

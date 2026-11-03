@@ -3,7 +3,7 @@
 // and stream PCM through the main process to the existing EveOS renderer.
 const out = document.getElementById('out');
 const log = (line) => { out.textContent = `${new Date().toISOString().slice(11, 23)} ${line}\n` + out.textContent.slice(0, 6000); };
-let stream = null, ctx = null, node = null, gain = 1, cfg = {};
+let stream = null, ctx = null, node = null, gain = 1, cfg = {}, captureId = null;
 let pending = [], pendingLen = 0, blocks = 0, nonzeroBlocks = 0, startedAt = 0, firstSignalMs = null;
 let win = { sumSq: 0, n: 0, peak: 0, g440: 0, g880: 0 };
 
@@ -23,6 +23,7 @@ function encode(samples) {
 }
 
 function onBlock(mono) {
+  if (!captureId || !ctx) return;   // a retired capture never forwards a late block
   blocks += 1;
   let peak = 0, sq = 0;
   for (const v of mono) { sq += v * v; const a = Math.abs(v); if (a > peak) peak = a; }
@@ -34,7 +35,7 @@ function onBlock(mono) {
     for (const p of pending) { chunk.set(p, o); o += p.length; }
     pending = []; pendingLen = 0;
     win.g440 += goertzel(chunk, 440, ctx.sampleRate); win.g880 += goertzel(chunk, 880, ctx.sampleRate);
-    window.spike.pcm(encode(chunk), ctx.sampleRate, gain);
+    window.spike.pcm(captureId, encode(chunk), ctx.sampleRate, gain);
   }
 }
 
@@ -63,20 +64,26 @@ async function start() {
     window.spike.event({ type: 'voice-processing-still-on', settings: st }); log('WARN: voice processing still on; levels are not trustworthy');
   }
   if (!track) { window.spike.event({ type: 'no-audio-track' }); return log('FAIL: granted stream has no audio track'); }
-  track.onended = () => { window.spike.event({ type: 'track-ended' }); log('audio track ended: releasing capture'); stop(); };
+  captureId = crypto.randomUUID();
+  const myId = captureId;
+  track.onended = () => { if (captureId !== myId) return; window.spike.event({ type: 'track-ended', captureId: myId }); log('audio track ended: releasing capture'); stop(); };
   ctx = new AudioContext({ sampleRate: 48000 });
   await ctx.audioWorklet.addModule('capture-worklet.js');
   node = new AudioWorkletNode(ctx, 'spike-tap');
   node.port.onmessage = (e) => onBlock(e.data);
   ctx.createMediaStreamSource(stream).connect(node);   // NOT connected to destination: no local monitor
-  window.spike.event({ type: 'capture-started', label: track.label, settings: track.getSettings() });
+  // Announce before the first block so main opens this generation's native session first.
+  window.spike.event({ type: 'capture-started', captureId, label: track.label, settings: track.getSettings() });
   log(`capture started: ${track.label || '(unlabeled)'} @ ${ctx.sampleRate} Hz`);
 }
 
 async function stop() {
+  if (!stream && !ctx) return;
+  const endedId = captureId; captureId = null;
+  // Tell main first: it retires the generation and flushes the native lane immediately.
+  window.spike.event({ type: 'capture-stopped', captureId: endedId, blocks, nonzeroBlocks });
   stream?.getTracks().forEach((t) => t.stop()); stream = null;
   node?.disconnect(); node = null; await ctx?.close(); ctx = null; pending = []; pendingLen = 0;
-  window.spike.event({ type: 'capture-stopped', blocks, nonzeroBlocks });
   log('capture stopped');
 }
 
