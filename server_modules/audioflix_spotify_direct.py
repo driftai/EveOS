@@ -58,6 +58,7 @@ class SpotifyDirectManager:
         self._last_error = ""
         self._started_at = 0.0
         self._log_handle = None
+        self._intentional_stop = False
 
     def environment(self) -> dict:
         binary = _electron()
@@ -153,9 +154,11 @@ class SpotifyDirectManager:
             with self._lock:
                 if process is self._process:
                     code = process.poll()
-                    self._last_error = self._last_error or f"Electron Direct Embed exited unexpectedly ({code})."
+                    if not self._intentional_stop:
+                        self._last_error = self._last_error or f"Electron Direct Embed exited unexpectedly ({code})."
                     for pending in self._pending.values():
-                        pending["response"] = {"ok": False, "reason": self._last_error}
+                        pending["response"] = {"ok": False,
+                            "reason": self._last_error or "Electron Direct Embed stopped."}
                         pending["event"].set()
                     self._ready.set()
 
@@ -228,6 +231,7 @@ class SpotifyDirectManager:
             self._bridge_port = int(bridge_port)
             self._started_at = time.time()
             self._last_error = ""
+            self._intentional_stop = False
             self._last_state = {"status": "starting", "paused": True}
             self._ready.clear()
             self._log_handle = handle
@@ -298,6 +302,7 @@ class SpotifyDirectManager:
     def shutdown(self, force: bool = False) -> dict:
         with self._lock:
             process = self._process
+            self._intentional_stop = True
         if not process:
             return {"ok": True, "state": "stopped", "alreadyStopped": True}
         if process.poll() is None and not force:

@@ -62,6 +62,12 @@ test('direct runtime owns play, pause, volume and stop without Playwright', asyn
   assert.equal(h.diagnostics().gain, 0);
   assert.equal((await h.runtime.command('resume')).state.status, 'playing');
   assert.equal(h.diagnostics().captureStarts, 2, 'resume opens a fresh bounded native session after pause flushes the old one');
+  h.runtime.sourceEvent({ type: 'state', identity, status: 'ended', paused: true,
+    currentTime: 30, duration: 30, completionId: 'done-1', generation: 1 });
+  await new Promise((resolve) => setImmediate(resolve));
+  const ended = h.runtime.publicState();
+  assert.equal(ended.status, 'ended');
+  assert.equal(ended.bridge.active, false, 'Ended is published only after the exact native lane retires');
   assert.equal((await h.runtime.command('stop')).state.status, 'stopped');
 });
 

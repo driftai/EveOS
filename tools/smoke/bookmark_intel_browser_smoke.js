@@ -132,7 +132,10 @@ async function main() {
 
         const popoutButton = page.locator('#bookmark-intel-scraper-panel-container .btn-bi-popout');
         await popoutButton.waitFor({ state: 'visible' });
-        const popoutBox = await popoutButton.boundingBox();
+        const popoutBox = await popoutButton.evaluate((button) => {
+            const box = button.getBoundingClientRect();
+            return { width: box.width, height: box.height };
+        });
         if (!popoutBox || popoutBox.width < 30) {
             throw new Error(`Detached button geometry collapsed: ${JSON.stringify(popoutBox)}`);
         }

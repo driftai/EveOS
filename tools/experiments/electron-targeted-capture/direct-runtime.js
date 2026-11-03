@@ -15,7 +15,7 @@ function createRuntime(deps) {
   let controlSocket = null, controlReady = false;
   const queuedOutput = [];
   const sourceReplies = new Map(), stateWaiters = new Set();
-  let sourceReady = false, captureReady = false, started = false, current = null;
+  let sourceReady = false, captureReady = false, captureRetirement = null, started = false, current = null;
   let state = { status: 'starting', currentTime: 0, duration: 0, paused: true, generation: 0 };
 
   function emit(value) {
@@ -80,9 +80,11 @@ function createRuntime(deps) {
       bridge.totals().lastError || 'Native Electron capture did not become ready.');
   }
   async function retireCapture() {
+    if (captureRetirement) return captureRetirement;
     if (!captureReady && !bridge.totals().active) return;
     captureReady = false;
-    await captureControl('stop');
+    captureRetirement = captureControl('stop').finally(() => { captureRetirement = null; });
+    return captureRetirement;
   }
   function validatePlay(payload) {
     const identity = String(payload.spotifyUri || '');
@@ -144,8 +146,13 @@ function createRuntime(deps) {
       const identity = value.identity || null;
       if (current && identity?.spotifyUri && identity.spotifyUri !== current.spotifyUri) return;
       if (identity) current = { ...current, ...identity };
-      setState({ ...(value || {}), type: undefined, identity: undefined });
-      if (value.status === 'ended') retireCapture().catch((error) => setState({ captureError: String(error?.message || error) }));
+      const patch = { ...(value || {}), type: undefined, identity: undefined };
+      if (value.status === 'ended') {
+        retireCapture().then(() => setState(patch), (error) => setState({ ...patch,
+          captureError: String(error?.message || error) }));
+        return;
+      }
+      setState(patch);
     }
   }
   function captureEvent(type, detail, result) {
@@ -155,7 +162,9 @@ function createRuntime(deps) {
         captureError: result?.reason || 'Native capture failed.' });
     } else if (['capture-stopped', 'track-ended', 'capture-renderer-gone'].includes(type)) {
       captureReady = false;
-      if (state.status === 'playing') setState({ status: 'error', paused: true, captureError: `Capture stopped: ${type}` });
+      if (state.status === 'playing' && !captureRetirement) {
+        setState({ status: 'error', paused: true, captureError: `Capture stopped: ${type}` });
+      }
     }
   }
   function handleLine(line) {
