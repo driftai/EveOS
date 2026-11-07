@@ -11,6 +11,9 @@ vosk==0.3.45
 # Audioflix native output bridge and waveform/device utilities.
 numpy==1.24.4
 sounddevice==0.5.5
+# Spotify Electron Direct assigns only its owned Windows process to the selected
+# endpoint; this never changes the system-wide default output.
+winappaudiorouter==1.1.1
 
 # Audioflix URL resolver (YouTube, SoundCloud, etc. to direct audio stream).
 # Instagram logged-in extraction fixes landed in yt-dlp on 2026-07-21.

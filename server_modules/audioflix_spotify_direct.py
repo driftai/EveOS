@@ -59,6 +59,9 @@ class SpotifyDirectManager:
         self._started_at = 0.0
         self._log_handle = None
         self._intentional_stop = False
+        self._output_mode = "capture"
+        self._windows_route = None
+        self._windows_gain = 1.0
 
     def environment(self) -> dict:
         binary = _electron()
@@ -86,6 +89,10 @@ class SpotifyDirectManager:
                 "startedAt": self._started_at if running else 0,
                 "lastError": self._last_error,
                 "pid": self._process.pid if running else 0,
+                "outputMode": self._output_mode if running else "",
+                "windowsOutput": {"assigned": bool(self._windows_route and self._windows_route.pid),
+                    "pids": sorted(self._windows_route.assigned_pids) if self._windows_route else []}
+                    if running else {"assigned": False, "pids": []},
             }
 
     def status(self) -> dict:
@@ -178,6 +185,9 @@ class SpotifyDirectManager:
         self._reader = None
         self._device_id = ""
         self._bridge_port = 0
+        self._output_mode = "capture"
+        self._windows_route = None
+        self._windows_gain = 1.0
         self._ready.clear()
         self._pending.clear()
         if self._log_handle:
@@ -187,20 +197,28 @@ class SpotifyDirectManager:
                 pass
         self._log_handle = None
 
-    def _launch(self, device_id: str, bridge_port: int) -> dict:
+    def _launch(self, device_id: str, bridge_port: int, output_mode: str = "capture") -> dict:
         env = self.environment()
         if not env["electronAvailable"] or not env["hostExists"]:
             return {"ok": False, **env, "reason": "Electron Direct Embed is not installed. Run Audioflix Setup / Repair."}
+        if output_mode not in ("capture", "windows"):
+            return {"ok": False, "reason": "Unsupported Electron output mode."}
+        if output_mode == "windows" and os.name != "nt":
+            return {"ok": False, "reason": "Windows audio routing requires Windows."}
         if not device_id.startswith("sd:") or not device_id[3:].isdigit():
             return {"ok": False, "reason": "Electron Direct Embed requires an exact native sd:* output."}
         if not 1 <= int(bridge_port) <= 65535:
             return {"ok": False, "reason": "Invalid EveOS bridge port."}
+        # Reusing a running Direct host must not depend on whether Playwright is alive.
+        with self._lock:
+            if self._running() and self._device_id == device_id and self._bridge_port == bridge_port and self._output_mode == output_mode:
+                return self._public_status()
         from server_modules import audioflix_spotify_session_handoff
         handoff = audioflix_spotify_session_handoff.acquire()
         if not handoff.get("ok"):
             return {"ok": False, "reason": handoff.get("reason") or "Spotify authentication handoff failed."}
         with self._lock:
-            if self._running() and self._device_id == device_id and self._bridge_port == bridge_port:
+            if self._running() and self._device_id == device_id and self._bridge_port == bridge_port and self._output_mode == output_mode:
                 return self._public_status()
         self.shutdown()
         data_dir = _runtime_dir()
@@ -213,7 +231,7 @@ class SpotifyDirectManager:
         command = [str(_electron()), str(_host_dir()), "--runtime", "--source=spotify", "--persist-spotify",
             "--hide-source", f"--device-id={device_id}", f"--bridge=http://127.0.0.1:{bridge_port}",
             f"--eveos-root={_root()}", f"--data-dir={data_dir}", f"--owner-pid={os.getpid()}",
-            f"--control-port={control_port}"]
+            f"--control-port={control_port}", f"--output-mode={output_mode}"]
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         handle = None
         try:
@@ -234,6 +252,7 @@ class SpotifyDirectManager:
             self._process = process
             self._listener = listener
             self._device_id = device_id
+            self._output_mode = output_mode
             self._bridge_port = int(bridge_port)
             self._started_at = time.time()
             self._last_error = ""
@@ -253,11 +272,20 @@ class SpotifyDirectManager:
         status = self.status()
         if not status["running"]:
             return {"ok": False, **status, "reason": status["lastError"] or "Electron Direct Embed exited during startup."}
-        return status
+        if output_mode == "windows":
+            try:
+                from server_modules.audioflix_spotify_windows_output import OwnedWindowsRoute
+                # The real audio-owning Chromium child does not exist until provider
+                # playback begins. Electron remains muted until command() verifies it.
+                self._windows_route = OwnedWindowsRoute()
+            except Exception as exc:
+                self.shutdown()
+                return {"ok": False, "reason": f"Windows Electron output initialization failed: {exc}"}
+        return self._public_status()
 
-    def ensure(self, device_id: str, bridge_port: int) -> dict:
+    def ensure(self, device_id: str, bridge_port: int, output_mode: str = "capture") -> dict:
         with self._launch_lock:
-            return self._launch(device_id, bridge_port)
+            return self._launch(device_id, bridge_port, output_mode)
 
     def _send(self, action: str, payload: dict | None = None, timeout: float = _COMMAND_TIMEOUT) -> dict:
         with self._lock:
@@ -295,15 +323,52 @@ class SpotifyDirectManager:
         if action == "status":
             return self.status()
         if action == "prepare":
-            return self.ensure(str(body.get("deviceId") or ""), bridge_port)
+            return self.ensure(str(body.get("deviceId") or ""), bridge_port, str(body.get("outputMode") or "capture"))
         if action == "play":
             device_id = str(body.get("deviceId") or "")
-            started = self.ensure(device_id, bridge_port)
+            started = self.ensure(device_id, bridge_port, str(body.get("outputMode") or "capture"))
             if not started.get("ok") or not started.get("running"):
                 return started
         if action == "shutdown-host":
             return self.shutdown()
         result = self._send(action, body, timeout=_PLAY_TIMEOUT if action == "play" else _COMMAND_TIMEOUT)
+        if result.get("ok") and self._windows_route and action in ("play", "volume", "resume"):
+            try:
+                if action in ("play", "volume"):
+                    self._windows_gain = max(0.0, min(1.0, float(body.get("gain", 1))))
+                if action in ("play", "resume"):
+                    with self._lock:
+                        root_pid = self._process.pid if self._running() and self._process else 0
+                    # Verify an owned audio child before unmuting. Chromium exposes
+                    # the actual Windows session only after that confirmed route is
+                    # audible, so settle it boundedly and remute on any failure.
+                    for attempt in range(5):
+                        if attempt:
+                            # Electron's resume action deliberately remutes the source.
+                            # Reconfirm the owned Windows route before every unmute.
+                            resumed = self._send("resume", {}, timeout=_COMMAND_TIMEOUT)
+                            if not resumed.get("ok"):
+                                raise RuntimeError(resumed.get("reason") or "Spotify did not resume after routing.")
+                            time.sleep(0.75)
+                        result["windowsOutput"] = self._windows_route.apply(root_pid, self._device_id)
+                        ready = self._send("route-ready", {}, timeout=_COMMAND_TIMEOUT)
+                        if not ready.get("ok"):
+                            raise RuntimeError(ready.get("reason") or "Electron did not accept route readiness.")
+                        result["windowsVolume"] = self._windows_route.volume(self._windows_gain)
+                        probe = self._send("status", {}, timeout=4.0)
+                        state = probe.get("state") if isinstance(probe.get("state"), dict) else {}
+                        if result["windowsVolume"].get("sessions", 0) > 0 and state.get("status") == "playing" \
+                                and float(state.get("currentTime") or 0) > 0:
+                            result["state"] = state
+                            break
+                        if attempt == 4:
+                            raise RuntimeError("Spotify routed session did not become stably audible.")
+                elif action == "volume":
+                    result["windowsVolume"] = self._windows_route.volume(self._windows_gain)
+            except Exception as exc:
+                if action in ("play", "resume"):
+                    self._send("stop", {}, timeout=4.0)
+                result = {"ok": False, "reason": f"Windows Electron output failed closed: {exc}"}
         return {**result, "host": self._public_status()}
 
     def shutdown(self, force: bool = False) -> dict:
@@ -312,6 +377,14 @@ class SpotifyDirectManager:
             self._intentional_stop = True
         if not process:
             return {"ok": True, "state": "stopped", "alreadyStopped": True}
+        if process.poll() is None and self._windows_route:
+            self._send("stop", {}, timeout=4.0)  # prevent speaker leak during route restore
+            try:
+                restored = self._windows_route.restore()
+                if not restored.get("ok"):
+                    self._last_error = restored.get("reason") or "Windows route restoration uncertain."
+            except Exception as exc:
+                self._last_error = f"Windows output restore failed: {exc}"
         if process.poll() is None and not force:
             self._send("shutdown", {}, timeout=4.0)
             try:

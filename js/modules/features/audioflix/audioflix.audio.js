@@ -166,6 +166,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         const sameItem = String(prior?.item?.id || '') === String(item?.id || '');
         resumeMusicCapture = false; const prepared = await preparePlaybackItem(item);
         const requestedItem = prepared?.item || (item && typeof item === 'object' ? { ...item } : {});
+        if (prepared?.localPath) { const started = await playItem(item); if (started) urlPlayback?.presentExternal?.(requestedItem, getPlaybackState()); return started; }
         if (!requestedItem.url) throw new Error(requestedItem.sourceIsLocal ? 'This Spotify local file has no linked file in EveOS yet.' : 'Audioflix item is missing a URL.');
         let playableItem = requestedItem;
         if (window.EveAudioflixAudioSource?.needsResolution?.(requestedItem.url) && window.EveAudioflixUrlProviders?.providerFor?.(requestedItem.url) !== 'instagram') {
@@ -180,8 +181,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         return opened;
     }
     async function playItem(item) {
-        // Resume an existing provider controller before any async preparation can consume the
-        // originating click gesture. This matters for protected iframe players such as Spotify.
+        // Resume protected provider controllers before async work consumes the click gesture.
         if (urlPlayback?.isActive?.()
             && urlPlayback.matches(item)
             && urlPlayback.shouldPreferBrowser?.(item)) {
@@ -428,7 +428,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         playTestSignal, applySink, attachWaveform, browserOutputStatus, resolvePlaybackSink, routeBrowserStream,
         playSound, layerPlay, projectExternalLayer: layerController.projectExternalLayer, stopItemLayers,
         stopAll, pauseLayers: layerController.pauseAll, resumeLayers: layerController.resumeAll, layersPaused: layerController.isPaused, hasLayers: layerController.hasLayers, updateItemVolume, getDecodedBuffer, encodeBufferToBase64, getAudioElement: ensureAudio, getPlaybackState,
-        setQueueBridge, syncQueueView, setPlaybackRate, isInternalViewOpen: () => urlPlayback?.isInternalViewOpen?.() === true,
+        setQueueBridge, syncQueueView, setPlaybackRate, presentExternalTransport: (item, status) => urlPlayback?.presentExternal?.(item, status), isInternalViewOpen: () => urlPlayback?.isInternalViewOpen?.() === true,
         hideInternalView: () => urlPlayback?.hideInternalView?.(), closeInternalView: () => urlPlayback?.closeInternalView?.(),
         getPlaybackRate: () => urlPlayback?.getRate?.() ?? 1, getMusicCapture: () => musicCapture,
         getWaveformController: () => waveformController,

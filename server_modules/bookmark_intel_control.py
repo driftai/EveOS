@@ -88,13 +88,39 @@ def _health_payload() -> dict | None:
 
 def _listener_pids() -> list[int]:
     if os.name == "nt":
-        result = subprocess.run(
-            ["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True, check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        marker = f":{BOOKMARK_INTEL_PORT}"
-        return sorted({int(line.split()[-1]) for line in result.stdout.splitlines()
-                       if marker in line and "LISTENING" in line.upper() and line.split()[-1].isdigit()})
+        endpoint = f"127.0.0.1:{BOOKMARK_INTEL_PORT}"
+
+        def owner_rows():
+            result = subprocess.run(
+                ["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True, check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            rows = []
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if len(parts) != 5 or parts[0].upper() != "TCP" or not parts[4].isdigit():
+                    continue
+                if parts[1] == endpoint and int(parts[4]) > 0:
+                    rows.append((parts[2], parts[3].upper(), int(parts[4])))
+            return rows
+
+        # Prefer the precise listening socket owner when Windows exposes it.
+        owners = sorted({pid for _, state, pid in owner_rows() if state == "LISTENING"})
+        if owners:
+            return owners
+
+        # Some Windows environments expose only ESTABLISHED server-side entries,
+        # even while an HTTP health check proves that the listener is alive.
+        # Keep our own loopback TCP connection open during enumeration and accept
+        # only its exact opposite endpoint; never use unrelated port-9077 traffic.
+        try:
+            with socket.create_connection(("127.0.0.1", BOOKMARK_INTEL_PORT), timeout=0.8) as probe:
+                peer = f"127.0.0.1:{probe.getsockname()[1]}"
+                return sorted({pid for remote, state, pid in owner_rows()
+                               if remote == peer and state == "ESTABLISHED"})
+        except OSError:
+            return []
+
     result = subprocess.run(
         ["lsof", "-nP", f"-iTCP:{BOOKMARK_INTEL_PORT}", "-sTCP:LISTEN", "-t"],
         capture_output=True, text=True, check=False,

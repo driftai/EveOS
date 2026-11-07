@@ -18,7 +18,10 @@ const assert = (condition, message) => { if (!condition) throw new Error(`ASSERT
     const queueCompletion = fs.readFileSync(QUEUE_COMPLETION, 'utf8');
     const spotifyVolume = fs.readFileSync(SPOTIFY_VOLUME, 'utf8');
     const spotifyPlayback = fs.readFileSync(SPOTIFY_PLAYBACK, 'utf8');
-    assert(uiMain.includes("if (status === 'Ended' && !(e.detail?.remoteManaged && window.EveAudioflixSpotifyQueueHandoff?.isDelegated?.())) completeQueue(e.detail)")
+    assert(uiMain.includes("if ((status === 'Ended' || (e.detail?.error === true && e.detail?.terminal === true)) && !(e.detail?.remoteManaged && window.EveAudioflixSpotifyQueueHandoff?.isDelegated?.())) {")
+        && uiMain.includes("if (queueStartPending === queueRunId) { if (queueStartActive === queueRunId) queuedTerminal = e.detail; } else completeQueue(e.detail); }")
+        && uiMain.includes("const runId = ++queueRunId; queueStartPending = runId; queuedTerminal = null;")
+        && uiMain.includes("if (didStart && terminal && String(terminal.item?.id ?? '') === String(activeMusicQueue.items[activeMusicQueue.currentIndex])) completeQueue(terminal);")
         && uiMain.includes('window.EveAudioflixQueueCompletion.createRuntime({')
         && uiMain.includes('playIndex: (index) => playQueueIndex(index)')
         && uiMain.includes('complete: completeQueue } = queueRuntime')

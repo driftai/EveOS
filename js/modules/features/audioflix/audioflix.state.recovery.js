@@ -88,6 +88,10 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         };
     }
 
+    const REF_FIELDS = ['id', 'title', 'localPath', 'playlistId', 'sourceId', 'portConnectionId', 'sourceKind', 'folder', 'classifiers', 'groups', 'musicPortGroup', 'playbackPolicy'];
+    const packStructure = value => ({ ...value, packedMusicRefs: 1, musicRefs: (value.musicRefs || []).map(ref => REF_FIELDS.map(field => ref[field] ?? null)) });
+    const unpackStructure = value => !value || value.packedMusicRefs !== 1 ? value : ({ ...value, musicRefs: (value.musicRefs || []).map(row => Object.fromEntries(REF_FIELDS.map((field, i) => [field, Array.isArray(row) ? row[i] : null]).filter(([,v]) => v !== null))) });
+
     function captureStructure(state) {
         const source = state && typeof state === 'object' ? state : {};
         return {
@@ -126,10 +130,10 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         const slot = `${key}${STRUCTURE_SUFFIX}`;
         const structure = captureStructure(state);
         try {
-            localStorage.setItem(slot, JSON.stringify(structure));
+            localStorage.setItem(slot, JSON.stringify(packStructure(structure)));
             return { written: true, slot, structure };
         } catch (error) {
-            console.warn('[Audioflix] structural recovery write failed:', error);
+            console.warn('[Audioflix] compact structural journal unavailable; the IndexedDB recovery mirror remains the fallback:', error);
             return { written: false, slot, structure, reason: String(error?.message || error) };
         }
     }
@@ -147,15 +151,14 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         try {
             const raw = localStorage.getItem(slot);
             if (!raw) return durable ? clone(durable, null) : null;
-            const parsed = JSON.parse(raw);
+            const parsed = unpackStructure(JSON.parse(raw));
             return clone(preferredStructure(parsed && typeof parsed === 'object' ? parsed : null, durable), null);
         } catch {
             return durable ? clone(durable, null) : null;
         }
     }
 
-    // Only the private single-add path caches parsed refs. Public readStructure stays caller-owned.
-    // Compare actual storage on every lookup: cross-tab writes, imports and deletion retire the cache.
+    // Track only the current per-key structure; detect cross-tab changes.
     function trackStructure(key) {
         const slot = `${key}${STRUCTURE_SUFFIX}`;
         const durable = window.EveAudioflixRecoveryMirror?.peek(key)?.structure;
@@ -166,7 +169,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         if (cached?.raw === raw && cached.durable === durable) return cached;
         trackStructures.delete(slot);
         let structure = null;
-        try { structure = JSON.parse(raw); } catch { /* Damaged data never reuses stale topology. */ }
+        try { structure = unpackStructure(JSON.parse(raw)); } catch { /* Damaged data never reuses stale topology. */ }
         structure = preferredStructure(structure, durable);
         const cache = { raw, durable, structure, ids: new Map(), paths: new Map(), sources: new Map() };
         const refs = Array.isArray(structure?.musicRefs) ? structure.musicRefs : [];
@@ -179,7 +182,6 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             const source = ref.playlistId && ref.sourceId ? JSON.stringify([ref.playlistId, ref.sourceId]) : '';
             if (source && !cache.sources.has(source)) cache.sources.set(source, entry);
         });
-        // One canonical library is usual; bound alternate/test pack keys without retaining old journals.
         if (trackStructures.size >= 8) trackStructures.delete(trackStructures.keys().next().value);
         trackStructures.set(slot, cache);
         return cache;
@@ -237,8 +239,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         state.musicClassifiers = uniq([...(state.musicClassifiers || []), ...(structure.musicClassifiers || [])]);
         state.localizeScopeDirs = { ...(structure.localizeScopeDirs || {}), ...(state.localizeScopeDirs || {}) };
         state.portVolumes = { ...(structure.portVolumes || {}), ...(state.portVolumes || {}) };
-        // Null is an explicit clear; missing/blank transient catalogs cannot erase a saved key.
-        const restoredKeys = { ...(state.portHotkeys || {}) }, journalKeys = structure.portHotkeys || {}, journalNewer = Number(structure.savedAt || 0) >= Number(state.durabilityUpdatedAt || 0);
+            const restoredKeys = { ...(state.portHotkeys || {}) }, journalKeys = structure.portHotkeys || {}, journalNewer = Number(structure.savedAt || 0) >= Number(state.durabilityUpdatedAt || 0);
         for (const [id, value] of Object.entries(journalKeys))
             if ((value === null || text(value)) && (journalNewer || !text(restoredKeys[id]))) restoredKeys[id] = value;
         state.portHotkeys = restoredKeys; if (['soundboard', 'music', 'piano', 'soundlab', 'router'].includes(structure.lastAudioflixTab) && journalNewer) state.lastAudioflixTab = structure.lastAudioflixTab;
@@ -402,7 +403,6 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         const rejected = validateWrite(state, read(key), options);
         if (rejected) return rejected;
 
-        // The small journal is written first so topology can survive even if the large state hits quota.
         writeStructure(key, state);
         try {
             localStorage.setItem(key, JSON.stringify(state));

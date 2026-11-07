@@ -56,7 +56,8 @@ test('direct runtime owns play, pause, volume and stop without Playwright', asyn
   assert.equal(played.ok, true);
   assert.equal(played.state.status, 'playing');
   assert.deepEqual(h.diagnostics(), { gain: 0.5, captureStarts: 1, current: { ...identity,
-    spotifyId: '4cOdK2wGLETKBW3PvgPWqT', mediaType: 'track', duration: 0 }, loads: 1 });
+    spotifyId: '4cOdK2wGLETKBW3PvgPWqT', mediaType: 'track',
+    spotifyUrl: 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT', duration: 0 }, loads: 1 });
   assert.equal((await h.runtime.command('pause')).state.status, 'paused');
   await h.runtime.command('volume', { gain: 0 });
   assert.equal(h.diagnostics().gain, 0);
@@ -78,7 +79,7 @@ test('direct runtime fails closed without an exact native endpoint or typed iden
   }), /exact native sd/);
   const normal = harness();
   await assert.rejects(() => normal.runtime.command('play', { spotifyUri: 'https://open.spotify.com/track/x' }),
-    /track or episode identity/);
+    /track or episode URL\/URI/);
   assert.equal(MEDIA_RE.test('spotify:episode:4cOdK2wGLETKBW3PvgPWqT'), true);
 });
 
@@ -94,13 +95,16 @@ test('trusted Spotify source returns its load receipt to Electron', async () => 
     },
     window: {
       eveSpotifyDirect: { event(value) { events.push(value); }, onCommand() {} }
-    }
+    },
+    setTimeout() {}
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'pages', 'spotify-source.js'), 'utf8'), context,
     { filename: 'spotify-source.js' });
   context.window.onSpotifyIframeApiReady({
-    createController(_element, _options, callback) {
-      callback({ addListener(name, fn) { controllerListeners[name] = fn; }, loadUri() {}, play() {}, pause() {}, resume() {}, seek() {} });
+    createController(_element, options, callback) {
+      assert.equal(options.url, 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT');
+      assert.equal(options.uri, undefined, 'Electron uses the official URL, not Spotify URI');
+      callback({ addListener(name, fn) { controllerListeners[name] = fn; }, loadEntity() {}, loadUri() {}, play() {}, pause() {}, resume() {}, seek() {} });
     }
   });
   const result = await context.window.__eveSpotifyCommand({ id: 'load-1', action: 'load', payload: {

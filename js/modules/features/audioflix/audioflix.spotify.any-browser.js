@@ -374,8 +374,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
                 if (active || starting) await stopRemote();
                 return original.openInternalView(localItem);
             }
-            if (active) return audio.playItem(nextItem);
-            try { return await remotePlay(nextItem, policy); } catch (error) {
+            if (active) { const resumed = await audio.playItem(nextItem); if (resumed) audio.presentExternalTransport?.(nextItem, audio.getPlaybackState()); return resumed; }
+            try { const started = await remotePlay(nextItem, policy); if (started) audio.presentExternalTransport?.(nextItem, audio.getPlaybackState()); return started; } catch (error) {
                 if (error?.eveSpotifyFallback) return original.openInternalView(nextItem);
                 throw error;
             }

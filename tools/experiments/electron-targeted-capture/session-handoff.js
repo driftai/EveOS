@@ -21,6 +21,26 @@ async function apply(targetSession, options = {}) {
   if (Number(envelope?.version) !== 1 || !Array.isArray(envelope?.cookies)) {
     throw new Error('Spotify session handoff version is invalid.');
   }
+  if (envelope.mode === 'reuse-persisted') {
+    if (envelope.cookies.length) throw new Error('Persisted Spotify reuse cannot import cookies.');
+    // Reuse only authenticated cookies already held by this exact Electron partition.
+    // Do not read the managed Playwright profile or transfer browser credentials to the UI.
+    const existing = await targetSession.cookies.get({ url: 'https://open.spotify.com' });
+    const now = Date.now() / 1000;
+    const count = existing.filter((cookie) => {
+      const name = String(cookie?.name || '').toLowerCase();
+      const domain = String(cookie?.domain || '').toLowerCase();
+      const expiry = Number(cookie?.expirationDate);
+      return AUTH_NAMES.has(name)
+        && ['.spotify.com', 'spotify.com', 'open.spotify.com'].includes(domain)
+        && typeof cookie.value === 'string' && cookie.value.length > 0
+        && cookie.secure === true
+        && (!Number.isFinite(expiry) || expiry > now);
+    }).length;
+    if (!count) throw new Error('Electron Spotify profile has no valid saved sign-in. Start the managed Spotify session once to authorize Direct.');
+    return { applied: true, count, source: 'persisted' };
+  }
+  if (envelope.mode && envelope.mode !== 'cookies') throw new Error('Unsupported Spotify handoff mode.');
   const cookies = envelope.cookies.map(normalize).filter(Boolean);
   if (!cookies.length) throw new Error('Spotify session handoff contains no permitted authentication cookies.');
   for (const cookie of cookies) await targetSession.cookies.set(cookie);

@@ -96,9 +96,18 @@ function instrumentation() {
 function initialize(readUrl) {
     const model = { active: false, run: 0, mode: 'stopped', ended: false, advances: 0, applies: 0 };
     const consumed = new Set();
-    const read = (action, payload = {}) => fetch(readUrl + '?entry=' + (location.protocol === 'file:' ? 'file' : 'http'), {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, payload })
-    }).then(response => response.json());
+    const read = (action, payload = {}) => {
+        // File-mode tests use the same Node fake backend through CDP, not a
+        // file-origin localhost fetch (which Chrome 145 stalls indefinitely).
+        if (location.protocol === 'file:') {
+            if (typeof window.__EveWatchFixtureRead !== 'function')
+                throw new Error('File lifecycle backend binding was not installed');
+            return window.__EveWatchFixtureRead(action, payload);
+        }
+        return fetch(readUrl + '?entry=http', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, payload })
+        }).then(response => response.json());
+    };
     const frontend = event => console.log('WATCH_LIFECYCLE_FRONTEND:' + JSON.stringify(event));
     const remote = { snapshot: () => ({ connected: true }),
         status: () => read('status'), send: (action, payload) => read(action, payload) };
@@ -136,29 +145,68 @@ const html = readUrl => '<!doctype html><meta charset="utf-8"><title>isolated wa
     + `<script>(${initialize})(${JSON.stringify(readUrl)});</script>`;
 
 async function qualify(browser, url, entry, observed) {
-    const errors = [], requests = [];
+    const errors = [], requests = [], networkFailures = [];
+    const requestUrls = new Map();
+    let session = null, bridgeFrozen = false;
+    const bridgeDelayed = [];
+    let bridgeCalls = 0, bridgeReplies = 0;
+    function deliverBridge(id, result) {
+        const sendResult = () => {
+            if (!session) return Promise.reject(new Error('File fixture session missing'));
+            return session.send('Runtime.evaluate', {
+                expression: `window.__EveWatchFixtureResolve(${JSON.stringify(id)}, ${JSON.stringify(result)})`,
+                returnByValue: true
+            }).then(reply => { if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.text); bridgeReplies++; });
+        };
+        if (bridgeFrozen) bridgeDelayed.push(sendResult);
+        else void sendResult().catch(error => errors.push('file backend bridge reply failed: ' + error.message));
+    }
     const page = await browser.page(url, message => {
         if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.text);
         if (message.method === 'Network.requestWillBeSent') {
             const requestUrl = message.params.request.url;
+            requestUrls.set(message.params.requestId, requestUrl);
             if (requests.length < 200) requests.push(requestUrl);
             if (!requestUrl.startsWith('file:') && !/^http:\/\/127\.0\.0\.1:\d+\//.test(requestUrl)) {
                 errors.push('unexpected non-fixture request: ' + requestUrl);
             }
         }
+        if (message.method === 'Network.loadingFailed') {
+            networkFailures.push({ url: requestUrls.get(message.params.requestId) || '',
+                reason: message.params.errorText, blockedReason: message.params.blockedReason || '' });
+        }
+        if (message.method === 'Runtime.bindingCalled' && entry === 'file'
+            && message.params.name === '__EveWatchFixtureReadBinding') {
+            try {
+                const packet = JSON.parse(message.params.payload);
+                assert.ok(Number.isSafeInteger(packet.id) && packet.id > 0);
+                assert.ok(['seed', 'status', 'status-watch'].includes(packet.action));
+                bridgeCalls++;
+                void observed.read(packet.action, packet.payload || {})
+                    .then(result => deliverBridge(packet.id, result))
+                    .catch(error => errors.push('file backend read failed: ' + error.message));
+            } catch (error) { errors.push('invalid file backend binding: ' + error.message); }
+        }
         if (message.method === 'Runtime.consoleAPICalled') {
             const text = message.params.args[0]?.value;
             if (typeof text !== 'string') return;
             if (text.startsWith('WATCH_LIFECYCLE_NATIVE:')) {
-                observed.data.events.push(JSON.parse(text.slice('WATCH_LIFECYCLE_NATIVE:'.length)));
+                const event = JSON.parse(text.slice('WATCH_LIFECYCLE_NATIVE:'.length));
+                observed.data.events.push(event);
+                if (entry === 'file' && event.kind === 'freeze') bridgeFrozen = true;
+                if (entry === 'file' && event.kind === 'resume') {
+                    bridgeFrozen = false;
+                    for (const work of bridgeDelayed.splice(0))
+                        void work().catch(error => errors.push('delayed file bridge reply failed: ' + error.message));
+                }
             } else if (text.startsWith('WATCH_LIFECYCLE_FRONTEND:')) {
                 const event = JSON.parse(text.slice('WATCH_LIFECYCLE_FRONTEND:'.length));
                 if (event.kind === 'pulse') observed.data.pulses++;
                 else if (event.kind === 'apply') observed.data.applies.push(event);
             }
         }
-    });
-    const session = page;
+    }, { fixtureReadBinding: entry === 'file' });
+    session = page;
     const snapshot = () => page.evaluate(() => window.__fixture.snapshot());
     async function freeze(label) {
         const index = observed.data.events.filter(event => event.kind === 'freeze').length;
@@ -257,7 +305,7 @@ async function qualify(browser, url, entry, observed) {
             peaks: observed.data.peaks, events: observed.data.events.map(event => event.kind) });
     } catch (error) {
         evidence.failures.push({ entry, message: error.message, events: observed.data.events,
-            applies: observed.data.applies, calls: observed.data.calls, pulses: observed.data.pulses, requests, errors });
+            applies: observed.data.applies, calls: observed.data.calls, pulses: observed.data.pulses, requests, errors, networkFailures, bridgeCalls, bridgeReplies });
         if (session) await session.send('Page.setWebLifecycleState', { state: 'active' }).catch(() => {});
         await page.screenshot(path.join(output, `${entry}-${evidence.mode}-failure.png`)).catch(() => {});
         throw error;
@@ -297,6 +345,11 @@ async function qualify(browser, url, entry, observed) {
         evidence.browser = browser.version;
         evidence.webSocketTransport = browser.webSocketTransport;
         await qualify(browser, origin + '/fixture.html', 'http', observed.http);
+        // file:/// still undergoes native Chromium freeze/thaw in a disposable
+        // context. Chrome 145 Windows stalls file-origin localhost networking;
+        // the same fake backend is served through a scoped CDP binding for this
+        // file-only case. The HTTP case above checks real network POSTs.
+        evidence.fileModeTransport = 'test-only-cdp-binding (not file-to-localhost network)';
         await qualify(browser, pathToFileURL(fixture).href, 'file', observed.file);
         evidence.ok = true;
         console.log('AUDIOFLIX_SPOTIFY_WATCH_LIFECYCLE_OK (http/file, native freeze/thaw, completion, Pause, Stop, 8 cycles, dispose)');

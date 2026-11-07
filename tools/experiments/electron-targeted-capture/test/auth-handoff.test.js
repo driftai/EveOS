@@ -34,3 +34,28 @@ test('direct handoff is bounded, validates the envelope, and installs no unrelat
   await assert.rejects(() => direct.apply(target, { enabled: true,
     envelope: { version: 2, cookies: [] } }), /version/);
 });
+
+
+test('Direct reuses only valid saved Electron auth; never imports cookies in reuse mode', async () => {
+  const stored = [
+    { name: 'sp_dc', value: 'AUTH', domain: '.spotify.com', secure: true, expirationDate: Date.now()/1000 + 3600 },
+    { name: 'sp_dc', value: 'TRACKER', domain: '.evil.test', secure: true },
+    { name: 'sp_key', value: 'EXPIRED', domain: '.spotify.com', secure: true, expirationDate: 100 },
+    { name: 'sp_key', value: 'INSECURE', domain: '.spotify.com', secure: false }
+  ];
+  let setCount = 0;
+  const target = { cookies: {
+    async get(options) { assert.deepEqual(options, { url: 'https://open.spotify.com' }); return stored; },
+    async set() { setCount++; }
+  } };
+  const envelope = { version: 1, mode: 'reuse-persisted', cookies: [] };
+  assert.deepEqual(await direct.apply(target, { enabled: true, envelope }),
+    { applied: true, count: 1, source: 'persisted' });
+  assert.equal(setCount, 0);
+  stored.splice(0, stored.length);
+  await assert.rejects(() => direct.apply(target, { enabled: true, envelope }), /no valid saved sign-in/);
+  await assert.rejects(() => direct.apply(target, { enabled: true,
+    envelope: { ...envelope, cookies: [{ name: 'sp_dc', value: 'secret' }] } }), /cannot import/);
+  await assert.rejects(() => direct.apply(target, { enabled: true,
+    envelope: { ...envelope, mode: 'unsupported' } }), /Unsupported/);
+});

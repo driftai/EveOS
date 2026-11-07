@@ -24,5 +24,12 @@ class FakeManager:
 good = acquire(FakeManager({"ok": True, "authState": "signed-in", "cookies": [{"name": "sp_dc", "value": "x"}]}))
 assert good["ok"] is True and len(good["cookies"]) == 1
 assert acquire(FakeManager({}, healthy=False))["ok"] is False
+class StoppedManager(FakeManager):
+    def _process_running(self): return False
+class UnhealthyRunningManager(FakeManager):
+    def _process_running(self): return True
+cached = acquire(StoppedManager({}, healthy=False))
+assert cached == {"ok": True, "version": 1, "mode": "reuse-persisted", "cookies": []}
+assert acquire(UnhealthyRunningManager({}, healthy=False))["ok"] is False
 assert acquire(FakeManager({"ok": False, "reason": "signed out"}))["ok"] is False
 print("audioflix Spotify session handoff smoke passed")

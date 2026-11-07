@@ -227,3 +227,6 @@ tools/Piano-Auto-Player/youtube_session.txt
 tools/Piano-Auto-Player/tmp/
 tools/Piano-Auto-Player/.youtube-piano-venv/
 tools/Piano-Auto-Player/.piano-hifi-venv/
+
+# Generated private EveOS local modular packs; never publish saved workspace data.
+data/modular-packs/

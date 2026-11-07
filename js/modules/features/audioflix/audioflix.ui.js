@@ -5,7 +5,7 @@ window.EveAudioflix = window.EveAudioflix || {};
     if (ns.ready) return;
     let overlay = null, activeTab = 'soundboard', lastTab = 'soundboard', playbackStatus = 'Idle', routingOpen = false, fullscreenOn = false, settingsOpen = false, addFormOpen = { sound: false, music: false }, portsOpen = false, groupsOpen = { sound: false, music: false }, foldersOpen = { music: false }, portedSounds = [], portedCatalogReady = false, fsPortFolders = [], deadServerPorts = new Set(), collapsedGroups = {}, activeRepeaters = {}, activeInfoItem = null, activeInfoType = null, deleteConfirmId = '';
     let activeMusicQueue = { groupName: '', items: [], currentIndex: -1, isPlaying: false, shuffle: false, loop: false }, repeatCurrent = false;
-    let queueTransition = Promise.resolve(), queueRunId = 0;
+    let queueTransition = Promise.resolve(), queueRunId = 0, queueStartPending = 0, queueStartActive = 0, queuedTerminal = null;
     const shared = window.EveAudioflixUiShared;
     let lastRenderedRevision = -1;
     if (!shared?.ready) throw new Error('Audioflix UI shared module loaded out of order.');
@@ -138,9 +138,9 @@ window.EveAudioflix = window.EveAudioflix || {};
         } else if (targetIndex < 0) {
             targetIndex = activeMusicQueue.loop === true ? activeMusicQueue.items.length - 1 : 0;
         }
-        const runId = ++queueRunId;
+        const runId = ++queueRunId; queueStartPending = runId; queuedTerminal = null;
         queueTransition = queueTransition.catch(() => {}).then(async () => {
-            if (runId !== queueRunId) return;
+            if (runId !== queueRunId) return; queueStartActive = runId;
             const finish = window.EveAudioflixDiagnostics?.span?.('queue:start');
             const attempts = activeMusicQueue.items.length, startingIndex = activeMusicQueue.currentIndex;
             let didStart = false;
@@ -153,7 +153,7 @@ window.EveAudioflix = window.EveAudioflix || {};
                         ? await window.EveAudioflixAudio.openInternalView(track)
                         : await window.EveAudioflixAudio.playItem(track);
                     // Superseded start: cancellation, not a broken track. Restore the authoritative index, no skip.
-                    if (started === false) { activeMusicQueue.currentIndex = startingIndex; finish?.(false); window.EveAudioflixAudio?.syncQueueView?.(); rerenderPlayback(); return; }
+                    if (started === false) { if (queueStartPending === runId) { queueStartPending = 0; queueStartActive = 0; queuedTerminal = null; } activeMusicQueue.currentIndex = startingIndex; finish?.(false); window.EveAudioflixAudio?.syncQueueView?.(); rerenderPlayback(); return; }
                     didStart = true; break;
                 } catch (err) {
                     playbackStatus = `Skipped ${track?.title || 'unavailable track'}: ${err?.message || 'Playback failed'}`;
@@ -167,7 +167,7 @@ window.EveAudioflix = window.EveAudioflix || {};
                 }
             }
             if (runId !== queueRunId) { finish?.(true); return; }
-            activeMusicQueue.isPlaying = didStart; finish?.(!didStart); if (didStart) window.EveAudioflixSpotifyQueueHandoff?.arm?.(activeMusicQueue, queueTrackAt).catch(() => {});
+            activeMusicQueue.isPlaying = didStart; finish?.(!didStart); if (didStart) window.EveAudioflixSpotifyQueueHandoff?.arm?.(activeMusicQueue, queueTrackAt).catch(() => {}); if (queueStartPending === runId) { queueStartPending = 0; queueStartActive = 0; const terminal = queuedTerminal; queuedTerminal = null; if (didStart && terminal && String(terminal.item?.id ?? '') === String(activeMusicQueue.items[activeMusicQueue.currentIndex])) completeQueue(terminal); }
             window.EveAudioflixAudio?.syncQueueView?.();
             rerenderPlayback();
         });
@@ -396,7 +396,7 @@ window.EveAudioflix = window.EveAudioflix || {};
     window.addEventListener('eve:audioflix-playback', e => {
         playbackStatus = e.detail?.status || playbackStatus;
         const status = String(e.detail?.status || '');
-        if (status === 'Ended' && !(e.detail?.remoteManaged && window.EveAudioflixSpotifyQueueHandoff?.isDelegated?.())) completeQueue(e.detail);
+        if ((status === 'Ended' || (e.detail?.error === true && e.detail?.terminal === true)) && !(e.detail?.remoteManaged && window.EveAudioflixSpotifyQueueHandoff?.isDelegated?.())) { if (queueStartPending === queueRunId) { if (queueStartActive === queueRunId) queuedTerminal = e.detail; } else completeQueue(e.detail); }
         if (queueRuntime.release(e.detail)) rerenderPlayback();
         updateStatusDOM();
         window.EveAudioflixTransport?.sync?.(overlay);

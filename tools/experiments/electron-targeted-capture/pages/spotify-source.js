@@ -35,33 +35,47 @@ async function command(value = {}) {
   try {
     if (action === 'load') {
       const uri = String(payload.spotifyUri || '');
-      if (!/^spotify:(track|episode):[A-Za-z0-9]{22}$/.test(uri)) throw new Error('Invalid Spotify media identity.');
+      const uriMatch = /^spotify:(track|episode):([A-Za-z0-9]{22})$/.exec(uri);
+      if (!uriMatch) throw new Error('Invalid Spotify media identity.');
+      const url = `https://open.spotify.com/${uriMatch[1]}/${uriMatch[2]}`;
+      if (payload.spotifyUrl && String(payload.spotifyUrl) !== url) throw new Error('Spotify URL/URI mismatch.');
       if (!iframeApi) throw new Error('Spotify IFrame API is not ready.');
       generation += 1; lastEndedGeneration = -1;
-      current = { spotifyUri: uri, spotifyId: uri.split(':')[2], mediaType: uri.split(':')[1],
+      current = { spotifyUri: uri, spotifyUrl: url, spotifyId: uri.split(':')[2], mediaType: uri.split(':')[1],
         itemId: String(payload.itemId || ''), title: String(payload.title || '') };
       update({ status: 'loading', currentTime: 0, duration: Math.max(0, Number(payload.duration || 0)), paused: true,
         completionId: '' });
       if (!controller) {
         emit('diagnostic', { stage: 'create-controller', action, uri });
         controller = await new Promise((resolve) => iframeApi.createController(
-          document.getElementById('embed-iframe'), { uri, width: '100%', height: 152 }, (next) => {
+          document.getElementById('embed-iframe'), { url, width: '100%', height: 152 }, (next) => {
             next.addListener('ready', () => update({ status: 'ready', paused: true }));
             next.addListener('playback_started', () => update({ status: 'playing', paused: false }));
             next.addListener('playback_update', playbackUpdate);
             emit('controller-created');
             emit('diagnostic', { stage: 'controller-created', action, uri });
+            // Read only rendered embed configuration; never inspect iframe cross-origin state.
+            setTimeout(() => {
+              const frame = document.querySelector('#embed-iframe iframe');
+              let origin = '', path = '';
+              try { const parsed = new URL(frame?.src); origin = parsed.origin; path = parsed.pathname; } catch {}
+              emit('diagnostic', { stage: 'embed-frame', origin, path,
+                encryptedMediaAllowed: !!frame?.getAttribute('allow')?.split(';').some(v => v.trim().startsWith('encrypted-media')) });
+            }, 300);
             resolve(next);
           }));
-      } else controller.loadUri(uri);
+      } else {
+        if (typeof controller.loadEntity !== 'function') throw new Error('Spotify IFrame API loadEntity URL method unavailable.');
+        await controller.loadEntity(url);
+      }
     } else if (!controller) {
       throw new Error('Spotify IFrame controller is not ready.');
     } else if (action === 'play') controller.play();
     else if (action === 'pause') { controller.pause(); update({ status: 'paused', paused: true }); }
     else if (action === 'resume') controller.resume();
-    else if (action === 'seek') controller.seek(Math.max(0, Number(payload.seconds || 0)));
+    else if (action === 'seek') await controller.seek(Math.max(0, Number(payload.seconds || 0)));
     else if (action === 'stop') {
-      controller.pause(); controller.seek(0); update({ status: 'stopped', currentTime: 0, paused: true });
+      await controller.pause(); update({ status: 'stopped', currentTime: 0, paused: true });
     } else if (action === 'status') return reply(id, true, { state: last, identity: current, generation });
     else throw new Error('Unsupported Spotify Direct command.');
     return reply(id, true, { state: last, identity: current, generation });

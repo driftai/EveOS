@@ -35,6 +35,9 @@ function createSource() {
     title: cfg.runtime ? 'EveOS Spotify Direct Embed' : 'Experiment E source',
     webPreferences: safePrefs(partition, { autoplayPolicy: 'no-user-gesture-required',
       ...(cfg.runtime ? { preload: path.join(__dirname, 'source-preload.js') } : {}) }) });
+  // Windows Direct starts provider playback muted so its real audio-owning child
+  // exists before the server assigns and verifies the selected endpoint.
+  sourceWin.webContents.setAudioMuted(cfg.outputMode === 'windows');
   policy.lockNavigation(sourceWin.webContents, cfg, note, partition);
   if (cfg.runtime) sourceWin.webContents.on('will-navigate', (event, url) => {
     if (!policy.isSpotifySourceUrl(url)) { event.preventDefault(); note('source-top-nav-blocked', { url: policy.redact(url) }); }
@@ -159,16 +162,37 @@ app.whenReady().then(async () => {
   let envelope = null;
   if (cfg.runtime) {
     directRuntime = createRuntime({ app, cfg, note, bridge, ipcMain,
-      getSourceWin: () => sourceWin, getCaptureWin: () => captureWin, fromSource });
+      getSourceWin: () => sourceWin, getCaptureWin: () => captureWin, fromSource,
+      setSourceMuted: (muted) => sourceWin?.webContents.setAudioMuted(Boolean(muted)) });
     directRuntime.install();
     envelope = await directRuntime.authHandoff();
   }
   if (components?.whenReady) {
     await components.whenReady();
-    note('drm-components-ready', { widevine: true });
+    let raw = null;
+    try { raw = typeof components.status === 'function' ? components.status() : null; }
+    catch (error) { note('drm-components-status-unavailable', { reason: String(error?.message || error).slice(0, 140) }); }
+    const entries = raw && typeof raw === 'object' ? Object.entries(raw) : [];
+    const matching = entries.filter(([name]) => /widevine/i.test(name));
+    note('drm-components-ready', { statusInspectable: !!raw, widevineReported: matching.length > 0,
+      // An updater readiness event is NOT evidence Spotify has granted a production license.
+      widevineStates: matching.map(([name, value]) => ({ name: String(name).slice(0, 45),
+        state: typeof value === 'object' ? String(value?.status || value?.state || 'unconfirmed').slice(0, 40)
+          : 'reported' })) });
   }
   const sourceSession = session.fromPartition(cfg.source === 'spotify' && cfg.persistSpotify
     ? 'persist:eve-spike-spotify' : 'eve-spike-source');
+  if (cfg.runtime && cfg.source === 'spotify') {
+    // Record only HTTP status. Never log headers, license bodies, cookies or request query strings.
+    sourceSession.webRequest.onCompleted({ urls: ['https://*.spotify.com/*'] }, (details) => {
+      let u;
+      try { u = new URL(details.url); } catch { return; }
+      if (!u.hostname.endsWith('.spotify.com') || u.pathname !== '/widevine-license/v1/audio/license') return;
+      const code = Number(details.statusCode || 0);
+      note('spotify-audio-license-response', { httpStatus: code });
+      directRuntime?.onLicenseResponse(code);
+    });
+  }
   const handoff = await sessionHandoff.apply(sourceSession, { enabled: cfg.runtime, envelope });
   if (handoff.applied) note('auth-handoff-applied', { count: handoff.count });
   createSource();

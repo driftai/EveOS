@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>EveOS Spotify Embed</title>
+<link rel="icon" type="image/png" href="https://storage.googleapis.com/pr-newsroom-wp/1/2023/05/Spotify_Primary_Logo_RGB_White.png">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0; background: #111; font: 13px system-ui, sans-serif; }
+  main { padding: 8px; margin: 0 auto; max-width: 760px; }
+  #spotify-card { width: 100%; min-height: 352px; }
+  #spotify-card iframe { border: 0; border-radius: 12px; display: block; }
+  #message { color: #acbac0; padding: 8px 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+<div id="spotify-card" aria-label="Official Spotify embed player"></div>
+<div id="message" role="status">Loading Spotify song card; EveOS will attempt Play automatically.</div>
+</main>
+<script>
+'use strict';
+(() => {
+  const params = new URLSearchParams(location.search);
+  const uri = params.get('uri') || '';
+  const session = params.get('session') || '';
+  const windowId = params.get('windowId') || '';
+  let revision = 0, lastStarted = false, manuallyPaused = false;
+  let lastPlayingPosition = 0, lastDuration = 0, completionSent = false, completionPending = false;
+  let lastPlayingAt = 0, lastPaused = null;
+  let changeSerial = Promise.resolve();
+  const match = uri.match(/^spotify:(track|episode):([A-Za-z0-9]{22})$/);
+  const message = document.getElementById('message');
+  if (!match || !/^[A-Za-z0-9]{22}$/.test(windowId) || session.length < 20 || session.length > 128) {
+    message.textContent = 'Invalid EveOS Spotify playback request.';
+    return;
+  }
+  document.title = `EveOS Spotify Embed ${windowId}`;
+  const url = '/api/audioflix/spotify-edge';
+  let controller = null;
+  let selectedUri = uri;
+  let lastPositionAt = 0;
+  const send = (kind, data = {}) => fetch(url + '/event', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-EveOS-Provider-Capture': 'v1' },
+    body: JSON.stringify({ kind, session, revision, ...data }), credentials: 'same-origin', cache: 'no-store'
+  }).catch(() => {});
+
+  window.onSpotifyIframeApiReady = api => {
+    api.createController(document.getElementById('spotify-card'), {
+      uri, width: '100%', height: 352
+    }, c => {
+      controller = c;
+      message.textContent = 'EveOS will try Spotify’s Play button automatically. Use the card if it cannot start.';
+      send('ready');
+      c.addListener('playback_started', event => {
+        const playingURI = event?.data?.playingURI || '';
+        if (playingURI !== selectedUri) return;
+        lastStarted = true; manuallyPaused = false; completionSent = false; completionPending = false;
+        send('started', { playingURI });
+      });
+      c.addListener('playback_update', event => {
+        const info = event?.data || {};
+        const now = performance.now();
+        const position = Number(info.position), duration = Number(info.duration);
+        if (info.playingURI !== selectedUri) return;
+        if (!Number.isFinite(position) || !Number.isFinite(duration)) return;
+        // Never throttle the transition to paused or an end reset: the final
+        // Spotify SDK update may arrive immediately after the last playing tick.
+        const pauseChanged = info.isPaused !== lastPaused;
+        const terminalReset = info.isPaused === true && position <= 1800 && lastPlayingPosition > 0;
+        if (now - lastPositionAt < 750 && !pauseChanged && !terminalReset) return;
+        lastPositionAt = now;
+        lastPaused = info.isPaused;
+        // A definitive paused-near-end or near-end-to-zero reset is needed.
+        // Metadata duration, silence, or a stalled player alone never advances the queue.
+        const nearEnd = duration > 0 && position >= Math.max(0, duration - 1600);
+        const wasNearEnd = lastDuration > 0 && lastPlayingPosition >= Math.max(0, lastDuration - 1600);
+        // Some licensed embeds emit one final paused-at-duration update,
+        // with no prior playing tick inside the last 1.6 seconds. Require
+        // recent, previously advancing playback near the end; a seek to the
+        // end or a manual Pause must not manufacture completion.
+        const recentlyPlaying = lastPlayingAt > 0 && now - lastPlayingAt <= 12000;
+        const previousClose = lastDuration > 0 && lastPlayingPosition >= Math.max(0, lastDuration - 8000);
+        const finishedAtDuration = duration > 0 && position >= duration - 350;
+        const ended = lastStarted && !manuallyPaused && !completionSent && !completionPending && info.isPaused === true
+          && recentlyPlaying && previousClose &&
+          ((finishedAtDuration && position >= lastPlayingPosition) ||
+            (wasNearEnd && position <= 1800));
+        if (info.isPaused === false) { lastStarted = true; lastPlayingPosition = position; lastPlayingAt = now; }
+        lastDuration = duration || lastDuration;
+        // The backend verifies recent near-end progress *before* accepting
+        // Ended. Do not issue two concurrent HTTP requests: their completion
+        // order is not guaranteed, and a premature Ended is dropped forever.
+        const positionAck = send('position', { playingURI: info.playingURI,
+          currentTime: Math.max(0, position / 1000),
+          duration: Math.max(0, duration / 1000), paused: info.isPaused === true });
+        if (ended) {
+          completionPending = true;
+          const completedRevision = revision, completedUri = selectedUri;
+          Promise.resolve(positionAck).then(async response => {
+            const receipt = response?.ok ? await response.json().catch(() => null) : null;
+            if (receipt?.ok !== true || completedRevision !== revision || completedUri !== selectedUri) return;
+            const finalResponse = await send('ended', { playingURI: completedUri });
+            const finalReceipt = finalResponse?.ok ? await finalResponse.json().catch(() => null) : null;
+            if (finalReceipt?.ok === true && completedRevision === revision && completedUri === selectedUri)
+              completionSent = true;
+            else if (completedRevision === revision)
+              message.textContent = 'Spotify end not confirmed by EveOS; awaiting fresh playback evidence.';
+          }).catch(() => {}).finally(() => {
+            if (completedRevision === revision && completedUri === selectedUri) completionPending = false;
+          });
+        }
+      });
+    });
+  };
+  setInterval(async () => {
+    if (!controller) return;
+    let reply;
+    try { reply = await fetch(url + '/controls',
+      { credentials: 'same-origin', cache: 'no-store', headers: { 'X-EveOS-Edge-Session': session } }).then(r => r.json()); }
+    catch { return; }
+    if (!reply?.ok) return;
+    for (const command of reply.commands || []) {
+      if (command.action === 'load') {
+        if (!/^spotify:(track|episode):[A-Za-z0-9]{22}$/.test(command.uri || '')) continue;
+        if (!Number.isSafeInteger(command.revision) || command.revision <= revision) continue;
+        const sameUri = command.uri === selectedUri;
+        revision = command.revision;
+        selectedUri = command.uri;
+        lastStarted = false; manuallyPaused = false; completionSent = false; completionPending = false;
+        lastPlayingPosition = 0; lastDuration = 0; lastPlayingAt = 0; lastPaused = null;
+        // Ordered loads: a slow prior load cannot become the final selected track.
+        const requested = selectedUri, atRevision = revision, shouldRestart = sameUri;
+        changeSerial = changeSerial.catch(() => {}).then(async () => {
+          if (atRevision !== revision) return;
+          try {
+            let restarted = false;
+            if (shouldRestart && typeof controller.restart === 'function') {
+              await Promise.resolve(controller.restart());
+              restarted = true;
+            } else {
+              const load = controller.loadEntity || controller.loadUri;
+              if (typeof load !== 'function') throw new Error('no-load-method');
+              await Promise.resolve(load.call(controller, requested));
+            }
+            if (atRevision !== revision) return;
+            send('media-loaded', { playingURI: requested });
+            // UIA on the exact owned Edge window will attempt the real Spotify
+            // Play button for this media revision. Direct controller.play()
+            // can yield preview-only playback even when the card has full-track
+            // entitlement, so don't silently replace the button with SDK play.
+            message.textContent = 'Spotify track updated. EveOS is attempting the official Play button.';
+          } catch {
+            if (atRevision === revision) {
+              send('play-failed', { playingURI: requested });
+              message.textContent = 'Spotify did not autoplay the new track. Show Spotify to press Play.';
+            }
+          }
+        });
+        continue;
+      }
+      if (command.revision != null && command.revision !== revision) continue;
+      try {
+        if (command.action === 'pause') { manuallyPaused = true; controller.pause(); }
+        else if (command.action === 'resume') { manuallyPaused = false; controller.resume(); }
+        else if (command.action === 'seek') controller.seek(command.seconds);
+      } catch { message.textContent = `Spotify rejected ${command.action}; use the card control.`; }
+    }
+  }, 600);
+  const sdk = document.createElement('script');
+  sdk.src = 'https://open.spotify.com/embed/iframe-api/v1';
+  sdk.async = true;
+  sdk.onerror = () => { message.textContent = 'Spotify iframe API failed to load.'; };
+  document.head.appendChild(sdk);
+})();
+</script>
+</body>
+</html>

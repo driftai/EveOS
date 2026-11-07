@@ -18,14 +18,15 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
         let active = null;
         let timer = 0;
         let requestedInternalView = false;
+        let externalTransport = false;
         let playbackRate = 1;
         const playback = { item: null, currentTime: 0, duration: 0, paused: true, provider: '' };
         const view = window.EveAudioflixInternalPlayer?.createController?.({
             onClose: () => hideInternalView(),
-            onToggle: () => playback.paused ? resume() : pause(),
-            onSeek: (value) => seek(value),
+            onToggle: () => externalTransport ? (window.EveAudioflixAudio?.getPlaybackState?.()?.paused ? window.EveAudioflixAudio?.resume?.() : window.EveAudioflixAudio?.pause?.()) : (playback.paused ? resume() : pause()),
+            onSeek: (value) => externalTransport ? window.EveAudioflixAudio?.seek?.(value) : seek(value),
             getVolumeItem: () => playback.item,
-            onVolume: (value, metadata) => setVolume(value, metadata),
+            onVolume: (value, metadata) => externalTransport ? window.EveAudioflixAudio?.updateItemVolume?.(playback.item?.id, value, metadata) : setVolume(value, metadata),
             onRate: (value) => setRate(value),
             onStep: (delta) => options.onStep?.(delta),
             onJump: (index) => options.onJump?.(index)
@@ -173,6 +174,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                             emitProgress();
                         },
                         onError(event) {
+                            if (active?.player !== event.target) return;
                             const message = event.data === 153
                                 ? YOUTUBE_FILE_MESSAGE
                                 : `YouTube could not play this link (error ${event.data}).`;
@@ -181,7 +183,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
                             active = null;
                             playback.paused = true;
                             setStageStatus(message, true);
-                            emitPlayback(message, true);
+                            emitPlayback(message, true, { terminal: settled === true, item: playback.item });
                             emitProgress();
                             const error = new Error(message);
                             error.eveReported = true;
@@ -214,6 +216,7 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
         const playInstagram = instagramAdapter?.playInstagram || (async () => { throw new Error('Instagram playback support is not loaded yet.'); });
 
         async function play(item, playOptions = {}) {
+            externalTransport = false;
             const provider = providerFor(item?.url);
             if (!provider) throw new Error('This URL cannot be played directly by the browser.');
             requestedInternalView = playOptions.internalView === true;
@@ -339,8 +342,23 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
             if (active.kind === 'direct') active.player.playbackRate = safe;
             else if (active.kind === 'youtube' || active.kind === 'vimeo') active.player.setPlaybackRate?.(safe)?.catch?.(() => {});
         }
+        function presentExternal(item, status = {}) {
+            if (!item || !view) return false;
+            requestedInternalView = true; externalTransport = true;
+            const frame = view.open(item, 'External', { expanded: true, visible: true });
+            frame?.replaceChildren(); view.setVisualVisible(false);
+            view.setStatus('Playback controlled by EveOS.');
+            Object.assign(playback, { item, provider: status.provider || 'external', currentTime: Number(status.currentTime || 0), duration: Number(status.duration || 0), paused: status.paused !== false });
+            view.sync(playback); return true;
+        }
+        window.addEventListener?.('eve:audioflix-progress', () => {
+            if (!externalTransport || !requestedInternalView) return;
+            const now = window.EveAudioflixAudio?.getPlaybackState?.();
+            if (now?.item?.id == null || String(now.item.id) !== String(playback.item?.id)) return;
+            Object.assign(playback, { ...now }); view?.sync?.(playback);
+        });
         function hideInternalView() {
-            requestedInternalView = false;
+            requestedInternalView = false; externalTransport = false;
             if (active && active.kind !== 'direct') view?.setTransportOnly?.(true);
             else view?.hide?.();
             return true;
@@ -349,9 +367,9 @@ window.EveAudioflixUrlPlayback = window.EveAudioflixUrlPlayback || {};
         async function destroy() { await stop({ closeView: true }); view?.destroy?.(); }
 
         return {
-            play, openInternalView: (item) => play(item, { internalView: true }), pause, resume, seek, stop, destroy, setVolume,
+            play, openInternalView: (item) => play(item, { internalView: true }), presentExternal, pause, resume, seek, stop, destroy, setVolume,
             setRate, getRate: () => playbackRate,
-            isInternalViewOpen: () => requestedInternalView && view?.isOpen?.() === true,
+            isInternalViewOpen: () => requestedInternalView && (externalTransport || view?.isOpen?.() === true),
             hideInternalView,
             closeInternalView: hideInternalView,
             setQueue: (entries, index) => view?.setQueue?.(entries, index),

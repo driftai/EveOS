@@ -10,7 +10,13 @@ def acquire(manager=None) -> dict:
         manager = audioflix_spotify_browser._manager
     with manager._lock:
         if not manager._helper_status():
-            return {"ok": False, "reason": "Managed Spotify session is not running."}
+            # The Direct host owns a separate persistent Electron partition. If the managed
+            # helper is *stopped*, the host can authenticate with its own existing cookies.
+            # Only Electron may inspect that partition; the server sends no cookie values.
+            running = getattr(manager, "_process_running", None)
+            if callable(running) and not running():
+                return {"ok": True, "version": 1, "mode": "reuse-persisted", "cookies": []}
+            return {"ok": False, "reason": "Managed Spotify helper is running but not ready."}
         try:
             result = manager._request("POST", "/auth-handoff", {}, timeout=4)
         except Exception as exc:

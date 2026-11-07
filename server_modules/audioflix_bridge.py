@@ -114,6 +114,9 @@ def handle_get_request(handler, path: str, query) -> bool:
     from server_modules import audioflix_spotify_http
     if audioflix_spotify_http.handle_get_request(handler, path, query):
         return True
+    from server_modules import audioflix_spotify_edge_http
+    if audioflix_spotify_edge_http.handle_get_request(handler, path, query, _send_json, _can_control):
+        return True
     if path == "/api/audioflix/status":
         _send_json(handler, {**list_devices(), "devices": []})
     elif path == "/api/audioflix/devices":
@@ -330,6 +333,10 @@ def save_soundlab_recording(payload: dict) -> dict:
 def handle_post_request(handler, path: str) -> bool:
     from server_modules import audioflix_spotify_http
     if audioflix_spotify_http.handle_post_request(handler, path):
+        return True
+    from server_modules import audioflix_spotify_edge_http
+    if audioflix_spotify_edge_http.handle_post_request(
+            handler, path, _send_json, _read_json, _can_control, _can_start_provider_capture):
         return True
     if path == "/api/audioflix/spotify-direct/command":
         if not _can_control(handler):

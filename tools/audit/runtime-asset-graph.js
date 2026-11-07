@@ -12,6 +12,7 @@ const BROWSER_SOURCE_EXTENSIONS = new Set(['.js', '.mjs', '.css', '.json', '.htm
 const HTML_ENTRYPOINTS = [
     'EveOS.html',
     'server/audioflix-provider-host.html',
+    'server/spotify-embed-edge.html',
     'server/gemini_chat_interface.html',
     'server/server_monitor.html',
     'tools/audioflix/spotify-engine.html',

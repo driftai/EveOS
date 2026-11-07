@@ -69,13 +69,30 @@ async function launch(directory, { forceBundledWs = false } = {}) {
         });
         const version = await send('Browser.getVersion');
         return { version: version.product, webSocketTransport: native ? 'node-global' : 'playwright-bundled-ws',
-            close, async page(url, onEvent) {
+            close, async page(url, onEvent, options = {}) {
             const { browserContextId } = await send('Target.createBrowserContext');
             const { targetId } = await send('Target.createTarget', { browserContextId, url: 'about:blank' });
             const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
             listeners.set(sessionId, new Set([onEvent]));
             const command = (method, params) => send(method, params, sessionId);
             await command('Page.enable'); await command('Runtime.enable'); await command('Network.enable');
+            if (options.fixtureReadBinding === true) {
+                assert.ok(url.startsWith('file:///')
+                    && path.basename(path.resolve(directory)).startsWith('eve-watch-lifecycle-'),
+                    'CDP fake-backend binding must be confined to the file-mode lifecycle fixture');
+                await command('Runtime.addBinding', { name: '__EveWatchFixtureReadBinding' });
+                await command('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
+                    const pending = new Map(); let nextId = 0;
+                    window.__EveWatchFixtureRead = (action, payload = {}) => new Promise(resolve => {
+                        const id = ++nextId; pending.set(id, resolve);
+                        window.__EveWatchFixtureReadBinding(JSON.stringify({ id, action, payload }));
+                    });
+                    window.__EveWatchFixtureResolve = (id, result) => {
+                        const resolve = pending.get(id); if (!resolve) return;
+                        pending.delete(id); resolve(result);
+                    };
+                })();` });
+            }
             await command('Page.navigate', { url });
             async function evaluate(fn, arg) {
                 const result = await command('Runtime.evaluate', { expression: `(${fn})(${JSON.stringify(arg)})`,

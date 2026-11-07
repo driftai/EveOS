@@ -32,6 +32,7 @@ function load(argv = process.argv.slice(1)) {
   return {
     source,
     runtime: a.runtime === true,
+    outputMode: a['output-mode'] === 'windows' ? 'windows' : 'capture',
     spotifyUrl: embed.toString(),
     // Every byte the spike writes (Electron userData, JSON reports) lives here and nowhere else.
     // Defaults inside this experiment folder (gitignored). No audio is ever written.

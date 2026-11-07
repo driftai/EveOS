@@ -45,7 +45,7 @@ window.EveAudioflixSpotifyDirect = window.EveAudioflixSpotifyDirect || {};
         } else if (status === 'paused' && lastStatus !== 'paused') {
             lastStatus = 'paused'; emit('Paused');
         } else if (status === 'error' && lastStatus !== 'error') {
-            lastStatus = 'error'; emit(state.captureError || state.lastError || 'Electron Direct Embed stopped unexpectedly.', true,
+            lastStatus = 'error'; emit(state.playbackError || state.captureError || state.lastError || 'Electron Direct Embed stopped unexpectedly.', true,
                 { terminal: true });
         }
         const completionId = String(state.completionId || '');
@@ -85,10 +85,12 @@ window.EveAudioflixSpotifyDirect = window.EveAudioflixSpotifyDirect || {};
     async function playDirect(nextItem, policy, original) {
         const identity = media()?.fromItem?.(nextItem);
         if (!identity) throw new Error('Electron Direct Embed requires a valid Spotify track or episode.');
+        // The official URL is the provider input. The URI stays as a typed verification identity.
+        const spotifyUrl = `https://open.spotify.com/${identity.mediaType}/${identity.spotifyId}`;
         if (policy.outputKind !== 'native' || !/^sd:\d+$/.test(String(policy.outputId || ''))) {
             throw new Error('Electron Direct Embed needs an exact native output. Choose CABLE or another sd:* endpoint in Playback policy.');
         }
-        if (active && sameIntent(item, nextItem) && lastStatus !== 'ended') {
+        if (active && sameIntent(item, nextItem) && lastStatus !== 'ended' && lastStatus !== 'error') {
             if (playback.paused) {
                 const result = await request('resume'); apply(result);
             }
@@ -102,11 +104,20 @@ window.EveAudioflixSpotifyDirect = window.EveAudioflixSpotifyDirect || {};
             paused: true, provider: 'spotify', browserOnly: true, electronDirect: true };
         lastStatus = 'starting'; lastCompletionId = '';
         try {
-            const result = await request('play', { ...identity, itemId: String(item.id || ''), title: item.title || '',
-                duration: playback.duration, deviceId: policy.outputId, gain: gain(item.volume ?? 1) }, 100000);
+            const result = await request('play', { ...identity, spotifyUrl, itemId: String(item.id || ''), title: item.title || '',
+                duration: playback.duration, deviceId: policy.outputId, gain: gain(item.volume ?? 1),
+                outputMode: 'windows' }, 100000);
             if (expectedRun !== run) return false;
             active = true; apply(result, expectedRun); startPoll();
             return true;
+        } catch (error) {
+            // A failed start previously left the UI indefinitely showing "starting".
+            if (expectedRun === run) {
+                lastStatus = 'error';
+                emit(`Electron Direct could not start: ${String(error?.message || error)}`, true,
+                    { terminal: true });
+            }
+            throw error;
         } finally { if (expectedRun === run) starting = false; }
     }
     async function stopDirect(released = false) {
@@ -121,7 +132,8 @@ window.EveAudioflixSpotifyDirect = window.EveAudioflixSpotifyDirect || {};
         if (installed || !window.EveAudioflixAudio?.ready || !native()?.ready || !media()?.ready) return false;
         installed = true;
         const audio = window.EveAudioflixAudio;
-        const original = { playItem: audio.playItem.bind(audio), openInternalView: audio.openInternalView.bind(audio),
+        const original = { playItem: audio.playItem.bind(audio), layerPlay: typeof audio.layerPlay === 'function' ? audio.layerPlay.bind(audio) : null,
+            openInternalView: audio.openInternalView.bind(audio),
             pause: audio.pause.bind(audio), resume: audio.resume.bind(audio), seek: audio.seek.bind(audio),
             stopAll: audio.stopAll.bind(audio), stopItemLayers: audio.stopItemLayers.bind(audio),
             updateItemVolume: audio.updateItemVolume.bind(audio), getPlaybackState: audio.getPlaybackState.bind(audio),
@@ -134,7 +146,40 @@ window.EveAudioflixSpotifyDirect = window.EveAudioflixSpotifyDirect || {};
             }
             const local = await preferredLocal(nextItem, policy);
             if (local) { if (active || starting) await stopDirect(true); return original.playItem(local); }
-            return playDirect(nextItem, policy, original);
+            try { return await playDirect(nextItem, policy, original); }
+            catch (error) {
+                // The entrypoint may be a card click or the internal player; neither
+                // consumer reliably awaits the returned promise. Preserve the visible
+                // terminal event and fail closed, without an unhandled rejection.
+                if (lastStatus !== 'error') {
+                    lastStatus = 'error'; emit(`Electron Direct could not start: ${String(error?.message || error)}`, true,
+                        { terminal: true });
+                }
+                return false;
+            }
+        };
+        // AudioFlix cards invoke layerPlay, not playItem. A Spotify URL assigned to Electron
+        // must enter the same owned Direct session; the provider-layer controller otherwise
+        // constructs an unrelated Spotify iframe and silently bypasses the selected policy.
+        if (original.layerPlay) audio.layerPlay = async function directLayerPlay(nextItem) {
+            const policy = window.EveAudioflixPlaybackPolicy?.resolve?.(nextItem) || { spotifyMethod: 'managed' };
+            if (policy.spotifyMethod !== 'electron' || !media()?.fromItem?.(nextItem)) {
+                return original.layerPlay(nextItem);
+            }
+            // Direct supports one exclusive provider owner, not independently stacked layers.
+            try {
+                return await audio.playItem(nextItem);
+            } catch (error) {
+                // The Direct start handler emits its own terminal error; don't create an embed
+                // as an implicit fallback and don't leave a rejected UI click promise behind.
+                if (lastStatus !== 'error') {
+                    lastStatus = 'error';
+                    dispatch('eve:audioflix-playback', { status: `Electron Direct could not start: ${String(error?.message || error)}`,
+                        item: nextItem, provider: 'spotify', browserOnly: true,
+                        electronDirect: true, error: true, terminal: true });
+                }
+                return false;
+            }
         };
         audio.openInternalView = async function directInternal(nextItem) {
             const policy = window.EveAudioflixPlaybackPolicy?.resolve?.(nextItem) || { spotifyMethod: 'managed' };
