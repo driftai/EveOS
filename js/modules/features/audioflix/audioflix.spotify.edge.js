@@ -1,4 +1,4 @@
-// Official Spotify Embed policy: licensed Edge app window + Windows process audio endpoint.
+// Official Spotify Embed policy: licensed Edge Beta app window + Windows process audio endpoint.
 // This is distinct from the managed Spotify Engine and the deferred Electron host.
 window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
 (function () {
@@ -28,16 +28,55 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     const result = await native().request('/api/audioflix/spotify-edge/command', {
       method: 'POST', timeout, body: JSON.stringify({ action, payload })
     });
-    if (!result?.ok) throw new Error(result?.reason || result?.message || 'Spotify Edge transport failed.');
+    if (!result?.ok) throw new Error(result?.reason || result?.message || 'Spotify Edge Beta transport failed.');
     return result;
   }
+  // Engine Stop only retires a song/relay lease. The persistent Edge Beta profile
+  // remains live until its helper is explicitly stopped. Official Embed must not
+  // start beside that owner because Windows per-app routing is shared.
+  async function releaseIdleManagedEngineBeforeEmbed() {
+    const bridge = native();
+    if (typeof bridge?.request !== 'function')
+      throw new Error('Cannot verify the Spotify Engine owner before opening Official Embed.');
+    const url = '/api/audioflix/spotify-browser';
+    const read = async () => {
+      const value = await bridge.request(`${url}/status`, { method: 'GET', timeout: 7000 });
+      if (value?.ok !== true) throw new Error(value?.reason || 'Spotify Engine status is unavailable; refusing an unsafe output handoff.');
+      return value;
+    };
+    const before = await read();
+    if (before.browserRunning !== true) return;
+    const capture = before.providerCapture || {};
+    const transport = before.transport || {};
+    const phase = String(transport.status || before.state || '').toLowerCase();
+    // Direct mode reports the *Windows routing worker* as providerCapture.active.
+    // This is NOT authorized tab capture. A paused, exact-owned direct route may
+    // be released by the verified managed-Engine stop before Official Embed starts.
+    // Unknown/ambiguous active routes and real tab capture remain fail-closed.
+    const pausedDirectRoute = capture.active === true && capture.outputMode === 'direct'
+        && capture.source === 'managed-spotify'
+        && /^sd:\d+$/.test(String(capture.endpoint || ''));
+    if (before.importing === true || Number(before.playingCount || 0) > 0
+        || (capture.active === true && !pausedDirectRoute) || transport.paused === false
+        || ['playing', 'controlling', 'starting', 'loading', 'buffering', 'resuming', 'importing'].includes(phase)) {
+      throw new Error('Spotify Engine still reports active work. Stop its song/capture before switching to Official Embed.');
+    }
+    const stopped = await bridge.request(`${url}/stop`, {
+      method: 'POST', timeout: 16000, body: '{}'
+    });
+    if (stopped?.ok !== true) throw new Error(stopped?.reason || 'The idle Spotify Engine refused to stop.');
+    const after = await read();
+    if (after.browserRunning === true || after.helperReachable === true)
+      throw new Error('Spotify Engine shutdown was not confirmed; Official Embed was not started.');
+  }
+
   // White is an approved monochrome Spotify mark on this dark control.
   // The orange housing belongs to EveOS; the official logo is never recolored.
   const SPOTIFY_ICON = 'https://storage.googleapis.com/pr-newsroom-wp/1/2023/05/Spotify_Primary_Logo_RGB_White.png';
   function updateWindowToggle() {
     if (!windowToggle) return;
     windowToggle.disabled = !active;
-    windowToggle.title = windowHidden ? 'Show the Spotify Edge player' : 'Hide the Spotify Edge player';
+    windowToggle.title = windowHidden ? 'Show the Spotify Edge Beta player' : 'Hide the Spotify Edge Beta player';
     windowToggle.setAttribute('aria-label', windowToggle.title);
     windowToggle.textContent = windowHidden ? 'Show Spotify' : 'Hide Spotify';
   }
@@ -58,7 +97,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
       button.disabled = true;
       request(action, {}, 8000).then(() => {
         windowHidden = action === 'hide'; updateWindowToggle();
-        notify(action === 'show' ? 'Spotify Edge window shown.' : 'Spotify Edge window hidden.');
+        notify(action === 'show' ? 'Spotify Edge Beta window shown.' : 'Spotify Edge Beta window hidden.');
       }).catch(error => notify(`Spotify window control: ${error.message}`, true))
         .finally(updateWindowToggle);
     });
@@ -174,7 +213,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     }
     if (status.routeConfirmed && !lastRoute) {
       lastRoute = true;
-      notify(`Spotify Edge audio routed to ${status.deviceName || 'selected output'}`);
+      notify(`Spotify Edge Beta audio routed to ${status.deviceName || 'selected output'}`);
     }
     progress();
     syncEdgePanel();
@@ -195,7 +234,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
       if (!active || starting || observed !== epoch) return;
       if (!result?.running) {
         stopPolling(); active = false;
-        notify('Spotify Edge window stopped. Play again to reopen it.', true);
+        notify('Spotify Edge Beta window stopped. Play again to reopen it.', true);
       } else update(result);
     } catch { /* Preserve a running provider during a transient server status failure. */ }
   }
@@ -205,7 +244,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     stopPolling();
     try { await request('stop', {}, 9000); }
     catch (error) {
-      notify(`Spotify Edge stop needs attention: ${error.message}`, true);
+      notify(`Spotify Edge Beta stop needs attention: ${error.message}`, true);
       active = true; // fail closed; do not open a second provider over the first
       throw error;
     }
@@ -221,7 +260,9 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     const identity = spotify(nextItem);
     if (!identity) return original.playItem(nextItem);
     const current = ++epoch;
-    const reuse = active && !starting;
+    // A second Play during an in-flight first Play is still a switch intent.
+    // Never call global stopAll merely because the first startup is pending.
+    const reuse = active;
     starting = true;
     if (!reuse) await original.stopAll();
     if (current !== epoch) return false;
@@ -233,13 +274,17 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     const deviceId = selected.outputKind === 'native' && /^sd:\d+$/.test(String(selected.outputId || ''))
       ? selected.outputId : '';
     try {
+      if (!reuse) {
+        await releaseIdleManagedEngineBeforeEmbed();
+        if (current !== epoch) return false;
+      }
       // The same owned Edge app window and native CABLE route are retained.
       // Distinct queue entries with an identical Spotify URL still get new revisions.
       const result = await request(reuse ? 'switch' : 'play', {
         ...identity, deviceId, gain: gain(nextItem.volume ?? 1)
       }, 25000);
       if (current !== epoch) return false;
-      if (!result.running) throw new Error('Spotify Edge host is not running.');
+      if (!result.running) throw new Error('Spotify Edge Beta host is not running.');
       active = true; item = nextItem; lastEndedRevision = -1;
       playback = { item, currentTime: 0, duration: Number(item.duration || 0), paused: true,
         provider: 'spotify', browserOnly: true, edgeEmbed: true };
@@ -249,11 +294,11 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
         const frame = edgePanel?.open?.(item, 'Spotify', { expanded: true, visible: true });
         frame?.replaceChildren?.();
         edgePanel?.setVisualVisible?.(false);
-        edgePanel?.setStatus?.('Playing through the existing Spotify Edge window.');
+        edgePanel?.setStatus?.('Playing through the existing Spotify Edge Beta window.');
         mountWindowToggle(); mountQueueControls();
         syncEdgePanel();
       }
-      notify(reuse ? 'Updating song in the existing Spotify Edge window.'
+      notify(reuse ? 'Updating song in the existing Spotify Edge Beta window.'
         : 'Opening official Spotify card in Edge; attempting Play.');
       update(result);
       stopPolling(); pollTimer = setInterval(poll, 1000);

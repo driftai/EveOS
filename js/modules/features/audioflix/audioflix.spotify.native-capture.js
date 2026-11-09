@@ -19,8 +19,8 @@ window.EveAudioflixSpotifyNativeCapture = window.EveAudioflixSpotifyNativeCaptur
     async function ensure(policy, item = null) {
         if (!requireCapture(policy)) return false;
         const outputId = String(policy.outputId || '');
-        const current = status();
-        if (current.active === true && current.source === 'managed-spotify' && current.endpoint === outputId) return true;
+        // The Engine window can change mode independently of AudioFlix.
+        // Never trust cached capture state across a mode switch.
         const R = hooks.remote?.();
         if (!R?.ready) throw new Error('Managed Spotify relay is unavailable.');
         const connection = await R.connect?.();
@@ -35,6 +35,10 @@ window.EveAudioflixSpotifyNativeCapture = window.EveAudioflixSpotifyNativeCaptur
         if (!ownership?.ok || ownership?.isOwner !== true) {
             throw new Error(ownership?.reason || 'Could not take control of the managed Spotify engine.');
         }
+        const live = await R.status?.().catch(() => null);
+        const current = live?.managed?.capture || {};
+        if (current.active === true && current.source === 'managed-spotify'
+            && current.endpoint === outputId) return true;
         const result = await R.send('engine-capture-start', {
             deviceId: outputId,
             label: String(policy.outputLabel || outputId),

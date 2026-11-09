@@ -18,7 +18,7 @@ from urllib.parse import urlencode
 
 URI = re.compile(r"^spotify:(track|episode):([A-Za-z0-9]{22})$")
 SD = re.compile(r"^sd:\d+$")
-PROFILE_NAME = "SpotifyEmbedEdgeProfile"
+PROFILE_NAME = "SpotifyEmbedEdgeBetaProfile"
 TITLE = "EveOS Spotify Embed"
 HIDE_AFTER_PROGRESS_SECONDS = 38.0
 
@@ -28,15 +28,15 @@ def _timestamp():
 
 
 def _edge_executable():
-    # Edge binary lookup is explicit; do not assume the installed browser's default.
+    # Strict Edge Beta lookup; never fall back to Stable or the managed Spotify Engine.
     roots = [os.environ.get("PROGRAMFILES(X86)"), os.environ.get("PROGRAMFILES"),
              os.environ.get("LOCALAPPDATA")]
     for root in roots:
         if root:
-            exe = Path(root) / "Microsoft" / "Edge" / "Application" / "msedge.exe"
+            exe = Path(root) / "Microsoft" / "Edge Beta" / "Application" / "msedge.exe"
             if exe.is_file():
                 return str(exe)
-    raise RuntimeError("Microsoft Edge executable not found; no fallback to Electron.")
+    raise RuntimeError("Microsoft Edge Beta executable not found; no fallback to Edge Stable or Electron.")
 
 
 def _profile():
@@ -268,6 +268,11 @@ class EdgeSpotifyManager:
             preexisting = self._process_finder(profile)
             if preexisting and not replaced:
                 raise RuntimeError("Dedicated Spotify Edge profile is in use. Close its old windows first; other Edge profiles are untouched.")
+            # A managed Engine inside the same Edge Beta executable would share
+            # Windows application output policy. Only one Beta provider may own it.
+            from server_modules import audioflix_spotify_browser as managed_browser
+            if managed_browser.status().get('browserRunning'):
+                raise RuntimeError('Stop Spotify Engine before starting Official Embed (shared Edge Beta audio identity).')
             edge = _edge_executable()
             self._nonce = secrets.token_urlsafe(24)
             self._track_id = match.group(2)

@@ -62,7 +62,7 @@ window.EveAudioflixPlaybackPolicyUi = window.EveAudioflixPlaybackPolicyUi || {};
         const inherit = level === 'global' ? null : ['inherit', 'Inherit'];
         const sourceEntries = [inherit, ['localized', 'Prefer localized copy'], ['original', 'Prefer original URL']].filter(Boolean);
         const spotifyEntries = [inherit, ['managed', 'Managed Spotify Engine'],
-            ['electron', 'Electron Direct Embed (Deferred)'], ['embed', 'Official Spotify embed (Edge + native output)']].filter(Boolean);
+            ['electron', 'Electron Direct Embed (Deferred)'], ['embed', 'Official Spotify embed (Edge Beta + native output)']].filter(Boolean);
         const outputEntries = level === 'global'
             ? [['global', 'Follow Audioflix output route']]
             : [['inherit', 'Inherit output policy'], ['global', 'Follow global Audioflix route']];

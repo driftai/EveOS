@@ -264,17 +264,47 @@ window.EveAudioflixSpotifyEngineSurface = window.EveAudioflixSpotifyEngineSurfac
         originalOpenInternalView = audio.openInternalView.bind(audio);
         audio.openInternalView = async function managedEngineInternalView(item) {
             const policy = window.EveAudioflixPlaybackPolicy?.resolve?.(item) || {};
-            if (!isSpotify(item) || policy.spotifyMethod === 'embed') return originalOpenInternalView(item);
-            // The eye action must present the panel before waiting for the cold
-            // Playwright helper or the file-origin pairing handshake.
+            if (!isSpotify(item) || policy.spotifyMethod === 'embed') {
+                hide();
+                return originalOpenInternalView(item);
+            }
+            // This view is the sole managed Engine panel. Calling the previous
+            // Internal View handler here opens an independent legacy player panel.
             const opened = show(item, { allowIdle: true });
+            if (!opened) return originalOpenInternalView(item);
+            // Retire any legacy Internal View left visible by earlier playback.
+            audio.hideInternalView?.();
             try {
-                const result = await originalOpenInternalView(item);
-                if (managedActive()) postMirrorState();
-                else if (opened) view?.setStatus?.('Spotify engine is idle; press Play or use the controls above.');
-                return result;
+                const identity = window.EveAudioflixSpotifyMedia?.fromItem?.(item);
+                const snapshot = managed()?.snapshot?.() || {};
+                const activeItem = snapshot.playback?.item || snapshot.item;
+                const activeIdentity = window.EveAudioflixSpotifyMedia?.fromItem?.(activeItem);
+                // An eye click only reveals the panel; do not restart or resume
+                // an already-selected Engine track (including a paused track).
+                if (snapshot.active === true && identity && activeIdentity &&
+                    identity.spotifyUri === activeIdentity.spotifyUri) {
+                    postMirrorState();
+                    return true;
+                }
+                // Start a different/idle Engine track through the one Audioflix
+                // playback owner, never through the legacy Internal View owner.
+                const started = await audio.playItem(item);
+                if (managedActive()) {
+                    postMirrorState();
+                    return started;
+                }
+                const playback = audio.getPlaybackState?.() || {};
+                // A localized-policy fallback really can choose a local file.
+                // Present its existing transport once; never start it a second time.
+                if (started && playback.item && playback.remoteManaged !== true) {
+                    hide();
+                    audio.presentExternalTransport?.(playback.item, playback);
+                    return started;
+                }
+                view?.setStatus?.('Spotify engine is idle; press Play or use the controls above.');
+                return started;
             } catch (error) {
-                if (opened) view?.setStatus?.(String(error?.message || error));
+                view?.setStatus?.(String(error?.message || error));
                 throw error;
             }
         };

@@ -147,7 +147,17 @@
               await Promise.resolve(load.call(controller, requested));
             }
             if (atRevision !== revision) return;
-            send('media-loaded', { playingURI: requested });
+            // Retry the acknowledgement. The backend's media-loaded handler
+            // is revision-idempotent, so a transient HTTP failure cannot strand
+            // the new queue item without an automatic Play attempt.
+            for (let retry = 0; retry < 4 && atRevision === revision; retry++) {
+              try {
+                const ack = await send('media-loaded', { playingURI: requested });
+                const result = ack?.ok ? await ack.json().catch(() => null) : null;
+                if (result?.ok === true) break;
+              } catch {}
+              if (retry < 3) await new Promise(resolve => setTimeout(resolve, 450 * (retry + 1)));
+            }
             // UIA on the exact owned Edge window will attempt the real Spotify
             // Play button for this media revision. Direct controller.play()
             // can yield preview-only playback even when the card has full-track

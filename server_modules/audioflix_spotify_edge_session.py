@@ -77,6 +77,7 @@ def switch_track(self, payload):
     self._desired_gain = requested_gain
     self._applied_gain.clear()  # route worker reapplies gain to exact active session
     reset_progress(self)
+    self._autoplay_status = "waiting-for-new-card"
     self._seq += 1
     self._pending = [{"seq": self._seq, "action": "load", "uri": uri,
                       "revision": self._media_revision}]

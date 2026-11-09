@@ -76,7 +76,7 @@ def _profile_dir() -> Path:
     if configured:
         return Path(configured).expanduser().resolve()
     local = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
-    target = local / "EveOS" / "spotify-browser-profile"
+    target = local / "EveOS" / "spotify-browser-edge-beta-profile"
     if not target.exists():
         legacy = Path.home() / "Downloads" / "drift-spotify-embed-scraper-v2" / ".spotify-browser-profile"
         if legacy.is_dir():

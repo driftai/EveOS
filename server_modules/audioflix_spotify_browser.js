@@ -27,6 +27,7 @@ const { parseMedia, fromPayload, normalizeTrackId, isSpotifyEmbedUrl,
 const { cancelLeases } = require('./audioflix_spotify_playback_lease.js');
 const { handleInterrupt } = require('./audioflix_spotify_playback_preemption.js');
 const providerCapture = require('./audioflix_spotify_browser_capture.js');
+const engineOutputHost = require('./audioflix_spotify_engine_output_host.js');
 const authHandoff = require('./audioflix_spotify_auth_handoff.js');
 const { ownerAlive } = require('./audioflix_spotify_browser_owner.js');
 const {
@@ -141,6 +142,9 @@ async function main() {
 
     let page = await prepareManagedPage(context, pageUrl, runtime, note);
     const captureController = providerCapture.create({ getPage: () => page, sameSession });
+    const outputHost = await engineOutputHost.create({ page, profileDir, sessionId, captureController, note,
+        betaExecutable: process.platform === 'win32' ?
+            require('./audioflix_spotify_browser_startup.js').edgeBetaExecutable() : '' });
     runtime.state = 'ready';
     runtime.phase = 'ready';
     const livenessUrl = new URL('/EveOS.html', pageUrl).href;
@@ -243,7 +247,7 @@ async function main() {
             lastPlaybackKickAt: runtime.lastPlaybackKickAt,
             serverOfflineForMs: serverOfflineSince ? Date.now() - serverOfflineSince : 0,
             profileOpen: true, importing: runtime.importing, transport,
-            providerCapture: await captureController.status(),
+            providerCapture: await outputHost.status(), outputMode: outputHost.activeMode(),
             diagnostics: diagnostics.slice(-8)
         };
     }
@@ -365,6 +369,9 @@ async function main() {
         if (livenessTimer) clearInterval(livenessTimer);
         livenessTimer = 0;
         try { server?.close(); } catch {}
+        try { await outputHost.shutdown(); } catch (error) {
+            note('native-output-cleanup', String(error.message || error).slice(0,160));
+        }
         try { await context.close(); } catch {}
         process.exitCode = code;
         setTimeout(() => process.exit(code), 20).unref();
@@ -378,8 +385,8 @@ async function main() {
             if (req.method !== 'POST') return send(res, 404, { ok: false, reason: 'Not found.' });
             const body = await readBody(req);
             if (requestUrl.pathname === '/volume') return send(res, 200, await applyVolume(body));
-            if (requestUrl.pathname === '/provider-capture/start') return send(res, 200, await captureController.start(body));
-            if (requestUrl.pathname === '/provider-capture/stop') return send(res, 200, await captureController.stop(body));
+            if (requestUrl.pathname === '/provider-capture/start') return send(res, 200, await outputHost.start(body));
+            if (requestUrl.pathname === '/provider-capture/stop') return send(res, 200, await outputHost.stop(body));
             const playback = { page, spotifySnapshots, isSpotifyEmbedUrl, normalizeTrackId, note, runtime };
             if (requestUrl.pathname === '/transport') return send(res, 200, await handleTransportWithActivation(playback, body));
             if (requestUrl.pathname === '/transport-interrupt') return send(res, 200, await handleInterrupt(playback, body));
