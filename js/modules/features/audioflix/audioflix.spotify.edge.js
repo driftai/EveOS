@@ -13,6 +13,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     ?? Math.max(0, Math.min(1, Number(value) || 0));
   let installed = false, active = false, starting = false, item = null;
   let epoch = 0, pollTimer = 0, lastState = '', lastRoute = false;
+  let volumeFlight = false, volumePending = null, playbackRevision = 0;
   let lastEndedRevision = -1, windowToggle = null, windowHidden = false;
   let edgePanel = null, edgePanelExpanded = false;
   let playback = { item: null, paused: true, currentTime: 0, duration: 0,
@@ -196,6 +197,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     return true;
   }
   function update(status) {
+    if (Number.isSafeInteger(status?.mediaRevision)) playbackRevision = status.mediaRevision;
     const state = status?.state || {};
     if (status?.identity && spotify(item)?.spotifyUri !== status.identity) return;
     windowHidden = status?.windowHidden === true;
@@ -239,6 +241,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     } catch { /* Preserve a running provider during a transient server status failure. */ }
   }
   async function stopEdge() {
+    volumePending = null;
     if (!active && !starting) return;
     ++epoch;
     stopPolling();
@@ -257,6 +260,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     windowHidden = false; lastEndedRevision = -1;
   }
   async function playEdge(nextItem, original, resolvedPolicy) {
+    volumePending = null;
     const identity = spotify(nextItem);
     if (!identity) return original.playItem(nextItem);
     const current = ++epoch;
@@ -396,13 +400,23 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
       if (!preserveProvider && (active || starting) && String(item?.id) === String(id)) await stopEdge();
       return original.stopItemLayers(id, preserveProvider);
     };
+    // One in-flight write + one latest intent, scoped to the active owner/revision.
+    // Volume never creates a new Spotify load, Pause, Stop, or route assignment.
+    function drainEdgeVolume() {
+      if (volumeFlight || !volumePending) return;
+      const intent = volumePending; volumePending = null; volumeFlight = true;
+      const work = intent.epoch === epoch ? request('volume', intent.payload, 5000) : Promise.resolve();
+      Promise.resolve(work).catch(error => { if (intent.epoch === epoch) notify(error.message, true); })
+        .finally(() => { volumeFlight = false; drainEdgeVolume(); });
+    }
     audio.updateItemVolume = function edgeVolume(id, value, options = {}) {
       if (!active || String(item?.id || '') !== String(id || ''))
         return original.updateItemVolume(id, value, options);
       if (!(window.EveAudioflixVolumeTarget?.allows?.(item, options) ?? options.type === undefined)) return;
       const safe = Math.max(0, Math.min(1, Number(value) || 0));
       item.volume = safe;
-      request('volume', { gain: gain(safe) }, 5000).catch(error => notify(error.message, true));
+      volumePending = { epoch, payload: { gain: gain(safe), spotifyUri: spotify(item)?.spotifyUri, revision: playbackRevision } };
+      drainEdgeVolume();
     };
     audio.getPlaybackState = () => active ? { ...playback } : original.getPlaybackState();
     if (original.getStatus) audio.getStatus = () => active

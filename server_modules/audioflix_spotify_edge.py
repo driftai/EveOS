@@ -387,21 +387,34 @@ class EdgeSpotifyManager:
                 self._pending.append(cmd)
                 return {"ok": True, "status": "queued", "controlNotYetConfirmed": True}
             if action == "volume":
-                if not self._running or not self._backend or not self._routes:
-                    return {"ok": False, "reason": "No confirmed Edge audio route yet."}
-                self._desired_gain = max(0, min(1, float(payload.get("gain", 1))))
+                if not self._running:
+                    return {"ok": False, "reason": "No active Official Embed owner."}
+                if payload.get("spotifyUri") and payload["spotifyUri"] != self._uri:
+                    return {"ok": False, "reason": "Volume belongs to a different Spotify song."}
+                if payload.get("revision") is not None:
+                    try: revision = int(payload["revision"])
+                    except (TypeError, ValueError): return {"ok": False, "reason": "Invalid volume revision."}
+                    if revision != self._media_revision:
+                        return {"ok": False, "reason": "Volume belongs to a stale Spotify revision."}
+                try: value = float(payload.get("gain", 1))
+                except (TypeError, ValueError): return {"ok": False, "reason": "Invalid Spotify volume."}
+                if not 0 <= value <= 1:
+                    return {"ok": False, "reason": "Spotify volume must be between 0 and 1."}
+                self._desired_gain = value
                 changed = 0
                 live = self._process_finder(self._profile_path)
-                for pid, (born, _) in self._routes.items():
-                    if pid not in live or abs(live[pid] - born) > 1:
+                for pid, (born, _) in list(self._routes.items()):
+                    if pid not in live or abs(live[pid] - born) > 1 or not self._backend:
                         continue
-                    count = self._backend.volume(pid, self._desired_gain, self._target)
+                    try:
+                        count = self._backend.volume(pid, value, self._target)
+                    except Exception as exc:
+                        self._record("gain-pending", reason=type(exc).__name__)
+                        continue  # Route worker retries the latest requested gain.
                     changed += count
-                    if count:
-                        self._applied_gain[pid] = self._desired_gain
-                if not changed:
-                    return {"ok": False, "reason": "No verified Spotify session accepted volume."}
-                return {"ok": True, "sessions": changed, "gain": self._desired_gain}
+                    if count: self._applied_gain[pid] = value
+                return {"ok": True, "status": "applied" if changed else "pending-session",
+                        "applied": bool(changed), "sessions": changed, "gain": value}
         return {"ok": False, "reason": "Unknown Spotify Edge command."}
 
 

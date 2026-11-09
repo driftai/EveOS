@@ -96,6 +96,8 @@ window.EveAudioflixPlaybackPolicyUi = window.EveAudioflixPlaybackPolicyUi || {};
         return `<details class="audioflix-policy-panel" open><summary>Playback policies <span>Global + scoped Nexus routing</span></summary>
             <section><h5>Global defaults</h5>${controls('global', global)}</section>
             <section><h5>${type === 'music' ? 'Music' : 'Soundboard'} scope</h5>${scopePicker}${scopeEditor}</section>
+            <section class="audioflix-policy-check"><button type="button" data-af-action="check-playback-mode-requirements">Check mode requirements</button>
+            <div class="audioflix-policy-check-report" data-af-mode-requirements-report role="status" aria-live="polite" hidden></div></section>
         </details>`;
     }
     function renderSong(item, type = 'music') {
@@ -138,7 +140,75 @@ window.EveAudioflixPlaybackPolicyUi = window.EveAudioflixPlaybackPolicyUi || {};
         level === 'song' ? ctx?.rerenderModal?.() : ctx?.rerender?.();
         return true;
     }
+    // An on-demand, read-only diagnostics summary. No playback, capture or routing mutations.
+    function evaluateModePrerequisites(snapshot = {}, payload = {}) {
+        const caps = payload.spotifyModePrerequisites || {};
+        const edge = typeof caps.edgeBetaInstalled === 'boolean' ? caps.edgeBetaInstalled : null;
+        const adapter = typeof caps.windowsRoutingAdapterInstalled === 'boolean'
+            ? caps.windowsRoutingAdapterInstalled : null;
+        const windows = caps.platform === 'win32' ? true : (caps.platform ? false : null);
+        const devices = Array.isArray(payload.devices) ? payload.devices.filter(device =>
+            device.kind === 'output' && device.playable === true && /^sd:\d+$/.test(String(device.id || ''))) : [];
+        const global = snapshot.playbackPolicy || {};
+        const custom = global.outputMode === 'custom';
+        const nativeId = custom
+            ? (global.outputKind === 'native' ? String(global.outputId || '') : '')
+            : (snapshot.nativeBridgeEnabled === true ? String(snapshot.nativeOutputId || '') : '');
+        const selected = devices.find(device => device.id === nativeId);
+        const available = edge === true && windows === true;
+        const embedded = available && adapter === true && !!selected;
+        const method = global.spotifyMethod === 'embed' ? 'Official Spotify Embed'
+            : global.spotifyMethod === 'electron' ? 'Electron Direct Embed (deferred)'
+                : 'Managed Spotify Engine';
+        const result = (passed, missing) => passed === true ? ['Detected', 'ready']
+            : passed === false ? [missing, 'attention'] : ['Not verified', 'unknown'];
+        const rows = [
+            ['Edge Beta', ...result(edge, 'Not installed')],
+            ['Windows app routing adapter', ...result(adapter, 'Not installed')],
+            ['Native audio endpoints', ...result(payload.playbackAvailable === true && devices.length > 0,
+                'No playable outputs detected')],
+            ['Selected native output', ...result(!!selected,
+                nativeId ? 'Previously selected output unavailable' : 'Choose an output in AudioFlix')],
+            ['Managed Engine prerequisites', ...result(available ? true : (edge === false || windows === false ? false : null),
+                'Windows + Edge Beta required')],
+            ['Official Embed prerequisites', ...result(embedded ? true :
+                (edge === false || windows === false || adapter === false || (payload.playbackAvailable === true && !selected) ? false : null),
+                'Needs Edge Beta, adapter and selected native output')]
+        ];
+        return { method, rows, selectedLabel: selected?.label || '', nativeId, playableCount: devices.length,
+            // Account authorization and successful audio playback cannot be proved by a device scan.
+            note: 'Prerequisites only. Spotify sign-in and actual audio routing are verified when you play a track. Song and scope policies may override the global mode.' };
+    }
+    async function checkModeRequirements(button) {
+        const panel = button?.closest?.('.audioflix-policy-panel');
+        const report = panel?.querySelector?.('[data-af-mode-requirements-report]');
+        if (!report || button.disabled) return;
+        button.disabled = true;
+        report.hidden = false;
+        report.textContent = 'Checking requirements without changing playback…';
+        try {
+            const native = window.EveAudioflixNative;
+            if (typeof native?.listSystemOutputs !== 'function') throw new Error('Native device scanner is not loaded. Start EveOS using its local server.');
+            // Do not use force=true: a forced PortAudio refresh can close live output streams.
+            const payload = await native.listSystemOutputs(false);
+            if (payload?.ok !== true) throw new Error(payload?.message || 'Native device scan unavailable.');
+            const evaluation = evaluateModePrerequisites(state(), payload);
+            const row = ([label, status, kind]) => `<div class="audioflix-policy-check-row"><span>${esc(label)}</span><span data-check="${esc(kind)}">${esc(status)}</span></div>`;
+            report.innerHTML = `<div class="audioflix-policy-check-title">Global Spotify mode: ${esc(evaluation.method)}</div>
+                ${evaluation.rows.map(row).join('')}
+                <p>${esc(evaluation.playableCount)} playable native output(s) · ${esc(evaluation.selectedLabel || 'No native output selected')}</p>
+                <p>${esc(evaluation.note)}</p>
+                <p>Optional Edge Beta setup from terminal: <code>node tools/setup/eveos_first_run.mjs --install-edge-beta</code></p>`;
+        } catch (error) {
+            report.textContent = `Requirements not verified: ${String(error?.message || error)}. Terminal fallback: node tools/setup/eveos_first_run.mjs --check --json`;
+        } finally { button.disabled = false; }
+    }
+
     function handleAction(target, action, ctx) {
+        if (action === 'check-playback-mode-requirements') {
+            checkModeRequirements(target).catch(error => console.warn('AudioFlix mode requirements check failed:', error));
+            return true;
+        }
         if (action !== 'reset-playback-policy') return false;
         const level = target.dataset.afPolicyLevel;
         if (level === 'scope') policy()?.configureScope?.(target.dataset.afPolicyScope, null);
@@ -172,5 +242,5 @@ window.EveAudioflixPlaybackPolicyUi = window.EveAudioflixPlaybackPolicyUi || {};
         });
     }
 
-    Object.assign(ns, { ready: true, scopeOptions, activeScope, renderNexus, renderSong, handleChange, handleAction, populateOutputs });
+    Object.assign(ns, { ready: true, scopeOptions, activeScope, renderNexus, renderSong, handleChange, handleAction, populateOutputs, evaluateModePrerequisites });
 })();

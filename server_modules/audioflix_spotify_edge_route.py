@@ -7,6 +7,28 @@ from __future__ import annotations
 import time
 from server_modules.audioflix_spotify_edge import _unique_cable
 
+def _assigned_route_is_still_safe(manager, live, active, target):
+    """Session activity is not routing identity: mute may leave no active session.
+
+    Only keep the provider running during a transient session gap if an exact,
+    live, previously owned PID retains the selected endpoint and NO known owned
+    active session is on a competing endpoint. Never claim cable-routed here.
+    """
+    if any(pid in live and endpoint != target.id for pid, endpoint, _ in active):
+        return False
+    verified = False
+    for pid, (birth, _previous) in list(manager._routes.items()):
+        if pid not in live or abs(live[pid] - birth) > 1:
+            continue
+        if any(owner == pid and endpoint != target.id for owner, endpoint, _ in active):
+            return False
+        try:
+            if manager._backend.get(pid) == target.id:
+                verified = True
+        except Exception:
+            return False
+    return verified
+
 
 def run_route(manager, generation, device_id):
     """Keep just the owned, active Edge sessions routed while the host lives.
@@ -88,14 +110,25 @@ def run_route(manager, generation, device_id):
                     manager._message = f"Windows session routed to {target.name}"
                     had_route = True
                 elif had_route and manager._status != "close-required":
+                    # A replacement session under the same PID must get a fresh
+                    # gain write; the previous session receipt is now stale.
+                    manager._applied_gain.clear()
                     # Paused/stopped media naturally has no active Windows audio
                     # session. Never queue an extra Pause during normal Resume.
                     if manager._state.get("paused") is False:
-                        if manager._status != "route-pending":
-                            manager._record("route-lost", reason="session-or-gain-unconfirmed")
-                            manager._seq += 1
-                            manager._pending.append({"seq": manager._seq, "action": "pause"})
-                        manager._message = "Spotify output changed; paused pending verified CABLE routing."
+                        if _assigned_route_is_still_safe(manager, live, active, target):
+                            # A volume slider (especially gain=0) can temporarily make
+                            # an otherwise correctly routed session disappear. The old
+                            # route-loss Pause severed the Spotify SDK's active song.
+                            manager._message = "Spotify output remains assigned; waiting for audio session/gain confirmation."
+                            if manager._status != "route-pending":
+                                manager._record("route-session-pending", reason="owned-endpoint-still-matches")
+                        else:
+                            if manager._status != "route-pending":
+                                manager._record("route-lost", reason="route-unverified-or-changed")
+                                manager._seq += 1
+                                manager._pending.append({"seq": manager._seq, "action": "pause"})
+                            manager._message = "Spotify output unverified; paused pending verified CABLE routing."
                     else:
                         manager._message = "Spotify paused; waiting for its next CABLE audio session."
                     manager._status = "route-pending"
