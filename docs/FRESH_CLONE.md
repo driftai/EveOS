@@ -135,3 +135,39 @@ node tools/setup/eveos_bootstrap.mjs
 ```
 
 The repository, not an individual workstation directory or chat transcript, is the durable source of truth for reconstructing EveOS.
+
+## Optional Spotify Direct output on a new Windows machine
+
+A fresh EveOS install does not require Microsoft Edge Beta, VB-CABLE, or a Spotify login to use base features. The bootstrap reports optional Spotify readiness without installing third-party software.
+
+Read-only capability check:
+
+```powershell
+node tools/setup/eveos_first_run.mjs --check
+node tools/setup/eveos_first_run.mjs --check --json
+```
+
+For Spotify Direct Windows Output, install Microsoft Edge Beta if it is absent:
+
+```powershell
+node tools/setup/eveos_first_run.mjs --install-edge-beta
+# Or provision it during a fresh runtime bootstrap:
+node tools/setup/eveos_bootstrap.mjs --runtime-only --with-spotify
+```
+
+The command asks for an explicit `INSTALL` confirmation and uses the WinGet package `Microsoft.Edge.Beta` from the `winget` source; Windows may prompt for elevation. If WinGet is unavailable, use the official Microsoft Insider download page. The command does not distribute browser binaries, copy credentials or profiles, change Windows default browsers, or silently install anything.
+
+Browser availability alone is not full Spotify qualification: each user must authorize Spotify and choose an available Windows audio output endpoint. Windows-only Direct Output does not block other EveOS features on Linux/macOS. A future graphical first-run wizard can use the read-only JSON contract and explicit install action.
+
+## Re-running bootstrap on an existing installation
+
+The bootstrap now checks an existing project `.venv` before touching npm or Python packages. A valid EveOS Python 3.10/3.11 environment is reused; no executable is replaced. A partial, inaccessible, foreign or unsupported environment is **not deleted or recreated**. Close running EveOS processes and repair the environment explicitly if validation fails.
+
+The bootstrap still runs locked dependency installation (`npm ci`, then pip requirements), which may modify packages. Shut down EveOS and dependent tools before rerunning it. For read-only status without reinstalling, run:
+
+```powershell
+node tools/setup/eveos_doctor.mjs --runtime-only
+node tools/setup/eveos_first_run.mjs --check --json
+```
+
+Edge Beta remains opt-in and cannot be installed without confirmation. The detected audio device and Spotify login are never copied from the developer machine.
