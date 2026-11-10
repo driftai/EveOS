@@ -266,15 +266,16 @@ class EdgeSpotifyManager:
                     raise RuntimeError(stopped.get("reason") or "Previous Edge card is still playing.")
                 replaced = stopped.get("closedWindows", 0) > 0
             profile = _profile()
-            preexisting = self._process_finder(profile)
-            if preexisting and not replaced:
-                raise RuntimeError("Dedicated Spotify Edge profile is in use. Close its old windows first; other Edge profiles are untouched.")
-            # A managed Engine inside the same Edge Beta executable would share
-            # Windows application output policy. Only one Beta provider may own it.
             from server_modules import audioflix_spotify_browser as managed_browser
             if managed_browser.status().get('browserRunning'):
                 raise RuntimeError('Stop Spotify Engine before starting Official Embed (shared Edge Beta audio identity).')
             edge = _edge_executable()
+            reclaimed = None
+            if self._process_finder(profile) and not replaced:
+                from server_modules.audioflix_spotify_edge_stale import retire_stale_host
+                reclaimed = retire_stale_host(profile, self._process_finder, expected_executable=edge)
+            if self._process_finder(profile) and not replaced:
+                raise RuntimeError('Dedicated Spotify Edge profile remains in use after verified recovery.')
             self._nonce = secrets.token_urlsafe(24)
             self._track_id = match.group(2)
             self._window_id = secrets.token_hex(11)
@@ -310,6 +311,8 @@ class EdgeSpotifyManager:
             generation = self._generation
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             self._report = Path.home() / "Downloads" / "EveOS-Diagnostics" / "Spotify-Edge-Integration" / f"embed-{stamp}.jsonl"
+            if reclaimed:
+                self._record("stale-owner-recovered", closedWindows=reclaimed["closedWindows"], retiredProcessCount=len(reclaimed["retiredPids"]))
             query = urlencode({"uri": uri, "session": self._nonce, "windowId": self._window_id})
             page = f"http://127.0.0.1:{int(server_port)}/server/spotify-embed-edge.html?{query}"
             profile.mkdir(parents=True, exist_ok=True)

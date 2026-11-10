@@ -14,6 +14,72 @@ from pathlib import Path
 
 TITLE = "EveOS Spotify Embed"
 TRACK = re.compile(r"^[A-Za-z0-9]{22}$")
+OWNED_TITLE = re.compile(r"^EveOS Spotify Embed [A-Za-z0-9]{22}(?: - .*)?$")
+
+
+def _is_system_auxiliary_window(title, class_name, visible, owner):
+    """Recognize only Windows-owned hidden IME helpers attached to an app window.
+
+    Chromium creates these titled top-level handles inside the dedicated profile
+    process. They are not browser/app windows and must not make an otherwise exact
+    EveOS Spotify host look shared. Requiring the exact title/class pair, hidden
+    state, and a real owner keeps ordinary or user-visible Edge windows fenced.
+    """
+    if visible or not owner:
+        return False
+    return (str(title), str(class_name)) in {
+        ("Default IME", "IME"),
+        ("MSCTFIME UI", "MSCTFIME UI"),
+    }
+
+
+def _windows_for_pids(pids, title_matches):
+    """Enumerate only top-level windows owned by the supplied exact-profile PIDs."""
+    if os.name != "nt":
+        return []
+    owned = {int(pid) for pid in pids if int(pid) > 0}
+    if not owned:
+        return []
+    user32 = ctypes.windll.user32
+    user32.GetWindow.restype = ctypes.c_void_p
+    callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    result = []
+
+    def visit(hwnd, _):
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value not in owned:
+            return True
+        count = user32.GetWindowTextLengthW(hwnd)
+        if count <= 0:
+            return True
+        buf = ctypes.create_unicode_buffer(count + 1)
+        user32.GetWindowTextW(hwnd, buf, count + 1)
+        class_buf = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, class_buf, len(class_buf))
+        owner = int(user32.GetWindow(hwnd, 4) or 0)  # GW_OWNER
+        if _is_system_auxiliary_window(
+                buf.value, class_buf.value, bool(user32.IsWindowVisible(hwnd)), owner):
+            return True
+        if title_matches(buf.value):
+            result.append(int(hwnd))
+        return True
+
+    user32.EnumWindows(callback_type(visit), 0)
+    return result
+
+
+def profile_window_inventory(pids):
+    """Count dedicated Spotify and other top-level windows, including hidden ones.
+
+    Never return window titles to logs. Even one foreign window blocks process
+    cleanup, since a shared profile is not exclusively ours at that point.
+    """
+    if os.name != "nt":
+        raise RuntimeError("Dedicated Spotify window inspection requires Windows.")
+    owned = _windows_for_pids(pids, lambda title: bool(OWNED_TITLE.fullmatch(title)))
+    others = _windows_for_pids(pids, lambda title: bool(title) and not OWNED_TITLE.fullmatch(title))
+    return {"owned": len(owned), "other": len(others)}
 
 
 def matching_windows(pids, track_id):
@@ -45,6 +111,14 @@ def matching_windows(pids, track_id):
     callback = callback_type(visit)
     user32.EnumWindows(callback, 0)
     return result
+
+
+def close_profile_windows(pids):
+    """Close stale EveOS Spotify app windows without touching other Edge windows."""
+    matches = _windows_for_pids(pids, lambda title: bool(OWNED_TITLE.fullmatch(title)))
+    if os.name != "nt" or len(matches) != 1:
+        return 0
+    return 1 if ctypes.windll.user32.PostMessageW(matches[0], 0x0010, 0, 0) else 0
 
 
 def close_exact_window(pids, track_id):
