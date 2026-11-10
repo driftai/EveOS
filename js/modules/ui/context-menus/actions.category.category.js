@@ -252,7 +252,7 @@ window.EveContextMenuActions = window.EveContextMenuActions || {};
     window.ctxCatLaunch = function () {
         const categoryName = ns.getCtxCategoryName?.();
         if (!categoryName) return showToast('No category selected', 'error');
-        launchCategory(categoryName);
+        launchCategory(categoryName, getCategoryWorkspaceId());
     };
 
     ns.categoryCardActionsReady = true;

@@ -226,43 +226,104 @@ function clearFocus() {
     if (typeof renderDashboard === 'function') renderDashboard();
 }
 
-async function launchCategory(catName) {
+// Launch must use the click's transient user activation. Synthetic anchor.click() does
+// not prove that the browser created a tab, especially on localhost/file pages.
+function getCardLaunchUrl(raw) {
+    const source = String(raw || '').trim();
+    if (!source || /[\u0000-\u001f\u007f]/.test(source)) return '';
+    if (/^(?:javascript|data|vbscript|blob):/i.test(source)) return '';
+    try {
+        const parsed = new URL(normalizeUrl(source));
+        if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname
+            && !parsed.username && !parsed.password) return parsed.href;
+        // Browsers disallow file links launched from localhost. Preserve file mode only.
+        if (parsed.protocol === 'file:' && window.location.protocol === 'file:') return parsed.href;
+    } catch {}
+    return '';
+}
+
+function showCardLaunchBlockedLinks(urls) {
+    document.getElementById('eve-card-launch-blocked-links')?.remove();
+    const panel = document.createElement('section');
+    panel.id = 'eve-card-launch-blocked-links';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Card links blocked by browser');
+    Object.assign(panel.style, {
+        position: 'fixed', zIndex: '2147483600', right: '16px', bottom: '16px',
+        maxWidth: 'min(500px, calc(100vw - 32px))', maxHeight: '60vh',
+        overflowY: 'auto', padding: '16px', borderRadius: '12px',
+        color: '#fff', background: '#172025', border: '1px solid #7d969d',
+        boxShadow: '0 8px 30px #0009'
+    });
+    const title = document.createElement('strong');
+    title.textContent = urls.length + ' card link(s) need a click';
+    const info = document.createElement('p');
+    info.textContent = 'Your browser blocked bulk tabs. Allow popups for EveOS, or open each link below.';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = 'Close';
+    close.addEventListener('click', () => panel.remove());
+    const list = document.createElement('ol');
+    urls.forEach((url) => {
+        const item = document.createElement('li');
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.textContent = url;
+        anchor.style.color = '#9de5ff';
+        item.appendChild(anchor);
+        list.appendChild(item);
+    });
+    panel.append(title, info, close, list);
+    document.body.appendChild(panel);
+}
+
+async function launchCategory(catName, workspaceId) {
+    const scope = String(workspaceId || config.activeWorkspace || 'main').trim() || 'main';
     const seen = new Set();
     const urls = getCategoryLiveLinks()
-        .filter(l => l.category === catName && !l.done && l.workspace === config.activeWorkspace)
-        .map(l => normalizeUrl(String(l.url || '').trim()))
-        .filter(function (url) {
+        .filter(link => String(link?.category || 'Unsorted') === String(catName || 'Unsorted')
+            && !link?.done && String(link?.workspace || 'main') === scope)
+        .map(link => getCardLaunchUrl(link.url))
+        .filter(url => {
             if (!url) return false;
-            var key = url.toLowerCase();
-            if (seen.has(key)) return false;
-            seen.add(key);
+            if (seen.has(url)) return false;
+            seen.add(url);
             return true;
         });
-    if (urls.length === 0) return;
-
-    // Safety check for many tabs
-    if (urls.length > 5) {
-        if (!(await showConfirm(`Open ${urls.length} tabs?`))) return;
+    if (!urls.length) {
+        if (typeof showToast === 'function') showToast('This card has no openable URLs.', 'info');
+        return { total: 0, opened: 0, blocked: 0 };
+    }
+    if (urls.length > 5 && !(await showConfirm(`Open ${urls.length} tabs?`))) {
+        return { total: urls.length, opened: 0, blocked: 0, cancelled: true };
     }
 
-    let launched = 0;
-    urls.forEach(function (url, index) {
+    const blocked = [];
+    let opened = 0;
+    // Only a bounded number of automatic popups; provide native clickable links
+    // for everything else. A popup blocker may permit just one tab per gesture.
+    const automaticLimit = 20;
+    urls.forEach((url, index) => {
+        if (index >= automaticLimit) { blocked.push(url); return; }
+        let tab = null;
         try {
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.target = '_blank';
-            anchor.rel = 'noopener noreferrer';
-            anchor.style.display = 'none';
-            document.body.appendChild(anchor);
-            anchor.click();
-            anchor.remove();
-            launched++;
-        } catch (error) {
-            const opened = window.open(url, '_blank_' + Date.now() + '_' + index, 'noopener,noreferrer');
-            if (opened) launched++;
+            tab = window.open('about:blank', '_blank');
+            if (!tab) { blocked.push(url); return; }
+            tab.opener = null; // Drop opener access BEFORE navigating externally.
+            tab.location.replace(url);
+            opened++;
+        } catch {
+            try { tab?.close(); } catch {}
+            blocked.push(url);
         }
     });
-    if (launched < urls.length && typeof showToast === 'function') {
-        showToast('Some tabs may have been blocked. Allow popups for EveOS to launch full cards.', 'warning');
+    if (blocked.length) {
+        showCardLaunchBlockedLinks(blocked);
+        if (typeof showToast === 'function') {
+            showToast(`${blocked.length} tab(s) blocked; click links in the recovery panel.`, 'warning');
+        }
     }
+    return { total: urls.length, opened, blocked: blocked.length };
 }
