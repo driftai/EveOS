@@ -131,6 +131,7 @@ class EdgeSpotifyManager:
         self._near_end_seen = False
         self._near_end_at = 0.0
         self._end_played_progress = 0.0
+        self._route_completion_safe = False
         self._manual_show = False
         self._requested_device_id = ""
         self._uri = ""
@@ -283,6 +284,7 @@ class EdgeSpotifyManager:
             self._near_end_seen = False
             self._near_end_at = 0.0
             self._end_played_progress = 0.0
+            self._route_completion_safe = False
             self._requested_device_id = device_id
             self._manual_show = False
             self._profile_path = profile

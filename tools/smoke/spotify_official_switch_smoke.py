@@ -78,6 +78,11 @@ check(obj._uri == c and obj._media_revision == 3 and obj._pending[0]['uri'] == c
       'wrong output preserves current song, pending load, and queue revision')
 check(obj.status()['routeConfirmed'] is True,'existing native route remains confirmed')
 source=Path('server/spotify-embed-edge.html').read_text(encoding='utf-8')
-check('retry < 4 && atRevision === revision' in source,'new song loaded acknowledgment retries')
+check(
+    'for (let retry = 0; retry < 4 && expected === revision && requested === selectedUri; retry++)' in source
+    and 'void acknowledgeLoadedMedia(awaiting)' in source
+    and 'awaiting.uri === info.playingURI' in source
+    and 'info.isBuffering !== true' in source,
+    'new song acknowledgment retries require matching revision, URI, and nonbuffering media state')
 check('completedRevision === revision' in source,'queue-end receipt revision fencing remains')
 print(f'SPOTIFY_OFFICIAL_SWITCH_SMOKE_PASS {checks}')

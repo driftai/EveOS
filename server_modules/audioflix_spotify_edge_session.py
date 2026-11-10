@@ -49,6 +49,7 @@ def reset_progress(self):
     self._near_end_seen = False
     self._near_end_at = 0.0
     self._end_played_progress = 0.0
+    self._route_completion_safe = False
 
 
 def switch_track(self, payload):
@@ -106,12 +107,19 @@ def event(self, body):
         if kind == "ended":
             if self._ended_revision == revision:
                 return {"ok": True, "duplicate": True}
-            if (self._status != 'cable-routed' or not self._near_end_seen
+            # A finished song can drop its active Windows audio session
+            # before the SDK delivers Ended. Route-pending is acceptable
+            # only while the route worker has verified the same owned
+            # endpoint is still assigned; all near-end fences remain.
+            route_ready = self._status == 'cable-routed' or (
+                self._status == 'route-pending' and self._route_completion_safe)
+            if (not route_ready or not self._near_end_seen
                     or time.monotonic() - self._near_end_at > 12
                     or self._end_played_progress < 1.5 or self._state.get("duration", 0) <= 0
                     or self._manual_pause_revision == revision):
                 self._record("completion-rejected", revision=revision,
-                             reason="recent-progress-or-cable-unconfirmed")
+                             reason=("route-not-verified" if not route_ready
+                                     else "recent-near-end-progress-missing"))
                 return {"ok": False, "reason": "No recent verified near-end playback evidence."}
             self._ended_revision = revision
             self._state["ended"] = True

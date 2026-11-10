@@ -32,6 +32,7 @@
   let lastPlayingPosition = 0, lastDuration = 0, completionSent = false, completionPending = false;
   let lastPlayingAt = 0, lastPaused = null;
   let changeSerial = Promise.resolve();
+  let awaitingMediaIdentity = null;
   const match = uri.match(/^spotify:(track|episode):([A-Za-z0-9]{22})$/);
   const message = document.getElementById('message');
   if (!match || !/^[A-Za-z0-9]{22}$/.test(windowId) || session.length < 20 || session.length > 128) {
@@ -47,6 +48,27 @@
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-EveOS-Provider-Capture': 'v1' },
     body: JSON.stringify({ kind, session, revision, ...data }), credentials: 'same-origin', cache: 'no-store'
   }).catch(() => {});
+
+  // loadEntity() does not promise that the new card is ready. Only a
+  // playback_update for the selected URI, positive duration, and non-buffering
+  // state permits the existing backend to attempt the official Play button.
+  async function acknowledgeLoadedMedia(pending) {
+    const { revision: expected, uri: requested } = pending;
+    for (let retry = 0; retry < 4 && expected === revision && requested === selectedUri; retry++) {
+      try {
+        const ack = await send('media-loaded', { playingURI: requested });
+        const result = ack?.ok ? await ack.json().catch(() => null) : null;
+        if (result?.ok === true) {
+          if (expected === revision && requested === selectedUri)
+            message.textContent = 'Spotify new-track state received; EveOS will attempt Play.';
+          return;
+        }
+      } catch {}
+      if (retry < 3) await new Promise(resolve => setTimeout(resolve, 450 * (retry + 1)));
+    }
+    if (expected === revision && requested === selectedUri)
+      message.textContent = 'Spotify media-ready acknowledgment failed; use Show Spotify.';
+  }
 
   window.onSpotifyIframeApiReady = api => {
     api.createController(document.getElementById('spotify-card'), {
@@ -67,6 +89,13 @@
         const position = Number(info.position), duration = Number(info.duration);
         if (info.playingURI !== selectedUri) return;
         if (!Number.isFinite(position) || !Number.isFinite(duration)) return;
+        const awaiting = awaitingMediaIdentity;
+        if (awaiting && awaiting.revision === revision && awaiting.uri === info.playingURI
+            && duration > 0 && info.isBuffering !== true
+            && (!awaiting.sameUri || position <= 5000)) {
+          awaitingMediaIdentity = null; // idempotent for repeated SDK updates
+          void acknowledgeLoadedMedia(awaiting);
+        }
         // Never throttle the transition to paused or an end reset: the final
         // Spotify SDK update may arrive immediately after the last playing tick.
         const pauseChanged = info.isPaused !== lastPaused;
@@ -134,6 +163,7 @@
         lastPlayingPosition = 0; lastDuration = 0; lastPlayingAt = 0; lastPaused = null;
         // Ordered loads: a slow prior load cannot become the final selected track.
         const requested = selectedUri, atRevision = revision, shouldRestart = sameUri;
+        awaitingMediaIdentity = { revision: atRevision, uri: requested, sameUri };
         changeSerial = changeSerial.catch(() => {}).then(async () => {
           if (atRevision !== revision) return;
           try {
@@ -147,24 +177,26 @@
               await Promise.resolve(load.call(controller, requested));
             }
             if (atRevision !== revision) return;
-            // Retry the acknowledgement. The backend's media-loaded handler
-            // is revision-idempotent, so a transient HTTP failure cannot strand
-            // the new queue item without an automatic Play attempt.
-            for (let retry = 0; retry < 4 && atRevision === revision; retry++) {
-              try {
-                const ack = await send('media-loaded', { playingURI: requested });
-                const result = ack?.ok ? await ack.json().catch(() => null) : null;
-                if (result?.ok === true) break;
-              } catch {}
-              if (retry < 3) await new Promise(resolve => setTimeout(resolve, 450 * (retry + 1)));
+            // loadEntity may paint the correct card without emitting any
+            // playback_update until Play. Do not deadlock waiting for a state
+            // change that requires the user's first click. Prefer the matching
+            // new-track SDK update; otherwise arm just one revision-owned UIA
+            // Play after a bounded card-render settle period. The backend still
+            // requires advancing, correctly routed audio before confirmation.
+            message.textContent = 'Spotify is settling the new track; preparing Play.';
+            const pending = awaitingMediaIdentity;
+            if (pending?.revision === atRevision && pending?.uri === requested) {
+              setTimeout(() => {
+                if (awaitingMediaIdentity !== pending || atRevision !== revision
+                    || requested !== selectedUri) return;
+                awaitingMediaIdentity = null; // prevents duplicate SDK+fallback arms
+                message.textContent = 'New card selected; EveOS is attempting its Play control.';
+                void acknowledgeLoadedMedia(pending); // exact-owned backend UIA, never SDK preview play
+              }, 2200);
             }
-            // UIA on the exact owned Edge window will attempt the real Spotify
-            // Play button for this media revision. Direct controller.play()
-            // can yield preview-only playback even when the card has full-track
-            // entitlement, so don't silently replace the button with SDK play.
-            message.textContent = 'Spotify track updated. EveOS is attempting the official Play button.';
           } catch {
             if (atRevision === revision) {
+              if (awaitingMediaIdentity?.revision === atRevision) awaitingMediaIdentity = null;
               send('play-failed', { playingURI: requested });
               message.textContent = 'Spotify did not autoplay the new track. Show Spotify to press Play.';
             }

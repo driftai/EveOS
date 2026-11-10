@@ -3,6 +3,20 @@ from __future__ import annotations
 
 import time
 
+def _verified_progress(self, revision):
+    """Only revision-owned, advancing, recently routed audio proves playback.
+
+    paused=False at position zero is NOT proof, and neither is a UIA Invoke
+    receipt. Called with the session's lock held.
+    """
+    return (self._running and revision == self._media_revision
+            and self._status == 'cable-routed'
+            and self._state.get('paused') is False
+            and self._confirmed_progress >= 2.0
+            and float(self._state.get('currentTime') or 0) >= 2.0
+            and self._last_position_at > 0
+            and 0 <= time.monotonic() - self._last_position_at <= 3.0)
+
 def attempt_card_play(self, generation, revision=None, delay=0):
     """Attempt the actual Spotify Play button for this exact media revision.
 
@@ -19,7 +33,7 @@ def attempt_card_play(self, generation, revision=None, delay=0):
             return
         if revision is not None and revision != self._media_revision:
             return
-        if self._state.get("paused") is False:
+        if _verified_progress(self, self._media_revision):
             self._record("auto-play-not-needed", revision=self._media_revision)
             return
         if self._manual_pause_revision == self._media_revision:
@@ -35,7 +49,7 @@ def attempt_card_play(self, generation, revision=None, delay=0):
             return (self._running and generation == self._generation and
                     captured_revision == self._media_revision and
                     self._manual_pause_revision != captured_revision and
-                    self._state.get("paused") is not False)
+                    not _verified_progress(self, captured_revision))
     def rehide_allowed():
         with self._lock:
             return (self._running and generation == self._generation and
@@ -44,10 +58,24 @@ def attempt_card_play(self, generation, revision=None, delay=0):
         with self._lock:
             return (self._running and generation == self._generation and
                     captured_revision == self._media_revision and
-                    self._status == "cable-routed" and self._state.get("paused") is False)
+                    _verified_progress(self, captured_revision))
     result = window.try_card_play(pids, track, should_attempt=still_current,
                                   should_rehide=rehide_allowed,
                                   playback_confirmed=playback_confirmed)
+    # One bounded same-window retry only for a new queue-track revision.
+    # Never retry a manual Pause, a superseded revision, or an unowned window.
+    retry_used = False
+    if revision is not None and not playback_confirmed() and (
+            result.get("ok") or result.get("reason") == "EVE_UIA_PLAY_CONTROL_UNAVAILABLE"):
+        time.sleep(1.0)
+        if still_current() and not playback_confirmed():
+            retry_used = True
+            result = window.try_card_play(pids, track, should_attempt=still_current,
+                                          should_rehide=rehide_allowed,
+                                          playback_confirmed=playback_confirmed)
+    # A verified progress receipt may arrive just after UIA exits.
+    if playback_confirmed():
+        result = {**result, "playbackConfirmed": True}
     with self._lock:
         if generation != self._generation or not self._running or captured_revision != self._media_revision:
             return
@@ -56,7 +84,7 @@ def attempt_card_play(self, generation, revision=None, delay=0):
         self._record("auto-play", revision=captured_revision, hidden=self._hidden,
                      outcome=self._autoplay_status, offscreenAssist=result.get("offscreenAssist", False),
                      playbackConfirmed=result.get("playbackConfirmed", False),
-                     reason=result.get("reason", "")[:80])
+                     retryUsed=retry_used, reason=result.get("reason", "")[:80])
         if result.get("ok"):
             self._message = ("Spotify Play was confirmed on CABLE." if result.get("playbackConfirmed")
                              else "Spotify Play was invoked but has not been confirmed on CABLE; use Show Spotify if paused.")

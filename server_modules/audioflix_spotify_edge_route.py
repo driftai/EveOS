@@ -103,6 +103,7 @@ def run_route(manager, generation, device_id):
                     else:
                         manager._applied_gain[pid] = desired
                 if gain_verified and manager._status != "close-required":
+                    manager._route_completion_safe = True
                     if manager._status != "cable-routed":
                         manager._record("route-confirmed", activePids=routed, target=target.name,
                                      secondsSinceLaunch=round(time.time() - manager._started, 2))
@@ -113,10 +114,15 @@ def run_route(manager, generation, device_id):
                     # A replacement session under the same PID must get a fresh
                     # gain write; the previous session receipt is now stale.
                     manager._applied_gain.clear()
+                    # At a real song ending, the active audio session can vanish
+                    # before the SDK sends Ended. Trust only this same owned PID
+                    # retaining the exact selected endpoint, not stale CABLE status.
+                    route_still_safe = _assigned_route_is_still_safe(manager, live, active, target)
+                    manager._route_completion_safe = bool(route_still_safe)
                     # Paused/stopped media naturally has no active Windows audio
                     # session. Never queue an extra Pause during normal Resume.
                     if manager._state.get("paused") is False:
-                        if _assigned_route_is_still_safe(manager, live, active, target):
+                        if route_still_safe:
                             # A volume slider (especially gain=0) can temporarily make
                             # an otherwise correctly routed session disappear. The old
                             # route-loss Pause severed the Spotify SDK's active song.
@@ -133,6 +139,7 @@ def run_route(manager, generation, device_id):
                         manager._message = "Spotify paused; waiting for its next CABLE audio session."
                     manager._status = "route-pending"
                 elif time.monotonic() >= deadline and manager._status != "close-required":
+                    manager._route_completion_safe = False
                     manager._status = "route-pending"
                     manager._message = "Spotify audio session not detected; press Play in its card."
             # Remain available for delayed manual Play and later PID changes.
@@ -140,6 +147,7 @@ def run_route(manager, generation, device_id):
     except Exception as exc:
         with manager._lock:
             if generation == manager._generation:
+                manager._route_completion_safe = False
                 manager._status = "route-error"
                 manager._message = str(exc)[:240]
                 manager._record("route-error", message=manager._message)
