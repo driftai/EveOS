@@ -6,7 +6,10 @@
 
 - Official Spotify Embed remains the supported non-Managed-Engine Spotify path. Its same-window queue transitions, completion fencing, status reconciliation, seek coalescing and fail-closed provider-outage behavior are now covered by focused regressions.
 - The user-selectable **Electron Direct** playback mode and its dedicated bridge/runtime were retired. Legacy saved `electron` policies migrate to Official Embed. The generic authenticated Electron capture lane and Windows output helpers remain because Provider Capture still owns and tests them; they are not a third Spotify playback mode.
-- Cleanup review artifacts are centralized under `C:\Users\alvin\Downloads\EveOS-Cleanup-Review-20261109`. Browser authentication/DRM profiles, active runtime state and the current Spotify freeze evidence remain protected unless a later exact manifest proves they are superseded.
+- Cleanup review artifacts are centralized under `C:\Users\alvin\Downloads\EveOS-Diagnostics\Cleanup-Review-20261109` and `C:\Users\alvin\Downloads\EveOS-Diagnostics\Cleanup-Review-20261110`. Browser authentication/DRM profiles, active runtime state and the current Spotify evidence remain protected unless a later exact manifest proves they are superseded.
+- Cleanup pass 3 completed from an exact preview/journal on 2026-11-10: 70 recoverable moves (189,340,977 bytes), 753 approved deletions (647,255,458 bytes), zero verification errors, and one intentionally preserved active Spotify integration evidence directory. The authoritative receipt is `C:\Users\alvin\Downloads\EveOS-Diagnostics\Cleanup-Review-20261110\pass3-receipt.json`.
+- Managed lifecycle acceptance completed on 2026-11-10 with two consecutive health-backed start/stop cycles each for Piano and WatchFusion. Both services returned to their original stopped state; no orphaned listener or speculative lifecycle patch remained.
+- Dense Piano listening and real phone/LAN WatchFusion synchronization remain owner-observed physical acceptance checks. They must not be represented as completed by deterministic or same-machine browser evidence alone.
 - This note records the outcome of the campaign below; the original task inventory remains intact as historical rationale.
 
 ## Exact start state
