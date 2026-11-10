@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 
 from . import eveos_console_prefs, eveos_exposure, eveos_ports, watchfusion_exposure, watchfusion_preferences
+from .eveos_listener_owners import parse_netstat_listener_pids as _windows_listener_pids
+from .eveos_listener_owners import windows_listener_pids
 from .watchfusion_extension import open_extension_folder
 
 
@@ -204,16 +206,7 @@ def _port_open() -> bool:
 
 def _pids() -> list[int]:
     if os.name == "nt":
-        result = subprocess.run(
-            ["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True,
-            check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        marker = f":{WATCHFUSION_PORT}"
-        return sorted({
-            int(parts[-1]) for line in (result.stdout or "").splitlines()
-            if marker in line and "LISTENING" in line.upper()
-            if (parts := line.split()) and parts[-1].isdigit()
-        })
+        return windows_listener_pids(WATCHFUSION_PORT)
     result = subprocess.run(
         ["lsof", "-nP", f"-iTCP:{WATCHFUSION_PORT}", "-sTCP:LISTEN", "-t"],
         capture_output=True, text=True, check=False,
@@ -300,7 +293,7 @@ def open_launcher() -> dict:
             return {**current, "ok": False, "message": f"WatchFusion launcher missing: {launcher}"}
         try:
             subprocess.Popen(
-                ["cmd.exe", "/k", str(launcher)], cwd=str(_tool_root()),
+                ["cmd.exe", "/d", "/c", str(launcher)], cwd=str(_tool_root()),
                 creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
             )
         except OSError as exc:

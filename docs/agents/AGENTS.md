@@ -148,3 +148,7 @@ Quota protection:
 Publication remains independently authorized:
 - No automatic commit, push, force-push, merge or service restart.
 - Protect unrelated dirty work and all existing Dex room data.
+
+## Nova cleanup + reliability handoff (2026-11-09)
+
+- Current scoped mission and diagnostics convention: [NOVA-CLEANUP-RELIABILITY-20261109.md](NOVA-CLEANUP-RELIABILITY-20261109.md). Read before cleanup/stop/watch/piano/Spotify changes. This is a coordination memo, not authorization to delete or push.

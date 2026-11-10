@@ -17,6 +17,9 @@ if ROOT not in sys.path:
 
 from server_modules import eveos_control_helper as H  # noqa: E402
 from server_modules import eveos_web_control as W  # noqa: E402
+from server_modules import eveos_listener_owners as OWNERS  # noqa: E402
+from server_modules import piano_player_control as PIANO  # noqa: E402
+from server_modules import watchfusion_control as WATCH  # noqa: E402
 from tools.qualification.control_stop_isolation import snapshot_global_stops, assert_global_stops_stubbed
 
 
@@ -46,6 +49,26 @@ class _FakeHandler(H.EveOSControlHandler):
 
 
 def main():
+    netstat_fixture = """
+      TCP    127.0.0.1:8771    0.0.0.0:0    LISTENING    111
+      TCP    127.0.0.1:87710   0.0.0.0:0    LISTENING    222
+      TCP    [::]:9087         [::]:0       LISTENING    333
+      TCP    [::]:90870        [::]:0       LISTENING    444
+    """
+    check(PIANO._windows_listener_pids(netstat_fixture, 8771) == [111],
+          "Piano Stop never adopts a similarly prefixed foreign port")
+    check(WATCH._windows_listener_pids(netstat_fixture, 9087) == [333],
+          "WatchFusion Stop never adopts a similarly prefixed foreign port")
+    fake_remote = type("Address", (), {"port": 0})()
+    fake_connection = lambda port, remote, pid: type("Connection", (), {
+        "laddr": type("Address", (), {"port": port})(), "raddr": remote, "pid": pid})()
+    check(OWNERS.connection_listener_pids([
+        fake_connection(8771, (), 111),
+        fake_connection(8771, fake_remote, 222),
+        fake_connection(87710, (), 333),
+    ], 8771) == [111],
+          "blank-state listener ownership requires exact port and no remote peer")
+
     os.environ.pop("EVEOS_HEADLESS", None)
     check(W.headless_mode() is False,
           "servers are HEADED by default so what is running is visible")

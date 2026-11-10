@@ -69,6 +69,8 @@ def assert_static_contract() -> None:
     bulk = (PIANO / "web" / "bulk_conversion.js").read_text(encoding="utf-8")
     workspace_css = (PIANO / "web" / "piano_workspace.css").read_text(encoding="utf-8")
     state = (ROOT / "js" / "modules" / "core" / "state.js").read_text(encoding="utf-8")
+    piano_player_control_source = (ROOT / "server_modules" / "piano_player_control.py").read_text(encoding="utf-8")
+    piano_start = (PIANO / "start.bat").read_text(encoding="utf-8")
 
     order = [panel.index(f"tabButton('{name}'") for name in ("soundboard", "music", "piano", "soundlab", "router")]
     assert all(index >= 0 for index in order) and order == sorted(order)
@@ -146,6 +148,9 @@ def assert_static_contract() -> None:
     assert '"/api/piano-player/status"' in helper
     assert '"/api/piano-player/start"' in helper and '"/api/piano-player/stop"' in helper
     assert '"/api/piano-player/setup"' in helper and "open_setup" in helper
+    assert '["cmd.exe", "/d", "/c", str(launcher)]' in piano_player_control_source
+    assert 'cmd /k' not in piano_start
+    assert 'run.py --host 127.0.0.1 --port 8771\nexit /b %ERRORLEVEL%' in piano_start
     assert "piano_player_control.restore_desired_state_async()" in helper
 
     ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")

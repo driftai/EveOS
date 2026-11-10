@@ -277,6 +277,7 @@ async function browserPhase() {
             return result;
         }
         let result = await read();
+        assert.equal(result.opens, 0, 'browser: initial Spotify mirror does not invoke the legacy Internal Player');
         assert.equal(result.title, 'Provider linked one');
         assert.equal(result.volume, 0.64);
         assert.equal(result.snapshotId, 'spotify-1');
@@ -301,7 +302,7 @@ async function browserPhase() {
         await pointer('[data-url-player-action="toggle"]');
         result = await read();
         assert.deepEqual(result.replays, ['spotify-3'], 'browser: resume cannot replay the opening track');
-        assert.equal(result.opens, 1, 'browser: advances do not reopen Queue View');
+        assert.equal(result.opens, 0, 'browser: Spotify advances preserve the mirror without opening the legacy Internal Player');
         assert.equal(result.sameFrame, true, 'browser: advances preserve the original mirror frame');
         const { verifyProviderVolumeGesture } = await import('./helpers/audioflix_volume_gesture_browser.mjs');
         const gestures = await verifyProviderVolumeGesture(page, read);
@@ -332,14 +333,13 @@ function saveResult(status, error) {
 
 (async () => {
     assert.equal(window.EveAudioflixSpotifyEngineSurface.ready, true);
-    deferInternal = true;
+    // The managed Spotify eye click opens one mirror immediately. It must not
+    // start a second (legacy) player or await the old helper-start callback.
     const coldOpen = window.EveAudioflixAudio.openInternalView(providerTrack);
-    assert.equal(open, true, 'Spotify eye click opens Internal Player synchronously before helper startup');
+    assert.equal(open, true, 'Spotify eye click opens managed mirror synchronously');
     assert.ok(host.children.length > 0, 'engine controls render before remote playback resolves');
-    deferInternal = false;
-    finishInternal(true);
     await coldOpen;
-    assert.equal(internalOpenCount, 1, 'Spotify Internal View still delegates through the normal Audioflix open path');
+    assert.equal(internalOpenCount, 0, 'managed Spotify mirror must not start an independent legacy player');
     assert.ok(queueSets.length > 0, 'managed Spotify Internal Player receives the Audioflix queue');
     assert.deepEqual(queueSets.at(-1), { entries: queueState.entries, index: 0 },
         'provider-linked Spotify rows are mirrored into Queue View without localization');
@@ -376,7 +376,7 @@ function saveResult(status, error) {
     assert.equal(mirrorMessages.at(-1).state.title, activeTrack.title);
     paused = true; await controllerOptions.onToggle();
     assert.equal(replays.at(-1), 'spotify-2', 'resume cannot replay the original Queue View track');
-    assert.equal(internalOpenCount, 1, 'automatic advancement must not require reopening Queue View');
+    assert.equal(internalOpenCount, 0, 'automatic advancement must not open the legacy Internal Player');
     // The selected mirror song must remain playable after Restart Engine retires its lease.
     const controls = host.children.find(node => node.dataset.spotifyEngineControls);
     const restart = controls?.children.find(node => node.textContent === 'Restart engine');
@@ -396,6 +396,17 @@ function saveResult(status, error) {
     assert.match(source, /queueConnection\(\)\?\.snapshot/);
     assert.match(source, /view\?\.setQueue\?\./);
     assert.match(source, /eve:audioflix-queue-changed/);
+
+    // Non-Spotify rows still delegate to the original async Internal Player.
+    // This deliberately exercises the deferred callback absent from the managed path.
+    deferInternal = true;
+    const localOpen = window.EveAudioflixAudio.openInternalView({ id: 'local-1', type: 'music', sourceIsLocal: true });
+    assert.equal(internalOpenCount, 1, 'local audio still delegates through the legacy Internal Player');
+    assert.equal(typeof finishInternal, 'function', 'legacy delegate can still defer while initializing');
+    deferInternal = false;
+    finishInternal(true);
+    await localOpen;
+
     passed++; phase = 'browser';
     await browserPhase(); passed++;
     saveResult('PASS');

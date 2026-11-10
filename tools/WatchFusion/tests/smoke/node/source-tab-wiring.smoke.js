@@ -139,6 +139,10 @@ export async function runSourceTabSmokes() {
     assert.doesNotMatch(linkedTab, /MIRROR_INTERVAL_MS/);
     assert.match(linkedPlayback, /function mediaPlan/);
     assert.match(linkedPlayback, /function mirrorPlan/);
+    assert.match(linkedPlayback, /function transportTiming/);
+    assert.match(linkedTab, /diagnostics:\(\)=>\(\{transport:lastTransportTiming\}\)/);
+    assert.match(worker, /publisherReceivedAt:Date\.now\(\)/);
+    assert.match(worker, /publisherSentAt:Date\.now\(\)/);
   })();
 
   await record('ST-14:linked-direct-media-does-not-permanently-mask-host-controls', async () => {

@@ -46,5 +46,5 @@ if defined LAN_HOST_URL (
 )
 echo [INFO] EveOS will keep using its embedded WatchFusion view; no extra browser tab will open.
 echo.
-start "WatchFusion Server (LAN)" cmd /k "cd /d ""%~dp0\.."" && set HOST=0.0.0.0&& set PORT=%WATCHFUSION_PORT%&& node server.js"
+start "WatchFusion Server (LAN)" cmd /c "cd /d ""%~dp0\.."" && set HOST=0.0.0.0&& set PORT=%WATCHFUSION_PORT%&& node server.js"
 exit /b 0

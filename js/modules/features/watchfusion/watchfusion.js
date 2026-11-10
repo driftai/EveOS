@@ -323,7 +323,13 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         renderStatus();
         try {
             if (!(await ensureControl())) return status;
-            status = await request(`/api/watchfusion/${enabled ? 'start' : 'stop'}`, { method: 'POST', body: '{}' });
+            status = await request(`/api/watchfusion/${enabled ? 'start' : 'stop'}`, {
+                method: 'POST', body: '{}',
+                // Stop also reconciles owned tunnel/server helpers and then proves the
+                // listener is gone. Keep that bounded work inside the request instead
+                // of aborting at the ordinary six-second UI budget.
+                timeoutMs: enabled ? 12_000 : 20_000
+            });
             if (frame) {
                 frame.dataset.loaded = '';
                 if (!enabled || !status?.running) frame.src = 'about:blank';

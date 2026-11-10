@@ -205,7 +205,10 @@ const assert = (condition, message) => {
     await page.waitForSelector('.audioflix-provider-stage.is-internal-view');
     await page.evaluate(() => window.EveAudioflixAudio.pause());
     const controllerBeforeClose = await page.evaluate(() => ({ ...window.__spotifyUiTotals }));
-    await page.click('[data-url-player-action="stop"]');
+    // There are multiple Stop/Close buttons in the DOM; only the active Internal Player owns this action.
+    const expandedStop = page.locator('.audioflix-provider-stage.is-internal-view [data-url-player-action="stop"]:visible');
+    assert(await expandedStop.count() === 1, 'expanded Spotify player has exactly one visible Close control');
+    await expandedStop.click();
     await page.waitForSelector('.audioflix-provider-stage.is-transport-only');
     assert(
         await page.evaluate((before) => window.__spotifyUiTotals.created === before.created
@@ -308,7 +311,9 @@ const assert = (condition, message) => {
     await page.evaluate(() => window.EveAudioflixAudio.stopAll());
     const expandedPlayer = page.locator('.audioflix-provider-stage.is-internal-view');
     if (await expandedPlayer.isVisible()) {
-        await expandedPlayer.locator('[data-url-player-action="stop"]').click();
+        const activeClose = expandedPlayer.locator('[data-url-player-action="stop"]:visible');
+        assert(await activeClose.count() === 1, 'expanded Spotify player exposes one visible Close control');
+        await activeClose.click();
         await expandedPlayer.waitFor({ state: 'hidden' });
     }
     await page.click('[data-af-action="toggle-view-mode"][data-af-type="music"]');

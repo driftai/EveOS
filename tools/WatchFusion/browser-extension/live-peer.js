@@ -35,7 +35,7 @@
       if (message.type === 'ready') { this.iceServers = message.iceServers; this.viewerId = message.peer; this.options.onReady?.(); return; }
       if (message.type === 'status') return this.status(message.status);
       if (message.type === 'audio-sync') return this.options.onAudioSync?.(message);
-      if (message.type === 'metadata') return this.options.onMetadata?.(message.metadata);
+      if (message.type === 'metadata') return this.options.onMetadata?.({ ...message.metadata, viewerReceivedAt: Date.now() });
       if (message.type === 'control') return this.options.onControl?.(message.action, message.value);
       if (message.type === 'left') return this.drop(message.peer);
       if (message.type === 'viewer' && this.options.stream) {

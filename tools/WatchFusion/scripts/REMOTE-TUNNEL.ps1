@@ -83,7 +83,7 @@ if (Test-WatchFusion) {
 } else {
     Write-Host "Starting WatchFusion origin with LAN-capable host binding on port $Port..."
     $ServerCommand = "cd /d `"$Root`" && set HOST=0.0.0.0&& set PORT=$Port&& node server.js"
-    $Server = Start-Process -FilePath "cmd.exe" -ArgumentList "/k `"$ServerCommand`"" -WorkingDirectory $Root -PassThru
+    $Server = Start-Process -FilePath "cmd.exe" -ArgumentList "/d /c `"$ServerCommand`"" -WorkingDirectory $Root -PassThru
     $Server.Id | Set-Content -Encoding ASCII $ServerPidFile
     Write-Host "WatchFusion server terminal opened (PID $($Server.Id))."
     Write-Host "Waiting for WatchFusion to become ready..."

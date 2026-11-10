@@ -63,5 +63,20 @@
     return Math.abs((Number(position)||0)-expected)>1.5;
   }
 
-  root.WatchFusionLinkedPlaybackSync={projectedPosition,youtubePlan,mediaPlan,mirrorPlan,positionJumped};
+  function transportTiming(metadata={},now=Date.now()){
+    const sampledAt=Number(metadata.sampledAt)||0,publisherReceivedAt=Number(metadata.publisherReceivedAt)||0;
+    const publisherSentAt=Number(metadata.publisherSentAt)||0,relayReceivedAt=Number(metadata.relayReceivedAt)||0;
+    const relaySentAt=Number(metadata.relaySentAt)||0,viewerReceivedAt=Number(metadata.viewerReceivedAt)||Number(now)||0;
+    const bounded=(end,start)=>end>0&&start>0&&end>=start?Math.min(60000,end-start):null;
+    return{
+      sourceToPublisherMs:bounded(publisherReceivedAt,sampledAt),
+      publisherQueueMs:bounded(publisherSentAt,publisherReceivedAt),
+      publisherToRelayMs:bounded(relayReceivedAt,publisherSentAt),
+      relayToViewerMs:bounded(viewerReceivedAt,relaySentAt),
+      sourceToViewerMs:bounded(viewerReceivedAt,sampledAt),
+      sampleAgeMs:bounded(Number(now)||viewerReceivedAt,sampledAt)
+    };
+  }
+
+  root.WatchFusionLinkedPlaybackSync={projectedPosition,youtubePlan,mediaPlan,mirrorPlan,positionJumped,transportTiming};
 })(globalThis);

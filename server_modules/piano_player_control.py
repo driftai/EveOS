@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 
 from . import eveos_console_prefs, eveos_exposure, eveos_ports
+from .eveos_listener_owners import parse_netstat_listener_pids as _windows_listener_pids
+from .eveos_listener_owners import windows_listener_pids
 
 
 PIANO_PORT = eveos_ports.service_port("PIANO_PLAYER_PORT")
@@ -110,16 +112,7 @@ def _port_open() -> bool:
 
 def _pids() -> list[int]:
     if os.name == "nt":
-        result = subprocess.run(
-            ["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True,
-            check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        marker = f":{PIANO_PORT}"
-        return sorted({
-            int(parts[-1]) for line in (result.stdout or "").splitlines()
-            if marker in line and "LISTENING" in line.upper()
-            if (parts := line.split()) and parts[-1].isdigit()
-        })
+        return windows_listener_pids(PIANO_PORT)
     result = subprocess.run(
         ["lsof", "-nP", f"-iTCP:{PIANO_PORT}", "-sTCP:LISTEN", "-t"],
         capture_output=True, text=True, check=False,
@@ -183,7 +176,7 @@ def open_launcher() -> dict:
             return {**current, "ok": False, "message": f"Piano launcher missing: {launcher}"}
         try:
             subprocess.Popen(
-                ["cmd.exe", "/k", str(launcher)], cwd=str(launcher.parent),
+                ["cmd.exe", "/d", "/c", str(launcher)], cwd=str(launcher.parent),
                 creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
             )
         except OSError as exc:
