@@ -13,7 +13,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     ?? Math.max(0, Math.min(1, Number(value) || 0));
   let installed = false, active = false, starting = false, item = null;
   let epoch = 0, pollTimer = 0, lastState = '', lastRoute = false;
-  let volumeFlight = false, volumePending = null, playbackRevision = 0;
+  let volumeFlight = false, volumePending = null, seekFlight = false, seekPending = null, playbackRevision = 0;
   let lastEndedRevision = -1, windowToggle = null, windowHidden = false;
   let edgePanel = null, edgePanelExpanded = false;
   let playback = { item: null, paused: true, currentTime: 0, duration: 0,
@@ -70,7 +70,6 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     if (after.browserRunning === true || after.helperReachable === true)
       throw new Error('Spotify Engine shutdown was not confirmed; Official Embed was not started.');
   }
-
   // White is an approved monochrome Spotify mark on this dark control.
   // The orange housing belongs to EveOS; the official logo is never recolored.
   const SPOTIFY_ICON = 'https://storage.googleapis.com/pr-newsroom-wp/1/2023/05/Spotify_Primary_Logo_RGB_White.png';
@@ -241,7 +240,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     } catch { /* Preserve a running provider during a transient server status failure. */ }
   }
   async function stopEdge() {
-    volumePending = null;
+    volumePending = null; seekPending = null;
     if (!active && !starting) return;
     ++epoch;
     stopPolling();
@@ -260,7 +259,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     windowHidden = false; lastEndedRevision = -1;
   }
   async function playEdge(nextItem, original, resolvedPolicy) {
-    volumePending = null;
+    volumePending = null; seekPending = null;
     const identity = spotify(nextItem);
     if (!identity) return original.playItem(nextItem);
     const current = ++epoch;
@@ -387,9 +386,19 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
       notify('Trying Spotify’s own Play control. Use the card if automatic Play is unavailable.');
       return true;
     };
+    function drainEdgeSeek() {
+      if (seekFlight || !seekPending) return;
+      const intent = seekPending; seekPending = null; seekFlight = true;
+      const work = intent.epoch === epoch && intent.revision === playbackRevision
+        ? request('seek', intent.payload, 5000) : Promise.resolve();
+      Promise.resolve(work).catch(error => { if (intent.epoch === epoch) notify(`Seek failed: ${error.message}`, true); })
+        .finally(() => { seekFlight = false; drainEdgeSeek(); });
+    }
     audio.seek = async function edgeSeek(seconds) {
       if (!active) return original.seek(seconds);
-      await request('seek', { seconds: Math.max(0, Number(seconds || 0)) });
+      seekPending = { epoch, revision: playbackRevision, payload: {
+        seconds: Math.max(0, Number(seconds || 0)), spotifyUri: spotify(item)?.spotifyUri, revision: playbackRevision } };
+      drainEdgeSeek();
       return true;
     };
     audio.stopAll = async function edgeStop() {

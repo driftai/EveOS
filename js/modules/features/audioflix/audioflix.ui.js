@@ -77,7 +77,6 @@ window.EveAudioflix = window.EveAudioflix || {};
     });
     const renderInfoModal = (item, type) => uiModal.renderInfoModal(item, type);
     const renderGroupAssign = (item, type) => uiModal.renderGroupAssign(item, type);
-
     async function loadPortedSounds() {
         await window.EveAudioflixFsPorts?.reconcile?.().catch?.(() => false);
         const snapshot = state(), base = (window.location.origin && !window.location.origin.startsWith('file:')) ? window.location.origin.replace('localhost', '127.0.0.1') : 'http://127.0.0.1:8765';
@@ -89,9 +88,7 @@ window.EveAudioflix = window.EveAudioflix || {};
         if (portedCatalogReady) pushHotkeysToBridge();
         rerender();
     }
-
     const pushHotkeysToBridge = (options) => hotkeyController?.syncHotkeys?.(options) || Promise.resolve({ ok: false, pending: true });
-
     // Overlay construction + delegated event wiring live in a sibling module (late-bound ctx).
     const uiOverlay = window.EveAudioflixUiOverlay.create({
         state, rerender: () => rerender(), close: () => close(),
@@ -156,6 +153,12 @@ window.EveAudioflix = window.EveAudioflix || {};
                     if (started === false) { if (queueStartPending === runId) { queueStartPending = 0; queueStartActive = 0; queuedTerminal = null; } activeMusicQueue.currentIndex = startingIndex; finish?.(false); window.EveAudioflixAudio?.syncQueueView?.(); rerenderPlayback(); return; }
                     didStart = true; break;
                 } catch (err) {
+                    const transportUnavailable = /(?:bridge|connection|transport).*(?:offline|unavailable|failed)|(?:offline|unavailable|timed? out)|spotify playback support is not loaded/i.test(String(err?.message || err));
+                    if (transportUnavailable && /spotify/i.test(String(track?.sourceProvider || track?.url || ''))) {
+                        playbackStatus = `Spotify paused on ${track?.title || 'the selected track'}: ${err?.message || 'provider unavailable'}`;
+                        window.EveAudioflixDiagnostics?.record?.('queue:provider-unavailable', 0, { error: true });
+                        break;
+                    }
                     playbackStatus = `Skipped ${track?.title || 'unavailable track'}: ${err?.message || 'Playback failed'}`;
                     window.EveAudioflixDiagnostics?.record?.('queue:skipped-start', 0, { error: true });
                     console.warn('[Audioflix]', playbackStatus);
@@ -194,7 +197,6 @@ window.EveAudioflix = window.EveAudioflix || {};
         return groupsOf(item.id, 'sound').length > 0 || (item.isPorted ? state().exposedPortedSounds?.[item.id] === true : item.exposed === true);
     };
     const groupTags = (item, gs = groupsOf(item.id, item?.type || 'music')) => window.EveAudioflixGroupTreeUi?.renderTags?.({ type: item?.type || 'music', groups: gs, state: state(), esc }) || '';
-
     // Card / grid / frontend renderers live in a sibling module; they reach this view's helpers
     // and mutable flags through this ctx bag (frontendActiveGroup is also handed to the actions ctx).
     const uiRender = window.EveAudioflixUiRender.create({
@@ -212,7 +214,6 @@ window.EveAudioflix = window.EveAudioflix || {};
         get smartArtistExpanded() { return smartArtistExpanded; }
     });
     const { frontendGroupEntries, frontendActiveGroup, renderItemCard, renderItems, renderFrontendActive, renderFrontendMusicActive } = uiRender;
-
     const renderForm = (type, m = type === 'music') => `<form class="audioflix-form" data-af-form="${m ? 'music' : 'sound'}"><label><span>${m ? 'Track Title' : 'Sound Name'}</span><input name="title" required></label><label class="audioflix-wide-field"><span>URL / Path</span><input name="url" required></label><label><span>${m ? 'Artist' : 'Category'}</span><input name="${m ? 'artist' : 'category'}"></label><label><span>${m ? 'Folder' : 'Volume'}</span><input name="${m ? 'folder' : 'volume'}"></label><button type="submit" data-af-action="submit-form">${m ? 'Add Track' : 'Add Sound'}</button></form>`;
     const renderImportPlaylistForm = () => window.EveAudioflixPlaylistImportUi.render({
         mode: playlistImportMode || 'youtube',
@@ -263,7 +264,6 @@ window.EveAudioflix = window.EveAudioflix || {};
     });
     const renderPanel = () => uiPanel.render();
     const renderModalHost = () => (activeInfoItem ? renderInfoModal(activeInfoItem, activeInfoType) : '');
-
     // Opening a song's settings panel used to go through the full rerender below, rebuilding EVERY
     // card's markup for a change that only affects the modal. On a large library that is a long
     // synchronous block, and with the ScriptProcessor capture tap (the file:// fallback, which runs
@@ -279,7 +279,6 @@ window.EveAudioflix = window.EveAudioflix || {};
         const body = host.querySelector('.audioflix-info-body');
         if (body) body.scrollTop = keepScroll;
     }
-
     function rerender(transient = false) {
         if (!overlay || overlay.hidden || window.EveAudioflixSoundLabUi?.deferOuterRender?.(rerender)) return;
         if (transient === true && uiPanel.transient(overlay)) { updateStatusDOM(); window.EveAudioflixTransport?.sync?.(overlay); return; }

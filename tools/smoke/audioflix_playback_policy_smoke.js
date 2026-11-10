@@ -131,8 +131,8 @@ check(!Object.prototype.hasOwnProperty.call(schema.cleanItem(song, 'music'), 'pl
 const cleanedGlobal = schema.cleanPlaybackPolicy({ sourcePreference: 'bad', spotifyMethod: 'bad' }, { global: true });
 equal(cleanedGlobal.sourcePreference, 'localized', 'invalid global source fails safe');
 equal(cleanedGlobal.spotifyMethod, 'managed', 'invalid Spotify method fails safe');
-equal(schema.cleanPlaybackPolicy({ spotifyMethod: 'electron' }, { global: true }).spotifyMethod, 'electron',
-    'Electron Direct Embed is a migration-safe distinct policy value');
+equal(schema.cleanPlaybackPolicy({ spotifyMethod: 'electron' }, { global: true }).spotifyMethod, 'embed',
+    'retired Electron policy migrates to Official Embed');
 equal(policy.bindingKey({ scopeType: 'folder', workspaceId: 'Main', categoryName: 'Music', folderId: 'F1' }),
     'nexus:folder:main:music:f1:', 'Nexus binding key is canonical');
 
@@ -171,8 +171,8 @@ check(scopeOptions.some(entry => entry.key === 'folder:piano'), 'policy UI expos
 check(scopeOptions.some(entry => entry.key === 'nexus:workspace:main:::'), 'policy UI exposes Nexus bindings');
 const nexusMarkup = policyUi.renderNexus('music');
 check(nexusMarkup.includes('Global defaults') && nexusMarkup.includes('Managed Spotify Engine')
-    && nexusMarkup.includes('Electron Direct Embed'),
-    'Nexus panel renders global policy controls');
+    && nexusMarkup.includes('Official Spotify embed') && !nexusMarkup.includes('Electron Direct Embed'),
+    'Nexus panel renders only supported Spotify policy controls');
 const songMarkup = policyUi.renderSong(configuredState.music[0], 'music');
 check(songMarkup.includes('Decision source') && songMarkup.includes('Effective:'),
     'song settings render policy source and effective decision');

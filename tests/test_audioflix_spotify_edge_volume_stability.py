@@ -1,5 +1,6 @@
 """No-hardware regression tests for official Embed volume and output ownership."""
 import unittest
+import time
 from types import SimpleNamespace
 from threading import RLock
 from unittest.mock import patch
@@ -98,6 +99,37 @@ class EdgeVolumeStabilityTests(unittest.TestCase):
     def test_stopped_embed_rejects_volume(self):
         self.manager._running = False
         self.assertFalse(self.send(.4)['ok'])
+
+    def test_seek_coalesces_latest_intent_for_the_active_revision(self):
+        first = self.manager.command({'action': 'seek', 'payload': {
+            'seconds': 12, 'spotifyUri': URI, 'revision': 5}}, 8765)
+        second = self.manager.command({'action': 'seek', 'payload': {
+            'seconds': 48, 'spotifyUri': URI, 'revision': 5}}, 8765)
+        self.assertTrue(first['ok'] and second['ok'])
+        seeks = [command for command in self.manager._pending if command['action'] == 'seek']
+        self.assertEqual(len(seeks), 1)
+        self.assertEqual(seeks[0]['seconds'], 48)
+
+    def test_seek_rejects_stale_song_and_revision(self):
+        wrong_song = self.manager.command({'action': 'seek', 'payload': {
+            'seconds': 9, 'spotifyUri': URI2, 'revision': 5}}, 8765)
+        stale = self.manager.command({'action': 'seek', 'payload': {
+            'seconds': 9, 'spotifyUri': URI, 'revision': 4}}, 8765)
+        self.assertFalse(wrong_song['ok'])
+        self.assertFalse(stale['ok'])
+        self.assertEqual(self.manager._pending, [])
+
+    def test_real_playing_position_reconciles_waiting_autoplay_status(self):
+        self.manager._nonce = 'S' * 40
+        self.manager._status = 'cable-routed'
+        self.manager._autoplay_status = 'waiting-for-new-card'
+        self.manager._last_position_at = time.monotonic() - 1
+        self.manager._last_progress_position = 1
+        reply = self.manager.event({'session': self.manager._nonce, 'kind': 'position',
+            'revision': 5, 'playingURI': URI, 'currentTime': 2, 'duration': 100, 'paused': False})
+        self.assertTrue(reply['ok'])
+        self.assertEqual(self.manager._autoplay_status, 'confirmed')
+        self.assertIn('confirmed', self.manager._message)
 
     def test_verified_owned_route_survives_zero_active_sessions(self):
         self.assertTrue(_assigned_route_is_still_safe(self.manager, {123:44.0}, [], SimpleNamespace(id='VB-CABLE')))

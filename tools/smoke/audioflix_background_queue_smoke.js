@@ -150,10 +150,12 @@ async function completionCoverage() {
 function realQueueFixture(count = 20, options = {}) {
     const listeners = new Map(), players = [], starts = [], events = [];
     const music = Array.from({ length: count }, (_, index) => ({
-        id: index + 101, title: `Track ${index + 1}`, type: 'music', url: `data:audio/wav,${index}`
+        id: index + 101, title: `Track ${index + 1}`, type: 'music',
+        url: options.spotify ? `https://open.spotify.com/track/${String(index).padStart(22, '0')}` : `data:audio/wav,${index}`,
+        sourceProvider: options.spotify ? 'spotify' : ''
     }));
     const snapshot = { music, soundboard: [], musicGroups: ['Smoke Group'], musicGroupMap: {} };
-    let actions, controller, queueBridge, drainResolve, failId = '';
+    let actions, controller, queueBridge, drainResolve, failId = '', failMessage = 'Fixture start failure';
     const capture = {
         start: async () => true,
         stop: async value => value?.drain && drainResolve ? new Promise(resolve => {
@@ -204,7 +206,7 @@ function realQueueFixture(count = 20, options = {}) {
         }
         emit(type) { for (const listener of this.listeners.get(type) || []) listener(); }
         async play() {
-            if (failId === '*' || String(controller.getPlaybackState().item?.id) === String(failId)) throw new Error('Fixture start failure');
+            if (failId === '*' || String(controller.getPlaybackState().item?.id) === String(failId)) throw new Error(failMessage);
             this.paused = false; this.emit('play');
         }
         pause() { this.paused = true; this.emit('pause'); }
@@ -249,7 +251,7 @@ function realQueueFixture(count = 20, options = {}) {
         queue: () => window.EveAudioflix.queueConnection.snapshot(),
         action: name => actions.handleAction({ dataset: { afAction: name } }, {}),
         emit: detail => window.dispatchEvent({ type: 'eve:audioflix-playback', detail }),
-        fail: id => { failId = id; }, holdDrain: () => { drainResolve = () => {}; },
+        fail: (id, message) => { failId = id; if (message) failMessage = message; }, holdDrain: () => { drainResolve = () => {}; },
         resolveDrain: () => { const resolve = drainResolve; drainResolve = null; resolve?.(); }
     };
 }
@@ -261,25 +263,34 @@ async function settled() {
 }
 
 async function longGroupCoverage() {
-    const fixture = realQueueFixture();
+    const total = 48, fixture = realQueueFixture(total);
     await fixture.action('play-music-group');
     assert(fixture.queue().currentIndex === 0 && fixture.starts.length === 1,
         'plain Play Group starts one track without creating Queue View');
-    for (let index = 0; index < 20; index += 1) {
+    for (let index = 0; index < total; index += 1) {
         const detail = { status: 'Ended', browserOnly: true, provider: 'youtube',
             item: { ...fixture.music[index], id: String(fixture.music[index].id), sourceProvider: 'spotify' } };
         fixture.players.at(-1).end();
         fixture.emit(detail); fixture.emit(detail);
         await settled();
-        assert(fixture.starts.length === Math.min(index + 2, 20),
+        assert(fixture.starts.length === Math.min(index + 2, total),
             `plain group completion #${index + 1} starts exactly one successor`);
         const before = fixture.queue();
         fixture.emit(detail);
         await settled();
-        assert(fixture.queue().currentIndex === before.currentIndex && fixture.starts.length === Math.min(index + 2, 20),
+        assert(fixture.queue().currentIndex === before.currentIndex && fixture.starts.length === Math.min(index + 2, total),
             `late nonmatching completion #${index + 1} cannot skip a successor`);
     }
-    assert(fixture.queue().isPlaying === false, '20-track group finishes coherently without a #7 threshold');
+    assert(fixture.queue().isPlaying === false, '48-track group finishes coherently without a historical threshold');
+}
+
+async function providerOutageCoverage() {
+    const fixture = realQueueFixture(48, { spotify: true });
+    fixture.fail('*', 'Native bridge offline (fixture)');
+    await fixture.action('play-music-group');
+    await settled();
+    assert(fixture.starts.length === 1 && fixture.queue().currentIndex === 0 && fixture.queue().isPlaying === false,
+        'provider outage holds the selected Spotify item instead of skipping through the queue');
 }
 
 async function staleTransportCoverage() {
@@ -335,9 +346,10 @@ async function exhaustedStartCoverage() {
 }
 
 (async () => {
-    const cases = [ ['spotify-provenance-completion', completionCoverage], ['plain-group-20-track-once', longGroupCoverage],
+    const cases = [ ['spotify-provenance-completion', completionCoverage], ['plain-group-48-track-once', longGroupCoverage],
         ['stale-url-transport-identity', staleTransportCoverage], ['url-capture-settlement', captureSettlementCoverage],
-        ['failed-transport-start-state', failedStartCoverage], ['failed-starts-bounded-exhaustion', exhaustedStartCoverage] ];
+        ['failed-transport-start-state', failedStartCoverage], ['failed-starts-bounded-exhaustion', exhaustedStartCoverage],
+        ['provider-outage-preserves-selection', providerOutageCoverage] ];
     const failures = [];
     for (const [id, run] of cases) {
         try { await run(); } catch (error) { failures.push({ id, message: String(error.stack || error) }); }

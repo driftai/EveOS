@@ -385,7 +385,16 @@ class EdgeSpotifyManager:
                 self._seq += 1
                 cmd = {"seq": self._seq, "action": action, "revision": self._media_revision}
                 if action == "seek":
+                    if payload.get("spotifyUri") and payload["spotifyUri"] != self._uri:
+                        return {"ok": False, "reason": "Seek belongs to a different Spotify song."}
+                    if payload.get("revision") is not None:
+                        try: requested_revision = int(payload["revision"])
+                        except (TypeError, ValueError): return {"ok": False, "reason": "Invalid seek revision."}
+                        if requested_revision != self._media_revision:
+                            return {"ok": False, "reason": "Seek belongs to a stale Spotify revision."}
                     cmd["seconds"] = max(0, float(payload.get("seconds") or 0))
+                    self._pending = [pending for pending in self._pending
+                                     if pending.get("action") != "seek" or pending.get("revision") != self._media_revision]
                 self._pending.append(cmd)
                 return {"ok": True, "status": "queued", "controlNotYetConfirmed": True}
             if action == "volume":

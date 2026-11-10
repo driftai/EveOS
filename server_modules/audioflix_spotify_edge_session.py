@@ -142,6 +142,9 @@ def event(self, body):
                 self._confirmed_progress += min(progressed, elapsed)
             self._state.update(currentTime=seconds, duration=duration,
                                paused=body.get("paused") is not False)
+            if playing and self._autoplay_status == "waiting-for-new-card":
+                self._autoplay_status = "confirmed"
+                self._message = "Spotify playback and CABLE route confirmed."
             if playing and 0 < elapsed <= 5 and 0 < progressed <= elapsed * 1.5 + 1:
                 self._end_played_progress += min(progressed, elapsed)
             # Witness from the last few seconds of actual, advancing playback.

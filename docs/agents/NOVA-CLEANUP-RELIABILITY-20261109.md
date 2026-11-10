@@ -2,6 +2,13 @@
 
 **Status:** coordination handoff, not authorization to delete, uninstall, commit, push, or restart services. Read this alongside the existing canonical [`AGENTS.md`](AGENTS.md), not in place of it.
 
+## 2026-11-10 resolution note
+
+- Official Spotify Embed remains the supported non-Managed-Engine Spotify path. Its same-window queue transitions, completion fencing, status reconciliation, seek coalescing and fail-closed provider-outage behavior are now covered by focused regressions.
+- The user-selectable **Electron Direct** playback mode and its dedicated bridge/runtime were retired. Legacy saved `electron` policies migrate to Official Embed. The generic authenticated Electron capture lane and Windows output helpers remain because Provider Capture still owns and tests them; they are not a third Spotify playback mode.
+- Cleanup review artifacts are centralized under `C:\Users\alvin\Downloads\EveOS-Cleanup-Review-20261109`. Browser authentication/DRM profiles, active runtime state and the current Spotify freeze evidence remain protected unless a later exact manifest proves they are superseded.
+- This note records the outcome of the campaign below; the original task inventory remains intact as historical rationale.
+
 ## Exact start state
 
 - Project: `C:\Users\alvin\Documents\Workspace\RoughProjDeving\EveOS`

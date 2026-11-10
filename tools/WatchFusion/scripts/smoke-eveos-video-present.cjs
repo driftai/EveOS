@@ -137,6 +137,8 @@ async function runPass(headed) {
   if (channel) launchOptions.channel = channel;
 
   let browser = null;
+  let page = null;
+  let startedRuntime = false;
   const consoleErrors = [];
   const pageErrors = [];
   const requestFailures = [];
@@ -147,7 +149,7 @@ async function runPass(headed) {
     const browserVersion = browser.version();
     stage(mode, `browser ready: ${browserVersion}`);
 
-    const page = await browser.newPage(headed ? { viewport:null } : { viewport:{ width:1600, height:1000 } });
+    page = await browser.newPage(headed ? { viewport:null } : { viewport:{ width:1600, height:1000 } });
     page.on('console', message => {
       if (message.type() === 'error') consoleErrors.push(message.text());
     });
@@ -169,6 +171,13 @@ async function runPass(headed) {
     stage(mode, 'EveOS WatchFusion bridge ready');
 
     await page.evaluate(() => window.EveWatchFusion.open());
+    const visibleFrame = page.locator('#watchfusion-overlay .watchfusion-frame:not([hidden])');
+    if (await visibleFrame.count() === 0) {
+      const startState = await page.evaluate(() => window.EveWatchFusion.start());
+      if (startState?.running !== true) throw new Error(startState?.message || 'WatchFusion lifecycle start did not reach running.');
+      startedRuntime = true;
+      stage(mode, 'WatchFusion was stopped; started it through the owned EveOS lifecycle API');
+    }
     await page.waitForSelector('#watchfusion-overlay .watchfusion-frame:not([hidden])', { timeout:30000 });
     stage(mode, 'WatchFusion overlay opened');
 
@@ -289,6 +298,11 @@ async function runPass(headed) {
       pageErrors:pageErrors.slice(0,20)
     };
   } finally {
+    if (startedRuntime && page) {
+      stage(mode, 'stopping the test-started WatchFusion runtime through EveOS');
+      await page.locator('#watchfusion-overlay [data-wf-action="stop"]:visible').click({ timeout:10000 }).catch(() => {});
+      await page.waitForTimeout(500).catch(() => {});
+    }
     if (browser) {
       stage(mode, 'closing Playwright browser');
       await browser.close().catch(() => {});
@@ -344,7 +358,7 @@ async function runPass(headed) {
     console.log(`WATCHFUSION_EVEOS_VIDEO_PRESENT_MATRIX_${overall === 'good' ? 'OK' : 'DEGRADED'}`);
   }
 
-  if (strict && overall !== 'good') process.exitCode = 1;
+  if (results.some(result => result.health === 'error') || (strict && overall !== 'good')) process.exitCode = 1;
 })().catch(error => {
   console.error(error.stack || error);
   process.exitCode = 1;

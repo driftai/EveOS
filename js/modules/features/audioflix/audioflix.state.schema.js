@@ -102,7 +102,7 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
         const id = deps.id;
 
         const POLICY_SOURCE = new Set(['inherit', 'localized', 'original']);
-        const POLICY_SPOTIFY = new Set(['inherit', 'managed', 'embed', 'electron']);
+        const POLICY_SPOTIFY = new Set(['inherit', 'managed', 'embed']);
         const POLICY_SCOPE = new Set(['nexus', 'global', 'custom']);
         const POLICY_OUTPUT = new Set(['inherit', 'global', 'custom']);
         const POLICY_OUTPUT_KIND = new Set(['browser', 'native']);
@@ -116,7 +116,8 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
             const fallbackOutput = global ? 'global' : 'inherit';
             const value = {
                 sourcePreference: POLICY_SOURCE.has(source.sourcePreference) ? source.sourcePreference : fallbackSource,
-                spotifyMethod: POLICY_SPOTIFY.has(source.spotifyMethod) ? source.spotifyMethod : fallbackSpotify,
+                spotifyMethod: source.spotifyMethod === 'electron' ? 'embed'
+                    : POLICY_SPOTIFY.has(source.spotifyMethod) ? source.spotifyMethod : fallbackSpotify,
                 outputMode: POLICY_OUTPUT.has(source.outputMode) ? source.outputMode : fallbackOutput,
                 outputKind: POLICY_OUTPUT_KIND.has(source.outputKind) ? source.outputKind : 'native',
                 outputId: text(source.outputId, ''),
