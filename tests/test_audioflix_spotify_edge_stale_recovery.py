@@ -1,7 +1,11 @@
 """No-browser, no-process regression tests for exact Spotify Edge stale ownership."""
+import os
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from server_modules.audioflix_spotify_edge_diagnostics import session_report_path
 from server_modules.audioflix_spotify_edge_stale import retire_stale_host, _exact_profile_argument
 from server_modules.audioflix_spotify_edge_window import _is_system_auxiliary_window
 
@@ -63,6 +67,20 @@ class Fixture:
         return retire_stale_host(PROFILE, self.finder, **args)
 
 class StaleSpotifyHostTests(unittest.TestCase):
+    def test_session_diagnostics_are_disabled_during_ordinary_playback(self):
+        with patch.dict(os.environ, {"EVEOS_SPOTIFY_EDGE_SESSION_DIAGNOSTICS": ""}):
+            self.assertIsNone(session_report_path())
+
+    def test_session_diagnostics_remain_explicitly_available_for_qualification(self):
+        with tempfile.TemporaryDirectory() as base, \
+             patch.dict(os.environ, {"EVEOS_SPOTIFY_EDGE_SESSION_DIAGNOSTICS": "1"}), \
+             patch.object(Path, "home", return_value=Path(base)):
+            report = session_report_path()
+            self.assertEqual(report.parent, Path(base) / "Downloads" / "EveOS-Diagnostics" / "Spotify-Edge-Integration")
+            self.assertTrue(report.name.startswith("embed-"))
+            self.assertEqual(report.suffix, ".jsonl")
+            self.assertFalse(report.parent.exists())
+
     def test_graceful_close_does_not_terminate_processes(self):
         f = Fixture(); f.close_removes_processes = True
         self.assertEqual(f.run(), {'closedWindows': 1, 'retiredPids': []})
@@ -181,11 +199,13 @@ class StaleSpotifyHostTests(unittest.TestCase):
                 processes.clear()
                 return {'closedWindows':1,'retiredPids':[41]}
             with patch.dict(sys.modules,{'server_modules.audioflix_spotify_browser':provider}), \
+                 patch.dict(os.environ,{"EVEOS_SPOTIFY_EDGE_SESSION_DIAGNOSTICS":""}), \
                  patch.object(edge,'_profile',return_value=profile), \
                  patch.object(edge,'_edge_executable',return_value=EDGE), \
                  patch.object(stale,'retire_stale_host',side_effect=retire):
                 reply=manager.play({'spotifyUri':'spotify:track:'+'A'*22,'deviceId':'sd:7'},8765)
             self.assertTrue(reply['running'])
+            self.assertIsNone(manager._report)
             self.assertEqual(len(launched),1)
             self.assertIn('--user-data-dir='+str(profile),launched[0])
 

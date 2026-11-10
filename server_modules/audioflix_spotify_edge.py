@@ -12,9 +12,10 @@ import secrets
 import subprocess
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import timezone
 from pathlib import Path
 from urllib.parse import urlencode
+from server_modules.audioflix_spotify_edge_diagnostics import session_report_path
 
 URI = re.compile(r"^spotify:(track|episode):([A-Za-z0-9]{22})$")
 SD = re.compile(r"^sd:\d+$")
@@ -309,8 +310,7 @@ class EdgeSpotifyManager:
             self._applied_gain = {}
             self._generation += 1
             generation = self._generation
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            self._report = Path.home() / "Downloads" / "EveOS-Diagnostics" / "Spotify-Edge-Integration" / f"embed-{stamp}.jsonl"
+            self._report = session_report_path()
             if reclaimed:
                 self._record("stale-owner-recovered", closedWindows=reclaimed["closedWindows"], retiredProcessCount=len(reclaimed["retiredPids"]))
             query = urlencode({"uri": uri, "session": self._nonce, "windowId": self._window_id})
