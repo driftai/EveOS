@@ -154,10 +154,13 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
             const track = bridge.trackAt(active.currentIndex) || window.EveAudioflixAudio?.getPlaybackState?.()?.item;
             if (!track) return false;
             const run = invalidateRun();
-            await window.EveAudioflixAudio?.seek?.(0);
-            if (run !== getRun()) return false;
-            if (window.EveAudioflixAudio?.isInternalViewOpen?.()) await window.EveAudioflixAudio?.openInternalView?.(track);
-            else await window.EveAudioflixAudio?.playItem?.(track);
+            const owned = await window.EveAudioflixAudio?.restartCurrent?.(track);
+            if (owned !== true) {
+                await window.EveAudioflixAudio?.seek?.(0);
+                if (run !== getRun()) return false;
+                if (window.EveAudioflixAudio?.isInternalViewOpen?.()) await window.EveAudioflixAudio?.openInternalView?.(track);
+                else await window.EveAudioflixAudio?.playItem?.(track);
+            }
             if (run !== getRun()) return false;
             window.EveAudioflixAudio?.syncQueueView?.();
             return true;

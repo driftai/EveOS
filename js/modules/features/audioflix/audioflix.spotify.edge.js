@@ -7,16 +7,17 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
   if (ns.ready) return;
   const media = () => window.EveAudioflixSpotifyMedia;
   const native = () => window.EveAudioflixNative;
+  const handoff = () => window.EveAudioflixSpotifyEdgeHandoff;
   const policyOf = item => window.EveAudioflixPlaybackPolicy?.resolve?.(item) || {};
   const spotify = item => media()?.fromItem?.(item);
   const gain = value => window.EveAudioflixSpotifyVolume?.effectiveGain?.(value)
     ?? Math.max(0, Math.min(1, Number(value) || 0));
   let installed = false, active = false, starting = false, item = null;
-  let epoch = 0, pollTimer = 0, lastState = '', lastRoute = false;
+  let epoch = 0, pollTimer = 0, lastState = '', lastRoute = false, missingStatuses = 0;
   let volumeFlight = false, volumePending = null, seekFlight = false, seekPending = null, playbackRevision = 0;
   let lastEndedRevision = -1, windowToggle = null, windowHidden = false;
   let edgePanel = null, edgePanelExpanded = false;
-  let playback = { item: null, paused: true, currentTime: 0, duration: 0,
+  let playback = { item: null, paused: true, currentTime: 0, duration: 0, ended: false,
     provider: 'spotify', browserOnly: true, edgeEmbed: true };
   const fire = (event, detail) => window.dispatchEvent(new CustomEvent(event, { detail }));
   const progress = () => fire('eve:audioflix-progress', { ...playback });
@@ -31,44 +32,6 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     });
     if (!result?.ok) throw new Error(result?.reason || result?.message || 'Spotify Edge Beta transport failed.');
     return result;
-  }
-  // Engine Stop only retires a song/relay lease. The persistent Edge Beta profile
-  // remains live until its helper is explicitly stopped. Official Embed must not
-  // start beside that owner because Windows per-app routing is shared.
-  async function releaseIdleManagedEngineBeforeEmbed() {
-    const bridge = native();
-    if (typeof bridge?.request !== 'function')
-      throw new Error('Cannot verify the Spotify Engine owner before opening Official Embed.');
-    const url = '/api/audioflix/spotify-browser';
-    const read = async () => {
-      const value = await bridge.request(`${url}/status`, { method: 'GET', timeout: 7000 });
-      if (value?.ok !== true) throw new Error(value?.reason || 'Spotify Engine status is unavailable; refusing an unsafe output handoff.');
-      return value;
-    };
-    const before = await read();
-    if (before.browserRunning !== true) return;
-    const capture = before.providerCapture || {};
-    const transport = before.transport || {};
-    const phase = String(transport.status || before.state || '').toLowerCase();
-    // Direct mode reports the *Windows routing worker* as providerCapture.active.
-    // This is NOT authorized tab capture. A paused, exact-owned direct route may
-    // be released by the verified managed-Engine stop before Official Embed starts.
-    // Unknown/ambiguous active routes and real tab capture remain fail-closed.
-    const pausedDirectRoute = capture.active === true && capture.outputMode === 'direct'
-        && capture.source === 'managed-spotify'
-        && /^sd:\d+$/.test(String(capture.endpoint || ''));
-    if (before.importing === true || Number(before.playingCount || 0) > 0
-        || (capture.active === true && !pausedDirectRoute) || transport.paused === false
-        || ['playing', 'controlling', 'starting', 'loading', 'buffering', 'resuming', 'importing'].includes(phase)) {
-      throw new Error('Spotify Engine still reports active work. Stop its song/capture before switching to Official Embed.');
-    }
-    const stopped = await bridge.request(`${url}/stop`, {
-      method: 'POST', timeout: 16000, body: '{}'
-    });
-    if (stopped?.ok !== true) throw new Error(stopped?.reason || 'The idle Spotify Engine refused to stop.');
-    const after = await read();
-    if (after.browserRunning === true || after.helperReachable === true)
-      throw new Error('Spotify Engine shutdown was not confirmed; Official Embed was not started.');
   }
   // White is an approved monochrome Spotify mark on this dark control.
   // The orange housing belongs to EveOS; the official logo is never recolored.
@@ -204,6 +167,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     playback.currentTime = Math.max(0, Number(state.currentTime || 0));
     playback.duration = Math.max(0, Number(state.duration || playback.duration || item?.duration || 0));
     playback.paused = state.paused !== false;
+    playback.ended = state.ended === true;
     const key = `${status.status}/${playback.paused ? 'paused' : 'playing'}`;
     if (key !== lastState) {
       lastState = key;
@@ -226,24 +190,53 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
       notify('Ended');
     }
   }
-  function stopPolling() { if (pollTimer) clearInterval(pollTimer); pollTimer = 0; }
+  function exactItem(identity) {
+    const list = window.EveAudioflixState?.ensure?.()?.music || [];
+    const matches = list.filter(entry => policyOf(entry).spotifyMethod === 'embed'
+      && spotify(entry)?.spotifyUri === identity);
+    const queue = window.EveAudioflix?.queueConnection?.snapshot?.();
+    const queueId = queue?.entries?.[queue.currentIndex]?.id;
+    return matches.find(entry => String(entry.id) === String(queueId))
+      || (item && matches.find(entry => String(entry.id) === String(item.id)))
+      || (matches.length === 1 ? matches[0] : null);
+  }
+  function adopt(result) {
+    const recovered = exactItem(result?.identity);
+    if (!recovered) return false;
+    const queue = window.EveAudioflix?.queueConnection?.snapshot?.();
+    const queueOwns = queue?.isPlaying === true
+      && String(queue.entries?.[queue.currentIndex]?.id) === String(recovered.id);
+    active = true; item = recovered; starting = false; missingStatuses = 0;
+    playbackRevision = Number.isSafeInteger(result.mediaRevision) ? result.mediaRevision : 0;
+    playback = { item, currentTime: 0, duration: Number(item.duration || 0), paused: true,
+      ended: false, provider: 'spotify', browserOnly: true, edgeEmbed: true };
+    lastState = ''; lastRoute = false;
+    if (result?.state?.ended === true && !queueOwns) lastEndedRevision = result.endedRevision;
+    update(result);
+    notify(`Reconnected to ${item.title || 'the active Spotify card'} in Edge Beta.`);
+    return true;
+  }
+  function ensurePolling() { if (!pollTimer) pollTimer = setInterval(poll, 1000); }
   async function poll() {
     const observed = epoch;
     try {
       const result = await native()?.request?.('/api/audioflix/spotify-edge/status',
         { method: 'GET', timeout: 2500 });
-      if (!active || starting || observed !== epoch) return;
+      if (starting || observed !== epoch) return;
       if (!result?.running) {
-        stopPolling(); active = false;
-        notify('Spotify Edge Beta window stopped. Play again to reopen it.', true);
-      } else update(result);
+        if (!active || ++missingStatuses < 3) return;
+        active = false;
+        notify('Spotify Edge Beta is unavailable. EveOS will keep checking this exact owner.', true);
+      } else {
+        missingStatuses = 0;
+        if (active) update(result); else adopt(result);
+      }
     } catch { /* Preserve a running provider during a transient server status failure. */ }
   }
   async function stopEdge() {
     volumePending = null; seekPending = null;
     if (!active && !starting) return;
     ++epoch;
-    stopPolling();
     try { await request('stop', {}, 9000); }
     catch (error) {
       notify(`Spotify Edge Beta stop needs attention: ${error.message}`, true);
@@ -253,7 +246,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     closeEdgePanel();
     active = false; starting = false; item = null;
     lastRoute = false; lastState = '';
-    playback = { item: null, paused: true, currentTime: 0, duration: 0,
+    playback = { item: null, paused: true, currentTime: 0, duration: 0, ended: false,
       provider: 'spotify', browserOnly: true, edgeEmbed: true };
     if (windowToggle) windowToggle.disabled = true;
     windowHidden = false; lastEndedRevision = -1;
@@ -278,7 +271,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
       ? selected.outputId : '';
     try {
       if (!reuse) {
-        await releaseIdleManagedEngineBeforeEmbed();
+        await handoff().releaseIdleManagedEngineBeforeEmbed();
         if (current !== epoch) return false;
       }
       // The same owned Edge app window and native CABLE route are retained.
@@ -289,7 +282,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
       if (current !== epoch) return false;
       if (!result.running) throw new Error('Spotify Edge Beta host is not running.');
       active = true; item = nextItem; lastEndedRevision = -1;
-      playback = { item, currentTime: 0, duration: Number(item.duration || 0), paused: true,
+      playback = { item, currentTime: 0, duration: Number(item.duration || 0), paused: true, ended: false,
         provider: 'spotify', browserOnly: true, edgeEmbed: true };
       lastState = ''; windowHidden = result.windowHidden === true;
       updateWindowToggle();
@@ -304,7 +297,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
       notify(reuse ? 'Updating song in the existing Spotify Edge Beta window.'
         : 'Opening official Spotify card in Edge; attempting Play.');
       update(result);
-      stopPolling(); pollTimer = setInterval(poll, 1000);
+      ensurePolling();
       window.EveAudioflixState?.recordPlay?.(nextItem);
       return true;
     } catch (error) {
@@ -386,6 +379,10 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
       notify('Trying Spotify’s own Play control. Use the card if automatic Play is unavailable.');
       return true;
     };
+    audio.restartCurrent = async function edgeRestart(track) {
+      if (!active || starting) return false;
+      return playEdge(track || item, original, policyOf(track || item));
+    };
     function drainEdgeSeek() {
       if (seekFlight || !seekPending) return;
       const intent = seekPending; seekPending = null; seekFlight = true;
@@ -396,8 +393,10 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     }
     audio.seek = async function edgeSeek(seconds) {
       if (!active) return original.seek(seconds);
+      const target = Math.max(0, Number(seconds || 0));
+      if (target === 0 && playback.ended === true) return audio.restartCurrent(item);
       seekPending = { epoch, revision: playbackRevision, payload: {
-        seconds: Math.max(0, Number(seconds || 0)), spotifyUri: spotify(item)?.spotifyUri, revision: playbackRevision } };
+        seconds: target, spotifyUri: spotify(item)?.spotifyUri, revision: playbackRevision } };
       drainEdgeSeek();
       return true;
     };
@@ -431,6 +430,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     if (original.getStatus) audio.getStatus = () => active
       ? { ...original.getStatus(), item, playback: { ...playback }, spotifyEdge: ns.snapshot() }
       : original.getStatus();
+    ensurePolling(); void poll();
     return true;
   }
   Object.assign(ns, { ready: true, install, stop: stopEdge,

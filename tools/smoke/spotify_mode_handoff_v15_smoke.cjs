@@ -2,14 +2,16 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
-const source=fs.readFileSync(process.argv[2], 'utf8');
+const path=require('node:path');
+const edge=fs.readFileSync(process.argv[2], 'utf8');
+const source=fs.readFileSync(path.join(path.dirname(process.argv[2]), 'audioflix.spotify.edge.handoff.js'), 'utf8');
 assert.match(source,/async function releaseIdleManagedEngineBeforeEmbed\(/);
-assert.match(source,/if \(!reuse\)\s*\{\s*await releaseIdleManagedEngineBeforeEmbed\(\);\s*if \(current !== epoch\) return false;/);
-assert.match(source,/request\(reuse \? 'switch' : 'play'/);
+assert.match(edge,/await handoff\(\)\.releaseIdleManagedEngineBeforeEmbed\(\)/);
+assert.match(edge,/request\(reuse \? 'switch' : 'play'/);
 assert.match(source,/const pausedDirectRoute = capture\.active === true && capture\.outputMode === 'direct'/);
 assert.doesNotMatch(source,/\|\| capture\.active === true \|\| transport\.paused === false/);
 const start=source.indexOf('  async function releaseIdleManagedEngineBeforeEmbed() {');
-const end=source.indexOf('  // White is an approved monochrome Spotify mark',start);
+const end=source.indexOf('\n  Object.assign(ns,',start);
 assert(start>=0 && end>start);
 const helper=source.slice(start,end);
 async function scenario(name,before,stop,after,expect){

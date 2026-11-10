@@ -10,6 +10,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const source = fs.readFileSync(path.join(ROOT, 'js/modules/features/audioflix/audioflix.queue.completion.js'), 'utf8');
 let syncs = 0;
 let renders = 0;
+let ownedRestarts = 0;
 const button = {
     dataset: { afAction: 'stop-music-group' },
     classList: { remove: () => {} },
@@ -28,7 +29,8 @@ const context = vm.createContext({
     document,
     window: {
         EveAudioflix: { rerender: () => { renders += 1; }, queueConnection: { snapshot: () => ({ repeatOne: false }) } },
-        EveAudioflixAudio: { syncQueueView: () => { syncs += 1; } },
+        EveAudioflixAudio: { syncQueueView: () => { syncs += 1; },
+            restartCurrent: async track => { ownedRestarts += 1; return track?.id === 'owned'; } },
         EveAudioflixInternalPlayer: null,
         EveAudioflixDiagnostics: { record: () => {} }
     }
@@ -102,5 +104,10 @@ assert.equal(syncs, priorSyncs + 1);
 assert.equal(button.dataset.afAction, 'play-music-group');
 assert.equal(button, terminalButton);
 assert.equal(renders, 0, 'Owner-side exhaustion must remain a transport-only patch');
+
+owned.isPlaying = true;
+assert.equal(await runtime.restart(), true, 'Restart delegates to the exact active playback owner');
+assert.equal(ownedRestarts, 1);
+assert.equal(run, 24, 'Owner restart creates one fresh queue run');
 
 console.log('AUDIOFLIX_GROUP_TERMINAL_STATE_SMOKE_OK');
