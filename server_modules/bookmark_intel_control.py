@@ -153,6 +153,12 @@ def _status(message: str = "", *, verified_health: dict | None = None) -> dict:
     port_busy = _port_open() and not running
     installed = _entry_point().is_file()
     state = "running" if running else ("starting" if process_alive else ("blocked" if port_busy else "stopped"))
+    pids = _listener_pids() if running else []
+    if running and not pids and process_alive:
+        # Windows can briefly omit the listening PID from netstat even after a
+        # verified health reply. The controller-owned wrapper still provides a
+        # bounded lifecycle identity and its process tree owns the child.
+        pids = [_PROCESS.pid]
     return {
         "ok": installed and not port_busy,
         "controllerAvailable": True,
@@ -163,7 +169,7 @@ def _status(message: str = "", *, verified_health: dict | None = None) -> dict:
         "port": BOOKMARK_INTEL_PORT,
         "url": f"http://127.0.0.1:{BOOKMARK_INTEL_PORT}/",
         "appVersion": health.get("appVersion", "") if health else "",
-        "pids": _listener_pids() if running else [],
+        "pids": pids,
         "message": message or (
             "Bookmark Intel is online." if running
             else "Bookmark Intel port is occupied by another service." if port_busy
@@ -246,12 +252,20 @@ def stop_server(*, persist: bool = True) -> dict:
             for pid in _listener_pids():
                 stopped = _terminate_pid(pid) or stopped
         if _PROCESS and _PROCESS.poll() is None:
-            try:
-                _PROCESS.terminate()
-                _PROCESS.wait(timeout=2)
-                stopped = True
-            except (OSError, subprocess.TimeoutExpired):
-                pass
+            if os.name == "nt":
+                # The managed process is a cmd.exe wrapper. Terminating only
+                # that wrapper can orphan its Uvicorn child and leave 9077
+                # listening, especially when netstat briefly misses the
+                # listener PID. The wrapper identity is owned by this
+                # controller, so taskkill /T remains bounded to its tree.
+                stopped = _terminate_pid(_PROCESS.pid) or stopped
+            else:
+                try:
+                    _PROCESS.terminate()
+                    _PROCESS.wait(timeout=2)
+                    stopped = True
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
         _PROCESS = None
     # Windows may exit the cmd.exe wrapper before the Uvicorn listener
     # releases 9077. A stopped reply requires actual port release.

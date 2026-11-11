@@ -20,6 +20,18 @@
     color: #fbbf24;
 }
 
+.audioflix-provider-unavailable-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: rgba(185, 28, 28, 0.24);
+    border: 1px solid rgba(248, 113, 113, 0.62);
+    color: #fecaca;
+}
+
 .audioflix-local-badge {
     display: inline-flex;
     align-items: center;

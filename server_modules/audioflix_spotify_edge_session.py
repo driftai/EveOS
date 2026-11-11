@@ -23,6 +23,8 @@ def status(self):
                 "nativeControl": self._running,
                 "manualPlayRequired": state.get("paused") is not False,
                 "autoPlayStatus": self._autoplay_status, "windowHidden": self._hidden,
+                "failure": {"revision": self._failure_revision, "kind": self._failure_kind,
+                            "reason": self._failure_reason, "terminal": self._failure_terminal},
                 "manualShow": self._manual_show,
                 "hideGate": {"requiredProgressSeconds": HIDE_AFTER_PROGRESS_SECONDS,
                              "confirmedProgressSeconds": round(self._confirmed_progress, 2),
@@ -50,6 +52,10 @@ def reset_progress(self):
     self._near_end_at = 0.0
     self._end_played_progress = 0.0
     self._route_completion_safe = False
+    self._failure_revision = -1
+    self._failure_kind = ""
+    self._failure_reason = ""
+    self._failure_terminal = False
 
 
 def switch_track(self, payload):
@@ -142,9 +148,14 @@ def event(self, body):
                 self._confirmed_progress += min(progressed, elapsed)
             self._state.update(currentTime=seconds, duration=duration,
                                paused=body.get("paused") is not False)
-            if playing and self._autoplay_status == "waiting-for-new-card":
+            if playing and self._autoplay_status != "confirmed":
                 self._autoplay_status = "confirmed"
                 self._message = "Spotify playback and CABLE route confirmed."
+            if playing:
+                self._failure_revision = -1
+                self._failure_kind = ""
+                self._failure_reason = ""
+                self._failure_terminal = False
             if playing and 0 < elapsed <= 5 and 0 < progressed <= elapsed * 1.5 + 1:
                 self._end_played_progress += min(progressed, elapsed)
             # Witness from the last few seconds of actual, advancing playback.
@@ -188,5 +199,9 @@ def event(self, body):
             return {"ok": True}
         if kind == "play-failed":
             self._message = "Spotify could not autoplay the new song; use Show Spotify."
+            self._failure_revision = revision
+            self._failure_kind = "provider-play-failed"
+            self._failure_reason = "Spotify reported that this official embed could not play."
+            self._failure_terminal = True
             self._record("switch-autoplay-failed", revision=revision)
         return {"ok": True}

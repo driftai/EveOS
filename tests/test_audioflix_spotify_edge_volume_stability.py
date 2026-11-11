@@ -131,6 +131,22 @@ class EdgeVolumeStabilityTests(unittest.TestCase):
         self.assertEqual(self.manager._autoplay_status, 'confirmed')
         self.assertIn('confirmed', self.manager._message)
 
+    def test_provider_play_failure_is_revision_owned_and_cleared_by_verified_playback(self):
+        self.manager._nonce = 'S' * 40
+        self.manager._status = 'cable-routed'
+        failed = self.manager.event({'session': self.manager._nonce, 'kind': 'play-failed',
+            'revision': 5, 'playingURI': URI})
+        self.assertTrue(failed['ok'])
+        self.assertEqual(self.manager.status()['failure']['revision'], 5)
+        self.assertTrue(self.manager.status()['failure']['terminal'])
+        self.manager._last_position_at = time.monotonic() - 1
+        self.manager._last_progress_position = 1
+        played = self.manager.event({'session': self.manager._nonce, 'kind': 'position',
+            'revision': 5, 'playingURI': URI, 'currentTime': 2, 'duration': 100, 'paused': False})
+        self.assertTrue(played['ok'])
+        self.assertEqual(self.manager.status()['failure']['revision'], -1)
+        self.assertFalse(self.manager.status()['failure']['terminal'])
+
     def test_verified_owned_route_survives_zero_active_sessions(self):
         self.assertTrue(_assigned_route_is_still_safe(self.manager, {123:44.0}, [], SimpleNamespace(id='VB-CABLE')))
 

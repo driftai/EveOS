@@ -2,7 +2,9 @@ window.EveAudioflixPianoPcm = window.EveAudioflixPianoPcm || {};
 (function (ns) {
     'use strict';
     if (ns.ready) return;
-    const MAX_PENDING = 3, MAX_RECOVERY_ATTEMPTS = 4, latency = [];
+    // Real-time Piano-only deadline; keep a bounded queue and discard old capture blocks.
+    const MAX_PENDING = 3, MAX_RECOVERY_ATTEMPTS = 4, MAX_QUEUED_AGE_MS = 600,
+        PIANO_NATIVE_FRESHNESS_MS = 750, PIANO_HTTP_TIMEOUT_MS = 900, latency = [];
     const instanceId = `piano-owner:${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
     let generation = 0, binding = null, session = null, starting = null, pumping = false;
     let heartbeatTimer = 0, heartbeatBusy = false, failureMessage = '', recovering = null, lastStartError = null;
@@ -117,10 +119,23 @@ window.EveAudioflixPianoPcm = window.EveAudioflixPianoPcm || {};
     async function pump() {
         if (pumping) return; pumping = true;
         try { while (pending.length && session) { const item = pending.shift();
+            // The bridge timestamps at send time: never forward stale captured audio.
+            if (Date.now() - item.capturedAtMs > MAX_QUEUED_AGE_MS) { dropped += 1; continue; }
             const audio = window.EveAudioflixAudioBridge?.encodePcm?.(item.samples, 0, item.samples.length, 1);
             if (!audio) throw new Error('Piano PCM encoder is unavailable.');
-            await window.EveAudioflixNativeProviderCapture.send(session, audio, {
-                sampleRate: item.sampleRate, channels: 1, gain: 1, maxAgeMs: 120, timeoutMs: 180 });
+            try {
+                await window.EveAudioflixNativeProviderCapture.send(session, audio, {
+                    sampleRate: item.sampleRate, channels: 1, gain: 1, maxAgeMs: PIANO_NATIVE_FRESHNESS_MS, timeoutMs: PIANO_HTTP_TIMEOUT_MS });
+            } catch (error) {
+                // A native freshness rejection discards this block, not the Piano owner.
+                // Keep every other rejection (auth, endpoint, generation, etc.) fail-closed.
+                if (error?.eveHttpStatus === 400 &&
+                    /^Expired PCM chunk was not (?:decoded|queued)\.$/.test(String(error?.message || ''))) {
+                    dropped += 1;
+                    continue;
+                }
+                throw error;
+            }
             latency.push(Math.max(0, Date.now() - item.capturedAtMs)); if (latency.length > 64) latency.shift();
         } } catch (error) { await recover(error, binding);
         } finally { pumping = false; if (pending.length && session && !recovering) queueMicrotask(() => void pump()); }

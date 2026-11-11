@@ -25,6 +25,10 @@ class Session:
         self._track_id = 'A' * 22
         self._process_finder = lambda _: {444: 1.0}
         self._autoplay_status = ''
+        self._failure_revision = -1
+        self._failure_kind = ''
+        self._failure_reason = ''
+        self._failure_terminal = False
         self._message = ''
         self.records = []
         self._record = lambda *args, **kwargs: self.records.append((args, kwargs))
@@ -67,7 +71,19 @@ class RetrySafety(unittest.TestCase):
             lifecycle.attempt_card_play(m, 4, 1, 0)
         self.assertEqual(uia.call_count, 2)
         self.assertEqual(m._autoplay_status, 'invoked-unconfirmed')
+        self.assertEqual(m._failure_revision, 1)
+        self.assertEqual(m._failure_kind, 'provider-playback-unavailable')
+        self.assertTrue(m._failure_terminal)
         self.assertEqual(m.records[-1][1]['retryUsed'], True)
+    def test_initial_card_receives_the_same_bounded_retry(self):
+        m = Session(); m._media_revision = 0
+        response = {'ok': True, 'reason': 'EVE_UIA_INVOKED', 'playbackConfirmed': False}
+        with patch('server_modules.audioflix_spotify_edge_window.try_card_play', return_value=response) as uia, \
+             patch.object(lifecycle.time, 'sleep', lambda _: None):
+            lifecycle.attempt_card_play(m, 4, None, 0)
+        self.assertEqual(uia.call_count, 2)
+        self.assertEqual(m._failure_revision, 0)
+        self.assertTrue(m._failure_terminal)
     def test_verified_progress_skips_UIA(self):
         m = Session(); ready(m)
         with patch('server_modules.audioflix_spotify_edge_window.try_card_play') as uia:
@@ -98,6 +114,8 @@ class RetrySafety(unittest.TestCase):
             lifecycle.attempt_card_play(m, 4, 1, 0)
         self.assertEqual(uia.call_count, 1)
         self.assertEqual(m._autoplay_status, 'manual-fallback')
+        self.assertEqual(m._failure_kind, 'host-control-unavailable')
+        self.assertFalse(m._failure_terminal)
     def test_manual_pause_before_first_attempt_is_not_invoked(self):
         m = Session(); m._manual_pause_revision = 1
         with patch('server_modules.audioflix_spotify_edge_window.try_card_play') as uia:

@@ -8,6 +8,7 @@ const source = fs.readFileSync(path.join(root, 'js/modules/features/audioflix/au
 
 const events = [];
 let sendCalls = 0, statusCalls = 0, starts = 0, startFailures = 1;
+const sentOptions = [];
 const selected = { nativeBridgeEnabled: true, nativeOutputId: 'sd:9', nativeOutputLabel: 'V-Banana-From-OBS' };
 const native = {
   async start(detail) { starts += 1; if (startFailures-- > 0) { const error = new Error('Bridge unreachable during initial open');
@@ -15,8 +16,11 @@ const native = {
     return { ok: true, sessionId: `piano:${starts}`, captureToken: 'token',
     deviceId: detail.endpoint.deviceId, sampleRate: 48000, lane: 'piano-pcm', ownerId: detail.ownerId,
     generation: detail.generation, bridgeBase: 'http://127.0.0.1:8765' }; },
-  async send() { sendCalls += 1; if (sendCalls === 1) { const error = new Error('Failed to fetch');
-    error.eveCategory = 'bridge-unreachable'; error.eveRetryable = true; throw error; } return { ok: true }; },
+  async send(_session, _audio, options) { sentOptions.push({ ...options }); sendCalls += 1; if (sendCalls === 1) { const error = new Error('Failed to fetch');
+    error.eveCategory = 'bridge-unreachable'; error.eveRetryable = true; throw error; }
+    if (sendCalls === 3) { const error = new Error('Expired PCM chunk was not queued.');
+      error.eveCategory = 'request-refused'; error.eveHttpStatus = 400; throw error; }
+    return { ok: true }; },
   async status() { statusCalls += 1; return { ok: true }; },
   async stop() { return { ok: true }; }
 };
@@ -49,5 +53,21 @@ vm.runInContext(source, context, { filename: 'audioflix.piano.pcm.js' });
   assert.equal(window.EveAudioflixPianoPcm.accept(message()), true);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(sendCalls, 2, 'fresh PCM continues after bounded recovery without replaying the uncertain block');
+  assert.equal(window.EveAudioflixPianoPcm.accept(message()), true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(window.EveAudioflixPianoPcm.metrics().dropped, 1, 'one expired PCM block is dropped');
+  assert.equal(events.some(event => event.detail?.status === 'failed'), false,
+    'expired PCM block must not stop the authenticated Piano lane');
+  assert.equal(window.EveAudioflixPianoPcm.accept(message()), true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sendCalls, 4, 'a later fresh block reaches native output after the expired block');
+  assert.ok(sentOptions.every(o => o.maxAgeMs === 750 && o.timeoutMs === 900),
+    'only Piano PCM uses the bounded 750ms native freshness / 900ms HTTP deadline');
+  const old = message(); old.data.capturedAtMs -= 5000;
+  assert.equal(window.EveAudioflixPianoPcm.accept(old), true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sendCalls, 4, 'old captured PCM is discarded before HTTP without replay');
+  assert.equal(window.EveAudioflixPianoPcm.metrics().dropped, 2,
+    'expired native response and stale capture block are counted separately');
   console.log('AUDIOFLIX_PIANO_PCM_RECOVERY_OK');
 })().catch(error => { console.error(error); process.exitCode = 1; });

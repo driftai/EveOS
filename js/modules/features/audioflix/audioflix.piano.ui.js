@@ -35,16 +35,23 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
     }
 
     function targetDetails(value) {
-        const target = value?.contentWindow || value;
+        // WindowProxy turns cross-origin on Detach: never read iframe-only properties from it.
+        const isFrame = typeof HTMLIFrameElement !== 'undefined' && value instanceof HTMLIFrameElement;
+        const target = isFrame ? value.contentWindow : value;
         if (!target) return null;
-        const source = value?.getAttribute?.('src') || snapshot().url || '';
-        try { return { target, origin: new URL(source, window.location.href).origin }; }
+        const source = isFrame ? value.getAttribute('src') : snapshot().url;
+        if (!source) return null;
+        try { return { target, origin: new URL(source, window.location.href).origin,
+            frame: isFrame ? value : null, source }; }
         catch (_) { return null; }
     }
 
     async function sendContext(frame, options = {}) {
         const destination = targetDetails(frame);
         if (!destination || destination.origin === 'null') return false;
+        // A new iframe initially retains the EveOS about:blank origin until navigation commits.
+        // Cross-origin frames have null contentDocument; defer authorization until then.
+        if (destination.frame?.contentDocument && destination.origin !== window.location.origin) return false;
         const initial = context();
         const routeState = window.EveAudioflixState?.getSnapshot?.() || {};
         const signature = JSON.stringify({ origin: destination.origin, route: initial.outputRoute,
@@ -60,6 +67,10 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
             const refined = { ...context(), audioOutput: { requestedLabel: initial.audioOutput.requestedLabel,
                 browserSinkId: String(sink?.deviceId || ''), source: sink?.source || initial.audioOutput.source },
                 pianoPcm: pianoPcm || { requested: false, active: false } };
+            // Avoid posting to a frame that changed sources during asynchronous authorization.
+            if (destination.frame && (destination.frame.contentWindow !== destination.target
+                || destination.frame.getAttribute('src') !== destination.source)) return false;
+            if (destination.frame?.contentDocument && destination.origin !== window.location.origin) return false;
             destination.target.postMessage({ type: 'eveos:audioflix-context', context: refined }, destination.origin);
             contextSignatures.set(destination.target, signature);
             return true;
@@ -165,13 +176,13 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
     }
 
     function reloadWorkspace() {
-        const target = isDetached()
+        const destination = targetDetails(isDetached()
             ? detachedWindow
-            : root?.querySelector?.('[data-piano-frame]')?.contentWindow;
-        if (!target) return false;
+            : root?.querySelector?.('[data-piano-frame]'));
+        if (!destination || destination.origin === 'null') return false;
         window.EveAudioflixPianoFrontend?.invalidate?.();
         window.EveAudioflixPianoFrontendPorts?.invalidate?.();
-        target.postMessage({ type: 'eveos:piano-refresh' }, '*');
+        destination.target.postMessage({ type: 'eveos:piano-refresh' }, destination.origin);
         return true;
     }
 
@@ -319,8 +330,10 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         }
         if (event.data?.type === 'piano:eveos-ready') {
             const embedded = root?.querySelector?.('[data-piano-frame]');
-            if (event.source === detachedWindow) void sendContext(detachedWindow, { force: true });
-            else if (event.source === embedded?.contentWindow) void sendContext(embedded, { force: true });
+            if (event.source === detachedWindow && event.origin === targetDetails(detachedWindow)?.origin)
+                void sendContext(detachedWindow, { force: true });
+            else if (event.source === embedded?.contentWindow && event.origin === targetDetails(embedded)?.origin)
+                void sendContext(embedded, { force: true });
         }
         if (event.data?.type === 'piano:eveos-audio-route') {
             const frame = root?.querySelector?.('[data-piano-frame]')?.contentWindow;

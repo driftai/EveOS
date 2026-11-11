@@ -50,6 +50,14 @@ def main():
         sent = [payload for kind, payload in calls if kind == "pcm"][-1]
         assert sent["lane"] == "piano-pcm" and sent["strictDevice"] is True and sent["maxAgeMs"] == 120
         assert sent["sampleRate"] == 44100
+        # Piano's own cap must match the client; other lanes must not inherit it.
+        capture.chunk({**piano_auth, "audio": pcm(), "channels": 1, "maxAgeMs": 3000})
+        sent = [payload for kind, payload in calls if kind == "pcm"][-1]
+        assert sent["lane"] == "piano-pcm" and sent["maxAgeMs"] == 750
+        capture.chunk({"sessionId": spotify["sessionId"], "captureToken": spotify["captureToken"],
+            "audio": pcm(), "channels": 1, "maxAgeMs": 1200})
+        sent = [payload for kind, payload in calls if kind == "pcm"][-1]
+        assert sent["lane"] == "provider-capture" and sent["maxAgeMs"] == 1200
         try:
             capture.status({**piano_auth, "generation": 2})
             raise AssertionError("stale generation was accepted")

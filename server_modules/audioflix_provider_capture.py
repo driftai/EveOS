@@ -195,7 +195,7 @@ def chunk(payload: dict) -> dict:
             "channels": channels,
             "streamId": session_id,
             "sentAtMs": payload.get("sentAtMs") or int(_now() * 1000),
-            "maxAgeMs": min(250, int(payload.get("maxAgeMs") or 120)) if entry["lane"] == "piano-pcm" else (payload.get("maxAgeMs") or 1200),
+            "maxAgeMs": min(750, int(payload.get("maxAgeMs") or 120)) if entry["lane"] == "piano-pcm" else (payload.get("maxAgeMs") or 1200),
             "lane": entry["lane"],
             "strictDevice": True,
             "gain": gain,

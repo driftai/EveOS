@@ -7,6 +7,8 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '../..');
 const source = fs.readFileSync(path.join(root,
   'js/modules/features/audioflix/audioflix.spotify.edge.js'), 'utf8');
+const failureSource = fs.readFileSync(path.join(root,
+  'js/modules/features/audioflix/audioflix.spotify.edge.failures.js'), 'utf8');
 const uri = `spotify:track:${'R'.repeat(22)}`;
 const item = { id: 'recovered', type: 'music', title: 'Recovered card',
   spotifyUri: uri, duration: 180, volume: 0.7 };
@@ -31,7 +33,8 @@ const window = {
     ? { spotifyUri: value.spotifyUri } : null },
   EveAudioflixPlaybackPolicy: { resolve: () => ({ spotifyMethod: 'embed', outputKind: 'native', outputId: 'sd:2' }) },
   EveAudioflixSpotifyVolume: { effectiveGain: value => value },
-  EveAudioflixState: { ensure: () => ({ music: [item] }), recordPlay() {} },
+  EveAudioflixState: { ensure: () => ({ music: [item] }), recordPlay() {},
+    updateItem(_type, _id, patch) { Object.assign(item, patch); } },
   EveAudioflix: { queueConnection: { snapshot: () => ({ isPlaying: true,
     currentIndex: 0, entries: [{ id: item.id, title: item.title }] }) } },
   EveAudioflixNative: { ready: true, async request(url, options = {}) {
@@ -50,6 +53,7 @@ const window = {
 const context = vm.createContext({ window, document: {}, CustomEvent: class {
   constructor(type, options) { this.type = type; this.detail = options.detail; }
 }, setInterval(fn) { interval = fn; return 1; }, clearInterval() {}, setTimeout, clearTimeout, Promise, console });
+vm.runInContext(failureSource, context, { filename: 'audioflix.spotify.edge.failures.js' });
 vm.runInContext(source, context, { filename: 'audioflix.spotify.edge.js' });
 const settle = async () => { for (let i = 0; i < 12; i += 1) await Promise.resolve(); };
 
@@ -84,5 +88,24 @@ const settle = async () => { for (let i = 0; i < 12; i += 1) await Promise.resol
   assert.equal(await audio.seek(0), true, 'ended seek-to-zero restarts the owner');
   assert.equal(commands.filter(command => command.action === 'switch').length, 1);
   assert.equal(window.EveAudioflixSpotifyEdge.snapshot().playback.ended, false);
-  console.log('AUDIOFLIX_SPOTIFY_EDGE_RECOVERY_SMOKE_OK adopt=1 grace=2 ended=once restart=switch');
+  status = { ok: true, running: true, mediaRevision: 6, endedRevision: -1,
+    identity: uri, status: 'cable-routed', routeConfirmed: true,
+    autoPlayStatus: 'invoked-unconfirmed',
+    failure: { revision: 6, kind: 'provider-playback-unavailable',
+      reason: 'bounded Play attempts exhausted', terminal: true },
+    state: { paused: true, currentTime: 0, duration: 180, ended: false } };
+  await interval(); await interval();
+  assert.equal(item.spotifyAvailability, 'unavailable', 'terminal provider failure is persisted on the song');
+  assert.equal(events.filter(event => event.detail?.terminal === true).length, 1,
+    'one revision may advance the queue only once');
+  window.EveAudioflixSpotifyEdgeFailures.begin(item);
+  await interval();
+  assert.equal(events.filter(event => event.detail?.terminal === true).length, 2,
+    'a later explicit retry gets one fresh terminal receipt even when a new host restarts at revision zero');
+  status = { ...status, autoPlayStatus: 'confirmed', failure: {
+    revision: -1, kind: '', reason: '', terminal: false },
+    state: { paused: false, currentTime: 3, duration: 180, ended: false } };
+  await interval();
+  assert.equal(item.spotifyAvailability, '', 'later verified playback clears the unavailable marker');
+  console.log('AUDIOFLIX_SPOTIFY_EDGE_RECOVERY_SMOKE_OK adopt=1 grace=2 ended=once restart=switch failure=once recovery=clear');
 })().catch(error => { console.error(error.stack || error); process.exitCode = 1; });

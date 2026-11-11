@@ -103,7 +103,7 @@ def assert_static_contract() -> None:
     assert "event.source === binding.target" in pcm_parent and "event.origin === binding.origin" in pcm_parent
     assert "startHeartbeat(expected)" in pcm_parent and "options.retry !== true" in pcm_parent
     assert "retryPcm: true" in piano_ui and "sendContext(target, { retry: true })" in piano_ui
-    assert "new Float32Array(1024)" in pcm_child and "postPcm" in pcm_child
+    assert pcm_child.count("new Float32Array(4096)") == 2 and "postPcm" in pcm_child
     assert "master.connect(compressor)" in sound and "createPianoOutputRouter(ctx, compressor)" in sound
     assert "preparePianoPcmOutput" in sound and "pianoPcmReady" in pcm_child
     assert "pianoPlayerPort: 8771" in state

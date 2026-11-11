@@ -15,8 +15,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
   let installed = false, active = false, starting = false, item = null;
   let epoch = 0, pollTimer = 0, lastState = '', lastRoute = false, missingStatuses = 0;
   let volumeFlight = false, volumePending = null, seekFlight = false, seekPending = null, playbackRevision = 0;
-  let lastEndedRevision = -1, windowToggle = null, windowHidden = false;
-  let edgePanel = null, edgePanelExpanded = false;
+  let lastEndedRevision = -1, windowToggle = null, windowHidden = false, edgePanel = null, edgePanelExpanded = false;
   let playback = { item: null, paused: true, currentTime: 0, duration: 0, ended: false,
     provider: 'spotify', browserOnly: true, edgeEmbed: true };
   const fire = (event, detail) => window.dispatchEvent(new CustomEvent(event, { detail }));
@@ -180,6 +179,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
       lastRoute = true;
       notify(`Spotify Edge Beta audio routed to ${status.deviceName || 'selected output'}`);
     }
+    window.EveAudioflixSpotifyEdgeFailures?.observe?.(status, item, notify);
     progress();
     syncEdgePanel();
     if (state.ended === true && status.endedRevision === status.mediaRevision
@@ -253,7 +253,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
   }
   async function playEdge(nextItem, original, resolvedPolicy) {
     volumePending = null; seekPending = null;
-    const identity = spotify(nextItem);
+    const identity = spotify(nextItem); window.EveAudioflixSpotifyEdgeFailures?.begin?.(nextItem);
     if (!identity) return original.playItem(nextItem);
     const current = ++epoch;
     // A second Play during an in-flight first Play is still a switch intent.

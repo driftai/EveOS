@@ -67,6 +67,30 @@ def assert_health_observation_contract() -> None:
     check(result["running"] is True, "verified health remains authoritative for startup reply")
     check(result["appVersion"] == "0.10.0", "verified version preserved")
 
+
+def assert_windows_wrapper_tree_contract() -> None:
+    class ManagedWrapper:
+        pid = 43210
+
+        @staticmethod
+        def poll():
+            return None
+
+    previous = bookmark_intel_control._PROCESS
+    bookmark_intel_control._PROCESS = ManagedWrapper()
+    try:
+        with mock.patch.object(bookmark_intel_control.os, "name", "nt"), \
+             mock.patch.object(bookmark_intel_control, "_health_payload", side_effect=[{"ok": True}, None]), \
+             mock.patch.object(bookmark_intel_control, "_listener_pids", return_value=[]), \
+             mock.patch.object(bookmark_intel_control, "_port_open", return_value=False), \
+             mock.patch.object(bookmark_intel_control, "_terminate_pid", return_value=True) as terminate:
+            result = bookmark_intel_control.stop_server(persist=False)
+        terminate.assert_called_once_with(ManagedWrapper.pid)
+        check(result.get("ok") is True and result.get("running") is False,
+              "owned Windows wrapper tree stops even when netstat misses its child")
+    finally:
+        bookmark_intel_control._PROCESS = previous
+
 def assert_lifecycle() -> None:
     initial = bookmark_intel_control.get_status()
     check(initial["controllerAvailable"] is True, "controller is available")
@@ -94,6 +118,7 @@ def assert_lifecycle() -> None:
 def main() -> None:
     assert_static_contract()
     assert_health_observation_contract()
+    assert_windows_wrapper_tree_contract()
     assert_lifecycle()
     print("BOOKMARK_INTEL_INTEGRATION_SMOKE_OK")
 

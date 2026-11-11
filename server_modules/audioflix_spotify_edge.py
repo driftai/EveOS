@@ -154,9 +154,9 @@ class EdgeSpotifyManager:
         self._autoplay_attempted = False
         self._autoplay_attempted_revision = -1
         self._manual_pause_revision = -1
-        self._autoplay_status = "not-attempted"
-        self._hide_pending = False
-        self._hidden = False
+        self._autoplay_status = "not-attempted"; self._failure_revision = -1; self._failure_kind = ""
+        self._failure_reason = ""; self._failure_terminal = False
+        self._hide_pending = False; self._hidden = False
         self._last_position_at = 0.0
         self._last_progress_position = None
         self._confirmed_progress = 0.0
@@ -299,7 +299,8 @@ class EdgeSpotifyManager:
             self._autoplay_attempted = False
             self._autoplay_attempted_revision = -1
             self._manual_pause_revision = -1
-            self._autoplay_status = "waiting-for-card"
+            self._autoplay_status = "waiting-for-card"; self._failure_revision = -1; self._failure_kind = ""
+            self._failure_reason = ""; self._failure_terminal = False
             self._hide_pending = False
             self._hidden = False
             self._last_position_at = 0.0

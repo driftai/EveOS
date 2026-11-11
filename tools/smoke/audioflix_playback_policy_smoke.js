@@ -125,6 +125,11 @@ const cleanedItem = schema.cleanItem({ ...song, playbackPolicy: {
 } }, 'music');
 equal(cleanedItem.playbackPolicy.outputId, 'sd:4', 'song policy survives normalization');
 equal(cleanedItem.playbackPolicy.scopeMode, 'custom', 'song scope mode survives normalization');
+const unavailable = schema.cleanItem({ ...song, spotifyAvailability: 'unavailable',
+    spotifyAvailabilityReason: 'provider failed', spotifyAvailabilityCheckedAt: 123 }, 'music');
+equal(unavailable.spotifyAvailability, 'unavailable', 'Spotify availability marker survives normalization');
+equal(unavailable.spotifyAvailabilityReason, 'provider failed', 'Spotify availability reason survives normalization');
+equal(unavailable.spotifyAvailabilityCheckedAt, 123, 'Spotify availability timestamp survives normalization');
 check(!Object.prototype.hasOwnProperty.call(schema.cleanItem(song, 'music'), 'playbackPolicy'),
     'default items do not inflate large libraries with policy objects');
 

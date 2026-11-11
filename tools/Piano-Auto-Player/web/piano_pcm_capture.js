@@ -1,11 +1,11 @@
 const WORKLET = String.raw`
 class PianoPcmCapture extends AudioWorkletProcessor {
-  constructor() { super(); this.buffer = new Float32Array(1024); this.used = 0; this.active = false;
+  constructor() { super(); this.buffer = new Float32Array(4096); this.used = 0; this.active = false;
     this.port.onmessage = event => { this.active = event.data?.active === true; }; }
   process(inputs) { const input = inputs[0]; if (!this.active || !input?.[0]) return true;
     const left = input[0], right = input[1];
     for (let i = 0; i < left.length; i += 1) { this.buffer[this.used++] = right ? (left[i] + right[i]) * 0.5 : left[i];
-      if (this.used === this.buffer.length) { const block = this.buffer; this.buffer = new Float32Array(1024); this.used = 0;
+      if (this.used === this.buffer.length) { const block = this.buffer; this.buffer = new Float32Array(4096); this.used = 0;
         this.port.postMessage({ audio: block.buffer, capturedAtMs: Date.now() }, [block.buffer]); } }
     return true; }
 }

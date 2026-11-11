@@ -62,10 +62,11 @@ def attempt_card_play(self, generation, revision=None, delay=0):
     result = window.try_card_play(pids, track, should_attempt=still_current,
                                   should_rehide=rehide_allowed,
                                   playback_confirmed=playback_confirmed)
-    # One bounded same-window retry only for a new queue-track revision.
-    # Never retry a manual Pause, a superseded revision, or an unowned window.
+    # One bounded same-window retry for both the first card and later queue
+    # revisions. Never retry a manual Pause, a superseded revision, or an
+    # unowned window.
     retry_used = False
-    if revision is not None and not playback_confirmed() and (
+    if not playback_confirmed() and (
             result.get("ok") or result.get("reason") == "EVE_UIA_PLAY_CONTROL_UNAVAILABLE"):
         time.sleep(1.0)
         if still_current() and not playback_confirmed():
@@ -79,12 +80,33 @@ def attempt_card_play(self, generation, revision=None, delay=0):
     with self._lock:
         if generation != self._generation or not self._running or captured_revision != self._media_revision:
             return
+        routed = self._status == "cable-routed"
+        confirmed = result.get("playbackConfirmed") is True
+        invoked = result.get("ok") is True
         self._autoplay_status = ("confirmed" if result.get("playbackConfirmed") else
                                  "invoked-unconfirmed" if result.get("ok") else "manual-fallback")
         self._record("auto-play", revision=captured_revision, hidden=self._hidden,
                      outcome=self._autoplay_status, offscreenAssist=result.get("offscreenAssist", False),
                      playbackConfirmed=result.get("playbackConfirmed", False),
                      retryUsed=retry_used, reason=result.get("reason", "")[:80])
+        if confirmed:
+            self._failure_revision = -1
+            self._failure_kind = ""
+            self._failure_reason = ""
+            self._failure_terminal = False
+        elif invoked and routed and self._manual_pause_revision != captured_revision:
+            # Two exact-window invocations plus the bounded playback witness
+            # elapsed without routed progress. This is a revision-owned media
+            # failure, not an uncertain host failure, so the queue may skip it once.
+            self._failure_revision = captured_revision
+            self._failure_kind = "provider-playback-unavailable"
+            self._failure_reason = "Spotify did not produce playback after two owned Play attempts."
+            self._failure_terminal = True
+        else:
+            self._failure_revision = captured_revision
+            self._failure_kind = "host-control-unavailable" if not invoked else "route-not-ready"
+            self._failure_reason = str(result.get("reason") or "Spotify playback is not yet confirmed.")[:180]
+            self._failure_terminal = False
         if result.get("ok"):
             self._message = ("Spotify Play was confirmed on CABLE." if result.get("playbackConfirmed")
                              else "Spotify Play was invoked but has not been confirmed on CABLE; use Show Spotify if paused.")
