@@ -153,7 +153,7 @@ window.EveAudioflix = window.EveAudioflix || {};
                     if (started === false) { if (queueStartPending === runId) { queueStartPending = 0; queueStartActive = 0; queuedTerminal = null; } activeMusicQueue.currentIndex = startingIndex; finish?.(false); window.EveAudioflixAudio?.syncQueueView?.(); rerenderPlayback(); return; }
                     didStart = true; break;
                 } catch (err) {
-                    const transportUnavailable = /(?:bridge|connection|transport).*(?:offline|unavailable|failed)|(?:offline|unavailable|timed? out)|spotify playback support is not loaded/i.test(String(err?.message || err));
+                    const transportUnavailable = /(?:bridge|connection|transport).*(?:offline|unavailable|failed)|(?:offline|unavailable|timed? out)|no healthy spotify edge host to reuse|spotify playback support is not loaded/i.test(String(err?.message || err));
                     if (transportUnavailable && /spotify/i.test(String(track?.sourceProvider || track?.url || ''))) {
                         playbackStatus = `Spotify paused on ${track?.title || 'the selected track'}: ${err?.message || 'provider unavailable'}`;
                         window.EveAudioflixDiagnostics?.record?.('queue:provider-unavailable', 0, { error: true });

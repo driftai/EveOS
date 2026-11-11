@@ -400,11 +400,8 @@ window.EveAudioflixUiActions = window.EveAudioflixUiActions || {};
                 playRequests.add(id);
                 try {
                     ctx.stopRepeater(id);
-                    if (type === 'music' && ctx.activeMusicQueue?.items?.includes(id)) {
-                        ctx.invalidateQueueRun?.();
-                        ctx.activeMusicQueue = { ...ctx.activeMusicQueue, currentIndex: ctx.activeMusicQueue.items.indexOf(id), isPlaying: true };
-                        window.EveAudioflixAudio?.syncQueueView?.();
-                    }
+                    const queueIndex = type === 'music' ? (ctx.activeMusicQueue?.items || []).findIndex(entryId => String(entryId) === String(id)) : -1;
+                    if (queueIndex >= 0) { await ctx.playQueueIndex(queueIndex); return; }
                     const isSound = (type || item.type) === 'sound';
                     if (!isSound) { const active = window.EveAudioflixAudio?.getPlaybackState?.();
                         await stopItemPlayback(id, active?.browserOnly === true && String(active.item?.id || active.item?.url || '') === String(id || '')); }

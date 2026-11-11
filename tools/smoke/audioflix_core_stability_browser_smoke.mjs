@@ -240,6 +240,14 @@ try {
             portedSounds: window.__ported, activeMusicQueue: window.__queue, activeRepeaters: {}, stopRepeater: () => {}, overlay: root,
             get collapsedGroups() { return window.__collapsed; }, set collapsedGroups(value) { window.__collapsed = value; },
             toggleGroup: (...args) => render.toggleGroup?.(...args),
+            playQueueIndex: async index => {
+                const selected = window.__queue.items[index];
+                const track = window.__state.music.find(item => String(item.id) === String(selected));
+                if (!track) throw new Error('Synthetic queue track not found');
+                window.__queue.currentIndex = index; window.__queue.isPlaying = true;
+                window.__queueTransitions = (window.__queueTransitions || 0) + 1;
+                return window.EveAudioflixAudio.playItem(track);
+            },
             rerender: () => { window.__renders += 1; const nexus = root.querySelector('.audioflix-nexus-panel');
                 root.innerHTML = render.renderItems(window.__state.music, 'music'); if (nexus) root.prepend(nexus); },
             rerenderModal: () => { window.__settings = ctx.activeInfoItem.id; }
@@ -265,6 +273,10 @@ try {
     assert.equal(await lazy.evaluate(() => window.__settings), mountedTargetId, 'late-mounted Song Settings uses delegated actions');
     await lazy.locator(`[data-af-id="${mountedTargetId}"][data-af-action="play"]`).click();
     await lazy.waitForFunction(id => window.__playing === id, mountedTargetId);
+    assert.equal(await lazy.evaluate(() => window.__queueTransitions), 1,
+        'late-mounted queued-card Play goes through the canonical queue adapter');
+    assert.equal(await lazy.evaluate(() => window.__queue.items[window.__queue.currentIndex]), mountedTargetId,
+        'queued-card action keeps the canonical selected track aligned');
     await header.click();
     assert.equal(await lazy.locator('.audioflix-item-card').count(), 2, 'collapse retires only card UI, not playback');
     assert.equal(await lazy.evaluate(() => window.__playing), mountedTargetId);

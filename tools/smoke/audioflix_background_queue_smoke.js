@@ -152,10 +152,10 @@ function realQueueFixture(count = 20, options = {}) {
     const music = Array.from({ length: count }, (_, index) => ({
         id: index + 101, title: `Track ${index + 1}`, type: 'music',
         url: options.spotify ? `https://open.spotify.com/track/${String(index).padStart(22, '0')}` : `data:audio/wav,${index}`,
-        sourceProvider: options.spotify ? 'spotify' : ''
+        sourceProvider: options.spotify || options.spotifyProvenance ? 'spotify' : ''
     }));
     const snapshot = { music, soundboard: [], musicGroups: ['Smoke Group'], musicGroupMap: {} };
-    let actions, controller, queueBridge, drainResolve, failId = '', failMessage = 'Fixture start failure';
+    let actions, controller, queueBridge, drainResolve, failId = '', failMessage = 'Fixture start failure', playbackRenders = 0;
     const capture = {
         start: async () => true,
         stop: async value => value?.drain && drainResolve ? new Promise(resolve => {
@@ -216,7 +216,7 @@ function realQueueFixture(count = 20, options = {}) {
     const context = vm.createContext({ window, document, location: window.location, Audio: FakeAudio,
         CustomEvent: class { constructor(type, value) { this.type = type; this.detail = value.detail; } },
         Promise, String, Number, Math, URL, setTimeout, clearTimeout, setInterval, clearInterval,
-        console: { ...console, info() {} } });
+        console: { ...console, info() {}, warn() {} } });
     function load(name) {
         const filename = path.join(ROOT, 'js/modules/features/audioflix', name);
         vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
@@ -244,12 +244,19 @@ function realQueueFixture(count = 20, options = {}) {
     load('audioflix.ui.overlay.js');
     load('audioflix.queue.completion.js');
     load('audioflix.ui.panel.js');
+    const createPanel = window.EveAudioflixUiPanel.create;
+    window.EveAudioflixUiPanel.create = ctx => {
+        const panel = createPanel(ctx), playback = panel.playback;
+        panel.playback = (...args) => { playbackRenders += 1; return playback(...args); };
+        return panel;
+    };
     load('audioflix.ui.js');
     load('audioflix.transport.resilience.js');
     return {
         window, music, players, starts, events,
         queue: () => window.EveAudioflix.queueConnection.snapshot(),
-        action: name => actions.handleAction({ dataset: { afAction: name } }, {}),
+        action: (name, id = '', type = '') => actions.handleAction({ dataset: { afAction: name, afId: String(id), afType: type } }, {}),
+        playbackRenders: () => playbackRenders,
         emit: detail => window.dispatchEvent({ type: 'eve:audioflix-playback', detail }),
         fail: (id, message) => { failId = id; if (message) failMessage = message; }, holdDrain: () => { drainResolve = () => {}; },
         resolveDrain: () => { const resolve = drainResolve; drainResolve = null; resolve?.(); }
@@ -285,12 +292,35 @@ async function longGroupCoverage() {
 }
 
 async function providerOutageCoverage() {
-    const fixture = realQueueFixture(48, { spotify: true });
-    fixture.fail('*', 'Native bridge offline (fixture)');
+    const fixture = realQueueFixture(48, { spotifyProvenance: true });
+    fixture.window.EveAudioflixAudio.playItem = async item => {
+        fixture.starts.push(item.id);
+        throw new Error('No healthy Spotify Edge host to reuse.');
+    };
     await fixture.action('play-music-group');
     await settled();
     assert(fixture.starts.length === 1 && fixture.queue().currentIndex === 0 && fixture.queue().isPlaying === false,
         'provider outage holds the selected Spotify item instead of skipping through the queue');
+}
+
+async function queuedCardJumpCoverage() {
+    const fixture = realQueueFixture(10);
+    // The live library index normalizes numeric IDs; real DOM data-af-id values are strings.
+    fixture.window.EveAudioflixLibraryIndex = { get: () => ({
+        getById: id => fixture.music.find(track => String(track.id) === String(id)) || null
+    }) };
+    await fixture.action('play-music-group');
+    const before = fixture.playbackRenders();
+    await fixture.action('play', String(fixture.music[6].id), 'music');
+    await settled();
+    assert(fixture.queue().currentIndex === 6 && fixture.queue().isPlaying === true
+        && fixture.starts.length === 2 && fixture.starts.at(-1) === fixture.music[6].id,
+        'queued-card Play jumps through the canonical queue owner');
+    assert(fixture.playbackRenders() > before, 'queued-card Play refreshes Playing/Played/Queued badges immediately');
+    fixture.players.at(-1).end();
+    await settled();
+    assert(fixture.queue().currentIndex === 7 && fixture.starts.at(-1) === fixture.music[7].id,
+        'the jumped queue slot retains canonical completion ownership');
 }
 
 async function staleTransportCoverage() {
@@ -349,7 +379,7 @@ async function exhaustedStartCoverage() {
     const cases = [ ['spotify-provenance-completion', completionCoverage], ['plain-group-48-track-once', longGroupCoverage],
         ['stale-url-transport-identity', staleTransportCoverage], ['url-capture-settlement', captureSettlementCoverage],
         ['failed-transport-start-state', failedStartCoverage], ['failed-starts-bounded-exhaustion', exhaustedStartCoverage],
-        ['provider-outage-preserves-selection', providerOutageCoverage] ];
+        ['provider-outage-preserves-selection', providerOutageCoverage], ['queued-card-jump-owner', queuedCardJumpCoverage] ];
     const failures = [];
     for (const [id, run] of cases) {
         try { await run(); } catch (error) { failures.push({ id, message: String(error.stack || error) }); }
