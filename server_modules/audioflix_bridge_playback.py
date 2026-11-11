@@ -270,6 +270,17 @@ def stop_stream(payload: dict) -> dict:
     dropped = sum(p.clear_stream(stream_id, lane) for p in players)
     return {"ok": True, "streamDropped": dropped, "allDevices": all_devices, "itemId": stream_id, "lane": lane}
 
+
+def stream_health(device_id: str, lane: str, expected_id=None) -> dict:
+    """Inspect an existing physical renderer without opening or replacing it."""
+    with _LOCK:
+        players = [player for key, player in _PLAYERS.items() if key.startswith(str(device_id) + ":")]
+    if not players:
+        return {"ok": False, "active": False, "reason": "renderer-missing"}
+    snapshots = [player.stream_health(lane, expected_id) for player in players]
+    healthy = next((item for item in snapshots if item.get("ok") is True), None)
+    return healthy or {**snapshots[0], "ok": False, "reason": "renderer-stalled"}
+
 def get_voice_debug() -> dict:
     """Return a lock-safe snapshot without exposing mutable player internals."""
     with _LOCK:

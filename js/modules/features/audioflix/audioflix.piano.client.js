@@ -75,6 +75,8 @@ window.EveAudioflixPiano = window.EveAudioflixPiano || {};
     async function findController() {
         for (const baseUrl of controllerBases()) {
             try {
+                const identity = await json(`${baseUrl}/api/status`, null, 1400);
+                if (identity?.ok !== true || identity?.service !== 'eveos-control-plane') continue;
                 const payload = await json(`${baseUrl}/api/piano-player/status`, null, 2600);
                 return { baseUrl, payload };
             } catch (_) {}

@@ -62,6 +62,9 @@ async function hiddenQueueLifecycle(page) {
         const invalidated = read();
         c.getStage().querySelector('[data-url-player-action="collapse"]').click();
         const collapsed = read();
+        c.open({ id: 'large-3', title: 'Collapsed handoff', volume: 0.29 }, 'Direct audio', { expanded: true });
+        c.setQueue(queue.entries, queue.currentIndex);
+        const collapsedHandoff = { ...read(), collapsed: c.getStage().classList.contains('is-collapsed') };
         c.getStage().querySelector('[data-url-player-action="collapse"]').click();
         const expanded = read();
         c.setTransportOnly(true);
@@ -85,7 +88,7 @@ async function hiddenQueueLifecycle(page) {
         c.setExpanded(true);
         const recreated = read();
         c.destroy();
-        return { hidden, transport, immediateShownRows, shown, reordered, released, hiddenLatest, reopened, invalidated, collapsed, expanded,
+        return { hidden, transport, immediateShownRows, shown, reordered, released, hiddenLatest, reopened, invalidated, collapsed, collapsedHandoff, expanded,
             transportReleased, transportRestored, fallbackReleased, emptied, beforeEnd, ended, calls, destroyedHidden, recreated };
     });
     evidence.lifecycle = result;
@@ -106,6 +109,8 @@ async function hiddenQueueLifecycle(page) {
     assert.equal(result.reopened.item, 'large-7', 'queue DOM lifecycle cannot switch playback identity');
     assert.equal(result.reopened.title, 'Latest handoff', 'handoff title stays synchronized');
     assert.equal(result.reopened.gain, 0.29, 'handoff volume stays synchronized');
+    assert.equal(result.collapsedHandoff.collapsed, true,
+        'a song handoff must preserve the user-collapsed Internal Player');
     assert.equal(result.reopened.repeat, 'true');
     assert.equal(result.reopened.prevDisabled, false); assert.equal(result.reopened.nextDisabled, false);
     assert.deepEqual(result.beforeEnd, { jump: [], move: [[7, 3]], advance: 0 }, 'visibility lifecycle causes no queue jump/advance');

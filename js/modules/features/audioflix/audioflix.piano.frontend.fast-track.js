@@ -3,7 +3,7 @@
   'use strict';
   if (ns.ready || !front?.ready || !ports?.ready) return;
   const LIMIT = 40;
-  let host = null, pane = null, opener = null, search = null, nexusSearch = null, unsubscribe = null;
+  let host = null, pane = null, opener = null, search = null, nexusSearch = null, backdrop = null, unsubscribe = null, matchingIds = new Set();
   const canvas = () => host?.querySelector('[data-piano-frontend]');
   const panel = () => host?.querySelector('[data-audioflix-piano]');
   const query = selector => canvas()?.querySelector(selector);
@@ -17,7 +17,7 @@
   }
   function close(restoreFocus = true) {
     if (!pane || pane.hidden) return;
-    pane.hidden = true;
+    pane.hidden = true; if (backdrop) backdrop.hidden = true;
     opener?.setAttribute('aria-expanded', 'false');
     if (restoreFocus) opener?.focus();
   }
@@ -25,11 +25,19 @@
     if (!pane || pane.hidden) return;
     const results = pane.querySelector('[data-pft-results]');
     const status = pane.querySelector('[data-pft-status]');
-    const matching = front.getVisibleSongs?.() || [];
-    results.replaceChildren();
+    const term = String(search?.value || '').trim().toLowerCase();
+    results.replaceChildren(); matchingIds.clear();
+    if (!term) { status.textContent = 'Start typing to search your Piano library.'; return; }
+    const matching = (front.getSongs?.() || []).filter(song => {
+      const metadata = [song.title, song.artist, song.source,
+        ...(taxonomy?.folders?.(song) || []), ...(taxonomy?.groups?.(song) || []),
+        ...(taxonomy?.classifiers?.(song) || []), song.identifiers?.tags || '', song.identifiers?.genre || ''];
+      return metadata.some(value => String(value || '').toLowerCase().includes(term));
+    });
+    matching.forEach(song => matchingIds.add(String(song.id)));
     status.textContent = matching.length
-      ? 'Showing ' + Math.min(LIMIT, matching.length) + ' of ' + matching.length + ' scoped songs.'
-      : 'No songs match this search and the selected library scopes.';
+      ? 'Showing ' + Math.min(LIMIT, matching.length) + ' of ' + matching.length + ' matches.'
+      : 'No Piano songs match this search.';
     const playable = panel()?.dataset.running === 'true' && front.bridgeReady?.() === true;
     for (const song of matching.slice(0, LIMIT)) {
       const row = document.createElement('div'); row.className = 'piano-pft-result';
@@ -60,9 +68,9 @@
     }
   }
   function jump(songId) {
-    const row = [...(canvas()?.querySelectorAll('.piano-frontend-song') || [])]
+    let row = [...(canvas()?.querySelectorAll('.piano-frontend-song') || [])]
       .find(node => node.dataset.songId === songId);
-    if (!row) { render(); return null; }
+    if (!row) { const item = (front.getSongs?.() || []).find(song => String(song.id) === songId); const filter = query('[data-pf-search]'); if (item && filter) { filter.value = item.title || ''; filter.dispatchEvent(new Event('input', { bubbles: true })); row = [...(canvas()?.querySelectorAll('.piano-frontend-song') || [])].find(node => node.dataset.songId === songId); } if (!row) { render(); return null; } }
     close(false);
     row.tabIndex = -1;
     row.focus?.({ preventScroll: true });
@@ -72,16 +80,16 @@
   function act(action, songId) {
     if (action === 'toggle') {
       const opening = pane.hidden;
-      if (opening) { pane.hidden = false; opener?.setAttribute('aria-expanded', 'true'); render(); search?.focus(); }
+      if (opening) { pane.hidden = false; if (backdrop) backdrop.hidden = false; opener?.setAttribute('aria-expanded', 'true'); render(); search?.focus(); }
       else close();
       return;
     }
     if (action === 'close') { close(); return; }
     if (action === 'clear') {
-      if (search) { search.value = ''; search.dispatchEvent(new Event('input', { bubbles: true })); search.focus(); }
+      if (search) { search.value = ''; render(); search.focus(); }
       return;
     }
-    if (!songId || !front.getVisibleSongs?.().some(song => song.id === songId)) return;
+    if (!songId || !matchingIds.has(String(songId))) return;
     if (action === 'queue-add') {
       if (ports.command?.('queue:add', { songId }) !== false) render();
     } else if (action === 'queue-remove') {
@@ -102,54 +110,42 @@
     host = nextHost || host;
     const toolbar = query('.piano-pfo-toolbar'), nexus = query('[data-pfo-search-panel]');
     const link = toolbar?.querySelector('[data-pfo-action="nexus"]');
-    const original = query('[data-pf-search]');
-    if (!toolbar || !link || !nexus || !original || toolbar.querySelector('[data-pft-action="toggle"]')) return;
-    opener = button('⌕ Fast Track', 'toggle');
-    opener.setAttribute('aria-label', 'Open Fast Track song search');
+    const librarySearch = query('[data-pf-search]');
+    if (!toolbar || !link || !nexus || !librarySearch || toolbar.querySelector('[data-pft-action="toggle"]')) return;
+    const combo = document.createElement('span'); combo.className = 'piano-pft-combo';
+    link.before(combo); combo.append(link);
+    opener = button('⌕', 'toggle'); opener.title = 'Fast Track: search Piano songs';
+    opener.setAttribute('aria-label', 'Fast Track song search');
     opener.setAttribute('aria-controls', 'piano-fast-track');
-    opener.setAttribute('aria-expanded', 'false');
-    link.after(opener);
-    pane = document.createElement('section');
-    pane.className = 'piano-pft-panel';
-    pane.dataset.pftPanel = '';
-    pane.id = 'piano-fast-track';
-    pane.setAttribute('role', 'dialog');
-    pane.setAttribute('aria-label', 'Fast Track Piano library search');
-    pane.hidden = true;
+    opener.setAttribute('aria-expanded', 'false'); combo.append(opener);
+    backdrop = document.createElement('div'); backdrop.className = 'piano-pft-backdrop';
+    backdrop.hidden = true; document.body.append(backdrop);
+    pane = document.createElement('section'); pane.className = 'piano-pft-panel';
+    pane.dataset.pftPanel = ''; pane.id = 'piano-fast-track';
+    pane.setAttribute('role', 'dialog'); pane.setAttribute('aria-modal', 'true');
+    pane.setAttribute('aria-label', 'Fast Track Piano library search'); pane.hidden = true;
     pane.innerHTML = '<div class="piano-pft-head"><strong>Fast Track · Piano songs</strong><button type="button" data-pft-action="close" aria-label="Close Fast Track">Close</button></div>'
       + '<div class="piano-pft-search"><div data-pft-input></div><button type="button" data-pft-action="clear">Clear</button></div>'
-      + '<p data-pft-status role="status"></p><div data-pft-results class="piano-pft-results"></div>';
-    toolbar.append(pane);
-    // Move the original search input with its existing filter listener: no second search state.
-    const label = original.closest('label');
-    pane.querySelector('[data-pft-input]').append(label);
-    search = original;
-    search.removeAttribute('data-pfo-search');
-    search.setAttribute('aria-label', 'Fast Track: search saved Piano songs');
+      + '<p data-pft-status role="status">Start typing to search your Piano library.</p><div data-pft-results class="piano-pft-results"></div>';
+    document.body.append(pane);
+    search = document.createElement('input'); search.type = 'search';
+    search.setAttribute('aria-label', 'Search Piano songs in Fast Track');
     search.placeholder = 'Search titles, artists, folders, groups, tags…';
-    // Nexus Piano Link retains its own scoped-search field, synchronized with Fast Track.
-    nexusSearch = document.createElement('input');
-    nexusSearch.type = 'search'; nexusSearch.dataset.pfoSearch = '';
-    nexusSearch.placeholder = 'Search Piano songs';
-    nexusSearch.setAttribute('aria-label', 'Nexus Piano Link search');
-    nexus.prepend(nexusSearch);
-    nexusSearch.value = search.value;
-    nexusSearch.addEventListener('input', () => {
-      if (search.value === nexusSearch.value) return;
-      search.value = nexusSearch.value;
-      search.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    search.addEventListener('input', () => { nexusSearch.value = search.value; render(); });
-    unsubscribe?.();
-    unsubscribe = ports.subscribe?.(() => render()) || null;
-    toolbar.addEventListener('click', event => {
-      const control = event.target.closest?.('[data-pft-action]');
-      if (control) { act(control.dataset.pftAction, control.dataset.songId); return; }
-      if (event.target.closest?.('[data-pfo-action]')) close(false);
-    });
-    toolbar.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && !pane.hidden) { event.preventDefault(); close(); }
-    });
+    pane.querySelector('[data-pft-input]').append(search);
+    search.addEventListener('input', render);
+    // Nexus link search keeps its existing library filtering behavior.
+    nexusSearch = nexus.querySelector('[data-pfo-search]');
+    if (!nexusSearch) {
+      nexusSearch = document.createElement('input'); nexusSearch.type = 'search';
+      nexusSearch.dataset.pfoSearch = ''; nexusSearch.placeholder = 'Search Piano songs';
+      nexusSearch.setAttribute('aria-label', 'Nexus Piano Link search'); nexus.prepend(nexusSearch);
+    }
+    nexusSearch.addEventListener('input', () => { librarySearch.value = nexusSearch.value; librarySearch.dispatchEvent(new Event('input', { bubbles: true })); });
+    backdrop.addEventListener('click', () => close());
+    pane.addEventListener('click', event => { const control = event.target.closest?.('[data-pft-action]'); if (control) act(control.dataset.pftAction, control.dataset.songId); });
+    toolbar.addEventListener('click', event => { const control = event.target.closest?.('[data-pft-action]'); if (control) { act(control.dataset.pftAction, control.dataset.songId); return; } if (event.target.closest?.('[data-pfo-action]')) close(false); });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape' && !pane.hidden) { event.preventDefault(); close(); } });
+    unsubscribe?.(); unsubscribe = ports.subscribe?.(() => render()) || null;
     const decorate = ports.decorateSongs;
     ports.decorateSongs = (...args) => { const result = decorate?.(...args); render(); return result; };
   }

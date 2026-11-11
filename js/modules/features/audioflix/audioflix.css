@@ -37,6 +37,18 @@
     display: none !important;
 }
 
+/* Preserve an active Piano iframe/audio graph when the Audioflix UI is closed. */
+.audioflix-overlay.is-background-playback-host {
+    inset: 0 auto auto -200vw;
+    width: 100vw;
+    height: 100vh;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
+    background: transparent;
+}
+
 .audioflix-panel {
     width: min(1180px, 100%);
     max-height: min(900px, calc(100vh - 34px));
@@ -251,3 +263,16 @@
     background: rgba(0, 0, 0, 0.3);
 }
 
+
+/* Spotify URL failure stays a small focusable icon; browser hover/focus tooltip
+   carries the complete reason without stretching narrow song cards. */
+.audioflix-provider-unavailable-badge.is-compact {
+    display: inline-flex; align-items: center; justify-content: center;
+    box-sizing: border-box; flex: 0 0 22px; width: 22px; min-width: 22px;
+    max-width: 22px; height: 22px; min-height: 22px; padding: 0;
+    white-space: nowrap !important; word-break: normal !important;
+    overflow-wrap: normal !important; line-height: 1; cursor: help;
+}
+.audioflix-provider-unavailable-badge.is-compact:focus-visible {
+    outline: 2px solid #ffd976; outline-offset: 2px;
+}

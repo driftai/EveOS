@@ -56,12 +56,10 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
                 signal: controller.signal,
                 headers: Object.assign({ 'Content-Type': 'application/json' }, options.headers || {})
             }));
-            if (!response.ok) {
-                return { ok: false, base, status: response.status, message: response.status === 404
-                    ? `Audioflix API is missing on ${base}. Restart that EveOS port so the endpoint loads.`
-                    : `Native bridge request failed on ${base} (${response.status}).` };
-            }
-            const payload = await response.json();
+            // Verified bridge HTTP rejections are final; never fan out to unrelated localhost ports.
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) return { ok: false, base, bridgeReached: true, status: response.status,
+                message: String(payload?.reason || payload?.message || `EveOS API rejected ${path} (${response.status}).`).slice(0, 240) };
             return Object.assign({ base, bridgeReached: true }, payload || {});
         } finally {
             clearTimeout(timer);
@@ -120,10 +118,10 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         if (options.realtime === true) BACKOFF()?.noteRealtimeResult?.(false);
         if (options.realtime !== true && !attempts.some((item) => item.status)) {
             bridgeMissStreak = Math.min(bridgeMissStreak + 1, 5);
-            bridgeDownUntil = Date.now() + Math.min(120000, 10000 * Math.pow(2, bridgeMissStreak - 1));
+            bridgeDownUntil = Date.now() + Math.min(location.protocol === 'file:' ? 12000 : 120000, 10000 * Math.pow(2, bridgeMissStreak - 1));
             if (!bridgeOfflineNoticeShown) {
                 bridgeOfflineNoticeShown = true;
-                console.info('[Audioflix] No EveOS server found — browser-only mode. Start one with start-server.bat, then "Refresh System Outputs" for CABLE routing, hotkeys and path ports.');
+                console.info('[Audioflix] No verified EveOS bridge responded yet; native features will retry. Check the server or use Refresh System Outputs.');
             }
         }
         lastStatus = Object.assign({}, lastStatus, {

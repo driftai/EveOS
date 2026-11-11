@@ -76,7 +76,7 @@ window.EveAudioflixPianoPcm = window.EveAudioflixPianoPcm || {};
                     } catch (statusError) {
                         error = statusError;
                         if (!retryable(statusError)) { fail(statusError); return false; }
-                        if (statusError?.eveCategory === 'session-expired') session = null;
+                        if (['session-expired', 'renderer-unavailable'].includes(statusError?.eveCategory)) session = null;
                     }
                 }
                 if (!session && retryable(error)) {

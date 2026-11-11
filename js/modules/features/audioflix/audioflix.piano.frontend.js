@@ -21,6 +21,8 @@
     let offlineSnapshot = false;
     let offlineReadGeneration = 0;
     let latestListId = 0;
+    let libraryFallbackTimer = 0;
+    let libraryChangeTimer = 0;
     function previewRecord(song) {
         const id = song.identifiers || {}, custom = id.custom || {}, automatic = song.automatic_identifiers || {};
         return { id: song.id, title: song.title, artist: song.artist, kind: song.kind,
@@ -143,8 +145,8 @@
                 displayStatus();
             }
         }, 6000);
-        try { target.postMessage({ type: 'eveos:piano-frontend-command', id, action, songId }, to); return true; }
-        catch (_) { pending.delete(id); return false; }
+        try { target.postMessage({ type: 'eveos:piano-frontend-command', id, action, songId }, to); return id; }
+        catch (_) { pending.delete(id); return 0; }
     }
     function setNotice(text) { message = text; const node = canvas()?.querySelector('[data-pf-message]'); if (node) node.textContent = message; }
     function sortedSongs() {
@@ -238,21 +240,27 @@
         updateSongTransportButtons();
     }
     function reset() {
+        clearTimeout(libraryFallbackTimer); clearTimeout(libraryChangeTimer);
+        libraryFallbackTimer = libraryChangeTimer = 0;
         pending.clear(); latestListId = ++seq; bridgeReady = false; lastLibrary = lastStatus = 0; busy = ''; state = 'idle';
         void showOfflinePreview();
         if (isRunning()) message = offlineSnapshot ? 'Connecting to Piano — showing last synced library preview.' : 'Connecting to Piano library…';
         displayStatus(); displaySongs();
     }
     function invalidate(messageText = 'Refreshing Piano library…') {
+        clearTimeout(libraryFallbackTimer); clearTimeout(libraryChangeTimer);
+        libraryFallbackTimer = libraryChangeTimer = 0;
         pending.clear(); latestListId = ++seq; bridgeReady = false; lastLibrary = lastStatus = 0; busy = '';
         if (isRunning()) message = messageText;
         displayStatus(); displaySongs();
     }
-    async function loadLibraryDirect() {
-        const requestId = latestListId;
+    async function loadLibraryDirect(requestId = latestListId, force = false) {
         try {
             const data = await directJson('/api/songs');
-            if (!bridgeReady && requestId === latestListId) applyLibrary(data.songs, 'direct', { authoritative: data.authoritative === true });
+            if (requestId === latestListId && (force || pending.get(requestId) === 'list' || !bridgeReady)) {
+                pending.delete(requestId);
+                applyLibrary(data.songs, 'direct', { authoritative: data.authoritative === true });
+            }
         } catch (_) {
             if (!libraryReady && !bridgeReady) { message = 'Connecting to Piano library…'; displayStatus(); }
         }
@@ -265,8 +273,13 @@
         if ((!isShowing() && !force) || !isRunning()) return;
         const now = Date.now();
         if (force || now - lastLibrary > 15000) {
-            send('list');
-            void loadLibraryDirect();
+            const requestId = send('list');
+            clearTimeout(libraryFallbackTimer);
+            if (requestId) libraryFallbackTimer = setTimeout(() => {
+                libraryFallbackTimer = 0;
+                if (pending.get(requestId) === 'list') void loadLibraryDirect(requestId);
+            }, 1200);
+            else void loadLibraryDirect(latestListId, true);
             lastLibrary = now;
         }
         if (force || now - lastStatus > 4000) {
@@ -336,14 +349,30 @@
             return;
         }
         if (event.data?.type === 'piano:eveos-frontend-ready') {
-            bridgeReady = true; lastLibrary = lastStatus = 0; message = libraryReady ? 'Your saved Piano songs.' : 'Loading Piano library…'; displayStatus(); refresh(true); return;
+            const firstReady = !bridgeReady;
+            bridgeReady = true;
+            if (firstReady || (!libraryReady && ![...pending.values()].includes('list'))) {
+                lastLibrary = lastStatus = 0;
+                message = libraryReady ? 'Your saved Piano songs.' : 'Loading Piano library…';
+                displayStatus(); refresh(true);
+            }
+            return;
         }
-        if (event.data?.type === 'piano:eveos-library-changed') { lastLibrary = 0; refresh(true); return; }
+        if (event.data?.type === 'piano:eveos-library-changed') {
+            if (!libraryChangeTimer) libraryChangeTimer = setTimeout(() => {
+                libraryChangeTimer = 0; lastLibrary = 0; refresh(true);
+            }, 80);
+            return;
+        }
         if (event.data?.type !== 'piano:eveos-frontend-response') return;
         const data = event.data;
         const action = pending.get(data.id); if (!action) return;
         pending.delete(data.id); bridgeReady = true;
-        if (data.error) { if (busy === action) busy = ''; message = String(data.error).slice(0, 180); }
+        if (data.error) {
+            if (busy === action) busy = '';
+            message = String(data.error).slice(0, 180);
+            if (action === 'list' && data.id === latestListId) void loadLibraryDirect(data.id, true);
+        }
         else if (action === 'list' && data.id === latestListId && Array.isArray(data.songs))
             applyLibrary(data.songs, 'bridge', { authoritative: data.authoritative === true });
         else if (action === 'status') state = String(data.status || 'idle');

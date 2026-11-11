@@ -21,10 +21,12 @@ class PcmPlayer:
         self.stream_lanes, self.stream_lanes_lock = {}, threading.Lock()
         self.voices, self.voices_lock, self.voices_paused = [], threading.Lock(), False
         self.last_frames, self.cb_count = 0, 0
+        self.last_callback_at = time.monotonic()
         self.stream, self.sample_rate = open_stream(device_index, channels, self._callback, source_rate)
 
     def _callback(self, outdata, frames, _time_info, _status) -> None:
         self.last_frames, self.cb_count = frames, self.cb_count + 1
+        self.last_callback_at = time.monotonic()
         outdata.fill(0)
         try:
             self._mix(outdata, frames)
@@ -44,6 +46,9 @@ class PcmPlayer:
             if self.voices and not self.voices_paused:
                 survivors = []
                 for voice in self.voices:
+                    if voice.get("paused"):
+                        survivors.append(voice)
+                        continue
                     samples, pos, volume = voice["samples"], voice["pos"], voice.get("vol", 1.0)
                     count = min(len(samples) - pos, frames)
                     if count > 0:
@@ -129,7 +134,36 @@ class PcmPlayer:
         with self.voices_lock:
             if len(self.voices) >= 32:
                 self.voices = self.voices[-31:]
-            self.voices.append({"samples": samples, "pos": 0, "vid": vid, "vol": vol})
+            self.voices.append({"samples": samples, "pos": 0, "vid": vid, "vol": vol,
+                                "paused": False, "sample_rate": self.sample_rate})
+
+    def set_voice_paused(self, vid, paused) -> int:
+        count = 0
+        with self.voices_lock:
+            for voice in self.voices:
+                if voice.get("vid") == vid:
+                    voice["paused"], count = bool(paused), count + 1
+        return count
+
+    def seek_voice(self, vid, seconds) -> int:
+        count = 0
+        with self.voices_lock:
+            for voice in self.voices:
+                if voice.get("vid") == vid:
+                    target = round(max(0.0, float(seconds)) * int(voice.get("sample_rate") or self.sample_rate))
+                    voice["pos"], count = min(target, len(voice["samples"])), count + 1
+        return count
+
+    def voice_status(self, vid) -> dict | None:
+        with self.voices_lock:
+            voice = next((item for item in self.voices if item.get("vid") == vid), None)
+            if voice is None:
+                return None
+            rate = max(1, int(voice.get("sample_rate") or self.sample_rate))
+            return {"position": int(voice["pos"]), "frames": int(len(voice["samples"])),
+                    "currentTime": float(voice["pos"]) / rate,
+                    "duration": float(len(voice["samples"])) / rate,
+                    "paused": bool(voice.get("paused")), "sampleRate": rate}
 
     def set_voice_volume(self, vid, vol) -> int:
         count = 0
@@ -207,6 +241,29 @@ class PcmPlayer:
         return {"dropped": state["dropped"], "underruns": state["underruns"],
                 "backlogFrames": pending + queued,
                 "enqueuedFrames": state["enqueued"]}
+
+    def stream_health(self, lane="primary", expected_id=None) -> dict:
+        """Read-only physical callback and logical-lane health for an owned session."""
+        try:
+            active = bool(not self.closed and self.stream and self.stream.active)
+        except Exception:
+            active = False
+        callback_age_ms = max(0, int((time.monotonic() - self.last_callback_at) * 1000))
+        if str(lane or "primary") == "primary":
+            stream_id = self.stream_id
+        else:
+            with self.stream_lanes_lock:
+                state = self.stream_lanes.get(str(lane or "").strip().lower())
+                stream_id = state.get("stream_id") if state else None
+        identity_ok = expected_id is None or stream_id in (None, expected_id)
+        return {
+            "ok": active and callback_age_ms <= 1500 and identity_ok,
+            "active": active,
+            "callbackCount": int(self.cb_count),
+            "callbackAgeMs": callback_age_ms,
+            "streamId": stream_id,
+            "identityOk": identity_ok,
+        }
 
     def close(self) -> None:
         self.closed = True

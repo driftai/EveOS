@@ -105,9 +105,9 @@ window.__runBackgroundProof = () => {
  const foreground = scheduled.length;
  window.dispatchEvent(new Event('blur'));
   const blurred = scheduled.length;
-  player._scheduleAudio(75000);
+ player._scheduleAudio(180000);
   const background = scheduled.length;
-  player._scheduleAudio(75000);
+  player._scheduleAudio(180000);
  const deduplicated = scheduled.length;
  player.stop();
   return { foreground, blurred, background, deduplicated, scheduled };
@@ -133,10 +133,11 @@ window.__runBackgroundCountdownProof = () => {
 };
 window.__runSampleOrderProof = async () => {
  const operations = [];
- const parameter = { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {}, cancelScheduledValues() {} };
+ const parameter = { value: 0, setValueAtTime() {}, setTargetAtTime() {}, exponentialRampToValueAtTime() {}, cancelScheduledValues() {} };
  const node = () => ({ connect() { return this; } });
  class FixtureAudioContext {
-   constructor() { this.currentTime = 10; this.state = 'running'; this.destination = node(); }
+   constructor() { this.currentTime = 10; this.state = 'running'; this.sampleRate = 48000;
+     this.destination = node(); this.audioWorklet = { addModule: async () => {} }; }
    createBufferSource() {
      let started = false;
      return { playbackRate: { value: 1 }, connect() { return this; }, addEventListener() {},
@@ -150,6 +151,7 @@ window.__runSampleOrderProof = async () => {
     async setSinkId(value) { operations.push(['sink', value]); }
  }
  window.AudioContext = FixtureAudioContext;
+ window.AudioWorkletNode = class { constructor() { this.port = { postMessage() {}, onmessage: null }; } connect() { return this; } };
   const route = await setPianoOutputRoute({ browserSinkId: 'cable-output', requestedLabel: 'CABLE Input' });
  window._tone_0000_GeneralUserGS_sf2_file = { zones: [{
    keyRangeLow: 0, keyRangeHigh: 127, originalPitch: 6000,
@@ -229,13 +231,14 @@ async function check(browser, url, width) {
     assert.match(s.targetSaved, /"hwnd":"202"/);
     assert.equal(s.previewStops, 0, 'Layout changes must not stop active playback');
     const background = await page.evaluate(() => window.__runBackgroundProof());
-    assert.equal(background.foreground, 2, 'Foreground scheduling stays bounded to the lookahead window');
-    assert.equal(background.blurred, 2, 'An embedded iframe blur must not masquerade as a hidden page');
-    assert.equal(background.background, 3, 'Hidden-page scheduling uses the finite background lookahead');
-    assert.equal(background.deduplicated, 3, 'Repeated background scheduling must not duplicate notes');
-    assert.equal(new Set(background.scheduled.map(row => row.id)).size, 3, 'Scheduled notes use unique identities');
-    assert.ok(background.scheduled[2].at - background.scheduled[1].at > 60,
-      'Background notes retain their original audio-clock spacing without scheduling the full song');
+    assert.equal(background.foreground, 4,
+      'Playback must prebuffer the complete two-minute minimized acceptance window before main-thread suspension');
+    assert.equal(background.blurred, 4, 'An embedded iframe blur must not duplicate scheduled notes');
+    assert.equal(background.background, 4, 'Hidden-page scheduling keeps the bounded stable window deduplicated');
+    assert.equal(background.deduplicated, 4, 'Repeated minimized scheduling must not duplicate notes');
+    assert.equal(new Set(background.scheduled.map(row => row.id)).size, 4, 'Scheduled notes use unique identities');
+    assert.ok(background.scheduled[3].at - background.scheduled[0].at > 110,
+      'The audio clock owns the full two-minute window without later main-thread callbacks');
     const backgroundCountdown = await page.evaluate(() => window.__runBackgroundCountdownProof());
     assert.deepEqual(backgroundCountdown, { state: 'playing', scheduled: 2 },
       'A background page must start immediately instead of freezing in the countdown');

@@ -106,6 +106,7 @@ def assert_static_contract() -> None:
     assert pcm_child.count("new Float32Array(4096)") == 2 and "postPcm" in pcm_child
     assert "master.connect(compressor)" in sound and "createPianoOutputRouter(ctx, compressor)" in sound
     assert "preparePianoPcmOutput" in sound and "pianoPcmReady" in pcm_child
+    assert "preferBrowserDirect" in piano_ui and "transport: 'browser-direct'" in piano_ui
     assert "pianoPlayerPort: 8771" in state
 
     assert 'setupSheetWorkspace' in piano_app and 'setupBulkConversion' in piano_app
@@ -263,9 +264,32 @@ def assert_upstream_tests() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def assert_native_preview_tests() -> None:
+    """Opt-in native-preview tests; keep the normal Piano integration gate unchanged."""
+    commands = (
+        [sys.executable, "-B", "tools/smoke/audioflix_piano_native_smoke.py"],
+        [sys.executable, "-B", "tools/smoke/audioflix_piano_native_continuation_smoke.py"],
+        ["node", "tools/smoke/audioflix_piano_native_client_smoke.cjs"],
+    )
+    for command in commands:
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True,
+                                timeout=180, check=False)
+        if result.returncode:
+            raise AssertionError("Native Piano preview smoke failed: " + " ".join(command)
+                                 + "\n" + result.stdout + result.stderr)
+        if result.stdout.strip():
+            print(result.stdout.strip())
+    print("AUDIOFLIX_PIANO_NATIVE_PREVIEW_SMOKES_OK")
+
+
 if __name__ == "__main__":
-    assert_static_contract()
-    assert_http_contract()
-    assert_lifecycle_contract()
-    assert_upstream_tests()
-    print("AUDIOFLIX_PIANO_INTEGRATION_SMOKE_OK")
+    if sys.argv[1:] == ["--native"]:
+        assert_native_preview_tests()
+    elif sys.argv[1:]:
+        raise SystemExit("Unsupported Piano smoke arguments: " + repr(sys.argv[1:]))
+    else:
+        assert_static_contract()
+        assert_http_contract()
+        assert_lifecycle_contract()
+        assert_upstream_tests()
+        print("AUDIOFLIX_PIANO_INTEGRATION_SMOKE_OK")

@@ -91,12 +91,16 @@ def switch_track(self, payload):
     self._message = "Updating song in existing Spotify Edge window."
     self._record("track-switched", revision=self._media_revision, mediaType=match.group(1),
                  retainedWindow=True, hidden=self._hidden)
+    from server_modules.audioflix_spotify_edge_lifecycle import watch_playback_start
+    threading.Thread(target=watch_playback_start,
+                     args=(self, self._generation, self._media_revision), daemon=True,
+                     name="eveos-spotify-edge-switch-watchdog").start()
     return self.status()
 
 
 def event(self, body):
     import secrets
-    from server_modules.audioflix_spotify_edge_lifecycle import hide_when_playing
+    from server_modules.audioflix_spotify_edge_lifecycle import hide_when_playing, _verified_progress
     with self._lock:
         if not self._running or not secrets.compare_digest(str(body.get("session") or ""), self._nonce):
             return {"ok": False, "reason": "Unknown Edge playback session."}
@@ -148,10 +152,15 @@ def event(self, body):
                 self._confirmed_progress += min(progressed, elapsed)
             self._state.update(currentTime=seconds, duration=duration,
                                paused=body.get("paused") is not False)
-            if playing and self._autoplay_status != "confirmed":
-                self._autoplay_status = "confirmed"
-                self._message = "Spotify playback and CABLE route confirmed."
-            if playing:
+            # Timestamp this exact, validated position before checking freshness;
+            # the prior timestamp was only for calculating progress/elapsed.
+            self._last_position_at = now
+            # A lone paused=False at position zero does not prove that Spotify
+            # actually started. Confirm only from advancing, routed progress.
+            if playing and _verified_progress(self, revision):
+                if self._autoplay_status != "confirmed":
+                    self._autoplay_status = "confirmed"
+                    self._message = "Spotify playback and CABLE route confirmed."
                 self._failure_revision = -1
                 self._failure_kind = ""
                 self._failure_reason = ""
@@ -164,7 +173,6 @@ def event(self, body):
                     and seconds >= max(0, duration - 8)):
                 self._near_end_seen = True
                 self._near_end_at = now
-            self._last_position_at = now
             self._last_progress_position = seconds
             tick = int(self._confirmed_progress // 5)
             if tick > self._hide_progress_tick and self._confirmed_progress > 0:
@@ -198,10 +206,49 @@ def event(self, body):
                                  daemon=True, name="eveos-spotify-edge-switch-play").start()
             return {"ok": True}
         if kind == "play-failed":
-            self._message = "Spotify could not autoplay the new song; use Show Spotify."
+            # SDK autoplay failure may be temporary (hidden window / gesture
+            # policy). The exact-window recovery and absolute startup watchdog
+            # decide termination; this event alone must never skip a good URL.
+            self._message = "Spotify reported an autoplay failure; exact-owner recovery pending."
             self._failure_revision = revision
             self._failure_kind = "provider-play-failed"
-            self._failure_reason = "Spotify reported that this official embed could not play."
-            self._failure_terminal = True
+            self._failure_reason = "Spotify's official embed reported an autoplay failure."
+            self._failure_terminal = False
             self._record("switch-autoplay-failed", revision=revision)
         return {"ok": True}
+
+
+def volume_command(self, payload):
+    """Apply revision-fenced native gain to the exact Spotify Edge session.
+
+    Called by EdgeSpotifyManager.command() while the session lock is held;
+    session ownership, applied-gain cache and retry-on-route remain unchanged.
+    """
+    if not self._running:
+        return {"ok": False, "reason": "No active Official Embed owner."}
+    if payload.get("spotifyUri") and payload["spotifyUri"] != self._uri:
+        return {"ok": False, "reason": "Volume belongs to a different Spotify song."}
+    if payload.get("revision") is not None:
+        try: revision = int(payload["revision"])
+        except (TypeError, ValueError): return {"ok": False, "reason": "Invalid volume revision."}
+        if revision != self._media_revision:
+            return {"ok": False, "reason": "Volume belongs to a stale Spotify revision."}
+    try: value = float(payload.get("gain", 1))
+    except (TypeError, ValueError): return {"ok": False, "reason": "Invalid Spotify volume."}
+    if not 0 <= value <= 1:
+        return {"ok": False, "reason": "Spotify volume must be between 0 and 1."}
+    self._desired_gain = value
+    changed = 0
+    live = self._process_finder(self._profile_path)
+    for pid, (born, _) in list(self._routes.items()):
+        if pid not in live or abs(live[pid] - born) > 1 or not self._backend:
+            continue
+        try:
+            count = self._backend.volume(pid, value, self._target)
+        except Exception as exc:
+            self._record("gain-pending", reason=type(exc).__name__)
+            continue  # Route worker retries the latest requested gain.
+        changed += count
+        if count: self._applied_gain[pid] = value
+    return {"ok": True, "status": "applied" if changed else "pending-session",
+            "applied": bool(changed), "sessions": changed, "gain": value}

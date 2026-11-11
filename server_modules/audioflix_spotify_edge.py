@@ -12,7 +12,7 @@ import secrets
 import subprocess
 import threading
 import time
-from datetime import timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 from server_modules.audioflix_spotify_edge_diagnostics import session_report_path
@@ -319,7 +319,9 @@ class EdgeSpotifyManager:
             profile.mkdir(parents=True, exist_ok=True)
             try:
                 self._launch([edge, f"--user-data-dir={profile}", "--no-first-run",
-                              "--no-default-browser-check", "--window-size=780,470", f"--app={page}"],
+                              "--no-default-browser-check", "--disable-background-timer-throttling",
+                              "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding",
+                              "--window-size=780,470", f"--app={page}"],
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             except Exception:
@@ -329,6 +331,10 @@ class EdgeSpotifyManager:
             self._record("launched", mediaType=match.group(1), endpoint=device_id or "CABLE Input")
             threading.Thread(target=self._run_route, args=(generation, device_id), daemon=True,
                              name="eveos-spotify-edge-route").start()
+            from server_modules.audioflix_spotify_edge_lifecycle import watch_playback_start
+            threading.Thread(target=watch_playback_start,
+                             args=(self, generation, 0), daemon=True,
+                             name="eveos-spotify-edge-start-watchdog").start()
             return self.status()
 
     def event(self, body):
@@ -402,34 +408,10 @@ class EdgeSpotifyManager:
                 self._pending.append(cmd)
                 return {"ok": True, "status": "queued", "controlNotYetConfirmed": True}
             if action == "volume":
-                if not self._running:
-                    return {"ok": False, "reason": "No active Official Embed owner."}
-                if payload.get("spotifyUri") and payload["spotifyUri"] != self._uri:
-                    return {"ok": False, "reason": "Volume belongs to a different Spotify song."}
-                if payload.get("revision") is not None:
-                    try: revision = int(payload["revision"])
-                    except (TypeError, ValueError): return {"ok": False, "reason": "Invalid volume revision."}
-                    if revision != self._media_revision:
-                        return {"ok": False, "reason": "Volume belongs to a stale Spotify revision."}
-                try: value = float(payload.get("gain", 1))
-                except (TypeError, ValueError): return {"ok": False, "reason": "Invalid Spotify volume."}
-                if not 0 <= value <= 1:
-                    return {"ok": False, "reason": "Spotify volume must be between 0 and 1."}
-                self._desired_gain = value
-                changed = 0
-                live = self._process_finder(self._profile_path)
-                for pid, (born, _) in list(self._routes.items()):
-                    if pid not in live or abs(live[pid] - born) > 1 or not self._backend:
-                        continue
-                    try:
-                        count = self._backend.volume(pid, value, self._target)
-                    except Exception as exc:
-                        self._record("gain-pending", reason=type(exc).__name__)
-                        continue  # Route worker retries the latest requested gain.
-                    changed += count
-                    if count: self._applied_gain[pid] = value
-                return {"ok": True, "status": "applied" if changed else "pending-session",
-                        "applied": bool(changed), "sessions": changed, "gain": value}
+                # Session-scoped gain handling lives with the other exact-owner
+                # controls; command() still holds the same reentrant lock.
+                from server_modules.audioflix_spotify_edge_session import volume_command
+                return volume_command(self, payload)
         return {"ok": False, "reason": "Unknown Spotify Edge command."}
 
 

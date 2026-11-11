@@ -95,13 +95,13 @@ def attempt_card_play(self, generation, revision=None, delay=0):
             self._failure_reason = ""
             self._failure_terminal = False
         elif invoked and routed and self._manual_pause_revision != captured_revision:
-            # Two exact-window invocations plus the bounded playback witness
-            # elapsed without routed progress. This is a revision-owned media
-            # failure, not an uncertain host failure, so the queue may skip it once.
+            # Invoked is NOT played. Leave the revision pending until the
+            # backend-owned startup deadline has witnessed actual progress (or
+            # expires). An inaccessible hidden window is not proof of a bad URL.
             self._failure_revision = captured_revision
-            self._failure_kind = "provider-playback-unavailable"
-            self._failure_reason = "Spotify did not produce playback after two owned Play attempts."
-            self._failure_terminal = True
+            self._failure_kind = "provider-playback-unconfirmed"
+            self._failure_reason = "Spotify Play was invoked but playback is not yet verified."
+            self._failure_terminal = False
         else:
             self._failure_revision = captured_revision
             self._failure_kind = "host-control-unavailable" if not invoked else "route-not-ready"
@@ -114,6 +114,62 @@ def attempt_card_play(self, generation, revision=None, delay=0):
             self._message = ("Automatic Play could not invoke the current Spotify card while "
                              "hidden. Use Show Spotify if the SDK does not start playback."
                              if self._hidden else "Automatic Play unavailable. Press Play on the Spotify card.")
+
+
+def watch_playback_start(self, generation, revision, delay=6.0, deadline=30.0):
+    """Break hidden-renderer deadlocks and terminate one exact stalled revision.
+
+    The renderer normally claims autoplay from ready/media-loaded. If background
+    throttling prevents that callback, this backend-owned deadline claims and
+    invokes the same exact-window path. It never retries a user Pause or a
+    superseded revision, and never labels an ambiguous timeout as unavailable.
+    """
+    # One absolute revision-owned deadline: UIA retries must not extend it
+    # after a hidden callback has already stalled for several seconds.
+    expires = time.monotonic() + max(float(delay), float(deadline))
+    time.sleep(delay)
+    claim = False
+    with self._lock:
+        if (not self._running or generation != self._generation
+                or revision != self._media_revision
+                or self._manual_pause_revision == revision
+                or _verified_progress(self, revision)
+                or self._autoplay_status == "confirmed"):
+            return
+        if revision == 0:
+            claim = not self._autoplay_attempted
+            self._autoplay_attempted = True
+        else:
+            claim = self._autoplay_attempted_revision != revision
+            self._autoplay_attempted_revision = revision
+        if claim:
+            self._record("startup-watchdog-claimed", revision=revision, hidden=self._hidden)
+    if claim:
+        attempt_card_play(self, generation, revision)
+    while time.monotonic() < expires:
+        with self._lock:
+            if (not self._running or generation != self._generation
+                    or revision != self._media_revision
+                    or self._manual_pause_revision == revision
+                    or _verified_progress(self, revision)
+                    or self._autoplay_status == "confirmed"
+                    or (self._failure_revision == revision and self._failure_terminal)):
+                return
+        time.sleep(0.5)
+    with self._lock:
+        if (not self._running or generation != self._generation
+                or revision != self._media_revision
+                or self._manual_pause_revision == revision
+                or _verified_progress(self, revision)
+                or self._autoplay_status == "confirmed"):
+            return
+        self._failure_revision = revision
+        self._failure_kind = "provider-start-timeout"
+        self._failure_reason = "Spotify did not produce playback before the bounded startup deadline."
+        self._failure_terminal = True
+        self._autoplay_status = "failed-timeout"
+        self._message = "Spotify playback failed after bounded exact-window retries; advancing safely."
+        self._record("startup-watchdog-terminal", revision=revision, hidden=self._hidden)
 
 def hide_when_playing(self, generation):
     from server_modules import audioflix_spotify_edge_window as window

@@ -14,7 +14,7 @@
     <link rel="stylesheet" href="js/modules/features/world-book/world-book.portal.css?v=56de3a7227d9">
     <link rel="stylesheet" href="js/modules/features/world-book/world-book.notes.workspace.css?v=c4c1db673b36">
     <link rel="stylesheet" href="css/modules/gemini/gemini_link_surfaces.eveos-fixes.css?v=5f41f44c6cff">
-    <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.css?v=935f1406a67a">
+    <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.css?v=037f08cc62ce">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.library.css?v=f391bd609567">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.library.context-menu.css?v=ece3a7df891d">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.editor.css?v=c276457df08f">
@@ -33,11 +33,11 @@
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.nexus.css?v=57f907b14101">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.nexus.quick.css?v=4860edf548d1">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.queue.reorder.css?v=642291cbca2c">
-    <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.piano.css?v=b8372585fa21">
+    <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.piano.css?v=eb7680f95e62">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.piano.frontend.css?v=63417bc77272">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.piano.frontend.ports.css?v=172705113be6">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.piano.frontend.media.css?v=cfe38ca16145">
-    <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.piano.frontend.organize.css?v=bfb575d584e7">
+    <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.piano.frontend.organize.css?v=93bf9d88ce90">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.piano.frontend.settings.css?v=a120dd6f3784">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.piano.frontend.suggestions.css?v=4619488a4c10">
     <link rel="stylesheet" href="js/modules/features/audioflix/audioflix.piano.frontend.v3.css?v=475cdb016e13">
@@ -56,9 +56,9 @@
             console.info(
                 '%cEveOS — local file mode',
                 'font-weight:bold;color:#7ee2a8;font-size:1.05em;',
-                '\nRunning from file:// with no server — browser-side features work fully offline.' +
-                '\nAny "ERR_CONNECTION_REFUSED" lines below are just optional servers being off (they are retried gently in the background).' +
-                '\nFor the Gemini backend, CABLE bridge, global hotkeys, and path ports: run start-server.bat and open http://127.0.0.1:8765/EveOS.html'
+                '\nRunning from file://. Browser-only features work offline; the verified native bridge may reconnect when its server is online.' +
+                '\nA refused optional service may be offline; repeated failures after reconnection require investigation.' +
+                '\nSome secure native actions require the same-origin http://127.0.0.1:8765/EveOS.html page; file:// does not grant localhost privileges.'
             );
         }
     </script>
@@ -246,19 +246,20 @@
     <script src="js/modules/features/world-book/world-book.narration.bridge.js?v=95b8e71bcad7"></script>
     <script src="js/modules/features/world-book/world-book.narration.agentic.js?v=d342c85b2a4e"></script>
     <script src="js/modules/features/audioflix/audioflix.paths.js?v=241f873e2ff9"></script>
-    <script src="js/modules/features/audioflix/audioflix.state.schema.js?v=1cce874bc662"></script>
+    <script src="js/modules/features/audioflix/audioflix.state.schema.js?v=1356c85ca2e0"></script>
     <script src="js/modules/features/audioflix/audioflix.groups.tree.js?v=77e72cbee805"></script>
     <script src="js/modules/features/audioflix/audioflix.state.groups.js?v=39f02ae79f74"></script>
-    <script src="js/modules/features/audioflix/audioflix.piano.client.js?v=68e802445a52"></script>
+    <script src="js/modules/features/audioflix/audioflix.piano.client.js?v=8d6991dd2607"></script>
     <script src="js/modules/features/audioflix/audioflix.piano.views.js?v=75c9b5751d9e"></script>
-    <script src="js/modules/features/audioflix/audioflix.piano.frontend.js?v=54a6eeab9699"></script>
-    <script src="js/modules/features/audioflix/audioflix.piano.frontend.ports.js?v=184a70499cce"></script>
+    <script src="js/modules/features/audioflix/audioflix.piano.frontend.js?v=8fd6b5b3d87b"></script>
+    <script src="js/modules/features/audioflix/audioflix.piano.frontend.ports.js?v=d0d63d6951e2"></script>
     <script src="js/modules/features/audioflix/audioflix.piano.frontend.media.js?v=35c4460b1473"></script>
-    <script src="js/modules/features/audioflix/audioflix.piano.ui.js?v=a5ec653cd23c"></script>
+    <script src="js/modules/features/audioflix/audioflix.piano.native.js?v=e435691bf81c"></script>
+    <script src="js/modules/features/audioflix/audioflix.piano.ui.js?v=1af966cdf7f1"></script>
     <script src="js/modules/features/audioflix/audioflix.piano.frontend.taxonomy.js?v=2d6a70736a3c"></script>
     <script src="js/modules/features/audioflix/audioflix.piano.frontend.suggestions.js?v=0574749250c4"></script>
     <script src="js/modules/features/audioflix/audioflix.piano.frontend.organize.js?v=78a9d703141a"></script>
-    <script src="js/modules/features/audioflix/audioflix.piano.frontend.fast-track.js?v=04c56ba5c838"></script>
+    <script src="js/modules/features/audioflix/audioflix.piano.frontend.fast-track.js?v=e3f4c3e17e0d"></script>
     <script src="js/modules/features/audioflix/audioflix.piano.frontend.duplicates.js?v=59672fe49136"></script>
     <script src="js/modules/features/audioflix/audioflix.piano.frontend.settings.js?v=c54fac5364a9"></script>
     <script src="js/modules/features/audioflix/audioflix.piano.frontend.v3.cards.js?v=4a9056d5b32d"></script>
@@ -289,13 +290,14 @@
     <script src="js/modules/features/audioflix/audioflix.native.identity.js?v=859f13a8d24d"></script>
     <script src="js/modules/features/audioflix/audioflix.native.backoff.js?v=779511928336"></script>
     <script src="js/modules/features/audioflix/audioflix.native.route-state.js?v=bae8353386b4"></script>
-    <script src="js/modules/features/audioflix/audioflix.native.js?v=990a37506787"></script>
-    <script src="js/modules/features/audioflix/audioflix.native.provider-capture.js?v=584cca2cc1b4"></script>
+    <script src="js/modules/features/audioflix/audioflix.native.js?v=6ead77e4add8"></script>
+    <script src="js/modules/features/audioflix/audioflix.native.provider-capture.js?v=f8dbd01bf67d"></script>
+    <script src="js/modules/features/audioflix/audioflix.piano.native.js?v=e435691bf81c"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.source.js?v=8aa6ed04f97c"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.volume-target.js?v=463e7e2937f9"></script>
     <script src="js/modules/features/audioflix/audioflix.ui.volume-gesture.js?v=90ff34c71fe0"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.internal.queue.js?v=e8ab78e1f282"></script>
-    <script src="js/modules/features/audioflix/audioflix.audio.internal.js?v=1345db515be0"></script>
+    <script src="js/modules/features/audioflix/audioflix.audio.internal.js?v=d27238edf5bc"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.url.loaders.js?v=254f26c98818"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.url.widgets.js?v=592218c4e137"></script>
     <script src="js/modules/features/audioflix/audioflix.spotify.media.js?v=0d6e349a74c3"></script>
@@ -315,7 +317,7 @@
     <script src="js/modules/features/audioflix/audioflix.audio.codec.js?v=6bd4284f8a7e"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.bridge.js?v=d991980cc88b"></script>
     <script src="js/modules/features/audioflix/audioflix.capture.processor.src.js?v=b8e274ab0499"></script>
-    <script src="js/modules/features/audioflix/audioflix.piano.pcm.js?v=c93a059234e3"></script>
+    <script src="js/modules/features/audioflix/audioflix.piano.pcm.js?v=d904504e6312"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.waveform.js?v=3132a3240a3d"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.capture.js?v=4f37ef5f5a5c"></script>
     <script src="js/modules/features/audioflix/audioflix.provider.capture.js?v=f57a1626a873"></script>
@@ -325,7 +327,7 @@
     <script src="js/modules/features/audioflix/audioflix.audio.local.js?v=0f6928a0e466"></script>
     <script src="js/modules/features/audioflix/audioflix.audio.js?v=1213a8bdaae2"></script>
     <script src="js/modules/features/audioflix/audioflix.spotify.edge.handoff.js?v=3721e9cf2475"></script>
-    <script src="js/modules/features/audioflix/audioflix.spotify.edge.failures.js?v=8f0983fda6d5"></script>
+    <script src="js/modules/features/audioflix/audioflix.spotify.edge.failures.js?v=4ba69409aa11"></script>
     <script src="js/modules/features/audioflix/audioflix.spotify.edge.js?v=05de0e9a1695"></script>
     <script src="js/modules/features/audioflix/audioflix.transport.js?v=3d770d31fe66"></script>
     <script src="js/modules/features/audioflix/audioflix.gemini.js?v=f0d5a19a3504"></script>
@@ -385,7 +387,7 @@
     <script src="js/modules/features/audioflix/audioflix.ui.managers.js?v=4f62d8b59811"></script>
     <script src="js/modules/features/audioflix/audioflix.ui.modal.js?v=9d9366427d59"></script>
     <script src="js/modules/features/audioflix/audioflix.ui.window.js?v=54ac7a550f2a"></script>
-    <script src="js/modules/features/audioflix/audioflix.ui.render.js?v=3ee6e1a96540"></script>
+    <script src="js/modules/features/audioflix/audioflix.ui.render.js?v=36fc62edbb0e"></script>
     <script src="js/modules/features/audioflix/audioflix.ui.hotkeys.js?v=88d36a5f4323"></script>
     <script src="js/modules/features/audioflix/audioflix.queue.membership.js?v=7d4281f92d5e"></script>
     <script src="js/modules/features/audioflix/audioflix.ui.forms.js?v=2a35b132d6c5"></script>
@@ -400,8 +402,8 @@
     <script src="js/modules/features/audioflix/audioflix.ui.panel.js?v=6d8e1697d8b7"></script>
     <script src="js/modules/features/audioflix/audioflix.ui.playlist-import.js?v=b4d3f719e282"></script>
     <script src="js/modules/features/audioflix/audioflix.spotify.fallback.js?v=8b782c5f4fc7"></script>
-    <script src="js/modules/features/audioflix/audioflix.ui.piano-retain.js?v=8a1f33196083"></script>
-    <script src="js/modules/features/audioflix/audioflix.ui.js?v=8bebccf587d1"></script>
+    <script src="js/modules/features/audioflix/audioflix.ui.piano-retain.js?v=ca2ca6e960f0"></script>
+    <script src="js/modules/features/audioflix/audioflix.ui.js?v=c550c58f36b6"></script>
     <script src="js/modules/features/audioflix/audioflix.nexus.quick.js?v=42df77786d8d"></script>
     <script src="js/modules/features/audioflix/audioflix.queue.reorder.js?v=5cf9aa7869ff"></script>
     <script src="js/modules/gemini/ui/agenticDialogPortal.js?v=a8f27283e9d9"></script>

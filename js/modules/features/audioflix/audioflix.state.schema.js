@@ -212,7 +212,8 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
                 sourceId: text(source.sourceId, ''),
                 upstreamMissing: source.upstreamMissing === true,
                 missingLocal: source.missingLocal === true,
-                spotifyAvailability: source.spotifyAvailability === 'unavailable' ? 'unavailable' : '',
+                spotifyAvailability: ['unavailable', 'failed'].includes(source.spotifyAvailability)
+                    ? source.spotifyAvailability : '',
                 spotifyAvailabilityReason: text(source.spotifyAvailabilityReason, '').slice(0, 180),
                 spotifyAvailabilityCheckedAt: Math.max(0, Number(source.spotifyAvailabilityCheckedAt || 0) || 0),
                 isPorted: source.isPorted === true,

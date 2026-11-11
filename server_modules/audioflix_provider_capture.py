@@ -8,7 +8,7 @@ import secrets
 import threading
 import time
 
-from server_modules.audioflix_bridge_playback import _player_for, play_pcm, stop_stream
+from server_modules.audioflix_bridge_playback import _player_for, play_pcm, stop_stream, stream_health
 
 _LOCK = threading.RLock()
 _START_LOCK = threading.Lock()
@@ -232,6 +232,16 @@ def chunk(payload: dict) -> dict:
 
 def status(payload: dict) -> dict:
     session_id, entry = _require(payload)
+    renderer = stream_health(entry["deviceId"], entry["lane"], session_id)
+    if renderer.get("ok") is not True:
+        # A valid lease must never hide a dead physical renderer. Retire only this
+        # authenticated lane so the same owner can reopen it without restarting Piano.
+        with entry["ioLock"]:
+            with _LOCK:
+                if _SESSIONS.get(session_id) is entry:
+                    _SESSIONS.pop(session_id, None)
+            _discard(session_id, entry)
+        raise RuntimeError("Provider capture native renderer became unavailable.")
     return {
         "ok": True,
         "sessionId": session_id,
@@ -250,6 +260,8 @@ def status(payload: dict) -> dict:
         "dropped": entry["dropped"],
         "underruns": entry["underruns"],
         "backlogFrames": entry["backlogFrames"],
+        "rendererRunning": True,
+        "renderer": renderer,
         "expiresAt": int(entry["expiresAt"] * 1000),
     }
 

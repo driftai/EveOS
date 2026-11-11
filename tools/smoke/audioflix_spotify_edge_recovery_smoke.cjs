@@ -95,13 +95,24 @@ const settle = async () => { for (let i = 0; i < 12; i += 1) await Promise.resol
       reason: 'bounded Play attempts exhausted', terminal: true },
     state: { paused: true, currentTime: 0, duration: 180, ended: false } };
   await interval(); await interval();
-  assert.equal(item.spotifyAvailability, 'unavailable', 'terminal provider failure is persisted on the song');
+  assert.equal(item.spotifyAvailability, 'failed', 'unconfirmed Play is a playback failure, not proof of URL removal');
   assert.equal(events.filter(event => event.detail?.terminal === true).length, 1,
     'one revision may advance the queue only once');
   window.EveAudioflixSpotifyEdgeFailures.begin(item);
   await interval();
   assert.equal(events.filter(event => event.detail?.terminal === true).length, 2,
     'a later explicit retry gets one fresh terminal receipt even when a new host restarts at revision zero');
+  status = { ...status, mediaRevision: 7, autoPlayStatus: 'failed-timeout', failure: {
+    revision: 7, kind: 'provider-start-timeout', reason: 'bounded startup deadline', terminal: true } };
+  window.EveAudioflixSpotifyEdgeFailures.begin(item);
+  await interval();
+  assert.equal(item.spotifyAvailability, 'failed',
+    'ambiguous host startup timeout is visible without permanently marking the Spotify URL unavailable');
+  status = { ...status, mediaRevision: 8, failure: {
+    revision: 8, kind: 'provider-track-unavailable', reason: 'provider confirmed unavailable', terminal: true } };
+  window.EveAudioflixSpotifyEdgeFailures.begin(item);
+  await interval();
+  assert.equal(item.spotifyAvailability, 'unavailable', 'only explicit provider proof produces URL unavailable marker');
   status = { ...status, autoPlayStatus: 'confirmed', failure: {
     revision: -1, kind: '', reason: '', terminal: false },
     state: { paused: false, currentTime: 3, duration: 180, ended: false } };

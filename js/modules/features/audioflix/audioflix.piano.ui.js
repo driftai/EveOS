@@ -1,9 +1,7 @@
 window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
-
 (function (ns) {
     'use strict';
     if (ns.ready) return;
-
     let visible = false;
     let pollTimer = 0;
     let root = null;
@@ -11,16 +9,23 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
     let detachedTimer = 0;
     let outputRoute = null;
     let pcmRoute = null;
+    let pianoTransport = 'native-pcm';
+    // Server-owned playback is the default for new users. Explicit Browser PCM choices
+    // survive a page reload; no preference ever overrides a running native session.
+    const enginePreferenceKey = 'eveos:piano:internal-engine:v1';
+    let serverOwnedChoice = (() => {
+        try { return localStorage.getItem(enginePreferenceKey) !== 'browser'; }
+        catch (_) { return true; }
+    })();
+    const nativeToken = [...crypto.getRandomValues(new Uint8Array(24))]
+        .map(value => value.toString(16).padStart(2, '0')).join('');
     const contextSignatures = new WeakMap();
-
     function snapshot() {
         return window.EveAudioflixPiano?.state || {};
     }
-
     function isDetached() {
         return Boolean(detachedWindow && !detachedWindow.closed);
     }
-
     function context() {
         const audioflix = window.EveAudioflixState?.getSnapshot?.() || {};
         const route = audioflix.preferredSinkLabel || (audioflix.nativeBridgeEnabled && audioflix.nativeOutputLabel) || 'Default output';
@@ -30,10 +35,13 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
             musicCount: Number(audioflix.music?.length || 0),
             outputRoute: route,
             audioOutput: { requestedLabel: route, browserSinkId: audioflix.preferredSinkId || '', source: audioflix.preferredSinkId ? 'browser-selective' : (audioflix.nativeBridgeEnabled ? 'native-match' : 'browser') },
+            pianoNative: { available: audioflix.nativeBridgeEnabled === true
+                && String(audioflix.nativeOutputId || '').startsWith('sd:')
+                && window.EveAudioflixPianoNative?.ready === true,
+                token: nativeToken, preferred: serverOwnedChoice },
             sentAt: new Date().toISOString()
         };
     }
-
     function targetDetails(value) {
         // WindowProxy turns cross-origin on Detach: never read iframe-only properties from it.
         const isFrame = typeof HTMLIFrameElement !== 'undefined' && value instanceof HTMLIFrameElement;
@@ -45,7 +53,6 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
             frame: isFrame ? value : null, source }; }
         catch (_) { return null; }
     }
-
     async function sendContext(frame, options = {}) {
         const destination = targetDetails(frame);
         if (!destination || destination.origin === 'null') return false;
@@ -54,16 +61,27 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         if (destination.frame?.contentDocument && destination.origin !== window.location.origin) return false;
         const initial = context();
         const routeState = window.EveAudioflixState?.getSnapshot?.() || {};
+        const preferBrowserDirect = options.preferBrowserDirect === true;
         const signature = JSON.stringify({ origin: destination.origin, route: initial.outputRoute,
             sink: initial.audioOutput.browserSinkId, native: routeState.nativeBridgeEnabled === true,
-            nativeId: routeState.nativeOutputId || '' });
+            nativeId: routeState.nativeOutputId || '',
+            nativeReady: initial.pianoNative.available, nativePreferred: serverOwnedChoice,
+            sessionActive: Boolean(window.EveAudioflixPianoNative?.snapshot?.()?.sessionId),
+            transport: preferBrowserDirect ? 'browser-direct' : 'native-pcm' });
         if (options.force !== true && options.retry !== true && contextSignatures.get(destination.target) === signature) return true;
         try {
-            const [sink, pianoPcm] = await Promise.all([
-                Promise.resolve(window.EveAudioflixAudio?.resolvePlaybackSink?.()).catch(() => null),
-                window.EveAudioflixPianoPcm?.authorize?.(destination.target, destination.origin, options)
-                    .catch(error => ({ requested: true, active: false, error: String(error?.message || error) }))
-            ]);
+            const sink = await Promise.resolve(window.EveAudioflixAudio?.resolvePlaybackSink?.()).catch(() => null);
+            const useBrowserDirect = preferBrowserDirect && Boolean(sink?.deviceId);
+            // Once server-owned playback begins, do not resurrect the browser PCM lane
+            // during a context refresh; that can race the selected native renderer.
+            const serverOwnedActive = Boolean(window.EveAudioflixPianoNative?.snapshot?.()?.sessionId);
+            const pianoPcm = serverOwnedActive
+                ? { requested: false, active: false, transport: 'server-owned' }
+                : useBrowserDirect
+                ? await Promise.resolve(window.EveAudioflixPianoPcm?.revoke?.(destination.target))
+                    .then(() => ({ requested: false, active: false, transport: 'browser-direct' }))
+                : await window.EveAudioflixPianoPcm?.authorize?.(destination.target, destination.origin, options)
+                    .catch(error => ({ requested: true, active: false, error: String(error?.message || error) }));
             const refined = { ...context(), audioOutput: { requestedLabel: initial.audioOutput.requestedLabel,
                 browserSinkId: String(sink?.deviceId || ''), source: sink?.source || initial.audioOutput.source },
                 pianoPcm: pianoPcm || { requested: false, active: false } };
@@ -72,17 +90,18 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
                 || destination.frame.getAttribute('src') !== destination.source)) return false;
             if (destination.frame?.contentDocument && destination.origin !== window.location.origin) return false;
             destination.target.postMessage({ type: 'eveos:audioflix-context', context: refined }, destination.origin);
+            pianoTransport = useBrowserDirect ? 'browser-direct' : 'native-pcm';
             contextSignatures.set(destination.target, signature);
             return true;
         } catch (_) { return false; }
     }
-
     function outputRouteStatus() { return outputRoute ? { ...outputRoute } : null; }
     function renderOutputRouteCard() {
         const esc = value => String(value || '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
         const current = outputRouteStatus(), audioflix = window.EveAudioflixState?.getSnapshot?.() || {};
         const requested = audioflix.preferredSinkLabel || (audioflix.nativeBridgeEnabled && audioflix.nativeOutputLabel) || 'System default output';
-        if (audioflix.nativeBridgeEnabled && String(audioflix.nativeOutputId || '').startsWith('sd:')) {
+        if (audioflix.nativeBridgeEnabled && String(audioflix.nativeOutputId || '').startsWith('sd:')
+            && !(pianoTransport === 'browser-direct' && current?.applied === true)) {
             const active = pcmRoute?.status === 'active', failed = pcmRoute?.status === 'failed';
             const reconnecting = pcmRoute?.status === 'recovering';
             const title = active ? (audioflix.nativeOutputLabel || audioflix.nativeOutputId)
@@ -99,7 +118,6 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         const detail = ready ? 'Piano WebAudio is using this browser-authorized output.' : 'Piano is browser WebAudio. Grant/select the same browser output as the Native Bridge to send it through that port.';
         return `<article class="audioflix-status-card ${ready ? 'is-on' : ''}"><span>Piano WebAudio</span><strong>${esc(title)}</strong><p>${esc(detail)}</p>${ready ? '' : '<button type="button" data-af-action="route-piano-output">Route Piano to selected port</button>'}</article>`;
     }
-
     function watchDetached() {
         if (detachedTimer) clearInterval(detachedTimer);
         if (!isDetached()) {
@@ -116,7 +134,6 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
             patch();
         }, 700);
     }
-
     function patch(host = root) {
         const panel = host?.querySelector?.('[data-audioflix-piano]');
         if (!panel) return;
@@ -166,6 +183,7 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         if (detachedOverlay) detachedOverlay.hidden = !detached;
         window.EveAudioflixPianoViews?.apply?.(panel);
         window.EveAudioflixPianoFrontend?.sync?.(host);
+        window.EveAudioflixPianoFrontendPorts?.syncEngine?.();
         if (setupState) {
             const conversion = status.youtubeSetup ? 'Media conversion installed' : 'Media conversion optional';
             const hifi = status.hifiSetup ? 'Hi-Fi installed' : 'Hi-Fi optional';
@@ -174,7 +192,6 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
                 : `Core ready - ${conversion} - ${hifi}`;
         }
     }
-
     function reloadWorkspace() {
         const destination = targetDetails(isDetached()
             ? detachedWindow
@@ -185,7 +202,6 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         destination.target.postMessage({ type: 'eveos:piano-refresh' }, destination.origin);
         return true;
     }
-
     async function refresh({ reloadWorkspace: shouldReloadWorkspace = false, retryPcm = false } = {}) {
         await window.EveAudioflixPiano?.refresh?.();
         patch();
@@ -195,7 +211,6 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         }
         if (shouldReloadWorkspace && snapshot().running) reloadWorkspace();
     }
-
     function syncPoll() {
         if (pollTimer && !visible) {
             clearInterval(pollTimer);
@@ -203,7 +218,6 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         }
         if (!pollTimer && visible) pollTimer = setInterval(() => void refresh(), 5000);
     }
-
     function setVisible(next) {
         visible = next === true;
         syncPoll();
@@ -231,7 +245,7 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         const selecting = status.phase === 'selecting';
         return `<section class="audioflix-piano" data-audioflix-piano>
             <header class="audioflix-piano-header"><div><span>PIANO AUTOMATION</span><h3 data-piano-view-title>Piano Auto Player - Backend</h3><p>Search sheets, record exact performances, audition internally, or send timed keys to a selected piano window.</p></div><div class="audioflix-piano-actions"><b data-piano-status data-state="${status.phase || 'checking'}">${running ? 'Online' : selecting ? 'Choosing mode' : 'Checking'}</b><button type="button" data-af-action="piano-refresh">Refresh</button><button type="button" data-af-action="piano-setup">Setup / Repair</button><button type="button" data-af-action="piano-toggle" data-piano-toggle>${selecting ? 'Choose mode in terminal…' : running ? 'Stop Piano' : 'Start Piano'}</button><button type="button" data-af-action="piano-detach">Detach</button></div></header>
-            <div class="audioflix-piano-meta"><p class="audioflix-piano-message" data-piano-message>${status.message || 'Checking the local Piano service...'}</p><button type="button" class="audioflix-piano-view-switch" data-af-action="piano-view-switch" data-piano-view-switch aria-label="Switch to Piano frontend">Frontend</button></div>
+            <div class="audioflix-piano-meta"><p class="audioflix-piano-message" data-piano-message>${status.message || 'Checking the local Piano service...'}</p><button type="button" class="audioflix-piano-view-switch" data-af-action="piano-view-switch" data-piano-view-switch aria-label="Switch Piano view">Frontend</button></div>
             <div class="audioflix-piano-stage">
                 <div class="audioflix-piano-backend" data-piano-backend aria-hidden="false">
                 <iframe data-piano-frame title="Piano Auto Player" allow="autoplay" src="${running ? status.url : 'about:blank'}" ${running ? '' : 'hidden'}></iframe>
@@ -297,8 +311,35 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         return true;
     }
 
+    function engineChoice() {
+        const audio = window.EveAudioflixState?.getSnapshot?.() || {};
+        const available = audio.nativeBridgeEnabled === true
+            && String(audio.nativeOutputId || '').startsWith('sd:')
+            && window.EveAudioflixPianoNative?.ready === true;
+        const attached = Boolean(window.EveAudioflixPianoNative?.snapshot?.()?.sessionId);
+        return { selected: attached || serverOwnedChoice ? 'server' : 'browser', available, attached,
+            message: attached ? 'Playing from the server-owned Piano engine. Stop before switching.'
+                : !available && serverOwnedChoice ? 'Start the native bridge and select an output under AudioFlix Audio Output / Voice Port.'
+                : serverOwnedChoice ? 'Native playback runs independently of the browser.'
+                : 'Browser PCM can become choppy when EveOS is minimized.' };
+    }
+    async function chooseEngine(native) {
+        const wanted = native === true;
+        if (!wanted && window.EveAudioflixPianoNative?.snapshot?.()?.sessionId)
+            return { ok: false, message: 'Stop the server-owned Piano song before switching to Browser PCM.' };
+        serverOwnedChoice = wanted;
+        try { localStorage.setItem(enginePreferenceKey, wanted ? 'server' : 'browser'); } catch (_) {}
+        const target = isDetached() ? detachedWindow : root?.querySelector?.('[data-piano-frame]');
+        if (target) await sendContext(target, { force: true });
+        patch();
+        return { ok: true, selected: wanted ? 'server' : 'browser' };
+    }
     async function handleAction(target) {
         const action = target?.dataset?.afAction || '';
+        if (action === 'piano-native-mode-toggle') {
+            await chooseEngine(!serverOwnedChoice);
+            return { handled: true };
+        }
         if (action === 'piano-view-switch') {
             window.EveAudioflixPianoViews?.toggle?.(root?.querySelector?.('[data-audioflix-piano]'));
             window.EveAudioflixPianoFrontend?.sync?.(root);
@@ -335,13 +376,51 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
             else if (event.source === embedded?.contentWindow && event.origin === targetDetails(embedded)?.origin)
                 void sendContext(embedded, { force: true });
         }
+        if (event.data?.type === 'piano:eveos-engine-choice') {
+            const embedded = root?.querySelector?.('[data-piano-frame]');
+            const trusted = (event.source === embedded?.contentWindow && event.origin === targetDetails(embedded)?.origin)
+                || (event.source === detachedWindow && event.origin === targetDetails(detachedWindow)?.origin);
+            if (!trusted || typeof event.data.nativePreferred !== 'boolean') return;
+            void chooseEngine(event.data.nativePreferred);
+            return;
+        }
+        if (event.data?.type === 'piano:eveos-native-request') {
+            const frame = root?.querySelector?.('[data-piano-frame]')?.contentWindow;
+            const trusted = event.source === frame || event.source === detachedWindow;
+            if (!trusted || event.data.token !== nativeToken || !window.EveAudioflixPianoNative?.ready) return;
+            const action = String(event.data.action || 'status');
+            const fn = window.EveAudioflixPianoNative[action];
+            Promise.resolve(typeof fn === 'function' ? fn(event.data.payload) : Promise.reject(new Error('Unknown Piano native action.')))
+                .then(result => event.source?.postMessage?.({ type: 'piano:eveos-native-response',
+                    requestId: event.data.requestId, ok: true, result }, event.origin))
+                .catch(error => event.source?.postMessage?.({ type: 'piano:eveos-native-response',
+                    requestId: event.data.requestId, ok: false, message: String(error?.message || error) }, event.origin));
+            return;
+        }
         if (event.data?.type === 'piano:eveos-audio-route') {
             const frame = root?.querySelector?.('[data-piano-frame]')?.contentWindow;
             if (event.source !== frame && event.source !== detachedWindow) return;
             const next = event.data.route && typeof event.data.route === 'object' ? event.data.route : null;
             if (JSON.stringify(next) !== JSON.stringify(outputRoute)) { outputRoute = next; window.EveAudioflix?.render?.(); }
+            const current = window.EveAudioflixState?.getSnapshot?.() || {};
+            if (current.nativeBridgeEnabled === true && String(current.nativeOutputId || '').startsWith('sd:')) {
+                const target = event.source === detachedWindow ? detachedWindow : root?.querySelector?.('[data-piano-frame]');
+                if (next?.applied === true && next?.sinkId && pianoTransport !== 'browser-direct')
+                    void sendContext(target, { force: true, preferBrowserDirect: true });
+                else if (next?.applied !== true && pianoTransport === 'browser-direct')
+                    void sendContext(target, { force: true });
+            }
         }
     });
+    // AudioFlix may build its iframe before deferred native JS finishes loading.
+    // Re-issue its authenticated context when that module becomes ready.
+    const resyncNative = () => {
+        const target = isDetached() ? detachedWindow : root?.querySelector?.('[data-piano-frame]');
+        if (snapshot().running && target) void sendContext(target, { force: true });
+        patch();
+    };
+    window.addEventListener('eve:audioflix-piano-native-session', resyncNative);
+    window.addEventListener('eve:audioflix-piano-native-ready', resyncNative);
     window.addEventListener('eve:audioflix-piano-status', () => patch());
     window.addEventListener('eve:audioflix-piano-pcm', event => {
         const previous = pcmRoute?.status;
@@ -355,5 +434,6 @@ window.EveAudioflixPianoUi = window.EveAudioflixPianoUi || {};
         window.EveAudioflix?.render?.();
     });
     Object.assign(ns, { ready: true, render, afterRender, setVisible, handleAction, reattach,
-        outputRouteStatus, pcmRouteStatus: () => pcmRoute ? { ...pcmRoute } : null, renderOutputRouteCard });
+        outputRouteStatus, pcmRouteStatus: () => pcmRoute ? { ...pcmRoute } : null,
+        renderOutputRouteCard, engineChoice, chooseEngine });
 })(window.EveAudioflixPianoUi);

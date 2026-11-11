@@ -337,7 +337,7 @@ function installPlayerQueue() {
     if (statusChip) {
       const statusObserver = new MutationObserver(() => {
         const value = statusChip.dataset.state || "";
-        if (value === "complete" && lastStatus !== "complete") { lastStatus = "complete"; void advanceAfterComplete(); }
+        if (value === "complete" && lastStatus !== "complete") { lastStatus = "complete"; if (window.PianoPlaybackOwner?.status?.()?.status === "complete") void advanceAfterComplete(); }
         else if (value !== "complete") lastStatus = value;
       });
       statusObserver.observe(statusChip, { attributes: true, attributeFilter: ["data-state"] });

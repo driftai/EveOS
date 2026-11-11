@@ -160,7 +160,7 @@
     for (const listener of subscribers) { try { listener({ controls, queue, progress, media }); } catch (_) {} }
   }
   function updateControls() {
-    const internal = $('[data-pxp-internal]'), target = $('[data-pxp-target]');
+    const internal = $('[data-pxp-internal]'), target = $('[data-pxp-target]'); const engine = window.EveAudioflixPianoUi?.engineChoice?.() || { selected:'server', available:false, attached:false, message:'Checking native Piano…' }; canvas()?.querySelectorAll('[data-pxp-engine-option]').forEach(input => { input.checked = input.value === engine.selected; input.disabled = !active() || (input.value === 'server' && !engine.available) || (input.value === 'browser' && engine.attached); }); const engineNote = $('[data-pxp-engine-note]'); if (engineNote) engineNote.textContent = engine.message;
     if (internal) internal.disabled = !active() || !controls;
     if (!controls) { for (const selector of ['[data-pxp-target]','[data-pxp-layout]','[data-pxp-sound]']) { const node = $(selector); if (node) node.disabled = true; } return; }
     if (internal) internal.checked = !!controls.internal;
@@ -313,7 +313,7 @@
     const settings = document.createElement('details'); settings.className = 'piano-pxp-controls';
     settings.innerHTML = `<summary class="piano-pxp-heading"><strong>Playback setup</strong><span>Optional controls · expand to configure</span></summary>
       <div class="piano-pxp-control-grid">
-        <label class="piano-pxp-toggle"><span>Internal Play</span><input type="checkbox" data-pxp-internal aria-label="Internal Play"><small>Play through the built-in Piano</small></label>
+        <label class="piano-pxp-toggle"><span>Internal Play</span><input type="checkbox" data-pxp-internal aria-label="Internal Play"><small>Play through the built-in Piano</small></label><fieldset class="piano-pxp-engine" data-pxp-engine><legend>Internal Play engine</legend><div class="piano-pxp-engine-options"><label><input type="radio" name="piano-pxp-engine" value="server" data-pxp-engine-option><span><strong>Server-owned output · Recommended</strong><small>The EveOS server renders notes independently of your browser. Uses the device selected in AudioFlix Audio Output / Voice Port.</small></span></label><label><input type="radio" name="piano-pxp-engine" value="browser" data-pxp-engine-option><span><strong>Browser PCM · Compatibility</strong><small>The browser generates notes and streams PCM to the same AudioFlix output; may stutter in the background.</small></span></label></div><p class="piano-pxp-engine-status" data-pxp-engine-note role="status"></p></fieldset>
         <label><span>Target Window</span><select data-pxp-target aria-label="Piano target window" disabled><option>Connecting…</option></select><small data-pxp-target-note>External keyboard target</small></label>
         <label><span>Piano Layout</span><select data-pxp-layout aria-label="Piano layout" disabled><option>Connecting…</option></select><small>Choose the keyboard range</small></label>
         <label><span>Internal Piano Sound</span><select data-pxp-sound aria-label="Internal Piano Sound" disabled><option>Connecting…</option></select><small data-pxp-sound-note>Choose the built-in instrument</small></label>
@@ -338,7 +338,7 @@
     workspace.querySelector('[data-pxp-workspace-body]')?.append(queuePanel);
     const sort = c.querySelector('[data-pf-sort]'); if (sort) for (const [value,text] of [['rating','Personal rating'],['conversion','Conversion rating'],['longest','Longest'],['shortest','Shortest'],['events','Most events']]) { const op=document.createElement('option');op.value=value;op.textContent=text;sort.append(op); }
     c.addEventListener('change', event => {
-      const el = event.target;
+      const el = event.target; if (el.matches('[data-pxp-engine-option]')) { void Promise.resolve(window.EveAudioflixPianoUi?.chooseEngine?.(el.value === 'server')).then(result => { if (result?.ok === false) note(result.message); updateControls(); }); return; }
       if (el.matches('[data-pxp-internal]')) {
         if (controls) { controls.internal = el.checked; updateControls(); }
         send('controls:set',{field:'internal',value:el.checked}); return;
@@ -434,7 +434,7 @@
     ready:true,ensureFilters,matches,sortSongs,
     decorateSongs(target, visible, all) { decorateSongs(target, visible, all); window.EveAudioflixPianoFrontendMedia?.decorateSongs?.(target, visible, all); },
     command: (action, fields) => send(action, fields) !== false, request, invalidate, settlePending,
-    snapshot: () => ({ controls, queue, progress, media }),
+    snapshot: () => ({ controls, queue, progress, media }), syncEngine: updateControls,
     subscribe(listener) { if (typeof listener !== 'function') return () => {}; subscribers.add(listener); listener({ controls, queue, progress, media }); return () => subscribers.delete(listener); }
   });
 })(window.EveAudioflixPianoFrontendPorts = window.EveAudioflixPianoFrontendPorts || {}, window.EveAudioflixPianoFrontend);

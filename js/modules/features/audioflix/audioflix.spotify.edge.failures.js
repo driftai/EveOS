@@ -27,11 +27,15 @@ window.EveAudioflixSpotifyEdgeFailures = window.EveAudioflixSpotifyEdgeFailures 
     const failure = status.failure || {};
     const exact = Number(failure.revision) === status.mediaRevision;
     if (exact && failure.terminal === true) {
-      patch(item, 'unavailable', failure.reason || 'Spotify could not play this official embed.');
+      // A failed UIA click, delayed audio witness or provider autoplay refusal
+      // does NOT prove that the track is gone or region-blocked. Only a
+      // provider-confirmed permanent reason earns the unavailable marker.
+      const unavailable = ['provider-track-unavailable', 'provider-region-unavailable'].includes(failure.kind);
+      patch(item, unavailable ? 'unavailable' : 'failed', failure.reason || 'Spotify could not play this official embed.');
       const key = `${item.id}:${status.mediaRevision}`;
       if (lastTerminal !== key) {
         lastTerminal = key;
-        notify?.('Spotify URL unavailable; advancing the queue.', true, { terminal: true });
+        notify?.(`${unavailable ? 'Spotify URL unavailable' : 'Spotify playback failed'}; advancing the queue.`, true, { terminal: true });
       }
       return true;
     }

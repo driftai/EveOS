@@ -31,7 +31,7 @@ def pcm(value=1000):
 
 
 def main():
-    old = capture._player_for, capture.play_pcm, capture.stop_stream, capture._now
+    old = capture._player_for, capture.play_pcm, capture.stop_stream, capture._now, capture.stream_health
     calls, stops = [], []
     capture._SESSIONS.clear()
     capture._player_for = lambda *args: calls.append(("open", args)) or Player()
@@ -39,6 +39,7 @@ def main():
         "ok": True, "deviceId": payload["deviceId"], "queued": 1024
     }
     capture.stop_stream = lambda payload: stops.append(payload.copy()) or {"ok": True}
+    capture.stream_health = lambda *_args: {"ok": True, "active": True, "callbackCount": 10, "callbackAgeMs": 1}
     try:
         spotify = capture.start({"deviceId": "sd:7", "sampleRate": 48000, "source": "managed-spotify"})
         piano = capture.start({"deviceId": "sd:7", "sampleRate": 48000, "source": "piano-post-compressor",
@@ -69,6 +70,20 @@ def main():
         capture.stop({"sessionId": replacement["sessionId"], "captureToken": replacement["captureToken"],
             "lane": "piano-pcm", "ownerId": replacement["ownerId"], "generation": 2})
         assert capture.status({"sessionId": spotify["sessionId"], "captureToken": spotify["captureToken"]})["ok"]
+
+        dead = capture.start({"deviceId": "sd:7", "sampleRate": 48000, "source": "piano-post-compressor",
+            "lane": "piano-pcm", "ownerId": "piano-owner:renderer-fixture", "generation": 1})
+        dead_auth = {"sessionId": dead["sessionId"], "captureToken": dead["captureToken"],
+            "lane": "piano-pcm", "ownerId": dead["ownerId"], "generation": 1}
+        capture.stream_health = lambda *_args: {"ok": False, "active": False, "reason": "renderer-stalled"}
+        try:
+            capture.status(dead_auth)
+            raise AssertionError("dead renderer retained a healthy authenticated session")
+        except RuntimeError as error:
+            assert "renderer became unavailable" in str(error)
+        assert dead["sessionId"] not in capture._SESSIONS
+        assert any(stop.get("itemId") == dead["sessionId"] for stop in stops)
+        capture.stream_health = lambda *_args: {"ok": True, "active": True, "callbackCount": 11, "callbackAgeMs": 1}
 
         stale = capture.start({"deviceId": "sd:7", "sampleRate": 48000, "source": "piano-post-compressor",
             "lane": "piano-pcm", "ownerId": "piano-owner:stale-fixture", "generation": 1})
@@ -125,7 +140,7 @@ def main():
         assert lane["underruns"] == 1, lane["underruns"]
     finally:
         capture._SESSIONS.clear()
-        capture._player_for, capture.play_pcm, capture.stop_stream, capture._now = old
+        capture._player_for, capture.play_pcm, capture.stop_stream, capture._now, capture.stream_health = old
     print("AUDIOFLIX_PIANO_PCM_SMOKE_OK")
 
 

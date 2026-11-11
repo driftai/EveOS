@@ -276,8 +276,8 @@ window.EveAudioflixUiRender = window.EveAudioflixUiRender || {};
             const localMissingBadge = type === 'music' && item.missingLocal === true && hasOnlineFallback && showLocalMissing
                 ? '<span class="audioflix-local-missing-badge" title="The local copy is missing; online fallback may still play">⚠ Local copy missing</span>'
                 : '';
-            const spotifyUnavailable = type === 'music' && item.spotifyAvailability === 'unavailable'
-                ? `<span class="audioflix-provider-unavailable-badge" title="${esc(item.spotifyAvailabilityReason || 'Spotify could not play this official embed')}">Spotify URL unavailable</span>` : '';
+            const spotifyUnavailable = type === 'music' && ['unavailable', 'failed'].includes(item.spotifyAvailability)
+                ? `<span class="audioflix-provider-unavailable-badge is-compact" tabindex="0" role="img" aria-label="${esc((item.spotifyAvailability === 'unavailable' ? 'Spotify URL unavailable' : 'Spotify playback failed') + ': ' + (item.spotifyAvailabilityReason || 'Open this track to retry.'))}" title="${esc((item.spotifyAvailability === 'unavailable' ? 'Spotify URL unavailable' : 'Spotify playback failed') + ': ' + (item.spotifyAvailabilityReason || 'Open this track to retry.'))}">!</span>` : '';
             const amq = ctx.getActiveMusicQueue();
             let queueBadge = '';
             if (type === 'music' && amq.isPlaying && amq.items.includes(item.id)) {

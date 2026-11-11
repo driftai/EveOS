@@ -80,3 +80,19 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Piano v8: unified Nexus Piano Link / Fast Track split control; modal Fast Track. */
+.piano-pft-combo{display:inline-flex;align-items:stretch;border:1px solid #a98b47;border-radius:9px;overflow:hidden;background:#192b30}
+.audioflix-piano-frontend .piano-pft-combo button{border:0;border-radius:0;margin:0;min-height:33px;background:transparent}
+.audioflix-piano-frontend .piano-pft-combo [data-pfo-action="nexus"]{padding:6px 11px}
+.audioflix-piano-frontend .piano-pft-combo [data-pft-action="toggle"]{padding:5px 11px;min-width:36px;border-left:1px solid #a98b47;font-size:18px;line-height:1}
+.piano-pft-backdrop{position:fixed;inset:0;background:rgba(0,8,12,.73);backdrop-filter:blur(3px);z-index:2147483000}
+.piano-pft-backdrop[hidden]{display:none!important}
+body>.piano-pft-panel{position:fixed;z-index:2147483001;top:50%;left:50%;right:auto;transform:translate(-50%,-50%);width:min(740px,calc(100vw - 28px));max-height:min(82dvh,820px);overflow:auto;padding:16px;border:1px solid #4c9eb0;border-radius:15px;background:#0a1e24;box-shadow:0 28px 85px #000c}
+body>.piano-pft-panel[hidden]{display:none!important}
+@media(max-width:550px){body>.piano-pft-panel{max-height:87dvh;padding:12px}.piano-pft-result{flex-direction:column;align-items:stretch}.piano-pft-actions{flex-wrap:wrap}}
+body>.piano-pft-panel [data-pft-input] input{display:block;width:100%;min-width:0;min-height:39px;border:1px solid #3a6871;border-radius:9px;background:#07191e;color:#e9fcfd;padding:9px 12px;font:12px system-ui}
+body>.piano-pft-panel button{min-height:32px;padding:6px 11px;border:1px solid #396773;border-radius:8px;background:#14333c;color:#ddf5f6;cursor:pointer;font:600 11px system-ui}
+body>.piano-pft-panel button:hover:not(:disabled){border-color:#78d5e0;background:#1d4854}
+body>.piano-pft-panel button:disabled{opacity:.45;cursor:not-allowed}
+body>.piano-pft-panel .piano-pft-result{background:#0e2930}

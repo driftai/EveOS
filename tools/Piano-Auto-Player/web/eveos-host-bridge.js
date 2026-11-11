@@ -4,6 +4,8 @@
   const KEY = 'eveos:piano-host-context';
   const MODULE_RETRY_DELAYS = [250, 700, 1500];
   let context = null;
+  let nativeRequestId = 0;
+  const nativePending = new Map();
   let workspaceReady = false, workspaceLoad = null, sheetProgressReady = false, sheetProgressLoad = null;
   const failedModules = new Set();
   const eveHost = window.parent && window.parent !== window ? window.parent : window.opener;
@@ -20,6 +22,14 @@
   function accept(event) {
     const payload = event?.data;
     if (!payload) return;
+    if (payload.type === 'piano:eveos-native-response') {
+      if (!eveHost || event.source !== eveHost) return;
+      const pending = nativePending.get(Number(payload.requestId));
+      if (!pending) return;
+      nativePending.delete(Number(payload.requestId)); clearTimeout(pending.timer);
+      if (payload.ok) pending.resolve(payload.result); else pending.reject(new Error(payload.message || 'Server-owned Piano request failed.'));
+      return;
+    }
     if (payload.type === 'eveos:piano-refresh') {
       if (!eveHost || event.source !== eveHost) return;
       const text = document.getElementById('statusText');
@@ -90,6 +100,16 @@
   window.addEventListener('piano:audio-route', event => eveHost?.postMessage?.({ type: 'piano:eveos-audio-route', route: event.detail || null }, eveOrigin));
   window.PianoEveOS = Object.freeze({
     getContext: () => context ? { ...context } : null,
+    native(action, payload = {}) { const native = context?.pianoNative;
+      if (!eveHost || !native?.available || String(native.token || '').length < 32)
+        return Promise.reject(new Error('Server-owned Piano is unavailable.'));
+      const requestId = ++nativeRequestId;
+      return new Promise((resolve, reject) => { const timer = setTimeout(() => {
+        nativePending.delete(requestId); reject(new Error('Server-owned Piano request timed out.'));
+      }, action === 'start' ? 35000 : 6000);
+      nativePending.set(requestId, { resolve, reject, timer });
+      eveHost.postMessage({ type: 'piano:eveos-native-request', requestId, action,
+        payload, token: native.token }, eveOrigin); }); },
     postPcm(detail = {}) { const pcm = context?.pianoPcm || {};
       if (!eveHost || !pcm.active || detail.token !== pcm.token || detail.generation !== pcm.generation) return false;
       eveHost.postMessage({ type: 'piano:eveos-pcm', ...detail }, eveOrigin, [detail.audio]); return true; },

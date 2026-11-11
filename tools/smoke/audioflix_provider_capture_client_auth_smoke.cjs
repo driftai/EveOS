@@ -12,6 +12,7 @@ vm.runInContext(src,context);
 const classify=context.window.EveAudioflixNativeProviderCapture.responseError;
 for(const [message,status,category,retryable] of [
   ['invalid or expired provider capture session',404,'session-expired',true],
+  ['provider capture native renderer became unavailable',400,'renderer-unavailable',true],
   ['selected endpoint disappeared',409,'endpoint-unavailable',false],
   ['ownership authorization refused',403,'authorization',false],
   ['temporary bridge refusal',503,'bridge-refused',true]

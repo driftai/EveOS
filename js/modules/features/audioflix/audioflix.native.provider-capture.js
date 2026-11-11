@@ -51,6 +51,9 @@ window.EveAudioflixNativeProviderCapture = window.EveAudioflixNativeProviderCapt
 
     function responseError(data, status) {
         const message = String(data?.message || `Provider capture request failed (${status}).`);
+        if (/renderer became unavailable|renderer stalled/i.test(message)) {
+            return transportError(message, 'renderer-unavailable', true, status);
+        }
         if (/invalid or expired|session expired|already stopped/i.test(message)) {
             return transportError(message, 'session-expired', true, status);
         }
@@ -164,6 +167,23 @@ window.EveAudioflixNativeProviderCapture = window.EveAudioflixNativeProviderCapt
                 lane: session.lane, ownerId: session.ownerId, generation: session.generation });
     }
 
+    async function pianoNative(action, payload = {}, timeoutMs = 3000) {
+        const name = String(action || 'status');
+        if (!['start', 'status', 'pause', 'seek', 'volume', 'stop'].includes(name))
+            throw new Error('Unknown server-owned Piano action.');
+        const base = captureOrigin();
+        const identity = window.EveAudioflixNativeIdentity;
+        if (!identity?.isEveOsBridge || !(await identity.isEveOsBridge(base)))
+            throw new Error('The selected localhost server is not a verified EveOS bridge.');
+        const body = { ...payload };
+        if (name === 'start') {
+            const endpoint = selectedEndpoint(payload);
+            body.deviceId = endpoint.deviceId;
+        }
+        return protectedPost(base, `/api/audioflix/piano-native/${name}`, body,
+            Math.max(1200, Number(timeoutMs) || 3000));
+    }
+
     Object.assign(ns, { ready: true, start, send, status, stop, selectedEndpoint, captureOrigin,
-        requireFileCompanion, transportError, responseError });
+        pianoNative, requireFileCompanion, transportError, responseError });
 })(window.EveAudioflixNativeProviderCapture);

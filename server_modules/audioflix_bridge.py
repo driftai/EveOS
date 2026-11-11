@@ -332,8 +332,9 @@ def handle_post_request(handler, path: str) -> bool:
     if audioflix_spotify_edge_http.handle_post_request(
             handler, path, _send_json, _read_json, _can_control, _can_start_provider_capture):
         return True
-    if path.startswith("/api/audioflix/provider-capture/"):
-        if path == "/api/audioflix/provider-capture/start" and not _can_start_provider_capture(handler):
+    if path.startswith(("/api/audioflix/provider-capture/", "/api/audioflix/piano-native/")):
+        starts_session = path in {"/api/audioflix/provider-capture/start", "/api/audioflix/piano-native/start"}
+        if starts_session and not _can_start_provider_capture(handler):
             _send_json(handler, {
                 "ok": False,
                 "message": "Provider capture requires the localhost EveOS page or the verified file:// install credential."
@@ -348,11 +349,15 @@ def handle_post_request(handler, path: str) -> bool:
             body_bytes = int(handler.headers.get("Content-Length", "0") or 0)
         except (TypeError, ValueError):
             body_bytes = -1
-        if not 0 < body_bytes <= 128 * 1024:
+        maximum = 24 * 1024 * 1024 if path == "/api/audioflix/piano-native/start" else 128 * 1024
+        if not 0 < body_bytes <= maximum:
             _send_json(handler, {"ok": False, "message": "Invalid provider capture request size."}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
             return True
         try:
-            from server_modules.audioflix_provider_capture import handle
+            if path.startswith("/api/audioflix/piano-native/"):
+                from server_modules.audioflix_piano_native import handle
+            else:
+                from server_modules.audioflix_provider_capture import handle
             _send_json(handler, handle(path, _read_json(handler)))
         except Exception as exc:
             _send_json(handler, {"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)

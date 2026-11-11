@@ -128,6 +128,12 @@ class EdgeVolumeStabilityTests(unittest.TestCase):
         reply = self.manager.event({'session': self.manager._nonce, 'kind': 'position',
             'revision': 5, 'playingURI': URI, 'currentTime': 2, 'duration': 100, 'paused': False})
         self.assertTrue(reply['ok'])
+        self.assertEqual(self.manager._autoplay_status, 'waiting-for-new-card',
+                         'one advancing callback does not establish verified sustained playback')
+        self.manager._last_position_at = time.monotonic() - 1.1
+        confirmed = self.manager.event({'session': self.manager._nonce, 'kind': 'position',
+            'revision': 5, 'playingURI': URI, 'currentTime': 3, 'duration': 100, 'paused': False})
+        self.assertTrue(confirmed['ok'])
         self.assertEqual(self.manager._autoplay_status, 'confirmed')
         self.assertIn('confirmed', self.manager._message)
 
@@ -138,12 +144,19 @@ class EdgeVolumeStabilityTests(unittest.TestCase):
             'revision': 5, 'playingURI': URI})
         self.assertTrue(failed['ok'])
         self.assertEqual(self.manager.status()['failure']['revision'], 5)
-        self.assertTrue(self.manager.status()['failure']['terminal'])
-        self.manager._last_position_at = time.monotonic() - 1
+        self.assertFalse(self.manager.status()['failure']['terminal'],
+                         'provider autoplay error alone must not skip a valid track')
+        self.manager._last_position_at = time.monotonic() - 1.1
         self.manager._last_progress_position = 1
         played = self.manager.event({'session': self.manager._nonce, 'kind': 'position',
             'revision': 5, 'playingURI': URI, 'currentTime': 2, 'duration': 100, 'paused': False})
         self.assertTrue(played['ok'])
+        self.assertEqual(self.manager.status()['failure']['revision'], 5,
+                         'one advancing callback is insufficient to clear an unverified failure')
+        self.manager._last_position_at = time.monotonic() - 1.1
+        recovered = self.manager.event({'session': self.manager._nonce, 'kind': 'position',
+            'revision': 5, 'playingURI': URI, 'currentTime': 3, 'duration': 100, 'paused': False})
+        self.assertTrue(recovered['ok'])
         self.assertEqual(self.manager.status()['failure']['revision'], -1)
         self.assertFalse(self.manager.status()['failure']['terminal'])
 

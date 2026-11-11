@@ -1,20 +1,37 @@
 import { LocalPianoOutput } from "./piano.js";
+import { ServerOwnedPreview } from "./internal_preview_native.js";
 
-const FOREGROUND_LOOKAHEAD_MS = 6000;
-const BACKGROUND_LOOKAHEAD_MS = 75000;
+// Browser window minimization may suspend every main-thread callback after a
+// short grace period, including MessagePort deliveries from an AudioWorklet.
+// Keep a finite two-minute acceptance window plus recovery headroom scheduled
+// directly on the AudioContext clock before that suspension can happen.
+const STABLE_AUDIO_LOOKAHEAD_MS = 180000;
 const LATE_AUDIO_SKIP_MS = 120;
+
+const PIANO_CLOCK_WORKLET = String.raw`class PianoPreviewClock extends AudioWorkletProcessor {
+  constructor() { super(); this.active = false; this.next = 0;
+    this.port.onmessage = event => { this.active = event.data?.active === true; }; }
+  process() { if (this.active && currentFrame >= this.next) {
+    this.next = currentFrame + Math.max(128, Math.round(sampleRate / 4));
+    this.port.postMessage({ tick: true }); }
+    return true; }
+}
+registerProcessor('piano-preview-clock', PianoPreviewClock);`;
 
 export class InternalPreviewPlayer {
   constructor(pianoContainer, output = null) {
     this.output = output || new LocalPianoOutput(pianoContainer);
+    this.native = new ServerOwnedPreview(this);
     this.releaseTimers = new Map();
     this.spanTimers = new Set();
     this.timer = 0;
+    this._clockNode = null; this._clockLoading = null;
     this.rows = [];
     this.total = 0;
     this.durationMs = 0;
     this.cursor = 0;
     this.audioCursor = 0;
+    this.audioBufferedUntilMs = 0;
     this.audioGeneration = 0;
     this.timelineBaseMs = 0;
     this.clockStartedAt = 0;
@@ -27,19 +44,44 @@ export class InternalPreviewPlayer {
     this.resumeIndex = 0;
     this._backgroundSchedule = () => {
       if (this.state === "countdown") this._beginPlaying();
-      this._scheduleAudio(BACKGROUND_LOOKAHEAD_MS);
+      this._scheduleAudio(STABLE_AUDIO_LOOKAHEAD_MS);
     };
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) this._backgroundSchedule();
     });
   }
 
+  // AudioWorklet render callbacks, rather than background-throttled setTimeout,
+  // maintain the WebAudio lookahead while the main browser window is minimized.
+  // This schedules notes only; the existing timeline still owns the UI and state.
+  _setAudioClock(active) {
+    if (this._clockNode) { this._clockNode.port.postMessage({ active }); return; }
+    if (!active || this._clockLoading) return;
+    const ctx = this.output?.sound?.ensure?.();
+    if (!ctx?.audioWorklet?.addModule || typeof AudioWorkletNode !== 'function') return;
+    this._clockLoading = ctx.audioWorklet.addModule(
+      `data:application/javascript;charset=utf-8,${encodeURIComponent(PIANO_CLOCK_WORKLET)}`)
+      .then(() => {
+        const node = new AudioWorkletNode(ctx, 'piano-preview-clock', {
+          numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
+        const silent = ctx.createGain(); silent.gain.value = 0;
+        node.connect(silent).connect(ctx.destination);
+        node.port.onmessage = () => {
+          if (this.state === 'playing') this._scheduleAudio(this._lookaheadMs());
+        };
+        this._clockNode = node;
+        node.port.postMessage({ active: this.state === 'playing' });
+      }).catch(() => { /* unsupported worklets keep the existing timer fallback */ })
+      .finally(() => { this._clockLoading = null; });
+  }
+
   unlock() { return this.output.unlock(); }
-  setSound(soundId) { this.output.setSound(soundId); this._rescheduleAudio(); }
+  setSound(soundId) { if (this.native.active) this.native.stop(); this.output.setSound(soundId); this._rescheduleAudio(); }
   async prepareSound() { const ready = await this.output.prepareSound(); this._rescheduleAudio(); return ready; }
   soundLabel() { return this.output.soundLabel(); }
 
   status() {
+    if (this.native.active || (this.native.receipt && this.native.control?.checked)) return this.native.snapshot();
     return {
       status: this.state,
       message: this.message,
@@ -47,11 +89,18 @@ export class InternalPreviewPlayer {
       total_events: this.total,
       current_token: this.currentToken,
       resume_index: this.resumeIndex,
+      audio_buffered_until_ms: Math.round(this.audioBufferedUntilMs),
+      audio_lookahead_ms: STABLE_AUDIO_LOOKAHEAD_MS,
       internal_preview: true,
     };
   }
 
   start(timeline, startEvent = 1, countdownSeconds = 0) {
+    if (this.native.enabled()) {
+      this._clearTimers(); this.output.allOff(); this._setAudioClock(false); this.state = "idle";
+      if (!this.native.start(timeline, startEvent)) throw new Error(this.native.message || "Native Piano is already active.");
+      return;
+    }
     this._clearTimers();
     this.output.allOff();
     this.rows = Array.isArray(timeline?.events) ? timeline.events : [];
@@ -60,6 +109,7 @@ export class InternalPreviewPlayer {
     this.durationMs = Number(timeline.duration_ms || 0);
     this.cursor = this._indexForEvent(startEvent);
     this.audioCursor = this.cursor;
+    this.audioBufferedUntilMs = Number(this.rows[this.cursor]?.at_ms || 0);
     this.audioGeneration += 1;
     this.currentIndex = this.cursor + 1;
     this.currentToken = "";
@@ -75,6 +125,7 @@ export class InternalPreviewPlayer {
   }
 
   togglePause() {
+    if (this.native.active) return this.native.togglePause();
     if (this.state === "paused") {
       this.state = "playing";
       this.message = "Internal preview — built-in piano";
@@ -83,6 +134,7 @@ export class InternalPreviewPlayer {
       this.audioCursor = this.cursor;
       this.audioGeneration += 1;
       this._scheduleNext();
+      this._setAudioClock(true);
       return false;
     }
     if (this.state !== "playing") return false;
@@ -92,16 +144,19 @@ export class InternalPreviewPlayer {
     this._clearReleaseTimers();
     this.output.allOff();
     this.state = "paused";
+    this._setAudioClock(false);
     this.message = "Internal preview paused";
     return true;
   }
 
   seek(eventIndex) {
+    if (this.native.active) return this.native.seek(eventIndex);
     if (!this.rows.length) return 0;
     const index = this._indexForEvent(eventIndex);
     const row = this.rows[index];
     this.cursor = index;
     this.audioCursor = index;
+    this.audioBufferedUntilMs = Number(row.at_ms || 0);
     this.audioGeneration += 1;
     this.currentIndex = index + 1;
     this.currentToken = "";
@@ -122,11 +177,13 @@ export class InternalPreviewPlayer {
   }
 
   stop() {
+    if (this.native.active) return this.native.stop();
     const active = ["countdown", "playing", "paused"].includes(this.state);
     const resume = active ? Math.max(1, this.currentIndex || this.cursor + 1) : 0;
     this._clearTimers();
     this.output.allOff();
     this.state = "idle";
+    this._setAudioClock(false);
     this.currentIndex = 0;
     this.currentToken = "";
     this.resumeIndex = resume;
@@ -135,6 +192,7 @@ export class InternalPreviewPlayer {
   }
 
   reset() {
+    if (this.native.active) this.native.stop();
     this._clearTimers();
     this.output.allOff();
     this.rows = [];
@@ -142,8 +200,10 @@ export class InternalPreviewPlayer {
     this.durationMs = 0;
     this.cursor = 0;
     this.audioCursor = 0;
+    this.audioBufferedUntilMs = 0;
     this.audioGeneration += 1;
     this.state = "idle";
+    this._setAudioClock(false);
     this.message = "Ready for internal preview";
     this.currentIndex = 0;
     this.currentToken = "";
@@ -161,6 +221,7 @@ export class InternalPreviewPlayer {
     this.audioCursor = this.cursor;
     this.audioGeneration += 1;
     this._scheduleNext();
+    this._setAudioClock(true);
   }
 
   _countdownTick() {
@@ -249,7 +310,7 @@ export class InternalPreviewPlayer {
   }
 
   _isBackgrounded() { return document.hidden; }
-  _lookaheadMs() { return this._isBackgrounded() ? BACKGROUND_LOOKAHEAD_MS : FOREGROUND_LOOKAHEAD_MS; }
+  _lookaheadMs() { return STABLE_AUDIO_LOOKAHEAD_MS; }
 
   _rescheduleAudio() {
     if (this.state !== "playing") return;
@@ -259,10 +320,10 @@ export class InternalPreviewPlayer {
     this._scheduleAudio(this._lookaheadMs());
   }
 
-  _scheduleAudio(lookaheadMs = FOREGROUND_LOOKAHEAD_MS) {
+  _scheduleAudio(lookaheadMs = STABLE_AUDIO_LOOKAHEAD_MS) {
     if (this.state !== "playing" || !this.rows.length) return;
     const timelineNow = this._timelineNow();
-    const horizon = timelineNow + Math.max(FOREGROUND_LOOKAHEAD_MS, Number(lookaheadMs) || 0);
+    const horizon = timelineNow + Math.max(STABLE_AUDIO_LOOKAHEAD_MS, Number(lookaheadMs) || 0);
     const audioNow = this.output.audioTime();
     while (this.audioCursor < this.rows.length) {
       const index = this.audioCursor;
@@ -272,6 +333,7 @@ export class InternalPreviewPlayer {
       this.audioCursor += 1;
       if (rowAt < timelineNow - LATE_AUDIO_SKIP_MS) continue;
       this._scheduleRowAudio(row, index, audioNow, timelineNow);
+      this.audioBufferedUntilMs = Math.max(this.audioBufferedUntilMs, rowAt);
     }
   }
 

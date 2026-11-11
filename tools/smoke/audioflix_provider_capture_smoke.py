@@ -9,6 +9,8 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 module = importlib.import_module("server_modules.audioflix_provider_capture")
 original_player, original_pcm, original_stop = module._player_for, module.play_pcm, module.stop_stream
+original_health = module.stream_health
+renderer_health = {"ok": True}
 calls = {"player": [], "pcm": [], "stop": []}
 
 
@@ -30,6 +32,12 @@ try:
 
     module.play_pcm = play_pcm
     module.stop_stream = lambda payload: calls["stop"].append(payload) or {"ok": True}
+    # The fake _player_for/play_pcm do not populate the real native registry.
+    # Model the status health check for this fake, including physical failure.
+    module.stream_health = lambda device, lane, sid: {
+        "ok": renderer_health["ok"] and device == "sd:7"
+        and lane == "provider-capture" and sid in module._SESSIONS
+    }
     session = module.start({"deviceId": "sd:7", "sampleRate": 48000, "channels": 1, "source": "test"})
     assert session["ok"] and session["rendererRunning"] and session["deviceId"] == "sd:7"
     assert calls["player"] == [("sd:7", 48000, 1, "provider-capture")]
@@ -104,7 +112,23 @@ try:
         module.stop({"sessionId": recovered["sessionId"], "captureToken": recovered["captureToken"]})
     finally:
         module._now = original_now
-    print("AUDIOFLIX_PROVIDER_CAPTURE_SERVER_OK auth=true exclusive=true endpoint=strict gain=true cleanup=true")
+    # The real status path must still fail closed and retire a dead renderer.
+    dead = module.start({"deviceId": "sd:7", "source": "provider-tab"})
+    renderer_health["ok"] = False
+    try:
+        module.status({"sessionId": dead["sessionId"], "captureToken": dead["captureToken"]})
+        raise AssertionError("dead native renderer was reported healthy")
+    except RuntimeError as exc:
+        assert "native renderer became unavailable" in str(exc)
+    assert dead["sessionId"] not in module._SESSIONS
+    assert calls["stop"][-1]["itemId"] == dead["sessionId"]
+    try:
+        module.status({"sessionId": dead["sessionId"], "captureToken": dead["captureToken"]})
+        raise AssertionError("dead native renderer session was not invalidated")
+    except RuntimeError as exc:
+        assert "invalid or expired" in str(exc)
+    print("AUDIOFLIX_PROVIDER_CAPTURE_SERVER_OK auth=true exclusive=true endpoint=strict gain=true cleanup=true health=true fail_closed=true")
 finally:
     module._SESSIONS.clear()
     module._player_for, module.play_pcm, module.stop_stream = original_player, original_pcm, original_stop
+    module.stream_health = original_health
