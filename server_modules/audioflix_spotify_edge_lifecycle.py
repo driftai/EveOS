@@ -170,6 +170,9 @@ def watch_playback_start(self, generation, revision, delay=6.0, deadline=30.0):
         self._autoplay_status = "failed-timeout"
         self._message = "Spotify playback failed after bounded exact-window retries; advancing safely."
         self._record("startup-watchdog-terminal", revision=revision, hidden=self._hidden)
+    # A verified terminal failure may advance only its explicit native queue lease.
+    from server_modules.audioflix_spotify_edge_queue import on_terminal
+    on_terminal(self, revision)
 
 def hide_when_playing(self, generation):
     from server_modules import audioflix_spotify_edge_window as window

@@ -169,7 +169,7 @@ window.EveAudioflixNativeProviderCapture = window.EveAudioflixNativeProviderCapt
 
     async function pianoNative(action, payload = {}, timeoutMs = 3000) {
         const name = String(action || 'status');
-        if (!['start', 'status', 'pause', 'seek', 'volume', 'stop'].includes(name))
+        if (!['start', 'status', 'pause', 'seek', 'volume', 'stop', 'queue-arm', 'queue-status', 'queue-update', 'queue-stop'].includes(name))
             throw new Error('Unknown server-owned Piano action.');
         const base = captureOrigin();
         const identity = window.EveAudioflixNativeIdentity;

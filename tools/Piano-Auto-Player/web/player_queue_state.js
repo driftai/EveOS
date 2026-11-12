@@ -15,7 +15,8 @@ function restoreQueueState(raw = {}) {
     shuffleAvoidId: items.some(item => item.queueId === raw?.shuffleAvoidId) ? raw.shuffleAvoidId : null,
     active: currentIndex >= 0 && Boolean(raw?.active),
     mode: MODES.has(raw?.mode) ? raw.mode : "ordered",
-    transitionMs: TRANSITIONS.has(Number(raw?.transitionMs)) ? Number(raw.transitionMs) : 750
+    transitionMs: TRANSITIONS.has(Number(raw?.transitionMs)) ? Number(raw.transitionMs) : 750,
+    loop: raw?.loop === true
   };
 }
 

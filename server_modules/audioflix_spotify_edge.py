@@ -352,6 +352,13 @@ class EdgeSpotifyManager:
         action = str(data.get("action") or "").strip().lower()
         payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
         with self._lock:
+            if action in {"queue-arm", "queue-disarm", "queue-stop-owned", "page-register", "page-stop-owned"}:
+                from server_modules import audioflix_spotify_edge_queue
+                return audioflix_spotify_edge_queue.command(self, action, payload)
+            if action in {"play", "switch", "stop"}:
+                from server_modules import audioflix_spotify_edge_queue
+                audioflix_spotify_edge_queue.disarm(self)
+                audioflix_spotify_edge_queue.clear_page(self)
             if action == "play":
                 return self.play(payload, server_port)
             if action == "status":

@@ -8,7 +8,7 @@ import { setupLibraryTransfer } from "./library_transfer.js";
 import { setupSheetWorkspace } from "./sheet_workspace.js";
 import { setupBulkConversion } from "./bulk_conversion.js";
 import { setupPlaybackScrollRestore } from "./playback_scroll_restore.js";
-import { setupPianoPlaybackOverrides } from "./piano_playback_overrides.js";
+import { setupPianoPlaybackOverrides } from "./piano_playback_overrides.js"; import { setupNativeQueuePresentation } from "./piano_queue_presentation.js";
 const $ = (id) => document.getElementById(id);
 const els = {
   title: $("titleInput"), sheet: $("sheetInput"), stats: $("sheetStats"),
@@ -319,7 +319,6 @@ function applyPlaybackOverrides(song) {
   if (c.override_black_lead) els.blackLead.value = String(c.override_black_lead);
   updateSliderLabels();
 }
-
 async function applyImportedSong(song, result = {}) {
   internalPreview.reset();
   activeSongId = song._activeSongId || null; activeTranscriptionDiagnostics = song.transcription_diagnostics || null; activePerformance = Array.isArray(song.performance) ? song.performance : []; if (activePerformance.length) recorder.load(activePerformance); else recorder.clear(); seekTarget = 1; stoppedResumeEvent = 0; playShouldRestart = false;
@@ -337,12 +336,10 @@ async function applyImportedSong(song, result = {}) {
   toast(`${activePerformance.length ? "Timed performance imported" : "Sheet imported"}${sourceNotes}${chordInfo}${timing}${profile}`, "complete");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
-
 async function importResult(result) {
   toast(`Importing from ${result.provider_name || "source"}…`, "countdown");
   try { sheetWorkspace.stage(await api.importSheet(result.url, result.provider || ""), result); } catch (error) { toast(error.message, "error"); }
 }
-
 async function saveCurrentSong() {
   if (!els.sheet.value.trim() && !activePerformance.length) return toast("Nothing to save yet", "error");
   try {
@@ -353,7 +350,6 @@ async function saveCurrentSong() {
     await refreshLibrary();
   } catch (error) { toast(error.message, "error"); }
 }
-
 async function saveRecording() {
   const snapshot = recorder.snapshot();
   if (!snapshot.events.length) return toast("Record something first", "error");
@@ -380,11 +376,16 @@ async function refreshLibrary({ fresh = false } = {}) {
 function loadSong(song) {
   return sheetWorkspace.load({ ...song, _activeSongId: song.id }, { provider_name: song.source || "Local library", url: song.source_url || "" });
 }
+setupNativeQueuePresentation({
+  api, native: internalPreview.native, els, recorder, youtubePiano, internalMode, internalTimeline,
+  adoptSong: song => { activeSongId = song.id; activeTranscriptionDiagnostics = song.transcription_diagnostics || null; activePerformance = Array.isArray(song.performance) ? song.performance : []; seekTarget = 1; stoppedResumeEvent = 0; playShouldRestart = false; return activePerformance; },
+  applyPlaybackOverrides, refreshStats, getSheetEventTotal: () => sheetEventTotal,
+  updateStatus: status => { lastStatus = status; }
+});
 async function deleteSong(song) {
   if (!confirm(`Delete “${song.title}” from the local library?`)) return;
   try { await api.deleteSong(song.id); if (activeSongId === song.id) activeSongId = null; await refreshLibrary(); } catch (error) { toast(error.message, "error"); }
 }
-
 function updateRecordingUI(snapshot) {
   activePerformance = snapshot.events;
   els.recordState.textContent = snapshot.recording ? "● Recording — play the piano" : snapshot.events.length ? "Recording captured" : "Ready to record";
@@ -392,7 +393,6 @@ function updateRecordingUI(snapshot) {
   els.recordStats.textContent = `${snapshot.events.length} notes · ${formatTime(snapshot.duration_ms)}`;
   els.record.textContent = snapshot.recording ? "● Recording…" : "● Record";
 }
-
 function startRecording() { activeSongId = null; activeTranscriptionDiagnostics = null; youtubePiano.showDiagnostics(null); recorder.start(); toast("Recording local piano timing", "countdown"); }
 function finishRecording() { const snap = recorder.stop(); toast(snap.events.length ? "Recording captured" : "No notes recorded", snap.events.length ? "complete" : "idle"); }
 function clearRecording() { activeSongId = null; activeTranscriptionDiagnostics = null; youtubePiano.showDiagnostics(null); activePerformance = []; recorder.clear(); seekTarget = 1; setSeekTarget(1); toast("Recording cleared", "idle"); }

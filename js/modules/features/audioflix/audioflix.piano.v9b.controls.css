@@ -1,0 +1,23 @@
+.piano-pv9b-controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-left:1px solid #31555b;padding-left:10px}
+.audioflix-piano-frontend .piano-pv9b-controls button{min-height:31px;border-radius:8px;padding:5px 10px}
+.piano-pv9b-controls button[aria-pressed="true"]{background:#13535a;border-color:#6cdae4;color:#e4faff}
+.piano-pv9b-smart-row{border-bottom:1px solid #31555b;padding:5px 0 9px;margin-bottom:3px}
+.piano-pv9b-smart-row .piano-pfv3-smart{border-left:0;padding-left:0}
+.piano-pv9b-status{display:block;margin:3px 0 9px;font-size:11px;color:#9ac6cd;min-height:1.2em}
+@media(max-width:700px){.piano-pv9b-controls{flex-basis:100%;border-left:0;padding-left:0}.piano-pv9b-controls button{flex:1 1 auto}}
+/* v9B.2: override the organizer's 2-column grid on the dedicated Smart row. */
+.piano-pfo-library-scopes > .piano-pv9b-smart-row{display:flex;align-items:center;flex-wrap:wrap;min-width:0}
+.piano-pfo-library-scopes > .piano-pv9b-smart-row > .piano-pfv3-smart{display:flex;flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px;min-width:0;width:100%}
+.piano-pfo-library-scopes > .piano-pv9b-smart-row .piano-pfv3-smart > button{flex:0 0 auto;white-space:normal}
+
+/* v9B.4: visual separation between view selection and playback actions. */
+.audioflix-piano-frontend .piano-pfo-library-tabs > .piano-pv9b-controls {
+  flex: 1 1 100%;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin-top: 4px;
+  padding: 10px 0 0;
+  border-left: 0;
+  border-top: 1px solid #31555b;
+}

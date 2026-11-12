@@ -96,6 +96,7 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
             if ((detail.status !== 'Ended' && !terminalFailure) || !queue?.isPlaying || !entry) return false;
             const id = String(entry.id ?? '');
             if (detail.item?.id != null && String(detail.item.id) !== id) return false;
+            if (detail.edgeEmbed && window.EveAudioflixSpotifyEdgeQueue?.isDelegated?.()) return false;
             const run = queue.playbackRunId;
             const key = `${id}:${run}`;
             if (consumed === key || isStaleDelivery(detail, run)) return false;

@@ -107,8 +107,11 @@ def _render(entry: dict, timeline: dict, volume: float) -> None:
                 _cleanup_audio(entry)
 
 
-def start(payload: dict) -> dict:
+def start(payload: dict, *, queue_internal: bool = False) -> dict:
     global _ACTIVE_ID
+    if not queue_internal:
+        from server_modules import audioflix_piano_queue
+        audioflix_piano_queue.invalidate()
     owner, generation = str(payload.get("ownerId") or "")[:120], int(payload.get("generation") or 0)
     device, timeline = str(payload.get("deviceId") or ""), payload.get("timeline")
     if len(owner) < 16 or generation < 1:

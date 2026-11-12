@@ -1,4 +1,5 @@
 // Additional EveOS ports. The existing Piano DOM and PlayerQueue remain authoritative.
+import { performScopedQueue } from "./piano_scope_port_v9b.js";
 const byId = id => document.getElementById(id);
 const selected = node => ({ value: String(node.value), label: node.selectedOptions?.[0]?.textContent?.trim() || '' });
 const options = node => node ? [...node.options].map(o => ({ value: String(o.value), label: o.textContent.trim() })) : [];
@@ -53,7 +54,9 @@ async function performQueue(data, api) {
   const queue = window.PianoPlayerQueue;
   if (!queue?.getState) throw new Error('The Player Queue is still initializing.');
   const action = data.action;
-  if (action === 'queue:add') {
+  if (['queue:scope-play', 'queue:play-eligible', 'queue:loop'].includes(action)) {
+    await performScopedQueue(queue, api, data);
+  } else if (action === 'queue:add') {
     if (typeof data.songId !== 'string' || !data.songId || data.songId.length > 180) throw new Error('Invalid song ID.');
     let songs = (await api.songs()).songs || [];
     let song = songs.find(item => String(item.id) === data.songId);
@@ -219,6 +222,7 @@ export function setupExtendedPianoFrontendPort({ api, parent, parentOrigin, repl
     'queue:next', 'queue:previous', 'queue:shuffle', 'queue:clear', 'queue:play-all', 'progress:get', 'progress:seek',
     'media:get', 'playback:preset', 'workspace:history-load', 'workspace:inbox-load', 'workspace:inbox-discard',
     'library:import', 'song:load', 'song:update']);
+  for (const action of ['queue:scope-play', 'queue:play-eligible', 'queue:loop']) supported.add(action);
   let mutating = false;
   window.addEventListener('message', async event => {
     const data = event.data;

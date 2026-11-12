@@ -16,6 +16,7 @@ export class ServerOwnedPreview {
     this.available = false;
     this.hostPreferred = undefined;
     this.pendingHostPreference = null;
+    this.queuedSessionId = "";
     this.control = null;
     this.enginePicker = null;
     this.installControl();
@@ -167,18 +168,37 @@ export class ServerOwnedPreview {
     const state = String(entry.state || 'rendering');
     const current = Math.max(0, Number(entry.currentTime || 0));
     const rows = this.timeline?.events || this.preview.rows || [];
+    const ownedByQueue = !!entry.sessionId && this.queuedSessionId === entry.sessionId;
+    const serverIndex = Math.max(0, Number(entry.currentIndex || 0));
     const eventAt = Number(rows[this.originIndex]?.at_ms || 0) + current * 1000;
     let i = this.originIndex;
     while (i + 1 < rows.length && Number(rows[i + 1].at_ms || 0) <= eventAt) i++;
     return {
       status: state, message: entry.message || this.message || 'Preparing native Piano…',
-      current_index: rows.length ? Math.min(rows.length, i + 1) : Number(entry.currentIndex || 0),
-      total_events: rows.length || Number(entry.totalEvents || 0),
-      current_token: rows[i]?.token || rows[i]?.key || '',
+      current_index: ownedByQueue ? serverIndex : rows.length ? Math.min(rows.length, i + 1) : serverIndex,
+      total_events: ownedByQueue ? Number(entry.totalEvents || 0) : rows.length || Number(entry.totalEvents || 0),
+      current_token: ownedByQueue ? (rows[Math.max(0, serverIndex - 1)]?.token || rows[Math.max(0, serverIndex - 1)]?.key || '') : (rows[i]?.token || rows[i]?.key || ''),
       resume_index: state === 'stopped' ? Math.max(1, i + 1) : 0,
       internal_preview: true, server_owned: true,
       current_time: current, duration_seconds: Number(entry.duration || 0),
     };
+  }
+  adoptQueuedSession(receipt, timeline = null) {
+    // Projection only: do not call start, reset, or stop on the live native audio.
+    const sessionId = String(receipt?.sessionId || '');
+    if (!sessionId) return false;
+    const isNew = this.queuedSessionId !== sessionId;
+    if (isNew) {
+      this.queuedSessionId = sessionId;
+      this.timeline = { events: [] }; // discard previous-song event timing
+      this.originIndex = 0;
+    }
+    if (timeline?.events && this.queuedSessionId === sessionId) this.timeline = timeline;
+    this.receipt = receipt;
+    this.active = ['rendering', 'playing', 'paused'].includes(String(receipt.state));
+    this.syncPicker();
+    if (this.active && !this.polling) this.poll();
+    return true;
   }
   async request(action, payload = {}) {
     const fn = this.host();

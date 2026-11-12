@@ -354,7 +354,9 @@ def handle_post_request(handler, path: str) -> bool:
             _send_json(handler, {"ok": False, "message": "Invalid provider capture request size."}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
             return True
         try:
-            if path.startswith("/api/audioflix/piano-native/"):
+            if path.startswith("/api/audioflix/piano-native/queue-"):
+                from server_modules.audioflix_piano_queue import handle
+            elif path.startswith("/api/audioflix/piano-native/"):
                 from server_modules.audioflix_piano_native import handle
             else:
                 from server_modules.audioflix_provider_capture import handle

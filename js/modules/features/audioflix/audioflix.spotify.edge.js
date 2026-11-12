@@ -70,7 +70,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     const stage = edgePanel.getStage?.();
     const tools = stage?.querySelector?.('.audioflix-provider-tools');
     if (!tools) return;
-    for (const [action, title] of [['shuffle-music-group', 'Shuffle order'],
+    for (const [action, title] of [['toggle-internal-shuffle', 'Shuffle order'],
                                     ['loop-music-group', 'Loop group']]) {
       if (tools.querySelector?.(`[data-edge-queue-action="${action}"]`)) continue;
       const button = document.createElement('button');
@@ -127,13 +127,13 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     const tools = stage?.querySelector?.('.audioflix-provider-tools');
     if (tools) tools.hidden = false;
     const usable = Array.isArray(queue?.entries) && queue.entries.length > 0;
-    for (const action of ['shuffle-music-group', 'loop-music-group']) {
+    for (const action of ['toggle-internal-shuffle', 'loop-music-group']) {
       const button = stage?.querySelector?.(`[data-edge-queue-action="${action}"]`);
       if (!button) continue;
       button.disabled = !usable;
-      const on = action === 'shuffle-music-group' ? queue?.shuffle === true : queue?.loop === true;
+      const on = action === 'toggle-internal-shuffle' ? queue?.shuffle === true : queue?.loop === true;
       button.setAttribute?.('aria-pressed', String(on));
-      button.textContent = (action === 'shuffle-music-group' ? 'Shuffle order' : 'Loop group') + (on ? ' on' : '');
+      button.textContent = (action === 'toggle-internal-shuffle' ? 'Shuffle order' : 'Loop group') + (on ? ' on' : '');
     }
   }
   function showEdgePanel(audio) {
@@ -229,7 +229,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
         notify('Spotify Edge Beta is unavailable. EveOS will keep checking this exact owner.', true);
       } else {
         missingStatuses = 0;
-        if (active) update(result); else adopt(result);
+        if (!window.EveAudioflixSpotifyEdgeQueue?.reconcile?.(result)) { if (active) update(result); else adopt(result); }
       }
     } catch { /* Preserve a running provider during a transient server status failure. */ }
   }
@@ -281,7 +281,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
       }, 25000);
       if (current !== epoch) return false;
       if (!result.running) throw new Error('Spotify Edge Beta host is not running.');
-      active = true; item = nextItem; lastEndedRevision = -1;
+      active = true; item = nextItem; lastEndedRevision = -1; window.EveAudioflixSpotifyEdgeQueue?.claimPageOwner?.(result);
       playback = { item, currentTime: 0, duration: Number(item.duration || 0), paused: true, ended: false,
         provider: 'spotify', browserOnly: true, edgeEmbed: true };
       lastState = ''; windowHidden = result.windowHidden === true;
@@ -433,7 +433,7 @@ window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
     ensurePolling(); void poll();
     return true;
   }
-  Object.assign(ns, { ready: true, install, stop: stopEdge,
+  Object.assign(ns, { ready: true, install, stop: stopEdge, adoptQueueReceipt: adopt,
     show: () => request('show'), hide: () => request('hide'),
     snapshot: () => ({ active, starting, item, playback: { ...playback }, lastRoute, windowHidden }) });
   if (!install()) window.addEventListener('load', install, { once: true });

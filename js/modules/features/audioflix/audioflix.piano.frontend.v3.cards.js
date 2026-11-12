@@ -32,7 +32,7 @@
   }
   function mountSmart() {
     const c = canvas(), tabs = c?.querySelector('.piano-pfo-library-tabs');
-    if (!tabs || tabs.querySelector('.piano-pfv3-smart')) return;
+    if (!tabs || canvas()?.querySelector('.piano-pfv3-smart')) return;
     const wrap = document.createElement('div'); wrap.className = 'piano-pfv3-smart'; wrap.setAttribute('aria-label', 'Smart Piano filters');
     const label = document.createElement('span'); label.textContent = 'Smart'; wrap.append(label);
     for (const [id, text] of [['recent','Recent'],['top','Top Rated'],['short','Short'],['long','Long'],['internal','Internal'],['target','Target']]) wrap.append(makeButton(text, id));

@@ -31,11 +31,14 @@ def handle_post_request(handler, path, send_json, read_json, can_control,
         return True
     try:
         length = int(handler.headers.get("Content-Length", "0") or 0)
-        if not 0 < length <= 4096:
+        if not 0 < length <= 32768:
             send_json(handler, {"ok": False, "message": "Invalid payload size."}, HTTPStatus.BAD_REQUEST)
             return True
         from server_modules import audioflix_spotify_edge
         body = read_json(handler)
+        if length > 4096 and (is_event or not isinstance(body, dict) or body.get('action') != 'queue-arm'):
+            send_json(handler, {'ok': False, 'message': 'Large payload permitted only for bounded native queue plans.'}, HTTPStatus.BAD_REQUEST)
+            return True
         result = (audioflix_spotify_edge.event(body) if is_event else
                   audioflix_spotify_edge.command(body, int(handler.server.server_address[1])))
         send_json(handler, result)

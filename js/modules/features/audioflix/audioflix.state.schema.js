@@ -202,6 +202,7 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
                 // folders work without replaying every track to re-measure it.
                 duration: Number(source.duration) > 0 ? Number(source.duration) : 0,
                 exposed: source.exposed === true,
+                excludeFromQueue: type === 'music' && source.excludeFromQueue === true,
                 // Provider playback may need a mounted iframe, but its compact panel is opt-in.
                 showProviderTransport: source.showProviderTransport === true,
                 hotkey: text(source.hotkey, ''),

@@ -13,6 +13,7 @@ HIDE_AFTER_PROGRESS_SECONDS = 38.0
 
 
 def status(self):
+    from server_modules.audioflix_spotify_edge_queue import _public
     with self._lock:
         state = dict(self._state)
         return {"ok": True, "running": self._running, "status": self._status,
@@ -36,7 +37,7 @@ def status(self):
                                         "waiting-for-progress" if self._confirmed_progress < HIDE_AFTER_PROGRESS_SECONDS else
                                         "hide-attempt-eligible"),
                              "secondsSinceUpdate": round(time.monotonic() - self._last_position_at, 1)
-                                  if self._last_position_at else None}}
+                                  if self._last_position_at else None}, "edgeQueue": _public(self)}
 
 
 def reset_progress(self):
@@ -135,6 +136,8 @@ def event(self, body):
             self._state["ended"] = True
             self._state["paused"] = True
             self._record("track-ended", revision=revision)
+            from server_modules.audioflix_spotify_edge_queue import on_ended
+            on_ended(self, revision)
             return {"ok": True}
         if kind == "position":
             try: seconds = float(body.get("currentTime", 0)); duration = float(body.get("duration", 0))
