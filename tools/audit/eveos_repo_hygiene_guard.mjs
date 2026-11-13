@@ -18,8 +18,10 @@ const forbiddenRoots = [
 const forbiddenExact = new Set([
     '.env', 'server_modules/audioflix_allowed_dirs.json', 'spotify-volume-probe.mjs'
 ]);
+const privateBrowserPath = /(?:^|\/)(?:spotify-browser-edge-beta-profile\/|SpotifyEmbedEdgeBetaProfile\/|playwright\/\.auth\/|Network\/Cookies-journal$)/i;
 const forbiddenPath = file => forbiddenExact.has(file)
     || forbiddenRoots.some(root => file.startsWith(root))
+    || privateBrowserPath.test(file)
     || file.split('/').includes('__pycache__')
     || /\.log$/i.test(file)
     || /(^|\/)\.env\.(?!example$)/.test(file)
@@ -31,7 +33,10 @@ for (const file of tracked) if (forbiddenPath(file)) fail.push(`private/runtime 
 const ignoreContract = [
     'data/runtime/.eveos-ignore-probe', 'data/modular-state/.eveos-ignore-probe', 'logs/.eveos-ignore-probe',
     'output/.eveos-ignore-probe', 'test-results/.eveos-ignore-probe', 'playwright-report/.eveos-ignore-probe',
-    '.pytest_cache/.eveos-ignore-probe', '.claude/settings.local.json', '.spotify-probe-profile/.eveos-ignore-probe'
+    '.pytest_cache/.eveos-ignore-probe', '.claude/settings.local.json', '.spotify-probe-profile/.eveos-ignore-probe',
+    'spotify-browser-edge-beta-profile/Default/Preferences', 'SpotifyEmbedEdgeBetaProfile/Default/Preferences',
+    'tools/example/playwright/.auth/state.json', 'tools/example/Default/Network/Cookies',
+    'tools/example/Default/Network/Cookies-journal'
 ];
 for (const probe of ignoreContract) {
     try { runGit(['check-ignore', '-q', '--', probe]); }

@@ -49,16 +49,16 @@
 - Spotify Direct/Electron: `js/modules/features/audioflix/audioflix.spotify.direct.js`, `server_modules/audioflix_spotify_direct.py`, `server_modules/audioflix_spotify_engine_direct_route.js`, experimental Electron host. Identify references in `package.json`, UI, tests, launchers, World Book, and running processes before deleting any module.
 - Relevant canonical existing rules: `docs/agents/AGENTS.md`, especially service identity, 440/450-line limits, verified restarts, guarded commits, no new branches without closure, no forced publication, and quota discipline.
 
-## Cleanup: investigate -> classify -> preserve/reuse -> quarantine -> user-approved delete -> verify
+## Cleanup verification procedure
 
 1. **Read-only inventory FIRST.** Enumerate names, locations, type, timestamps, byte sizes where cheap, and shallow dependency references. Do not recursively ingest user content, hidden browser secrets, cookies, tokens, licensed media, auth profiles, or complete home-directory files. Use the bundled bounded inventory script if useful.
 2. **Categorize every candidate:** ACTIVE RUNTIME / REQUIRED DEPENDENCY / CURRENT RECEIPT / UNIQUE RECOVERY BACKUP / POTENTIALLY REUSABLE MODULE / SUPERSEDED BUT USEFUL EVIDENCE / DUPLICATE BY SHA / PROPOSED QUARANTINE / UNKNOWN. Missing dependency evidence means UNKNOWN, not delete.
 3. **Inspect retention:** verify a file is already represented by an accepted commit, or preserve the last exact validated recovery snapshot; compare SHA256 only where it adds real value. Preserve Windows installer packages if needed for offline recovery until reviewed.
 4. **Browser/runtime inventory:** distinguish Edge Beta managed-Engine profile vs separate Official Embed Edge Beta profile; Playwright-managed Chromium vs independently installed Chrome vs system Chrome; Camoufox and Lightpanda; Electron app shells; profile/DRM/auth-bound state. Existing Chromium is not automatically junk. Browser binaries and OS-managed caches are **not** diagnostics, and may legitimately live in AppData. Do not delete a live profile or uninstall an executable just because it resembles a duplicate.
 5. **Reuse only with an owner and a test:** each salvaged capability must have a concrete consumer/module, performance or functionality benefit, dependency and security review, focused regression and real acceptance. A speculative idea is a backlog item, not grounds to retain an entire obsolete experiment forever.
-6. **Quarantine uncertain obsolete artifacts** into **one clearly visible, conflict-safe review folder under** `$HOME\Downloads\EveOS-Diagnostics\Cleanup-Review-<timestamp>`, with a before/after manifest, hashes for moved files and source paths; do not silently zip, copy or move everything. Keep protected active artifacts in place. Do not flatten filenames or overwrite collisions.
-7. **NO permanent deletion until user approves the exact manifest.** In particular, no broad AppData/Temp cleaning, no `%LOCALAPPDATA%\ms-playwright` purge, no Edge Beta profile removal, no `%USERPROFILE%` root deletion by wildcard, no Git branch deletion without ancestry/PR/worktree/live-consumer review.
-8. **Post-change verify:** run all affected tests/live probes; audit paths for no new diagnostic writes into `$env:LOCALAPPDATA\EveOS-Tests`, `%TEMP%` or hidden stores except genuinely ephemeral scratch; verify active services, git state and recoverability.
+6. **Preserve unresolved items in place** when possible. If an authorized move is needed, use one conflict-safe review folder and record the original and new paths. Use Diagnostics for the redacted receipt. Keep authentication-bearing state out of Downloads, shareable evidence, and ordinary recovery archives.
+7. **Execute the authorized manifest.** Reuse existing authorization that covers the exact scope and action. Recheck resolved absolute paths, reparse points, live owners, and retained evidence before deleting. No broad AppData or Temp purge, wildcard deletion, removal of active browser profiles, or branch deletion without ancestry, PR, worktree, and deployment checks.
+8. **Verify and record:** confirm actual path absence, report verified file counts and bytes separately from moves, and check affected Git or service state without starting unrelated services. Capture one redacted receipt. If the operation is blocked, record the target, attempted action, relevant error and blocking layer. Continue with independent authorized targets and leave a reviewed manual command when the tool cannot execute it.
 
 ### Local inventory targets (not a delete list)
 
@@ -76,7 +76,7 @@
 
 Never default new shareable evidence to `%LOCALAPPDATA%\EveOS-Tests` or `%TEMP%`. **Exception:** genuine process-private runtime state, Playwright/Chrome/Camoufox profile data, lockfiles, caches, OS-managed installation data and short-lived scratch must remain where their tooling requires; do not copy secrets or live session data to Diagnostics.
 
-Nova's initial local task is to locate her own existing canonical agent state/instructions and *add a short pointer* to this repository memo and the destination convention. Do not guess or create hidden agent-state files or scatter duplicate prompts. `AGENTS.md` is repo-discoverable through the root pointer; use the canonical repo instructions and keep them consistent with the durable Library workflows.
+The canonical [development artifact lifecycle](AGENTS.md#development-artifact-lifecycle) applies at task close. Use this campaign's procedure for cleanup decisions and the repository's existing verification runners for qualification.
 
 ## Tests, handoffs, and stop conditions
 
@@ -86,7 +86,7 @@ Nova's initial local task is to locate her own existing canonical agent state/in
 - For E-3: latency histogram and dropped events / onset-to-sound gap for 1/4/16/32 concurrent notes, 3–5 min dense playback, memory/CPU and endpoint identity. Avoid arbitrary sleeps or restarting unrelated apps as a 'fix'.
 - For N-1: start/stop/restart twice; verified exact owned PID tree ends, port state and manager status settle; a foreign owner on same port is never terminated.
 - For N-2: collect sample timestamps/clock offsets on source, EveOS relay and remote client; verify target drift under steady play, seek, pause, URL switch and slow network. No unsupported exact-latency promise in advance.
-- For N-3: publish **inventory.csv**, **retention-decision.md** (`path`, role, size, evidence, decision, owner, rollback), **quarantine-manifest.json**, and **approval-required.md**, not a pile of untracked ZIPs.
+- For N-3: keep one scoped cleanup receipt with the inventory, retention decisions, actual results, and any still-pending authorization or blocked operation.
 - For all: preserve user secrets, never emit tokens or browser cookies. Write the summary path under Downloads Diagnostics and report the exact source SHA, files changed, tests, live outcomes, branch status and why any candidate is still retained. Don't spend hosted quota redoing Eve's static work; return concrete evidence to Eve when an architectural bug surfaces.
 
-**No cleanup is complete until the approved manifest's deletions and post-cleanup checks are verified.** The current publication (`a25172b66`) is completed and should not be reworked without a concrete regression.
+**Report cleanup complete only for targets verified against their authorized outcome.** The publication (`a25172b66`) predates this campaign and remains its historical reference.

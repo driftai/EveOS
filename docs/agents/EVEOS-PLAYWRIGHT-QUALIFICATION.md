@@ -29,9 +29,14 @@ npm.cmd run --silent verify
 
 - On the currently installed Playwright 1.62.1 (WatchFusion) and root legacy version, use the supported CSS `:visible` pseudo-class or scope a locator to its active panel if a selector matches hidden duplicate controls. The newer `locator.visible()` helper was introduced after 1.62.1 and must not be assumed available yet. Assert that the intended visible target is unique; never add `force: true` or change tests to quietly skip an interaction.
 - Browser spec owners: `tools/WatchFusion/tests/smoke/browser/`; AudioFlix smoke owners: `tools/smoke/`. Keep valid assertions about current semantics (managed Spotify mirror is not the retired legacy Internal Player; successful YouTube loads may close Find Media while it remains reopenable).
-- For live Spotify checks, reuse the existing EveOS sign-in for the route under test. Playlist import and Managed Spotify Engine share the managed Edge Beta profile. Official Embed uses its own saved profile for its separately routed window. Use normal Chrome or Edge for the regular Spotify Web Player. Synthetic tests use unsigned disposable fixtures and remove them on exit. Do not create persistent test sign-ins, clone authenticated profiles, or export cookies.
-- Store generated receipts, logs, and diagnostic exports under `C:\Users\alvin\Downloads\EveOS-Diagnostics`. A project's framework-controlled temporary `test-results` and Playwright's browser cache are permissible but are **not** the durable diagnostic archive.
 - Never bypass repository hooks, full release gates, or source-scope guards for publication. Real WatchFusion LAN/phone acceptance additionally requires an owner-authorized extension site permission and a genuine phone viewer session.
+
+## Browser profiles and evidence
+
+- Use unsigned, disposable profiles by default and remove owned scratch after the runner exits. Reuse an installed compatible browser. Keep a separate browser revision when the tool requires it.
+- For live Spotify checks, reuse the existing owner for that route. Playlist import and Managed Spotify Engine share the managed Edge Beta profile. Official Embed keeps its own profile for its independent window and audio route. Normal Chrome and Edge retain their Web Player sign-ins. Use the existing owner or wait for it to release its profile before opening another persistent context on that directory.
+- Keep real sign-in data in its application-managed location. Never clone authenticated profiles, export cookies or tokens, or include profile databases or browser storage snapshots in Git, ordinary backups, or diagnostics. When changing auth tooling, verify ignored paths and inspect the staged diff for tracked copies. A clean current tree only proves the current snapshot; report which refs and data a history scan actually covered.
+- Apply the [development artifact lifecycle](AGENTS.md#development-artifact-lifecycle). Keep only redacted, useful evidence in `Downloads/EveOS-Diagnostics`. Review traces, screenshots, request logs, and storage-state files before sharing any evidence from an authenticated run.
 
 ## Scope and longevity
 

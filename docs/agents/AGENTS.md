@@ -84,6 +84,13 @@ EveOS inherits WatchFusion's output-efficient verification discipline.
 - Commit coherent validated changes and push through the established workflow; report exact SHA and remaining uncertainty. Never commit secrets, machine-local memory, or validation-only artifacts.
 - Source rationale: [official subagent guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents) and [usage guidance](https://learn.chatgpt.com/docs/pricing), checked 2026-09-12. These are execution practices, not a guarantee of quota savings or autonomous model learning.
 
+## Development artifact lifecycle
+
+- Before substantial testing, installation, or release work, record the artifact owner and purpose, exact destination, estimated file count and bytes, whether the files are reproducible or unique, dependent sessions/processes, retention trigger, and deletion authorization. Reuse the task's existing evidence or handoff record.
+- Keep tracked source and fixtures in Git, disposable scratch in the tool's ignored output or temporary directory, and necessary application-managed runtime state in its working location. Use Downloads for deliverables and `Downloads/EveOS-Diagnostics` for durable, redacted evidence. Keep full runner logs in the existing ignored output while investigating. Retain the authoritative release receipt, supporting evidence needed to verify it, and at most one hash-verified recovery copy for each set of unique unpublished work.
+- Before closing the task, inventory its outputs, confirm ownership and dependencies, and remove authorized disposable profiles, installers, scripts, extracted folders, and duplicate backups. Preserve unresolved evidence and unique work. For major cleanup, report files and bytes created, deleted, and retained, what remains in use, process health where relevant, and final Git state. Verify path absence before counting a deletion. Report quarantine as a move.
+- For blocked cleanup, identify the exact target and attempted operation, quote the relevant redacted error, and identify whether the execution tool, filesystem, process ownership, or project rule blocked it. Continue other authorized work. Follow the [cleanup verification procedure](NOVA-CLEANUP-RELIABILITY-20261109.md#cleanup-verification-procedure) and the [browser qualification rules](EVEOS-PLAYWRIGHT-QUALIFICATION.md#browser-profiles-and-evidence).
+
 ## WatchFusion integration
 
 - EveOS owns the integrated WatchFusion lifecycle/status/theme shell and exposes it as a first-class workspace beside Audioflix.
