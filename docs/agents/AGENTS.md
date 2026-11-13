@@ -70,6 +70,9 @@ EveOS inherits WatchFusion's output-efficient verification discipline.
 
 ## Agent execution efficiency
 
+- Distinguish requests to inspect or explain, requests to plan, and requests to execute. When the user authorizes a sufficiently specified action, carry it through and verify the outcome. Reuse the supplied plan and current evidence unless a new finding changes the work.
+- Apply destructive-action and publication safeguards to the exact operation. Reuse authorization that already covers it. When permanent cleanup is authorized, quarantine is an intermediate safeguard. Verify redundancy before purging, preserve unresolved unique data, and continue with independent targets that pass verification.
+- Define completion in terms of the user's intended result. Report what was actually changed, tested, quarantined, deleted, committed, or pushed, and identify any remaining work or blockers. A plan or diagnostic is a completed deliverable only when the user requested one.
 - Apply this discipline automatically regardless of selected model or reasoning effort. Preserve the user's selection; propose a change only when a concrete task warrants it.
 - Prefer deterministic scripts for tests, parsing, inventories, and repeated mechanics. Background processes and subagents do not make model work quota-free.
 - Batch independent reads; request only relevant file ranges and bounded output. Reuse established evidence and handoffs instead of repeating exploration.
