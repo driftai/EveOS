@@ -352,7 +352,7 @@ coverage.
 Run the focused non-destructive qualification after pulling a new App-Origin change:
 
 ```powershell
-cd C:\Users\alvin\Documents\Workspace\RoughProjDeving\EveOS\tools\Nexus-Browser
+Set-Location tools/Nexus-Browser  # From the EveOS root
 npm run qualify:app-origin
 ```
 
@@ -393,13 +393,13 @@ winget install Microsoft.winappcli --source winget
 Known working host path:
 
 ```text
-C:\Users\alvin\AppData\Local\Microsoft\WindowsApps\winapp.exe
+%LOCALAPPDATA%\Microsoft\WindowsApps\winapp.exe
 ```
 
 Useful diagnostics:
 
 ```powershell
-cd C:\Users\alvin\Documents\Workspace\RoughProjDeving\EveOS\tools\Nexus-Browser
+Set-Location tools/Nexus-Browser  # From the EveOS root
 npm run doctor:apps
 ```
 
@@ -411,7 +411,7 @@ dumping conversation text.
 Cold-start Nexus in one visible terminal:
 
 ```powershell
-Start-Process cmd.exe -ArgumentList '/c', '"C:\Users\alvin\Documents\Workspace\RoughProjDeving\EveOS\tools\Nexus-Browser\START.bat"'
+& ./tools/Nexus-Browser/START.bat  # From the EveOS root, in the intended terminal
 ```
 
 Recycle only the server child while retaining the existing supervisor terminal:

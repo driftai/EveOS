@@ -238,15 +238,28 @@ tools/Piano-Auto-Player/.piano-hifi-venv/
 data/modular-packs/
 
 # Private developer-agent harness state: never publish local instructions, memory, sessions or approvals.
-/.codex/
-/.gemini/
-/.agents-private/
-/.cursor/
 **/AGENTS.override.md
 **/AGENTS.local.md
 **/CLAUDE.local.md
 **/GEMINI.local.md
-**/.claude/settings.local.json
-/config/agents/private/
-/config/agents/local/
 /data/agent-management.json
+**/.codex/
+**/.gemini/
+**/.agents-private/
+**/.cursor/
+**/.openclaw/
+**/.hermes/
+**/.claude/*
+!/.claude/launch.json
+**/SOUL.md
+**/MEMORY.md
+**/USER.md
+**/IDENTITY.md
+/config/agents/*
+!/config/agents/tlo/
+!/config/agents/capabilities/
+/config/agents/tlo/*
+!/config/agents/tlo/AGENT.md
+!/config/agents/tlo/NEXUS.md
+!/config/agents/tlo/ORIGIN.md
+!/config/agents/tlo/RUNTIME.json

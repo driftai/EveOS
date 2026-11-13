@@ -9,7 +9,7 @@ The goal is to keep proven fast paths, exact-once behavior, and qualification di
 Use this shape for normal remote-first/local-proof engineering:
 
 ```powershell
-cd C:\Users\alvin\Downloads\Private-Test-Builds\Browser-AI-Bridge-POC
+Set-Location tools/Nexus-Browser  # From the EveOS root
 
 git status --short
 git pull --ff-only origin main

@@ -47,11 +47,33 @@ class Static(EveOSHTTPHeadersMixin,http.server.SimpleHTTPRequestHandler):
 server=http.server.HTTPServer(('127.0.0.1',0),Static)
 thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
 try:
-    name='/data/runtime/audioflix-provider-file-auth.js'
+    private_paths = (
+        'data/runtime/agent-management/agents.json',
+        'data/runtime/nexus-browser/dex-state.json',
+        'config/agents/tlo/session.json',
+        'config/agents/iris/AGENT.md',
+        'nested/.claude/projects/session.jsonl',
+        'AGENTS.override.md',
+    )
+    for name in (*private_paths, 'config/agents/tlo/AGENT.md'):
+        fixture = file_auth.ROOT / name
+        fixture.parent.mkdir(parents=True, exist_ok=True)
+        fixture.write_text('synthetic fixture', encoding='utf-8')
+    denied = (
+        '/data/runtime/audioflix-provider-file-auth.js',
+        *(f'/{name}' for name in private_paths),
+        '/data/%72untime/agent-management/agents.json',
+        '/data/runtime/',
+        '/data/',
+    )
     for method in ('GET','HEAD'):
-        req=request.Request(f'http://127.0.0.1:{server.server_port}{name}',method=method)
-        try: request.urlopen(req,timeout=4);raise AssertionError('Private file served over HTTP')
-        except error.HTTPError as e: assert e.code==404,e.code
+        for name in denied:
+            req=request.Request(f'http://127.0.0.1:{server.server_port}{name}',method=method)
+            try: request.urlopen(req,timeout=4);raise AssertionError(f'Private path served over HTTP: {name}')
+            except error.HTTPError as e: assert e.code==404,e.code
+        req = request.Request(f'http://127.0.0.1:{server.server_port}/config/agents/tlo/AGENT.md', method=method)
+        with request.urlopen(req, timeout=4) as response:
+            assert response.status == 200
 finally:
     server.shutdown();thread.join(timeout=3);server.server_close()
 
