@@ -38,6 +38,6 @@ Old songs remain readable without migration. Saving an override writes the norma
 
 ## Recovery and acceptance
 
-The pre-change `songs.json` and baseline manifest are stored under `C:\Users\alvin\Downloads\EveOS-Piano-Expansion-Phase0-20261030-162809-298`. Its copied song database SHA-256 is `2392D64E707F2F550FC1D2BA137DE0B915C7FAE25EBADE05F319334A5A0C60F1`.
+The pre-change private `songs.json` and its baseline manifest were held in a local-only recovery location outside Git. Never publish user library backups, personal storage paths or content-derived database hashes in this public technical audit.
 
 Qualification proceeds from pure schema/runtime tests to the focused Piano browser suite, shared AudioFlix regressions, guardrails, then one final uncached verify. Tests must cover backward-compatible reads, invalid override rejection, direct and queue playback resolution, target loss, volume 0/100, no setting leakage, two queue projections, duplicate suggestions, tri-state focus, accessibility, and narrow layouts.

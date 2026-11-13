@@ -89,3 +89,7 @@ Never deny that the feature exists. Never imply that reading this guide means yo
 6. Explain what was verified and what remains untested.
 
 If evidence is missing, request it. This guide gives you knowledge of Nexus Browser, not direct desktop visibility.
+
+## Public seed versus private state
+
+This tracked guide is deliberately public and reusable; it documents available *interfaces*, not observed live data. Never add real Dex room/terminal identifiers, personal transcript excerpts, session or browser databases, selected private Agent Management scopes, authorization tokens or user memories here. The effective local TLO identity, context and permissions must still come from the authorized local Agent Management/runtime owner. Public documentation neither creates capabilities nor makes a live session public.

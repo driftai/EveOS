@@ -236,3 +236,17 @@ tools/Piano-Auto-Player/.piano-hifi-venv/
 
 # Generated private EveOS local modular packs; never publish saved workspace data.
 data/modular-packs/
+
+# Private developer-agent harness state: never publish local instructions, memory, sessions or approvals.
+/.codex/
+/.gemini/
+/.agents-private/
+/.cursor/
+**/AGENTS.override.md
+**/AGENTS.local.md
+**/CLAUDE.local.md
+**/GEMINI.local.md
+**/.claude/settings.local.json
+/config/agents/private/
+/config/agents/local/
+/data/agent-management.json
